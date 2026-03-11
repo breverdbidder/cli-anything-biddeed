@@ -1,0 +1,35 @@
+name: "Summit: Conquer County"
+on:
+  workflow_dispatch:
+    inputs:
+      county:
+        description: "FL county name (e.g., brevard, orange, palm_beach)"
+        required: true
+        default: "brevard"
+      command:
+        description: "Command: conquer, discover, status"
+        required: true
+        default: "conquer"
+        type: choice
+        options:
+          - conquer
+          - discover
+          - status
+jobs:
+  conquer:
+    name: "${{ inputs.command }} ${{ inputs.county }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx shapely
+      - name: "Execute: ${{ inputs.command }} ${{ inputs.county }}"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python zonewise/agent.py ${{ inputs.command }} ${{ inputs.county }}
