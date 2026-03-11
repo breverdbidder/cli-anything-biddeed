@@ -18,6 +18,7 @@ CLI-Anything was built for GUI desktop apps (Blender, GIMP, LibreOffice). This f
 | `cli-anything-zonewise` | Zoning data scraper | Firecrawl + Gemini + Claude + Supabase | 🔨 Planned |
 | `cli-anything-auction` | Foreclosure analysis | RealForeclose + BCPAO + AcclaimWeb + Supabase | 🔨 Planned |
 | `cli-anything-swimintel` | Swim meet intelligence | PDF + pdfplumber + Node.js docx + Supabase | ✅ Agent #139 (19 tests) |
+| `cli-anything-btr` | Build-to-Rent + Distressed Assets | MAI Valuation + OpenMud + LangGraph + Supabase | ✅ Squad EVEREST-BTR (23 tests, 10 agents) |
 
 ### Stack Extensions (BIDDEED_OVERLAY.md)
 
@@ -48,6 +49,10 @@ cli-anything-auction --help
 # Install SwimIntel CLI (Agent #139)
 cd swimintel/agent-harness && pip install -e .
 cli-anything-swimintel --help
+
+# Install BTR Squad (EVEREST-BTR — 10 agents)
+cd btr/agent-harness && pip install -e .
+cli-anything-btr --help
 ```
 
 ## Agent Piping
@@ -62,6 +67,21 @@ cli-anything-auction --json analyze batch --date 2026-03-15 --persist
 
 # SwimIntel full pipeline — PDF in, DOCX report out
 cli-anything-swimintel pipeline --pdf psychsheet.pdf --swimmer "Last, First" -o report.docx
+
+# BTR Squad — full analysis pipeline
+cli-anything-btr --json analyze "123 Ocean Ave" --type sfr --scenario full
+
+# BTR MAI Valuation — 3-approach method
+cli-anything-btr --json mai "456 Beach St" --type multifamily \
+  --noi 120000 --cap-rate 0.065 --comp-value 1800000 --cost-value 1650000
+
+# BTR Rehab — distressed asset max bid calc
+cli-anything-btr --json rehab "789 Foreclosure Dr" --type sfr \
+  --arv 300000 --repairs 50000
+
+# Chain BTR with ZoneWise for HBU analysis
+cli-anything-zonewise --json parcel lookup --parcel "12-34-56" \
+  | cli-anything-btr --json hbu --zoning "RM-6"
 ```
 
 ## Architecture
@@ -73,6 +93,7 @@ cli-anything-swimintel pipeline --pdf psychsheet.pdf --swimmer "Last, First" -o 
 - **zonewise/** — ZoneWise Scraper CLI
 - **auction/** — Auction Analyzer CLI
 - **swimintel/** — SwimIntel Competitive Intelligence CLI (Agent #139)
+- **btr/** — EVEREST-BTR Squad: Build-to-Rent + Distressed Assets (10 agents, 23 tests)
 
 ## Upstream
 

@@ -27,9 +27,26 @@
 - [x] 145 passed, 2 skipped (no Supabase creds in CI)
 
 ## TOTALS
-- **145 tests passing** + 2 conditional skips
-- **3 installable packages** (shared, zonewise, auction)
-- **2 CLIs in PATH** (cli-anything-zonewise, cli-anything-auction)
+- **168 tests passing** + 2 conditional skips
+- **4 installable packages** (shared, zonewise, auction, btr)
+- **3 CLIs in PATH** (cli-anything-zonewise, cli-anything-auction, cli-anything-btr)
 - **3 GitHub Actions** workflows (CI, nightly, morning)
 - **1 LangGraph pipeline** (4-stage sequential)
+- **1 BTR Squad** (10 agents, 4 scenarios, 3 property types)
 - **PEP 420 namespace** verified
+
+## Session 6: BTR Squad — EVEREST-BTR ✅
+- [x] Squad architecture: 10 agents across 4 scenarios + shared intelligence
+- [x] Property type tabs: SFR | Duplex | Multifamily
+- [x] MAI Valuation Engine: 3-approach method with reconciliation weights
+- [x] Highest & Best Use: 4-test analysis (legal/physical/financial/productive)
+- [x] Distressed Asset Rehab: max bid formula + HBU conversion analysis
+- [x] Construction Cost Estimator: Brevard County $/SF by type and scope
+- [x] Lender Vetting & Scoring: leverage/risk/upside dimensions
+- [x] Permanent Funding: DCR-based max perm loan calculator
+- [x] Pro Forma Generator: multi-year projection scaffold
+- [x] Squad Commander: routing by scenario and property type
+- [x] CLAUDE.md for Claude Code sessions
+- [x] 23/23 tests passing
+- [x] Open-source integrations mapped: OpenMud, ai-underwriting, ConstructionAI, LangGraph
+- [x] Full spec document: docs/plans/BTR_SQUAD_SPEC.md
