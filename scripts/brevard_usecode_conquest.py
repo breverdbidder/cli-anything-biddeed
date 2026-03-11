@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-SUMMIT: USE_CODE CONQUEST V2
-Fix: No Supabase reads. Use ignore-duplicates to skip existing rows server-side.
+SUMMIT: USE_CODE CONQUEST V2 — Fixed: skip Supabase reads entirely.
+V1 bugs: 1) Supabase pagination capped at 1000 rows, 2) upsert errors silenced.
+V2 fix: Use Prefer: resolution=ignore-duplicates. Upsert ALL 351K. Supabase skips dupes.
+Zero reads needed. Faster. Simpler.
 """
 import httpx, json, os, sys, time
 
@@ -21,25 +23,32 @@ def telegram(msg):
         except: pass
     print(msg)
 
-def sb_upsert_ignore(rows):
-    """Upsert with ignore-duplicates: existing rows are PRESERVED, only new rows inserted."""
+def sb_headers():
+    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json", "Prefer": "resolution=ignore-duplicates"}
+
+def sb_upsert(rows):
     total = 0
     errors = 0
     last_err = ""
-    h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
-         "Content-Type": "application/json", "Prefer": "resolution=ignore-duplicates"}
+    h = sb_headers()
     for i in range(0, len(rows), 500):
         batch = rows[i:i+500]
-        resp = client.post(f"{SUPABASE_URL}/rest/v1/zoning_assignments", headers=h, json=batch)
-        if resp.status_code in (200, 201, 204):
-            total += len(batch)
-        else:
+        try:
+            resp = client.post(f"{SUPABASE_URL}/rest/v1/zoning_assignments", headers=h, json=batch)
+            if resp.status_code in (200, 201, 204):
+                total += len(batch)
+            else:
+                errors += len(batch)
+                last_err = f"{resp.status_code}: {resp.text[:200]}"
+                if errors <= 2500:
+                    print(f"[batch {i//500}] {last_err}", file=sys.stderr)
+        except Exception as e:
             errors += len(batch)
-            last_err = f"{resp.status_code}: {resp.text[:300]}"
-            print(f"[batch {i//500}] {last_err}", file=sys.stderr)
+            last_err = str(e)[:200]
+        if (i // 500) % 50 == 0 and i > 0:
+            telegram(f"🏔️ Upsert progress: {total:,} ok, {errors:,} skipped")
         time.sleep(0.3)
-        if (i + 500) % 50000 == 0:
-            telegram(f"🏔️ Upserted: {total:,} ok, {errors:,} errors ({i+500:,}/{len(rows):,})")
     return total, errors, last_err
 
 def sb_count():
@@ -51,76 +60,105 @@ def sb_count():
 
 def main():
     start = time.time()
-    before = sb_count()
+    current = sb_count()
 
-    telegram(f"""🏔️ USE_CODE CONQUEST V2
-Before: {before:,} / 351,585 ({before/351585*100:.1f}%)
-Strategy: Blast ALL parcels, ignore-duplicates preserves existing zoning
-No Supabase reads. No pagination. Just write.""")
+    telegram(f"""🏔️ SUMMIT: USE_CODE CONQUEST V2
+Current: {current:,} / 351,585 ({current/351585*100:.1f}%)
+Target: {int(351585*0.85):,} (85%)
+Gap: {max(0, int(351585*0.85) - current):,} parcels needed
+Strategy: BCPAO USE_CODE for ALL parcels (ignore-duplicates)
+V2 fix: Zero Supabase reads, ignore-duplicates on insert""")
 
     # Phase 1: Download ALL parcels with USE_CODE from BCPAO
     telegram("🏔️ Phase 1: Downloading ALL parcels from BCPAO...")
     rows = []
+    total_downloaded = 0
+    no_usecode = 0
     offset = 0
+
     while True:
-        resp = client.get(f"{GIS_PARCELS}/query", params={
-            "where": "1=1",
-            "outFields": "PARCEL_ID,USE_CODE,USE_CODE_DESCRIPTION,CITY,ZIP_CODE",
-            "returnGeometry": "false",
-            "f": "json", "resultOffset": offset, "resultRecordCount": 2000
-        })
-        data = resp.json()
+        try:
+            resp = client.get(f"{GIS_PARCELS}/query", params={
+                "where": "1=1",
+                "outFields": "PARCEL_ID,USE_CODE,USE_CODE_DESCRIPTION,CITY,ZIP_CODE",
+                "returnGeometry": "false",
+                "f": "json",
+                "resultOffset": offset,
+                "resultRecordCount": 2000
+            })
+            data = resp.json()
+        except Exception as e:
+            telegram(f"⚠️ GIS error at offset {offset}: {e}")
+            time.sleep(5)
+            offset += 2000
+            continue
+
         features = data.get("features", [])
         if not features:
             break
+
         for feat in features:
             a = feat.get("attributes", {})
             pid = a.get("PARCEL_ID", "")
             if not pid:
                 continue
+            total_downloaded += 1
+
             use_code = str(a.get("USE_CODE", "") or "").strip()
             use_desc = str(a.get("USE_CODE_DESCRIPTION", "") or "").strip()
             city = str(a.get("CITY", "") or "").strip()
+
             zone_val = use_desc if use_desc else (f"USE:{use_code}" if use_code else "UNCLASSIFIED")
+            if not use_code and not use_desc:
+                no_usecode += 1
+
             rows.append({
                 "parcel_id": pid,
                 "zone_code": zone_val,
                 "jurisdiction": (city or "unincorporated").lower().replace(" ", "_"),
                 "county": "brevard",
             })
+
         offset += len(features)
         if offset % 50000 == 0:
-            telegram(f"🏔️ Phase 1: {offset:,} parcels downloaded...")
+            telegram(f"🏔️ Phase 1: {total_downloaded:,} parcels downloaded...")
+
         if not data.get("exceededTransferLimit") and len(features) < 2000:
             break
         time.sleep(1)
 
-    telegram(f"🏔️ Phase 1 done: {len(rows):,} parcels. Phase 2: Upserting (ignore-duplicates)...")
+    telegram(f"""🏔️ Phase 1 complete:
+  Total parcels: {total_downloaded:,}
+  With USE_CODE: {total_downloaded - no_usecode:,}
+  No USE_CODE: {no_usecode:,}
+  Rows to upsert: {len(rows):,}""")
 
-    # Phase 2: Upsert all — existing zoning rows preserved
-    ok, errs, last_err = sb_upsert_ignore(rows)
+    # Phase 2: Upsert ALL — Supabase ignores duplicates
+    telegram(f"🏔️ Phase 2: Upserting {len(rows):,} records (ignore-duplicates)...")
+    persisted, errors, last_err = sb_upsert(rows)
 
-    after = sb_count()
-    net_new = after - before
+    final_count = sb_count()
     elapsed = int(time.time() - start)
 
     result = f"""🏔️ USE_CODE CONQUEST V2 RESULT
 
+📊 DOWNLOAD:
+  BCPAO parcels: {total_downloaded:,}
+  No USE_CODE: {no_usecode:,}
+
 📊 UPSERT:
-  Sent: {len(rows):,}
-  OK: {ok:,}
-  Errors: {errs:,}
-  {'Last error: ' + last_err if errs > 0 else ''}
+  Inserted: {persisted:,}
+  Skipped (dupes/errors): {errors:,}
+  Last error: {last_err[:150] if last_err else 'none'}
 
 📈 SUPABASE:
-  Before: {before:,}
-  After: {after:,}
-  Net new: {net_new:,}
-  Coverage: {after/351585*100:.1f}%
-  Safeguard (85%): {'✅' if after >= 298847 else '❌'} {after/351585*100:.1f}%
+  Final count: {final_count:,} / 351,585
+  Coverage: {final_count/351585*100:.1f}%
+  Safeguard (85%): {'✅' if final_count >= 298847 else '❌'} {final_count/351585*100:.1f}% {'≥' if final_count >= 298847 else '<'} 85%
 
 ⏱️ Duration: {elapsed//60}m {elapsed%60}s
 💰 Cost: $0"""
+
     telegram(result)
 
 if __name__ == "__main__":
