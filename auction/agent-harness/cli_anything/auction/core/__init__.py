@@ -1,0 +1,1 @@
+"""Auction core modules."""
