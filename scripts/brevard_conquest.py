@@ -144,10 +144,10 @@ def phase3_get_parcels():
         try:
             resp = client.get(f"{BCPAO_PARCEL_GIS}/query", params={
                 "where": "1=1",
-                "outFields": "PARCELID,SITEADDR",
+                "outFields": "PARCEL_ID,CITY",
                 "returnGeometry": "true",
-                "returnCentroid": "true",
-                "geometryType": "esriGeometryEnvelope",
+                
+                
                 "outSR": "4326",
                 "resultOffset": offset,
                 "resultRecordCount": 2000,
@@ -162,7 +162,7 @@ def phase3_get_parcels():
             for f in features:
                 attrs = f.get("attributes", {})
                 geom = f.get("geometry", {})
-                pid = attrs.get("PARCELID", "")
+                pid = attrs.get("PARCEL_ID", "")
                 
                 # Get centroid from geometry (rings → calculate center)
                 rings = geom.get("rings", [[]])
@@ -173,7 +173,7 @@ def phase3_get_parcels():
                     cy = sum(ys) / len(ys)
                     all_parcels.append({
                         "parcel_id": str(pid),
-                        "address": attrs.get("SITEADDR", ""),
+                        "city": attrs.get("CITY", "").strip(),
                         "lon": cx,
                         "lat": cy,
                     })
