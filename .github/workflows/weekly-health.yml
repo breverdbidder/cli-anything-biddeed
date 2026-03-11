@@ -1,0 +1,104 @@
+name: Weekly Health Check + Telegram Alert
+on:
+  schedule:
+    - cron: '0 14 * * 0'  # Sunday 9 AM EST
+  workflow_dispatch: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install all packages
+        run: |
+          pip install pytest click prompt-toolkit httpx python-docx
+          pip install -e shared/
+          pip install -e zonewise/agent-harness/
+          pip install -e auction/agent-harness/
+      - name: Run full test suite
+        id: tests
+        run: |
+          RESULT=$(python3 -m pytest shared/tests/ \
+            zonewise/agent-harness/cli_anything/zonewise/tests/ \
+            auction/agent-harness/cli_anything/auction/tests/ \
+            -q --tb=no 2>&1)
+          echo "$RESULT"
+          PASSED=$(echo "$RESULT" | grep -oP '\d+ passed' | grep -oP '\d+')
+          FAILED=$(echo "$RESULT" | grep -oP '\d+ failed' | grep -oP '\d+' || echo "0")
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+      - name: Verify CLIs callable
+        id: clis
+        run: |
+          Z=$(cli-anything-zonewise --json county list | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
+          A=$(cli-anything-auction --json analyze case --case 2024-CA-001234 | python3 -c "import sys,json; print(json.load(sys.stdin)['recommendation'])")
+          echo "zonewise_counties=$Z" >> $GITHUB_OUTPUT
+          echo "auction_rec=$A" >> $GITHUB_OUTPUT
+      - name: LangGraph pipeline test
+        id: pipeline
+        run: |
+          python3 -c "
+          from cli_anything_shared.langgraph import run_pipeline
+          s = run_pipeline('sample')
+          print(f'stage={s.stage.value}')
+          print(f'cases={len(s.cases)}')
+          print(f'analyses={len(s.analyses)}')
+          " | tee /tmp/pipeline.txt
+          STAGE=$(grep stage= /tmp/pipeline.txt | cut -d= -f2)
+          echo "pipeline_stage=$STAGE" >> $GITHUB_OUTPUT
+      - name: Check last commit age
+        id: freshness
+        run: |
+          LAST=$(git log -1 --format=%ct)
+          NOW=$(date +%s)
+          DAYS=$(( (NOW - LAST) / 86400 ))
+          echo "days_since_commit=$DAYS" >> $GITHUB_OUTPUT
+          if [ $DAYS -gt 14 ]; then
+            echo "stale=true" >> $GITHUB_OUTPUT
+          else
+            echo "stale=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Telegram report
+        if: always()
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          PASSED="${{ steps.tests.outputs.passed }}"
+          FAILED="${{ steps.tests.outputs.failed }}"
+          COUNTIES="${{ steps.clis.outputs.zonewise_counties }}"
+          REC="${{ steps.clis.outputs.auction_rec }}"
+          STAGE="${{ steps.pipeline.outputs.pipeline_stage }}"
+          DAYS="${{ steps.freshness.outputs.days_since_commit }}"
+          STALE="${{ steps.freshness.outputs.stale }}"
+
+          if [ "$FAILED" != "0" ] || [ "$STALE" = "true" ]; then
+            ICON="🚨"
+            STATUS="NEEDS ATTENTION"
+          else
+            ICON="✅"
+            STATUS="HEALTHY"
+          fi
+
+          MSG="${ICON} CLI-Anything Weekly Health
+          
+          ${STATUS}
+          Tests: ${PASSED} passed, ${FAILED} failed
+          ZoneWise: ${COUNTIES} counties
+          Auction: ${REC}
+          Pipeline: ${STAGE}
+          Last commit: ${DAYS} days ago"
+
+          if [ "$STALE" = "true" ]; then
+            MSG="${MSG}
+          
+          ⚠️ STALE: No commits in ${DAYS} days. Use Summit to add features."
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="${MSG}" \
+            -d parse_mode="HTML" || true
