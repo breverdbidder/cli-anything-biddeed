@@ -60,7 +60,6 @@ def phase1_download_zones():
             "where": "1=1",
             "outFields": "OBJECTID,ZONING",
             "returnGeometry": "true",
-            "outSR": "4326",  # WGS84 lat/lon
             "resultOffset": offset,
             "resultRecordCount": 1000,
             "f": "json"
@@ -146,9 +145,6 @@ def phase3_get_parcels():
                 "where": "1=1",
                 "outFields": "PARCEL_ID,CITY",
                 "returnGeometry": "true",
-                
-                
-                "outSR": "4326",
                 "resultOffset": offset,
                 "resultRecordCount": 2000,
                 "f": "json"
