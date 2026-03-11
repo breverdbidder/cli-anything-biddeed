@@ -33,3 +33,4 @@ htmlcov/
 
 # Session files
 *.session.json
+pipeline_reports/
