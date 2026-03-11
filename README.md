@@ -17,6 +17,7 @@ CLI-Anything was built for GUI desktop apps (Blender, GIMP, LibreOffice). This f
 |-----|--------|---------|--------|
 | `cli-anything-zonewise` | Zoning data scraper | Firecrawl + Gemini + Claude + Supabase | 🔨 Planned |
 | `cli-anything-auction` | Foreclosure analysis | RealForeclose + BCPAO + AcclaimWeb + Supabase | 🔨 Planned |
+| `cli-anything-swimintel` | Swim meet intelligence | PDF + pdfplumber + Node.js docx + Supabase | ✅ Agent #139 (19 tests) |
 
 ### Stack Extensions (BIDDEED_OVERLAY.md)
 
@@ -43,6 +44,10 @@ cli-anything-zonewise --help
 # Install Auction CLI
 cd auction/agent-harness && pip install -e .
 cli-anything-auction --help
+
+# Install SwimIntel CLI (Agent #139)
+cd swimintel/agent-harness && pip install -e .
+cli-anything-swimintel --help
 ```
 
 ## Agent Piping
@@ -54,6 +59,9 @@ cli-anything-zonewise --json parcel lookup --address "123 Ocean Ave" \
 
 # Persist results to Supabase
 cli-anything-auction --json analyze batch --date 2026-03-15 --persist
+
+# SwimIntel full pipeline — PDF in, DOCX report out
+cli-anything-swimintel pipeline --pdf psychsheet.pdf --swimmer "Last, First" -o report.docx
 ```
 
 ## Architecture
@@ -64,6 +72,7 @@ cli-anything-auction --json analyze batch --date 2026-03-15 --persist
 - **shared/** — Shared utilities (Supabase, cost, audit)
 - **zonewise/** — ZoneWise Scraper CLI
 - **auction/** — Auction Analyzer CLI
+- **swimintel/** — SwimIntel Competitive Intelligence CLI (Agent #139)
 
 ## Upstream
 

@@ -15,18 +15,21 @@ jobs:
           python-version: '3.12'
       - name: Install all packages
         run: |
-          pip install pytest click prompt-toolkit httpx python-docx
+          pip install pytest click prompt-toolkit httpx python-docx pdfplumber
           pip install -e shared/
           pip install -e zonewise/agent-harness/
           pip install -e auction/agent-harness/
+          pip install -e swimintel/agent-harness/
       - name: Run full test suite
         run: |
           python3 -m pytest shared/tests/ \
             zonewise/agent-harness/cli_anything/zonewise/tests/ \
             auction/agent-harness/cli_anything/auction/tests/ \
+            swimintel/agent-harness/cli_anything/swimintel/tests/ \
             -v --tb=short
       - name: Verify CLIs
         run: |
-          which cli-anything-zonewise && which cli-anything-auction
+          which cli-anything-zonewise && which cli-anything-auction && which cli-anything-swimintel
           cli-anything-zonewise --json county list | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['count']==46; print('✓ ZoneWise: 46 counties')"
           cli-anything-auction --json analyze case --case 2024-CA-001234 | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['recommendation'] in ('BID','REVIEW','SKIP'); print(f'✓ Auction: {d[\"recommendation\"]}')"
+          cli-anything-swimintel --version | grep -q "Agent #139" && echo "✓ SwimIntel: Agent #139 online"

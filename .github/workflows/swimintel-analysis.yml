@@ -1,0 +1,113 @@
+name: SwimIntel — Psych Sheet Analysis
+on:
+  workflow_dispatch:
+    inputs:
+      pdf_url:
+        description: 'URL to psych sheet PDF'
+        required: true
+        type: string
+      swimmer_name:
+        description: 'Swimmer name (Last, First)'
+        required: true
+        default: 'Shapira, Michael'
+        type: string
+      age_group:
+        description: 'Age group'
+        required: true
+        default: '15-16'
+        type: choice
+        options:
+          - '14U'
+          - '15-16'
+          - '17-18'
+          - '19O'
+  schedule:
+    # Check for new psych sheets every Wednesday 6 AM EST (meet weeks)
+    - cron: '0 11 * * 3'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest click prompt-toolkit pdfplumber httpx
+          pip install -e shared/
+          pip install -e swimintel/agent-harness/
+          npm install -g docx
+
+      - name: Run tests first
+        run: |
+          python3 -m pytest swimintel/agent-harness/cli_anything/swimintel/tests/test_core.py -v --tb=short
+
+      - name: Download psych sheet
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          curl -sL "${{ github.event.inputs.pdf_url }}" -o /tmp/psychsheet.pdf
+          file /tmp/psychsheet.pdf
+          ls -la /tmp/psychsheet.pdf
+
+      - name: Run SwimIntel Pipeline
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cli-anything-swimintel pipeline \
+            --pdf /tmp/psychsheet.pdf \
+            --swimmer "${{ github.event.inputs.swimmer_name }}" \
+            --age-group "${{ github.event.inputs.age_group }}" \
+            --output /tmp/swim_report.docx
+
+      - name: Upload report artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: swim-intel-report-${{ github.run_number }}
+          path: /tmp/swim_report.docx
+          retention-days: 30
+
+      - name: Telegram notification
+        if: always() && github.event_name == 'workflow_dispatch'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            ICON="🏊"
+            MSG="${ICON} SwimIntel Report Ready
+
+          Swimmer: ${{ github.event.inputs.swimmer_name }}
+          Age Group: ${{ github.event.inputs.age_group }}
+          Source: ${{ github.event.inputs.pdf_url }}
+
+          📎 Download from GitHub Actions run #${{ github.run_number }}"
+          else
+            ICON="🚨"
+            MSG="${ICON} SwimIntel Pipeline FAILED
+
+          Swimmer: ${{ github.event.inputs.swimmer_name }}
+          Check: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="${MSG}" \
+            -d parse_mode="HTML" || true
+
+      - name: Weekly auto-check (scheduled)
+        if: github.event_name == 'schedule'
+        run: |
+          echo "SwimIntel weekly check — verifying agent health"
+          cli-anything-swimintel --version
+          python3 -m pytest swimintel/agent-harness/cli_anything/swimintel/tests/test_core.py -q --tb=no
+          echo "✓ Agent #139 healthy"

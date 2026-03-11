@@ -14,16 +14,18 @@ jobs:
           python-version: '3.12'
       - name: Install all packages
         run: |
-          pip install pytest click prompt-toolkit httpx python-docx
+          pip install pytest click prompt-toolkit httpx python-docx pdfplumber
           pip install -e shared/
           pip install -e zonewise/agent-harness/
           pip install -e auction/agent-harness/
+          pip install -e swimintel/agent-harness/
       - name: Run full test suite
         id: tests
         run: |
           RESULT=$(python3 -m pytest shared/tests/ \
             zonewise/agent-harness/cli_anything/zonewise/tests/ \
             auction/agent-harness/cli_anything/auction/tests/ \
+            swimintel/agent-harness/cli_anything/swimintel/tests/ \
             -q --tb=no 2>&1)
           echo "$RESULT"
           PASSED=$(echo "$RESULT" | grep -oP '\d+ passed' | grep -oP '\d+')
@@ -35,8 +37,10 @@ jobs:
         run: |
           Z=$(cli-anything-zonewise --json county list | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
           A=$(cli-anything-auction --json analyze case --case 2024-CA-001234 | python3 -c "import sys,json; print(json.load(sys.stdin)['recommendation'])")
+          S=$(cli-anything-swimintel --version | grep -oP 'v[\d.]+')
           echo "zonewise_counties=$Z" >> $GITHUB_OUTPUT
           echo "auction_rec=$A" >> $GITHUB_OUTPUT
+          echo "swimintel_ver=$S" >> $GITHUB_OUTPUT
       - name: LangGraph pipeline test
         id: pipeline
         run: |
@@ -71,6 +75,7 @@ jobs:
           FAILED="${{ steps.tests.outputs.failed }}"
           COUNTIES="${{ steps.clis.outputs.zonewise_counties }}"
           REC="${{ steps.clis.outputs.auction_rec }}"
+          SWIM="${{ steps.clis.outputs.swimintel_ver }}"
           STAGE="${{ steps.pipeline.outputs.pipeline_stage }}"
           DAYS="${{ steps.freshness.outputs.days_since_commit }}"
           STALE="${{ steps.freshness.outputs.stale }}"
@@ -89,6 +94,7 @@ jobs:
           Tests: ${PASSED} passed, ${FAILED} failed
           ZoneWise: ${COUNTIES} counties
           Auction: ${REC}
+          SwimIntel: ${SWIM}
           Pipeline: ${STAGE}
           Last commit: ${DAYS} days ago"
 
