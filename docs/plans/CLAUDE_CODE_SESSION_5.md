@@ -10,6 +10,83 @@ All code is deployed. 138/138 tests passing. Two CLIs installed (`cli-anything-z
 2. Supabase E2E persistence tests
 3. LangGraph scaffold
 
+## STEP 0: Push GitHub Secrets
+
+The repo needs secrets for GitHub Actions. Read them from local credentials and push via API.
+
+```bash
+# Read Supabase credentials from local file
+SUPABASE_CREDS="$HOME/SUPABASE_CREDENTIALS.md"
+if [ ! -f "$SUPABASE_CREDS" ]; then
+  # Try alternate locations
+  SUPABASE_CREDS=$(find $HOME -name "SUPABASE_CREDENTIALS.md" -type f 2>/dev/null | head -1)
+fi
+
+# If file exists, extract keys and push
+if [ -f "$SUPABASE_CREDS" ]; then
+  echo "Found credentials at: $SUPABASE_CREDS"
+  cat "$SUPABASE_CREDS"
+fi
+
+# Also check environment variables that may already be exported
+echo "SUPABASE_URL: ${SUPABASE_URL:-not set}"
+echo "SUPABASE_KEY: ${SUPABASE_KEY:+set (hidden)}"
+echo "FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:+set (hidden)}"
+```
+
+Push secrets using Python + PyNaCl:
+
+```python
+import base64, json, urllib.request, os
+from nacl import encoding, public
+
+TOKEN = os.environ.get("GITHUB_TOKEN") or open(os.path.expanduser("~/.config/gh_token")).read().strip()
+REPO = "breverdbidder/cli-anything-biddeed"
+
+# Get repo public key
+req = urllib.request.Request(
+    f"https://api.github.com/repos/{REPO}/actions/secrets/public-key",
+    headers={"Authorization": f"token {TOKEN}", "Accept": "application/vnd.github+json"}
+)
+resp = json.loads(urllib.request.urlopen(req).read())
+pub_key_b64, key_id = resp["key"], resp["key_id"]
+
+def push_secret(name, value):
+    pk = public.PublicKey(pub_key_b64, encoding.Base64Encoder)
+    encrypted = base64.b64encode(public.SealedBox(pk).encrypt(value.encode())).decode()
+    data = json.dumps({"encrypted_value": encrypted, "key_id": key_id}).encode()
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{REPO}/actions/secrets/{name}",
+        data=data, method="PUT",
+        headers={"Authorization": f"token {TOKEN}", "Accept": "application/vnd.github+json"}
+    )
+    print(f"  {name}: HTTP {urllib.request.urlopen(req).status}")
+
+# Push all secrets - get values from env or local files
+secrets = {
+    "SUPABASE_URL": os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co"),
+    "SUPABASE_KEY": os.environ.get("SUPABASE_KEY", ""),  # Service role key
+    "FIRECRAWL_API_KEY": os.environ.get("FIRECRAWL_API_KEY", ""),
+}
+
+for name, value in secrets.items():
+    if value:
+        push_secret(name, value)
+    else:
+        print(f"  {name}: SKIPPED (no value found)")
+```
+
+If env vars aren't set, find them in local files and export before running. The Supabase service role key ends in `...Tqp9nE`. The Firecrawl key starts with `fc-`.
+
+Verify:
+```bash
+curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/secrets" | \
+  python3 -c "import sys,json; [print(f'  ✓ {s[\"name\"]}') for s in json.load(sys.stdin).get('secrets',[])]"
+```
+
+Must show: SUPABASE_URL, SUPABASE_KEY, FIRECRAWL_API_KEY.
+
 ## STEP 1: Read Project State
 
 ```bash
