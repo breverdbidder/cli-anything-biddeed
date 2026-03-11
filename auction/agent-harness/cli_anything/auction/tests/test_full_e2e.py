@@ -160,3 +160,25 @@ class TestCLISubprocess:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         assert data["county"] == "brevard"
+
+
+# ── Supabase persistence tests (skip when no credentials) ────────────
+
+SUPABASE_AVAILABLE = os.environ.get("SUPABASE_URL") is not None
+
+
+@pytest.mark.skipif(not SUPABASE_AVAILABLE, reason="SUPABASE_URL not set")
+class TestSupabasePersistence:
+    def test_persist_flag_accepted(self):
+        """Verify --persist flag is accepted by CLI."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--json", "--persist", "analyze", "case", "--case", "2024-CA-001234"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "recommendation" in data
+
+    def test_audit_log_query(self):
+        """Verify audit_log table is queryable."""
+        from cli_anything_shared.supabase import query_table
+        rows = query_table("audit_log", {"cli": "cli-anything-auction"}, limit=1, cli_name="auction")
+        assert isinstance(rows, list)

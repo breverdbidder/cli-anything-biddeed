@@ -205,3 +205,60 @@ class TestSupabase:
 
     def test_reset_client(self):
         reset_client()  # Should not raise
+
+
+# ── LangGraph scaffold tests ─────────────────────────────────────────
+
+from cli_anything_shared.langgraph import (
+    run_pipeline, PipelineState, PipelineStage,
+    discovery_node, analysis_node, reporting_node,
+)
+
+
+class TestLangGraphPipeline:
+    def test_pipeline_sample_data(self):
+        state = run_pipeline("sample")
+        assert state.stage in (PipelineStage.COMPLETE, PipelineStage.ERROR)
+        assert len(state.cases) > 0
+        assert len(state.analyses) > 0
+
+    def test_pipeline_state_to_dict(self):
+        state = PipelineState(auction_date="2026-03-15", county="brevard")
+        d = state.to_dict()
+        assert d["auction_date"] == "2026-03-15"
+        assert d["county"] == "brevard"
+        assert d["stage"] == "discovery"
+
+    def test_discovery_node(self):
+        state = PipelineState(auction_date="sample")
+        state = discovery_node(state)
+        assert state.stage == PipelineStage.ANALYSIS
+        assert len(state.cases) > 0
+
+    def test_analysis_node(self):
+        state = PipelineState(auction_date="sample")
+        state = discovery_node(state)
+        state = analysis_node(state)
+        assert state.stage == PipelineStage.REPORTING
+        assert len(state.analyses) > 0
+        recs = [a.get("recommendation") for a in state.analyses if "recommendation" in a]
+        assert all(r in ("BID", "REVIEW", "SKIP") for r in recs)
+
+    def test_reporting_node(self, tmp_path, monkeypatch):
+        import os
+        monkeypatch.chdir(tmp_path)
+        state = PipelineState(auction_date="sample")
+        state = discovery_node(state)
+        state = analysis_node(state)
+        state = reporting_node(state)
+        assert state.stage == PipelineStage.PERSISTENCE
+        assert len(state.reports) > 0
+
+    def test_pipeline_empty_date(self):
+        state = run_pipeline("2099-12-31")
+        # No cases for future date, but shouldn't crash
+        assert state.stage in (PipelineStage.COMPLETE, PipelineStage.ERROR)
+
+    def test_pipeline_stages_enum(self):
+        assert PipelineStage.DISCOVERY.value == "discovery"
+        assert PipelineStage.COMPLETE.value == "complete"
