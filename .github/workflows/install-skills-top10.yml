@@ -3,7 +3,7 @@ name: Skills Installer Top 10
 on:
   push:
     paths:
-      - .skills-install-trigger
+      - '.skills-install-trigger'
   workflow_dispatch: {}
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: Install skills CLI
         run: npm install -g skills
@@ -48,35 +48,10 @@ jobs:
           git add -A
           git diff --staged --quiet || git commit -m "feat(skills): install top 10 skills (Agent 17)"
           git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install to other repos
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT4 }}
-        run: |
-          for pair in "biddeed-ai:supabase/agent-skills" "biddeed-ai-ui:vercel-labs/agent-skills" "zonewise-web:vercel-labs/agent-skills" "zonewise-scraper-v4:firecrawl/cli"; do
-            repo="${pair%%:*}"
-            skill="${pair##*:}"
-            echo "--- ${repo} ---"
-            git clone "https://x-access-token:${GH_TOKEN}@github.com/breverdbidder/${repo}.git" "/tmp/${repo}" 2>/dev/null || continue
-            cd "/tmp/${repo}"
-            npx skills add "${skill}" -a claude-code --non-interactive || true
-            npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
-            git config user.name "skills-scout[bot]"
-            git config user.email "skills-scout@biddeed.ai"
-            git add -A
-            git diff --staged --quiet || git commit -m "feat(skills): Agent 17 skills"
-            git push || true
-            cd /tmp
-          done
-
-      - name: Notify Telegram
+      - name: Notify
         if: always()
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          echo "Skills Installer completed with status ${{ job.status }}"
           SKILL_COUNT=$(find . -name "SKILL.md" -path "*/.claude/*" | wc -l)
-          MSG="Agent 17 Skills Installer%0AStatus: ${{ job.status }}%0ASkills in HQ: ${SKILL_COUNT}%0ARepos: 5 updated%0ACost: 0.00"
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHAT}" -d text="${MSG}"
+          echo "Skills installed: ${SKILL_COUNT}"
