@@ -1,0 +1,120 @@
+name: ZoneWise Modal Spatial Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      county:
+        description: 'County to process'
+        required: false
+        default: 'brevard'
+      chunk_size:
+        description: 'Parcels per Modal container'
+        required: false
+        default: '5000'
+      multi:
+        description: 'Run all counties'
+        required: false
+        type: boolean
+        default: false
+
+  # Weekly health check - Sunday 9AM EST
+  schedule:
+    - cron: '0 14 * * 0'
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Health Check (runs on schedule)
+  # -----------------------------------------------------------------------
+  health-check:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install modal
+
+      - name: Run health check
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python cli_anything_modal_spatial.py --health
+
+      - name: Send Telegram alert
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          MSG="🗺️ ZoneWise Modal Spatial — Health Check: ${STATUS}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="${MSG}" \
+            -d parse_mode="HTML" || true
+
+  # -----------------------------------------------------------------------
+  # Spatial Zoning Run (manual dispatch)
+  # -----------------------------------------------------------------------
+  spatial-run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install modal httpx supabase
+
+      - name: Configure Modal
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          mkdir -p ~/.modal
+          echo "[default]" > ~/.modal.toml
+          echo "token_id = \"${MODAL_TOKEN_ID}\"" >> ~/.modal.toml
+          echo "token_secret = \"${MODAL_TOKEN_SECRET}\"" >> ~/.modal.toml
+
+      - name: Run spatial zoning
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ "${{ inputs.multi }}" = "true" ]; then
+            python cli_anything_modal_spatial.py --multi --chunk-size ${{ inputs.chunk_size }}
+          else
+            python cli_anything_modal_spatial.py --county ${{ inputs.county }} --chunk-size ${{ inputs.chunk_size }}
+          fi
+
+      - name: Upload run state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spatial-run-state
+          path: state/last_run.json
+          retention-days: 30
+
+      - name: Notify Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          COUNTY="${{ inputs.county || 'multi' }}"
+          STATUS="${{ job.status }}"
+          MSG="🗺️ ZoneWise Modal Spatial — ${COUNTY}: ${STATUS}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="${MSG}" || true
