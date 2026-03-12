@@ -15,12 +15,12 @@ TELEGRAM_BOT = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 GIS_ZONING = "https://gis.brevardfl.gov/gissrv/rest/services/Planning_Development/Zoning_WKID2881/MapServer/0"
-GIS_PARCELS = "https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_by_Municipality_Ownership/MapServer/1"
+GIS_PARCELS = "https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_New_WKID2881/MapServer/5"
 
 client = httpx.Client(timeout=60, headers={"User-Agent": "Mozilla/5.0 (ZoneWise Research)"})
 
 GAPS = {
-    "unincorporated": {"target": 75350, "city_filter": "CITY = ' ' OR CITY IS NULL OR CITY = ''"},
+    "unincorporated": {"target": 75350, "city_filter": "CITY = '                    ' OR CITY IS NULL"},
     "cocoa": {"target": 29882, "city_filter": "CITY LIKE '%COCOA%' AND CITY NOT LIKE '%BEACH%'"},
     "titusville": {"target": 28118, "city_filter": "CITY LIKE '%TITUSVILLE%'"},
     "rockledge": {"target": 17869, "city_filter": "CITY LIKE '%ROCKLEDGE%'"},
