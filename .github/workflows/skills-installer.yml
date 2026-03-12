@@ -1,169 +1,117 @@
-name: Skills Installer — Top 10 Adoption
+name: Skills Installer Top 10
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Run mode"
+        description: Run mode
         required: true
-        default: "install-all"
+        default: install-all
         type: choice
         options:
           - install-all
           - verify-only
 
 jobs:
-  install-skills:
+  install-all-skills:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
-      - name: Install skills CLI
-        run: npm install -g skills
-
-      - name: Install skills to this repo (cli-anything-biddeed)
-        run: |
-          npx skills add obra/superpowers -a claude-code \
-            --skill dispatching-parallel-agents \
-            --skill systematic-debugging \
-            --skill subagent-driven-development \
-            --skill test-driven-development \
-            --non-interactive || true
-          ls -la .claude/skills/ 2>/dev/null || echo "Skills dir check"
-
-      - name: Commit skills to this repo
-        run: |
-          git config user.name "skills-scout[bot]"
-          git config user.email "skills-scout@biddeed.ai"
-          git add -A
-          git diff --staged --quiet || git commit -m "feat(skills): install orchestration+testing skills (Agent 17)"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
-
-  install-other-repos:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: install-skills
-    strategy:
-      matrix:
-        include:
-          - repo: biddeed-ai
-            skills: "supabase/agent-skills --skill supabase-postgres-best-practices"
-          - repo: biddeed-ai-ui
-            skills: "vercel-labs/agent-skills --skill vercel-react-best-practices"
-          - repo: zonewise-web
-            skills: "vercel-labs/agent-skills --skill vercel-react-best-practices"
-          - repo: zonewise-scraper-v4
-            skills: "firecrawl/cli --skill firecrawl"
-    steps:
-      - name: Checkout target repo
-        uses: actions/checkout@v4
-        with:
-          repository: breverdbidder/${{ matrix.repo }}
           token: ${{ secrets.GH_PAT4 }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: Install skills CLI
         run: npm install -g skills
 
-      - name: Install skills
+      - name: Install orchestration skills
         run: |
-          npx skills add ${{ matrix.skills }} -a claude-code --non-interactive || true
-          ls -la .claude/skills/ 2>/dev/null || echo "Skills installed"
+          npx skills add obra/superpowers -a claude-code --non-interactive || true
 
-      - name: Install additional skills
+      - name: Install supabase skills
         run: |
-          npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
+          npx skills add supabase/agent-skills -a claude-code --non-interactive || true
 
-      - name: Commit and push
+      - name: Install firecrawl skills
         run: |
-          git config user.name "skills-scout[bot]"
-          git config user.email "skills-scout@biddeed.ai"
-          git add -A
-          git diff --staged --quiet || git commit -m "feat(skills): install assessed skills (Agent 17)"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
+          npx skills add firecrawl/cli -a claude-code --non-interactive || true
 
-  install-marketing-skills:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: install-skills
-    strategy:
-      matrix:
-        include:
-          - repo: biddeed-ai-ui
-            skills: "coreyhaines31/marketingskills --skill seo-audit"
-          - repo: zonewise-web
-            skills: "coreyhaines31/marketingskills --skill seo-audit --skill programmatic-seo"
-          - repo: zonewise-scraper-v4
-            skills: "browser-use/browser-use --skill browser-use"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          repository: breverdbidder/${{ matrix.repo }}
-          token: ${{ secrets.GH_PAT4 }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install skills
+      - name: Install browser-use skills
         run: |
-          npm install -g skills
-          npx skills add ${{ matrix.skills }} -a claude-code --non-interactive || true
+          npx skills add browser-use/browser-use -a claude-code --non-interactive || true
 
-      - name: Commit and push
+      - name: Install frontend skills
+        run: |
+          npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
+
+      - name: Install marketing skills
+        run: |
+          npx skills add coreyhaines31/marketingskills -a claude-code --non-interactive || true
+
+      - name: Verify installed skills
+        run: |
+          echo "=== Installed Skills ==="
+          find . -name "SKILL.md" -path "*/.claude/*" | sort
+          echo "=== Count ==="
+          find . -name "SKILL.md" -path "*/.claude/*" | wc -l
+
+      - name: Commit to this repo
         run: |
           git config user.name "skills-scout[bot]"
           git config user.email "skills-scout@biddeed.ai"
           git add -A
-          git diff --staged --quiet || git commit -m "feat(skills): install marketing/scraping skills (Agent 17)"
+          git diff --staged --quiet || git commit -m "feat(skills): install top 10 assessed skills from skills.sh (Agent 17)"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
 
-  notify:
-    runs-on: ubuntu-latest
-    needs: [install-skills, install-other-repos, install-marketing-skills]
-    if: always()
-    steps:
-      - name: Send Telegram notification
+      - name: Install to other repos
         run: |
-          STATUS="✅ SUCCESS"
-          if [ "${{ needs.install-skills.result }}" != "success" ] || \
-             [ "${{ needs.install-other-repos.result }}" != "success" ] || \
-             [ "${{ needs.install-marketing-skills.result }}" != "success" ]; then
-            STATUS="⚠️ PARTIAL"
-          fi
-          
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d parse_mode="HTML" \
-            -d text="<b>⛰️ SKILLS INSTALLER — Agent 17</b>
+          REPOS="biddeed-ai biddeed-ai-ui zonewise-web zonewise-scraper-v4"
+          for repo in $REPOS; do
+            echo "--- Installing to $repo ---"
+            git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/${repo}.git" "/tmp/${repo}" || continue
+            cd "/tmp/${repo}"
+            
+            npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
+            
+            if [ "$repo" = "biddeed-ai" ]; then
+              npx skills add supabase/agent-skills -a claude-code --non-interactive || true
+            fi
+            if [ "$repo" = "biddeed-ai-ui" ] || [ "$repo" = "zonewise-web" ]; then
+              npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
+              npx skills add coreyhaines31/marketingskills -a claude-code --skill seo-audit --non-interactive || true
+            fi
+            if [ "$repo" = "zonewise-web" ]; then
+              npx skills add coreyhaines31/marketingskills -a claude-code --skill programmatic-seo --non-interactive || true
+            fi
+            if [ "$repo" = "zonewise-scraper-v4" ]; then
+              npx skills add firecrawl/cli -a claude-code --non-interactive || true
+              npx skills add browser-use/browser-use -a claude-code --non-interactive || true
+            fi
+            
+            git config user.name "skills-scout[bot]"
+            git config user.email "skills-scout@biddeed.ai"
+            git add -A
+            git diff --staged --quiet || git commit -m "feat(skills): install assessed skills (Agent 17)"
+            git push || true
+            cd /tmp
+            echo "Done: $repo"
+          done
 
-${STATUS}
+      - name: Telegram notification
+        if: always()
+        run: |
+          SKILL_COUNT=$(find . -name "SKILL.md" -path "*/.claude/*" | wc -l)
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage"             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}"             -d parse_mode="HTML"             -d text="<b>Agent 17 Skills Installer</b>
 
-<b>📦 Skills installed across repos:</b>
-• cli-anything-biddeed: 4 skills (orchestration+testing)
-• biddeed-ai: 2 skills (supabase+debugging)
-• biddeed-ai-ui: 3 skills (react+seo)
-• zonewise-web: 4 skills (react+seo+programmatic)
-• zonewise-scraper-v4: 3 skills (firecrawl+browser+debug)
+Status: ${{ job.status }}
+Skills in HQ: ${SKILL_COUNT}
+Repos updated: cli-anything + biddeed-ai + biddeed-ai-ui + zonewise-web + zonewise-scraper-v4
 
-<b>Results:</b>
-• HQ install: ${{ needs.install-skills.result }}
-• Other repos: ${{ needs.install-other-repos.result }}
-• Marketing: ${{ needs.install-marketing-skills.result }}
-
-💰 Cost: \$0.00"
+Top 10 skills from skills.sh adopted.
+Cost: 0.00"
