@@ -1,4 +1,4 @@
-name: Envelope Squad — Weekly Pipeline
+name: Envelope Squad - Weekly Pipeline
 on:
   schedule:
     - cron: '0 6 * * 1'  # Monday 6AM UTC (1AM EST)
