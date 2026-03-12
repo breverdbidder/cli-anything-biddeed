@@ -1,0 +1,20 @@
+{
+  "chunk_size": 5000,
+  "max_parallel_per_county": 20,
+  "match_rate_threshold": 85.0,
+  "supabase_table": "parcel_zoning",
+  "modal_app_name": "zonewise-spatial",
+  "counties_registry": {
+    "brevard": {
+      "gis_endpoint": "https://gis.brevardfl.gov/gissrv/rest/services/PublicWorks/Zoning/MapServer/0/query",
+      "expected_parcels": 78689,
+      "polygon_count": 10000,
+      "district_count": 56,
+      "status": "ACTIVE"
+    }
+  },
+  "telegram_alerts": true,
+  "cost_ceiling_per_run": 0.50,
+  "modal_secrets_name": "zonewise-secrets",
+  "polygon_cache_volume": "zonewise-polygon-cache"
+}
