@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-PALM BAY V3 — Server-side spatial query. No Shapely needed.
-Instead of downloading polygons + local STRtree:
-  1. Download parcels with centroids
-  2. Query zoning layer AT each centroid using ArcGIS server-side geometry
-  
-Batched: send envelope of 100 parcels, get all zoning that intersects.
+PALM BAY V4 — Get centroids from BCPAO (works), query zoning from Palm Bay (works).
+V3 bug: Palm Bay parcel geometry uses curveRings → can't extract centroids.
+Fix: BCPAO GIS parcel layer has normal geometry. Get centroids there,
+then query Palm Bay's zoning server at each point.
 """
 import httpx, json, os, sys, time
 
@@ -14,9 +12,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "") or os.environ.get("SUPABASE_SE
 TELEGRAM_BOT = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-BASE = "https://gis.palmbayflorida.org/arcgis/rest/services"
-PARCELS = f"{BASE}/CommonServices/Parcels/FeatureServer/0"
-ZONING = f"{BASE}/GrowthManagement/Zoning/MapServer/0"
+BCPAO_PARCELS = "https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_New_WKID2881/MapServer/5"
+PB_ZONING = "https://gis.palmbayflorida.org/arcgis/rest/services/GrowthManagement/Zoning/MapServer/0"
 
 c = httpx.Client(timeout=60, headers={"User-Agent": "Mozilla/5.0 (ZoneWise)"})
 
@@ -41,144 +38,114 @@ def sb_upsert(rows):
         time.sleep(0.3)
     return ok, err
 
-def get_zoning_at_point(x, y):
-    """Query Palm Bay zoning layer at a specific point. Server-side spatial query."""
-    try:
-        r = c.get(f"{ZONING}/query", params={
-            "geometry": f"{x},{y}",
-            "geometryType": "esriGeometryPoint",
-            "spatialRel": "esriSpatialRelIntersects",
-            "outFields": "ZONING",
-            "returnGeometry": "false",
-            "f": "json"
-        }, timeout=10)
-        feats = r.json().get("features", [])
-        if feats:
-            return feats[0]["attributes"].get("ZONING", "")
-    except:
-        pass
-    return None
-
 def main():
     start = time.time()
-    telegram("🏔️ PALM BAY V3 — Server-side spatial query\n")
+    telegram("🏔️ PALM BAY V4 — BCPAO centroids + PB zoning server\n")
 
-    # Step 1: Test connectivity
+    # Test PB zoning
+    test = None
     try:
-        r = c.get(f"{ZONING}?f=json", timeout=15)
-        telegram(f"  Zoning layer: HTTP {r.status_code}")
-        if r.status_code != 200:
-            telegram("  ❌ Not accessible")
-            return
-    except Exception as e:
-        telegram(f"  ❌ {e}")
+        r = c.get(f"{PB_ZONING}/query", params={
+            "geometry": "770000,1310000", "geometryType": "esriGeometryPoint",
+            "spatialRel": "esriSpatialRelIntersects", "outFields": "ZONING",
+            "returnGeometry": "false", "f": "json"
+        }, timeout=10)
+        feats = r.json().get("features", [])
+        test = feats[0]["attributes"]["ZONING"] if feats else None
+    except: pass
+    telegram(f"  PB zoning test: {test}")
+    if not test:
+        telegram("  ❌ Palm Bay zoning not responding")
         return
 
-    # Step 2: Quick test — query zoning at a known point
-    telegram("  Testing server-side spatial query...")
-    test = get_zoning_at_point(770000, 1310000)  # Approx Palm Bay center in CRS 2881
-    telegram(f"  Test result: {test}")
-
-    # Step 3: Download ALL parcels with centroid coordinates
-    telegram("\n🏔️ Step 2: Downloading parcels with geometry...")
+    # Step 1: Download Palm Bay parcels from BCPAO with centroids
+    telegram("🏔️ Step 1: Downloading Palm Bay parcels from BCPAO...")
     parcels = []
     offset = 0
     while True:
-        try:
-            r = c.get(f"{PARCELS}/query", params={
-                "where": "1=1",
-                "outFields": "ParcelId",
-                "returnGeometry": "true",
-                "returnCentroid": "true",
-                "resultOffset": offset,
-                "resultRecordCount": 1000,
-                "f": "json"
-            }, timeout=30)
-            data = r.json()
-            feats = data.get("features", [])
-            if not feats: break
-            
-            for f in feats:
-                pid = (str(f["attributes"].get("ParcelId", "")) or "").strip()
-                if not pid: continue
-                
-                # Get centroid — from returnCentroid or calculate from rings
-                cent = f.get("centroid")
-                if cent:
-                    parcels.append({"pid": pid, "x": cent.get("x"), "y": cent.get("y")})
-                else:
-                    rings = f.get("geometry", {}).get("rings", [])
-                    if rings:
-                        ring = rings[0]
-                        cx = sum(p[0] for p in ring) / len(ring)
-                        cy = sum(p[1] for p in ring) / len(ring)
-                        parcels.append({"pid": pid, "x": cx, "y": cy})
-            
-            offset += len(feats)
-            if offset % 10000 == 0:
-                telegram(f"  {offset:,} parcels downloaded...")
-            if not data.get("exceededTransferLimit") and len(feats) < 1000:
-                break
-            time.sleep(1)
-        except Exception as e:
-            telegram(f"  Error at {offset}: {e}")
-            time.sleep(5)
-            offset += 1000
-            if offset > 100000: break
+        r = c.get(f"{BCPAO_PARCELS}/query", params={
+            "where": "CITY='PALM BAY'",
+            "outFields": "PARCEL_ID",
+            "returnGeometry": "true", "outSR": "2881",
+            "resultOffset": offset, "resultRecordCount": 2000, "f": "json"
+        })
+        feats = r.json().get("features", [])
+        if not feats: break
+        for f in feats:
+            pid = (f["attributes"].get("PARCEL_ID") or "").strip()
+            if not pid: continue
+            rings = f.get("geometry", {}).get("rings", [])
+            if not rings: continue
+            ring = rings[0]
+            cx = sum(p[0] for p in ring) / len(ring)
+            cy = sum(p[1] for p in ring) / len(ring)
+            parcels.append({"pid": pid, "x": cx, "y": cy})
+        offset += len(feats)
+        if offset % 10000 == 0:
+            telegram(f"  {offset:,} parcels, {len(parcels):,} with centroids")
+        if not r.json().get("exceededTransferLimit") and len(feats) < 2000:
+            break
+        time.sleep(1)
 
-    telegram(f"  Total parcels: {len(parcels):,}")
-
-    # Deduplicate
+    # Dedup
     seen = {}
     for p in parcels:
         if p["pid"] not in seen:
             seen[p["pid"]] = p
     parcels = list(seen.values())
-    telegram(f"  Unique parcels: {len(parcels):,}")
+    telegram(f"  Total unique: {len(parcels):,}")
 
-    # Step 4: Server-side zoning lookup for each parcel
-    telegram("\n🏔️ Step 3: Server-side zoning lookup...")
+    # Step 2: Server-side zoning lookup at Palm Bay
+    telegram(f"\n🏔️ Step 2: Querying Palm Bay zoning for {len(parcels):,} parcels...")
     rows = []
     no_zone = 0
-    errors = 0
-    
+
     for i, p in enumerate(parcels):
-        if p["x"] is None or p["y"] is None:
+        try:
+            r = c.get(f"{PB_ZONING}/query", params={
+                "geometry": f"{p['x']},{p['y']}",
+                "geometryType": "esriGeometryPoint",
+                "spatialRel": "esriSpatialRelIntersects",
+                "outFields": "ZONING",
+                "returnGeometry": "false",
+                "f": "json"
+            }, timeout=10)
+            feats = r.json().get("features", [])
+            if feats:
+                zone = feats[0]["attributes"].get("ZONING", "")
+                if zone:
+                    rows.append({
+                        "parcel_id": p["pid"],
+                        "zone_code": zone.strip(),
+                        "jurisdiction": "palm_bay",
+                        "county": "brevard"
+                    })
+                else:
+                    no_zone += 1
+            else:
+                no_zone += 1
+        except:
             no_zone += 1
-            continue
-        
-        zone = get_zoning_at_point(p["x"], p["y"])
-        if zone:
-            rows.append({
-                "parcel_id": p["pid"],
-                "zone_code": zone,
-                "jurisdiction": "palm_bay",
-                "county": "brevard"
-            })
-        else:
-            no_zone += 1
-        
+
         if (i + 1) % 5000 == 0:
-            telegram(f"  {i+1:,}/{len(parcels):,} — {len(rows):,} zoned, {no_zone:,} unzoned")
-        
-        # Rate limit — Palm Bay server, be gentle
-        if (i + 1) % 50 == 0:
+            telegram(f"  {i+1:,}/{len(parcels):,} — {len(rows):,} zoned ({len(rows)/(i+1)*100:.0f}%)")
+        if (i + 1) % 100 == 0:
             time.sleep(0.5)
 
-    telegram(f"\n  Results: {len(rows):,} zoned, {no_zone:,} unzoned, {errors:,} errors")
+    telegram(f"\n  Final: {len(rows):,} zoned, {no_zone:,} unzoned")
 
-    # Step 5: Upsert
+    # Step 3: Upsert
     if rows:
-        telegram(f"\n🏔️ Step 4: Upserting {len(rows):,} records...")
+        telegram(f"\n🏔️ Step 3: Upserting {len(rows):,} records...")
         ok, err = sb_upsert(rows)
         telegram(f"  Upserted: {ok:,} ok, {err:,} err")
 
     elapsed = int(time.time() - start)
     telegram(f"""
-🏔️ PALM BAY V3 COMPLETE
+🏔️ PALM BAY V4 COMPLETE
 
-📊 Parcels: {len(parcels):,}
-📊 Zoned: {len(rows):,} ({len(rows)/max(len(parcels),1)*100:.0f}%)
+📊 BCPAO parcels: {len(parcels):,}
+📊 Zoned by PB server: {len(rows):,} ({len(rows)/max(len(parcels),1)*100:.0f}%)
 📊 Unzoned: {no_zone:,}
 
 ⏱️ Duration: {elapsed//60}m {elapsed%60}s
