@@ -1,0 +1,50 @@
+name: "Municipal Intelligence"
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Command"
+        required: true
+        type: choice
+        options:
+          - recon
+          - conquer
+          - inventory
+      target:
+        description: "Municipality or county name"
+        required: true
+        default: "palm_bay"
+      squad:
+        description: "Squad (blank = all)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - zoning
+          - permits
+          - code_enforcement
+          - utilities
+          - addresses
+jobs:
+  intel:
+    name: "${{ inputs.command }} ${{ inputs.target }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx shapely
+      - name: "Execute: ${{ inputs.command }} ${{ inputs.target }}"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SQUAD_ARG=""
+          if [ -n "${{ inputs.squad }}" ]; then
+            SQUAD_ARG="--squad ${{ inputs.squad }}"
+          fi
+          python municipal/agent.py ${{ inputs.command }} ${{ inputs.target }} $SQUAD_ARG
