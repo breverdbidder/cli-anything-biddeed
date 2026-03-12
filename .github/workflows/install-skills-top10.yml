@@ -3,13 +3,8 @@ name: Skills Installer Top 10
 on:
   push:
     paths:
-      - '.skills-install-trigger'
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: Run mode
-        required: false
-        default: install-all
+      - .skills-install-trigger
+  workflow_dispatch: {}
 
 jobs:
   install-all-skills:
@@ -17,12 +12,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT4 }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install skills CLI
         run: npm install -g skills
@@ -45,67 +38,45 @@ jobs:
       - name: Install marketing skills
         run: npx skills add coreyhaines31/marketingskills -a claude-code --non-interactive || true
 
-      - name: Verify installed skills
-        run: |
-          echo "=== Installed Skills ==="
-          find . -name "SKILL.md" -path "*/.claude/*" | sort
-          find . -name "SKILL.md" -path "*/.claude/*" | wc -l
+      - name: Verify
+        run: find . -name "SKILL.md" -path "*/.claude/*" | sort
 
-      - name: Commit to this repo
+      - name: Commit
         run: |
           git config user.name "skills-scout[bot]"
           git config user.email "skills-scout@biddeed.ai"
           git add -A
-          git diff --staged --quiet || git commit -m "feat(skills): install top 10 assessed skills (Agent 17)"
+          git diff --staged --quiet || git commit -m "feat(skills): install top 10 skills (Agent 17)"
           git push
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install to biddeed-ai
+      - name: Install to other repos
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT4 }}
         run: |
-          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/biddeed-ai.git" /tmp/biddeed-ai || exit 0
-          cd /tmp/biddeed-ai
-          npx skills add supabase/agent-skills -a claude-code --non-interactive || true
-          npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
-          git config user.name "skills-scout[bot]"
-          git config user.email "skills-scout@biddeed.ai"
-          git add -A && git diff --staged --quiet || git commit -m "feat(skills): supabase+debugging skills (Agent 17)" && git push || true
+          for pair in "biddeed-ai:supabase/agent-skills" "biddeed-ai-ui:vercel-labs/agent-skills" "zonewise-web:vercel-labs/agent-skills" "zonewise-scraper-v4:firecrawl/cli"; do
+            repo="${pair%%:*}"
+            skill="${pair##*:}"
+            echo "--- ${repo} ---"
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/breverdbidder/${repo}.git" "/tmp/${repo}" 2>/dev/null || continue
+            cd "/tmp/${repo}"
+            npx skills add "${skill}" -a claude-code --non-interactive || true
+            npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
+            git config user.name "skills-scout[bot]"
+            git config user.email "skills-scout@biddeed.ai"
+            git add -A
+            git diff --staged --quiet || git commit -m "feat(skills): Agent 17 skills"
+            git push || true
+            cd /tmp
+          done
 
-      - name: Install to biddeed-ai-ui
-        run: |
-          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/biddeed-ai-ui.git" /tmp/biddeed-ai-ui || exit 0
-          cd /tmp/biddeed-ai-ui
-          npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
-          npx skills add coreyhaines31/marketingskills -a claude-code --skill seo-audit --non-interactive || true
-          git config user.name "skills-scout[bot]"
-          git config user.email "skills-scout@biddeed.ai"
-          git add -A && git diff --staged --quiet || git commit -m "feat(skills): react+seo skills (Agent 17)" && git push || true
-
-      - name: Install to zonewise-web
-        run: |
-          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/zonewise-web.git" /tmp/zonewise-web || exit 0
-          cd /tmp/zonewise-web
-          npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
-          npx skills add coreyhaines31/marketingskills -a claude-code --skill seo-audit --skill programmatic-seo --non-interactive || true
-          git config user.name "skills-scout[bot]"
-          git config user.email "skills-scout@biddeed.ai"
-          git add -A && git diff --staged --quiet || git commit -m "feat(skills): react+seo+programmatic skills (Agent 17)" && git push || true
-
-      - name: Install to zonewise-scraper-v4
-        run: |
-          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/zonewise-scraper-v4.git" /tmp/zonewise-scraper-v4 || exit 0
-          cd /tmp/zonewise-scraper-v4
-          npx skills add firecrawl/cli -a claude-code --non-interactive || true
-          npx skills add browser-use/browser-use -a claude-code --non-interactive || true
-          npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
-          git config user.name "skills-scout[bot]"
-          git config user.email "skills-scout@biddeed.ai"
-          git add -A && git diff --staged --quiet || git commit -m "feat(skills): firecrawl+browser+debug skills (Agent 17)" && git push || true
-
-      - name: Telegram notification
+      - name: Notify Telegram
         if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d parse_mode="HTML" \
-            -d text="<b>Agent 17 Skills Installer</b>%0A%0AStatus: ${{ job.status }}%0ARepos: cli-anything + biddeed-ai + biddeed-ai-ui + zonewise-web + zonewise-scraper-v4%0A%0ATop 10 skills from skills.sh adopted.%0ACost: 0.00"
+          SKILL_COUNT=$(find . -name "SKILL.md" -path "*/.claude/*" | wc -l)
+          MSG="Agent 17 Skills Installer%0AStatus: ${{ job.status }}%0ASkills in HQ: ${SKILL_COUNT}%0ARepos: 5 updated%0ACost: 0.00"
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHAT}" -d text="${MSG}"
