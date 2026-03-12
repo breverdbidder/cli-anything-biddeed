@@ -59,7 +59,7 @@ def sb_count_by_jurisdiction():
         if not rows:
             break
         for r in rows:
-            j = (r.get("jurisdiction") or "unknown").strip().lower()
+            j = (r.get("jurisdiction") or "unknown").strip().lower().replace(" ", "_")
             jurisdictions[j] = jurisdictions.get(j, 0) + 1
         offset += len(rows)
         if len(rows) < 5000:
@@ -83,21 +83,21 @@ def phase1_audit():
     targets = {
         "unincorporated": 75350,
         "melbourne": 62135,
-        "palm bay": 78697,
+        "palm_bay": 78697,
         "titusville": 28118,
         "cocoa": 29882,
         "rockledge": 17869,
-        "west melbourne": 10365,
-        "cocoa beach": 10843,
-        "satellite beach": 8524,
-        "melbourne beach": 7337,
-        "cape canaveral": 7355,
+        "west_melbourne": 10365,
+        "cocoa_beach": 10843,
+        "satellite_beach": 8524,
+        "melbourne_beach": 7337,
+        "cape_canaveral": 7355,
         "indialantic": 5205,
-        "indian harbour beach": 4496,
-        "grant valkaria": 3065,
+        "indian_harbour_beach": 4496,
+        "grant_valkaria": 3065,
         "malabar": 1430,
-        "palm shores": 433,
-        "melbourne village": 319,
+        "palm_shores": 433,
+        "melbourne_village": 319,
     }
     
     counts = sb_count_by_jurisdiction()
@@ -154,7 +154,7 @@ def phase2_complete_melbourne():
     while True:
         try:
             resp = client.get(f"{MELBOURNE_ADDR}/query", params={
-                "where": "ZONE_ALL IS NOT NULL AND ZONE_ALL <> '' AND CITYYN = 'Y'",
+                "where": "ZONE_ALL IS NOT NULL AND ZONE_ALL <> '' AND CITYYN = 'Yes'",
                 "outFields": "TaxAcct,ZONE_ALL,FLUM,Address,SiteCity,SiteZip5,Lat,Long",
                 "returnGeometry": "false",
                 "resultOffset": offset,
