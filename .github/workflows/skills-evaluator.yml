@@ -1,0 +1,79 @@
+name: Skills Evaluator — Agent 17
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'  # Weekly Sunday 6AM UTC (1AM EST)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install deps
+        run: pip install psycopg2-binary
+      
+      - name: Create Supabase table
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          python3 -c "
+          import psycopg2
+          conn = psycopg2.connect(
+              host='aws-0-us-east-1.pooler.supabase.com',
+              port=6543,
+              user='postgres.mocerqjnksmhcjzxrewo',
+              password='${SUPABASE_DB_PASSWORD}',
+              dbname='postgres'
+          )
+          conn.autocommit = True
+          cur = conn.cursor()
+          cur.execute('''
+            CREATE TABLE IF NOT EXISTS skills_catalog (
+              id TEXT PRIMARY KEY,
+              repo TEXT NOT NULL,
+              skill_name TEXT NOT NULL,
+              score INTEGER DEFAULT 0,
+              category TEXT DEFAULT 'unknown',
+              status TEXT DEFAULT 'SKIP',
+              reason TEXT,
+              content_hash TEXT,
+              evaluated_at TIMESTAMPTZ DEFAULT NOW(),
+              installed_repos TEXT[] DEFAULT '{}',
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_skills_score ON skills_catalog(score DESC);
+            CREATE INDEX IF NOT EXISTS idx_skills_status ON skills_catalog(status);
+            CREATE INDEX IF NOT EXISTS idx_skills_category ON skills_catalog(category);
+          ''')
+          cur.close()
+          conn.close()
+          print('✅ skills_catalog table ready')
+          " || echo "⚠️ Table creation skipped (may already exist)"
+      
+      - name: Run evaluator
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python3 scripts/evaluate_skills_v2.py
+      
+      - name: Notify Telegram
+        if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="Agent 17 Skills Evaluator%0AStatus: ${{ job.status }}%0A660 skills scored → Supabase skills_catalog"
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id="${TG_CHAT}" -d text="${MSG}" || true
