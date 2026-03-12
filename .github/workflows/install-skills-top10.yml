@@ -1,16 +1,15 @@
 name: Skills Installer Top 10
 
 on:
+  push:
+    paths:
+      - '.skills-install-trigger'
   workflow_dispatch:
     inputs:
       mode:
         description: Run mode
-        required: true
+        required: false
         default: install-all
-        type: choice
-        options:
-          - install-all
-          - verify-only
 
 jobs:
   install-all-skills:
@@ -29,34 +28,27 @@ jobs:
         run: npm install -g skills
 
       - name: Install orchestration skills
-        run: |
-          npx skills add obra/superpowers -a claude-code --non-interactive || true
+        run: npx skills add obra/superpowers -a claude-code --non-interactive || true
 
       - name: Install supabase skills
-        run: |
-          npx skills add supabase/agent-skills -a claude-code --non-interactive || true
+        run: npx skills add supabase/agent-skills -a claude-code --non-interactive || true
 
       - name: Install firecrawl skills
-        run: |
-          npx skills add firecrawl/cli -a claude-code --non-interactive || true
+        run: npx skills add firecrawl/cli -a claude-code --non-interactive || true
 
       - name: Install browser-use skills
-        run: |
-          npx skills add browser-use/browser-use -a claude-code --non-interactive || true
+        run: npx skills add browser-use/browser-use -a claude-code --non-interactive || true
 
       - name: Install frontend skills
-        run: |
-          npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
+        run: npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
 
       - name: Install marketing skills
-        run: |
-          npx skills add coreyhaines31/marketingskills -a claude-code --non-interactive || true
+        run: npx skills add coreyhaines31/marketingskills -a claude-code --non-interactive || true
 
       - name: Verify installed skills
         run: |
           echo "=== Installed Skills ==="
           find . -name "SKILL.md" -path "*/.claude/*" | sort
-          echo "=== Count ==="
           find . -name "SKILL.md" -path "*/.claude/*" | wc -l
 
       - name: Commit to this repo
@@ -64,54 +56,56 @@ jobs:
           git config user.name "skills-scout[bot]"
           git config user.email "skills-scout@biddeed.ai"
           git add -A
-          git diff --staged --quiet || git commit -m "feat(skills): install top 10 assessed skills from skills.sh (Agent 17)"
+          git diff --staged --quiet || git commit -m "feat(skills): install top 10 assessed skills (Agent 17)"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
 
-      - name: Install to other repos
+      - name: Install to biddeed-ai
         run: |
-          REPOS="biddeed-ai biddeed-ai-ui zonewise-web zonewise-scraper-v4"
-          for repo in $REPOS; do
-            echo "--- Installing to $repo ---"
-            git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/${repo}.git" "/tmp/${repo}" || continue
-            cd "/tmp/${repo}"
-            
-            npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
-            
-            if [ "$repo" = "biddeed-ai" ]; then
-              npx skills add supabase/agent-skills -a claude-code --non-interactive || true
-            fi
-            if [ "$repo" = "biddeed-ai-ui" ] || [ "$repo" = "zonewise-web" ]; then
-              npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
-              npx skills add coreyhaines31/marketingskills -a claude-code --skill seo-audit --non-interactive || true
-            fi
-            if [ "$repo" = "zonewise-web" ]; then
-              npx skills add coreyhaines31/marketingskills -a claude-code --skill programmatic-seo --non-interactive || true
-            fi
-            if [ "$repo" = "zonewise-scraper-v4" ]; then
-              npx skills add firecrawl/cli -a claude-code --non-interactive || true
-              npx skills add browser-use/browser-use -a claude-code --non-interactive || true
-            fi
-            
-            git config user.name "skills-scout[bot]"
-            git config user.email "skills-scout@biddeed.ai"
-            git add -A
-            git diff --staged --quiet || git commit -m "feat(skills): install assessed skills (Agent 17)"
-            git push || true
-            cd /tmp
-            echo "Done: $repo"
-          done
+          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/biddeed-ai.git" /tmp/biddeed-ai || exit 0
+          cd /tmp/biddeed-ai
+          npx skills add supabase/agent-skills -a claude-code --non-interactive || true
+          npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
+          git config user.name "skills-scout[bot]"
+          git config user.email "skills-scout@biddeed.ai"
+          git add -A && git diff --staged --quiet || git commit -m "feat(skills): supabase+debugging skills (Agent 17)" && git push || true
+
+      - name: Install to biddeed-ai-ui
+        run: |
+          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/biddeed-ai-ui.git" /tmp/biddeed-ai-ui || exit 0
+          cd /tmp/biddeed-ai-ui
+          npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
+          npx skills add coreyhaines31/marketingskills -a claude-code --skill seo-audit --non-interactive || true
+          git config user.name "skills-scout[bot]"
+          git config user.email "skills-scout@biddeed.ai"
+          git add -A && git diff --staged --quiet || git commit -m "feat(skills): react+seo skills (Agent 17)" && git push || true
+
+      - name: Install to zonewise-web
+        run: |
+          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/zonewise-web.git" /tmp/zonewise-web || exit 0
+          cd /tmp/zonewise-web
+          npx skills add vercel-labs/agent-skills -a claude-code --non-interactive || true
+          npx skills add coreyhaines31/marketingskills -a claude-code --skill seo-audit --skill programmatic-seo --non-interactive || true
+          git config user.name "skills-scout[bot]"
+          git config user.email "skills-scout@biddeed.ai"
+          git add -A && git diff --staged --quiet || git commit -m "feat(skills): react+seo+programmatic skills (Agent 17)" && git push || true
+
+      - name: Install to zonewise-scraper-v4
+        run: |
+          git clone "https://x-access-token:${{ secrets.GH_PAT4 }}@github.com/breverdbidder/zonewise-scraper-v4.git" /tmp/zonewise-scraper-v4 || exit 0
+          cd /tmp/zonewise-scraper-v4
+          npx skills add firecrawl/cli -a claude-code --non-interactive || true
+          npx skills add browser-use/browser-use -a claude-code --non-interactive || true
+          npx skills add obra/superpowers -a claude-code --skill systematic-debugging --non-interactive || true
+          git config user.name "skills-scout[bot]"
+          git config user.email "skills-scout@biddeed.ai"
+          git add -A && git diff --staged --quiet || git commit -m "feat(skills): firecrawl+browser+debug skills (Agent 17)" && git push || true
 
       - name: Telegram notification
         if: always()
         run: |
-          SKILL_COUNT=$(find . -name "SKILL.md" -path "*/.claude/*" | wc -l)
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage"             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}"             -d parse_mode="HTML"             -d text="<b>Agent 17 Skills Installer</b>
-
-Status: ${{ job.status }}
-Skills in HQ: ${SKILL_COUNT}
-Repos updated: cli-anything + biddeed-ai + biddeed-ai-ui + zonewise-web + zonewise-scraper-v4
-
-Top 10 skills from skills.sh adopted.
-Cost: 0.00"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="<b>Agent 17 Skills Installer</b>%0A%0AStatus: ${{ job.status }}%0ARepos: cli-anything + biddeed-ai + biddeed-ai-ui + zonewise-web + zonewise-scraper-v4%0A%0ATop 10 skills from skills.sh adopted.%0ACost: 0.00"
