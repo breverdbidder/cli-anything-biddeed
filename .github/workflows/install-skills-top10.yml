@@ -15,9 +15,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT4 }}
-          persist-credentials: true
 
       - uses: actions/setup-node@v4
         with:
@@ -58,8 +55,6 @@ jobs:
           git add -A
           git diff --staged --quiet || git commit -m "feat(skills): install top 10 skills from skills.sh (Agent 17)"
           git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
 
       - name: Notify Telegram
         if: always()
