@@ -6,12 +6,18 @@ on:
       - '.skills-install-trigger'
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   install-all-skills:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT4 }}
+          persist-credentials: true
 
       - uses: actions/setup-node@v4
         with:
@@ -39,19 +45,28 @@ jobs:
         run: npx skills add coreyhaines31/marketingskills -a claude-code --non-interactive || true
 
       - name: Verify
-        run: find . -name "SKILL.md" -path "*/.claude/*" | sort
+        run: |
+          echo "=== Installed Skills ==="
+          find . -name "SKILL.md" -path "*/.claude/*" | sort
+          echo "=== Count ==="
+          find . -name "SKILL.md" -path "*/.claude/*" | wc -l
 
-      - name: Commit
+      - name: Commit and push
         run: |
           git config user.name "skills-scout[bot]"
           git config user.email "skills-scout@biddeed.ai"
           git add -A
-          git diff --staged --quiet || git commit -m "feat(skills): install top 10 skills (Agent 17)"
+          git diff --staged --quiet || git commit -m "feat(skills): install top 10 skills from skills.sh (Agent 17)"
           git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT4 }}
 
-      - name: Notify
+      - name: Notify Telegram
         if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          echo "Skills Installer completed with status ${{ job.status }}"
           SKILL_COUNT=$(find . -name "SKILL.md" -path "*/.claude/*" | wc -l)
-          echo "Skills installed: ${SKILL_COUNT}"
+          MSG="Agent 17 Skills Installer%0AStatus: ${{ job.status }}%0ASkills installed: ${SKILL_COUNT}%0ACost: 0.00"
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHAT}" -d text="${MSG}" || true
