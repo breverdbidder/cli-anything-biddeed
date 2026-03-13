@@ -27,7 +27,7 @@ jobs:
           port: 22
           command_timeout: 170m
           script: |
-            set -e
+            set -euo pipefail
             echo "=== Summit: Librarian Context Manager ==="
             echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "Mode: ${{ github.event.inputs.mode }}"
@@ -35,7 +35,6 @@ jobs:
             # === PHASE 0: Ensure Node.js + Claude CLI ===
             echo "=== Phase 0: Environment Bootstrap ==="
 
-            # Install Node.js if missing
             if ! command -v node &>/dev/null; then
               echo "Installing Node.js 20 LTS..."
               curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -46,12 +45,10 @@ jobs:
               echo "Node already installed: $(node --version)"
             fi
 
-            # Set npm global path
             mkdir -p /root/.npm-global
             npm config set prefix '/root/.npm-global'
             export PATH="/root/.npm-global/bin:$PATH"
 
-            # Install Claude CLI if missing
             if ! command -v claude &>/dev/null; then
               echo "Installing Claude Code CLI..."
               npm install -g @anthropic-ai/claude-code 2>&1 | tail -10
@@ -64,6 +61,7 @@ jobs:
             # === DIAGNOSE MODE ===
             if [ "${{ github.event.inputs.mode }}" = "diagnose" ]; then
               echo "=== DIAGNOSE MODE ==="
+              echo "--- Environment ---"
               echo "Node: $(node --version)"
               echo "npm: $(npm --version)"
               echo "Claude: $($CLAUDE_BIN --version 2>&1)"
@@ -71,6 +69,30 @@ jobs:
               echo "Docker: $(docker ps --format '{{.Names}}' 2>/dev/null || echo 'N/A')"
               echo "Disk: $(df -h / | tail -1)"
               echo "Memory: $(free -h | grep Mem)"
+
+              echo "--- Claude Auth Status ---"
+              ls -la /root/.claude* 2>/dev/null || echo "No .claude config found in /root"
+              ls -la /home/*/.claude* 2>/dev/null || echo "No .claude config found in /home"
+              cat /root/.claude/.credentials.json 2>/dev/null | head -5 || echo "No credentials file"
+              echo "ANTHROPIC_API_KEY set: ${ANTHROPIC_API_KEY:+YES}" || echo "ANTHROPIC_API_KEY: NOT SET"
+
+              echo "--- Previous Build Log ---"
+              if [ -f /tmp/librarian-build.log ]; then
+                echo "Log size: $(wc -l < /tmp/librarian-build.log) lines"
+                cat /tmp/librarian-build.log
+              else
+                echo "No build log found at /tmp/librarian-build.log"
+              fi
+
+              echo "--- Repo Status ---"
+              if [ -d /opt/cli-anything-biddeed ]; then
+                cd /opt/cli-anything-biddeed
+                echo "Last commit: $(git log -1 --oneline 2>/dev/null || echo 'N/A')"
+                echo "Branch: $(git branch --show-current 2>/dev/null || echo 'N/A')"
+                echo "Remote: $(git remote -v 2>/dev/null | head -1)"
+              else
+                echo "Repo not cloned yet"
+              fi
               exit 0
             fi
 
