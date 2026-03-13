@@ -9,8 +9,7 @@ on:
         type: choice
         options:
           - full
-          - spec-only
-          - test-only
+          - diagnose
 
 jobs:
   librarian-build:
@@ -30,30 +29,93 @@ jobs:
             set -e
             echo "=== Summit: Librarian Context Manager ==="
             echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Mode: ${{ github.event.inputs.mode }}"
+
+            # Find claude binary
+            echo "=== Locating Claude CLI ==="
+            CLAUDE_BIN=""
+            for p in \
+              /root/.npm-global/bin/claude \
+              /usr/local/bin/claude \
+              /root/.local/bin/claude \
+              /root/.nvm/versions/node/*/bin/claude \
+              /home/*/.npm-global/bin/claude \
+              /home/*/.local/bin/claude; do
+              if [ -x "$p" ] 2>/dev/null; then
+                CLAUDE_BIN="$p"
+                echo "Found: $CLAUDE_BIN"
+                break
+              fi
+            done
+
+            # Fallback: search with which/find
+            if [ -z "$CLAUDE_BIN" ]; then
+              echo "Searching PATH..."
+              export PATH="$PATH:/root/.npm-global/bin:/root/.local/bin:/root/.nvm/versions/node/$(ls /root/.nvm/versions/node/ 2>/dev/null | tail -1)/bin"
+              CLAUDE_BIN=$(which claude 2>/dev/null || true)
+            fi
+
+            if [ -z "$CLAUDE_BIN" ]; then
+              echo "Broad search..."
+              CLAUDE_BIN=$(find / -name "claude" -type f -executable 2>/dev/null | head -1 || true)
+            fi
+
+            if [ -z "$CLAUDE_BIN" ]; then
+              echo "❌ Claude CLI not found. Attempting install..."
+              # Try npm global install
+              if command -v npm &>/dev/null; then
+                npm install -g @anthropic-ai/claude-code 2>&1 | tail -5
+                CLAUDE_BIN=$(which claude 2>/dev/null || true)
+              fi
+            fi
+
+            if [ -z "$CLAUDE_BIN" ]; then
+              echo "❌ FATAL: Cannot find or install Claude CLI"
+              echo "Node: $(which node 2>/dev/null || echo 'not found')"
+              echo "npm: $(which npm 2>/dev/null || echo 'not found')"
+              echo "PATH: $PATH"
+              exit 1
+            fi
+
+            echo "Using: $CLAUDE_BIN"
+            $CLAUDE_BIN --version 2>&1 || true
+
+            # Diagnose mode - just check environment
+            if [ "${{ github.event.inputs.mode }}" = "diagnose" ]; then
+              echo "=== DIAGNOSE MODE ==="
+              echo "Node: $(node --version 2>/dev/null || echo N/A)"
+              echo "npm: $(npm --version 2>/dev/null || echo N/A)"
+              echo "Claude: $($CLAUDE_BIN --version 2>&1 || echo N/A)"
+              echo "CLIProxyAPI: $(curl -s http://127.0.0.1:8317/health 2>/dev/null || echo 'not running')"
+              echo "Supabase: $(curl -s -o /dev/null -w '%{http_code}' https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/ -H 'apikey: placeholder' 2>/dev/null || echo 'N/A')"
+              echo "Disk: $(df -h / | tail -1)"
+              echo "Memory: $(free -h | grep Mem)"
+              exit 0
+            fi
 
             # Ensure repo is current
             REPO_DIR="/opt/cli-anything-biddeed"
             if [ -d "$REPO_DIR" ]; then
               cd "$REPO_DIR"
-              git pull origin main
+              git fetch origin main
+              git reset --hard origin/main
             else
               git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/cli-anything-biddeed.git "$REPO_DIR"
               cd "$REPO_DIR"
             fi
 
             echo "=== Spec file ==="
-            cat docs/plans/LIBRARIAN-001.md | head -20
+            head -20 docs/plans/LIBRARIAN-001.md
 
             echo "=== Launching Claude Code ==="
             cd "$REPO_DIR"
 
-            # Use --enable-auto-mode (Mar 12+ 2026)
-            claude --enable-auto-mode \
+            $CLAUDE_BIN --enable-auto-mode \
               --print \
               "Read docs/plans/LIBRARIAN-001.md and implement the Librarian context manager harness. \
                Follow cli-anything HARNESS.md 7-phase pipeline. \
                All LLM calls via CLIProxyAPI at 127.0.0.1:8317. \
-               Create Supabase chat_index table via REST API. \
+               Create Supabase chat_index table via REST API (URL: https://mocerqjnksmhcjzxrewo.supabase.co). \
                Run tests before committing. \
                Push all changes to origin/main when done." \
               2>&1 | tee /tmp/librarian-build.log
@@ -70,4 +132,3 @@ jobs:
             🏔️ Summit: Librarian Context Manager
             Status: ${{ job.status }}
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            Time: ${{ github.event.head_commit.timestamp || 'manual dispatch' }}
