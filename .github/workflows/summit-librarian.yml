@@ -10,6 +10,7 @@ on:
         options:
           - full
           - diagnose
+          - install-only
 
 jobs:
   librarian-build:
@@ -17,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - name: "SSH into Hetzner & Execute Claude Code"
+      - name: "SSH into Hetzner & Execute"
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: 87.99.129.125
@@ -31,69 +32,56 @@ jobs:
             echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "Mode: ${{ github.event.inputs.mode }}"
 
-            # Find claude binary
-            echo "=== Locating Claude CLI ==="
-            CLAUDE_BIN=""
-            for p in \
-              /root/.npm-global/bin/claude \
-              /usr/local/bin/claude \
-              /root/.local/bin/claude \
-              /root/.nvm/versions/node/*/bin/claude \
-              /home/*/.npm-global/bin/claude \
-              /home/*/.local/bin/claude; do
-              if [ -x "$p" ] 2>/dev/null; then
-                CLAUDE_BIN="$p"
-                echo "Found: $CLAUDE_BIN"
-                break
-              fi
-            done
+            # === PHASE 0: Ensure Node.js + Claude CLI ===
+            echo "=== Phase 0: Environment Bootstrap ==="
 
-            # Fallback: search with which/find
-            if [ -z "$CLAUDE_BIN" ]; then
-              echo "Searching PATH..."
-              export PATH="$PATH:/root/.npm-global/bin:/root/.local/bin:/root/.nvm/versions/node/$(ls /root/.nvm/versions/node/ 2>/dev/null | tail -1)/bin"
-              CLAUDE_BIN=$(which claude 2>/dev/null || true)
+            # Install Node.js if missing
+            if ! command -v node &>/dev/null; then
+              echo "Installing Node.js 20 LTS..."
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              apt-get install -y nodejs
+              echo "Node: $(node --version)"
+              echo "npm: $(npm --version)"
+            else
+              echo "Node already installed: $(node --version)"
             fi
 
-            if [ -z "$CLAUDE_BIN" ]; then
-              echo "Broad search..."
-              CLAUDE_BIN=$(find / -name "claude" -type f -executable 2>/dev/null | head -1 || true)
+            # Set npm global path
+            mkdir -p /root/.npm-global
+            npm config set prefix '/root/.npm-global'
+            export PATH="/root/.npm-global/bin:$PATH"
+
+            # Install Claude CLI if missing
+            if ! command -v claude &>/dev/null; then
+              echo "Installing Claude Code CLI..."
+              npm install -g @anthropic-ai/claude-code 2>&1 | tail -10
             fi
 
-            if [ -z "$CLAUDE_BIN" ]; then
-              echo "❌ Claude CLI not found. Attempting install..."
-              # Try npm global install
-              if command -v npm &>/dev/null; then
-                npm install -g @anthropic-ai/claude-code 2>&1 | tail -5
-                CLAUDE_BIN=$(which claude 2>/dev/null || true)
-              fi
-            fi
-
-            if [ -z "$CLAUDE_BIN" ]; then
-              echo "❌ FATAL: Cannot find or install Claude CLI"
-              echo "Node: $(which node 2>/dev/null || echo 'not found')"
-              echo "npm: $(which npm 2>/dev/null || echo 'not found')"
-              echo "PATH: $PATH"
-              exit 1
-            fi
-
-            echo "Using: $CLAUDE_BIN"
+            CLAUDE_BIN=$(which claude)
+            echo "Claude CLI: $CLAUDE_BIN"
             $CLAUDE_BIN --version 2>&1 || true
 
-            # Diagnose mode - just check environment
+            # === DIAGNOSE MODE ===
             if [ "${{ github.event.inputs.mode }}" = "diagnose" ]; then
               echo "=== DIAGNOSE MODE ==="
-              echo "Node: $(node --version 2>/dev/null || echo N/A)"
-              echo "npm: $(npm --version 2>/dev/null || echo N/A)"
-              echo "Claude: $($CLAUDE_BIN --version 2>&1 || echo N/A)"
+              echo "Node: $(node --version)"
+              echo "npm: $(npm --version)"
+              echo "Claude: $($CLAUDE_BIN --version 2>&1)"
               echo "CLIProxyAPI: $(curl -s http://127.0.0.1:8317/health 2>/dev/null || echo 'not running')"
-              echo "Supabase: $(curl -s -o /dev/null -w '%{http_code}' https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/ -H 'apikey: placeholder' 2>/dev/null || echo 'N/A')"
+              echo "Docker: $(docker ps --format '{{.Names}}' 2>/dev/null || echo 'N/A')"
               echo "Disk: $(df -h / | tail -1)"
               echo "Memory: $(free -h | grep Mem)"
               exit 0
             fi
 
-            # Ensure repo is current
+            # === INSTALL-ONLY MODE ===
+            if [ "${{ github.event.inputs.mode }}" = "install-only" ]; then
+              echo "=== INSTALL-ONLY: Environment ready ==="
+              exit 0
+            fi
+
+            # === PHASE 1: Repo Setup ===
+            echo "=== Phase 1: Repo Setup ==="
             REPO_DIR="/opt/cli-anything-biddeed"
             if [ -d "$REPO_DIR" ]; then
               cd "$REPO_DIR"
@@ -104,10 +92,11 @@ jobs:
               cd "$REPO_DIR"
             fi
 
-            echo "=== Spec file ==="
-            head -20 docs/plans/LIBRARIAN-001.md
+            echo "Spec file present:"
+            head -5 docs/plans/LIBRARIAN-001.md
 
-            echo "=== Launching Claude Code ==="
+            # === PHASE 2: Claude Code Execution ===
+            echo "=== Phase 2: Claude Code Autonomous Build ==="
             cd "$REPO_DIR"
 
             $CLAUDE_BIN --enable-auto-mode \
@@ -117,6 +106,7 @@ jobs:
                All LLM calls via CLIProxyAPI at 127.0.0.1:8317. \
                Create Supabase chat_index table via REST API (URL: https://mocerqjnksmhcjzxrewo.supabase.co). \
                Run tests before committing. \
+               Git remote is already configured with auth. \
                Push all changes to origin/main when done." \
               2>&1 | tee /tmp/librarian-build.log
 
@@ -131,4 +121,5 @@ jobs:
           message: |
             🏔️ Summit: Librarian Context Manager
             Status: ${{ job.status }}
+            Mode: ${{ github.event.inputs.mode }}
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
