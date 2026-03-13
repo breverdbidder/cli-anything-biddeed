@@ -1,0 +1,73 @@
+name: "Summit: Librarian Context Manager"
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution mode'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - spec-only
+          - test-only
+
+jobs:
+  librarian-build:
+    name: "Build Librarian Harness on Hetzner"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: "SSH into Hetzner & Execute Claude Code"
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 87.99.129.125
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: 22
+          command_timeout: 170m
+          script: |
+            set -e
+            echo "=== Summit: Librarian Context Manager ==="
+            echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+            # Ensure repo is current
+            REPO_DIR="/opt/cli-anything-biddeed"
+            if [ -d "$REPO_DIR" ]; then
+              cd "$REPO_DIR"
+              git pull origin main
+            else
+              git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/cli-anything-biddeed.git "$REPO_DIR"
+              cd "$REPO_DIR"
+            fi
+
+            echo "=== Spec file ==="
+            cat docs/plans/LIBRARIAN-001.md | head -20
+
+            echo "=== Launching Claude Code ==="
+            cd "$REPO_DIR"
+
+            # Use --enable-auto-mode (Mar 12+ 2026)
+            claude --enable-auto-mode \
+              --print \
+              "Read docs/plans/LIBRARIAN-001.md and implement the Librarian context manager harness. \
+               Follow cli-anything HARNESS.md 7-phase pipeline. \
+               All LLM calls via CLIProxyAPI at 127.0.0.1:8317. \
+               Create Supabase chat_index table via REST API. \
+               Run tests before committing. \
+               Push all changes to origin/main when done." \
+              2>&1 | tee /tmp/librarian-build.log
+
+            echo "=== Build Complete: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
+
+      - name: "Notify via Telegram"
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🏔️ Summit: Librarian Context Manager
+            Status: ${{ job.status }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Time: ${{ github.event.head_commit.timestamp || 'manual dispatch' }}
