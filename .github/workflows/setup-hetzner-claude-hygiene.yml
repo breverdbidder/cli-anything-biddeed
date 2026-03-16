@@ -80,3 +80,4 @@ MDEOF
             ls /opt/biddeed/
             echo ""
             echo "STATUS: Server prepped. Run 'claude login' via SSH to authenticate once."
+# deployed v2
