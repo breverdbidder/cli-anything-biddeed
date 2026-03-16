@@ -6,89 +6,162 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Run Firecrawl test
+      - name: Run Firecrawl transcript extraction
         env:
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
-          cat > /tmp/test.py << 'PYEOF'
+          python3 << 'PYEOF'
           import json, os, urllib.request, ssl
 
           ctx = ssl.create_default_context()
           ctx.check_hostname = False
           ctx.verify_mode = ssl.CERT_NONE
-
           KEY = os.environ["FIRECRAWL_API_KEY"]
-          video_id = "2kbINqpluM0"
 
-          def fc(url, data):
+          def fc(data):
               body = json.dumps(data).encode()
-              req = urllib.request.Request(url, data=body, headers={
+              req = urllib.request.Request("https://api.firecrawl.dev/v2/scrape", data=body, headers={
                   "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"
               }, method="POST")
               resp = urllib.request.urlopen(req, context=ctx, timeout=120)
               return json.loads(resp.read().decode())
 
-          # Test 1: AI extract for transcript
-          print("TEST 1: JSON extract with transcript prompt")
+          vid = "2kbINqpluM0"
+
+          # Attempt 1: Browser actions — expand description, click "Show transcript"
+          print("=== ATTEMPT 1: Browser actions on YouTube ===")
           try:
-              r = fc("https://api.firecrawl.dev/v2/scrape", {
-                  "url": f"https://www.youtube.com/watch?v={video_id}",
-                  "formats": [{"type": "json", "prompt": "Extract the complete video transcript/captions. Return all spoken words as a field called transcript. Also return the title."}],
-                  "timeout": 90000
+              r = fc({
+                  "url": f"https://www.youtube.com/watch?v={vid}",
+                  "formats": ["markdown"],
+                  "actions": [
+                      {"type": "wait", "milliseconds": 4000},
+                      {"type": "click", "selector": "tp-yt-paper-button#expand"},
+                      {"type": "wait", "milliseconds": 2000},
+                      {"type": "click", "selector": "button.yt-spec-button-shape-next--outline[aria-label='Show transcript']"},
+                      {"type": "wait", "milliseconds": 3000},
+                      {"type": "scrape"}
+                  ],
+                  "timeout": 60000
               })
-              if r.get("success"):
-                  j = r["data"].get("json", {})
-                  print(f"  JSON keys: {list(j.keys()) if isinstance(j, dict) else 'not dict'}")
-                  t = j.get("transcript", "") if isinstance(j, dict) else ""
-                  print(f"  Transcript length: {len(t)}")
-                  if t:
-                      print(f"  First 500: {t[:500]}")
-                      with open("/tmp/transcript.txt", "w") as f:
-                          f.write(t)
-              else:
-                  print(f"  Failed: {json.dumps(r)[:300]}")
+              md = r.get("data", {}).get("markdown", "") if r.get("success") else ""
+              print(f"  Result: {len(md)} chars")
+              # Look for transcript-like content (timestamped lines)
+              import re
+              ts_lines = re.findall(r'\d+:\d+.*', md)
+              print(f"  Timestamped lines found: {len(ts_lines)}")
+              if ts_lines:
+                  for line in ts_lines[:5]:
+                      print(f"    {line[:100]}")
+              with open("/tmp/attempt1.txt", "w") as f:
+                  f.write(md)
           except Exception as e:
               print(f"  Error: {e}")
 
-          # Test 2: Browser actions to open transcript panel
-          print("\nTEST 2: Browser actions to click Show Transcript")
+          # Attempt 2: Use JS execute to extract captions from player
+          print("\n=== ATTEMPT 2: Execute JS to get player captions ===")
           try:
-              r = fc("https://api.firecrawl.dev/v2/scrape", {
-                  "url": f"https://www.youtube.com/watch?v={video_id}",
+              r = fc({
+                  "url": f"https://www.youtube.com/watch?v={vid}",
                   "formats": ["markdown"],
                   "actions": [
                       {"type": "wait", "milliseconds": 5000},
-                      {"type": "click", "selector": "#description-inline-expander tp-yt-paper-button#expand"},
-                      {"type": "wait", "milliseconds": 1000},
-                      {"type": "click", "selector": "ytd-video-description-transcript-section-renderer button"},
+                      {"type": "execute_javascript", "code": """
+                          // Try to get captions from the YouTube player
+                          const player = document.querySelector('#movie_player');
+                          if (player && player.getPlayerResponse) {
+                              const resp = player.getPlayerResponse();
+                              const tracks = resp?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+                              if (tracks.length > 0) {
+                                  const url = tracks[0].baseUrl;
+                                  const response = await fetch(url);
+                                  const text = await response.text();
+                                  document.title = 'TRANSCRIPT_START' + text + 'TRANSCRIPT_END';
+                              }
+                          }
+                          // Also try getting from ytInitialPlayerResponse
+                          const scripts = document.querySelectorAll('script');
+                          for (const s of scripts) {
+                              if (s.textContent.includes('captionTracks')) {
+                                  const match = s.textContent.match(/"baseUrl":"(https:\/\/www\.youtube\.com\/api\/timedtext[^"]+)"/);
+                                  if (match) {
+                                      const url = match[1].replace(/\\\\u0026/g, '&');
+                                      const response = await fetch(url);
+                                      const text = await response.text();
+                                      document.title = 'CAPTIONS:' + text.substring(0, 50000);
+                                      break;
+                                  }
+                              }
+                          }
+                      """},
                       {"type": "wait", "milliseconds": 3000},
                       {"type": "scrape"}
                   ],
                   "timeout": 90000
               })
-              if r.get("success"):
-                  md = r["data"].get("markdown", "")
-                  print(f"  Markdown: {len(md)} chars")
-                  print(f"  Preview: {md[:500]}")
-                  with open("/tmp/transcript_actions.txt", "w") as f:
-                      f.write(md)
-              else:
-                  print(f"  Failed: {json.dumps(r)[:300]}")
+              md = r.get("data", {}).get("markdown", "") if r.get("success") else ""
+              print(f"  Result: {len(md)} chars")
+              if "TRANSCRIPT_START" in md or "CAPTIONS:" in md:
+                  print("  ✅ GOT CAPTIONS DATA!")
+              # Check page title for injected captions
+              title = r.get("data", {}).get("metadata", {}).get("title", "")
+              if "CAPTIONS:" in title or "TRANSCRIPT_START" in title:
+                  print(f"  ✅ Captions in title! Length: {len(title)}")
+                  with open("/tmp/captions_raw.txt", "w") as f:
+                      f.write(title)
+              with open("/tmp/attempt2.txt", "w") as f:
+                  f.write(md)
           except Exception as e:
               print(f"  Error: {e}")
-          PYEOF
-          python3 /tmp/test.py
 
-      - name: Save results
+          # Attempt 3: Scrape the raw timedtext URL from page source
+          print("\n=== ATTEMPT 3: Extract timedtext URL from page ===")
+          try:
+              r = fc({
+                  "url": f"https://www.youtube.com/watch?v={vid}",
+                  "formats": ["rawHtml"],
+                  "timeout": 60000
+              })
+              html = r.get("data", {}).get("rawHtml", "") if r.get("success") else ""
+              print(f"  Raw HTML: {len(html)} chars")
+              import re
+              # Find timedtext URLs
+              urls = re.findall(r'"(https://www\.youtube\.com/api/timedtext[^"]+)"', html)
+              urls = [u.replace('\\u0026', '&') for u in urls]
+              print(f"  Timedtext URLs found: {len(urls)}")
+              for u in urls[:3]:
+                  print(f"    {u[:120]}")
+              
+              if urls:
+                  # Fetch the first caption URL directly
+                  print("  Fetching captions...")
+                  cap_url = urls[0]
+                  req = urllib.request.Request(cap_url, headers={"User-Agent": "Mozilla/5.0"})
+                  resp = urllib.request.urlopen(req, context=ctx, timeout=15)
+                  caption_data = resp.read().decode()
+                  print(f"  ✅ Caption data: {len(caption_data)} chars")
+                  print(f"  Preview: {caption_data[:300]}")
+                  with open("/tmp/captions_direct.txt", "w") as f:
+                      f.write(caption_data)
+              
+              with open("/tmp/attempt3_urls.txt", "w") as f:
+                  f.write("\n".join(urls))
+          except Exception as e:
+              print(f"  Error: {e}")
+
+          PYEOF
+
+      - name: Save all results
         if: always()
         run: |
           mkdir -p output
-          cp /tmp/transcript*.txt output/ 2>/dev/null || echo "no files"
+          cp /tmp/attempt*.txt /tmp/captions*.txt output/ 2>/dev/null || true
           ls -la output/
+          for f in output/*; do echo "=== $f ===" && head -20 "$f" && echo "..."; done
 
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firecrawl-test
+          name: firecrawl-transcript
           path: output/
