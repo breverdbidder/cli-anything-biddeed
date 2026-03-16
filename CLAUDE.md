@@ -38,6 +38,7 @@ When I say "Summit" → execute immediately, no questions, no clarification
 - `/deal-intel` — process foreclosure documents into structured data
 - `/tldr` — end-of-session summary, updates memory.md
 - `/transcript` — YouTube video analysis via Hetzner pipeline
+- `/animated-ui` — Animated frontend builder for BidDeed.AI & ZoneWise.AI. 5-phase pipeline: Design System → 21st.dev components → Animation system → Assets → Build. Enforces house brand (navy #1E3A5F, orange #F59E0B, slate-950 #020617). Auto-deployed from breverdbidder/claude-skills-library to Hetzner /root/.claude/skills/
 
 ## Family Context (when relevant)
 - Wife Mariam: runs Property360 real estate, Protection Partners insurance, contracting
