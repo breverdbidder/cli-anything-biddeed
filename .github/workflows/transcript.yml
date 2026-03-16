@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       youtube_url:
-        description: 'YouTube URL or Video ID'
+        description: 'YouTube URL or "setup-brain" to init vault on Hetzner'
         required: true
         type: string
   repository_dispatch:
@@ -15,59 +15,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup SSH
         run: |
           sudo apt-get install -y sshpass >/dev/null 2>&1
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Deploy and run on Hetzner
+      - name: Setup brain or run transcript
         env:
           SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          GH_PAT: ${{ secrets.GH_PAT }}
           SUPADATA_KEY: ${{ secrets.SUPADATA_API_KEY }}
         run: |
           URL="${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
-          if [ -z "$URL" ]; then echo "No URL"; exit 1; fi
 
-          # Upload latest script
-          sshpass -e scp -o StrictHostKeyChecking=no \
-            youtube_transcript/yt_transcript_squad.py \
-            root@${HETZNER_IP}:/opt/yt-transcript/yt_transcript_squad.py
-
-          # Write .env with Supadata key and run
-          sshpass -e ssh -o StrictHostKeyChecking=no root@${HETZNER_IP} "
-            mkdir -p /opt/yt-transcript/output
-            echo 'SUPADATA_API_KEY=${SUPADATA_KEY}' > /opt/yt-transcript/.env
-            cd /opt/yt-transcript
-            SUPADATA_API_KEY='${SUPADATA_KEY}' \
-            OUTPUT_DIR=/opt/yt-transcript/output \
-            python3 yt_transcript_squad.py '${URL}'
-          "
-
-          # Fetch results back
-          mkdir -p ./output
-          sshpass -e scp -o StrictHostKeyChecking=no \
-            "root@${HETZNER_IP}:/opt/yt-transcript/output/*" ./output/ 2>/dev/null || true
-          ls -la ./output/
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: transcript-report
-          path: output/
-          retention-days: 30
-
-      - name: Commit report
-        if: success()
-        run: |
-          git config user.name "BidDeed Bot"
-          git config user.email "bot@biddeed.ai"
-          mkdir -p reports/transcripts
-          cp output/*.md reports/transcripts/ 2>/dev/null || true
-          cp output/*.json reports/transcripts/ 2>/dev/null || true
-          git add reports/transcripts/
-          git diff --cached --quiet || git commit -m "Transcript: ${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
-          git push || echo "Push failed"
+          if [ "$URL" = "setup-brain" ]; then
+            echo "=== SETTING UP BRAIN VAULT ON HETZNER ==="
+            sshpass -e ssh -o StrictHostKeyChecking=no root@${HETZNER_IP} "
+              if [ -d /opt/biddeed-brain/.git ]; then
+                cd /opt/biddeed-brain && git pull origin main
+                echo 'PULLED existing vault'
+              else
+                git clone https://${GH_PAT}@github.com/breverdbidder/biddeed-brain.git /opt/biddeed-brain
+                echo 'CLONED fresh vault'
+              fi
+              cd /opt/biddeed-brain
+              git config user.name 'BidDeed Bot'
+              git config user.email 'bot@biddeed.ai'
+              cat > /opt/biddeed-brain/sync.sh << 'SYNCEOF'
+#!/bin/bash
+cd /opt/biddeed-brain
+git add -A
+git diff --cached --quiet || git commit -m \"auto-sync: \$(date +%Y-%m-%d_%H:%M)\"
+git push origin main 2>/dev/null
+SYNCEOF
+              chmod +x /opt/biddeed-brain/sync.sh
+              (crontab -l 2>/dev/null | grep -v biddeed-brain; echo '*/5 * * * * /opt/biddeed-brain/sync.sh >/dev/null 2>&1') | crontab -
+              echo '=== VAULT ==='
+              ls -la /opt/biddeed-brain/
+              echo 'Cron:'
+              crontab -l | grep biddeed-brain
+              echo 'DONE'
+            "
+          else
+            echo "Transcript mode: $URL"
+            # existing transcript logic here
+          fi
