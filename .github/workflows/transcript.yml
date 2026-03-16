@@ -1,13 +1,15 @@
-name: "\U0001F3AC YouTube Transcript Squad"
+name: YouTube Transcript Squad
+
 on:
   workflow_dispatch:
     inputs:
       youtube_url:
-        description: 'YouTube URL or "setup-brain" to init vault on Hetzner'
+        description: YouTube URL or type setup-brain to init vault on Hetzner
         required: true
         type: string
   repository_dispatch:
     types: [youtube-transcript]
+
 jobs:
   transcribe:
     runs-on: ubuntu-latest
@@ -15,12 +17,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup SSH
         run: |
           sudo apt-get install -y sshpass >/dev/null 2>&1
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
-      - name: Setup brain or run transcript
+
+      - name: Run
         env:
           SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
@@ -28,6 +32,7 @@ jobs:
           SUPADATA_KEY: ${{ secrets.SUPADATA_API_KEY }}
         run: |
           URL="${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
+          if [ -z "$URL" ]; then echo "No URL"; exit 1; fi
 
           if [ "$URL" = "setup-brain" ]; then
             echo "=== SETTING UP BRAIN VAULT ON HETZNER ==="
@@ -51,13 +56,22 @@ git push origin main 2>/dev/null
 SYNCEOF
               chmod +x /opt/biddeed-brain/sync.sh
               (crontab -l 2>/dev/null | grep -v biddeed-brain; echo '*/5 * * * * /opt/biddeed-brain/sync.sh >/dev/null 2>&1') | crontab -
-              echo '=== VAULT ==='
+              echo '=== VAULT FILES ==='
               ls -la /opt/biddeed-brain/
-              echo 'Cron:'
-              crontab -l | grep biddeed-brain
-              echo 'DONE'
+              echo '=== CRON ==='
+              crontab -l | grep biddeed
+              echo '=== DONE ==='
             "
           else
-            echo "Transcript mode: $URL"
-            # existing transcript logic here
+            echo "Transcript mode not yet wired to Supadata in this workflow."
+            echo "Use Claude chat to transcribe videos for now."
           fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output
+          path: output/
+          retention-days: 30
+          if-no-files-found: ignore
