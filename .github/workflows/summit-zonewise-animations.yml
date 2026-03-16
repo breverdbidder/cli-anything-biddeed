@@ -68,7 +68,7 @@ jobs:
 
           echo "=== 5. Launch Claude Code ==="
           # Run Claude Code in auto-accept mode with the mission
-          timeout 6000 claude --auto-accept --model claude-sonnet-4-20250514 -p "
+          timeout 6000 claude --dangerously-skip-permissions --model claude-sonnet-4-20250514 -p "
           You are executing a deployment mission. Read docs/ANIMATION_MAPBOX_MISSION.md in this repo and execute ALL 4 phases in order.
 
           CRITICAL RULES:
