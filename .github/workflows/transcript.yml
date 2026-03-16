@@ -1,0 +1,73 @@
+name: 🎬 YouTube Transcript Squad
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: 'YouTube URL or Video ID'
+        required: true
+        type: string
+      
+  # Can also be triggered by repository_dispatch for Telegram bot
+  repository_dispatch:
+    types: [youtube-transcript]
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install firecrawl-py youtube-transcript-api
+
+      - name: Run Transcript Squad
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OUTPUT_DIR: ./output
+        run: |
+          # Get URL from workflow_dispatch or repository_dispatch
+          URL="${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
+          
+          if [ -z "$URL" ]; then
+            echo "❌ No YouTube URL provided"
+            exit 1
+          fi
+          
+          echo "🎬 Processing: $URL"
+          mkdir -p ./output
+          python src/yt_transcript_squad.py "$URL"
+
+      - name: Upload artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcript-report
+          path: output/
+          retention-days: 30
+
+      - name: Commit report to repo
+        if: success()
+        run: |
+          git config user.name "BidDeed Bot"
+          git config user.email "bot@biddeed.ai"
+          
+          mkdir -p reports/transcripts
+          cp output/*.md reports/transcripts/ 2>/dev/null || true
+          cp output/*.json reports/transcripts/ 2>/dev/null || true
+          
+          git add reports/transcripts/
+          git diff --cached --quiet || git commit -m "📝 Transcript: ${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
+          git push || echo "⚠️ Push failed (may need permissions)"
