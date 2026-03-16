@@ -1,0 +1,233 @@
+{
+  "skill": "auction",
+  "version": "1.0.0",
+  "description": "Binary assertions for Auction Analyzer output quality. Used by Karpathy-style self-improvement loop.",
+  "scoring": {
+    "pass_threshold": 1.0,
+    "total_assertions": 25,
+    "method": "binary_pass_fail"
+  },
+  "tests": [
+    {
+      "id": "T1_max_bid_calculation",
+      "prompt": "Analyze case 2024-CA-001234. ARV=$285,000, Repairs=$35,000, Judgment=$223,000. Calculate max bid and recommendation.",
+      "expected_output": "Max bid calculation with formula breakdown and BID/REVIEW/SKIP recommendation",
+      "assertions": [
+        {
+          "id": "T1_A1",
+          "description": "Max bid formula applied: (ARV×0.70)-Repairs-$10K-MIN($25K,0.15×ARV)",
+          "check": "formula_correct",
+          "expected_max_bid_range": [124250, 124250],
+          "formula": "(285000*0.70)-35000-10000-min(25000,0.15*285000)",
+          "binary": true
+        },
+        {
+          "id": "T1_A2",
+          "description": "Output contains explicit max_bid field as number (not string)",
+          "check": "field_is_number",
+          "field": "max_bid",
+          "binary": true
+        },
+        {
+          "id": "T1_A3",
+          "description": "Bid/judgment ratio calculated correctly (max_bid / judgment_amount)",
+          "check": "ratio_calculated",
+          "field": "bid_ratio",
+          "binary": true
+        },
+        {
+          "id": "T1_A4",
+          "description": "Recommendation matches threshold: bid_ratio >= 0.75 = BID, 0.60-0.74 = REVIEW, < 0.60 = SKIP",
+          "check": "threshold_applied",
+          "field": "recommendation",
+          "thresholds": {"BID": 0.75, "REVIEW": 0.60, "SKIP": 0},
+          "binary": true
+        },
+        {
+          "id": "T1_A5",
+          "description": "Output includes formula_breakdown object showing each step",
+          "check": "field_exists",
+          "field": "formula_breakdown",
+          "binary": true
+        }
+      ]
+    },
+    {
+      "id": "T2_lien_priority",
+      "prompt": "Analyze lien priority for case where HOA is plaintiff foreclosing against property with existing first mortgage. Determine lien survival.",
+      "expected_output": "Lien priority analysis showing senior mortgage survives HOA foreclosure per FL statute",
+      "assertions": [
+        {
+          "id": "T2_A1",
+          "description": "Output identifies plaintiff_type as 'HOA' or 'Association'",
+          "check": "field_in_set",
+          "field": "plaintiff_type",
+          "values": ["HOA", "Association", "Homeowners Association", "Condominium Association"],
+          "binary": true
+        },
+        {
+          "id": "T2_A2",
+          "description": "Output flags senior_mortgage_survives as true",
+          "check": "field_equals",
+          "field": "senior_mortgage_survives",
+          "value": true,
+          "binary": true
+        },
+        {
+          "id": "T2_A3",
+          "description": "Lien priority order lists mortgage ABOVE HOA lien",
+          "check": "array_order",
+          "field": "lien_priority",
+          "before": "mortgage",
+          "after": "hoa_lien",
+          "binary": true
+        },
+        {
+          "id": "T2_A4",
+          "description": "Output includes warning or risk_flag field about surviving liens",
+          "check": "field_exists_any",
+          "fields": ["warning", "risk_flag", "risk_flags", "warnings"],
+          "binary": true
+        },
+        {
+          "id": "T2_A5",
+          "description": "Output does NOT recommend BID without acknowledging surviving mortgage impact on ARV",
+          "check": "conditional_no_bid_without_lien_ack",
+          "binary": true
+        }
+      ]
+    },
+    {
+      "id": "T3_report_generation",
+      "prompt": "Generate a one-page DOCX report for case 2024-CA-005678 with BCPAO photo, ML prediction, and recommendation.",
+      "expected_output": "Valid DOCX file with BidDeed.AI branding, no Property360 references",
+      "assertions": [
+        {
+          "id": "T3_A1",
+          "description": "Generated DOCX file opens without validation errors",
+          "check": "docx_valid",
+          "binary": true
+        },
+        {
+          "id": "T3_A2",
+          "description": "Document contains text 'BidDeed.AI' (house brand present)",
+          "check": "docx_contains_text",
+          "text": "BidDeed.AI",
+          "binary": true
+        },
+        {
+          "id": "T3_A3",
+          "description": "Document does NOT contain 'Property360' or 'Mariam'",
+          "check": "docx_not_contains_text",
+          "forbidden": ["Property360", "Mariam", "Protection Partners"],
+          "binary": true
+        },
+        {
+          "id": "T3_A4",
+          "description": "Document contains BCPAO photo URL or embedded image",
+          "check": "docx_contains_any",
+          "patterns": ["bcpao.us/photos", "image1.jpg", "image1.png", "masterPhotoUrl"],
+          "binary": true
+        },
+        {
+          "id": "T3_A5",
+          "description": "Document contains ML prediction section with numeric confidence score",
+          "check": "docx_section_with_number",
+          "section_hint": "ML Prediction",
+          "binary": true
+        }
+      ]
+    },
+    {
+      "id": "T4_bcpao_data_fetch",
+      "prompt": "Fetch property data from BCPAO for parcel 25-37-22-00-00049.0-0000.00. Return structured JSON.",
+      "expected_output": "BCPAO property record with owner, value, address, and photo URL",
+      "assertions": [
+        {
+          "id": "T4_A1",
+          "description": "Output contains owner_name field (non-null string)",
+          "check": "field_not_null",
+          "field": "owner_name",
+          "binary": true
+        },
+        {
+          "id": "T4_A2",
+          "description": "Output contains just_value field as positive number",
+          "check": "field_positive_number",
+          "field": "just_value",
+          "binary": true
+        },
+        {
+          "id": "T4_A3",
+          "description": "Output contains property_address with FL zip code (5 digits)",
+          "check": "regex_match",
+          "field": "property_address",
+          "pattern": "\\d{5}",
+          "binary": true
+        },
+        {
+          "id": "T4_A4",
+          "description": "Output contains photo_url field starting with https://",
+          "check": "field_starts_with",
+          "field": "photo_url",
+          "prefix": "https://",
+          "binary": true
+        },
+        {
+          "id": "T4_A5",
+          "description": "Output is valid JSON with no null required fields",
+          "check": "json_parseable_no_nulls",
+          "required_fields": ["owner_name", "property_address", "just_value", "parcel_id"],
+          "binary": true
+        }
+      ]
+    },
+    {
+      "id": "T5_batch_analysis",
+      "prompt": "Analyze batch of 5 auction cases. Return summary with counts per recommendation category.",
+      "expected_output": "Batch analysis with per-case results and summary statistics",
+      "assertions": [
+        {
+          "id": "T5_A1",
+          "description": "Output contains exactly 5 case results in results array",
+          "check": "array_length",
+          "field": "results",
+          "expected": 5,
+          "binary": true
+        },
+        {
+          "id": "T5_A2",
+          "description": "Summary contains bid_count + review_count + skip_count = 5",
+          "check": "sum_equals",
+          "fields": ["summary.bid_count", "summary.review_count", "summary.skip_count"],
+          "expected_sum": 5,
+          "binary": true
+        },
+        {
+          "id": "T5_A3",
+          "description": "Every case in results has a non-empty case_number field",
+          "check": "array_field_not_empty",
+          "array": "results",
+          "field": "case_number",
+          "binary": true
+        },
+        {
+          "id": "T5_A4",
+          "description": "Summary includes total_judgment_amount as positive number",
+          "check": "field_positive_number",
+          "field": "summary.total_judgment_amount",
+          "binary": true
+        },
+        {
+          "id": "T5_A5",
+          "description": "Every recommendation value is one of: BID, REVIEW, SKIP (no other values)",
+          "check": "array_field_in_set",
+          "array": "results",
+          "field": "recommendation",
+          "values": ["BID", "REVIEW", "SKIP"],
+          "binary": true
+        }
+      ]
+    }
+  ]
+}
