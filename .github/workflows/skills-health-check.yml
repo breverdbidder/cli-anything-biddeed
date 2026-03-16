@@ -1,4 +1,5 @@
 name: Skills Health Check
+# Auto-deployed from claude-skills-library
 
 on:
   schedule:
