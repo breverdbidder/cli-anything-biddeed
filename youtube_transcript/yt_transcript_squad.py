@@ -27,6 +27,16 @@ from datetime import datetime, timezone
 # CONFIG
 # ═══════════════════════════════════════════════════════════════
 
+# Load .env file if present (for Hetzner deployment)
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(_env_path):
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if '=' in _line and not _line.startswith('#'):
+                _k, _v = _line.split('=', 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
+
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY", "")
 CLIPROXY_BASE_URL = os.environ.get("CLIPROXY_BASE_URL", "http://127.0.0.1:8317")
 CLIPROXY_API_KEY = os.environ.get("CLIPROXY_API_KEY", "")
@@ -730,3 +740,4 @@ if __name__ == "__main__":
         print(f"\n❌ FAILED at stage: {result.get('stage', 'unknown')}")
         print(f"   Error: {result.get('error', 'unknown')}")
         sys.exit(1)
+
