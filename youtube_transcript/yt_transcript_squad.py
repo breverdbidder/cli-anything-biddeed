@@ -235,13 +235,13 @@ def agent_fetch_transcript_api(video_id: str) -> dict:
 
 
 def agent_fetch(video_id: str) -> dict:
-    """Agent 1: Try Firecrawl first, fallback to transcript API."""
-    result = agent_fetch_firecrawl(video_id)
+    """Agent 1: youtube-transcript-api first (Hetzner non-cloud IP), Firecrawl fallback."""
+    result = agent_fetch_transcript_api(video_id)
     if result["status"] == "success":
         return result
     
-    print("   🔄 Primary failed, trying fallback...")
-    return agent_fetch_transcript_api(video_id)
+    print("   🔄 Transcript API failed, trying Firecrawl...")
+    return agent_fetch_firecrawl(video_id)
 
 
 # ═══════════════════════════════════════════════════════════════
