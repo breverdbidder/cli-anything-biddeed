@@ -137,4 +137,93 @@ _Low effort, nice-to-have: create a Canvas file that visually maps the BidDeed.A
 - **Setup Repo:** https://github.com/earlyaidopters/second-brain
 - **Obsidian Skills:** https://github.com/kepano/obsidian-skills
 - **Creator:** Mark Kashef — skool.com/earlyaidopters/about
-- **PDF Guide:** obsidian-setup-guide (uploaded, 7 pages)
+- **PDF Guide:** obsidian-setup-guide (7 pages)
+- **SKILL.md:** vault-setup skill file (full source, 169 lines)
+
+---
+
+## 🔬 Deep Dive: vault-setup SKILL.md Pattern Analysis
+
+Mark's `vault-setup` SKILL.md is a masterclass in agent skill design. Here's what makes it exceptional and how we should steal every pattern:
+
+### Architecture: 5-Step Interview → Scaffold → Wire
+
+```
+STEP 1: One free-text question (gather ALL context at once)
+STEP 2: Infer role/scope/pain points — DON'T ask more questions
+STEP 3: Build folders + CLAUDE.md + skill files + memory.md
+STEP 4: Context injection (global vs manual vs vault-only)
+STEP 5: Final output with next-action instructions
+```
+
+### Pattern 1: "One Question, Zero Clarification"
+The skill asks ONE open-ended question then INFERS everything else. No back-and-forth. This is anti-chatbot design — it trusts the LLM to figure out role, pain points, and scope from free text. Critical for zero-HITL.
+
+**BidDeed adaptation:** Our `/county-setup` should ask one question: "Tell me about this county — what you know about the auction format, GIS system, and any contacts." Then infer everything.
+
+### Pattern 2: Role-Based Folder Templates
+Instead of one-size-fits-all, the skill maps roles to folder sets:
+- Business Owner → `people/ operations/ decisions/`
+- Developer → `research/ clients/`
+- Creator → `content/ research/ clients/`
+
+**BidDeed adaptation:** Map auction types to pipeline configs:
+- Foreclosure → `filings/ liens/ bids/ reports/`
+- Tax Deed → `certificates/ surplus/ parcels/`
+- Municipal → `zoning/ permits/ contacts/`
+
+### Pattern 3: CLAUDE.md as Living Context
+The generated CLAUDE.md isn't static documentation — it's ACTIVE context with routing rules:
+
+```markdown
+## Context Rules
+When I mention a decision → check decisions/ first
+When I mention a person → look in people/
+When I ask you to write → read daily/ to match my voice
+When something lands in inbox/ → ask if I want it sorted
+```
+
+**BidDeed adaptation:** Our repo CLAUDE.md should have:
+```markdown
+## Context Rules  
+When I mention an auction → query Supabase multi_county_auctions first
+When I mention a property → check BCPAO + AcclaimWeb
+When analyzing a deal → apply max bid formula automatically
+When new data lands → validate against existing records before insert
+```
+
+### Pattern 4: memory.md as Persistent Learning
+Separate from CLAUDE.md, a `memory.md` file tracks session-by-session learnings and preferences. The `/tldr` command updates this automatically after every session.
+
+**BidDeed adaptation:** We already have Supabase `insights` table — but a per-repo `memory.md` that Claude Code updates after each session would capture architectural decisions, failed approaches, and learned patterns locally.
+
+### Pattern 5: Skill File Minimalism
+Each skill file is 1-2 sentences. Not a novel. Not a prompt template. Just the intent:
+
+> "Summarize this conversation: decisions, things to remember, next actions. Save to the most relevant folder. Update memory.md."
+
+Claude Code fills in the rest from context. Less is more.
+
+### Pattern 6: Context Injection Architecture
+Three tiers of context loading:
+1. **Global** (`~/.claude/CLAUDE.md`) — loads in EVERY session, everywhere
+2. **Project** (repo-level `CLAUDE.md`) — loads in that project only
+3. **Vault** — auto-loads when running from inside the folder
+
+This is a composable context system. Global sets identity, project sets domain, vault sets workspace.
+
+**BidDeed adaptation:** We should implement all three tiers:
+- Global: BidDeed.AI identity, stack overview, cost discipline rules
+- Per-repo: Repo-specific conventions (e.g., zonewise-scraper-v4 has its own patterns)
+- Per-session: Dynamic context from Supabase queries
+
+### Summary: What to Steal
+
+| Pattern | Mark's Implementation | BidDeed.AI Adaptation |
+|---------|----------------------|----------------------|
+| One-question interview | Free text → infer role | Free text → infer county/auction type |
+| Role-based scaffolding | 5 role templates | Auction-type templates |
+| Active context rules | "When X → do Y" in CLAUDE.md | "When auction → query Supabase" |
+| memory.md | Session log + preferences | Per-repo architectural memory |
+| Minimal skill files | 1-2 sentence intents | Same — trust Claude to fill in |
+| 3-tier context injection | Global/Project/Vault | Global/Repo/Session |
