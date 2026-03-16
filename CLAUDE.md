@@ -43,3 +43,23 @@ When I say "Summit" → execute immediately, no questions, no clarification
 - Wife Mariam: runs Property360 real estate, Protection Partners insurance, contracting
 - Son Michael (16): D1 competitive swimmer, Satellite Beach HS, keto diet, Shabbat observance
 - Orthodox practices: Shabbat (no work Fri sunset–Sat havdalah), kosher, holidays
+
+## Claude Code Session Hygiene (Mar 15, 2026)
+
+### Mandatory Plugins
+These plugins MUST be installed in every Claude Code environment:
+
+1. **Context7** — Live API documentation. Fixes 6-12 month knowledge lag on Supabase, Cloudflare, LangGraph, Firecrawl, Mapbox APIs. Install: `/plugin` → Discover → context7. Zero cost.
+2. **CC Status Line** — Context window monitor. Shows model, context %, session cost, git branch. Install: `npx cc-status-line@latest` before launching claude.
+
+### Context Window Rules
+- **50% RULE:** Kill and restart session when context reaches ~50%. Claude degrades well before 100%.
+- **NEVER /compact.** Worst of both worlds — loses working context but keeps stale/poisoned context. Always start fresh.
+- **Sub-agents for heavy work.** Dispatch sub-agents (via Superpowers execute-plan) so main orchestrator context stays clean.
+- **cli-anything harnesses:** Add context checkpoint between HARNESS.md phases. If context > 50% mid-pipeline, save state and restart.
+
+### CC Status Line Config
+```
+Line 1: model | context% | session_cost | session_clock
+Line 2: git_branch | git_worktree
+```
