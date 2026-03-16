@@ -6,17 +6,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Firecrawl Browser-Side Caption Fetch
+      - name: Extract YouTube transcript via Firecrawl
         env:
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
           python3 << 'PYEOF'
-          import json, os, urllib.request, ssl
+          import json, os, re, urllib.request, ssl
 
           ctx = ssl.create_default_context()
           ctx.check_hostname = False
           ctx.verify_mode = ssl.CERT_NONE
           KEY = os.environ["FIRECRAWL_API_KEY"]
+          vid = "2kbINqpluM0"
 
           def fc(data):
               body = json.dumps(data).encode()
@@ -26,125 +27,88 @@ jobs:
               resp = urllib.request.urlopen(req, context=ctx, timeout=120)
               return json.loads(resp.read().decode())
 
-          vid = "2kbINqpluM0"
+          # Step 1: Get rawHtml from YouTube page — extract timedtext URL
+          print("Step 1: Firecrawl rawHtml → extract timedtext URL")
+          r = fc({"url": f"https://www.youtube.com/watch?v={vid}", "formats": ["rawHtml"], "timeout": 60000})
+          html = r.get("data", {}).get("rawHtml", "")
+          print(f"  Got {len(html)} chars of HTML")
 
-          print("=== Firecrawl: Browser JS fetches captions URL ===")
-          try:
-              r = fc({
-                  "url": f"https://www.youtube.com/watch?v={vid}",
-                  "formats": ["markdown"],
-                  "actions": [
-                      {"type": "wait", "milliseconds": 5000},
-                      {"type": "execute_javascript", "code": """
-                          (async () => {
-                              try {
-                                  // Find timedtext URL in ytInitialPlayerResponse
-                                  const scripts = document.querySelectorAll('script');
-                                  let captionUrl = null;
-                                  
-                                  for (const s of scripts) {
-                                      const text = s.textContent || s.innerText || '';
-                                      const match = text.match(/"baseUrl"\s*:\s*"(https:\/\/www\.youtube\.com\/api\/timedtext[^"]+)"/);
-                                      if (match) {
-                                          captionUrl = match[1].replace(/\\\\u0026/g, '&').replace(/\\u0026/g, '&');
-                                          break;
-                                      }
-                                  }
-                                  
-                                  if (!captionUrl) {
-                                      // Try window.ytInitialPlayerResponse
-                                      if (window.ytInitialPlayerResponse) {
-                                          const tracks = window.ytInitialPlayerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-                                          if (tracks && tracks.length > 0) {
-                                              captionUrl = tracks[0].baseUrl;
-                                          }
-                                      }
-                                  }
-                                  
-                                  if (captionUrl) {
-                                      // Fetch from INSIDE the browser (same session/IP)
-                                      const resp = await fetch(captionUrl + '&fmt=json3');
-                                      const data = await resp.json();
-                                      
-                                      // Extract text from json3 format
-                                      const events = data.events || [];
-                                      let transcript = '';
-                                      for (const evt of events) {
-                                          if (evt.segs) {
-                                              for (const seg of evt.segs) {
-                                                  transcript += (seg.utf8 || '');
-                                              }
-                                              transcript += ' ';
-                                          }
-                                      }
-                                      
-                                      // Inject into page
-                                      const div = document.createElement('div');
-                                      div.id = 'extracted-transcript';
-                                      div.textContent = 'TRANSCRIPT_DATA_START|' + transcript.trim() + '|TRANSCRIPT_DATA_END';
-                                      document.body.prepend(div);
-                                  } else {
-                                      const div = document.createElement('div');
-                                      div.id = 'extracted-transcript';
-                                      div.textContent = 'NO_CAPTION_URL_FOUND';
-                                      document.body.prepend(div);
-                                  }
-                              } catch(e) {
-                                  const div = document.createElement('div');
-                                  div.id = 'extracted-transcript';
-                                  div.textContent = 'JS_ERROR:' + e.message;
-                                  document.body.prepend(div);
-                              }
-                          })();
-                      """},
-                      {"type": "wait", "milliseconds": 5000},
-                      {"type": "scrape"}
-                  ],
-                  "timeout": 90000
-              })
-              
-              if r.get("success"):
-                  md = r.get("data", {}).get("markdown", "")
-                  print(f"Markdown: {len(md)} chars")
-                  
-                  # Look for our injected transcript
-                  if "TRANSCRIPT_DATA_START" in md:
-                      start = md.index("TRANSCRIPT_DATA_START|") + len("TRANSCRIPT_DATA_START|")
-                      end = md.index("|TRANSCRIPT_DATA_END")
-                      transcript = md[start:end]
-                      print(f"✅ GOT TRANSCRIPT! {len(transcript)} chars")
-                      print(f"First 500: {transcript[:500]}")
-                      with open("/tmp/transcript_final.txt", "w") as f:
-                          f.write(transcript)
-                  elif "NO_CAPTION_URL_FOUND" in md:
-                      print("❌ No caption URL found in page")
-                  elif "JS_ERROR" in md:
-                      idx = md.index("JS_ERROR:")
-                      print(f"❌ {md[idx:idx+200]}")
+          urls = re.findall(r'"(https://www\.youtube\.com/api/timedtext[^"]+)"', html)
+          urls = [u.replace('\\u0026', '&') for u in urls]
+          print(f"  Found {len(urls)} timedtext URLs")
+
+          if not urls:
+              print("FAILED: No timedtext URLs in page")
+              exit(1)
+
+          caption_url = urls[0]
+          print(f"  Caption URL: {caption_url[:120]}...")
+
+          # Step 2: Use Firecrawl to fetch the timedtext URL (same proxy infra)
+          print("\nStep 2: Firecrawl fetches timedtext URL")
+          for fmt in ["json3", "srv3", ""]:
+              fetch_url = f"{caption_url}&fmt={fmt}" if fmt else caption_url
+              try:
+                  r2 = fc({"url": fetch_url, "formats": ["rawHtml"], "timeout": 30000})
+                  content = r2.get("data", {}).get("rawHtml", "")
+                  if content and len(content) > 100:
+                      print(f"  fmt={fmt}: {len(content)} chars ✅")
+                      
+                      if fmt == "json3":
+                          data = json.loads(content)
+                          events = data.get("events", [])
+                          transcript = ""
+                          for evt in events:
+                              if "segs" in evt:
+                                  for seg in evt["segs"]:
+                                      transcript += seg.get("utf8", "")
+                                  transcript += " "
+                          transcript = transcript.strip()
+                      else:
+                          # XML format — extract text between tags
+                          texts = re.findall(r'>([^<]+)<', content)
+                          transcript = " ".join(t.strip() for t in texts if t.strip())
+                      
+                      if transcript and len(transcript) > 200:
+                          print(f"\n✅ TRANSCRIPT EXTRACTED: {len(transcript)} chars")
+                          print(f"First 500: {transcript[:500]}")
+                          with open("/tmp/transcript_final.txt", "w") as f:
+                              f.write(transcript)
+                          exit(0)
+                      else:
+                          print(f"  Parsed but too short: {len(transcript)} chars")
                   else:
-                      print("No transcript marker found in output")
-                      # Save full output for inspection
-                      with open("/tmp/full_output.txt", "w") as f:
-                          f.write(md)
-                      print(f"Saved full output. First 300: {md[:300]}")
+                      print(f"  fmt={fmt}: empty or too short ({len(content)} chars)")
+              except Exception as e:
+                  print(f"  fmt={fmt}: {str(e)[:100]}")
+
+          # Step 3: If Firecrawl can't fetch timedtext, try markdown of the caption URL
+          print("\nStep 3: Trying markdown format on caption URL")
+          try:
+              r3 = fc({"url": caption_url, "formats": ["markdown"], "timeout": 30000})
+              md = r3.get("data", {}).get("markdown", "")
+              print(f"  Markdown: {len(md)} chars")
+              if md and len(md) > 200:
+                  with open("/tmp/transcript_final.txt", "w") as f:
+                      f.write(md)
+                  print(f"  ✅ Saved. Preview: {md[:300]}")
               else:
-                  print(f"Failed: {json.dumps(r)[:300]}")
+                  print("  Too short")
           except Exception as e:
-              print(f"Error: {e}")
+              print(f"  Error: {e}")
 
           PYEOF
 
-      - name: Save
+      - name: Save results
         if: always()
         run: |
           mkdir -p output
-          cp /tmp/transcript_final.txt /tmp/full_output.txt output/ 2>/dev/null || true
+          cp /tmp/transcript_final.txt output/ 2>/dev/null || echo "no transcript"
           ls -la output/
-          for f in output/*; do
-            echo "=== $f ($(wc -c < $f) bytes) ==="
-            head -c 2000 "$f"
-            echo -e "\n..."
-          done
+          if [ -f output/transcript_final.txt ]; then
+            echo "=== TRANSCRIPT (first 2000 chars) ==="
+            head -c 2000 output/transcript_final.txt
+          fi
 
       - name: Upload
         if: always()
