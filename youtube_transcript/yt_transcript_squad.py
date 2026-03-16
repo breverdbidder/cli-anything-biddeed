@@ -62,7 +62,8 @@ def api_request(url: str, data: dict = None, headers: dict = None, method: str =
     """Generic API request helper."""
     body = json.dumps(data).encode() if data else None
     hdrs = headers or {}
-    hdrs.setdefault("Content-Type", "application/json")
+    if data:
+        hdrs.setdefault("Content-Type", "application/json")
     
     req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
     try:
@@ -76,8 +77,45 @@ def api_request(url: str, data: dict = None, headers: dict = None, method: str =
 
 
 # ═══════════════════════════════════════════════════════════════
-# AGENT 1: FETCH (Firecrawl → YouTube Transcript)
+# AGENT 1: FETCH (Supadata → Firecrawl → youtube-transcript-api)
 # ═══════════════════════════════════════════════════════════════
+
+SUPADATA_API_KEY = os.environ.get("SUPADATA_API_KEY", "")
+
+
+def agent_fetch_supadata(video_id: str) -> dict:
+    """Primary: Fetch transcript via Supadata API (FREE, 100 req/mo)."""
+    print(f"📡 AGENT 1: Supadata fetch for {video_id}...")
+    
+    if not SUPADATA_API_KEY:
+        return {"status": "failed", "error": "SUPADATA_API_KEY not set"}
+    
+    result = api_request(
+        f"https://api.supadata.ai/v1/transcript?url=https://youtu.be/{video_id}&text=true",
+        headers={"x-api-key": SUPADATA_API_KEY},
+        method="GET",
+        data=None
+    )
+    
+    if "error" in result:
+        print(f"   ⚠️ Supadata error: {str(result['error'])[:200]}")
+        return {"status": "failed", "error": result["error"]}
+    
+    content = result.get("content", "")
+    lang = result.get("lang", "en")
+    
+    if not content or len(content) < 100:
+        return {"status": "failed", "error": f"Insufficient content ({len(content)} chars)"}
+    
+    print(f"   ✅ Got transcript: {len(content):,} chars, {len(content.split()):,} words, lang={lang}")
+    return {
+        "status": "success",
+        "video_id": video_id,
+        "title": f"YouTube Video {video_id}",
+        "raw_markdown": content,
+        "char_count": len(content),
+        "source": "supadata"
+    }
 
 def _firecrawl_scrape(url: str, formats=None, timeout=60000) -> dict:
     """Common Firecrawl scrape call."""
@@ -235,7 +273,12 @@ def agent_fetch_transcript_api(video_id: str) -> dict:
 
 
 def agent_fetch(video_id: str) -> dict:
-    """Agent 1: youtube-transcript-api first (Hetzner non-cloud IP), Firecrawl fallback."""
+    """Agent 1: Supadata first (FREE API), then youtube-transcript-api, then Firecrawl."""
+    result = agent_fetch_supadata(video_id)
+    if result["status"] == "success":
+        return result
+    
+    print("   🔄 Supadata failed, trying youtube-transcript-api...")
     result = agent_fetch_transcript_api(video_id)
     if result["status"] == "success":
         return result
