@@ -1,10 +1,8 @@
-name: Autoloop — Overnight Skill Self-Improvement
+name: "Autoloop: Overnight Skill Self-Improvement (Hetzner)"
 
 on:
-  # Nightly at 2 AM EST (7 AM UTC)
   schedule:
-    - cron: '0 7 * * *'
-  # Manual trigger with skill selection
+    - cron: '0 7 * * *'  # 2 AM EST = 7 AM UTC
   workflow_dispatch:
     inputs:
       skill:
@@ -15,60 +13,190 @@ on:
           - zonewise
           - auction
           - reports
-          - all
       max_iterations:
-        description: 'Maximum iterations (default 50)'
+        description: 'Max iterations (default 50)'
         required: false
         default: '50'
+      dry_run:
+        description: 'Dry run (baseline only, no Claude Code loop)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  HETZNER_HOST: 87.99.129.125
+  REPO_PATH: /opt/biddeed/cli-anything-biddeed
+  DEFAULT_SKILL: zonewise
 
 jobs:
   autoloop:
+    name: "🔄 Autoloop: ${{ github.event.inputs.skill || 'zonewise' }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2 hour max
-    strategy:
-      matrix:
-        skill: ${{ github.event.inputs.skill == 'all' && fromJson('["zonewise","auction","reports"]') || fromJson(format('["{0}"]', github.event.inputs.skill || 'zonewise')) }}
+    timeout-minutes: 180
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT4 }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Create eval outputs directory
-        run: mkdir -p ${{ matrix.skill }}/eval_outputs
-
-      - name: Run eval baseline
-        id: baseline
+      - name: Determine skill
+        id: config
         run: |
-          RESULT=$(python scripts/eval_runner.py \
-            --eval-file ${{ matrix.skill }}/eval/eval.json \
-            --outputs-dir ${{ matrix.skill }}/eval_outputs/ \
-            --output ${{ matrix.skill }}/eval/baseline_$(date +%Y%m%d).json 2>&1 || true)
-          SCORE=$(python -c "import json; d=json.load(open('${{ matrix.skill }}/eval/baseline_$(date +%Y%m%d).json')); print(d['summary']['score_pct'])" 2>/dev/null || echo "0%")
-          echo "score=$SCORE" >> $GITHUB_OUTPUT
-          echo "🎯 ${{ matrix.skill }} baseline: $SCORE"
+          SKILL="${{ github.event.inputs.skill || env.DEFAULT_SKILL }}"
+          MAX="${{ github.event.inputs.max_iterations || '50' }}"
+          DRY="${{ github.event.inputs.dry_run || 'false' }}"
+          echo "skill=$SKILL" >> $GITHUB_OUTPUT
+          echo "max=$MAX" >> $GITHUB_OUTPUT
+          echo "dry=$DRY" >> $GITHUB_OUTPUT
+          echo "🎯 Skill: $SKILL | Max: $MAX | Dry: $DRY"
 
-      - name: Upload eval results
-        uses: actions/upload-artifact@v4
+      - name: "1️⃣ Preflight"
+        uses: appleboy/ssh-action@v1.2.0
         with:
-          name: autoloop-${{ matrix.skill }}-${{ github.run_number }}
-          path: |
-            ${{ matrix.skill }}/eval/baseline_*.json
-            ${{ matrix.skill }}/eval/autoloop_log.jsonl
-          retention-days: 30
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            set -e
+            SKILL="${{ steps.config.outputs.skill }}"
+
+            # Pull latest
+            cd ${{ env.REPO_PATH }}
+            git pull origin main --ff-only 2>&1 | tail -3
+
+            # Verify Claude Code
+            command -v claude &>/dev/null || { echo "❌ Claude Code missing"; npm install -g @anthropic-ai/claude-code; }
+            claude --version 2>/dev/null || true
+
+            # Verify eval infrastructure
+            test -f "${{ env.REPO_PATH }}/$SKILL/eval/eval.json" || { echo "❌ Missing eval.json"; exit 1; }
+            test -f "${{ env.REPO_PATH }}/scripts/eval_runner.py" || { echo "❌ Missing eval_runner.py"; exit 1; }
+            mkdir -p "${{ env.REPO_PATH }}/$SKILL/eval_outputs"
+
+            python3 --version
+            echo "✅ Preflight: $SKILL ready"
+
+      - name: "2️⃣ Baseline eval"
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            TS=$(date +%Y%m%d_%H%M%S)
+
+            python3 scripts/eval_runner.py \
+              --eval-file "$SKILL/eval/eval.json" \
+              --outputs-dir "$SKILL/eval_outputs/" \
+              --output "$SKILL/eval/baseline_${TS}.json" 2>&1 || true
+
+            if [ -f "$SKILL/eval/baseline_${TS}.json" ]; then
+              python3 -c "import json; d=json.load(open('$SKILL/eval/baseline_${TS}.json')); print(f'📊 Baseline: {d[\"summary\"][\"score_pct\"]}')"
+            else
+              echo "📊 Baseline: first run (no prior outputs)"
+            fi
+
+      - name: "3️⃣ Autoloop — Claude Code auto-mode"
+        if: steps.config.outputs.dry != 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 170m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            MAX="${{ steps.config.outputs.max }}"
+
+            case "$SKILL" in
+              zonewise) SKILL_MD="zonewise/agent-harness/ZONEWISE.md" ;;
+              auction)  SKILL_MD="auction/agent-harness/AUCTION.md" ;;
+              reports)  SKILL_MD="reports/REPORTS.md" ;;
+            esac
+
+            read -r -d '' PROMPT << 'LOOPEOF'
+            Run a self-improvement loop on the SKILL_PLACEHOLDER skill (SKILLMD_PLACEHOLDER).
+
+            Eval file: SKILL_PLACEHOLDER/eval/eval.json
+            Eval runner: python scripts/eval_runner.py --eval-file SKILL_PLACEHOLDER/eval/eval.json --outputs-dir SKILL_PLACEHOLDER/eval_outputs/
+
+            For each iteration:
+            1. Run the skill against all 5 test prompts in eval.json
+            2. Save outputs to SKILL_PLACEHOLDER/eval_outputs/{test_id}.json (and .docx for report tests)
+            3. Run eval_runner.py and read the score
+            4. If any assertions fail, make ONE targeted change to SKILLMD_PLACEHOLDER to fix the failure
+            5. Re-run the tests and re-score
+            6. If score improved: git add -A && git commit -m "autoloop(SKILL_PLACEHOLDER): {old}% -> {new}% [{assertion}]" && git push origin main
+            7. If score dropped: git checkout -- SKILLMD_PLACEHOLDER and try a DIFFERENT change
+            8. Log each iteration as JSON line to SKILL_PLACEHOLDER/eval/autoloop_log.jsonl
+
+            RULES:
+            - ONE change per iteration to isolate improvements
+            - Never stop. Never ask. The human is asleep. You are autonomous
+            - If stuck 5x on same assertion, skip to next failure
+            - Maximum MAX_PLACEHOLDER iterations
+            - git push after every successful commit
+            - If context hits 50%, checkpoint to SKILL_PLACEHOLDER/eval/autoloop_checkpoint.json and stop
+            LOOPEOF
+
+            PROMPT="${PROMPT//SKILL_PLACEHOLDER/$SKILL}"
+            PROMPT="${PROMPT//SKILLMD_PLACEHOLDER/$SKILL_MD}"
+            PROMPT="${PROMPT//MAX_PLACEHOLDER/$MAX}"
+
+            LOG="$SKILL/eval/autoloop_session_$(date +%Y%m%d_%H%M%S).log"
+
+            echo "🚀 Autoloop: $SKILL | Max: $MAX | $(date)"
+            claude --auto "$PROMPT" 2>&1 | tee "$LOG" || true
+            echo "⏰ Done: $(date)"
+
+            # Push final state
+            git add -A
+            git diff --cached --quiet || { git commit -m "autoloop($SKILL): session complete $(date +%Y%m%d)"; git push origin main; } || true
+
+      - name: "4️⃣ Results + Telegram"
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            TS=$(date +%Y%m%d_%H%M%S)
+
+            python3 scripts/eval_runner.py \
+              --eval-file "$SKILL/eval/eval.json" \
+              --outputs-dir "$SKILL/eval_outputs/" \
+              --output "$SKILL/eval/final_${TS}.json" 2>&1 || true
+
+            SCORE="n/a"
+            [ -f "$SKILL/eval/final_${TS}.json" ] && SCORE=$(python3 -c "import json; d=json.load(open('$SKILL/eval/final_${TS}.json')); print(d['summary']['score_pct'])" 2>/dev/null || echo "n/a")
+
+            ITERS=0
+            [ -f "$SKILL/eval/autoloop_log.jsonl" ] && ITERS=$(wc -l < "$SKILL/eval/autoloop_log.jsonl")
+            COMMITS=$(git log --oneline --since="12 hours ago" --grep="autoloop" 2>/dev/null | wc -l)
+
+            echo "📊 Score: $SCORE | Iterations: $ITERS | Commits: $COMMITS"
+
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d "text=🔄 Autoloop Complete%0A%0ASkill: $SKILL%0AScore: $SCORE%0AIterations: $ITERS%0ACommits: $COMMITS%0AServer: Hetzner" \
+              > /dev/null 2>&1 || true
 
       - name: Summary
+        if: always()
         run: |
-          echo "## Autoloop Results — ${{ matrix.skill }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Baseline Score:** ${{ steps.baseline.outputs.score }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Max Iterations:** ${{ github.event.inputs.max_iterations || '50' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Full eval loop runs in Claude Code with auto-mode." >> $GITHUB_STEP_SUMMARY
-          echo "This workflow captures baseline scores and artifacts." >> $GITHUB_STEP_SUMMARY
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🔄 Autoloop — ${{ steps.config.outputs.skill }}
+          **Server:** Hetzner everest-dispatch
+          **Max Iterations:** ${{ steps.config.outputs.max }}
+          **Dry Run:** ${{ steps.config.outputs.dry }}
+          Check Telegram for final scores.
+          EOF
