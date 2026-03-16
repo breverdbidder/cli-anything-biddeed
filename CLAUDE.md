@@ -1,40 +1,45 @@
-# CLAUDE.md — CLI-Anything BidDeed Fork
+# CLAUDE.md — BidDeed.AI / Everest Capital USA
 
-## Identity
-This is a fork of [HKUDS/CLI-Anything](https://github.com/HKUDS/CLI-Anything) adapted for BidDeed.AI's foreclosure auction and zoning intelligence stack.
+## Who I Am
+Ariel Shapira. Solo founder of BidDeed.AI and Everest Capital USA. 10+ years foreclosure investing in Brevard County, Florida. Licensed FL broker and general contractor. Building an AI-powered foreclosure auction intelligence platform. ADHD — I need systems that run themselves.
 
-## Architecture
-- **HARNESS.md**: Upstream SOP for building CLI harnesses. Read it before every session.
-- **BIDDEED_OVERLAY.md**: Our stack-specific extensions (Supabase, cost tracking, audit logging, GitHub Actions).
-- **cli-anything-plugin/**: Upstream plugin (do not modify).
-- **shared/cli_anything_shared/**: Shared utilities (supabase, cost, audit, config).
-- **zonewise/agent-harness/**: ZoneWise Scraper CLI (`cli-anything-zonewise`).
-- **auction/agent-harness/**: Auction Analyzer CLI (`cli-anything-auction`).
+## My Stack
+- **Repos:** github.com/breverdbidder/* (cli-anything-biddeed, zonewise-scraper-v4, biddeed-ai, biddeed-ai-ui, zonewise-web, cliproxy-gateway, tax-insurance-optimizer)
+- **Database:** Supabase (mocerqjnksmhcjzxrewo.supabase.co) — multi_county_auctions (245K rows), activities, insights, daily_metrics
+- **Compute:** Hetzner everest-dispatch (87.99.129.125) with CLIProxyAPI on 127.0.0.1:8317
+- **AI:** Gemini Flash (FREE via CLIProxyAPI), DeepSeek V3.2 ($0.28/1M), Claude (Max plan, never API)
+- **Deploy:** GitHub Actions + Cloudflare Pages + Render
+- **Brand:** Navy #1E3A5F, Orange #F59E0B, Inter font, bg #020617
 
-## Rules
-1. Read HARNESS.md + BIDDEED_OVERLAY.md before coding anything.
-2. PEP 420: `cli_anything/` directory has NO `__init__.py`. Sub-packages DO.
-3. Every Click command supports `--json` output.
-4. Bare command (no subcommand) enters REPL via ReplSkin.
-5. All subprocess tests use `_resolve_cli()` pattern.
-6. Copy `repl_skin.py` from `cli-anything-plugin/` into each CLI's `utils/`.
-7. `--persist` flag = write to Supabase. Without it = pure JSON stdout.
-8. `@audit_logged` decorator on all Click commands.
-9. All backends follow `find_<service>()` → RuntimeError with setup instructions pattern.
-10. pytest must pass before any git push.
+## Context Rules
 
-## Stack
-- Python 3.10+, Click 8+, prompt-toolkit 3+
-- Supabase (mocerqjnksmhcjzxrewo.supabase.co)
-- GitHub Actions for scheduling
-- Backends: Firecrawl, Gemini Flash, BCPAO, AcclaimWeb, RealForeclose
+When I mention an auction or property → query Supabase `multi_county_auctions` first
+When I mention a case number → search `multi_county_auctions` by case_number field
+When analyzing a deal → apply max bid formula: (ARV×70%)-Repairs-$10K-MIN($25K,15%×ARV)
+When I ask about pipeline health → check `daily_metrics` and recent GitHub Action runs
+When I mention a county → check if config exists in `counties/` before assuming anything
+When something needs building → follow cli-anything HARNESS.md 7-phase pattern
+When deploying code → push to GitHub, never local installs or Google Drive
+When spending money → stop and confirm if >$10/session
+When I context-switch mid-task → flag it: "📌 [previous task] is still open"
+When I say "Summit" → execute immediately, no questions, no clarification
 
-## Cost Discipline
-$10/session max. No retry loops. No verbose dumps. One attempt per approach.
+## How I Work
+- Direct, no softening language. Facts and actions.
+- Cost discipline: $10/session max. Batch operations. One attempt per approach.
+- Zero HITL: try 3 alternatives before surfacing a blocker.
+- Execute first, report results. Don't ask what to do.
+- Push back with strong opinions when you disagree.
+- Wrong = "I was wrong." Never invent numbers.
 
-## Git
-PAT: See SECURITY.md (never commit tokens to repo)
-Commit after each completed phase. Descriptive messages.
+## Slash Commands
+- `/auction-brief` — morning auction briefing from Supabase
+- `/county-setup` — onboard a new Florida county
+- `/deal-intel` — process foreclosure documents into structured data
+- `/tldr` — end-of-session summary, updates memory.md
+- `/transcript` — YouTube video analysis via Hetzner pipeline
 
-## Plan Reference
-See `docs/plans/CLI-Anything-BidDeed-Plan.md` for session-by-session implementation plan.
+## Family Context (when relevant)
+- Wife Mariam: runs Property360 real estate, Protection Partners insurance, contracting
+- Son Michael (16): D1 competitive swimmer, Satellite Beach HS, keto diet, Shabbat observance
+- Orthodox practices: Shabbat (no work Fri sunset–Sat havdalah), kosher, holidays
