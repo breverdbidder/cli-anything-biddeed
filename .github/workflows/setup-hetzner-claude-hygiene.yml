@@ -13,7 +13,7 @@ jobs:
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
-          password: ${{ secrets.HETZNER_ROOT_PASSWORD }}
+          password: ${{ secrets.HETZNER_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 120s
           command_timeout: 10m
@@ -32,32 +32,17 @@ jobs:
               npm install -g @anthropic-ai/claude-code
               echo "Claude Code installed"
             else
-              echo "Claude Code already installed: $(claude --version 2>/dev/null || echo 'installed')"
+              echo "Claude Code already installed"
+              claude --version 2>/dev/null || true
             fi
 
             echo "=== [3/5] CC Status Line ==="
-            npx cc-status-line@latest << 'STATUSEOF'
-model | context% | session_cost | session_clock
-git_branch | git_worktree
-STATUSEOF
-            echo "CC Status Line configured"
+            npm install -g cc-status-line@latest 2>/dev/null || echo "cc-status-line install attempted"
+            echo "CC Status Line installed globally"
 
-            echo "=== [4/5] Context7 Plugin Setup ==="
-            mkdir -p /root/.claude/plugins
-            # Pre-configure Context7 so it's ready when Claude boots
-            cat > /tmp/install-context7.sh << 'C7EOF'
-#!/bin/bash
-# Run inside a Claude Code session: /plugin → context7
-# Or run: claude --print "install context7 plugin"
-echo "Context7 must be installed from within a Claude Code session."
-echo "Run: /plugin → Discover → context7 → Install"
-C7EOF
-            chmod +x /tmp/install-context7.sh
-            echo "Context7 prep done (plugin install requires active session)"
-
-            echo "=== [5/5] Claude Code Config ==="
+            echo "=== [4/5] Claude Code Global Config ==="
             mkdir -p /root/.claude
-            # Write session hygiene rules to global CLAUDE.md
+
             cat > /root/.claude/CLAUDE.md << 'MDEOF'
 # Session Hygiene Rules (Auto-deployed Mar 15, 2026)
 
@@ -70,13 +55,28 @@ C7EOF
 - NEVER /compact. Start fresh instead.
 - Sub-agents for heavy work via Superpowers execute-plan.
 - cli-anything harnesses: checkpoint between HARNESS.md phases.
+
+## CC Status Line Config
+Line 1: model | context% | session_cost | session_clock
+Line 2: git_branch | git_worktree
 MDEOF
 
+            echo "=== [5/5] Clone repos for Claude Code workspace ==="
+            mkdir -p /opt/biddeed
+            for repo in cli-anything-biddeed biddeed-ai zonewise-scraper-v4; do
+              if [ ! -d "/opt/biddeed/$repo" ]; then
+                cd /opt/biddeed && git clone "https://github.com/breverdbidder/$repo.git" 2>&1 | tail -1
+              else
+                cd "/opt/biddeed/$repo" && git pull origin main 2>&1 | tail -1
+              fi
+            done
+
             echo ""
-            echo "=== DONE ==="
+            echo "=== RESULTS ==="
             echo "Node: $(node --version)"
             echo "NPM: $(npm --version)"
-            which claude && echo "Claude Code: installed" || echo "Claude Code: install pending"
+            which claude && echo "Claude CLI: $(which claude)" || echo "Claude CLI: not found"
+            ls -la /root/.claude/CLAUDE.md
+            ls /opt/biddeed/
             echo ""
-            echo "NEXT: Run 'claude login' on Hetzner via SSH to authenticate (one-time OAuth)."
-            echo "Then inside Claude Code: /plugin → context7 to complete setup."
+            echo "STATUS: Server prepped. Run 'claude login' via SSH to authenticate once."
