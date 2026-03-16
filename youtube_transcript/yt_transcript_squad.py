@@ -79,21 +79,70 @@ def api_request(url: str, data: dict = None, headers: dict = None, method: str =
 # AGENT 1: FETCH (Firecrawl → YouTube Transcript)
 # ═══════════════════════════════════════════════════════════════
 
+def _firecrawl_scrape(url: str, formats=None, timeout=60000) -> dict:
+    """Common Firecrawl scrape call."""
+    return api_request(
+        "https://api.firecrawl.dev/v2/scrape",
+        data={"url": url, "formats": formats or ["markdown"], "timeout": timeout},
+        headers={
+            "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
+            "Content-Type": "application/json"
+        }
+    )
+
+
 def agent_fetch_firecrawl(video_id: str) -> dict:
-    """Fetch transcript via Firecrawl's native YouTube support."""
+    """Fetch transcript via Firecrawl scraping transcript aggregator sites.
+    
+    Strategy: Scrape free transcript sites that render YouTube captions as plain text.
+    Firecrawl handles anti-bot; aggregator handles YouTube caption API.
+    """
     print(f"🔥 AGENT 1: Firecrawl fetch for {video_id}...")
     
     if not FIRECRAWL_API_KEY:
         return {"status": "failed", "error": "FIRECRAWL_API_KEY not set"}
     
-    url = f"https://www.youtube.com/watch?v={video_id}"
+    # ── Strategy 1: Scrape youtubetranscript.com (renders full transcript) ──
+    aggregator_urls = [
+        f"https://youtubetranscript.com/?v={video_id}",
+        f"https://tactiq.io/tools/youtube-transcript?videoId={video_id}",
+    ]
     
+    for agg_url in aggregator_urls:
+        print(f"   Trying: {agg_url[:60]}...")
+        result = _firecrawl_scrape(agg_url)
+        
+        if "error" not in result and result.get("success") and result.get("data"):
+            md = result["data"].get("markdown", "")
+            # Transcript sites produce text-heavy output — look for substantial content
+            # Filter out short page-chrome results
+            if md and len(md) > 500:
+                # Extract title from YouTube metadata if available
+                title = result["data"].get("metadata", {}).get("title", f"YouTube Video {video_id}")
+                print(f"   ✅ Aggregator extracted {len(md):,} chars | {title[:50]}")
+                return {
+                    "status": "success",
+                    "video_id": video_id,
+                    "title": title,
+                    "raw_markdown": md,
+                    "char_count": len(md),
+                    "source": f"firecrawl-aggregator"
+                }
+            else:
+                print(f"   ⚠️ Too short ({len(md)} chars), trying next...")
+    
+    # ── Strategy 2: Scrape YouTube page with JSON extract for transcript ──
+    print(f"   Trying: YouTube page with AI extract...")
+    yt_url = f"https://www.youtube.com/watch?v={video_id}"
     result = api_request(
         "https://api.firecrawl.dev/v2/scrape",
         data={
-            "url": url,
-            "formats": ["markdown"],
-            "timeout": 60000
+            "url": yt_url,
+            "formats": [
+                "markdown",
+                {"type": "json", "prompt": "Extract the complete video transcript/captions text, the video title, and the video description. Return all spoken words from the captions."}
+            ],
+            "timeout": 90000
         },
         headers={
             "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
@@ -101,31 +150,50 @@ def agent_fetch_firecrawl(video_id: str) -> dict:
         }
     )
     
-    if "error" in result:
-        print(f"   ⚠️ Firecrawl error: {result['error'][:200]}")
-        return {"status": "failed", "error": result["error"]}
+    if "error" not in result and result.get("success") and result.get("data"):
+        data = result["data"]
+        # Check JSON extract first (AI-extracted transcript)
+        json_data = data.get("json", {})
+        transcript_text = ""
+        if isinstance(json_data, dict):
+            # Look for transcript-like fields
+            for key in ["transcript", "captions", "text", "spoken_words", "content"]:
+                if key in json_data and json_data[key]:
+                    val = json_data[key]
+                    if isinstance(val, list):
+                        transcript_text = " ".join(str(v) for v in val)
+                    else:
+                        transcript_text = str(val)
+                    if len(transcript_text) > 200:
+                        break
+        
+        if transcript_text and len(transcript_text) > 200:
+            title = json_data.get("title", data.get("metadata", {}).get("title", f"YouTube Video {video_id}"))
+            print(f"   ✅ AI extract got {len(transcript_text):,} chars transcript")
+            return {
+                "status": "success",
+                "video_id": video_id,
+                "title": title,
+                "raw_markdown": transcript_text,
+                "char_count": len(transcript_text),
+                "source": "firecrawl-ai-extract"
+            }
+        
+        # Fall through to markdown with description/chapters
+        md = data.get("markdown", "")
+        if md and len(md) > 500:
+            title = data.get("metadata", {}).get("title", f"YouTube Video {video_id}")
+            print(f"   ✅ YouTube page markdown {len(md):,} chars (page content, not transcript)")
+            return {
+                "status": "success",
+                "video_id": video_id,
+                "title": title,
+                "raw_markdown": md,
+                "char_count": len(md),
+                "source": "firecrawl-youtube-page"
+            }
     
-    # Extract markdown content
-    md = ""
-    if result.get("success") and result.get("data"):
-        md = result["data"].get("markdown", "")
-        metadata = result["data"].get("metadata", {})
-        title = metadata.get("title", "Unknown")
-    else:
-        return {"status": "failed", "error": "No data in Firecrawl response"}
-    
-    if not md or len(md) < 100:
-        return {"status": "failed", "error": f"Insufficient content extracted ({len(md)} chars)"}
-    
-    print(f"   ✅ Extracted {len(md):,} chars | Title: {title[:60]}")
-    return {
-        "status": "success",
-        "video_id": video_id,
-        "title": title,
-        "raw_markdown": md,
-        "char_count": len(md),
-        "source": "firecrawl"
-    }
+    return {"status": "failed", "error": "All Firecrawl strategies exhausted"}
 
 
 def agent_fetch_transcript_api(video_id: str) -> dict:
@@ -354,16 +422,29 @@ def _call_gemini_direct(prompt: str, api_key: str) -> dict:
     )
     
     if "error" in result:
+        print(f"   ⚠️ Gemini direct error: {str(result['error'])[:200]}")
         return {"status": "failed", "error": result["error"]}
     
     try:
-        content = result["candidates"][0]["content"]["parts"][0]["text"]
+        candidates = result.get("candidates", [])
+        if not candidates:
+            print(f"   ⚠️ No candidates in Gemini response. Keys: {list(result.keys())}")
+            return {"status": "failed", "error": f"No candidates. Response keys: {list(result.keys())}"}
+        
+        content = candidates[0]["content"]["parts"][0]["text"]
         content = re.sub(r'^```(?:json)?\s*', '', content.strip())
         content = re.sub(r'\s*```$', '', content.strip())
         analysis = json.loads(content)
-        print(f"   ✅ Gemini Flash (direct) analysis complete")
+        print(f"   ✅ Gemini Flash (direct): {len(analysis.get('key_points', []))} key points, "
+              f"relevance {analysis.get('biddeed_relevance', {}).get('score', '?')}/10")
         return {"status": "success", "analysis": analysis, "source": "gemini-flash-direct"}
+    except json.JSONDecodeError as e:
+        # Log what we got
+        raw = content[:300] if 'content' in dir() else "no content"
+        print(f"   ⚠️ JSON parse failed: {e}. Raw: {raw}")
+        return {"status": "failed", "error": f"JSON parse: {e}"}
     except Exception as e:
+        print(f"   ⚠️ Gemini parse error: {e}")
         return {"status": "failed", "error": f"Direct Gemini parse error: {e}"}
 
 
