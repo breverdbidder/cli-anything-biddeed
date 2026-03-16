@@ -15,31 +15,51 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Run Transcript Squad
+
+      - name: Setup SSH
+        run: |
+          sudo apt-get install -y sshpass >/dev/null 2>&1
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy and run on Hetzner
         env:
-          SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OUTPUT_DIR: ./output
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          SUPADATA_KEY: ${{ secrets.SUPADATA_API_KEY }}
         run: |
           URL="${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
           if [ -z "$URL" ]; then echo "No URL"; exit 1; fi
-          echo "Processing: $URL"
+
+          # Upload latest script
+          sshpass -e scp -o StrictHostKeyChecking=no \
+            youtube_transcript/yt_transcript_squad.py \
+            root@${HETZNER_IP}:/opt/yt-transcript/yt_transcript_squad.py
+
+          # Write .env with Supadata key and run
+          sshpass -e ssh -o StrictHostKeyChecking=no root@${HETZNER_IP} "
+            mkdir -p /opt/yt-transcript/output
+            echo 'SUPADATA_API_KEY=${SUPADATA_KEY}' > /opt/yt-transcript/.env
+            cd /opt/yt-transcript
+            SUPADATA_API_KEY='${SUPADATA_KEY}' \
+            OUTPUT_DIR=/opt/yt-transcript/output \
+            python3 yt_transcript_squad.py '${URL}'
+          "
+
+          # Fetch results back
           mkdir -p ./output
-          python youtube_transcript/yt_transcript_squad.py "$URL"
+          sshpass -e scp -o StrictHostKeyChecking=no \
+            "root@${HETZNER_IP}:/opt/yt-transcript/output/*" ./output/ 2>/dev/null || true
+          ls -la ./output/
+
       - name: Upload artifacts
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: transcript-report
           path: output/
           retention-days: 30
+
       - name: Commit report
         if: success()
         run: |
