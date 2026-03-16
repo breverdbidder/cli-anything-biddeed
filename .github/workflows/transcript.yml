@@ -18,30 +18,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Install dependencies
-        run: pip install firecrawl-py youtube-transcript-api
+      - name: Deploy script to Hetzner
+        run: |
+          scp -i ~/.ssh/hetzner -o StrictHostKeyChecking=no \
+            youtube_transcript/yt_transcript_squad.py \
+            root@${{ secrets.HETZNER_IP }}:/opt/yt-transcript/yt_transcript_squad.py
 
-      - name: Run Transcript Squad
+      - name: Run on Hetzner (non-cloud IP)
         env:
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OUTPUT_DIR: ./output
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           URL="${{ github.event.inputs.youtube_url || github.event.client_payload.url }}"
           if [ -z "$URL" ]; then
             echo "No YouTube URL provided"
             exit 1
           fi
-          echo "Processing: $URL"
+          echo "Processing: $URL on Hetzner (non-cloud IP)"
+
+          # Run pipeline on Hetzner where youtube-transcript-api works
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no \
+            root@${{ secrets.HETZNER_IP }} \
+            "cd /opt/yt-transcript && \
+             CLIPROXY_BASE_URL=http://127.0.0.1:8317 \
+             CLIPROXY_API_KEY=\$(cat /opt/cliproxy-gateway/.env.generated 2>/dev/null | grep GATEWAY_API_KEY | cut -d= -f2 || echo '') \
+             SUPABASE_URL='$SUPABASE_URL' \
+             SUPABASE_SERVICE_KEY='$SUPABASE_KEY' \
+             OUTPUT_DIR=/opt/yt-transcript/output \
+             python3 yt_transcript_squad.py '$URL'"
+
+      - name: Fetch results from Hetzner
+        if: success()
+        run: |
           mkdir -p ./output
-          python youtube_transcript/yt_transcript_squad.py "$URL"
+          scp -i ~/.ssh/hetzner -o StrictHostKeyChecking=no \
+            "root@${{ secrets.HETZNER_IP }}:/opt/yt-transcript/output/*" ./output/ 2>/dev/null || true
+          ls -la ./output/
 
       - name: Upload artifacts
         if: success()
