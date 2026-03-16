@@ -1,0 +1,94 @@
+name: Test Firecrawl Transcript
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run Firecrawl test
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          cat > /tmp/test.py << 'PYEOF'
+          import json, os, urllib.request, ssl
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          KEY = os.environ["FIRECRAWL_API_KEY"]
+          video_id = "2kbINqpluM0"
+
+          def fc(url, data):
+              body = json.dumps(data).encode()
+              req = urllib.request.Request(url, data=body, headers={
+                  "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"
+              }, method="POST")
+              resp = urllib.request.urlopen(req, context=ctx, timeout=120)
+              return json.loads(resp.read().decode())
+
+          # Test 1: AI extract for transcript
+          print("TEST 1: JSON extract with transcript prompt")
+          try:
+              r = fc("https://api.firecrawl.dev/v2/scrape", {
+                  "url": f"https://www.youtube.com/watch?v={video_id}",
+                  "formats": [{"type": "json", "prompt": "Extract the complete video transcript/captions. Return all spoken words as a field called transcript. Also return the title."}],
+                  "timeout": 90000
+              })
+              if r.get("success"):
+                  j = r["data"].get("json", {})
+                  print(f"  JSON keys: {list(j.keys()) if isinstance(j, dict) else 'not dict'}")
+                  t = j.get("transcript", "") if isinstance(j, dict) else ""
+                  print(f"  Transcript length: {len(t)}")
+                  if t:
+                      print(f"  First 500: {t[:500]}")
+                      with open("/tmp/transcript.txt", "w") as f:
+                          f.write(t)
+              else:
+                  print(f"  Failed: {json.dumps(r)[:300]}")
+          except Exception as e:
+              print(f"  Error: {e}")
+
+          # Test 2: Browser actions to open transcript panel
+          print("\nTEST 2: Browser actions to click Show Transcript")
+          try:
+              r = fc("https://api.firecrawl.dev/v2/scrape", {
+                  "url": f"https://www.youtube.com/watch?v={video_id}",
+                  "formats": ["markdown"],
+                  "actions": [
+                      {"type": "wait", "milliseconds": 5000},
+                      {"type": "click", "selector": "#description-inline-expander tp-yt-paper-button#expand"},
+                      {"type": "wait", "milliseconds": 1000},
+                      {"type": "click", "selector": "ytd-video-description-transcript-section-renderer button"},
+                      {"type": "wait", "milliseconds": 3000},
+                      {"type": "scrape"}
+                  ],
+                  "timeout": 90000
+              })
+              if r.get("success"):
+                  md = r["data"].get("markdown", "")
+                  print(f"  Markdown: {len(md)} chars")
+                  print(f"  Preview: {md[:500]}")
+                  with open("/tmp/transcript_actions.txt", "w") as f:
+                      f.write(md)
+              else:
+                  print(f"  Failed: {json.dumps(r)[:300]}")
+          except Exception as e:
+              print(f"  Error: {e}")
+          PYEOF
+          python3 /tmp/test.py
+
+      - name: Save results
+        if: always()
+        run: |
+          mkdir -p output
+          cp /tmp/transcript*.txt output/ 2>/dev/null || echo "no files"
+          ls -la output/
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firecrawl-test
+          path: output/
