@@ -1,0 +1,57 @@
+name: Setup Brain on Hetzner
+on:
+  workflow_dispatch:
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Setup SSH
+        run: |
+          sudo apt-get install -y sshpass >/dev/null 2>&1
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Clone vault to Hetzner
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=no root@${HETZNER_IP} "
+            # Clone or pull the brain vault
+            if [ -d /opt/biddeed-brain/.git ]; then
+              cd /opt/biddeed-brain && git pull origin main
+              echo 'PULLED existing vault'
+            else
+              git clone https://${GH_TOKEN}@github.com/breverdbidder/biddeed-brain.git /opt/biddeed-brain
+              echo 'CLONED fresh vault'
+            fi
+
+            # Configure git for auto-push
+            cd /opt/biddeed-brain
+            git config user.name 'BidDeed Bot'
+            git config user.email 'bot@biddeed.ai'
+
+            # Create a sync script
+            cat > /opt/biddeed-brain/sync.sh << 'SYNCEOF'
+#!/bin/bash
+cd /opt/biddeed-brain
+git add -A
+git diff --cached --quiet || git commit -m \"auto-sync: \$(date +%Y-%m-%d_%H:%M)\"
+git push origin main
+SYNCEOF
+            chmod +x /opt/biddeed-brain/sync.sh
+
+            # Add cron job for auto-sync every 5 minutes
+            (crontab -l 2>/dev/null | grep -v biddeed-brain; echo '*/5 * * * * /opt/biddeed-brain/sync.sh >/dev/null 2>&1') | crontab -
+
+            echo ''
+            echo '=== VAULT ON HETZNER ==='
+            ls -la /opt/biddeed-brain/
+            echo ''
+            echo 'Cron:'
+            crontab -l | grep biddeed-brain
+            echo ''
+            echo 'DONE'
+          "
