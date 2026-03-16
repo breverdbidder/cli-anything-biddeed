@@ -1,0 +1,74 @@
+name: Autoloop — Overnight Skill Self-Improvement
+
+on:
+  # Nightly at 2 AM EST (7 AM UTC)
+  schedule:
+    - cron: '0 7 * * *'
+  # Manual trigger with skill selection
+  workflow_dispatch:
+    inputs:
+      skill:
+        description: 'Which skill to improve'
+        required: true
+        type: choice
+        options:
+          - zonewise
+          - auction
+          - reports
+          - all
+      max_iterations:
+        description: 'Maximum iterations (default 50)'
+        required: false
+        default: '50'
+
+jobs:
+  autoloop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hour max
+    strategy:
+      matrix:
+        skill: ${{ github.event.inputs.skill == 'all' && fromJson('["zonewise","auction","reports"]') || fromJson(format('["{0}"]', github.event.inputs.skill || 'zonewise')) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT4 }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create eval outputs directory
+        run: mkdir -p ${{ matrix.skill }}/eval_outputs
+
+      - name: Run eval baseline
+        id: baseline
+        run: |
+          RESULT=$(python scripts/eval_runner.py \
+            --eval-file ${{ matrix.skill }}/eval/eval.json \
+            --outputs-dir ${{ matrix.skill }}/eval_outputs/ \
+            --output ${{ matrix.skill }}/eval/baseline_$(date +%Y%m%d).json 2>&1 || true)
+          SCORE=$(python -c "import json; d=json.load(open('${{ matrix.skill }}/eval/baseline_$(date +%Y%m%d).json')); print(d['summary']['score_pct'])" 2>/dev/null || echo "0%")
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "🎯 ${{ matrix.skill }} baseline: $SCORE"
+
+      - name: Upload eval results
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoloop-${{ matrix.skill }}-${{ github.run_number }}
+          path: |
+            ${{ matrix.skill }}/eval/baseline_*.json
+            ${{ matrix.skill }}/eval/autoloop_log.jsonl
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## Autoloop Results — ${{ matrix.skill }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Baseline Score:** ${{ steps.baseline.outputs.score }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Max Iterations:** ${{ github.event.inputs.max_iterations || '50' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Full eval loop runs in Claude Code with auto-mode." >> $GITHUB_STEP_SUMMARY
+          echo "This workflow captures baseline scores and artifacts." >> $GITHUB_STEP_SUMMARY
