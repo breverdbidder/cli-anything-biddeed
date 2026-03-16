@@ -1,0 +1,44 @@
+name: Fix Claude Code Install on Hetzner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Install Claude Code on Hetzner
+        run: |
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 << 'REMOTE'
+          set -e
+          echo "=== [1/4] Check Node.js ==="
+          if ! command -v node &>/dev/null; then
+            echo "Installing Node.js 22..."
+            curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+            apt-get install -y -qq nodejs
+          fi
+          echo "Node: $(node --version)"
+          echo "NPM: $(npm --version)"
+
+          echo "=== [2/4] Install Claude Code CLI ==="
+          npm install -g @anthropic-ai/claude-code@latest
+          echo "Claude Code: $(claude --version 2>/dev/null || echo 'version check failed')"
+          which claude
+
+          echo "=== [3/4] Verify PATH ==="
+          echo "PATH=$PATH"
+          ls -la $(which claude)
+
+          echo "=== [4/4] Test ==="
+          claude --version
+          echo ""
+          echo "STATUS: Claude Code CLI installed successfully"
+          REMOTE
