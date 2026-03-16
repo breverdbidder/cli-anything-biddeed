@@ -1,0 +1,145 @@
+name: Summit — ZoneWise Animation + Mapbox
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [summit-zonewise-animations]
+
+env:
+  HETZNER_HOST: 87.99.129.125
+  REPO: breverdbidder/zonewise-desktop
+  MISSION_FILE: docs/ANIMATION_MAPBOX_MISSION.md
+
+jobs:
+  execute-mission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H ${{ env.HETZNER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Telegram — Mission start
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=🚀 SUMMIT: ZoneWise Animation + Mapbox Heatmap
+          Repo: zonewise-desktop
+          Target: Vite SPA → Vercel auto-deploy
+          Phases: Animation → Mapbox Heatmap → Foreclosure Overlay → Split-Screen
+          Starting Claude Code session on Hetzner..." > /dev/null 2>&1 || true
+
+      - name: Execute Claude Code on Hetzner
+        run: |
+          SSH_CMD="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 root@${{ env.HETZNER_HOST }}"
+
+          $SSH_CMD << 'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          echo "=== 1. Environment setup ==="
+          export HOME=/root
+          export PATH="/root/.npm-global/bin:/root/.local/bin:/usr/local/bin:$PATH"
+
+          # Verify Claude Code CLI
+          if ! command -v claude &> /dev/null; then
+            echo "Installing Claude Code CLI..."
+            npm install -g @anthropic-ai/claude-code || true
+          fi
+          claude --version 2>/dev/null || echo "Claude CLI version check"
+
+          echo "=== 2. Clone/update repo ==="
+          WORK_DIR="/root/summit-zonewise-animations"
+          rm -rf "$WORK_DIR"
+          git clone "https://${{ secrets.GH_PAT }}@github.com/${{ env.REPO }}.git" "$WORK_DIR"
+          cd "$WORK_DIR"
+
+          echo "=== 3. Install dependencies ==="
+          cd apps/viewer
+          npm install 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null || true
+          npm install framer-motion --save 2>/dev/null || true
+          cd "$WORK_DIR"
+
+          echo "=== 4. Read mission spec ==="
+          MISSION=$(cat "${{ env.MISSION_FILE }}")
+
+          echo "=== 5. Launch Claude Code ==="
+          # Run Claude Code in auto-accept mode with the mission
+          timeout 6000 claude --auto-accept --model claude-sonnet-4-20250514 -p "
+          You are executing a deployment mission. Read docs/ANIMATION_MAPBOX_MISSION.md in this repo and execute ALL 4 phases in order.
+
+          CRITICAL RULES:
+          - This is zonewise-desktop, a Vite SPA (NOT Next.js)
+          - Build path: apps/viewer/ with vite build
+          - Custom code goes in zonewise/ directory
+          - Mapbox token is in env: VITE_MAPBOX_TOKEN
+          - House brand: Navy #1E3A5F, Orange #F59E0B, Slate-950 #020617
+          - Ship after each phase — git add, commit, push
+          - Git remote uses PAT: https://${{ secrets.GH_PAT }}@github.com/${{ env.REPO }}.git
+          - Vercel auto-deploys from main branch
+
+          START NOW. Phase 1 first: Animation system with framer-motion.
+          " 2>&1 | tail -200
+
+          echo "=== 6. Verify build ==="
+          cd apps/viewer
+          npx vite build 2>&1 | tail -10
+          BUILD_STATUS=$?
+
+          echo "=== 7. Push if not already pushed ==="
+          cd "$WORK_DIR"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat: animation system + mapbox heatmap (summit auto-deploy)" && git push origin main 2>/dev/null || true
+
+          echo "=== BUILD_STATUS: $BUILD_STATUS ==="
+          REMOTE_SCRIPT
+
+      - name: Verify deployment
+        run: |
+          SSH_CMD="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          # Check what was committed
+          LAST_COMMITS=$($SSH_CMD "cd /root/summit-zonewise-animations && git log --oneline -5" 2>/dev/null || echo "N/A")
+          CHANGED_FILES=$($SSH_CMD "cd /root/summit-zonewise-animations && git diff --name-only HEAD~1 HEAD 2>/dev/null | head -20" || echo "N/A")
+
+          echo "Last commits:"
+          echo "$LAST_COMMITS"
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Count animation components
+          ANIM_COUNT=$($SSH_CMD "find /root/summit-zonewise-animations/zonewise/components/animations -name '*.tsx' 2>/dev/null | wc -l" || echo "0")
+          MAP_EXISTS=$($SSH_CMD "test -f /root/summit-zonewise-animations/zonewise/components/web/MapboxHeatmap.tsx && echo 'YES' || echo 'NO'" 2>/dev/null || echo "UNKNOWN")
+
+          echo "Animation components: $ANIM_COUNT"
+          echo "MapboxHeatmap exists: $MAP_EXISTS"
+
+          # Store for Telegram
+          echo "LAST_COMMITS<<EOF" >> $GITHUB_ENV
+          echo "$LAST_COMMITS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "ANIM_COUNT=$ANIM_COUNT" >> $GITHUB_ENV
+          echo "MAP_EXISTS=$MAP_EXISTS" >> $GITHUB_ENV
+
+      - name: Telegram — Mission complete
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI=$( [ "$STATUS" = "success" ] && echo "✅" || echo "❌" )
+
+          MSG="$EMOJI SUMMIT COMPLETE: ZoneWise Animation + Mapbox
+          Status: $STATUS
+          Animation components: ${{ env.ANIM_COUNT || '?' }}
+          MapboxHeatmap: ${{ env.MAP_EXISTS || '?' }}
+
+          Commits:
+          ${{ env.LAST_COMMITS || 'N/A' }}
+
+          Live: https://zonewise-desktop-viewer.vercel.app"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=$MSG" > /dev/null 2>&1 || true
