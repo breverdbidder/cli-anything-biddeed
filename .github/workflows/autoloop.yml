@@ -107,7 +107,9 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 60s
           command_timeout: 170m
+          envs: ANTHROPIC_API_KEY
           script: |
+            export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             cd ${{ env.REPO_PATH }}
             SKILL="${{ steps.config.outputs.skill }}"
             MAX="${{ steps.config.outputs.max }}"
