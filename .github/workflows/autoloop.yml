@@ -14,6 +14,8 @@ on:
           - auction
           - reports
           - enricher
+          - forecaster
+          - trendpredictor
       max_iterations:
         description: 'Max iterations (default 50)'
         required: false
@@ -127,6 +129,8 @@ jobs:
               auction)  SKILL_MD="auction/agent-harness/AUCTION.md" ;;
               reports)  SKILL_MD="reports/REPORTS.md" ;;
               enricher) SKILL_MD="enricher/CLAUDE.md" ;;
+              forecaster) SKILL_MD="forecaster/CLAUDE.md" ;;
+              trendpredictor) SKILL_MD="trendpredictor/CLAUDE.md" ;;
             esac
 
             read -r -d '' PROMPT << 'LOOPEOF'
