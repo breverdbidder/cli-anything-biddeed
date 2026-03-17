@@ -1,0 +1,110 @@
+name: "Summit: Consolidate Zoning → Single Source of Truth"
+on:
+  workflow_dispatch: {}
+jobs:
+  consolidate:
+    name: "🗃️ Merge zoning_assignments → sample_properties"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Add tracking columns
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          sudo apt-get install -y postgresql-client -qq
+          
+          echo "=== STEP 1: Add tracking columns ==="
+          psql -h db.mocerqjnksmhcjzxrewo.supabase.co -p 5432 -U postgres -d postgres -c "
+            ALTER TABLE sample_properties
+              ADD COLUMN IF NOT EXISTS zone_source TEXT,
+              ADD COLUMN IF NOT EXISTS zone_confidence TEXT,
+              ADD COLUMN IF NOT EXISTS zone_synced_at TIMESTAMPTZ;
+          "
+          
+          echo "=== STEP 2: BEFORE counts ==="
+          psql -h db.mocerqjnksmhcjzxrewo.supabase.co -p 5432 -U postgres -d postgres -c "
+            SELECT 'BEFORE' as status,
+              COUNT(*) as total,
+              COUNT(zone_code) as with_zone,
+              ROUND(COUNT(zone_code)::numeric / COUNT(*) * 100, 1) as pct
+            FROM sample_properties;
+          "
+          
+          echo "=== STEP 3: Create ims_permits table ==="
+          psql -h db.mocerqjnksmhcjzxrewo.supabase.co -p 5432 -U postgres -d postgres -c "
+            CREATE TABLE IF NOT EXISTS ims_permits (
+              id SERIAL PRIMARY KEY,
+              record_number TEXT UNIQUE NOT NULL,
+              permit_type TEXT, permit_subtype TEXT, milestone TEXT,
+              address TEXT, city TEXT DEFAULT 'Palm Bay', county TEXT DEFAULT 'Brevard',
+              applicant TEXT, description TEXT, scraped_at TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_ims_address ON ims_permits(address);
+            CREATE INDEX IF NOT EXISTS idx_ims_type ON ims_permits(permit_type);
+            CREATE INDEX IF NOT EXISTS idx_ims_milestone ON ims_permits(milestone);
+          "
+
+          echo "=== STEP 4: Merge clean zone_codes from zoning_assignments ==="
+          psql -h db.mocerqjnksmhcjzxrewo.supabase.co -p 5432 -U postgres -d postgres -c "
+            WITH clean_za AS (
+              SELECT DISTINCT ON (parcel_id)
+                parcel_id,
+                CASE
+                  WHEN zone_code LIKE '% - %' THEN split_part(zone_code, ' - ', 1)
+                  WHEN zone_code LIKE '% (%' THEN split_part(zone_code, ' (', 1)
+                  WHEN length(zone_code) > 20 THEN NULL
+                  ELSE TRIM(zone_code)
+                END AS clean_zone,
+                jurisdiction,
+                photo_url,
+                zone_updated_at
+              FROM zoning_assignments
+              WHERE county = 'brevard'
+                AND zone_code IS NOT NULL
+                AND length(zone_code) <= 20
+              ORDER BY parcel_id, zone_updated_at DESC NULLS LAST
+            )
+            UPDATE sample_properties sp
+            SET
+              zone_code = cza.clean_zone,
+              zone_source = 'gis_conquest',
+              zone_confidence = 'HIGH',
+              zone_synced_at = NOW(),
+              photo_url = COALESCE(sp.photo_url, cza.photo_url)
+            FROM clean_za cza
+            WHERE sp.parcel_id = cza.parcel_id
+              AND cza.clean_zone IS NOT NULL;
+          "
+          
+          echo "=== STEP 5: AFTER counts ==="
+          psql -h db.mocerqjnksmhcjzxrewo.supabase.co -p 5432 -U postgres -d postgres -c "
+            SELECT 'AFTER' as status,
+              COUNT(*) as total,
+              COUNT(zone_code) as with_zone,
+              ROUND(COUNT(zone_code)::numeric / COUNT(*) * 100, 1) as pct,
+              COUNT(zone_source) as with_source
+            FROM sample_properties;
+          "
+          
+          echo "=== STEP 6: Breakdown by city ==="
+          psql -h db.mocerqjnksmhcjzxrewo.supabase.co -p 5432 -U postgres -d postgres -c "
+            SELECT
+              TRIM(city) as city,
+              COUNT(*) as total,
+              COUNT(zone_code) as zoned,
+              ROUND(COUNT(zone_code)::numeric / COUNT(*) * 100, 1) as pct
+            FROM sample_properties
+            GROUP BY TRIM(city)
+            ORDER BY total DESC
+            LIMIT 25;
+          "
+
+      - name: Report to Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="🗃️ ZONING CONSOLIDATION: zoning_assignments merged into sample_properties. Check GHA logs for BEFORE/AFTER counts."
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID&text=$MSG" > /dev/null
