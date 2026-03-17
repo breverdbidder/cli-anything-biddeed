@@ -58,6 +58,13 @@ jobs:
             set -e
             SKILL="${{ steps.config.outputs.skill }}"
 
+            # Ensure repo exists (auto-clone if missing)
+            mkdir -p /opt/biddeed
+            if [ ! -d "${{ env.REPO_PATH }}/.git" ]; then
+              echo "📥 Repo not found — cloning..."
+              git clone https://github.com/breverdbidder/cli-anything-biddeed.git ${{ env.REPO_PATH }}
+            fi
+
             # Pull latest
             cd ${{ env.REPO_PATH }}
             git pull origin main --ff-only 2>&1 | tail -3
