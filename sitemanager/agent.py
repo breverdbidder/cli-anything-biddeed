@@ -611,6 +611,17 @@ def stage_report(project: Dict, schedule: Dict, safety: Dict, quality: Dict) -> 
         log("REPORT", f"GeoJSON creation failed: {e}", "WARN")
 
     log("REPORT", f"Site Health: {report['site_health_score']}/100 | Actions: {len(report['action_items'])}", "OK")
+
+    # Telegram alert for critical health
+    if report["site_health_score"] < 60:
+        top_action = report["action_items"][0]["description"] if report["action_items"] else "No specific action"
+        notify_telegram(
+            f"🚨 <b>CRITICAL: {report['project_id']}</b>\n"
+            f"Health: {report['site_health_score']}/100\n"
+            f"Address: {report.get('address', 'N/A')}\n"
+            f"Top action: {top_action}"
+        )
+
     return report
 
 
@@ -714,6 +725,34 @@ def dashboard_all() -> Dict:
 
 
 # ═══════════════════════════════════════════════════════════════
+# DB PERSISTENCE
+# ═══════════════════════════════════════════════════════════════
+
+def load_project_from_db(parcel_id: str) -> Optional[Dict]:
+    """Load project from Supabase if it exists."""
+    rows = supabase_query("rehab_site_reports", {
+        "select": "report_json",
+        "parcel_id": f"eq.{parcel_id}",
+        "limit": "1",
+        "order": "reported_at.desc",
+    })
+    if rows and rows[0].get("report_json"):
+        try:
+            report = json.loads(rows[0]["report_json"]) if isinstance(rows[0]["report_json"], str) else rows[0]["report_json"]
+            log("DB", f"Loaded project for {parcel_id} from Supabase", "OK")
+            return report
+        except Exception as e:
+            log("DB", f"Failed to parse saved report: {e}", "WARN")
+    return None
+
+
+def save_report_to_db(report: Dict, project: Dict):
+    """Save report to Supabase."""
+    flat = _flatten_report(report, project)
+    supabase_upsert("rehab_site_reports", [flat])
+
+
+# ═══════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════
 
@@ -766,14 +805,22 @@ def main():
         if args.json:
             print(json.dumps(result, indent=2, default=str))
         if args.save:
-            supabase_upsert("rehab_site_reports", [_flatten_report(result["report"], result["project"])])
+            save_report_to_db(result["report"], result["project"])
 
     elif args.command == "update":
-        project = stage_project(args.parcel)
+        # Try loading from DB first for persistence
+        saved = load_project_from_db(args.parcel)
+        if saved and isinstance(saved, dict) and "phases" in saved:
+            project = saved
+            log("UPDATE", f"Loaded existing project from DB", "OK")
+        else:
+            project = stage_project(args.parcel)
         project = update_phase(project, args.phase, args.pct, args.notes)
         result = generate_full_report(project)
         if args.json:
             print(json.dumps(result, indent=2, default=str))
+        # Always save updates back
+        save_report_to_db(result["report"], result["project"])
 
     elif args.command == "report":
         project = stage_project(args.parcel)
@@ -781,7 +828,7 @@ def main():
         if args.json:
             print(json.dumps(result, indent=2, default=str))
         if args.save:
-            supabase_upsert("rehab_site_reports", [_flatten_report(result["report"], result["project"])])
+            save_report_to_db(result["report"], result["project"])
 
     elif args.command == "dashboard":
         result = dashboard_all()
