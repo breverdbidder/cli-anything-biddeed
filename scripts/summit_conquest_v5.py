@@ -241,11 +241,6 @@ def query_zoning(city_key, config, parcels):
                         "jurisdiction": city_key,
                         "county": "brevard",
                     }
-                    # Add dimensional data if available
-                    for ef in extra_fields.split(","):
-                        ef = ef.strip()
-                        if ef and attrs.get(ef):
-                            row[ef.lower()] = attrs[ef]
                     rows.append(row)
                 else:
                     misses += 1
