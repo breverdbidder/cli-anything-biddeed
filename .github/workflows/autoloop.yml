@@ -164,10 +164,12 @@ jobs:
             PROMPT="${PROMPT//SKILLMD_PLACEHOLDER/$SKILL_MD}"
             PROMPT="${PROMPT//MAX_PLACEHOLDER/$MAX}"
 
+            PROMPT_FILE="/tmp/autoloop_prompt.txt"
+            echo "$PROMPT" > $PROMPT_FILE
             LOG="$SKILL/eval/autoloop_session_$(date +%Y%m%d_%H%M%S).log"
 
             echo "🚀 Autoloop: $SKILL | Max: $MAX | $(date)"
-            IS_SANDBOX=1 claude -p "$PROMPT" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
+            cat $PROMPT_FILE | IS_SANDBOX=1 claude --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
             echo "⏰ Done: $(date)"
 
             # Push final state
