@@ -1,107 +1,135 @@
-name: "🔑 Claude Code Login on Hetzner (interactive)"
+name: "Claude Login on Hetzner"
 
 on:
   workflow_dispatch: {}
 
-env:
-  HETZNER_HOST: 87.99.129.125
-
 jobs:
   login:
-    name: "🔑 Login"
+    name: "🔑 Claude Login"
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
-      - name: "Install expect + attempt login"
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HETZNER_IP }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 8m
-          script: |
-            apt-get install -y expect > /dev/null 2>&1 || true
+      - name: "1️⃣ Setup SSH"
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
 
-            # Try to get the login URL using script to capture pseudo-terminal output
-            LOGFILE="/tmp/claude_login_$(date +%s).log"
-
-            # Use script command to simulate a TTY
-            script -q -c "IS_SANDBOX=1 claude login 2>&1" "$LOGFILE" < /dev/null &
-            SCRIPT_PID=$!
-
-            # Wait for URL to appear
-            AUTH_URL=""
-            for i in $(seq 1 30); do
-              sleep 2
-              AUTH_URL=$(grep -oP 'https://[^\s\x1b]+' "$LOGFILE" 2>/dev/null | grep -i "auth\|login\|claude\|anthropic" | head -1)
-              if [ -n "$AUTH_URL" ]; then
+      - name: "2️⃣ Login + send URL to Telegram"
+        env:
+          TG_BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SSH="ssh -t -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125"
+          
+          # Create a login script on the server
+          $SSH "cat > /tmp/claude_login.sh << 'SCRIPT'
+          #!/bin/bash
+          export IS_SANDBOX=1
+          
+          # Run claude login, capture output to file
+          script -q -c 'claude login' /tmp/claude_login_output.txt &
+          LOGIN_PID=\$!
+          
+          # Wait up to 30s for the URL to appear in the output
+          for i in \$(seq 1 30); do
+            sleep 1
+            if grep -q 'http' /tmp/claude_login_output.txt 2>/dev/null; then
+              URL=\$(grep -oP 'https://[^\s\x1b]+' /tmp/claude_login_output.txt | head -1 | sed 's/\x1b\[[0-9;]*m//g')
+              if [ -n \"\$URL\" ]; then
+                echo \"AUTH_URL=\$URL\" > /tmp/claude_auth_url.txt
+                echo \"Found URL: \$URL\"
                 break
               fi
-              # Also check for any https URL
-              AUTH_URL=$(grep -oP 'https://[^\s\x1b"]+' "$LOGFILE" 2>/dev/null | head -1)
-              if [ -n "$AUTH_URL" ]; then
-                break
-              fi
-            done
-
-            kill $SCRIPT_PID 2>/dev/null || true
-
-            if [ -n "$AUTH_URL" ]; then
-              echo "🔗 Auth URL: $AUTH_URL"
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-                -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-                -d "parse_mode=HTML" \
-                -d "text=🔑 <b>Claude Code Login — Hetzner</b>
-
-            Open this link to authorize:
-            <a href=\"$AUTH_URL\">$AUTH_URL</a>
-
-            One-time setup. After this, all summits run on Max plan forever." \
-                > /dev/null 2>&1
-              echo "📱 Auth URL sent to Telegram"
-
-              # Wait for auth to complete (up to 5 min)
-              echo "⏳ Waiting for you to click the link..."
-              for j in $(seq 1 150); do
-                sleep 2
-                if IS_SANDBOX=1 claude -p "say AUTHENTICATED" --dangerously-skip-permissions 2>&1 | grep -q "AUTHENTICATED"; then
-                  echo "✅ AUTHENTICATED — Max plan active on Hetzner!"
-                  curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-                    -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-                    -d "text=✅ Claude Code authenticated on Hetzner! Max plan active. Firing all 4 summits now..." \
-                    > /dev/null 2>&1
-
-                  # AUTO-FIRE ALL 4 SUMMITS
-                  echo "🚀 Auto-firing summits..."
-                  for summit in summit-enricher-p0 summit-forecaster-p0 summit-trendpredictor-p0 summit-sitemanager-p0; do
-                    curl -s -X POST \
-                      "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/workflows/${summit}.yml/dispatches" \
-                      -H "Authorization: token ${{ secrets.GH_PAT }}" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      -d '{"ref":"main","inputs":{"max_minutes":"45","dry_run":"false"}}'
-                    echo "  ✅ Fired $summit"
-                  done
-                  exit 0
-                fi
-              done
-              echo "⏰ Timeout waiting for auth. Click the Telegram link and re-run this workflow."
-            else
-              echo "❌ Could not capture auth URL"
-              echo "=== Log output ==="
-              cat "$LOGFILE" | strings | head -30
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-                -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-                -d "text=⚠️ Could not capture Claude Code login URL automatically.
-
-            SSH into Hetzner and run:
-            IS_SANDBOX=1 claude login" \
-                > /dev/null 2>&1
             fi
+          done
+          
+          # Keep process alive for 3 more minutes for user to approve
+          sleep 180
+          kill \$LOGIN_PID 2>/dev/null || true
+          SCRIPT
+          chmod +x /tmp/claude_login.sh"
+          
+          # Run the login script in background on server
+          ssh -f -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 \
+            "nohup bash /tmp/claude_login.sh > /tmp/claude_login_full.log 2>&1 &"
+          
+          echo "⏳ Waiting 15s for URL to appear..."
+          sleep 15
+          
+          # Fetch the URL
+          AUTH_URL=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 \
+            "cat /tmp/claude_auth_url.txt 2>/dev/null | grep AUTH_URL | cut -d= -f2-" || true)
+          
+          if [ -z "$AUTH_URL" ]; then
+            # Try reading raw output and extracting URL
+            RAW=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 \
+              "cat /tmp/claude_login_output.txt 2>/dev/null | strings | grep -oP 'https://[a-zA-Z0-9./?=&_-]+' | head -1" || true)
+            AUTH_URL="$RAW"
+          fi
+          
+          if [ -z "$AUTH_URL" ]; then
+            # Send debug info
+            DEBUG=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 \
+              "cat /tmp/claude_login_output.txt 2>/dev/null | strings | tail -20" || true)
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" \
+              -d "text=❌ Could not extract login URL. Debug output: ${DEBUG:0:500}"
+            echo "❌ No URL found"
+            exit 1
+          fi
+          
+          echo "🔗 URL: $AUTH_URL"
+          
+          # Send to Telegram
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+            -d "chat_id=${TG_CHAT}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            -d "text=🔑 <b>TAP TO LOGIN CLAUDE ON HETZNER</b>
+
+          👇 Open this link and approve:
+          ${AUTH_URL}
+
+          After approving → all 4 agents run on Max plan at \$0 forever.
+          ⏳ Verifying for 3 minutes..."
+          
+          echo "📱 Sent to Telegram. Waiting for approval..."
+
+      - name: "3️⃣ Wait for approval"
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125"
+          
+          for i in $(seq 1 12); do
+            sleep 15
+            echo "Check $i/12..."
+            
+            RESULT=$($SSH "IS_SANDBOX=1 claude -p 'hi' --dangerously-skip-permissions 2>&1 | strings | head -3" || true)
+            echo "  > $RESULT"
+            
+            if echo "$RESULT" | grep -qiv "not logged\|login\|credit\|error"; then
+              if [ -n "$RESULT" ] && ! echo "$RESULT" | grep -qi "not logged"; then
+                echo "✅ Logged in!"
+                
+                curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+                  -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+                  -d "parse_mode=HTML" \
+                  -d "text=✅ <b>CLAUDE LOGIN SUCCESS!</b>
+
+          Max plan active on Hetzner. All 4 agents ready.
+          Go to Claude chat → say <b>summit</b>"
+                exit 0
+              fi
+            fi
+          done
+          
+          echo "⏰ Timed out"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=⏰ Login timed out. Re-run the workflow and tap the link faster."
 
       - name: Summary
         if: always()
-        run: |
-          echo "## 🔑 Claude Code Login" >> $GITHUB_STEP_SUMMARY
-          echo "Auth URL sent to Telegram. Click to authorize." >> $GITHUB_STEP_SUMMARY
-          echo "After auth, all 4 summits auto-fire." >> $GITHUB_STEP_SUMMARY
+        run: echo "## 🔑 Claude Login" >> $GITHUB_STEP_SUMMARY
