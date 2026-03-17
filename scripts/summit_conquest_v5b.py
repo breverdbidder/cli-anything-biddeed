@@ -22,7 +22,7 @@ CITIES = {
         "target": 29882,
         "zoning_url": "https://services1.arcgis.com/Tex1uhbqnOZPx6qT/arcgis/rest/services/Public_View_Cocoa_Zoning_with_Split_Lots_June_2023_view/FeatureServer/1",
         "zone_field": "Zoning",
-        "extra_fields": "",
+        "extra_fields": "ZoneDesc",
         "needs_reproject": False,
         # Zoning extent filter — parcels outside this range won't match
         "extent_filter": {"xmin": 711088, "ymin": 1458431, "xmax": 746154, "ymax": 1484864},
@@ -192,11 +192,12 @@ def main():
                     if zone:
                         row = {"parcel_id": p["pid"], "zone_code": zone,
                                "jurisdiction": city_key,
-                               "source": f"agol_{city_key}",
-                               "method": "centroid_agol_query",
-                               "updated_at": datetime.now(timezone.utc).isoformat()}
-                        # extra_fields stripped to prevent Supabase key mismatch
-                    pass
+                        "county": "brevard",
+                        if cfg.get("extra_fields"):
+                            for ef in cfg["extra_fields"].split(","):
+                                ef = ef.strip()
+                                if ef and feats[0]["attributes"].get(ef):
+                                    row[ef.lower()] = feats[0]["attributes"][ef]
                         rows.append(row)
                     else: misses += 1
                 else: misses += 1
