@@ -129,3 +129,12 @@ When reviewing code changes, apply the Fix-First heuristic from `docs/GSTACK_REV
 3. Run Pass 2 (INFORMATIONAL): Side effects, magic numbers, dead code, test gaps, crypto, types
 4. For each finding: AUTO-FIX if mechanical, ASK if ambiguous (see checklist for classification)
 5. Output format: `Pre-Landing Review: N issues (X critical, Y informational)` with AUTO-FIXED and NEEDS INPUT sections
+
+
+## visual-explainer Skill
+- Source: ~/.claude/skills/visual-explainer/plugins/visual-explainer/SKILL.md
+- Read SKILL.md + references/ before generating any HTML diagram
+- Output to ~/.agent/diagrams/ and open in browser
+- Commands: /diff-review, /plan-review, /project-recap, /generate-web-diagram, /generate-slides, /fact-check
+- Brand preset: templates/biddeed-brand-preset.html (Navy #1E3A5F + Orange #F59E0B)
+- Auto-trigger: Any table with 4+ rows or 3+ columns renders as HTML instead of ASCII
