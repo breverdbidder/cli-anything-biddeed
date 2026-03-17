@@ -13,6 +13,7 @@ on:
           - zonewise
           - auction
           - reports
+          - enricher
       max_iterations:
         description: 'Max iterations (default 50)'
         required: false
@@ -125,6 +126,7 @@ jobs:
               zonewise) SKILL_MD="zonewise/agent-harness/ZONEWISE.md" ;;
               auction)  SKILL_MD="auction/agent-harness/AUCTION.md" ;;
               reports)  SKILL_MD="reports/REPORTS.md" ;;
+              enricher) SKILL_MD="enricher/CLAUDE.md" ;;
             esac
 
             read -r -d '' PROMPT << 'LOOPEOF'
