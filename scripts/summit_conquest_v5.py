@@ -239,9 +239,7 @@ def query_zoning(city_key, config, parcels):
                         "parcel_id": p["pid"],
                         "zone_code": zone,
                         "jurisdiction": city_key,
-                        "source": f"municipal_gis_{city_key}",
-                        "method": "centroid_server_query",
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "county": "brevard",
                     }
                     # Add dimensional data if available
                     for ef in extra_fields.split(","):
