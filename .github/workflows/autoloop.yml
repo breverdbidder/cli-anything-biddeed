@@ -165,7 +165,7 @@ jobs:
             LOG="$SKILL/eval/autoloop_session_$(date +%Y%m%d_%H%M%S).log"
 
             echo "🚀 Autoloop: $SKILL | Max: $MAX | $(date)"
-            claude -p "$PROMPT" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
+            IS_SANDBOX=1 claude -p "$PROMPT" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
             echo "⏰ Done: $(date)"
 
             # Push final state
