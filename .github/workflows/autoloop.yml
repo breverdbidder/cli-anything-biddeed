@@ -16,6 +16,7 @@ on:
           - enricher
           - forecaster
           - trendpredictor
+          - sitemanager
       max_iterations:
         description: 'Max iterations (default 50)'
         required: false
@@ -131,6 +132,7 @@ jobs:
               enricher) SKILL_MD="enricher/CLAUDE.md" ;;
               forecaster) SKILL_MD="forecaster/CLAUDE.md" ;;
               trendpredictor) SKILL_MD="trendpredictor/CLAUDE.md" ;;
+              sitemanager) SKILL_MD="sitemanager/CLAUDE.md" ;;
             esac
 
             read -r -d '' PROMPT << 'LOOPEOF'
