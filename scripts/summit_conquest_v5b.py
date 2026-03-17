@@ -190,14 +190,12 @@ def main():
                 if feats:
                     zone = (feats[0]["attributes"].get(zone_field) or "").strip()
                     if zone:
-                        row = {"parcel_id": p["pid"], "zone_code": zone,
-                               "jurisdiction": city_key,
-                        "county": "brevard",
-                        if cfg.get("extra_fields"):
-                            for ef in cfg["extra_fields"].split(","):
-                                ef = ef.strip()
-                                if ef and feats[0]["attributes"].get(ef):
-                                    row[ef.lower()] = feats[0]["attributes"][ef]
+                        row = {
+                            "parcel_id": p["pid"],
+                            "zone_code": zone,
+                            "jurisdiction": city_key,
+                            "county": "brevard",
+                        }
                         rows.append(row)
                     else: misses += 1
                 else: misses += 1
