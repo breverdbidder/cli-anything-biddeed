@@ -193,7 +193,7 @@ jobs:
             LOG="enricher/eval/summit_p0_$(date +%Y%m%d_%H%M%S).log"
 
             echo "⛰️ Summit: Enricher P0 | $(date) | Max: ${{ github.event.inputs.max_minutes || '45' }}m"
-            claude --auto "$PROMPT" 2>&1 | tee "$LOG" || true
+            claude -p "$PROMPT" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
             echo "⏰ Session ended: $(date)"
 
             # Push any remaining changes
