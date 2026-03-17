@@ -758,12 +758,22 @@ def main():
     fc.add_argument("--spend-csv", type=str, help="CSV file with spend log")
     fc.add_argument("--threshold", type=float, default=0.05, help="Alert threshold (default 5%%)")
     fc.add_argument("--json", action="store_true", help="Output JSON")
+    fc.add_argument("--save", action="store_true", help="Save forecast to Supabase rehab_projects")
 
     # history command
     hist = sub.add_parser("history", help="Query historical rehab costs")
     hist.add_argument("--type", choices=list(BUDGET_TEMPLATES.keys()), default="medium_rehab")
     hist.add_argument("--zip", type=str)
     hist.add_argument("--last", type=int, default=20)
+
+    # update-spend command
+    us = sub.add_parser("update-spend", help="Log an expense")
+    us.add_argument("--parcel", required=True, help="Parcel ID")
+    us.add_argument("--category", required=True, help="Budget category")
+    us.add_argument("--amount", type=float, required=True, help="Amount spent")
+    us.add_argument("--vendor", type=str, help="Vendor name")
+    us.add_argument("--description", type=str, help="Description")
+    us.add_argument("--date", type=str, help="Spend date YYYY-MM-DD")
 
     # status command
     sub.add_parser("status", help="Check connectivity")
@@ -790,6 +800,41 @@ def main():
         )
         if args.json:
             print(json.dumps(result, indent=2, default=str))
+        if getattr(args, 'save', False):
+            fc = result.get("stages", {}).get("forecast", {})
+            sc = result.get("stages", {}).get("scenarios", {})
+            al = result.get("stages", {}).get("alerts", {})
+            vel = result.get("stages", {}).get("velocity", {})
+            supabase_upsert("rehab_projects", [{
+                "parcel_id": args.parcel or "unknown",
+                "template": args.template,
+                "total_budget": args.budget,
+                "total_spent": vel.get("total_spent", 0),
+                "total_forecast": fc.get("total_forecast"),
+                "variance_pct": fc.get("variance_pct"),
+                "arv": args.arv,
+                "status": "ACTIVE",
+                "alerts_json": json.dumps(al),
+                "scenarios_json": json.dumps(sc),
+            }])
+
+    elif args.command == "update-spend":
+        log("CLI", f"Logging spend: ${args.amount:,.2f} → {args.category} for {args.parcel}")
+        record = {
+            "parcel_id": args.parcel,
+            "category": args.category,
+            "amount": args.amount,
+            "vendor": args.vendor,
+            "description": args.description,
+            "spend_date": args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        }
+        supabase_upsert("rehab_spend_log", [record])
+        # Query total spent for this parcel
+        rows = supabase_query("rehab_spend_log", {
+            "select": "amount", "parcel_id": f"eq.{args.parcel}",
+        })
+        total = sum(float(r.get("amount", 0)) for r in rows) if rows else args.amount
+        log("CLI", f"Total spent on {args.parcel}: ${total:,.2f}", "OK")
 
     elif args.command == "history":
         h = stage_history(args.type, args.zip, limit=args.last)
