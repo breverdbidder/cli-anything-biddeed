@@ -313,25 +313,60 @@ def stage_liens(parcel_id: str, owner_name: str = None) -> Dict:
         "confidence": 0.0,
     }
 
-    # AcclaimWeb search by owner name
+    # AcclaimWeb search by owner name — BECA V2.0 regex patterns
     if owner_name:
         log("LIENS", f"Searching AcclaimWeb for '{owner_name}'")
         try:
             client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
-            # AcclaimWeb party search
-            # NOTE: Full implementation uses BECA Scraper V2.0 regex patterns
-            # This is the lightweight version for the enricher pipeline
+            parts = owner_name.strip().split()
+            last_name = parts[-1] if parts else ""
+            first_name = parts[0] if len(parts) > 1 else ""
+
             search_url = f"{ACCLAIMWEB_BASE}/AcclaimWeb/search/SearchTypeName"
             r = client.get(search_url, params={
-                "lastName": owner_name.split()[-1] if owner_name else "",
-                "firstName": owner_name.split()[0] if owner_name else "",
+                "lastName": last_name, "firstName": first_name, "PartyType": "B",
             })
+            time.sleep(2)  # Rate limit
+
             if r.status_code == 200:
-                # Parse response — AcclaimWeb returns HTML, need regex extraction
-                # Full regex patterns from BECA Scraper V2.0:
-                # MTG, LIEN, JP, LP, HOA, MECH, UCC, etc.
-                liens["confidence"] = 0.60
-                log("LIENS", "AcclaimWeb responded (needs BECA regex parsing)", "OK")
+                html = r.text
+                # BECA V2.0 document type patterns
+                doc_types = {
+                    "mortgages": r"(?i)\b(MTG|MORTGAGE|DEED\s*OF\s*TRUST)\b",
+                    "lis_pendens": r"(?i)\b(LIS\s*PENDENS|LP)\b",
+                    "judgment_liens": r"(?i)\b(JUDGMENT|JUDG|JP|FINAL\s*JUDG)\b",
+                    "hoa_liens": r"(?i)\b(HOA|HOMEOWNERS|ASSOCIATION\s*LIEN|CLAIM\s*OF\s*LIEN)\b",
+                    "mechanic_liens": r"(?i)\b(MECH|MECHANIC|CONSTRUCTION\s*LIEN)\b",
+                    "ucc_filings": r"(?i)\b(UCC|UNIFORM\s*COMMERCIAL)\b",
+                }
+                sat_pat = r"(?i)\b(SAT|SATISFACTION|RELEASE|DISCHARGE)\b"
+
+                row_pat = r"<tr[^>]*>(.*?)</tr>"
+                for row_html in re.findall(row_pat, html, re.DOTALL):
+                    if re.search(sat_pat, row_html):
+                        continue
+                    for lien_type, pattern in doc_types.items():
+                        if re.search(pattern, row_html):
+                            date_m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", row_html)
+                            inst_m = re.search(r"(\d{10,})", row_html)
+                            liens[lien_type].append({
+                                "type": lien_type,
+                                "recording_date": date_m.group(1) if date_m else None,
+                                "instrument": inst_m.group(1) if inst_m else None,
+                                "source": "AcclaimWeb",
+                            })
+                            break
+
+                total_found = sum(len(liens[t]) for t in doc_types.keys())
+                liens["confidence"] = 0.70 if total_found > 0 else 0.40
+                log("LIENS", f"AcclaimWeb: {total_found} docs (MTG:{len(liens['mortgages'])} "
+                    f"JP:{len(liens['judgment_liens'])} LP:{len(liens['lis_pendens'])} "
+                    f"HOA:{len(liens['hoa_liens'])})", "OK")
+            elif r.status_code == 403:
+                log("LIENS", "AcclaimWeb 403 — rate limited", "WARN")
+                liens["confidence"] = 0.10
+            else:
+                log("LIENS", f"AcclaimWeb {r.status_code}", "WARN")
             client.close()
         except Exception as e:
             log("LIENS", f"AcclaimWeb error: {e}", "ERR")
