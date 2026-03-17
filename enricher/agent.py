@@ -81,7 +81,7 @@ SALE_TYPES = {
 def log(stage: str, msg: str, level: str = "INFO"):
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
     prefix = {"INFO": "●", "OK": "✓", "WARN": "⚠", "ERR": "✗", "SKIP": "○"}.get(level, "●")
-    print(f"  [{ts}] {prefix} [{stage}] {msg}")
+    print(f"  [{ts}] {prefix} [{stage}] {msg}", file=sys.stderr)
 
 
 def notify_telegram(msg: str):
@@ -146,7 +146,7 @@ def stage_owner(parcel_id: str = None, address: str = None) -> Dict:
     }
 
     try:
-        client = httpx.Client(timeout=30, follow_redirects=True)
+        client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
 
         # Try BCPAO API first (fastest)
         if parcel_id:
@@ -255,7 +255,7 @@ def stage_tax(parcel_id: str) -> Dict:
     }
 
     try:
-        client = httpx.Client(timeout=30, follow_redirects=True)
+        client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
         account = parcel_id.replace("-", "").replace(".", "")
 
         # BCPAO API for assessment data
@@ -317,7 +317,7 @@ def stage_liens(parcel_id: str, owner_name: str = None) -> Dict:
     if owner_name:
         log("LIENS", f"Searching AcclaimWeb for '{owner_name}'")
         try:
-            client = httpx.Client(timeout=30, follow_redirects=True)
+            client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
             # AcclaimWeb party search
             # NOTE: Full implementation uses BECA Scraper V2.0 regex patterns
             # This is the lightweight version for the enricher pipeline
@@ -339,7 +339,7 @@ def stage_liens(parcel_id: str, owner_name: str = None) -> Dict:
     # RealTDM for tax certificates
     log("LIENS", "Checking RealTDM for tax certificates")
     try:
-        client = httpx.Client(timeout=30, follow_redirects=True)
+        client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
         # RealTDM requires account-based lookup
         # TODO: Integrate with existing realtdm_scraper patterns
         client.close()
@@ -386,7 +386,7 @@ def stage_permits(parcel_id: str, address: str = None) -> Dict:
     }
 
     try:
-        client = httpx.Client(timeout=30, follow_redirects=True)
+        client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
 
         # Brevard County PermitsPlus portal
         # NOTE: This is a new integration point — requires scraping or API discovery
@@ -441,7 +441,7 @@ def stage_comps(parcel_id: str, radius_miles: float = 1.0,
     }
 
     try:
-        client = httpx.Client(timeout=30, follow_redirects=True)
+        client = httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
 
         # Get subject property centroid from BCPAO GIS
         account = parcel_id.replace("-", "").replace(".", "")
@@ -619,11 +619,11 @@ def enrich_property(
     config = DEPTH_CONFIGS.get(depth, DEPTH_CONFIGS["standard"])
     stages = config["stages"]
 
-    print(f"\n{'='*60}")
-    print(f"  PROPERTY PROFILE ENRICHER — {sale_type.upper()} mode")
-    print(f"  Depth: {depth} | Stages: {', '.join(stages)}")
-    print(f"  Input: {parcel_id or address or case_number}")
-    print(f"{'='*60}\n")
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"  PROPERTY PROFILE ENRICHER — {sale_type.upper()} mode", file=sys.stderr)
+    print(f"  Depth: {depth} | Stages: {', '.join(stages)}", file=sys.stderr)
+    print(f"  Input: {parcel_id or address or case_number}", file=sys.stderr)
+    print(f"{'='*60}\n", file=sys.stderr)
 
     t0 = time.time()
     result = {
@@ -683,22 +683,22 @@ def enrich_property(
     result["elapsed_seconds"] = round(time.time() - t0, 1)
 
     # Summary
-    print(f"\n{'='*60}")
-    print(f"  ENRICHMENT COMPLETE — {result['elapsed_seconds']}s")
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"  ENRICHMENT COMPLETE — {result['elapsed_seconds']}s", file=sys.stderr)
     if result.get("synthesis"):
         s = result["synthesis"]
         action = s.get("action", "N/A")
         conf = s.get("overall_confidence", 0)
-        print(f"  Action: {action} | Confidence: {conf:.0%}")
+        print(f"  Action: {action} | Confidence: {conf:.0%}", file=sys.stderr)
         if s.get("valuation", {}).get("max_bid"):
-            print(f"  Max Bid: ${s['valuation']['max_bid']:,}")
+            print(f"  Max Bid: ${s['valuation']['max_bid']:,}", file=sys.stderr)
         if s.get("motivation_score") is not None:
-            print(f"  Motivation: {s['motivation_score']}/100")
+            print(f"  Motivation: {s['motivation_score']}/100", file=sys.stderr)
         if s.get("red_flags"):
-            print(f"  Red Flags: {', '.join(s['red_flags'])}")
+            print(f"  Red Flags: {', '.join(s['red_flags'])}", file=sys.stderr)
         if s.get("green_flags"):
-            print(f"  Green Flags: {', '.join(s['green_flags'])}")
-    print(f"{'='*60}\n")
+            print(f"  Green Flags: {', '.join(s['green_flags'])}", file=sys.stderr)
+    print(f"{'='*60}\n", file=sys.stderr)
 
     return result
 
@@ -829,8 +829,8 @@ Examples:
         batch_enrich(parcels, sale_type=args.mode, depth=args.depth)
 
     elif args.command == "status":
-        print("\n  Property Profile Enricher — Status Check")
-        print("  " + "="*40)
+        print("\n  Property Profile Enricher — Status Check", file=sys.stderr)
+        print("  " + "="*40, file=sys.stderr)
         _check_connectivity()
 
     else:
@@ -844,7 +844,7 @@ def _check_connectivity():
         ("BCPAO GIS", f"{BCPAO_PARCEL}?f=json"),
         ("Supabase", f"{SUPABASE_URL}/rest/v1/" if SUPABASE_URL else None),
     ]
-    client = httpx.Client(timeout=10, follow_redirects=True)
+    client = httpx.Client(timeout=10, follow_redirects=True, headers={"User-Agent": "BidDeed.AI/1.0 (enricher)"})
     for name, url in sources:
         if not url:
             log("STATUS", f"{name}: NOT CONFIGURED", "WARN")
