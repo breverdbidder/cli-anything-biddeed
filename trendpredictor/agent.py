@@ -230,9 +230,44 @@ def stage_rents(zip_code: str, months_back: int = 12) -> Dict:
         rents["rent_to_income_ratio"] = round(rents["median_rent"] / monthly_income, 4)
         rents["affordability_ceiling"] = rents["rent_to_income_ratio"] > 0.30
 
-    # Classify trend (simplified without time-series — full impl needs historical data)
-    rents["trend_classification"] = "MODERATE_GROWTH"  # Default for Brevard 2024-2026
-    rents["confidence"] = max(rents["confidence"], 0.40)
+    # BCPAO YoY sales growth: compare last 6mo vs prior 6mo
+    try:
+        r2 = client.get(
+            f"{BCPAO_GIS}/Base_Map/Parcel_New_WKID2881/MapServer/5/query",
+            params={
+                "where": f"ZIP='{zip_code}' AND SALE_DATE >= CURRENT_TIMESTAMP - INTERVAL '24' MONTH AND SALE_DATE < CURRENT_TIMESTAMP - INTERVAL '12' MONTH",
+                "outFields": "SALE_PRICE",
+                "returnGeometry": "false",
+                "resultRecordCount": "100",
+                "f": "json",
+            },
+        )
+        if r2.status_code == 200:
+            prior_features = r2.json().get("features", [])
+            prior_prices = [f["attributes"]["SALE_PRICE"] for f in prior_features
+                          if f["attributes"].get("SALE_PRICE") and f["attributes"]["SALE_PRICE"] > 50000]
+            if prior_prices and prices:
+                prior_median = sorted(prior_prices)[len(prior_prices) // 2]
+                current_median = rents["median_sale_price"]
+                if prior_median > 0 and current_median:
+                    growth = (current_median - prior_median) / prior_median
+                    rents["sale_price_growth_yoy"] = round(growth, 4)
+                    log("RENTS", f"YoY growth: {growth:.1%} ({len(prior_prices)} prior / {len(prices)} recent sales)", "OK")
+                    # Classify
+                    if growth > 0.05: rents["trend_classification"] = "STRONG_GROWTH"
+                    elif growth > 0.02: rents["trend_classification"] = "MODERATE_GROWTH"
+                    elif growth > 0.0: rents["trend_classification"] = "STAGNANT"
+                    elif growth > -0.03: rents["trend_classification"] = "SOFTENING"
+                    else: rents["trend_classification"] = "DECLINING"
+                    # Confidence based on sample size
+                    total_sales = len(prices) + len(prior_prices)
+                    rents["confidence"] = 0.70 if total_sales > 20 else 0.50 if total_sales > 10 else 0.30
+    except Exception as e:
+        log("RENTS", f"YoY calc error: {e}", "WARN")
+
+    if rents["trend_classification"] == "UNKNOWN":
+        rents["trend_classification"] = "MODERATE_GROWTH"
+        rents["confidence"] = max(rents["confidence"], 0.30)
 
     client.close()
     return rents
@@ -912,6 +947,7 @@ def main():
     a.add_argument("--zip", required=True, help="ZIP code")
     a.add_argument("--horizon", type=int, default=12, help="Months forward (6/12/24)")
     a.add_argument("--json", action="store_true")
+    a.add_argument("--save", action="store_true", help="Save to Supabase market_trends")
 
     # compare
     c = sub.add_parser("compare", help="Compare multiple submarkets")
@@ -940,6 +976,27 @@ def main():
         result = analyze_submarket(args.zip, args.horizon)
         if args.json:
             print(json.dumps(result, indent=2, default=str))
+        if getattr(args, 'save', False):
+            pred = result.get("stages", {}).get("prediction", {})
+            cyc = result.get("stages", {}).get("cycle", {})
+            vel = result.get("stages", {}).get("velocity", {})
+            rents = result.get("stages", {}).get("rents", {})
+            supabase_upsert("market_trends", [{
+                "zip_code": args.zip,
+                "submarket_name": pred.get("submarket"),
+                "direction_score": pred.get("direction_score"),
+                "direction_label": pred.get("direction_label"),
+                "timing_action": pred.get("timing_action"),
+                "cycle_phase": cyc.get("current_phase"),
+                "vacancy_rate": vel.get("vacancy_rate"),
+                "median_sale_price": rents.get("median_sale_price"),
+                "foreclosure_trend": vel.get("foreclosure_trend"),
+                "signal_breakdown": json.dumps(pred.get("signal_breakdown")),
+                "geojson_feature": json.dumps(pred.get("geojson_feature")),
+                "confidence": pred.get("confidence"),
+                "horizon_months": args.horizon,
+                "analyzed_at": result.get("analyzed_at"),
+            }])
 
     elif args.command == "compare":
         zips = [z.strip() for z in args.zips.split(",")]
