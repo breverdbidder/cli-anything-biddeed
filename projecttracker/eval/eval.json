@@ -1,0 +1,64 @@
+{
+  "skill": "projecttracker",
+  "version": "1.0.0",
+  "description": "Binary assertions for Project Status Tracker output quality.",
+  "origin": "Forked from NextAutomation Project Tracker v1.0, adapted for Brevard County rehab projects.",
+  "scoring": {"pass_threshold": 1.0, "total_assertions": 25, "method": "binary_pass_fail"},
+  "tests": [
+    {
+      "id": "T1_report_structure",
+      "prompt": "Generate report for PRJ-TEST01 with budget 85000 audience internal. Output JSON.",
+      "assertions": [
+        {"id": "T1_A1", "description": "Output is valid JSON", "check": "json_parseable", "binary": true},
+        {"id": "T1_A2", "description": "Has project_id field", "check": "field_exists", "field": "project_id", "binary": true},
+        {"id": "T1_A3", "description": "Has project_health_score 0-100", "check": "field_in_range", "field": "project_health_score", "min": 0, "max": 100, "binary": true},
+        {"id": "T1_A4", "description": "Has health_label from valid enum", "check": "field_in_set", "field": "health_label", "values": ["ON_TRACK", "NEEDS_ATTENTION", "AT_RISK", "CRITICAL"], "binary": true},
+        {"id": "T1_A5", "description": "Has generated_at ISO timestamp", "check": "field_matches_regex", "field": "generated_at", "pattern": "^\\d{4}-\\d{2}-\\d{2}T", "binary": true}
+      ]
+    },
+    {
+      "id": "T2_budget_stage",
+      "prompt": "Verify budget stage produces variance, CPI, and health classification.",
+      "assertions": [
+        {"id": "T2_A1", "description": "Budget has budget_health from enum", "check": "field_in_set", "field": "budget.budget_health", "values": ["HEALTHY", "WARNING", "CRITICAL"], "binary": true},
+        {"id": "T2_A2", "description": "Budget has cpi numeric", "check": "field_is_numeric", "field": "budget.cpi", "binary": true},
+        {"id": "T2_A3", "description": "Budget has variance_pct numeric", "check": "field_is_numeric", "field": "budget.variance_pct", "binary": true},
+        {"id": "T2_A4", "description": "Budget has contingency_pct 0-100", "check": "field_in_range", "field": "budget.contingency_pct", "min": 0, "max": 100, "binary": true},
+        {"id": "T2_A5", "description": "Budget has indicators object", "check": "field_exists", "field": "budget.indicators", "binary": true}
+      ]
+    },
+    {
+      "id": "T3_milestones",
+      "prompt": "Verify milestone stage produces phase tracking and schedule status.",
+      "assertions": [
+        {"id": "T3_A1", "description": "Milestones has schedule_status from enum", "check": "field_in_set", "field": "milestones.schedule_status", "values": ["ON_TRACK", "MINOR_DELAYS", "SIGNIFICANT_DELAYS", "CRITICAL", "NO_DATA"], "binary": true},
+        {"id": "T3_A2", "description": "Milestones has overall_pct 0-100", "check": "field_in_range", "field": "milestones.overall_pct", "min": 0, "max": 100, "binary": true},
+        {"id": "T3_A3", "description": "phases_total is 16", "check": "field_equals", "field": "milestones.phases_total", "value": 16, "binary": true},
+        {"id": "T3_A4", "description": "phases_behind is non-negative", "check": "field_in_range", "field": "milestones.phases_behind", "min": 0, "max": 16, "binary": true},
+        {"id": "T3_A5", "description": "milestones array exists", "check": "field_exists", "field": "milestones.milestones", "binary": true}
+      ]
+    },
+    {
+      "id": "T4_subcontractors",
+      "prompt": "Verify sub rating produces weighted scores and tier classifications.",
+      "assertions": [
+        {"id": "T4_A1", "description": "Has avg_score numeric", "check": "field_is_numeric", "field": "subcontractors.avg_score", "binary": true},
+        {"id": "T4_A2", "description": "Has subcontractors array", "check": "field_exists", "field": "subcontractors.subcontractors", "binary": true},
+        {"id": "T4_A3", "description": "Has d_or_f_count numeric", "check": "field_is_numeric", "field": "subcontractors.d_or_f_count", "binary": true},
+        {"id": "T4_A4", "description": "action_items is array", "check": "field_is_array", "field": "action_items", "binary": true},
+        {"id": "T4_A5", "description": "risks is array", "check": "field_is_array", "field": "risks", "binary": true}
+      ]
+    },
+    {
+      "id": "T5_cashflow_changes",
+      "prompt": "Verify cashflow and change order stages produce tracking data.",
+      "assertions": [
+        {"id": "T5_A1", "description": "Cashflow has total_drawn numeric", "check": "field_is_numeric", "field": "cashflow.total_drawn", "binary": true},
+        {"id": "T5_A2", "description": "Cashflow has net_position numeric", "check": "field_is_numeric", "field": "cashflow.net_position", "binary": true},
+        {"id": "T5_A3", "description": "Change orders has total_count numeric", "check": "field_is_numeric", "field": "change_orders.total_count", "binary": true},
+        {"id": "T5_A4", "description": "Change orders has overdue_count numeric", "check": "field_is_numeric", "field": "change_orders.overdue_count", "binary": true},
+        {"id": "T5_A5", "description": "Report has reporting_period string", "check": "field_matches_regex", "field": "reporting_period", "pattern": "\\d{4}-\\d{2}-\\d{2} to \\d{4}-\\d{2}-\\d{2}", "binary": true}
+      ]
+    }
+  ]
+}
