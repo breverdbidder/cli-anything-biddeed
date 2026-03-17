@@ -52,6 +52,7 @@ These plugins MUST be installed in every Claude Code environment:
 
 1. **Context7** — Live API documentation. Fixes 6-12 month knowledge lag on Supabase, Cloudflare, LangGraph, Firecrawl, Mapbox APIs. Install: `/plugin` → Discover → context7. Zero cost.
 2. **CC Status Line** — Context window monitor. Shows model, context %, session cost, git branch. Install: `npx cc-status-line@latest` before launching claude.
+3. **cctop** — Claude Code sessions dashboard. Monitor all sessions from one TUI: status, context %, tokens, errors, git branch. Install: `curl -fsSL https://raw.githubusercontent.com/DeanLa/cctop/main/install.sh | bash`. Run `cctop` in separate terminal. Fork: breverdbidder/cctop.
 
 ### Context Window Rules
 - **50% RULE:** Kill and restart session when context reaches ~50%. Claude degrades well before 100%.
