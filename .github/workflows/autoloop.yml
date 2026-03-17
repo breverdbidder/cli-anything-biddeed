@@ -17,6 +17,7 @@ on:
           - forecaster
           - trendpredictor
           - sitemanager
+            - projecttracker
       max_iterations:
         description: 'Max iterations (default 50)'
         required: false
@@ -131,6 +132,7 @@ jobs:
               forecaster) SKILL_MD="forecaster/CLAUDE.md" ;;
               trendpredictor) SKILL_MD="trendpredictor/CLAUDE.md" ;;
               sitemanager) SKILL_MD="sitemanager/CLAUDE.md" ;;
+              projecttracker) SKILL_MD="projecttracker/CLAUDE.md" ;;
             esac
 
             read -r -d '' PROMPT << 'LOOPEOF'
