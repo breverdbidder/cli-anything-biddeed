@@ -154,7 +154,6 @@ jobs:
           timeout: 60s
           command_timeout: ${{ github.event.inputs.max_minutes || '45' }}m
           script: |
-            export ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
             export SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
             export SUPABASE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}"
             cd ${{ env.REPO_PATH }}
