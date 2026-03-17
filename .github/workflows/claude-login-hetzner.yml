@@ -1,93 +1,140 @@
 name: "Claude Login on Hetzner"
 
 on:
-  workflow_dispatch:
-    inputs:
-      action:
-        description: 'Action to perform'
-        required: true
-        type: choice
-        options:
-          - setup_termius_key
-          - check_login_status
+  workflow_dispatch: {}
 
 jobs:
-  action:
-    name: "🔑 ${{ github.event.inputs.action }}"
+  login:
+    name: "🔑 Claude Login"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
-      - name: Setup SSH
+      - name: "Login via expect + send URL to Telegram + auto-fire summits"
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: "Generate Termius key + send to Telegram"
-        if: github.event.inputs.action == 'setup_termius_key'
-        run: |
           SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125"
-          
-          # Generate new ed25519 key on the server
-          $SSH << 'REMOTE'
-          ssh-keygen -t ed25519 -f /tmp/termius_key -N "" -C "ariel@termius" -q
-          cat /tmp/termius_key.pub >> ~/.ssh/authorized_keys
-          echo "✅ Public key added to authorized_keys"
-          REMOTE
-          
-          # Fetch private key
-          PRIVKEY=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "cat /tmp/termius_key")
-          
-          # Send private key to Telegram as a document
-          echo "$PRIVKEY" > /tmp/hetzner_termius_key
-          
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
-            -F "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -F "document=@/tmp/hetzner_termius_key;filename=hetzner_termius_key" \
-            -F "caption=🔑 Hetzner SSH Key for Termius
+          TG_BOT="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          TG_CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+          GH_PAT="${{ secrets.GH_PAT }}"
 
-          STEPS:
-          1. Save this file to your phone
-          2. Open Termius → Keychain → + → Import from file
-          3. Select this file
-          4. Edit 'Everest Dispatch' host → change auth to this key
-          5. Connect → run: IS_SANDBOX=1 claude login
-          6. Open the URL it shows → Approve
-          7. Done forever — say summit"
-          
-          # Also send the key as text in case file download doesn't work
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=If the file doesn't work, copy this entire key into Termius Keychain:
-
-          $PRIVKEY"
-          
-          # Cleanup
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "rm -f /tmp/termius_key /tmp/termius_key.pub"
-          rm -f /tmp/hetzner_termius_key
-          
-          echo "✅ Key generated, installed, and sent to Telegram"
-
-      - name: "Check login status"
-        if: github.event.inputs.action == 'check_login_status'
-        run: |
-          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125"
-          
-          RESULT=$($SSH "IS_SANDBOX=1 claude -p 'Say hello' --dangerously-skip-permissions 2>&1" | strings | head -5 || true)
-          echo "Result: $RESULT"
-          
-          if echo "$RESULT" | grep -qi "not logged\|login\|credit"; then
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "text=❌ Not logged in yet. SSH in and run: IS_SANDBOX=1 claude login"
-          else
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "text=✅ Claude is logged in! Say summit to fire all 4 agents."
+          # 1. Check if already logged in
+          CHECK=$($SSH "IS_SANDBOX=1 claude -p 'respond with just the word ALIVE' --dangerously-skip-permissions 2>&1" | tr -d '\000-\011\013-\037' | strings || true)
+          echo "Check: $CHECK"
+          if echo "$CHECK" | grep -qi "ALIVE"; then
+            echo "✅ Already logged in!"
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" -d "text=✅ Claude already logged in. Firing all 4 summits now!"
+            # Auto-fire summits
+            for wf in summit-enricher-p0 summit-forecaster-p0 summit-trendpredictor-p0 summit-sitemanager-p0; do
+              curl -s -X POST "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/workflows/${wf}.yml/dispatches" \
+                -H "Authorization: token ${GH_PAT}" -H "Accept: application/vnd.github.v3+json" \
+                -d '{"ref":"main","inputs":{"max_minutes":"45","dry_run":"false"}}'
+              echo "  Fired: $wf"
+            done
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" -d "text=⛰️ All 4 summits fired! Enricher + Forecaster + TrendPredictor + SiteManager"
+            exit 0
           fi
+
+          # 2. Install expect on Hetzner if needed
+          $SSH "command -v expect >/dev/null || apt-get install -y -qq expect" 2>/dev/null
+
+          # 3. Create expect script on server to capture URL
+          $SSH 'cat > /tmp/claude_login.exp << '"'"'EXPECT
+          #!/usr/bin/expect -f
+          set timeout 30
+          log_file -noappend /tmp/claude_login_expect.log
+          spawn env IS_SANDBOX=1 claude login
+          expect {
+            -re {(https://[^\s\x1b]+)} {
+              set url $expect_out(1,string)
+              set f [open "/tmp/claude_auth_url.txt" w]
+              puts $f $url
+              close $f
+            }
+            timeout {
+              set f [open "/tmp/claude_auth_url.txt" w]
+              puts $f "TIMEOUT"
+              close $f
+            }
+          }
+          # Keep alive for 3 minutes while user approves
+          sleep 180
+          EXPECT
+          chmod +x /tmp/claude_login.exp'
+
+          # 4. Run expect script in background
+          $SSH "nohup /tmp/claude_login.exp > /tmp/claude_login_bg.log 2>&1 &"
+          echo "⏳ Expect script running. Waiting 15s for URL..."
+          sleep 15
+
+          # 5. Fetch the URL
+          AUTH_URL=$($SSH "cat /tmp/claude_auth_url.txt 2>/dev/null | tr -d '\r\n' | sed 's/\x1b\[[0-9;]*m//g'" || true)
+          echo "Captured URL: '$AUTH_URL'"
+
+          # Retry if empty
+          if [ -z "$AUTH_URL" ] || [ "$AUTH_URL" = "TIMEOUT" ]; then
+            sleep 10
+            AUTH_URL=$($SSH "cat /tmp/claude_auth_url.txt 2>/dev/null | tr -d '\r\n' | sed 's/\x1b\[[0-9;]*m//g'" || true)
+            echo "Retry URL: '$AUTH_URL'"
+          fi
+
+          # Also try extracting from log file
+          if [ -z "$AUTH_URL" ] || [ "$AUTH_URL" = "TIMEOUT" ]; then
+            AUTH_URL=$($SSH "cat /tmp/claude_login_expect.log 2>/dev/null | strings | grep -oP 'https://[a-zA-Z0-9./?=&_:-]+' | head -1" || true)
+            echo "From log: '$AUTH_URL'"
+          fi
+
+          if [ -z "$AUTH_URL" ] || [ "$AUTH_URL" = "TIMEOUT" ]; then
+            DEBUG=$($SSH "cat /tmp/claude_login_expect.log 2>/dev/null | strings | tail -20" || true)
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" \
+              -d "text=❌ Could not capture login URL. Debug: ${DEBUG:0:400}"
+            exit 1
+          fi
+
+          # 6. Send URL to Telegram
+          echo "🔗 Sending: $AUTH_URL"
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+            -d "chat_id=${TG_CHAT}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            -d "text=🔑 <b>TAP TO AUTHORIZE CLAUDE</b>%0A%0A👇 One tap, done forever:%0A${AUTH_URL}%0A%0AAfter approving → 4 agents auto-fire on your Max plan."
+
+          # 7. Poll for 3 minutes, then auto-fire summits on success
+          for i in $(seq 1 12); do
+            sleep 15
+            echo "Poll $i/12..."
+            R=$($SSH "IS_SANDBOX=1 claude -p 'respond ALIVE' --dangerously-skip-permissions 2>&1" | strings | head -3 || true)
+            if echo "$R" | grep -qi "ALIVE"; then
+              echo "✅ Login confirmed!"
+              curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+                -d "chat_id=${TG_CHAT}" \
+                -d "text=✅ LOGGED IN! Auto-firing all 4 summits now..."
+              
+              for wf in summit-enricher-p0 summit-forecaster-p0 summit-trendpredictor-p0 summit-sitemanager-p0; do
+                curl -s -X POST "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/workflows/${wf}.yml/dispatches" \
+                  -H "Authorization: token ${GH_PAT}" -H "Accept: application/vnd.github.v3+json" \
+                  -d '{"ref":"main","inputs":{"max_minutes":"45","dry_run":"false"}}'
+                echo "  ⛰️ $wf fired"
+              done
+              
+              curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+                -d "chat_id=${TG_CHAT}" \
+                -d "text=⛰️ ALL 4 SUMMITS FIRED! Zero touch from here. Telegram will ping when each completes."
+              exit 0
+            fi
+          done
+          
+          echo "⏰ Timed out"
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+            -d "chat_id=${TG_CHAT}" \
+            -d "text=⏰ Timed out waiting for approval. Re-run this workflow to get a fresh link."
 
       - name: Summary
         if: always()
-        run: echo "## 🔑 ${{ github.event.inputs.action }}" >> $GITHUB_STEP_SUMMARY
+        run: echo "## 🔑 Claude Login + Auto-Summit" >> $GITHUB_STEP_SUMMARY
