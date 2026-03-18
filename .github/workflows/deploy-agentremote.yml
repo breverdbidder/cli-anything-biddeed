@@ -46,7 +46,7 @@ jobs:
             cat > /opt/agentremote-executor/.env << 'ENVEOF'
             AGENT_SECRET=${{ secrets.AGENT_SECRET_V5 }}
             SUPABASE_URL=https://mocerqjnksmhcjzxrewo.supabase.co
-            SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+            SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_KEY }}
             TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
             ENVEOF
             
@@ -127,3 +127,4 @@ jobs:
             sleep 2
             systemctl is-active agentremote-executor
             curl -sf http://127.0.0.1:8318/health | python3 -m json.tool
+
