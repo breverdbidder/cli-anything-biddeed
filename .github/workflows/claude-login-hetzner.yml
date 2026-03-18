@@ -24,79 +24,77 @@ jobs:
           CHECK=$($SSH "claude auth status 2>&1" || true)
           echo "Auth: $CHECK"
           if echo "$CHECK" | grep -q '"loggedIn": true'; then
-            echo "✅ Already logged in!"
+            echo "Already logged in!"
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-              -d "chat_id=${TG_CHAT}" -d "text=✅ Claude already logged in on Hetzner! Restarting executor..."
-            $SSH "systemctl restart agentremote-executor"
+              -d "chat_id=${TG_CHAT}" -d "text=✅ Claude already logged in on Hetzner!"
+            $SSH "systemctl restart agentremote-executor" || true
             exit 0
           fi
 
-          # 2. Create login script on Hetzner
-          $SSH "cat > /tmp/do_login.sh << 'SCRIPTEOF'
+          # 2. Upload login capture script to Hetzner
+          $SSH "cat > /tmp/capture_login.sh" << 'REMOTE_SCRIPT'
           #!/bin/bash
-          rm -f /tmp/claude_auth_url.txt
-          # Run login with timeout, capture output
-          timeout 120 claude login --no-open 2>&1 | tee /tmp/claude_login_raw.log &
-          PID=\$!
-          # Wait for URL to appear
-          for i in \$(seq 1 30); do
+          rm -f /tmp/claude_auth_url.txt /tmp/claude_login_raw.log
+          # Run claude login - on headless server it prints URL to stdout
+          timeout 120 claude login 2>&1 | tee /tmp/claude_login_raw.log &
+          PID=$!
+          # Poll for URL in output
+          for i in $(seq 1 30); do
             sleep 2
-            URL=\$(grep -oP 'https://[^\s\x1b]+' /tmp/claude_login_raw.log 2>/dev/null | head -1)
-            if [ -n \"\$URL\" ]; then
-              echo \"\$URL\" > /tmp/claude_auth_url.txt
-              echo \"URL captured: \$URL\"
+            URL=$(grep -oP 'https://[^\s]+' /tmp/claude_login_raw.log 2>/dev/null | head -1)
+            if [ -n "$URL" ]; then
+              echo "$URL" > /tmp/claude_auth_url.txt
+              echo "CAPTURED: $URL"
               break
             fi
           done
-          # Keep process alive for user to approve
-          wait \$PID 2>/dev/null || true
-          SCRIPTEOF
-          chmod +x /tmp/do_login.sh"
+          wait $PID 2>/dev/null || true
+          REMOTE_SCRIPT
+          
+          $SSH "chmod +x /tmp/capture_login.sh"
 
-          # 3. Run login in background on Hetzner
-          $SSH "nohup bash /tmp/do_login.sh > /tmp/claude_login_full.log 2>&1 &"
-          echo "Login script started on Hetzner..."
-          sleep 12
+          # 3. Run it in background
+          $SSH "nohup bash /tmp/capture_login.sh > /tmp/claude_login_full.log 2>&1 &"
+          echo "Login script running..."
+          sleep 15
 
-          # 4. Fetch captured URL
-          AUTH_URL=$($SSH "cat /tmp/claude_auth_url.txt 2>/dev/null | tr -d '\r\n' | sed 's/\x1b\[[0-9;]*m//g'" || true)
-          echo "URL: '$AUTH_URL'"
+          # 4. Grab URL
+          AUTH_URL=$($SSH "cat /tmp/claude_auth_url.txt 2>/dev/null" | tr -d '\r\n' | sed 's/\x1b\[[0-9;]*m//g' || true)
+          echo "URL attempt 1: '$AUTH_URL'"
 
-          # Retry from raw log
           if [ -z "$AUTH_URL" ]; then
-            sleep 8
-            AUTH_URL=$($SSH "grep -oP 'https://[a-zA-Z0-9./?=&_:-]+' /tmp/claude_login_raw.log 2>/dev/null | head -1 | tr -d '\r\n'" || true)
-            echo "From log: '$AUTH_URL'"
+            sleep 10
+            AUTH_URL=$($SSH "grep -oP 'https://[a-zA-Z0-9./?=&_:-]+' /tmp/claude_login_raw.log 2>/dev/null | head -1" | tr -d '\r\n' || true)
+            echo "URL attempt 2: '$AUTH_URL'"
           fi
 
           if [ -z "$AUTH_URL" ]; then
-            DEBUG=$($SSH "cat /tmp/claude_login_full.log 2>/dev/null | tail -10" || true)
+            DEBUG=$($SSH "cat /tmp/claude_login_full.log /tmp/claude_login_raw.log 2>/dev/null | tail -15" || true)
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-              -d "chat_id=${TG_CHAT}" -d "text=❌ Could not capture login URL. Log: ${DEBUG:0:300}"
+              -d "chat_id=${TG_CHAT}" -d "text=❌ Could not capture URL. Log: ${DEBUG:0:400}"
             exit 1
           fi
 
-          # 5. Send URL to Telegram
+          # 5. Send to Telegram
           curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
             -d "parse_mode=HTML" \
             -d "disable_web_page_preview=true" \
-            -d "text=🔑 <b>TAP TO LOG IN CLAUDE ON HETZNER</b>%0A%0A👇 One tap, done forever:%0A${AUTH_URL}%0A%0AAfter approving, bot upgrades to Claude Max (\$0/task)."
+            -d "text=🔑 <b>TAP TO LOG IN CLAUDE ON HETZNER</b>%0A%0A👇 One tap, done forever:%0A${AUTH_URL}%0A%0ABot auto-upgrades to Claude Max after you approve."
 
-          # 6. Poll for login success (3 min)
+          # 6. Poll 3 min for success
           for i in $(seq 1 12); do
             sleep 15
             echo "Poll $i/12..."
             STATUS=$($SSH "claude auth status 2>&1" || true)
             if echo "$STATUS" | grep -q '"loggedIn": true'; then
-              echo "✅ Login confirmed!"
-              $SSH "systemctl restart agentremote-executor"
+              echo "Login confirmed!"
+              $SSH "systemctl restart agentremote-executor" || true
               curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-                -d "chat_id=${TG_CHAT}" -d "text=✅ LOGGED IN! AgentRemote now uses Claude Max plan. DeepSeek is fallback only."
+                -d "chat_id=${TG_CHAT}" -d "text=✅ LOGGED IN! AgentRemote upgraded to Claude Max plan."
               exit 0
             fi
           done
           
-          echo "⏰ Timed out"
           curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-            -d "chat_id=${TG_CHAT}" -d "text=⏰ Login timed out. Re-run workflow for a fresh link."
+            -d "chat_id=${TG_CHAT}" -d "text=⏰ Timed out. Re-run workflow for fresh link."
