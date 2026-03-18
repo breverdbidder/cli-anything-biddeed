@@ -1,6 +1,10 @@
 name: Deploy AgentRemote V5 Executor to Hetzner
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'executor/**'
   workflow_dispatch:
     inputs:
       action:
@@ -15,45 +19,45 @@ on:
 
 jobs:
   deploy-executor:
-    name: 🚀 Deploy AgentRemote Executor
+    name: "\U0001F680 Deploy AgentRemote Executor"
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - name: Deploy to Hetzner
-        if: inputs.action == 'deploy'
+        if: inputs.action == 'deploy' || inputs.action == ''
         uses: appleboy/ssh-action@v1
+        env:
+          AGENT_SECRET_V5: ${{ secrets.AGENT_SECRET_V5 }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           host: 87.99.129.125
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          script_stop: true
+          envs: AGENT_SECRET_V5,SUPABASE_KEY,TELEGRAM_BOT_TOKEN,GEMINI_API_KEY
           script: |
             set -e
             echo "=== AgentRemote V5 Executor Deploy ==="
             
-            # Create directory
             mkdir -p /opt/agentremote-executor
             
-            # Download executor from GitHub
-            curl -sL https://raw.githubusercontent.com/breverdbidder/claude-code-telegram-control/main/executor/executor.py \
+            curl -sL "https://raw.githubusercontent.com/breverdbidder/claude-code-telegram-control/main/executor/executor.py?$(date +%s)" \
               -o /opt/agentremote-executor/executor.py
             
-            # Install dependencies
             pip install requests --break-system-packages -q
             
-            # Create .env file
-            cat > /opt/agentremote-executor/.env << 'ENVEOF'
-            AGENT_SECRET=${{ secrets.AGENT_SECRET_V5 }}
+            cat > /opt/agentremote-executor/.env << ENVEOF
+            AGENT_SECRET=${AGENT_SECRET_V5}
             SUPABASE_URL=https://mocerqjnksmhcjzxrewo.supabase.co
-            SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_KEY }}
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            SUPABASE_SERVICE_KEY=${SUPABASE_KEY}
+            TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+            GEMINI_API_KEY=${GEMINI_API_KEY}
             ENVEOF
             
-            # Trim whitespace from env file
             sed -i 's/^[[:space:]]*//' /opt/agentremote-executor/.env
             
-            # Create systemd service
             cat > /etc/systemd/system/agentremote-executor.service << 'SVCEOF'
             [Unit]
             Description=AgentRemote V5 Executor
@@ -69,33 +73,25 @@ jobs:
             Environment=EXECUTOR_PORT=8318
             Environment=CLAUDE_CMD=claude
             Environment=MAX_TASK_DURATION=300
-            Environment=SUPABASE_URL=https://mocerqjnksmhcjzxrewo.supabase.co
             EnvironmentFile=/opt/agentremote-executor/.env
             
             [Install]
             WantedBy=multi-user.target
             SVCEOF
             
-            # Open port 8318 for Cloudflare IPs only (basic firewall)
-            if command -v ufw &> /dev/null; then
-              ufw allow from 173.245.48.0/20 to any port 8318 comment "Cloudflare" 2>/dev/null || true
-              ufw allow from 103.21.244.0/22 to any port 8318 comment "Cloudflare" 2>/dev/null || true
-              ufw allow from 103.22.200.0/22 to any port 8318 comment "Cloudflare" 2>/dev/null || true
-              ufw allow from 104.16.0.0/13 to any port 8318 comment "Cloudflare" 2>/dev/null || true
-              ufw allow from 108.162.192.0/18 to any port 8318 comment "Cloudflare" 2>/dev/null || true
-            fi
+            sed -i 's/^[[:space:]]*//' /etc/systemd/system/agentremote-executor.service
             
-            # Enable and start
             systemctl daemon-reload
             systemctl enable agentremote-executor
             systemctl restart agentremote-executor
             sleep 3
             
-            # Verify
             echo "=== Service Status ==="
             systemctl is-active agentremote-executor
             echo "=== Health Check ==="
-            curl -sf http://127.0.0.1:8318/health && echo "" || echo "Health check failed"
+            curl -sf http://127.0.0.1:8318/health && echo ""
+            echo "=== Env Keys ==="
+            cat /opt/agentremote-executor/.env | sed 's/=.*/=***/'
             echo "=== Done ==="
 
       - name: Check Status
@@ -106,14 +102,12 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            echo "=== Service Status ==="
-            systemctl status agentremote-executor --no-pager | head -20
-            echo ""
+            echo "=== Service ==="
+            systemctl status agentremote-executor --no-pager | head -15
             echo "=== Health ==="
             curl -sf http://127.0.0.1:8318/health | python3 -m json.tool 2>/dev/null || echo "Not responding"
-            echo ""
-            echo "=== Recent Logs ==="
-            journalctl -u agentremote-executor --no-pager -n 20
+            echo "=== Logs ==="
+            journalctl -u agentremote-executor --no-pager -n 30 --output=cat
 
       - name: Restart
         if: inputs.action == 'restart'
@@ -127,4 +121,3 @@ jobs:
             sleep 2
             systemctl is-active agentremote-executor
             curl -sf http://127.0.0.1:8318/health | python3 -m json.tool
-
