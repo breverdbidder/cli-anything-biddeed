@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fix LLM Access on Hetzner
+      - name: Find Working LLM Path
         uses: appleboy/ssh-action@v1
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -18,32 +18,38 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           envs: GEMINI_API_KEY
           script: |
-            echo "=== 1. Restart CLIProxyAPI ==="
-            cd /opt/cliproxy-gateway && docker compose restart 2>&1 || echo "Docker restart failed"
-            sleep 5
-            curl -sf http://127.0.0.1:8317/health 2>&1 || echo "CLIProxyAPI still down"
+            echo "=== 1. Check gcloud for new Gemini key ==="
+            which gcloud 2>&1 || echo "gcloud not installed"
             
             echo ""
-            echo "=== 2. Test different Gemini models ==="
-            for model in gemini-2.0-flash-lite gemini-1.5-flash gemini-2.0-flash; do
-              echo "Testing $model..."
-              RESP=$(curl -s -w "\n%{http_code}" "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}" \
-                -H "Content-Type: application/json" \
-                -d '{"contents":[{"parts":[{"text":"Say hello in one word"}]}]}')
-              HTTP=$(echo "$RESP" | tail -1)
-              BODY=$(echo "$RESP" | head -n -1)
-              echo "  HTTP: $HTTP"
-              if [ "$HTTP" = "200" ]; then
-                echo "  ✅ $model WORKS"
-                echo "$BODY" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  Response:',d['candidates'][0]['content']['parts'][0]['text'][:100])" 2>/dev/null
-                break
-              else
-                echo "  ❌ $model failed"
-                echo "$BODY" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  Error:',d.get('error',{}).get('message','')[:100])" 2>/dev/null
-              fi
-            done
+            echo "=== 2. Check CLIProxyAPI logs ==="
+            docker logs biddeed-cliproxy --tail 20 2>&1 || echo "No docker logs"
             
             echo ""
-            echo "=== 3. Test Claude login via Max plan key file ==="
-            ls -la ~/.claude/ 2>/dev/null || echo "No ~/.claude dir"
-            cat ~/.claude/.credentials.json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(json.dumps({k:v[:20]+'...' if isinstance(v,str) and len(v)>20 else v for k,v in d.items()}, indent=2))" 2>/dev/null || echo "No credentials file"
+            echo "=== 3. Check CLIProxyAPI config for alternate keys ==="
+            cat /opt/cliproxy-gateway/config.yaml 2>&1
+            
+            echo ""
+            echo "=== 4. Check .env.generated for gateway auth ==="
+            cat /opt/cliproxy-gateway/.env.generated 2>&1
+            
+            echo ""
+            echo "=== 5. Try Claude CLI with --api-key flag ==="
+            claude --help 2>&1 | grep -iE "api.key|provider|base.url|login" | head -10
+            
+            echo ""
+            echo "=== 6. Try Gemini with v1 endpoint (not v1beta) ==="
+            curl -s "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"contents":[{"parts":[{"text":"Say hi"}]}]}' 2>&1 | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('error',{}).get('code','ok'),d.get('error',{}).get('message','')[:150] if d.get('error') else d['candidates'][0]['content']['parts'][0]['text'][:100])" 2>&1
+            
+            echo ""
+            echo "=== 7. Try with model list to see what's available ==="
+            curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}" 2>&1 | python3 -c "
+            import sys,json
+            d=json.load(sys.stdin)
+            for m in d.get('models',[])[:15]:
+                name = m.get('name','').replace('models/','')
+                methods = ','.join(m.get('supportedGenerationMethods',[]))
+                print(f'  {name:40} {methods}')
+            " 2>&1
