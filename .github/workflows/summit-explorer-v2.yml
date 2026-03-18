@@ -1,0 +1,87 @@
+name: "SUMMIT: Explorer V2 via Hetzner"
+on:
+  workflow_dispatch:
+
+jobs:
+  claude-code-hetzner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Execute Claude Code on Hetzner (Max Plan)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 110m
+          script: |
+            set -e
+            echo "=========================================="
+            echo "  SUMMIT: Explorer V2 — Claude Code"
+            echo "  Hetzner + Max Plan (ZERO API cost)"
+            echo "=========================================="
+
+            # Setup workspace
+            WORK_DIR="/tmp/zonewise-explorer-v2-$(date +%s)"
+            mkdir -p "$WORK_DIR"
+            cd "$WORK_DIR"
+
+            # Clone repo
+            echo "Cloning zonewise-web..."
+            git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/zonewise-web.git
+            cd zonewise-web
+
+            # Install deps
+            echo "Installing dependencies..."
+            npm ci 2>/dev/null || npm install
+
+            # Verify Claude Code is available
+            which claude || npm install -g @anthropic-ai/claude-code@latest
+            claude --version
+
+            # Run Claude Code with Max plan (no API key needed - session auth)
+            echo "Running Claude Code..."
+            claude -p "
+            You are implementing Explorer V2 for ZoneWise.AI.
+
+            READ FIRST: docs/plans/EXPLORER_V2_SPEC.md (full specification)
+            READ SECOND: CLAUDE.md (project conventions)
+
+            IMPLEMENTATION ORDER:
+            1. ZOOM-ADAPTIVE ZONING FIX: In components/explorer/BrevardExplorer.tsx add map.on('zoom') handler. Zoning: hidden zoom<12, 15% at 12-14, 55% at 15+. Parcels: hidden zoom<14. Kills purple overload.
+
+            2. CHOROPLETH: Create lib/explorer/zillow.ts (fetch Zillow ZHVI CSV, filter Brevard ZIPs). Create components/explorer/ChoroplethLayer.tsx. Color: blue→green→yellow→orange→red. Dropdown for metrics. Visible zoom 9-13, fades 14+.
+
+            3. NLP CHAT SPLIT-SCREEN: Create components/explorer/ExplorerV2.tsx. Left=chat (reuse ChatWidget.tsx pattern + lib/ai/claude.ts). Right=map. Create app/api/explorer/chat/route.ts. Parse [MAP:FLY lat,lng,zoom] from AI responses. Chips: Address, Zoning, Heatmap, Auctions.
+
+            4. MOBILE BOTTOM SHEET: Create ExplorerMobileSheet.tsx. Collapsed=search+pills. Expanded=chat+detail. CSS-only draggable.
+
+            5. CONVERSION GATE: After 5 parcel clicks→upgrade modal. After 3 chats→upgrade modal. localStorage counter. Links to /signup?plan=pro.
+
+            6. ZONING FILTER: Dropdown All/RU/BU/PUD/AU/IU/TU. Vector layer from BCPAO query with WHERE clause.
+
+            Brand: Navy #1E3A5F, Orange #F59E0B, bg #020617. Map: streets-v12.
+            Reuse: ChatWidget.tsx, BrevardExplorer.tsx, lib/ai/claude.ts, lib/explorer/constants.ts.
+            After: npx tsc --noEmit, npm run build must pass.
+            DO NOT ask questions. Execute. Leave TODO for anything you skip.
+            " --dangerously-skip-permissions
+
+            # Verify build
+            echo "Running type check..."
+            npx tsc --noEmit || true
+            echo "Running build..."
+            npm run build
+
+            # Commit and push
+            echo "Pushing to GitHub..."
+            git config user.name "Claude Code (Hetzner)"
+            git config user.email "claude@zonewise.ai"
+            git add -A
+            git diff --cached --quiet && echo "No changes" || (
+              git commit -m "feat(explorer-v2): split-screen choropleth + NLP chat + mobile + conversion [SUMMIT via Hetzner Max Plan]"
+              git push origin main
+            )
+
+            # Cleanup
+            cd /tmp && rm -rf "$WORK_DIR"
+            echo "✅ SUMMIT COMPLETE"
