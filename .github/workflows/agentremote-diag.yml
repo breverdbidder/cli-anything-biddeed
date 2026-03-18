@@ -8,48 +8,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Find Working LLM Path
+      - name: Add DeepSeek Key and Restart
         uses: appleboy/ssh-action@v1
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           host: 87.99.129.125
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: GEMINI_API_KEY
           script: |
-            echo "=== 1. Check gcloud for new Gemini key ==="
-            which gcloud 2>&1 || echo "gcloud not installed"
+            echo "=== 1. Add DeepSeek key to executor .env ==="
+            grep -q "DEEPSEEK_API_KEY" /opt/agentremote-executor/.env && \
+              sed -i "s|^DEEPSEEK_API_KEY=.*|DEEPSEEK_API_KEY=sk-ef423e40aa164b67ac581d6f6ab51475|" /opt/agentremote-executor/.env || \
+              echo "DEEPSEEK_API_KEY=sk-ef423e40aa164b67ac581d6f6ab51475" >> /opt/agentremote-executor/.env
             
-            echo ""
-            echo "=== 2. Check CLIProxyAPI logs ==="
-            docker logs biddeed-cliproxy --tail 20 2>&1 || echo "No docker logs"
-            
-            echo ""
-            echo "=== 3. Check CLIProxyAPI config for alternate keys ==="
-            cat /opt/cliproxy-gateway/config.yaml 2>&1
-            
-            echo ""
-            echo "=== 4. Check .env.generated for gateway auth ==="
-            cat /opt/cliproxy-gateway/.env.generated 2>&1
-            
-            echo ""
-            echo "=== 5. Try Claude CLI with --api-key flag ==="
-            claude --help 2>&1 | grep -iE "api.key|provider|base.url|login" | head -10
-            
-            echo ""
-            echo "=== 6. Try Gemini with v1 endpoint (not v1beta) ==="
-            curl -s "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}" \
+            echo "=== 2. Test DeepSeek directly ==="
+            curl -s "https://api.deepseek.com/v1/chat/completions" \
+              -H "Authorization: Bearer sk-ef423e40aa164b67ac581d6f6ab51475" \
               -H "Content-Type: application/json" \
-              -d '{"contents":[{"parts":[{"text":"Say hi"}]}]}' 2>&1 | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('error',{}).get('code','ok'),d.get('error',{}).get('message','')[:150] if d.get('error') else d['candidates'][0]['content']['parts'][0]['text'][:100])" 2>&1
-            
-            echo ""
-            echo "=== 7. Try with model list to see what's available ==="
-            curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}" 2>&1 | python3 -c "
+              -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Say hello in one sentence"}],"max_tokens":50}' 2>&1 | python3 -c "
             import sys,json
             d=json.load(sys.stdin)
-            for m in d.get('models',[])[:15]:
-                name = m.get('name','').replace('models/','')
-                methods = ','.join(m.get('supportedGenerationMethods',[]))
-                print(f'  {name:40} {methods}')
+            if 'choices' in d:
+                print('✅ DeepSeek WORKS:', d['choices'][0]['message']['content'][:100])
+            else:
+                print('❌ DeepSeek error:', json.dumps(d)[:200])
             " 2>&1
+            
+            echo ""
+            echo "=== 3. Restart executor with new key ==="
+            systemctl restart agentremote-executor
+            sleep 3
+            
+            echo "=== 4. Verify ==="
+            systemctl is-active agentremote-executor
+            curl -sf http://127.0.0.1:8318/health | python3 -m json.tool
+            
+            echo ""
+            echo "=== 5. Verify env loaded ==="
+            cat /opt/agentremote-executor/.env | sed 's/=.*/=***/'
