@@ -4,7 +4,7 @@ on:
 
 jobs:
   cleanup:
-    name: "Melbourne Crosswalk + Dedupe"
+    name: "Melbourne Fix Zones V2"
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -13,10 +13,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install httpx
-      - name: "Execute Melbourne Cleanup"
+      - name: "Execute Melbourne Fix Zones V2"
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/melbourne_cleanup.py
+        run: python scripts/melbourne_fix_zones.py
