@@ -8,42 +8,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fix Claude Auth on Hetzner
+      - name: Fix - Use CLIProxyAPI Gateway
         uses: appleboy/ssh-action@v1
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           host: 87.99.129.125
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: ANTHROPIC_API_KEY
           script: |
-            echo "=== 1. Add API key to executor .env ==="
-            # Append ANTHROPIC_API_KEY if not already there
-            grep -q "ANTHROPIC_API_KEY" /opt/agentremote-executor/.env && \
-              sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}|" /opt/agentremote-executor/.env || \
-              echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> /opt/agentremote-executor/.env
-            
-            echo "=== 2. Update systemd to pass it ==="
-            # Add to systemd environment
-            grep -q "ANTHROPIC_API_KEY" /etc/systemd/system/agentremote-executor.service || \
-              sed -i '/^EnvironmentFile=/a Environment=ANTHROPIC_API_KEY=' /etc/systemd/system/agentremote-executor.service
-            
-            echo "=== 3. Test CLI with API key ==="
-            export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
-            timeout 30 claude -p "Say hello" 2>&1 | head -5
-            echo "EXIT: $?"
+            echo "=== 1. Check CLIProxyAPI Gateway ==="
+            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -i "cliproxy\|proxy\|gateway" || echo "No cliproxy container found"
             
             echo ""
-            echo "=== 4. Restart executor ==="
-            systemctl daemon-reload
-            systemctl restart agentremote-executor
-            sleep 3
-            
-            echo "=== 5. Verify ==="
-            systemctl is-active agentremote-executor
-            curl -sf http://127.0.0.1:8318/health | python3 -m json.tool
+            echo "=== 2. Test CLIProxyAPI endpoint ==="
+            curl -sf http://127.0.0.1:8317/health 2>&1 || echo "Port 8317 not responding"
+            curl -sf http://127.0.0.1:8317/v1/models 2>&1 | head -5 || echo "No /v1/models"
             
             echo ""
-            echo "=== 6. Check env is loaded ==="
-            cat /opt/agentremote-executor/.env | sed 's/=.*/=***/'
+            echo "=== 3. Check all listening ports ==="
+            ss -tlnp | grep -E "831[0-9]" || echo "No 831x ports"
+            
+            echo ""
+            echo "=== 4. Docker containers ==="
+            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 || echo "No docker"
+            
+            echo ""
+            echo "=== 5. Check .env.generated for gateway key ==="
+            cat /opt/cliproxy-gateway/config.yaml 2>/dev/null | head -20 || echo "No cliproxy config found"
+            ls -la /opt/cliproxy-gateway/ 2>/dev/null || echo "No /opt/cliproxy-gateway dir"
+            
+            echo ""
+            echo "=== 6. Check if CLIPROXY vars exist ==="
+            env | grep -i "CLIPROXY\|GEMINI\|DEEPSEEK" 2>/dev/null || echo "No proxy env vars in root shell"
+            cat /opt/agentremote-executor/.env 2>/dev/null | grep -i "CLIPROXY\|GEMINI\|PROXY" || echo "No proxy vars in executor env"
