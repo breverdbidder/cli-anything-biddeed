@@ -16,62 +16,53 @@ jobs:
           command_timeout: 110m
           script: |
             set -e
-            echo "SUMMIT: Explorer V2 via Hetzner"
+            echo "SUMMIT: Explorer V2 V5"
 
-            # Verify claude exists
-            CLAUDE="/usr/local/bin/claude"
-            test -x "$CLAUDE" || { echo "ERROR: claude not at $CLAUDE"; exit 1; }
-            $CLAUDE --version
+            # Fix claude permissions for all users
+            chmod a+rx /usr/local/bin/claude
+            ls -la /usr/local/bin/claude
+            /usr/local/bin/claude --version
 
             # Create non-root user
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
 
             # Clone
-            WORK="/tmp/zw-explorer-$(date +%s)"
+            WORK="/tmp/zw-exp-$(date +%s)"
             mkdir -p "$WORK"
             cd "$WORK"
             git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/zonewise-web.git
             chown -R claude:claude "$WORK"
 
-            # Write a script for the claude user to execute
-            cat > "$WORK/run.sh" << 'SCRIPT'
+            # Write script
+            cat > "$WORK/run.sh" << 'ENDSCRIPT'
             #!/bin/bash
             set -e
             export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
             export HOME=/home/claude
-            CLAUDE=/usr/local/bin/claude
-
             cd WORKDIR/zonewise-web
             npm ci 2>/dev/null || npm install
-
-            echo "=== Claude Code ==="
-            $CLAUDE --version || { echo "FATAL: claude not executable"; exit 1; }
-
-            $CLAUDE -p "
+            /usr/local/bin/claude --version
+            /usr/local/bin/claude -p "
             You are implementing Explorer V2 for ZoneWise.AI.
 
-            READ FIRST: docs/plans/EXPLORER_V2_SPEC.md (full specification)
-            READ SECOND: CLAUDE.md (project conventions)
+            READ FIRST: docs/plans/EXPLORER_V2_SPEC.md
+            READ SECOND: CLAUDE.md
 
-            CRITICAL: The choropleth heatmap MUST be visible WITHOUT login. This is the Reventure.app lead magnet strategy. The dashboard at zonewise.ai/explorer must load with NO authentication required.
+            CRITICAL: Choropleth heatmap MUST be visible WITHOUT login — Reventure.app lead magnet strategy.
 
-            FREE TIER (no login):
-            - Choropleth heatmap always visible at county/ZIP zoom
-            - 5 parcel clicks per day (localStorage counter, resets daily)
-            - 3 chat messages per day (localStorage counter, resets daily)
-            - After limit hit: show upgrade modal linking to /signup?plan=pro
+            FREE TIER (no login): Choropleth always visible. 5 parcel clicks/day. 3 chat messages/day. After limit: upgrade modal to /signup?plan=pro.
 
-            IMPLEMENTATION ORDER:
-            1. ZOOM-ADAPTIVE ZONING: In BrevardExplorer.tsx, add map.on zoom handler. Zoning hidden zoom<12, 15% opacity at 12-14, 55% at 15+. Parcels hidden zoom<14.
-            2. CHOROPLETH HEATMAP: Create lib/explorer/zillow.ts and ChoroplethLayer.tsx. Color scale blue-green-yellow-orange-red. Visible zoom 9-13, fades at 14+.
-            3. NLP CHAT SPLIT-SCREEN: Create ExplorerV2.tsx with chat left, map right. Create app/api/explorer/chat/route.ts. Parse MAP:FLY commands.
-            4. MOBILE BOTTOM SHEET: ExplorerMobileSheet.tsx. Collapsed=search+pills. Expanded=chat+detail.
-            5. CONVERSION GATE: Upgrade modals after 5 parcel clicks or 3 chat messages.
+            ORDER:
+            1. ZOOM-ADAPTIVE ZONING in BrevardExplorer.tsx. Zoning hidden zoom<12, 15% at 12-14, 55% at 15+. Parcels hidden zoom<14.
+            2. CHOROPLETH: lib/explorer/zillow.ts + ChoroplethLayer.tsx. Blue-green-yellow-orange-red. Visible zoom 9-13, fades 14+.
+            3. NLP CHAT SPLIT-SCREEN: ExplorerV2.tsx (chat left, map right). app/api/explorer/chat/route.ts. MAP:FLY commands.
+            4. MOBILE BOTTOM SHEET: ExplorerMobileSheet.tsx.
+            5. CONVERSION GATE: Modals after 5 clicks or 3 chats. localStorage counter.
             6. ZONING FILTER: Dropdown All/RU/BU/PUD/AU/IU/TU.
 
             Brand: Navy #1E3A5F, Orange #F59E0B, bg #020617, Inter font.
-            After: npx tsc --noEmit and npm run build must pass.
-            DO NOT ask questions. Execute autonomously. Leave TODO for skipped items.
+            npx tsc --noEmit and npm run build must pass.
+            DO NOT ask questions. Execute autonomously.
             " --dangerously-skip-permissions
 
             npx tsc --noEmit 2>&1 | tail -10 || true
@@ -81,59 +72,40 @@ jobs:
             git config user.email "claude@zonewise.ai"
             git add -A
             if git diff --cached --quiet; then
-              echo "FATAL: No changes — Claude Code produced nothing"
+              echo "FATAL: No changes produced"
               exit 1
             fi
             git commit -m "feat(explorer-v2): Reventure lead magnet — choropleth + NLP chat + conversion [SUMMIT]
 
-            - Choropleth heatmap visible WITHOUT login (lead magnet)
-            - 5 free parcel clicks + 3 free chat messages before gate
-            - Split-screen NLP chat panel
-            - Mobile bottom sheet
-            - Zoom-adaptive zoning opacity
-            - Zoning type filter
-
             Closes #41"
             git push origin main
-            echo "PUSHED TO MAIN"
-            SCRIPT
+            echo "PUSHED"
+            ENDSCRIPT
 
-            # Replace WORKDIR placeholder and make executable
             sed -i "s|WORKDIR|$WORK|g" "$WORK/run.sh"
             chmod +x "$WORK/run.sh"
             chown claude:claude "$WORK/run.sh"
 
-            # Execute as claude user
             su -s /bin/bash claude "$WORK/run.sh"
-
             rm -rf "$WORK"
-            echo "SUMMIT COMPLETE"
+            echo "DONE"
 
       - name: Trigger Promote
         if: success()
         run: |
           sleep 90
-          curl -s -X POST \
-            -H "Authorization: token ${{ secrets.GH_PAT }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/breverdbidder/zonewise-web/actions/workflows/promote-now.yml/dispatches" \
-            -d '{"ref":"main"}' -w "Promote: HTTP %{http_code}\n"
+          curl -s -X POST -H "Authorization: token ${{ secrets.GH_PAT }}" -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/breverdbidder/zonewise-web/actions/workflows/promote-now.yml/dispatches" -d '{"ref":"main"}'
 
       - name: Close Issue 41
         if: success()
         run: |
-          curl -s -X PATCH \
-            -H "Authorization: token ${{ secrets.GH_PAT }}" \
-            "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41" \
-            -d '{"state":"closed","state_reason":"completed"}'
+          curl -s -X PATCH -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41" -d '{"state":"closed","state_reason":"completed"}'
 
       - name: Notify Telegram
         if: always()
         run: |
           STATUS="${{ job.status }}"
-          if [ "$STATUS" = "success" ]; then
-            MSG="🏔️✅ Explorer V2 DEPLOYED to zonewise.ai/explorer%0AReventure lead magnet LIVE%0AIssue %2341 CLOSED"
-          else
-            MSG="🏔️❌ Explorer V2 FAILED — check logs"
-          fi
+          [ "$STATUS" = "success" ] && MSG="🏔️✅ Explorer V2 DEPLOYED%0Azonewise.ai/explorer LIVE%0AIssue %2341 CLOSED" || MSG="🏔️❌ Explorer V2 FAILED"
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=$MSG" > /dev/null 2>&1 || true
