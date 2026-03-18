@@ -133,7 +133,7 @@ def sb_upsert(rows):
     h = sb_headers()
     for i in range(0, len(rows), 500):
         batch = rows[i:i+500]
-        resp = client.post(f"{SUPABASE_URL}/rest/v1/zoning_assignments", headers=h, json=batch)
+        resp = client.post(f"{SUPABASE_URL}/rest/v1/zoning_assignments?on_conflict=parcel_id", headers=h, json=batch)
         if resp.status_code in (200, 201, 204):
             total += len(batch)
         else:
