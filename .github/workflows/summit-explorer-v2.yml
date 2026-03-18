@@ -16,22 +16,39 @@ jobs:
           command_timeout: 110m
           script: |
             set -e
-            echo "SUMMIT: Explorer V2 V7"
+            echo "SUMMIT: Explorer V2 V8"
 
             # Setup claude user
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
-            
-            # Setup npm global dir for claude user
             mkdir -p /home/claude/.npm-global
+
+            # Copy root's Claude auth to claude user
+            if [ -d /root/.claude ]; then
+              cp -r /root/.claude /home/claude/.claude
+              echo "Copied /root/.claude"
+            fi
+            if [ -d /root/.config/claude ]; then
+              mkdir -p /home/claude/.config
+              cp -r /root/.config/claude /home/claude/.config/claude
+              echo "Copied /root/.config/claude"
+            fi
+            # Also check for .claude.json or other auth files
+            for f in .claude.json .claude-auth .anthropic; do
+              if [ -e "/root/$f" ]; then
+                cp -r "/root/$f" "/home/claude/$f"
+                echo "Copied $f"
+              fi
+            done
+
             chown -R claude:claude /home/claude
 
-            # Install claude code for claude user
+            # Install claude for claude user
             su -s /bin/bash claude -c "
               export HOME=/home/claude
               export NPM_CONFIG_PREFIX=/home/claude/.npm-global
-              export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:\$PATH
-              npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -5
-              /home/claude/.npm-global/bin/claude --version
+              export PATH=/home/claude/.npm-global/bin:\$PATH
+              npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
+              claude --version
             "
 
             # Clone repo
@@ -41,40 +58,40 @@ jobs:
             git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/zonewise-web.git
             chown -R claude:claude "$WORK"
 
-            # Execute as claude user
+            # Execute
             cat > "$WORK/run.sh" << 'ENDSCRIPT'
             #!/bin/bash
             set -e
             export HOME=/home/claude
             export NPM_CONFIG_PREFIX=/home/claude/.npm-global
             export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:$PATH
-            
+
             cd WORKDIR/zonewise-web
             npm ci 2>/dev/null || npm install
-            
-            echo "=== Running Claude Code ==="
+
+            echo "=== Auth check ==="
+            ls -la $HOME/.claude/ 2>/dev/null || echo "No .claude dir"
+            ls -la $HOME/.config/claude/ 2>/dev/null || echo "No .config/claude dir"
+
+            echo "=== Claude Code ==="
             claude --version
             claude -p "
-            You are implementing Explorer V2 for ZoneWise.AI.
+            Implement Explorer V2 for ZoneWise.AI.
 
-            READ FIRST: docs/plans/EXPLORER_V2_SPEC.md
-            READ SECOND: CLAUDE.md
+            READ: docs/plans/EXPLORER_V2_SPEC.md then CLAUDE.md
 
-            CRITICAL: Choropleth heatmap MUST be visible WITHOUT login — Reventure.app lead magnet strategy.
+            CRITICAL: Choropleth heatmap WITHOUT login — Reventure lead magnet.
+            FREE: Choropleth always visible. 5 parcel clicks/day. 3 chats/day. Then upgrade modal.
 
-            FREE TIER (no login): Choropleth always visible. 5 parcel clicks/day + 3 chat messages/day. After limit: upgrade modal.
-
-            ORDER:
             1. ZOOM-ADAPTIVE ZONING in BrevardExplorer.tsx. Hidden zoom<12, 15% at 12-14, 55% at 15+.
-            2. CHOROPLETH: lib/explorer/zillow.ts + ChoroplethLayer.tsx. Blue-green-yellow-orange-red.
-            3. NLP CHAT SPLIT-SCREEN: ExplorerV2.tsx chat left map right.
-            4. MOBILE BOTTOM SHEET: ExplorerMobileSheet.tsx.
-            5. CONVERSION GATE: Modals after 5 clicks or 3 chats.
-            6. ZONING FILTER: Dropdown All/RU/BU/PUD/AU/IU/TU.
+            2. CHOROPLETH: zillow.ts + ChoroplethLayer.tsx. Blue-red scale. Zoom 9-13.
+            3. NLP CHAT: ExplorerV2.tsx split-screen. chat/route.ts.
+            4. MOBILE: ExplorerMobileSheet.tsx bottom sheet.
+            5. CONVERSION: Modals after 5 clicks / 3 chats.
+            6. ZONING FILTER: Dropdown RU/BU/PUD/AU/IU/TU.
 
-            Brand: Navy #1E3A5F, Orange #F59E0B, bg #020617.
-            npx tsc --noEmit and npm run build must pass.
-            DO NOT ask questions. Execute autonomously.
+            Brand: #1E3A5F navy, #F59E0B orange, #020617 bg.
+            Must pass tsc + build. Execute autonomously.
             " --dangerously-skip-permissions
 
             npx tsc --noEmit 2>&1 | tail -10 || true
@@ -83,10 +100,7 @@ jobs:
             git config user.name "Claude Code (Hetzner)"
             git config user.email "claude@zonewise.ai"
             git add -A
-            if git diff --cached --quiet; then
-              echo "FATAL: No changes"
-              exit 1
-            fi
+            git diff --cached --quiet && { echo "FATAL: No changes"; exit 1; }
             git commit -m "feat(explorer-v2): Reventure lead magnet [SUMMIT]
             Closes #41"
             git push origin main
@@ -117,5 +131,5 @@ jobs:
         if: always()
         run: |
           STATUS="${{ job.status }}"
-          [ "$STATUS" = "success" ] && MSG="🏔️✅ Explorer V2 DEPLOYED%0Azonewise.ai/explorer LIVE" || MSG="🏔️❌ Explorer V2 FAILED"
+          [ "$STATUS" = "success" ] && MSG="🏔️✅ Explorer V2 DEPLOYED%0Azonewise.ai/explorer" || MSG="🏔️❌ Explorer V2 FAILED"
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=$MSG" > /dev/null 2>&1 || true
