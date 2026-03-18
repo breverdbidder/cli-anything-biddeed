@@ -1,0 +1,40 @@
+name: AgentRemote Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Diagnose Hetzner
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 87.99.129.125
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            echo "=== 1. Claude CLI check ==="
+            which claude 2>&1 || echo "claude NOT ON PATH"
+            claude --version 2>&1 || echo "claude --version FAILED"
+            
+            echo ""
+            echo "=== 2. Claude CLI test run ==="
+            timeout 15 claude --print --output-format text "Say hello" 2>&1 | head -20 || echo "CLI TEST FAILED (exit $?)"
+            
+            echo ""
+            echo "=== 3. Executor .env contents (redacted) ==="
+            cat /opt/agentremote-executor/.env | sed 's/=.*/=***/' 2>&1
+            
+            echo ""
+            echo "=== 4. Executor Python output (last 30 lines) ==="
+            journalctl -u agentremote-executor --no-pager -n 30 --output=cat 2>&1
+            
+            echo ""
+            echo "=== 5. Test executor directly ==="
+            curl -s http://127.0.0.1:8318/health | python3 -m json.tool 2>&1
+            
+            echo ""
+            echo "=== 6. Python check ==="
+            python3 -c "import subprocess; r = subprocess.run(['claude', '--print', '--output-format', 'text', '--max-turns', '1', 'Say hello world'], capture_output=True, text=True, timeout=30); print(f'RC:{r.returncode}'); print(f'OUT:{r.stdout[:200]}'); print(f'ERR:{r.stderr[:200]}')" 2>&1
