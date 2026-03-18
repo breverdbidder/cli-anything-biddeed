@@ -1,52 +1,49 @@
-name: AgentRemote Diagnostics
+name: AgentRemote Fix Auth
 
 on:
   workflow_dispatch:
 
 jobs:
-  diagnose:
+  fix:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Diagnose Hetzner
+      - name: Fix Claude Auth on Hetzner
         uses: appleboy/ssh-action@v1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           host: 87.99.129.125
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: ANTHROPIC_API_KEY
           script: |
-            echo "=== 1. Auth check ==="
-            claude --version 2>&1
-            echo "---"
-            claude auth status 2>&1 || true
+            echo "=== 1. Add API key to executor .env ==="
+            # Append ANTHROPIC_API_KEY if not already there
+            grep -q "ANTHROPIC_API_KEY" /opt/agentremote-executor/.env && \
+              sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}|" /opt/agentremote-executor/.env || \
+              echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> /opt/agentremote-executor/.env
             
-            echo ""
-            echo "=== 2. Exact executor command ==="
-            python3 -c "
-            import subprocess, json
-            cmd = ['claude', '--print', '--output-format', 'text', '--max-turns', '25', '--verbose', 'Say hello world']
-            print(f'CMD: {cmd}')
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd='/root')
-            print(f'RETURNCODE: {r.returncode}')
-            print(f'STDOUT: [{r.stdout[:500]}]')
-            print(f'STDERR: [{r.stderr[:500]}]')
-            " 2>&1
+            echo "=== 2. Update systemd to pass it ==="
+            # Add to systemd environment
+            grep -q "ANTHROPIC_API_KEY" /etc/systemd/system/agentremote-executor.service || \
+              sed -i '/^EnvironmentFile=/a Environment=ANTHROPIC_API_KEY=' /etc/systemd/system/agentremote-executor.service
             
-            echo ""
-            echo "=== 3. Simpler command ==="
-            python3 -c "
-            import subprocess
-            r = subprocess.run(['claude', '--print', 'Say hello'], capture_output=True, text=True, timeout=30)
-            print(f'RC: {r.returncode}')
-            print(f'OUT: [{r.stdout[:300]}]')
-            print(f'ERR: [{r.stderr[:300]}]')
-            " 2>&1
-            
-            echo ""
-            echo "=== 4. Even simpler ==="
-            echo "Say hello" | claude --print 2>&1 | head -10
+            echo "=== 3. Test CLI with API key ==="
+            export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
+            timeout 30 claude -p "Say hello" 2>&1 | head -5
             echo "EXIT: $?"
             
             echo ""
-            echo "=== 5. Claude help flags ==="
-            claude --help 2>&1 | grep -E "(print|output|format|verbose|max-turns)" | head -10
+            echo "=== 4. Restart executor ==="
+            systemctl daemon-reload
+            systemctl restart agentremote-executor
+            sleep 3
+            
+            echo "=== 5. Verify ==="
+            systemctl is-active agentremote-executor
+            curl -sf http://127.0.0.1:8318/health | python3 -m json.tool
+            
+            echo ""
+            echo "=== 6. Check env is loaded ==="
+            cat /opt/agentremote-executor/.env | sed 's/=.*/=***/'
