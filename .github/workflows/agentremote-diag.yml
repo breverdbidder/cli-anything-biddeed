@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fix Gemini on Hetzner
+      - name: Fix LLM Access on Hetzner
         uses: appleboy/ssh-action@v1
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -18,48 +18,32 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           envs: GEMINI_API_KEY
           script: |
-            echo "=== 1. Check .env file ==="
-            cat /opt/agentremote-executor/.env
+            echo "=== 1. Restart CLIProxyAPI ==="
+            cd /opt/cliproxy-gateway && docker compose restart 2>&1 || echo "Docker restart failed"
+            sleep 5
+            curl -sf http://127.0.0.1:8317/health 2>&1 || echo "CLIProxyAPI still down"
             
             echo ""
-            echo "=== 2. Check if GEMINI_API_KEY is empty ==="
-            GKEY=$(grep GEMINI_API_KEY /opt/agentremote-executor/.env | cut -d= -f2)
-            echo "Key length: ${#GKEY}"
-            echo "Key prefix: ${GKEY:0:10}..."
+            echo "=== 2. Test different Gemini models ==="
+            for model in gemini-2.0-flash-lite gemini-1.5-flash gemini-2.0-flash; do
+              echo "Testing $model..."
+              RESP=$(curl -s -w "\n%{http_code}" "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}" \
+                -H "Content-Type: application/json" \
+                -d '{"contents":[{"parts":[{"text":"Say hello in one word"}]}]}')
+              HTTP=$(echo "$RESP" | tail -1)
+              BODY=$(echo "$RESP" | head -n -1)
+              echo "  HTTP: $HTTP"
+              if [ "$HTTP" = "200" ]; then
+                echo "  ✅ $model WORKS"
+                echo "$BODY" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  Response:',d['candidates'][0]['content']['parts'][0]['text'][:100])" 2>/dev/null
+                break
+              else
+                echo "  ❌ $model failed"
+                echo "$BODY" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  Error:',d.get('error',{}).get('message','')[:100])" 2>/dev/null
+              fi
+            done
             
             echo ""
-            echo "=== 3. Test Gemini directly ==="
-            curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GKEY}" \
-              -H "Content-Type: application/json" \
-              -d '{"contents":[{"parts":[{"text":"Say hello in one sentence"}]}]}' 2>&1 | head -20
-            
-            echo ""
-            echo "=== 4. Test with passed secret ==="
-            echo "Passed key length: ${#GEMINI_API_KEY}"
-            echo "Passed key prefix: ${GEMINI_API_KEY:0:10}..."
-            curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
-              -H "Content-Type: application/json" \
-              -d '{"contents":[{"parts":[{"text":"Say hello in one sentence"}]}]}' 2>&1 | head -20
-            
-            echo ""
-            echo "=== 5. Fix .env if key is wrong ==="
-            if [ ${#GKEY} -lt 10 ] && [ ${#GEMINI_API_KEY} -gt 10 ]; then
-              echo "Fixing: .env key is empty/short, replacing with secret"
-              sed -i "s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${GEMINI_API_KEY}|" /opt/agentremote-executor/.env
-              systemctl restart agentremote-executor
-              sleep 3
-              echo "Restarted. Checking health:"
-              curl -sf http://127.0.0.1:8318/health
-            else
-              echo "Key looks present, checking systemd env loading..."
-              # Check if EnvironmentFile is actually loaded
-              systemctl show agentremote-executor | grep -i "environment" | head -5
-            fi
-            
-            echo ""
-            echo "=== 6. Test executor Python env ==="
-            python3 -c "
-            import subprocess
-            r = subprocess.run(['systemctl', 'show', 'agentremote-executor', '-p', 'Environment', '-p', 'EnvironmentFiles'], capture_output=True, text=True)
-            print(r.stdout)
-            "
+            echo "=== 3. Test Claude login via Max plan key file ==="
+            ls -la ~/.claude/ 2>/dev/null || echo "No ~/.claude dir"
+            cat ~/.claude/.credentials.json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(json.dumps({k:v[:20]+'...' if isinstance(v,str) and len(v)>20 else v for k,v in d.items()}, indent=2))" 2>/dev/null || echo "No credentials file"
