@@ -8,35 +8,58 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fix - Use CLIProxyAPI Gateway
+      - name: Fix Gemini on Hetzner
         uses: appleboy/ssh-action@v1
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           host: 87.99.129.125
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: GEMINI_API_KEY
           script: |
-            echo "=== 1. Check CLIProxyAPI Gateway ==="
-            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -i "cliproxy\|proxy\|gateway" || echo "No cliproxy container found"
+            echo "=== 1. Check .env file ==="
+            cat /opt/agentremote-executor/.env
             
             echo ""
-            echo "=== 2. Test CLIProxyAPI endpoint ==="
-            curl -sf http://127.0.0.1:8317/health 2>&1 || echo "Port 8317 not responding"
-            curl -sf http://127.0.0.1:8317/v1/models 2>&1 | head -5 || echo "No /v1/models"
+            echo "=== 2. Check if GEMINI_API_KEY is empty ==="
+            GKEY=$(grep GEMINI_API_KEY /opt/agentremote-executor/.env | cut -d= -f2)
+            echo "Key length: ${#GKEY}"
+            echo "Key prefix: ${GKEY:0:10}..."
             
             echo ""
-            echo "=== 3. Check all listening ports ==="
-            ss -tlnp | grep -E "831[0-9]" || echo "No 831x ports"
+            echo "=== 3. Test Gemini directly ==="
+            curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GKEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"contents":[{"parts":[{"text":"Say hello in one sentence"}]}]}' 2>&1 | head -20
             
             echo ""
-            echo "=== 4. Docker containers ==="
-            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 || echo "No docker"
+            echo "=== 4. Test with passed secret ==="
+            echo "Passed key length: ${#GEMINI_API_KEY}"
+            echo "Passed key prefix: ${GEMINI_API_KEY:0:10}..."
+            curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"contents":[{"parts":[{"text":"Say hello in one sentence"}]}]}' 2>&1 | head -20
             
             echo ""
-            echo "=== 5. Check .env.generated for gateway key ==="
-            cat /opt/cliproxy-gateway/config.yaml 2>/dev/null | head -20 || echo "No cliproxy config found"
-            ls -la /opt/cliproxy-gateway/ 2>/dev/null || echo "No /opt/cliproxy-gateway dir"
+            echo "=== 5. Fix .env if key is wrong ==="
+            if [ ${#GKEY} -lt 10 ] && [ ${#GEMINI_API_KEY} -gt 10 ]; then
+              echo "Fixing: .env key is empty/short, replacing with secret"
+              sed -i "s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${GEMINI_API_KEY}|" /opt/agentremote-executor/.env
+              systemctl restart agentremote-executor
+              sleep 3
+              echo "Restarted. Checking health:"
+              curl -sf http://127.0.0.1:8318/health
+            else
+              echo "Key looks present, checking systemd env loading..."
+              # Check if EnvironmentFile is actually loaded
+              systemctl show agentremote-executor | grep -i "environment" | head -5
+            fi
             
             echo ""
-            echo "=== 6. Check if CLIPROXY vars exist ==="
-            env | grep -i "CLIPROXY\|GEMINI\|DEEPSEEK" 2>/dev/null || echo "No proxy env vars in root shell"
-            cat /opt/agentremote-executor/.env 2>/dev/null | grep -i "CLIPROXY\|GEMINI\|PROXY" || echo "No proxy vars in executor env"
+            echo "=== 6. Test executor Python env ==="
+            python3 -c "
+            import subprocess
+            r = subprocess.run(['systemctl', 'show', 'agentremote-executor', '-p', 'Environment', '-p', 'EnvironmentFiles'], capture_output=True, text=True)
+            print(r.stdout)
+            "
