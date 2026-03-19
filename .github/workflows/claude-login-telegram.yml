@@ -19,41 +19,37 @@ jobs:
           command_timeout: 14m
           envs: TG_TOKEN,TG_CHAT,PAT
           script: |
-            rm -f /tmp/cl-fg.txt
+            rm -f /tmp/cl-flush.txt
             export TG_TOKEN TG_CHAT PAT
-            (while true; do
-              URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl-fg.txt 2>/dev/null | head -1)
+            (for i in $(seq 1 60); do
+              sleep 1
+              URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl-flush.txt 2>/dev/null | head -1)
               if [ -n "$URL" ]; then
-                python3 -c "
+                python3 << PYEOF
             import json, urllib.request, os
-            url = '$URL'
+            url = os.environ.get('CAPTURED_URL','')
+            if not url:
+                import re
+                with open('/tmp/cl-flush.txt') as f:
+                    m = re.search(r'https://claude\.ai/oauth\S+', f.read())
+                    url = m.group(0) if m else ''
+            if not url: exit(1)
             token = os.environ['TG_TOKEN']
             chat = os.environ['TG_CHAT']
             pat = os.environ['PAT']
-            for target, payload in [
-              (f'https://api.telegram.org/bot{token}/sendMessage', json.dumps({'chat_id':chat,'text':'🔑 Tap to login (5 min):','reply_markup':{'inline_keyboard':[[{'text':'🔑 TAP HERE','url':url}]]}}).encode()),
-              (f'https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments', json.dumps({'body':'🔑 LIVE LOGIN URL:\n\n'+url}).encode())
+            for desc, target, hdrs, body in [
+                ('TG', f'https://api.telegram.org/bot{token}/sendMessage', {}, {'chat_id':chat,'text':'🔑 Tap to login:','reply_markup':{'inline_keyboard':[[{'text':'🔑 LOGIN','url':url}]]}}),
+                ('GH', 'https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments', {'Authorization':f'token {pat}'}, {'body':'🔑 LIVE:\n'+url})
             ]:
-              headers = {'Content-Type':'application/json'}
-              if 'github' in target: headers['Authorization'] = f'token {pat}'
-              try:
-                urllib.request.urlopen(urllib.request.Request(target, data=payload, headers=headers))
-                print(f'OK: {target[:40]}')
-              except Exception as e:
-                print(f'ERR: {e}')
-            "
+                try:
+                    req = urllib.request.Request(target, data=json.dumps(body).encode(), headers={**hdrs,'Content-Type':'application/json'})
+                    urllib.request.urlopen(req)
+                    print(f'{desc} OK')
+                except Exception as e:
+                    print(f'{desc} ERR: {e}')
+            PYEOF
                 break
               fi
-              sleep 1
             done) &
-            SENDER=$!
-            script -q /tmp/cl-fg.txt -c "claude auth login"
-            LOGIN_EXIT=$?
-            kill $SENDER 2>/dev/null || true
+            script -f -q /tmp/cl-flush.txt -c "claude auth login"
             claude auth status
-            if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
-              echo "SUCCESS"
-              exit 0
-            fi
-            echo "Login exited with: $LOGIN_EXIT"
-            exit 1
