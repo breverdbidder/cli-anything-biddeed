@@ -1,4 +1,4 @@
-name: "Summit: Watch Session 1 — Foundation"
+name: "Summit: Watch Session 1 - Foundation"
 on:
   workflow_dispatch: {}
 
@@ -73,8 +73,7 @@ jobs:
               STATUS="FAILED (exit $EXIT_CODE)"
             fi
 
-            SUMMARY=$(tail -20 /tmp/watch-session1.log | head -10 | tr '
-' ' ' | cut -c1-400)
+            SUMMARY=$(tail -20 /tmp/watch-session1.log | head -10 | tr '\n' ' ' | cut -c1-400)
             MSG="${EMOJI} Watch Session 1: ${STATUS}%0A%0ARepo: cli-anything-biddeed%0ATarget: harnesses/watch/%0A%0A${SUMMARY}"
 
             curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
