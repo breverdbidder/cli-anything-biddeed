@@ -79,10 +79,7 @@ jobs:
 
               echo "=== RUN CLAUDE CODE ==="
               cd /home/claude/repos/zonewise-web
-              claude --print "${DISPATCH_PROMPT}" \
-                --dangerously-skip-permissions \
-                --max-tokens 128000 \
-                2>&1 | tee "/home/claude/logs/dev-intel-\$(date +%Y%m%d-%H%M%S).log"
+              claude -p "${DISPATCH_PROMPT}" --dangerously-skip-permissions 2>&1 | tee "/home/claude/logs/dev-intel-\$(date +%Y%m%d-%H%M%S).log"
 
               echo "=== SESSION COMPLETE ==="
             '
