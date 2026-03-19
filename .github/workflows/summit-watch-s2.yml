@@ -25,25 +25,28 @@ jobs:
           command_timeout: 110m
           envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           script: |
-            echo "=== [1/5] Setup claude user ==="
+            echo "=== Setup ==="
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
             mkdir -p /home/claude/.npm-global
             chown -R claude:claude /home/claude
 
-            echo "=== [2/5] Update Claude Code ==="
-            npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
+            npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -2
             claude --version 2>/dev/null
 
-            echo "=== [3/5] Setup auth + pull repo ==="
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
             rm -f /tmp/claude-oauth-token
 
+            mkdir -p /opt/biddeed
+            if [ ! -d "/opt/biddeed/cli-anything-biddeed" ]; then
+              cd /opt/biddeed
+              git clone "https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git"
+            fi
             cd /opt/biddeed/cli-anything-biddeed
             git fetch origin main && git checkout main && git reset --hard origin/main
             chown -R claude:claude /opt/biddeed/cli-anything-biddeed
 
-            echo "=== [4/5] Run Claude Code Session 2 ==="
+            echo "=== Run Claude Code Session 2 ==="
             su - claude -c "
               export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
               export SUPABASE_URL='$SUPABASE_URL'
@@ -58,54 +61,32 @@ jobs:
                 'You are executing Session 2 of the Claude Watch (Everest Edition) build plan.
 
               READ docs/plans/WATCH-SPEC.md and docs/plans/WATCH-PLAN.md FIRST.
-              Also READ harnesses/watch/ to see what Session 1 already built.
+              READ harnesses/watch/ to see what Session 1 already built.
 
-              Session 2 GOALS (from PLAN.md):
-              1. Create shared types at harnesses/watch/src/types.ts (if not already complete)
-              2. Create file classification utilities at harnesses/watch/src/utils/classify.ts
-                 - Adapt patterns from NirDiamant/claude-watch brain-scanner.ts (MIT license)
-                 - PROMPT_PATTERNS, RULES_PATTERNS, CONFIG_PATTERNS, DOCS_PATTERNS, STATE_PATTERNS
-                 - CONTENT_SIGNALS (NEVER, ALWAYS, MUST density)
-                 - SKIP_DIRS, INTERESTING_DIRS
-                 - CRITICAL: ZERO execSync, ZERO child_process imports anywhere
-              3. Create SHA-256 hash utility at harnesses/watch/src/utils/hash.ts
-              4. Create health scanner at harnesses/watch/src/health-scan.ts
-                 - Reads env: SCAN_TYPE, REPO_NAME, SUPABASE_URL, SUPABASE_SERVICE_KEY
-                 - Walks current directory using fs.readdirSync only (NO shell commands)
-                 - Classifies files, computes SHA-256 hash per file
-                 - Inserts results into watch_health via Supabase REST API
-                 - Reports count of scanned files
-              5. Create hook installer at harnesses/watch/src/install-hooks.ts
-                 - CLI flags: --global, --remove
-                 - Reads/writes .claude/settings.json
-                 - Adds PostToolUse, Notification, Stop hooks with fire-and-forget curl
-                 - Hook target: Supabase Edge Function URL
-                 - Idempotent (checks if hooks exist before adding)
-                 - Warns if WATCH_TOKEN env var not set
-              6. Validate health scanner by running it against THIS repo and checking Supabase
-              7. Git config: git config user.email ci@biddeed.ai and git config user.name BidDeed-CI
-              8. Git push: git remote set-url origin https://x-access-token:\${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
-              9. Commit with message: feat(watch): Session 2 - hook installer + health scanner
+              Execute all steps in Session 2 of PLAN.md:
 
-              CRITICAL RULES:
-              - ZERO execSync or child_process anywhere in source code
-              - Use only Node.js built-ins: fs, path, crypto, https
-              - Verify health scanner works with real DB query after running it
-              - One attempt per approach, no retry loops
-              - SUPABASE_URL and SUPABASE_SERVICE_KEY are in env vars' \
+              1. Create src/types.ts with shared TypeScript types (HookPayload, LogicFile, HealthScanResult)
+              2. Create src/utils/classify.ts - file classification patterns adapted from NirDiamant/claude-watch brain-scanner.ts (MIT). ZERO execSync, ZERO child_process.
+              3. Create src/utils/hash.ts - SHA-256 hashing utility
+              4. Create src/health-scan.ts - walks project directory using fs only, classifies files, computes hashes, inserts to watch_health via Supabase REST API. Reads SCAN_TYPE, REPO_NAME, SUPABASE_URL, SUPABASE_SERVICE_KEY from env.
+              5. Create src/install-hooks.ts - CLI tool to add/remove watch hooks in .claude/settings.json. Supports --global and --remove flags. Hook command: curl -sf -X POST SUPABASE_URL/functions/v1/watch-ingest with Bearer WATCH_TOKEN from env. Fire-and-forget (background with &).
+              6. Update package.json with build scripts
+              7. Test health scanner against THIS repo (cli-anything-biddeed) by running it
+              8. Test hook installer by running it on a temp directory
+              9. Git config: user.email ci@biddeed.ai, user.name BidDeed-CI
+              10. Git push: git remote set-url origin https://x-access-token:\${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
+
+              CRITICAL: Zero execSync or child_process in ANY source file. Only fs, path, crypto, https built-ins.
+              Verify health scanner produces real results before committing.' \
               2>&1 | tee /tmp/watch-session2.log | tail -100
             "
 
             EXIT_CODE=${PIPESTATUS[0]}
 
-            echo "=== [5/5] Telegram Report ==="
-            if [ $EXIT_CODE -eq 0 ]; then EMOJI="✅"; STATUS="SUCCESS"
-            else EMOJI="❌"; STATUS="FAILED (exit $EXIT_CODE)"; fi
-
+            echo "=== Telegram ==="
+            if [ $EXIT_CODE -eq 0 ]; then E="✅"; S="SUCCESS"; else E="❌"; S="FAILED (exit $EXIT_CODE)"; fi
             SUMMARY=$(tail -20 /tmp/watch-session2.log 2>/dev/null | head -10 | tr '\n' ' ' | cut -c1-400)
-            MSG="${EMOJI} Watch Session 2: ${STATUS}%0A%0AHook installer + Health scanner%0A%0A${SUMMARY}"
-
+            MSG="${E} Watch Session 2: ${S}%0A%0ARepo: cli-anything-biddeed%0ATarget: harnesses/watch/src/%0A%0A${SUMMARY}"
             curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null 2>&1 || true
-
             exit $EXIT_CODE
