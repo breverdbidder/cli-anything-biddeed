@@ -60,5 +60,5 @@ jobs:
               cd /home/claude/goviralbitch && git pull 2>/dev/null; cd /home/claude/viral-buildout-ws
             fi
 
-            claude --auto-mode -p "$(cat harnesses/viral/BUILDOUT_PROMPT.md)"
+            claude --permission-mode auto -p "$(cat harnesses/viral/BUILDOUT_PROMPT.md)"
             USERCMD

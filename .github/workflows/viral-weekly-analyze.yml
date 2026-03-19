@@ -48,5 +48,5 @@ jobs:
             [ ! -d cli-anything-biddeed ] && git clone https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
             cd cli-anything-biddeed && git pull
 
-            claude --auto-mode -p "Read harnesses/viral/HARNESS.md. Execute weekly analysis: 1) Run src/analyze.py --manual --all 2) Run src/update_brain.py. Report structured summary."
+            claude --permission-mode auto -p "Read harnesses/viral/HARNESS.md. Execute weekly analysis: 1) Run src/analyze.py --manual --all 2) Run src/update_brain.py. Report structured summary."
             USERCMD
