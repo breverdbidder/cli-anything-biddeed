@@ -2,8 +2,9 @@
 
 > **Executor:** Claude Code (autonomous)
 > **Input:** WATCH-SPEC.md Section 6 (Dashboard) + WATCH-PLAN.md Sessions 3-5
-> **Output:** Live dashboard at watch-biddeed.pages.dev
+> **Output:** Live dashboard deployed to Vercel (watch.biddeed.ai)
 > **HITL:** ZERO
+> **Hosting:** Vercel Pro (PAID account — NOT Cloudflare Pages)
 
 ---
 
@@ -15,7 +16,9 @@ ls harnesses/watch/src/types.ts harnesses/watch/src/health-scan.ts harnesses/wat
 # Verify node/npm
 node --version && npm --version
 # Verify env vars
-echo "SB_URL: ${SUPABASE_URL:0:20}... ANON: ${SUPABASE_ANON_KEY:0:20}... CF: ${CF_API_TOKEN:0:10}..."
+echo "SB_URL: ${SUPABASE_URL:0:20}... ANON: ${SUPABASE_ANON_KEY:0:20}... VERCEL: ${VERCEL_TOKEN:0:10}..."
+# Verify Vercel CLI
+vercel --version || npm install -g vercel@latest
 ```
 
 ---
@@ -255,7 +258,9 @@ File: `src/components/health/ChangeTimeline.tsx`
 
 ---
 
-## PHASE 6: Build + Deploy to CF Pages (15 min)
+## PHASE 6: Build + Deploy to Vercel (15 min)
+
+**IMPORTANT: Deploy to Vercel Pro account. NOT Cloudflare Pages.**
 
 ### 6.1 Build production bundle
 
@@ -267,27 +272,41 @@ ls -la dist/
 
 Verify dist/ has index.html and assets.
 
-### 6.2 Create CF Pages project
+### 6.2 Deploy to Vercel
 
 ```bash
-npx wrangler pages project create watch-biddeed --production-branch main
+cd harnesses/watch/dashboard
+
+# Create Vercel project and deploy
+vercel --token $VERCEL_TOKEN --yes --prod \
+  --name claude-watch \
+  --build-command "npm run build" \
+  --output-directory dist \
+  --env VITE_SUPABASE_URL=https://mocerqjnksmhcjzxrewo.supabase.co \
+  --env VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 ```
 
-### 6.3 Deploy to CF Pages
+### 6.3 Verify deployment
 
 ```bash
-npx wrangler pages deploy dist --project-name watch-biddeed
-```
+# Get the deployment URL
+DEPLOY_URL=$(vercel ls --token $VERCEL_TOKEN 2>/dev/null | grep claude-watch | head -1 | awk '{print $2}')
+echo "Deploy URL: $DEPLOY_URL"
 
-### 6.4 Verify deployment
-
-```bash
-curl -s -o /dev/null -w "%{http_code}" https://watch-biddeed.pages.dev
+curl -s -o /dev/null -w "%{http_code}" "https://$DEPLOY_URL"
 ```
 
 Must return 200.
 
-### 6.5 Create deploy GHA workflow
+### 6.4 Set custom domain (watch.biddeed.ai)
+
+```bash
+vercel domains add watch.biddeed.ai --token $VERCEL_TOKEN
+```
+
+If DNS needs updating, note the required records for the Telegram notification.
+
+### 6.5 Create auto-deploy GHA workflow
 
 File: `.github/workflows/deploy-watch-dashboard.yml`
 
@@ -307,6 +326,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
       - name: Install and build
         run: |
           cd harnesses/watch/dashboard
@@ -315,16 +336,15 @@ jobs:
         env:
           VITE_SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      - name: Deploy to CF Pages
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          projectName: watch-biddeed
-          directory: harnesses/watch/dashboard/dist
+      - name: Deploy to Vercel
+        run: |
+          cd harnesses/watch/dashboard
+          vercel deploy --prod --token ${{ secrets.VERCEL_TOKEN }} --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 ```
 
-**COMMIT:** `feat(watch): CF Pages deploy + GHA auto-deploy workflow`
+**COMMIT:** `feat(watch): Vercel deploy + GHA auto-deploy workflow`
 
 ---
 
@@ -345,10 +365,11 @@ cd harnesses/watch/dashboard && npm run build
 echo "Exit code: $?"
 ```
 
-### 7.3 Verify CF Pages is live
+### 7.3 Verify Vercel is live
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" https://watch-biddeed.pages.dev
+DEPLOY_URL=$(vercel ls --token $VERCEL_TOKEN 2>/dev/null | grep claude-watch | head -1 | awk '{print $2}')
+curl -s -o /dev/null -w "%{http_code}" "https://$DEPLOY_URL"
 ```
 
 ### 7.4 Push everything
@@ -356,32 +377,35 @@ curl -s -o /dev/null -w "%{http_code}" https://watch-biddeed.pages.dev
 ```bash
 cd /opt/biddeed/cli-anything-biddeed
 git add -A
-git commit -m "feat(watch): v0.1.0 — full dashboard with LIVE/AUDIT/HEALTH tabs, deployed to CF Pages"
+git commit -m "feat(watch): v0.1.0 — full dashboard with LIVE/AUDIT/HEALTH tabs, deployed to Vercel"
 git push origin main
 ```
 
 ### 7.5 Telegram notification
 
 ```bash
+DEPLOY_URL=$(vercel ls --token $VERCEL_TOKEN 2>/dev/null | grep claude-watch | head -1 | awk '{print $2}')
 curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
   -d "chat_id=${TELEGRAM_CHAT_ID}" \
-  -d "text=🏔️ Claude Watch Dashboard LIVE at https://watch-biddeed.pages.dev
+  -d "text=🏔️ Claude Watch Dashboard LIVE at https://${DEPLOY_URL}
 ✅ LIVE tab: Realtime session monitoring
 ✅ AUDIT tab: Session replay + diff viewer
 ✅ HEALTH tab: CLAUDE.md ecosystem status
 🎨 House brand applied
 📱 Mobile responsive
-Next: Add CNAME watch.biddeed.ai → watch-biddeed.pages.dev"
+🚀 Hosted on Vercel Pro
+Next: Add DNS record for watch.biddeed.ai if not auto-configured"
 ```
 
 ---
 
 ## CONSTRAINTS
 
+- **VERCEL PRO:** Deploy to Vercel, NOT Cloudflare Pages. We have a paid account.
 - **HOUSE BRAND:** Navy #1E3A5F, Orange #F59E0B, bg #020617, Inter font. NO other color schemes.
-- **ZERO COST:** No paid dependencies, no paid APIs. Supabase free tier + CF Pages free.
+- **ZERO EXTRA COST:** No paid dependencies beyond Vercel Pro (already paid). Supabase free tier handles the data.
 - **NO localStorage:** Use React state only. Supabase handles persistence.
 - **SINGLE FILE APPROACH:** Inline CSS-in-Tailwind. No separate CSS files except globals.css.
 - **MOBILE FIRST:** Test at 375px. Bottom tab nav required.
-- **NEVER-LIE:** Show `curl` output proving CF Pages returns 200 before declaring done.
+- **NEVER-LIE:** Show deployment URL output proving Vercel returns 200 before declaring done.
 - **GIT HYGIENE:** Commit after each phase. Descriptive messages. Push at end.
