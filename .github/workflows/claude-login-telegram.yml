@@ -7,62 +7,89 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Capture login URL
+        id: capture
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 14m
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
+          command_timeout: 30s
           script: |
-            echo "Step 1: Capture URL (synchronous)"
             rm -f /tmp/cl.txt
             timeout 25 script -q /tmp/cl.txt -c "claude auth login" || true
-            URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl.txt | head -1)
-            if [ -z "$URL" ]; then
-              echo "No URL"
-              cat /tmp/cl.txt
-              exit 1
-            fi
-            echo "Got URL (${#URL} chars)"
-            echo "Step 2: Send button to Telegram"
-            python3 << PYEOF
-            import json, urllib.request
-            url = "$URL"
-            token = "$TELEGRAM_BOT_TOKEN"
-            chat = "$TELEGRAM_CHAT_ID"
-            payload = json.dumps({
-                "chat_id": chat,
-                "text": "🔑 Tap the button to log in Claude on Hetzner.\n5 minutes to approve.",
-                "reply_markup": {"inline_keyboard": [[{"text": "🔑 TAP HERE TO LOGIN", "url": url}]]}
-            }).encode()
-            req = urllib.request.Request(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                data=payload, headers={"Content-Type": "application/json"}
-            )
-            try:
-                resp = urllib.request.urlopen(req)
-                print("OK:", resp.read().decode()[:80])
-            except Exception as e:
-                print("ERR:", e)
-            PYEOF
-            echo "Step 3: Start fresh login + wait 5 min"
+            grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl.txt | head -1
+
+      - name: Post URL and send Telegram
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # Read URL from SSH output (last non-empty line of the step)
+          # Actually we need to get it differently. Let's fetch from Hetzner.
+          URL=$(ssh -o StrictHostKeyChecking=no -i <(echo "${{ secrets.HETZNER_SSH_KEY }}") root@${{ secrets.HETZNER_IP }} "grep -o 'https://claude.ai/oauth[^ \"]*' /tmp/cl.txt | head -1" 2>/dev/null || echo "")
+          
+          if [ -z "$URL" ]; then
+            echo "Trying direct fetch..."
+            mkdir -p ~/.ssh
+            echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hkey
+            chmod 600 ~/.ssh/hkey
+            ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+            URL=$(ssh -i ~/.ssh/hkey root@${{ secrets.HETZNER_IP }} "cat /tmp/cl.txt" 2>/dev/null | grep -o 'https://claude.ai/oauth[^ "]*' | head -1)
+          fi
+
+          echo "URL length: ${#URL}"
+          
+          if [ -z "$URL" ]; then
+            echo "FATAL: No URL"
+            exit 1
+          fi
+
+          # Post to GitHub issue
+          curl -s -X POST \
+            -H "Authorization: token ${GH_PAT}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments" \
+            -d "{\"body\":\"🔑 **Claude Login URL** (expires in 5 min):\\n\\n${URL}\"}"
+
+          # Send Telegram with inline button
+          python3 -c "
+          import json, urllib.request
+          url = '''${URL}'''
+          token = '''${TELEGRAM_BOT_TOKEN}'''
+          chat = '''${TELEGRAM_CHAT_ID}'''
+          payload = json.dumps({
+              'chat_id': chat,
+              'text': '🔑 Tap button to log in Claude on Hetzner (5 min):',
+              'reply_markup': {'inline_keyboard': [[{'text': '🔑 TAP HERE TO LOGIN', 'url': url}]]}
+          }).encode()
+          req = urllib.request.Request(
+              f'https://api.telegram.org/bot{token}/sendMessage',
+              data=payload, headers={'Content-Type': 'application/json'}
+          )
+          try:
+              resp = urllib.request.urlopen(req)
+              print('Telegram OK')
+          except Exception as e:
+              print(f'Telegram error: {e}')
+          "
+
+      - name: Wait for login
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 8m
+          script: |
             script -q /dev/null -c "claude auth login" &
             BG=$!
             for i in $(seq 1 60); do
               sleep 5
               if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
-                echo "LOGIN SUCCESS after $((i*5))s"
+                echo "LOGIN SUCCESS"
                 kill $BG 2>/dev/null || true
-                python3 << PYEOF2
-            import json, urllib.request
-            payload = json.dumps({"chat_id": "$TELEGRAM_CHAT_ID", "text": "✅ Login successful!"}).encode()
-            req = urllib.request.Request(
-                "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage",
-                data=payload, headers={"Content-Type": "application/json"}
-            )
-            urllib.request.urlopen(req)
-            PYEOF2
+                claude auth status
                 exit 0
               fi
               [ $((i % 12)) -eq 0 ] && echo "Waiting... $((i*5))s"
