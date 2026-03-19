@@ -26,76 +26,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Supabase
-        env:
-          SUPABASE_URL: "${{ secrets.SUPABASE_URL }}"
-          SUPABASE_ANON: "${{ secrets.SUPABASE_ANON_KEY }}"
-        run: |
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "apikey: ${SUPABASE_ANON}" \
-            "${SUPABASE_URL}/rest/v1/envelope_cache?select=parcel_id&limit=1")
-          echo "Supabase HTTP: $CODE"
-          if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
-            echo "WARNING: envelope_cache may be empty. Continuing anyway."
-          fi
-
       - name: Build dispatch prompt
         id: prompt
         run: |
           DELIVERABLE="${{ github.event.inputs.deliverable }}"
           if [ "$DELIVERABLE" = "all" ]; then
-            PROMPT="Execute ALL tasks in envelope/dev-intel-dispatch/TODO.md sequentially. Deliverable 1 through 6. Verify bun run build passes after each. Commit after each deliverable. The source artifact is at envelope/dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow envelope/dev-intel-dispatch/CLAUDE.md directives. Use auto-mode."
+            echo "prompt=Execute ALL tasks in envelope/dev-intel-dispatch/TODO.md sequentially. Deliverable 1 through 6. Verify bun run build passes after each. Commit after each deliverable. The source artifact is at envelope/dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow envelope/dev-intel-dispatch/CLAUDE.md directives. Use auto-mode." >> "$GITHUB_OUTPUT"
           else
             NUM=$(echo "$DELIVERABLE" | cut -d'-' -f1)
-            PROMPT="Execute Deliverable ${NUM} from envelope/dev-intel-dispatch/TODO.md only. The source artifact is at envelope/dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow envelope/dev-intel-dispatch/CLAUDE.md directives. Verify bun run build passes before committing."
+            echo "prompt=Execute Deliverable ${NUM} from envelope/dev-intel-dispatch/TODO.md only. The source artifact is at envelope/dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow envelope/dev-intel-dispatch/CLAUDE.md directives. Verify bun run build passes before committing." >> "$GITHUB_OUTPUT"
           fi
-          echo "prompt=${PROMPT}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to Hetzner via SSH
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Setup SSH and deploy
         env:
+          SSH_KEY: "${{ secrets.HETZNER_SSH_KEY }}"
+          OAUTH_B64: "${{ secrets.CLAUDE_OAUTH_B64 }}"
+          GH_PAT_VAL: "${{ secrets.GH_PAT }}"
           DISPATCH_PROMPT: "${{ steps.prompt.outputs.prompt }}"
-        with:
-          host: 87.99.129.125
-          username: claude
-          key: "${{ secrets.HETZNER_SSH_KEY }}"
-          command_timeout: 40m
-          envs: DISPATCH_PROMPT
-          script: |
+        run: |
+          mkdir -p ~/.ssh
+          echo "${SSH_KEY}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 << REMOTE_EOF
             set -euo pipefail
-            
-            echo "=== ENVIRONMENT ==="
-            export CLAUDE_CODE_OAUTH_TOKEN=$(echo "${{ secrets.CLAUDE_OAUTH_B64 }}" | base64 -d)
-            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
-            export PATH="/home/claude/.npm-global/bin:$PATH"
-            
-            echo "=== CLONE/PULL zonewise-web ==="
-            cd /home/claude/repos
-            if [ -d "zonewise-web" ]; then
-              cd zonewise-web && git pull origin main
-            else
-              git clone "https://x-access-token:${GH_PAT}@github.com/breverdbidder/zonewise-web.git"
-              cd zonewise-web
-            fi
-            
-            echo "=== CLONE/PULL dispatch source ==="
-            cd /home/claude/repos
-            if [ -d "cli-anything-biddeed" ]; then
-              cd cli-anything-biddeed && git pull origin main
-            else
-              git clone "https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git"
-              cd cli-anything-biddeed
-            fi
-            
-            echo "=== COPY DISPATCH FILES ==="
-            cp -r /home/claude/repos/cli-anything-biddeed/envelope/dev-intel-dispatch /home/claude/repos/zonewise-web/.dev-intel-dispatch
-            
-            echo "=== RUN CLAUDE CODE ==="
-            cd /home/claude/repos/zonewise-web
-            claude --print "${DISPATCH_PROMPT}" --auto-mode --max-tokens 128000 \
-              2>&1 | tee "/home/claude/logs/dev-intel-$(date +%Y%m%d-%H%M%S).log"
-            
-            echo "=== DONE ==="
+
+            echo "=== SETUP CLAUDE USER ENV ==="
+            su - claude -c '
+              export CLAUDE_CODE_OAUTH_TOKEN=\$(echo "${OAUTH_B64}" | base64 -d)
+              export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+              export PATH="/home/claude/.npm-global/bin:\$PATH"
+
+              echo "=== CLONE/PULL repos ==="
+              mkdir -p /home/claude/repos /home/claude/logs
+              cd /home/claude/repos
+
+              if [ -d "zonewise-web" ]; then
+                cd zonewise-web && git pull origin main && cd ..
+              else
+                git clone "https://x-access-token:${GH_PAT_VAL}@github.com/breverdbidder/zonewise-web.git"
+              fi
+
+              if [ -d "cli-anything-biddeed" ]; then
+                cd cli-anything-biddeed && git pull origin main && cd ..
+              else
+                git clone "https://x-access-token:${GH_PAT_VAL}@github.com/breverdbidder/cli-anything-biddeed.git"
+              fi
+
+              echo "=== COPY DISPATCH FILES ==="
+              cp -r /home/claude/repos/cli-anything-biddeed/envelope/dev-intel-dispatch /home/claude/repos/zonewise-web/.dev-intel-dispatch
+
+              echo "=== RUN CLAUDE CODE ==="
+              cd /home/claude/repos/zonewise-web
+              claude --print "${DISPATCH_PROMPT}" \
+                --auto-mode \
+                --max-tokens 128000 \
+                2>&1 | tee "/home/claude/logs/dev-intel-\$(date +%Y%m%d-%H%M%S).log"
+
+              echo "=== SESSION COMPLETE ==="
+            '
+          REMOTE_EOF
 
       - name: Notify Telegram
         if: always()
