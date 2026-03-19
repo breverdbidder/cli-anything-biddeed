@@ -13,11 +13,12 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 1m
-          envs: CLAUDE_CODE_OAUTH_TOKEN
+          envs: CLAUDE_OAUTH_B64
           script: |
-            printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" > /tmp/claude-oauth-token
+            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             chmod 644 /tmp/claude-oauth-token
             echo "Token: $(wc -c < /tmp/claude-oauth-token) bytes"
+            echo "First 10: $(head -c 10 /tmp/claude-oauth-token)"
       - name: Deploy Explorer V2
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -64,14 +65,14 @@ jobs:
             chmod +x "$WORK/deploy.sh"
             chown claude:claude "$WORK/deploy.sh"
             su -s /bin/bash claude "$WORK/deploy.sh"
-            rm -f /tmp/claude-oauth-token "$WORK/deploy.sh"
+            rm -f /tmp/claude-oauth-token
             rm -rf "$WORK"
             python3 -c "import json,urllib.request;urllib.request.urlopen(urllib.request.Request('https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage',json.dumps({'chat_id':'${TELEGRAM_CHAT_ID}','text':'🏔️✅ Explorer V2 DEPLOYED'}).encode(),{'Content-Type':'application/json'}))"
       - name: Promote
         if: success()
         run: |
           sleep 90
-          curl -s -X POST -H "Authorization: token ${{ secrets.GH_PAT }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/breverdbidder/zonewise-web/actions/workflows/promote-now.yml/dispatches" -d '{"ref":"main"}'
+          curl -s -X POST -H "Authorization: token ${{ secrets.GH_PAT }}" "https://api.github.com/repos/breverdbidder/zonewise-web/actions/workflows/promote-now.yml/dispatches" -d '{"ref":"main"}'
       - name: Close Issue
         if: success()
         run: |
