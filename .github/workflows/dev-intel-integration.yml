@@ -9,81 +9,88 @@ on:
         default: "all"
         type: choice
         options:
+          - "all"
           - "1-supabase"
           - "2-mapbox"
           - "3-cma-agent"
           - "4-bcpao-photos"
           - "5-explore-route"
           - "6-split-screen"
-          - "all"
 
 jobs:
   integrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 5
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build dispatch prompt
-        id: prompt
-        run: |
-          DELIVERABLE="${{ github.event.inputs.deliverable }}"
-          if [ "$DELIVERABLE" = "all" ]; then
-            echo "prompt=Execute ALL tasks in envelope/dev-intel-dispatch/TODO.md sequentially. Deliverable 1 through 6. Verify bun run build passes after each. Commit after each deliverable. The source artifact is at envelope/dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow envelope/dev-intel-dispatch/CLAUDE.md directives. Use auto-mode." >> "$GITHUB_OUTPUT"
-          else
-            NUM=$(echo "$DELIVERABLE" | cut -d'-' -f1)
-            echo "prompt=Execute Deliverable ${NUM} from envelope/dev-intel-dispatch/TODO.md only. The source artifact is at envelope/dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow envelope/dev-intel-dispatch/CLAUDE.md directives. Verify bun run build passes before committing." >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Setup SSH and deploy
+      - name: Deploy script and fire-and-forget
         env:
           SSH_KEY: "${{ secrets.HETZNER_SSH_KEY }}"
           OAUTH_B64: "${{ secrets.CLAUDE_OAUTH_B64 }}"
           GH_PAT_VAL: "${{ secrets.GH_PAT }}"
-          DISPATCH_PROMPT: "${{ steps.prompt.outputs.prompt }}"
+          DELIVERABLE: "${{ github.event.inputs.deliverable }}"
         run: |
           mkdir -p ~/.ssh
           echo "${SSH_KEY}" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
 
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 << REMOTE_EOF
-            set -euo pipefail
+          # Build the prompt
+          if [ "$DELIVERABLE" = "all" ]; then
+            PROMPT="Execute ALL tasks in /home/claude/repos/zonewise-web/.dev-intel-dispatch/TODO.md sequentially. Deliverable 1 through 6. Verify bun run build passes after each. Commit after each deliverable. The source artifact is at /home/claude/repos/zonewise-web/.dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow /home/claude/repos/zonewise-web/.dev-intel-dispatch/CLAUDE.md directives."
+          else
+            NUM=$(echo "$DELIVERABLE" | cut -d'-' -f1)
+            PROMPT="Execute Deliverable ${NUM} from /home/claude/repos/zonewise-web/.dev-intel-dispatch/TODO.md only. Source artifact at /home/claude/repos/zonewise-web/.dev-intel-dispatch/zonewise-dev-intel-v3.jsx. Follow /home/claude/repos/zonewise-web/.dev-intel-dispatch/CLAUDE.md directives."
+          fi
 
-            echo "=== SETUP CLAUDE USER ENV ==="
-            su - claude -c '
-              export CLAUDE_CODE_OAUTH_TOKEN=\$(echo "${OAUTH_B64}" | base64 -d)
-              export NPM_CONFIG_PREFIX=/home/claude/.npm-global
-              export PATH="/home/claude/.npm-global/bin:\$PATH"
+          # Write runner script to Hetzner
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=30 root@87.99.129.125 "
+            cat > /home/claude/run-dev-intel.sh << 'SCRIPTEOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec > /home/claude/logs/dev-intel-\$(date +%Y%m%d-%H%M%S).log 2>&1
 
-              echo "=== CLONE/PULL repos ==="
-              mkdir -p /home/claude/repos /home/claude/logs
-              cd /home/claude/repos
+          export CLAUDE_CODE_OAUTH_TOKEN=\$(echo '${OAUTH_B64}' | base64 -d)
+          export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+          export PATH=\"/home/claude/.npm-global/bin:\$PATH\"
 
-              if [ -d "zonewise-web" ]; then
-                cd zonewise-web && git pull origin main && cd ..
-              else
-                git clone "https://x-access-token:${GH_PAT_VAL}@github.com/breverdbidder/zonewise-web.git"
-              fi
+          echo \"=== \$(date) START ===\"
 
-              if [ -d "cli-anything-biddeed" ]; then
-                cd cli-anything-biddeed && git pull origin main && cd ..
-              else
-                git clone "https://x-access-token:${GH_PAT_VAL}@github.com/breverdbidder/cli-anything-biddeed.git"
-              fi
+          cd /home/claude/repos
+          [ -d zonewise-web ] && (cd zonewise-web && git pull origin main) || git clone https://x-access-token:${GH_PAT_VAL}@github.com/breverdbidder/zonewise-web.git
+          cd /home/claude/repos
+          [ -d cli-anything-biddeed ] && (cd cli-anything-biddeed && git pull origin main) || git clone https://x-access-token:${GH_PAT_VAL}@github.com/breverdbidder/cli-anything-biddeed.git
 
-              echo "=== COPY DISPATCH FILES ==="
-              cp -r /home/claude/repos/cli-anything-biddeed/envelope/dev-intel-dispatch /home/claude/repos/zonewise-web/.dev-intel-dispatch
+          cp -r /home/claude/repos/cli-anything-biddeed/envelope/dev-intel-dispatch /home/claude/repos/zonewise-web/.dev-intel-dispatch
 
-              echo "=== RUN CLAUDE CODE ==="
-              cd /home/claude/repos/zonewise-web
-              claude -p "${DISPATCH_PROMPT}" --dangerously-skip-permissions 2>&1 | tee "/home/claude/logs/dev-intel-\$(date +%Y%m%d-%H%M%S).log"
+          cd /home/claude/repos/zonewise-web
+          claude -p '${PROMPT}' --dangerously-skip-permissions
 
-              echo "=== SESSION COMPLETE ==="
-            '
-          REMOTE_EOF
+          echo \"=== \$(date) DONE ===\"
+          SCRIPTEOF
+            chmod +x /home/claude/run-dev-intel.sh
+            chown claude:claude /home/claude/run-dev-intel.sh
+            echo 'Script written'
+          "
+
+          # Fire and forget as claude user via nohup
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "
+            su - claude -c 'nohup /home/claude/run-dev-intel.sh &'
+            sleep 2
+            # Verify it started
+            if pgrep -u claude -f run-dev-intel > /dev/null; then
+              echo '✅ Claude Code session running (PID: '$(pgrep -u claude -f run-dev-intel)')'
+            else
+              echo '❌ Failed to start'
+              tail -20 /home/claude/logs/dev-intel-*.log 2>/dev/null | tail -20
+              exit 1
+            fi
+          "
+          echo "✅ Fire-and-forget deployed. Claude Code running on Hetzner."
+          echo "Monitor: ssh root@87.99.129.125 'tail -f /home/claude/logs/dev-intel-*.log'"
 
       - name: Notify Telegram
         if: always()
@@ -92,11 +99,13 @@ jobs:
           TG_CHAT: "${{ secrets.TELEGRAM_CHAT_ID }}"
         run: |
           STATUS="${{ job.status }}"
-          EMOJI=$([[ "$STATUS" == "success" ]] && echo "✅" || echo "❌")
+          EMOJI=$([[ "$STATUS" == "success" ]] && echo "🚀" || echo "❌")
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d chat_id="${TG_CHAT}" \
             -d parse_mode="Markdown" \
-            -d text="${EMOJI} *Dev Intel Integration*
+            -d text="${EMOJI} *Dev Intel — Claude Code Dispatched*
           Status: ${STATUS}
+          Mode: fire-and-forget (nohup)
           Deliverable: ${{ github.event.inputs.deliverable }}
-          [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" || true
+          Monitor: tail -f /home/claude/logs/dev-intel-*.log
+          [GHA Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" || true
