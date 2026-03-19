@@ -6,94 +6,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Capture login URL
-        id: capture
+      - name: Login Claude on Hetzner
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 30s
+          command_timeout: 14m
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GH_PAT
           script: |
             rm -f /tmp/cl.txt
             timeout 25 script -q /tmp/cl.txt -c "claude auth login" || true
-            grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl.txt | head -1
-
-      - name: Post URL and send Telegram
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          # Read URL from SSH output (last non-empty line of the step)
-          # Actually we need to get it differently. Let's fetch from Hetzner.
-          URL=$(ssh -o StrictHostKeyChecking=no -i <(echo "${{ secrets.HETZNER_SSH_KEY }}") root@${{ secrets.HETZNER_IP }} "grep -o 'https://claude.ai/oauth[^ \"]*' /tmp/cl.txt | head -1" 2>/dev/null || echo "")
-          
-          if [ -z "$URL" ]; then
-            echo "Trying direct fetch..."
-            mkdir -p ~/.ssh
-            echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hkey
-            chmod 600 ~/.ssh/hkey
-            ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
-            URL=$(ssh -i ~/.ssh/hkey root@${{ secrets.HETZNER_IP }} "cat /tmp/cl.txt" 2>/dev/null | grep -o 'https://claude.ai/oauth[^ "]*' | head -1)
-          fi
-
-          echo "URL length: ${#URL}"
-          
-          if [ -z "$URL" ]; then
-            echo "FATAL: No URL"
-            exit 1
-          fi
-
-          # Post to GitHub issue
-          curl -s -X POST \
-            -H "Authorization: token ${GH_PAT}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments" \
-            -d "{\"body\":\"🔑 **Claude Login URL** (expires in 5 min):\\n\\n${URL}\"}"
-
-          # Send Telegram with inline button
-          python3 -c "
-          import json, urllib.request
-          url = '''${URL}'''
-          token = '''${TELEGRAM_BOT_TOKEN}'''
-          chat = '''${TELEGRAM_CHAT_ID}'''
-          payload = json.dumps({
-              'chat_id': chat,
-              'text': '🔑 Tap button to log in Claude on Hetzner (5 min):',
-              'reply_markup': {'inline_keyboard': [[{'text': '🔑 TAP HERE TO LOGIN', 'url': url}]]}
-          }).encode()
-          req = urllib.request.Request(
-              f'https://api.telegram.org/bot{token}/sendMessage',
-              data=payload, headers={'Content-Type': 'application/json'}
-          )
-          try:
-              resp = urllib.request.urlopen(req)
-              print('Telegram OK')
-          except Exception as e:
-              print(f'Telegram error: {e}')
-          "
-
-      - name: Wait for login
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HETZNER_IP }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 8m
-          script: |
+            URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl.txt | head -1)
+            echo "URL length: ${#URL}"
+            test -n "$URL" || exit 1
+            echo "Posting to GitHub issue..."
+            curl -s -X POST -H "Authorization: token ${GH_PAT}" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments" -d "{\"body\":\"LOGIN URL: ${URL}\"}" | head -c 100
+            echo ""
+            echo "Sending Telegram..."
+            echo "Token: ${TELEGRAM_BOT_TOKEN:0:10}..."
+            echo "Chat: ${TELEGRAM_CHAT_ID}"
+            curl -v -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🔑 TAP TO LOGIN: ${URL}\",\"disable_web_page_preview\":true}" 2>&1 | tail -20
+            echo "Starting fresh login + 5min wait..."
             script -q /dev/null -c "claude auth login" &
             BG=$!
             for i in $(seq 1 60); do
               sleep 5
-              if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
-                echo "LOGIN SUCCESS"
-                kill $BG 2>/dev/null || true
-                claude auth status
-                exit 0
-              fi
-              [ $((i % 12)) -eq 0 ] && echo "Waiting... $((i*5))s"
+              claude auth status 2>&1 | grep -q '"loggedIn": true' && echo "SUCCESS" && kill $BG 2>/dev/null && exit 0
+              [ $((i % 12)) -eq 0 ] && echo "Waiting $((i*5))s..."
             done
-            kill $BG 2>/dev/null || true
-            echo "TIMEOUT"
+            kill $BG 2>/dev/null
             exit 1
