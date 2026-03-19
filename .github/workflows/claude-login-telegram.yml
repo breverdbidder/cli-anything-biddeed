@@ -1,0 +1,55 @@
+name: Claude Login via Telegram
+on:
+  workflow_dispatch:
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Login Claude on Hetzner
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PAT: ${{ secrets.GH_PAT }}
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 14m
+          envs: TG_TOKEN,TG_CHAT,PAT
+          script: |
+            rm -f /tmp/cl.txt
+            timeout 25 script -q /tmp/cl.txt -c "claude auth login" || true
+            URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl.txt | head -1)
+            echo "URL length: ${#URL}"
+            test -n "$URL" || exit 1
+            echo "TG_TOKEN length: ${#TG_TOKEN}"
+            echo "TG_CHAT: ${TG_CHAT}"
+            echo "PAT length: ${#PAT}"
+            ESCAPED=$(python3 -c "import json; print(json.dumps('$URL'))" | tr -d '"')
+            echo "Posting GitHub comment..."
+            curl -s -X POST -H "Authorization: token ${PAT}" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments" -d "$(python3 -c "import json; print(json.dumps({'body':'LOGIN: '+'''${URL}'''}))")"
+            echo ""
+            echo "Sending Telegram button..."
+            python3 -c "
+            import json, urllib.request
+            url = '''${URL}'''
+            payload = json.dumps({'chat_id':'${TG_CHAT}','text':'🔑 Tap button to login (5 min):','reply_markup':{'inline_keyboard':[[{'text':'🔑 TAP HERE TO LOGIN','url':url}]]}}).encode()
+            req = urllib.request.Request('https://api.telegram.org/bot${TG_TOKEN}/sendMessage',data=payload,headers={'Content-Type':'application/json'})
+            try:
+                resp = urllib.request.urlopen(req)
+                print('TG OK:', resp.read().decode()[:80])
+            except Exception as e:
+                print('TG ERR:', e)
+            "
+            echo "Starting fresh login + 5min wait..."
+            script -q /dev/null -c "claude auth login" &
+            BG=$!
+            for i in $(seq 1 60); do
+              sleep 5
+              claude auth status 2>&1 | grep -q '"loggedIn": true' && echo "SUCCESS" && kill $BG 2>/dev/null && exit 0
+              [ $((i % 12)) -eq 0 ] && echo "Waiting $((i*5))s..."
+            done
+            kill $BG 2>/dev/null
+            exit 1
