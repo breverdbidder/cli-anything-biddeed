@@ -68,15 +68,15 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          PROMPT: ${{ inputs.prompt }}
+          TIMEOUT_MIN: ${{ inputs.timeout }}
         run: |
           export CLAUDE_CODE_OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
           cd workspace
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ inputs.repo }}.git"
 
-          timeout $((60 * ${{ inputs.timeout }})) claude --print --dangerously-skip-permissions \
-            '${{ inputs.prompt }}' 2>&1 || EXIT=$?
+          timeout $((60 * TIMEOUT_MIN)) claude --print --dangerously-skip-permissions "$PROMPT" 2>&1 || EXIT=$?
 
-          # Push any work
           git add -A
           git diff --cached --quiet || {
             git commit -m "summit: GHA dispatch session"
@@ -92,7 +92,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           STATUS="${{ job.status }}"
+          MSG="GHA Dispatch ${STATUS}"
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "text=🏔️ GHA Dispatch ${STATUS}: ${{ inputs.prompt }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🏔️ ${MSG}\"}" \
             >/dev/null 2>&1 || true
