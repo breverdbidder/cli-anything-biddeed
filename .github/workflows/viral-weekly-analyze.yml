@@ -34,6 +34,7 @@ jobs:
             mkdir -p /home/claude/.npm-global
             chown -R claude:claude /home/claude
 
+            rm -f /tmp/claude-oauth-token /tmp/viral-env.sh
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             chmod 644 /tmp/claude-oauth-token
 

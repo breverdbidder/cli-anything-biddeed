@@ -39,6 +39,7 @@ jobs:
             chown -R claude:claude /home/claude
 
             # Write token as root — claude user reads it
+            rm -f /tmp/claude-oauth-token /tmp/viral-env.sh
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             chmod 644 /tmp/claude-oauth-token
 
