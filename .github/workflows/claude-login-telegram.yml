@@ -19,55 +19,41 @@ jobs:
           command_timeout: 14m
           envs: TG_TOKEN,TG_CHAT,PAT
           script: |
-            rm -f /tmp/cl-live.txt
-            script -q /tmp/cl-live.txt -c "claude auth login" &
-            BG=$!
-            echo "Login PID: $BG"
-            URL=""
-            for i in $(seq 1 40); do
-              sleep 1
-              URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl-live.txt 2>/dev/null | head -1)
-              test -n "$URL" && break
-            done
-            if [ -z "$URL" ]; then
-              echo "No URL after 40s"
-              cat /tmp/cl-live.txt 2>/dev/null
-              kill $BG 2>/dev/null
-              exit 1
-            fi
-            echo "URL captured (${#URL} chars) - process still alive"
-            python3 -c "
-            import json, urllib.request
-            url = '''$URL'''
-            token = '''$TG_TOKEN'''
-            chat = '''$TG_CHAT'''
-            pat = '''$PAT'''
-            payload = json.dumps({'chat_id':chat,'text':'🔑 Tap to login (5 min):','reply_markup':{'inline_keyboard':[[{'text':'🔑 TAP HERE TO LOGIN','url':url}]]}}).encode()
-            req = urllib.request.Request(f'https://api.telegram.org/bot{token}/sendMessage',data=payload,headers={'Content-Type':'application/json'})
-            try:
-                resp = urllib.request.urlopen(req)
-                print('TG OK')
-            except Exception as e:
-                print(f'TG ERR: {e}')
-            ghpayload = json.dumps({'body':'🔑 LOGIN URL (5 min - process alive):\n\n'+url}).encode()
-            req2 = urllib.request.Request(f'https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments',data=ghpayload,headers={'Content-Type':'application/json','Authorization':f'token {pat}'})
-            try:
-                urllib.request.urlopen(req2)
-                print('GH OK')
-            except Exception as e:
-                print(f'GH ERR: {e}')
+            rm -f /tmp/cl-fg.txt
+            export TG_TOKEN TG_CHAT PAT
+            (while true; do
+              URL=$(grep -o 'https://claude.ai/oauth[^ "]*' /tmp/cl-fg.txt 2>/dev/null | head -1)
+              if [ -n "$URL" ]; then
+                python3 -c "
+            import json, urllib.request, os
+            url = '$URL'
+            token = os.environ['TG_TOKEN']
+            chat = os.environ['TG_CHAT']
+            pat = os.environ['PAT']
+            for target, payload in [
+              (f'https://api.telegram.org/bot{token}/sendMessage', json.dumps({'chat_id':chat,'text':'🔑 Tap to login (5 min):','reply_markup':{'inline_keyboard':[[{'text':'🔑 TAP HERE','url':url}]]}}).encode()),
+              (f'https://api.github.com/repos/breverdbidder/zonewise-web/issues/41/comments', json.dumps({'body':'🔑 LIVE LOGIN URL:\n\n'+url}).encode())
+            ]:
+              headers = {'Content-Type':'application/json'}
+              if 'github' in target: headers['Authorization'] = f'token {pat}'
+              try:
+                urllib.request.urlopen(urllib.request.Request(target, data=payload, headers=headers))
+                print(f'OK: {target[:40]}')
+              except Exception as e:
+                print(f'ERR: {e}')
             "
-            echo "Waiting 5 min for approval..."
-            for i in $(seq 1 60); do
-              sleep 5
-              if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
-                echo "LOGIN SUCCESS"
-                kill $BG 2>/dev/null || true
-                claude auth status
-                exit 0
+                break
               fi
-              [ $((i % 12)) -eq 0 ] && echo "Waiting $((i*5))s..."
-            done
-            kill $BG 2>/dev/null || true
-            echo "TIMEOUT"
+              sleep 1
+            done) &
+            SENDER=$!
+            script -q /tmp/cl-fg.txt -c "claude auth login"
+            LOGIN_EXIT=$?
+            kill $SENDER 2>/dev/null || true
+            claude auth status
+            if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
+              echo "SUCCESS"
+              exit 0
+            fi
+            echo "Login exited with: $LOGIN_EXIT"
             exit 1
