@@ -17,33 +17,48 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Dispatch to Hetzner
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         env:
           CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
         with:
-          host: 87.99.129.125
-          username: claude
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: CLAUDE_OAUTH_B64
+          timeout: 30s
           command_timeout: 110m
+          envs: CLAUDE_OAUTH_B64,GH_PAT,SUPABASE_URL,SUPABASE_SERVICE_KEY,SUPADATA_API_KEY
           script: |
+            echo "=== Setup ==="
+            id claude 2>/dev/null || useradd -m -s /bin/bash claude
+            mkdir -p /home/claude/.npm-global
+            chown -R claude:claude /home/claude
+
+            su - claude << 'USERCMD'
             set -e
             export PATH="/home/claude/.npm-global/bin:$HOME/.local/bin:$PATH"
             export NPM_CONFIG_PREFIX=/home/claude/.npm-global
 
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+            export SUPABASE_URL="$SUPABASE_URL"
+            export SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_KEY"
+            export SUPADATA_API_KEY="$SUPADATA_API_KEY"
 
             cd /home/claude
             rm -rf viral-buildout-ws
-            git clone https://github.com/breverdbidder/cli-anything-biddeed.git viral-buildout-ws
+            git clone https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git viral-buildout-ws
             cd viral-buildout-ws
 
-            # Ensure GVB source is available for reference
+            # Ensure GVB source is available
             if [ ! -d /home/claude/goviralbitch ]; then
-              git clone https://github.com/breverdbidder/goviralbitch.git /home/claude/goviralbitch
+              git clone https://${GH_PAT}@github.com/breverdbidder/goviralbitch.git /home/claude/goviralbitch
             else
-              cd /home/claude/goviralbitch && git pull && cd /home/claude/viral-buildout-ws
+              cd /home/claude/goviralbitch && git pull 2>/dev/null; cd /home/claude/viral-buildout-ws
             fi
 
             claude --auto-mode -p "$(cat harnesses/viral/BUILDOUT_PROMPT.md)"
+            USERCMD
