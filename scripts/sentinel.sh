@@ -91,7 +91,7 @@ if [[ "$CONCLUSION" == "success" ]]; then
   WF_FILE=$(get_workflow_file)
 
   # Silent failure detection: success exit but too fast or no commits
-  if [[ "$DURATION" -lt 120 && "$CLAUDE_COMMITS" -eq 0 ]]; then
+  if [[ "$CLAUDE_COMMITS" -eq 0 && "$DURATION" -lt 3600 ]]; then
     echo "⚠️ FALSE POSITIVE: Completed in ${DURATION}s with 0 Claude commits"
     LOGS=$(get_logs "$RUN_ID")
     
@@ -144,7 +144,7 @@ Logs: $RUN_URL"
     fi
   else
     # Genuine success
-    echo "✅ HEALTHY: ${DURATION}s runtime, $CLAUDE_COMMITS Claude commits"
+    if [[ "$CLAUDE_COMMITS" -eq 0 ]]; then echo "⚠️ WARNING: Success but 0 Claude commits in ${DURATION}s — possible no-op"; fi; echo "✅ HEALTHY: ${DURATION}s runtime, $CLAUDE_COMMITS Claude commits"
     sb_insert "{\"workflow\":\"$WORKFLOW_NAME\",\"run_id\":$RUN_ID,\"attempt\":1,\"status\":\"healthy\",\"diagnosis\":\"Success: ${DURATION}s, $CLAUDE_COMMITS commits\"}"
     
     tg_send "✅ <b>SUMMIT COMPLETE</b>
