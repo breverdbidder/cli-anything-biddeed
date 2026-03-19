@@ -1,0 +1,33 @@
+name: Claude Login via Telegram
+on:
+  workflow_dispatch:
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Capture login URL
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 9m
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
+          script: |
+            LOGFILE=/tmp/claude-login-capture.txt
+            rm -f $LOGFILE
+            timeout 25 script -q $LOGFILE -c "claude auth login" || true
+            URL=$(grep -o 'https://claude.ai/oauth[^ ]*' $LOGFILE | head -1)
+            if [ -z "$URL" ]; then
+              echo "No URL captured"
+              cat $LOGFILE
+              exit 1
+            fi
+            echo "URL: $URL"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=🔑 TAP TO LOG IN CLAUDE:
+            
+            ${URL}
+            
+            Then reply DONE here." -d "disable_web_page_preview=true"
+            echo "Sent to Telegram"
