@@ -1,0 +1,95 @@
+name: "Summit: Watch S3 — Dashboard + CF Pages Deploy"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  dashboard:
+    name: "Build Dashboard + Deploy to CF Pages"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: "Execute Session 3-5 on Hetzner"
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          WATCH_TOKEN: ${{ secrets.WATCH_TOKEN }}
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 30s
+          command_timeout: 110m
+          envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,SUPABASE_ANON_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,CF_API_TOKEN,CF_ACCOUNT_ID,WATCH_TOKEN
+          script: |
+            echo "=== Setup ==="
+            id claude 2>/dev/null || useradd -m -s /bin/bash claude
+            mkdir -p /home/claude/.npm-global
+            chown -R claude:claude /home/claude
+
+            npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -2
+            claude --version 2>/dev/null
+
+            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
+            OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+            rm -f /tmp/claude-oauth-token
+
+            mkdir -p /opt/biddeed
+            if [ ! -d "/opt/biddeed/cli-anything-biddeed" ]; then
+              cd /opt/biddeed
+              git clone "https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git"
+            fi
+            cd /opt/biddeed/cli-anything-biddeed
+            git fetch origin main && git checkout main && git reset --hard origin/main
+            chown -R claude:claude /opt/biddeed/cli-anything-biddeed
+
+            # Write env file for Claude Code
+            cat > /tmp/watch-s3-env.sh << ENVEOF
+            export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
+            export SUPABASE_URL='$SUPABASE_URL'
+            export SUPABASE_SERVICE_KEY='$SUPABASE_SERVICE_KEY'
+            export SUPABASE_ANON_KEY='$SUPABASE_ANON_KEY'
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+            export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+            export GH_PAT='$GH_PAT'
+            export CF_API_TOKEN='$CF_API_TOKEN'
+            export CF_ACCOUNT_ID='$CF_ACCOUNT_ID'
+            export WATCH_TOKEN='$WATCH_TOKEN'
+            ENVEOF
+            chmod 600 /tmp/watch-s3-env.sh
+
+            echo "=== Run Claude Code: Watch S3 Dashboard ==="
+            su - claude -c "
+              source /tmp/watch-s3-env.sh
+              cd /opt/biddeed/cli-anything-biddeed
+
+              claude --print --permission-mode auto \
+                'You are executing Sessions 3-5 of the Claude Watch (Everest Edition) build plan.
+
+              READ docs/plans/WATCH-SPEC.md and docs/plans/WATCH-PLAN.md FIRST.
+              READ harnesses/watch/ to see what Sessions 1-2 already built.
+              READ docs/plans/WATCH-S3-PROMPT.md for your detailed execution instructions.
+
+              Execute everything in WATCH-S3-PROMPT.md. Commit after each major milestone.
+              Push to main when done. Send Telegram notification on completion.
+
+              HOUSE BRAND MANDATORY: Navy #1E3A5F, Orange #F59E0B, bg #020617, Inter font.
+              NEVER-LIE: Show proof of every deployment step.
+              COST DISCIPLINE: No paid dependencies. Zero ongoing cost.
+              '
+            "
+
+            # Notify completion
+            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=🏔️ SUMMIT Watch S3: Dashboard session complete. Check: https://watch-biddeed.pages.dev" \
+              >/dev/null 2>&1 || true
+
+            rm -f /tmp/watch-s3-env.sh
