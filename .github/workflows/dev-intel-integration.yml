@@ -80,7 +80,7 @@ jobs:
               echo "=== RUN CLAUDE CODE ==="
               cd /home/claude/repos/zonewise-web
               claude --print "${DISPATCH_PROMPT}" \
-                --auto-mode \
+                --dangerously-skip-permissions \
                 --max-tokens 128000 \
                 2>&1 | tee "/home/claude/logs/dev-intel-\$(date +%Y%m%d-%H%M%S).log"
 
