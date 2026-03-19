@@ -5,7 +5,7 @@ on:
 jobs:
   claude-code-hetzner:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
     steps:
       - name: Execute Claude Code on Hetzner (Max Plan)
         uses: appleboy/ssh-action@v1.2.0
@@ -13,37 +13,31 @@ jobs:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 110m
+          command_timeout: 5m
           script: |
             set -e
-            echo "=== INVESTIGATE AUTH ==="
+            echo "=== AUTH INVESTIGATION ==="
             
-            # Where is the auth token?
-            echo "--- /root/.claude contents ---"
-            find /root/.claude -type f -name "*.json" -o -name "*auth*" -o -name "*credential*" -o -name "*token*" -o -name "*session*" 2>/dev/null
-            
-            echo "--- /root/.claude.json ---"
-            cat /root/.claude.json 2>/dev/null || echo "not found"
-            
-            echo "--- /root/.config ---"
-            find /root/.config -path "*claude*" -type f 2>/dev/null || echo "no .config/claude"
-            
-            echo "--- Check if root is logged in ---"
-            claude auth status 2>&1 || claude whoami 2>&1 || echo "no auth subcommand"
-            
-            echo "--- Claude config files ---"
-            find /root -maxdepth 3 -name "*.json" -path "*claude*" -exec echo "FILE: {}" \; -exec cat {} \; 2>/dev/null | head -100
-            
-            echo "--- Try root WITHOUT --dangerously-skip-permissions ---"
-            timeout 30 claude -p "respond with just the word HELLO" --output-format text 2>&1 || echo "root without flag failed"
-            
-            echo "--- Check claude --help for auth flags ---"
-            claude --help 2>&1 | grep -i "auth\|login\|key\|token\|api" || echo "no auth flags found"
-            
-            echo "--- Check env vars ---"
-            env | grep -i "claude\|anthropic" 2>/dev/null || echo "no claude env vars"
-            
-            echo "--- npm global bin ---"
-            ls -la /root/.npm-global/bin/ 2>/dev/null
-            
-            echo "DONE"
+            claude auth --help 2>&1 || true
+            echo "---"
+            claude setup-token --help 2>&1 || true
+            echo "---"
+            claude auth login --help 2>&1 || true
+            echo "---"
+            claude auth status 2>&1 || true
+            echo "---"
+            # Check all claude subcommands
+            claude --help 2>&1
+            echo "---"
+            # Check if there's a way to use API key
+            echo "ANTHROPIC_API_KEY test:"
+            ANTHROPIC_API_KEY=test claude auth status 2>&1 || true
+            echo "---"
+            # Check node path for finding auth storage
+            node -e "const os=require('os');const path=require('path');console.log('home:',os.homedir());console.log('config:',process.env.XDG_CONFIG_HOME||path.join(os.homedir(),'.config'))" 2>&1
+            echo "---"
+            # Check if there's a keyring
+            which secret-tool 2>/dev/null && secret-tool search --all xdg:schema claude 2>/dev/null || echo "no secret-tool"
+            echo "---"
+            # Check all hidden files in root
+            ls -la /root/.claude* /root/.anthropic* /root/.config/claude* 2>/dev/null || echo "checked"
