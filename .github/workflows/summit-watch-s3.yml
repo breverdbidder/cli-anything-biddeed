@@ -57,6 +57,24 @@ jobs:
             git fetch origin main && git checkout main && git reset --hard origin/main
             chown -R claude:claude /opt/biddeed/cli-anything-biddeed
 
+            echo "=== Pre-configure Claude Code permissions ==="
+            mkdir -p /opt/biddeed/cli-anything-biddeed/.claude
+            cat > /opt/biddeed/cli-anything-biddeed/.claude/settings.json << 'SETTINGS'
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(*)",
+                  "Write(*)",
+                  "Edit(*)",
+                  "Read(*)",
+                  "mcp__*"
+                ],
+                "deny": []
+              }
+            }
+            SETTINGS
+            chown -R claude:claude /opt/biddeed/cli-anything-biddeed/.claude
+
             echo "=== Write env for claude user ==="
             cat > /home/claude/watch-s3-env.sh << ENVEOF
             export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
@@ -74,15 +92,19 @@ jobs:
             chown claude:claude /home/claude/watch-s3-env.sh
             chmod 600 /home/claude/watch-s3-env.sh
 
-            echo "=== Verify claude can source env ==="
-            su - claude -c "source /home/claude/watch-s3-env.sh && echo 'ENV OK' && claude --version"
+            echo "=== Verify ==="
+            su - claude -c "source /home/claude/watch-s3-env.sh && echo 'ENV OK' && claude --version && cat /opt/biddeed/cli-anything-biddeed/.claude/settings.json"
 
             echo "=== Run Claude Code: Watch S3 Dashboard ==="
             su - claude -c "
               source /home/claude/watch-s3-env.sh
               cd /opt/biddeed/cli-anything-biddeed
 
-              claude --print --permission-mode auto \
+              git config user.email claude@biddeed.ai
+              git config user.name Claude-Code
+              git remote set-url origin https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
+
+              claude --print --dangerously-skip-permissions \
                 'You are executing Sessions 3-5 of the Claude Watch (Everest Edition) build plan.
 
               READ docs/plans/WATCH-SPEC.md and docs/plans/WATCH-PLAN.md FIRST.
@@ -90,15 +112,12 @@ jobs:
               READ docs/plans/WATCH-S3-PROMPT.md for your detailed execution instructions.
 
               Execute everything in WATCH-S3-PROMPT.md. Commit after each major milestone.
-              Push to main when done. Send Telegram notification on completion.
+              Push to main when done.
 
               DEPLOY TO VERCEL (paid Pro account). NOT Cloudflare Pages.
               HOUSE BRAND MANDATORY: Navy #1E3A5F, Orange #F59E0B, bg #020617, Inter font.
               NEVER-LIE: Show proof of every deployment step.
               COST DISCIPLINE: No paid dependencies. Vercel Pro already paid.
-
-              Git remote: https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
-              Set git user: git config user.email claude@biddeed.ai && git config user.name Claude-Code
               '
             "
 
