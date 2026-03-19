@@ -1,0 +1,87 @@
+name: 'Claude Code Runner'
+description: 'Run Claude Code on GHA runner - no Hetzner SSH needed'
+inputs:
+  prompt:
+    description: 'The prompt to send to Claude Code'
+    required: true
+  repo:
+    description: 'Repository to clone and work in'
+    required: false
+    default: 'breverdbidder/cli-anything-biddeed'
+  gh_pat:
+    description: 'GitHub PAT for repo access'
+    required: true
+  claude_oauth_b64:
+    description: 'Base64-encoded Claude OAuth token'
+    required: true
+  timeout_minutes:
+    description: 'Max runtime in minutes'
+    required: false
+    default: '90'
+  extra_env:
+    description: 'Extra environment variables as KEY=VALUE lines'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Claude Code
+      shell: bash
+      run: npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
+
+    - name: Setup workspace
+      shell: bash
+      env:
+        GH_PAT: ${{ inputs.gh_pat }}
+        REPO: ${{ inputs.repo }}
+      run: |
+        git config --global user.email "claude@biddeed.ai"
+        git config --global user.name "Claude-Code"
+        git clone "https://x-access-token:${GH_PAT}@github.com/${REPO}.git" /tmp/workspace
+        cd /tmp/workspace
+        git config user.email "claude@biddeed.ai"
+        git config user.name "Claude-Code"
+
+    - name: Configure Claude Code permissions
+      shell: bash
+      run: |
+        mkdir -p /tmp/workspace/.claude
+        cat > /tmp/workspace/.claude/settings.json << 'SETTINGS'
+        {
+          "permissions": {
+            "allow": ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)", "mcp__*"],
+            "deny": []
+          }
+        }
+        SETTINGS
+
+    - name: Run Claude Code
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN_B64: ${{ inputs.claude_oauth_b64 }}
+        GH_PAT: ${{ inputs.gh_pat }}
+      run: |
+        # Decode OAuth
+        export CLAUDE_CODE_OAUTH_TOKEN=$(echo "$CLAUDE_CODE_OAUTH_TOKEN_B64" | base64 -d)
+
+        # Set extra env vars
+        if [ -n "$EXTRA_ENV" ]; then
+          while IFS= read -r line; do
+            [ -n "$line" ] && export "$line"
+          done <<< "$EXTRA_ENV"
+        fi
+
+        cd /tmp/workspace
+        git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ inputs.repo }}.git"
+
+        timeout $((60 * ${{ inputs.timeout_minutes }})) claude --print --dangerously-skip-permissions "${{ inputs.prompt }}" || {
+          echo "Claude Code exited with $?"
+          # Push any partial work
+          git add -A && git commit -m "WIP: partial summit progress" && git push origin main || true
+        }
