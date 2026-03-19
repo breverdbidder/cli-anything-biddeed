@@ -1,0 +1,119 @@
+name: "🏗️ Dev Intel Tab Integration"
+
+on:
+  workflow_dispatch:
+    inputs:
+      deliverable:
+        description: 'Which deliverable to run (1-6 or "all")'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - '1-supabase'
+          - '2-mapbox'
+          - '3-cma-agent'
+          - '4-bcpao-photos'
+          - '5-explore-route'
+          - '6-split-screen'
+          - 'all'
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      VITE_MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+
+    steps:
+      - name: Checkout zonewise-web
+        uses: actions/checkout@v4
+        with:
+          repository: breverdbidder/zonewise-web
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Verify Supabase connection
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/envelope_cache?select=parcel_id&limit=1")
+          if [ "$RESPONSE" != "200" ]; then
+            echo "❌ Supabase envelope_cache not reachable (HTTP $RESPONSE)"
+            echo "Run envelope squad first: cli_anything.envelope.sh palm_bay"
+            exit 1
+          fi
+          echo "✅ Supabase envelope_cache reachable"
+
+      - name: Deploy Claude Code session
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 87.99.129.125
+          username: claude
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 40m
+          script: |
+            set -euo pipefail
+            export CLAUDE_CODE_OAUTH_TOKEN=$(echo "${{ secrets.CLAUDE_OAUTH_B64 }}" | base64 -d)
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+            export PATH="/home/claude/.npm-global/bin:$PATH"
+
+            cd /home/claude/repos
+            
+            # Clone or pull zonewise-web
+            if [ -d "zonewise-web" ]; then
+              cd zonewise-web && git pull origin main
+            else
+              git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/breverdbidder/zonewise-web.git
+              cd zonewise-web
+            fi
+
+            # Copy dispatch files
+            mkdir -p .claude
+            cat > .claude/CLAUDE.md << 'DIRECTIVE_EOF'
+            ${{ needs.integrate.steps.checkout.outputs.directive || 'See CLAUDE.md in dispatch package' }}
+            DIRECTIVE_EOF
+
+            # Run Claude Code with the TODO
+            DELIVERABLE="${{ github.event.inputs.deliverable }}"
+            
+            if [ "$DELIVERABLE" = "all" ]; then
+              PROMPT="Execute ALL tasks in TODO.md sequentially. Start with Deliverable 1, verify build passes, commit, then proceed to Deliverable 2, and so on through Deliverable 6. Use auto-mode. Follow CLAUDE.md directives."
+            else
+              NUM=$(echo "$DELIVERABLE" | cut -d'-' -f1)
+              PROMPT="Execute Deliverable $NUM from TODO.md. Follow CLAUDE.md directives. Verify build passes before committing."
+            fi
+
+            claude --print "$PROMPT" \
+              --auto-mode \
+              --max-tokens 128000 \
+              2>&1 | tee /home/claude/logs/dev-intel-$(date +%Y%m%d-%H%M%S).log
+
+            echo "✅ Claude Code session complete"
+
+      - name: Verify build
+        run: |
+          bun install
+          bun run build
+          echo "✅ Build passes after integration"
+
+      - name: Post to Telegram
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI=$([[ "$STATUS" == "success" ]] && echo "✅" || echo "❌")
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="$EMOJI *Dev Intel Tab Integration*
+Status: $STATUS
+Deliverable: ${{ github.event.inputs.deliverable }}
+Run: [View](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
