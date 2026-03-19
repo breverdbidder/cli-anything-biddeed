@@ -1,0 +1,39 @@
+name: "Viral Weekly Analyze — Cron"
+
+on:
+  schedule:
+    # Every Friday 06:00 UTC (1 AM EST)
+    - cron: "0 6 * * 5"
+  workflow_dispatch:
+
+jobs:
+  weekly-analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run analyze on Hetzner
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+        with:
+          host: 87.99.129.125
+          username: claude
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: CLAUDE_OAUTH_B64
+          command_timeout: 55m
+          script: |
+            set -e
+            export PATH="/home/claude/.npm-global/bin:$HOME/.local/bin:$PATH"
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+
+            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
+            export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+
+            cd /home/claude
+            [ ! -d cli-anything-biddeed ] && git clone https://github.com/breverdbidder/cli-anything-biddeed.git
+            cd cli-anything-biddeed && git pull
+
+            claude --auto-mode -p "Read harnesses/viral/HARNESS.md. Execute the weekly analysis cycle: 1) Run src/analyze.py --manual --all (pull YouTube + Instagram analytics, extract winners, update analytics table) 2) Run src/update_brain.py (evolve learning_weights, hook_preferences, performance_patterns based on new data). Report results as structured summary."

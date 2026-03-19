@@ -1,0 +1,49 @@
+name: "Viral Harness Buildout — Claude Code"
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "Phase to run: all | discover | commands | eval | cron"
+        required: false
+        default: "all"
+
+jobs:
+  viral-buildout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dispatch to Hetzner
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+        with:
+          host: 87.99.129.125
+          username: claude
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: CLAUDE_OAUTH_B64
+          command_timeout: 110m
+          script: |
+            set -e
+            export PATH="/home/claude/.npm-global/bin:$HOME/.local/bin:$PATH"
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+
+            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
+            export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+
+            cd /home/claude
+            rm -rf viral-buildout-ws
+            git clone https://github.com/breverdbidder/cli-anything-biddeed.git viral-buildout-ws
+            cd viral-buildout-ws
+
+            # Ensure GVB source is available for reference
+            if [ ! -d /home/claude/goviralbitch ]; then
+              git clone https://github.com/breverdbidder/goviralbitch.git /home/claude/goviralbitch
+            else
+              cd /home/claude/goviralbitch && git pull && cd /home/claude/viral-buildout-ws
+            fi
+
+            claude --auto-mode -p "$(cat harnesses/viral/BUILDOUT_PROMPT.md)"
