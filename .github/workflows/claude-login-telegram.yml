@@ -4,7 +4,7 @@ on:
 jobs:
   login:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Capture login URL
         uses: appleboy/ssh-action@v1.2.0
@@ -12,22 +12,47 @@ jobs:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 9m
+          command_timeout: 14m
           envs: TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           script: |
-            LOGFILE=/tmp/claude-login-capture.txt
+            echo "=== Starting login ==="
+            LOGFILE=/tmp/claude-login-out.txt
             rm -f $LOGFILE
-            timeout 25 script -q $LOGFILE -c "claude auth login" || true
+            nohup script -q $LOGFILE -c "claude auth login" > /dev/null 2>&1 &
+            BG=$!
+            echo "Login PID: $BG"
+            for i in $(seq 1 30); do
+              sleep 1
+              if grep -q 'claude.ai/oauth' $LOGFILE 2>/dev/null; then
+                break
+              fi
+            done
             URL=$(grep -o 'https://claude.ai/oauth[^ ]*' $LOGFILE | head -1)
             if [ -z "$URL" ]; then
-              echo "No URL captured"
+              echo "ERROR: No URL. Log:"
               cat $LOGFILE
+              kill $BG 2>/dev/null
               exit 1
             fi
-            echo "URL: $URL"
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=🔑 TAP TO LOG IN CLAUDE:
-            
-            ${URL}
-            
-            Then reply DONE here." -d "disable_web_page_preview=true"
-            echo "Sent to Telegram"
+            echo "Got URL"
+            echo "BOT token length: ${#TELEGRAM_BOT_TOKEN}"
+            echo "Chat ID length: ${#TELEGRAM_CHAT_ID}"
+            RESULT=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🔑 TAP TO LOG IN:\\n\\n${URL}\\n\\n⏰ 5 min to tap and approve\",\"disable_web_page_preview\":true}")
+            echo "Telegram: $RESULT"
+            echo "Waiting 5 min for approval..."
+            for i in $(seq 1 60); do
+              sleep 5
+              if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
+                echo "LOGIN SUCCESS after $((i*5))s"
+                kill $BG 2>/dev/null || true
+                claude auth status
+                exit 0
+              fi
+              if [ $((i % 12)) -eq 0 ]; then
+                echo "Still waiting... $((i*5))s"
+              fi
+            done
+            echo "TIMEOUT after 5 min"
+            kill $BG 2>/dev/null || true
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"⏰ Login timed out. Re-run.\"}" > /dev/null 2>&1
+            exit 1
