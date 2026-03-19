@@ -5,6 +5,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - name: Write token to Hetzner
         uses: appleboy/ssh-action@v1.2.0
@@ -18,7 +23,6 @@ jobs:
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             chmod 644 /tmp/claude-oauth-token
             echo "Token: $(wc -c < /tmp/claude-oauth-token) bytes"
-            echo "First 10: $(head -c 10 /tmp/claude-oauth-token)"
       - name: Deploy Explorer V2
         uses: appleboy/ssh-action@v1.2.0
         with:
