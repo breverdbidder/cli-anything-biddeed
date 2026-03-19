@@ -32,33 +32,44 @@ jobs:
           command_timeout: 110m
           envs: CLAUDE_OAUTH_B64,GH_PAT,SUPABASE_URL,SUPABASE_SERVICE_KEY,SUPADATA_API_KEY
           script: |
+            set -e
             echo "=== Setup ==="
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
             mkdir -p /home/claude/.npm-global
             chown -R claude:claude /home/claude
 
-            su - claude << 'USERCMD'
-            set -e
-            export PATH="/home/claude/.npm-global/bin:$HOME/.local/bin:$PATH"
-            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
-
+            # Write token as root — claude user reads it
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
-            export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+            chmod 644 /tmp/claude-oauth-token
+
+            # Write env file for claude user
+            cat > /tmp/viral-env.sh << ENVEOF
+            export PATH="/home/claude/.npm-global/bin:\$HOME/.local/bin:\$PATH"
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+            export CLAUDE_CODE_OAUTH_TOKEN=\$(cat /tmp/claude-oauth-token)
             export SUPABASE_URL="$SUPABASE_URL"
             export SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_KEY"
             export SUPADATA_API_KEY="$SUPADATA_API_KEY"
+            export GH_PAT="$GH_PAT"
+            ENVEOF
+            chmod 644 /tmp/viral-env.sh
 
-            cd /home/claude
-            rm -rf viral-buildout-ws
-            git clone https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git viral-buildout-ws
-            cd viral-buildout-ws
+            su - claude -c '
+              source /tmp/viral-env.sh
 
-            # Ensure GVB source is available
-            if [ ! -d /home/claude/goviralbitch ]; then
-              git clone https://${GH_PAT}@github.com/breverdbidder/goviralbitch.git /home/claude/goviralbitch
-            else
-              cd /home/claude/goviralbitch && git pull 2>/dev/null; cd /home/claude/viral-buildout-ws
-            fi
+              cd /home/claude
+              rm -rf viral-buildout-ws
+              git clone https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git viral-buildout-ws
+              cd viral-buildout-ws
 
-            claude --permission-mode auto -p "$(cat harnesses/viral/BUILDOUT_PROMPT.md)"
-            USERCMD
+              if [ ! -d /home/claude/goviralbitch ]; then
+                git clone https://${GH_PAT}@github.com/breverdbidder/goviralbitch.git /home/claude/goviralbitch
+              else
+                cd /home/claude/goviralbitch && git pull 2>/dev/null; cd /home/claude/viral-buildout-ws
+              fi
+
+              echo "=== Claude Code version ==="
+              claude --version
+
+              claude --permission-mode auto -p "$(cat harnesses/viral/BUILDOUT_PROMPT.md)"
+            '
