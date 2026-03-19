@@ -16,33 +16,29 @@ jobs:
           command_timeout: 110m
           script: |
             set -e
-            echo "=== INVESTIGATE AUTH ==="
+            echo "=== AUTH INVESTIGATION PART 2 ==="
             
-            echo "--- /root/.claude contents ---"
-            find /root/.claude -type f -name "*.json" -o -name "*auth*" -o -name "*credential*" -o -name "*token*" -o -name "*session*" 2>/dev/null
+            echo "--- claude auth --help ---"
+            claude auth --help 2>&1 || echo "no auth help"
             
-            echo "--- /root/.claude.json ---"
-            cat /root/.claude.json 2>/dev/null || echo "not found"
+            echo ""
+            echo "--- claude setup-token --help ---"
+            claude setup-token --help 2>&1 || echo "no setup-token help"
             
-            echo "--- /root/.config ---"
-            find /root/.config -path "*claude*" -type f 2>/dev/null || echo "no .config/claude"
+            echo ""
+            echo "--- claude auth login --help ---"
+            claude auth login --help 2>&1 || echo "no auth login help"
             
-            echo "--- Check if root is logged in ---"
-            claude auth status 2>&1 || claude whoami 2>&1 || echo "no auth subcommand"
+            echo ""
+            echo "--- Try headless login ---"
+            claude auth login --no-browser 2>&1 | head -5 || echo "no --no-browser flag"
             
-            echo "--- Claude config files ---"
-            find /root -maxdepth 3 -name "*.json" -path "*claude*" -exec echo "FILE: {}" \; -exec cat {} \; 2>/dev/null | head -100
+            echo ""
+            echo "--- Try with ANTHROPIC_API_KEY (test) ---"
+            echo "Would use ANTHROPIC_API_KEY env var but we want Max plan not API"
             
-            echo "--- Try root WITHOUT --dangerously-skip-permissions ---"
-            timeout 30 claude -p "respond with just the word HELLO" --output-format text 2>&1 || echo "root without flag failed"
-            
-            echo "--- Check claude --help for auth flags ---"
-            claude --help 2>&1 | grep -i "auth\|login\|key\|token\|api" || echo "no auth flags found"
-            
-            echo "--- Check env vars ---"
-            env | grep -i "claude\|anthropic" 2>/dev/null || echo "no claude env vars"
-            
-            echo "--- npm global bin ---"
-            ls -la /root/.npm-global/bin/ 2>/dev/null
+            echo ""
+            echo "--- Node version ---"
+            node --version
             
             echo "DONE"
