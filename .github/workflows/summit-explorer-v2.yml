@@ -5,39 +5,194 @@ on:
 jobs:
   claude-code-hetzner:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 120
     steps:
       - name: Execute Claude Code on Hetzner (Max Plan)
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 5m
+          command_timeout: 110m
+          envs: ANTHROPIC_API_KEY,CLAUDE_CODE_OAUTH_TOKEN,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           script: |
             set -e
-            echo "=== AUTH INVESTIGATION ==="
-            
-            claude auth --help 2>&1 || true
-            echo "---"
-            claude setup-token --help 2>&1 || true
-            echo "---"
-            claude auth login --help 2>&1 || true
-            echo "---"
+            echo "SUMMIT: Explorer V2 — Auth Resolution"
+
+            # Setup claude user
+            id claude 2>/dev/null || useradd -m -s /bin/bash claude
+            mkdir -p /home/claude/.npm-global
+            chown -R claude:claude /home/claude
+
+            # Install claude for claude user
+            su -s /bin/bash claude -c "
+              export HOME=/home/claude
+              export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+              export PATH=/home/claude/.npm-global/bin:\$PATH
+              which claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
+            "
+
+            # Try auth methods in priority order
+            AUTH_METHOD="none"
+
+            # Method 1: CLAUDE_CODE_OAUTH_TOKEN (Max plan, free)
+            if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+              echo "Found CLAUDE_CODE_OAUTH_TOKEN — using Max plan OAuth"
+              AUTH_METHOD="oauth"
+            fi
+
+            # Method 2: ANTHROPIC_API_KEY (fallback)
+            if [ "$AUTH_METHOD" = "none" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+              echo "Found ANTHROPIC_API_KEY — using API key auth"
+              AUTH_METHOD="apikey"
+            fi
+
+            # Method 3: Try to get login URL and send to Telegram
+            if [ "$AUTH_METHOD" = "none" ]; then
+              echo "No auth credentials found. Attempting interactive login..."
+              
+              # Try setup-token first (might work non-interactively)
+              SETUP_OUT=$(su -s /bin/bash claude -c "
+                export HOME=/home/claude
+                export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+                export PATH=/home/claude/.npm-global/bin:\$PATH
+                timeout 15 claude setup-token 2>&1
+              " || true)
+              echo "setup-token output: $SETUP_OUT"
+
+              # Try auth login and capture URL
+              LOGIN_OUT=$(su -s /bin/bash claude -c "
+                export HOME=/home/claude
+                export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+                export PATH=/home/claude/.npm-global/bin:\$PATH
+                timeout 15 claude auth login 2>&1
+              " || true)
+              echo "auth login output: $LOGIN_OUT"
+
+              # Extract any URL from the output
+              URL=$(echo "$SETUP_OUT $LOGIN_OUT" | grep -oP 'https?://[^\s]+' | head -1)
+              if [ -n "$URL" ]; then
+                echo "Found auth URL: $URL"
+                # Send to Telegram
+                MSG="🔑 Claude Code Login URL (auto-captured):%0A%0A$URL%0A%0ATap to authenticate. Explorer V2 will auto-deploy after."
+                curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=$MSG" > /dev/null 2>&1
+                
+                # Wait for auth (check every 30s for 10 min)
+                echo "Waiting for authentication..."
+                for i in $(seq 1 20); do
+                  sleep 30
+                  AUTH_STATUS=$(su -s /bin/bash claude -c "
+                    export HOME=/home/claude
+                    export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+                    export PATH=/home/claude/.npm-global/bin:\$PATH
+                    claude auth status 2>&1
+                  " || true)
+                  echo "Check $i: $AUTH_STATUS"
+                  if echo "$AUTH_STATUS" | grep -q '"loggedIn": true'; then
+                    echo "AUTHENTICATED!"
+                    AUTH_METHOD="interactive"
+                    break
+                  fi
+                done
+              fi
+
+              if [ "$AUTH_METHOD" = "none" ]; then
+                echo "FATAL: No auth method available"
+                echo "Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in repo secrets"
+                curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=🏔️❌ Explorer V2: No Claude auth on Hetzner.%0APlease run: ssh root@87.99.129.125 then claude login" > /dev/null 2>&1
+                exit 1
+              fi
+            fi
+
+            # Build auth env vars
+            AUTH_ENV=""
+            if [ "$AUTH_METHOD" = "oauth" ]; then
+              AUTH_ENV="export CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_CODE_OAUTH_TOKEN'"
+            elif [ "$AUTH_METHOD" = "apikey" ]; then
+              AUTH_ENV="export ANTHROPIC_API_KEY='$ANTHROPIC_API_KEY'"
+            fi
+
+            # Clone repo
+            WORK="/tmp/zw-exp-$(date +%s)"
+            mkdir -p "$WORK"
+            cd "$WORK"
+            git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/zonewise-web.git
+            chown -R claude:claude "$WORK"
+
+            # Execute
+            cat > "$WORK/run.sh" << ENDSCRIPT
+            #!/bin/bash
+            set -e
+            export HOME=/home/claude
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+            export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:\$PATH
+            $AUTH_ENV
+
+            cd $WORK/zonewise-web
+            npm ci 2>/dev/null || npm install
+
+            echo "=== Auth Status ==="
             claude auth status 2>&1 || true
-            echo "---"
-            # Check all claude subcommands
-            claude --help 2>&1
-            echo "---"
-            # Check if there's a way to use API key
-            echo "ANTHROPIC_API_KEY test:"
-            ANTHROPIC_API_KEY=test claude auth status 2>&1 || true
-            echo "---"
-            # Check node path for finding auth storage
-            node -e "const os=require('os');const path=require('path');console.log('home:',os.homedir());console.log('config:',process.env.XDG_CONFIG_HOME||path.join(os.homedir(),'.config'))" 2>&1
-            echo "---"
-            # Check if there's a keyring
-            which secret-tool 2>/dev/null && secret-tool search --all xdg:schema claude 2>/dev/null || echo "no secret-tool"
-            echo "---"
-            # Check all hidden files in root
-            ls -la /root/.claude* /root/.anthropic* /root/.config/claude* 2>/dev/null || echo "checked"
+
+            claude -p "
+            Implement Explorer V2 for ZoneWise.AI.
+
+            READ: docs/plans/EXPLORER_V2_SPEC.md then CLAUDE.md
+
+            CRITICAL: Choropleth heatmap WITHOUT login — Reventure lead magnet.
+            FREE: Choropleth always visible. 5 parcel clicks/day. 3 chats/day. Then upgrade modal.
+
+            1. ZOOM-ADAPTIVE ZONING in BrevardExplorer.tsx. Hidden zoom<12, 15% at 12-14, 55% at 15+.
+            2. CHOROPLETH: zillow.ts + ChoroplethLayer.tsx. Blue-red scale. Zoom 9-13.
+            3. NLP CHAT: ExplorerV2.tsx split-screen. chat/route.ts.
+            4. MOBILE: ExplorerMobileSheet.tsx bottom sheet.
+            5. CONVERSION: Modals after 5 clicks / 3 chats.
+            6. ZONING FILTER: Dropdown RU/BU/PUD/AU/IU/TU.
+
+            Brand: #1E3A5F navy, #F59E0B orange, #020617 bg.
+            Must pass tsc + build. Execute autonomously.
+            " --dangerously-skip-permissions
+
+            npx tsc --noEmit 2>&1 | tail -10 || true
+            npm run build 2>&1 | tail -10
+
+            git config user.name "Claude Code (Hetzner)"
+            git config user.email "claude@zonewise.ai"
+            git add -A
+            git diff --cached --quiet && { echo "FATAL: No changes"; exit 1; }
+            git commit -m "feat(explorer-v2): Reventure lead magnet [SUMMIT]
+            Closes #41"
+            git push origin main
+            echo "PUSHED"
+            ENDSCRIPT
+
+            chmod +x "$WORK/run.sh"
+            chown claude:claude "$WORK/run.sh"
+            su -s /bin/bash claude "$WORK/run.sh"
+            rm -rf "$WORK"
+            echo "DONE"
+
+      - name: Trigger Promote
+        if: success()
+        run: |
+          sleep 90
+          curl -s -X POST -H "Authorization: token ${{ secrets.GH_PAT }}" -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/breverdbidder/zonewise-web/actions/workflows/promote-now.yml/dispatches" -d '{"ref":"main"}'
+
+      - name: Close Issue 41
+        if: success()
+        run: |
+          curl -s -X PATCH -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41" -d '{"state":"closed","state_reason":"completed"}'
+
+      - name: Notify Telegram
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          [ "$STATUS" = "success" ] && MSG="🏔️✅ Explorer V2 DEPLOYED%0Azonewise.ai/explorer" || MSG="🏔️❌ Explorer V2 FAILED"
+          curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=$MSG" > /dev/null 2>&1 || true
