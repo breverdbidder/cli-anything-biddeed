@@ -1,0 +1,98 @@
+name: "Dispatch: GHA Runner (No Hetzner)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Claude Code prompt to execute'
+        required: true
+        type: string
+      repo:
+        description: 'Target repository'
+        required: false
+        default: 'breverdbidder/cli-anything-biddeed'
+        type: string
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        default: '90'
+        type: string
+
+jobs:
+  execute:
+    name: "Claude Code Session"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
+
+      - name: Clone and configure
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ inputs.repo }}
+        run: |
+          git config --global user.email "claude@biddeed.ai"
+          git config --global user.name "Claude-Code"
+          git clone "https://x-access-token:${GH_PAT}@github.com/${REPO}.git" workspace
+          cd workspace
+          git config user.email "claude@biddeed.ai"
+          git config user.name "Claude-Code"
+
+          mkdir -p .claude
+          cat > .claude/settings.json << 'S'
+          {
+            "permissions": {
+              "allow": ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)"],
+              "deny": []
+            }
+          }
+          S
+
+      - name: Run Claude Code
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          WATCH_TOKEN: ${{ secrets.WATCH_TOKEN }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          export CLAUDE_CODE_OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
+          cd workspace
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ inputs.repo }}.git"
+
+          timeout $((60 * ${{ inputs.timeout }})) claude --print --dangerously-skip-permissions \
+            '${{ inputs.prompt }}' 2>&1 || EXIT=$?
+
+          # Push any work
+          git add -A
+          git diff --cached --quiet || {
+            git commit -m "summit: GHA dispatch session"
+            git push origin main
+          }
+
+          exit ${EXIT:-0}
+
+      - name: Notify
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=🏔️ GHA Dispatch ${STATUS}: ${{ inputs.prompt }}" \
+            >/dev/null 2>&1 || true
