@@ -25,21 +25,16 @@ jobs:
           command_timeout: 110m
           envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           script: |
-            set -e
-
-            echo "=== [1/6] Setup Claude Code Auth ==="
+            echo "=== [1/5] Setup Claude Code Auth ==="
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
             rm -f /tmp/claude-oauth-token
 
-            echo "=== [2/6] Verify Claude Code ==="
+            echo "=== [2/5] Verify Claude Code ==="
             which claude || (npm install -g @anthropic-ai/claude-code && echo "Installed Claude Code")
             claude --version 2>/dev/null || echo "Claude Code ready"
 
-            echo "=== [3/6] Verify Supabase CLI ==="
-            which supabase || (npm install -g supabase && echo "Installed Supabase CLI")
-
-            echo "=== [4/6] Clone/Pull Repo ==="
+            echo "=== [3/5] Clone/Pull Repo ==="
             mkdir -p /opt/biddeed
             if [ ! -d "/opt/biddeed/cli-anything-biddeed" ]; then
               cd /opt/biddeed
@@ -51,7 +46,7 @@ jobs:
             git reset --hard origin/main
             echo "Repo ready at $(pwd)"
 
-            echo "=== [5/6] Run Claude Code Session 1 ==="
+            echo "=== [4/5] Run Claude Code Session 1 ==="
             cd /opt/biddeed/cli-anything-biddeed
 
             export SUPABASE_URL="$SUPABASE_URL"
@@ -59,12 +54,29 @@ jobs:
             export NPM_CONFIG_PREFIX=/root/.npm-global
 
             claude --print --auto-mode \
-              "You are executing Session 1 of the Claude Watch (Everest Edition) build plan. READ docs/plans/WATCH-SPEC.md and docs/plans/WATCH-PLAN.md FIRST. Execute all steps in Session 1 of PLAN.md. Create harness structure, Supabase migration, edge function, deploy, validate, commit. Use SUPABASE_URL and SUPABASE_SERVICE_KEY from env. Git push with PAT: git remote set-url origin https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git. CRITICAL: zero execSync, verify with real DB queries, one attempt per approach." \
+              "You are executing Session 1 of the Claude Watch (Everest Edition) build plan.
+
+            READ docs/plans/WATCH-SPEC.md and docs/plans/WATCH-PLAN.md FIRST.
+
+            Execute all steps in Session 1 of PLAN.md with these CRITICAL changes:
+
+            1. DO NOT use supabase CLI - it cannot be installed via npm.
+            2. For SQL migration: use curl to POST SQL to the Supabase REST SQL endpoint, OR use psql if available: psql postgresql://postgres.[project-ref]:[password]@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+            3. For edge function deployment: create the function code in the repo but DO NOT deploy it yet - just commit the code. We will deploy the edge function manually.
+            4. Create the full harness directory structure at harnesses/watch/
+            5. Create all files: migration SQL, edge function TypeScript, package.json, tsconfig.json, types.ts
+            6. Validate the migration by querying information_schema after applying SQL
+            7. Git config: git config user.email ci@biddeed.ai and git config user.name BidDeed-CI
+            8. Git push: git remote set-url origin https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
+            9. CRITICAL: zero execSync anywhere in source code, verify with real DB queries, one attempt per approach
+            10. Generate a WATCH_INGEST_TOKEN via openssl rand -hex 32 and print it at the end
+
+            SUPABASE_URL and SUPABASE_SERVICE_KEY are in env vars." \
               2>&1 | tee /tmp/watch-session1.log | tail -100
 
             EXIT_CODE=${PIPESTATUS[0]}
 
-            echo "=== [6/6] Telegram Report ==="
+            echo "=== [5/5] Telegram Report ==="
             if [ $EXIT_CODE -eq 0 ]; then
               EMOJI="✅"
               STATUS="SUCCESS"
