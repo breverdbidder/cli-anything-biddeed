@@ -1,0 +1,84 @@
+name: "Summit: Watch Session 1 — Foundation"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  session1:
+    name: "DB + Edge Function"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: "Execute Session 1 on Hetzner"
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 30s
+          command_timeout: 110m
+          envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
+          script: |
+            set -e
+
+            echo "=== [1/6] Setup Claude Code Auth ==="
+            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
+            export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+            rm -f /tmp/claude-oauth-token
+
+            echo "=== [2/6] Verify Claude Code ==="
+            which claude || (npm install -g @anthropic-ai/claude-code && echo "Installed Claude Code")
+            claude --version 2>/dev/null || echo "Claude Code ready"
+
+            echo "=== [3/6] Verify Supabase CLI ==="
+            which supabase || (npm install -g supabase && echo "Installed Supabase CLI")
+
+            echo "=== [4/6] Clone/Pull Repo ==="
+            mkdir -p /opt/biddeed
+            if [ ! -d "/opt/biddeed/cli-anything-biddeed" ]; then
+              cd /opt/biddeed
+              git clone "https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git"
+            fi
+            cd /opt/biddeed/cli-anything-biddeed
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+            echo "Repo ready at $(pwd)"
+
+            echo "=== [5/6] Run Claude Code Session 1 ==="
+            cd /opt/biddeed/cli-anything-biddeed
+
+            export SUPABASE_URL="$SUPABASE_URL"
+            export SUPABASE_SERVICE_KEY="$SUPABASE_SERVICE_KEY"
+            export NPM_CONFIG_PREFIX=/root/.npm-global
+
+            claude --print --auto-mode \
+              "You are executing Session 1 of the Claude Watch (Everest Edition) build plan. READ docs/plans/WATCH-SPEC.md and docs/plans/WATCH-PLAN.md FIRST. Execute all steps in Session 1 of PLAN.md. Create harness structure, Supabase migration, edge function, deploy, validate, commit. Use SUPABASE_URL and SUPABASE_SERVICE_KEY from env. Git push with PAT: git remote set-url origin https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git. CRITICAL: zero execSync, verify with real DB queries, one attempt per approach." \
+              2>&1 | tee /tmp/watch-session1.log | tail -100
+
+            EXIT_CODE=${PIPESTATUS[0]}
+
+            echo "=== [6/6] Telegram Report ==="
+            if [ $EXIT_CODE -eq 0 ]; then
+              EMOJI="✅"
+              STATUS="SUCCESS"
+            else
+              EMOJI="❌"
+              STATUS="FAILED (exit $EXIT_CODE)"
+            fi
+
+            SUMMARY=$(tail -20 /tmp/watch-session1.log | head -10 | tr '
+' ' ' | cut -c1-400)
+            MSG="${EMOJI} Watch Session 1: ${STATUS}%0A%0ARepo: cli-anything-biddeed%0ATarget: harnesses/watch/%0A%0A${SUMMARY}"
+
+            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MSG}" > /dev/null 2>&1 || true
+
+            exit $EXIT_CODE
