@@ -6,14 +6,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Create cma_reports table
+      - name: Create cma_reports table via pooler
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           sudo apt-get install -y postgresql-client -qq
           PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
-            -h db.mocerqjnksmhcjzxrewo.supabase.co \
-            -p 5432 -U postgres -d postgres \
+            -h aws-0-us-east-1.pooler.supabase.com \
+            -p 5432 \
+            -U "postgres.mocerqjnksmhcjzxrewo" \
+            -d postgres \
             -c "CREATE TABLE IF NOT EXISTS cma_reports (
               id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
               parcel_id TEXT NOT NULL,
@@ -26,6 +28,8 @@ jobs:
             );"
           echo "Table created"
           PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
-            -h db.mocerqjnksmhcjzxrewo.supabase.co \
-            -p 5432 -U postgres -d postgres \
+            -h aws-0-us-east-1.pooler.supabase.com \
+            -p 5432 \
+            -U "postgres.mocerqjnksmhcjzxrewo" \
+            -d postgres \
             -c "SELECT COUNT(*) FROM cma_reports;"
