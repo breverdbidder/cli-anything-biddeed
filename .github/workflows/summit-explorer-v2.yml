@@ -6,10 +6,6 @@ jobs:
   claude-code-hetzner:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      GH_PAT: ${{ secrets.GH_PAT }}
     steps:
       - name: Login + Execute Claude Code on Hetzner
         uses: appleboy/ssh-action@v1.2.0
@@ -25,70 +21,85 @@ jobs:
           envs: TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GH_PAT
           script: |
             set -e
-            echo "SUMMIT: Explorer V2 — Auto Login + Deploy"
+            echo "SUMMIT: Explorer V2 V9"
 
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
 
-            # Check if already logged in
-            AUTH=$(claude auth status 2>&1 | head -1)
-            echo "Current auth: $AUTH"
-
-            if echo "$AUTH" | grep -q '"loggedIn": true'; then
+            # Check auth
+            LOGGED=$(claude auth status 2>&1 | grep '"loggedIn": true' || echo "")
+            if [ -n "$LOGGED" ]; then
               echo "Already logged in!"
             else
-              echo "Not logged in. Starting login with 5-min window..."
+              echo "Not logged in. Launching login..."
               
-              # Start claude auth login in background, capture output
-              LOGFILE="/tmp/claude-login-$$.log"
+              LOGFILE="/tmp/claude-login.log"
+              rm -f "$LOGFILE"
               
-              # Use script to capture pseudo-terminal output
-              nohup script -q -c "claude auth login" "$LOGFILE" &
+              # Launch login, pipe ALL output to file
+              (claude auth login 2>&1 | tee "$LOGFILE") &
               LOGIN_PID=$!
               
-              # Wait for URL to appear in log (up to 30 seconds)
+              # Wait up to 30s for URL to appear
+              URL=""
               for i in $(seq 1 30); do
                 sleep 1
-                if grep -q "claude.ai/oauth" "$LOGFILE" 2>/dev/null; then
+                URL=$(grep -o 'https://claude.ai/oauth[^ "]*' "$LOGFILE" 2>/dev/null | head -1 || true)
+                if [ -n "$URL" ]; then
+                  echo "Got URL at second $i"
                   break
                 fi
               done
               
-              # Extract URL
-              URL=$(grep -o 'https://claude.ai/oauth[^ ]*' "$LOGFILE" 2>/dev/null | head -1)
+              if [ -z "$URL" ]; then
+                echo "Trying alternate extraction..."
+                cat "$LOGFILE" 2>/dev/null
+                URL=$(cat "$LOGFILE" 2>/dev/null | tr -d '\r\n' | grep -o 'https://claude.ai/oauth[^ "]*' | head -1 || true)
+              fi
               
               if [ -n "$URL" ]; then
-                echo "Captured URL: $URL"
+                echo "URL captured: ${URL:0:80}..."
                 
-                # Send to Telegram
-                MSG="🔑 TAP TO LOG IN CLAUDE ON HETZNER%0A%0A${URL}%0A%0A⏰ You have 5 MINUTES to tap this link and approve.%0AThen Explorer V2 deploys automatically."
-                curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" > /dev/null 2>&1
+                # URL-encode the login URL for Telegram
+                ENCODED_URL=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$URL', safe=''))" 2>/dev/null || echo "$URL")
                 
-                echo "URL sent to Telegram. Waiting 5 minutes..."
+                curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                  -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                  -d "text=🔑 TAP TO LOG IN CLAUDE ON HETZNER
+
+${URL}
+
+⏰ You have 5 MINUTES to tap and approve." \
+                  -d "disable_web_page_preview=true" > /dev/null 2>&1
                 
-                # Wait up to 5 minutes for login to complete
+                echo "Sent to Telegram. Waiting 5 min..."
+                
+                # Poll every 5s for 5 min
                 for i in $(seq 1 60); do
                   sleep 5
-                  STATUS=$(claude auth status 2>&1 | grep loggedIn || echo "checking...")
-                  if echo "$STATUS" | grep -q "true"; then
-                    echo "LOGIN SUCCESSFUL!"
+                  if claude auth status 2>&1 | grep -q '"loggedIn": true'; then
+                    echo "LOGIN SUCCESS at $(date)"
                     kill $LOGIN_PID 2>/dev/null || true
-                    break
+                    break 
                   fi
                 done
               else
-                echo "ERROR: Could not capture login URL"
-                cat "$LOGFILE" 2>/dev/null
+                echo "FATAL: Could not capture URL"
+                echo "Log contents:"
+                cat "$LOGFILE" 2>/dev/null | head -20
+                kill $LOGIN_PID 2>/dev/null || true
                 exit 1
               fi
+              
+              kill $LOGIN_PID 2>/dev/null || true
             fi
 
-            # Verify logged in
+            # Verify
             claude auth status 2>&1
-            LOGGED=$(claude auth status 2>&1 | grep '"loggedIn": true' || echo "")
-            if [ -z "$LOGGED" ]; then
-              echo "FATAL: Still not logged in after 5 minutes"
-              MSG="🏔️❌ Explorer V2: Login timed out. Tap the link within 5 min next time."
-              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" > /dev/null 2>&1
+            if ! claude auth status 2>&1 | grep -q '"loggedIn": true'; then
+              echo "Login timed out."
+              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                -d "text=🏔️❌ Claude login timed out. Re-run and tap faster." > /dev/null 2>&1
               exit 1
             fi
 
@@ -98,13 +109,13 @@ jobs:
             mkdir -p /home/claude/.npm-global
             chown -R claude:claude /home/claude
 
-            # Install claude for claude user
             su -s /bin/bash claude -c "
               export HOME=/home/claude
               export NPM_CONFIG_PREFIX=/home/claude/.npm-global
               export PATH=/home/claude/.npm-global/bin:\$PATH
               npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
               claude --version
+              claude auth status 2>&1 | head -3
             "
 
             # Clone and deploy
@@ -122,16 +133,15 @@ jobs:
             export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:$PATH
             cd WORKDIR/zonewise-web
             npm ci 2>/dev/null || npm install
-            claude --version
             claude -p "
             Implement Explorer V2 for ZoneWise.AI.
             READ: docs/plans/EXPLORER_V2_SPEC.md then CLAUDE.md
-            CRITICAL: Choropleth heatmap WITHOUT login — Reventure lead magnet.
+            Choropleth heatmap WITHOUT login — Reventure lead magnet.
             FREE: Choropleth always visible. 5 parcel clicks/day. 3 chats/day. Then upgrade modal.
-            1. ZOOM-ADAPTIVE ZONING in BrevardExplorer.tsx. Hidden zoom<12, 15% at 12-14, 55% at 15+.
-            2. CHOROPLETH: zillow.ts + ChoroplethLayer.tsx. Blue-red scale. Zoom 9-13.
-            3. NLP CHAT: ExplorerV2.tsx split-screen. chat/route.ts.
-            4. MOBILE: ExplorerMobileSheet.tsx bottom sheet.
+            1. ZOOM-ADAPTIVE ZONING in BrevardExplorer.tsx.
+            2. CHOROPLETH: zillow.ts + ChoroplethLayer.tsx.
+            3. NLP CHAT: ExplorerV2.tsx split-screen.
+            4. MOBILE: ExplorerMobileSheet.tsx.
             5. CONVERSION: Modals after 5 clicks / 3 chats.
             6. ZONING FILTER: Dropdown RU/BU/PUD/AU/IU/TU.
             Brand: #1E3A5F navy, #F59E0B orange, #020617 bg.
@@ -155,8 +165,9 @@ jobs:
             su -s /bin/bash claude "$WORK/run.sh"
             rm -rf "$WORK"
             
-            MSG="🏔️✅ Explorer V2 DEPLOYED%0Azonewise.ai/explorer LIVE%0AIssue %2341 closing..."
-            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" > /dev/null 2>&1
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=🏔️✅ Explorer V2 DEPLOYED to zonewise.ai/explorer" > /dev/null 2>&1
             echo "DONE"
 
       - name: Trigger Promote
@@ -172,7 +183,8 @@ jobs:
           curl -s -X PATCH -H "Authorization: token ${{ secrets.GH_PAT }}" \
             "https://api.github.com/repos/breverdbidder/zonewise-web/issues/41" -d '{"state":"closed","state_reason":"completed"}'
 
-      - name: Notify Telegram
+      - name: Notify Failure
         if: failure()
         run: |
-          curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage?chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=🏔️❌ Explorer V2 FAILED" > /dev/null 2>&1 || true
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" -d "text=🏔️❌ Explorer V2 FAILED" > /dev/null 2>&1
