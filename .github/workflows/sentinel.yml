@@ -1,78 +1,35 @@
 name: "Everest Sentinel"
 on:
-  workflow_run:
-    workflows:
-      - "Summit: Watch S3 — Dashboard + Vercel Deploy"
-      - "Summit: Watch Session 2 - Hooks + Scanner"
-      - "Summit: Brevard 85%"
-      - "Summit: Brevard POC"
-      - "Summit: Brevard Municipalities"
-      - "Summit: Brevard Portals"
-      - "Summit: Brevard Wave2"
-      - "Summit: CDP Sprint"
-      - "Summit: Cleanup + Refill"
-      - "Summit: Conquer"
-      - "Summit: Consolidate Zoning"
-      - "Summit: CrossRef"
-      - "Summit: Crosswalk"
-      - "Summit: Dedup"
-      - "Summit: Discover 67"
-      - "Summit: Enricher P0"
-      - "Summit: Envelope Deploy"
-      - "Summit: Explorer V2"
-      - "Summit: Fill Gaps"
-      - "Summit: Forecaster P0"
-      - "Summit: Full Conquest"
-      - "Summit: Gap Closer"
-      - "Summit: Librarian"
-      - "Summit: Melbourne Cleanup"
-      - "Summit: Melbourne Final"
-      - "Summit: Melbourne Spatial"
-      - "Summit: Municipal Conquest V5"
-      - "Summit: Palm Bay Hetzner"
-      - "Summit: Palm Bay Modal"
-      - "Summit: Palm Bay"
-      - "Summit: Photos"
-      - "Summit: ProjectTracker P0"
-      - "Summit: Real Zoning"
-      - "Summit: Restore Parcels"
-      - "Summit: Restore"
-      - "Summit: SiteManager P0"
-      - "Summit: TrendPredictor P0"
-      - "Summit: UseCode GapFill"
-      - "Summit: UseCode"
-      - "Summit: ZoneWise Animations"
-      - "Summit: Audit Fill"
-      - "Summit: Install Top10 Skills"
-      - "Viral Buildout"
-    types:
-      - completed
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Specific run ID to triage (optional)'
+        required: false
 
 jobs:
   sentinel:
-    name: "Triage + Auto-Fix"
+    name: "Patrol + Auto-Fix"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: github.event.workflow_run.conclusion != 'skipped'
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: scripts/sentinel.sh
+          sparse-checkout: |
+            scripts/sentinel.sh
+            scripts/sentinel-patrol.sh
 
-      - name: "Run Sentinel Triage"
+      - name: "Patrol for failed/stale SUMMITs"
         env:
-          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          RUN_STARTED: ${{ github.event.workflow_run.run_started_at }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          REPO: ${{ github.repository }}
           GH_PAT: ${{ secrets.GH_PAT }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          REPO: ${{ github.repository }}
+          MANUAL_RUN_ID: ${{ github.event.inputs.run_id }}
         run: |
-          chmod +x scripts/sentinel.sh
-          bash scripts/sentinel.sh
+          chmod +x scripts/sentinel.sh scripts/sentinel-patrol.sh
+          bash scripts/sentinel-patrol.sh
