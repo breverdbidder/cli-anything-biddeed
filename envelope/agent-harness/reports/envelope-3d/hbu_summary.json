@@ -1,264 +1,265 @@
 {
-  "generated_at": "2026-03-20T02:16:22.101Z",
+  "generated_at": "2026-03-20T02:34:01.203Z",
   "stats": {
-    "total_parcels": 1980,
-    "analyzed": 1980,
+    "total_parcels": 6450,
+    "analyzed": 6450,
     "errors": 0
   },
   "hbu_distribution": {
-    "VACANT_LAND_HOLD": 226,
-    "TEAR_DOWN_REBUILD": 1754
+    "TEAR_DOWN_REBUILD": 6097,
+    "VACANT_LAND_HOLD": 345,
+    "SFR_REHAB": 8
   },
   "top_25_opportunities": [
     {
-      "parcel_id": "27 3702-00-751",
-      "zone_code": "R-1",
-      "situs": "750 JAMAICA SATELLITE BEACH 32937",
+      "parcel_id": "21 3629-00-*-",
+      "zone_code": "R-1AAA",
+      "situs": "1987 SCRUB JAY TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 102957250,
-      "profit": 28079250,
+      "arv": 1623388950,
+      "profit": 180376550,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3702-00-525",
-      "zone_code": "R-1",
-      "situs": "499 DESOTO SATELLITE BEACH 32937",
+      "parcel_id": "21 3528-00-251",
+      "zone_code": "R-1AAA",
+      "situs": "1614 SNOWY EGRET TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 44465025,
-      "profit": 12126825,
+      "arv": 224865225,
+      "profit": 24985025,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3702-00-112",
-      "zone_code": "RM-1",
-      "situs": "290 QUEENS SATELLITE BEACH 32937",
+      "parcel_id": "21 3412-00-502",
+      "zone_code": "R-1AAA",
+      "situs": "3432 ALDER TITUSVILLE 32780",
       "hbu": "Tear Down & Rebuild",
-      "arv": 37829275,
-      "profit": 10317075,
+      "arv": 189432675,
+      "profit": 21048075,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3702-00-250",
-      "zone_code": "R-1",
-      "situs": "475 CASSIA SATELLITE BEACH 32937",
+      "parcel_id": "21 3532-00-255",
+      "zone_code": "R-1AAA",
+      "situs": "3290 DAHLIA TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 36978150,
-      "profit": 10084950,
+      "arv": 150628725,
+      "profit": 16736525,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.01",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3519-00-253",
+      "zone_code": "R-1AAA",
+      "situs": "4001 PARRISH TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 101468025,
+      "profit": 11274225,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.02",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3531-00-3.1",
+      "zone_code": "R-1AAA",
+      "situs": "800 WAR EAGLE TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 94447350,
+      "profit": 10494150,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.03",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3533-00-542",
+      "zone_code": "R-1AAA",
+      "situs": "2116 GARDEN TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 88947225,
+      "profit": 9883025,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.04",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3425-00-4",
+      "zone_code": "R-1AAA",
+      "situs": "4500 LANCASTER TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 84257775,
+      "profit": 9361975,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.05",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3528-00-254",
+      "zone_code": "R-1AAA",
+      "situs": "2227 JAY JAY TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 61788375,
+      "profit": 6865375,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.06",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3530-00-751",
+      "zone_code": "R-1AAA",
+      "situs": "3385 DAIRY TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 50199075,
+      "profit": 5577675,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.07",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3530-00-750",
+      "zone_code": "R-1AAA",
+      "situs": "3375 DAIRY TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 49252725,
+      "profit": 5472525,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.08",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3521-00-750",
+      "zone_code": "R-1AAA",
+      "situs": "2002 PARRISH TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 48382650,
+      "profit": 5375850,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.09",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3528-00-759",
+      "zone_code": "R-1AAA",
+      "situs": "1830 OAK GROVE TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 43789050,
+      "profit": 4865450,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.10",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3520-27-*-48",
+      "zone_code": "R-1AAA",
+      "situs": "2952 DISCOVERY TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 42248925,
+      "profit": 4694325,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.11",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3535-00-250",
+      "zone_code": "R-1AAA",
+      "situs": "1 A MAX BREWER MEMORIAL TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 40752900,
+      "profit": 4528100,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.12",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3532-00-1",
+      "zone_code": "R-1AAA",
+      "situs": "1040 DIXIE TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 38282850,
+      "profit": 4253650,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.13",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3520-00-39",
+      "zone_code": "R-1AAA",
+      "situs": "2600 PARRISH TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 37733625,
+      "profit": 4192625,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.14",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3520-00-13",
+      "zone_code": "R-1AAA",
+      "situs": "2732 FLOSSIE TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 36749475,
+      "profit": 4083275,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.15",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3528-00-517",
+      "zone_code": "R-1AAA",
+      "situs": "1400 WASHINGTON TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 35468325,
+      "profit": 3940925,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.16",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3533-00-751",
+      "zone_code": "R-1AAA",
+      "situs": "497 WASHINGTON TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 33039675,
+      "profit": 3671075,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-50-3-5.17",
-      "zone_code": "C-1",
-      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3529-00-11",
+      "zone_code": "R-1AAA",
+      "situs": "2880 JAY JAY TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 28264225,
-      "profit": 7708425,
+      "arv": 29577375,
+      "profit": 3286375,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-00-252",
-      "zone_code": "C-1",
-      "situs": "1426 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3520-28-*-6",
+      "zone_code": "R-1AAA",
+      "situs": "2044 PAYNE STEWART TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 24038300,
-      "profit": 6555900,
+      "arv": 28804725,
+      "profit": 3200525,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3702-00-253",
-      "zone_code": "PCS-2",
-      "situs": "535 CASSIA SATELLITE BEACH 32937",
+      "parcel_id": "21 3520-28-*-21",
+      "zone_code": "R-1AAA",
+      "situs": "1894 PAYNE STEWART TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 21820975,
-      "profit": 5951175,
+      "arv": 28804725,
+      "profit": 3200525,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-00-273",
-      "zone_code": "C-1",
-      "situs": "1596 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3533-00-345",
+      "zone_code": "R-1AAA",
+      "situs": "1400 DRAA TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 17658300,
-      "profit": 4815900,
+      "arv": 27408825,
+      "profit": 3045425,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     },
     {
-      "parcel_id": "27 3701-00-258",
-      "zone_code": "R-1",
-      "situs": "1525 HIGHWAY A1A SATELLITE BEACH 32937",
+      "parcel_id": "21 3533-00-773",
+      "zone_code": "R-1AAA",
+      "situs": "1500 DRAA TITUSVILLE 32796",
       "hbu": "Tear Down & Rebuild",
-      "arv": 17486700,
-      "profit": 4769100,
+      "arv": 27355275,
+      "profit": 3039475,
       "max_bid": 0,
-      "confidence": 75
+      "confidence": 70
     }
   ]
 }
