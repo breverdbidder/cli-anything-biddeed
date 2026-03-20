@@ -61,6 +61,17 @@ UNINC_ZA_VALUES = [
 
 client = httpx.Client(timeout=60, headers={"User-Agent": "Mozilla/5.0 (ZoneWise Research)"})
 
+def detect_zone_source_column():
+    h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+    try:
+        resp = client.get(f"{SUPABASE_URL}/rest/v1/zoning_assignments?select=zone_source&limit=1", headers=h)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+HAS_ZONE_SOURCE = detect_zone_source_column()
+print(f"Schema: zone_source column {'EXISTS' if HAS_ZONE_SOURCE else 'MISSING (will skip)'}", flush=True)
+
 
 def telegram(msg):
     print(msg)
@@ -252,13 +263,10 @@ def main():
             for pid in missing:
                 zone = map_use_code(use_codes.get(pid, ""))
                 if zone:
-                    rows.append({
-                        "parcel_id": pid,
-                        "zone_code": zone,
-                        "jurisdiction": "melbourne_village",
-                        "county": "brevard",
-                        "zone_source": "use_code_crosswalk",
-                    })
+                    row = {"parcel_id": pid, "zone_code": zone, "jurisdiction": "melbourne_village", "county": "brevard"}
+                    if HAS_ZONE_SOURCE:
+                        row["zone_source"] = "use_code_crosswalk"
+                    rows.append(row)
             upserted = sb_upsert(rows) if rows else 0
             total_upserted += upserted
             results_log.append(f"  Melbourne Village: {len(sp_pids):,} SP, {len(za_pids):,} ZA, {len(missing):,} missing → {upserted:,} upserted")
@@ -277,13 +285,10 @@ def main():
                 for pid in missing:
                     zone = map_use_code(use_codes.get(pid, ""))
                     if zone:
-                        rows.append({
-                            "parcel_id": pid,
-                            "zone_code": zone,
-                            "jurisdiction": "melbourne_village",
-                            "county": "brevard",
-                            "zone_source": "use_code_crosswalk",
-                        })
+                        row = {"parcel_id": pid, "zone_code": zone, "jurisdiction": "melbourne_village", "county": "brevard"}
+                        if HAS_ZONE_SOURCE:
+                            row["zone_source"] = "use_code_crosswalk"
+                        rows.append(row)
                 upserted = sb_upsert(rows) if rows else 0
                 total_upserted += upserted
                 results_log.append(f"  Melbourne Village (jid=15): +{upserted:,} upserted")
@@ -322,13 +327,10 @@ def main():
         for pid in missing_uninc:
             zone = map_use_code(use_codes.get(pid, ""))
             if zone:
-                rows.append({
-                    "parcel_id": pid,
-                    "zone_code": zone,
-                    "jurisdiction": "unincorporated_brevard",
-                    "county": "brevard",
-                    "zone_source": "use_code_crosswalk",
-                })
+                row = {"parcel_id": pid, "zone_code": zone, "jurisdiction": "unincorporated_brevard", "county": "brevard"}
+                if HAS_ZONE_SOURCE:
+                    row["zone_source"] = "use_code_crosswalk"
+                rows.append(row)
         upserted = sb_upsert(rows) if rows else 0
         total_upserted += upserted
         results_log.append(f"  Unincorporated: {len(sp_uninc_pids):,} SP, {len(za_uninc_pids):,} ZA, {len(missing_uninc):,} missing → {upserted:,} upserted")

@@ -50,6 +50,24 @@ USE_CODE_MAP = {
 
 client = httpx.Client(timeout=60, headers={"User-Agent": "Mozilla/5.0 (ZoneWise Research)"})
 
+# Schema detection: check if zone_source column exists
+def detect_zone_source_column():
+    h = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
+    try:
+        resp = client.get(
+            f"{SUPABASE_URL}/rest/v1/zoning_assignments?select=zone_source&limit=1",
+            headers=h
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+HAS_ZONE_SOURCE = detect_zone_source_column()
+print(f"Schema: zone_source column {'EXISTS' if HAS_ZONE_SOURCE else 'MISSING (will skip)'}", flush=True)
+
 
 def telegram(msg):
     print(msg)
@@ -280,9 +298,9 @@ def main():
                 "zone_code": zone,
                 "jurisdiction": "melbourne",
                 "county": "brevard",
-                "zone_source": source,
             }
-            # Only include co_no if column exists (migration may not be done yet)
+            if HAS_ZONE_SOURCE:
+                row["zone_source"] = source
             rows.append(row)
         else:
             skipped += 1
