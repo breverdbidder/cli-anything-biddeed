@@ -1,0 +1,54 @@
+{
+  "generated_at": "2026-03-20T02:11:12.796Z",
+  "summary": {
+    "total_records": 1980,
+    "passed": 1976,
+    "failed": 4,
+    "pass_rate": "99.8%"
+  },
+  "violations": {
+    "tiny_lot": {
+      "count": 4,
+      "sample_parcels": [
+        "27 3701-50-1-11.02",
+        "27 3701-50-1-11.01",
+        "27 3701-50-1-10.02",
+        "27 3701-50-1-10.01"
+      ]
+    }
+  },
+  "zone_summary": {
+    "R-1": {
+      "count": 1783,
+      "avg_gfa": 4221,
+      "avg_hbu": 29
+    },
+    "RM-1": {
+      "count": 154,
+      "avg_gfa": 30063,
+      "avg_hbu": 32
+    },
+    "C-1": {
+      "count": 38,
+      "avg_gfa": 96081,
+      "avg_hbu": 65
+    },
+    "I-1": {
+      "count": 3,
+      "avg_gfa": 23474,
+      "avg_hbu": 35
+    },
+    "PCS-2": {
+      "count": 2,
+      "avg_gfa": 84840,
+      "avg_hbu": 32
+    }
+  },
+  "municipality_summary": {
+    "satellite_beach": {
+      "total": 1980,
+      "passed": 1976,
+      "failed": 4
+    }
+  }
+}

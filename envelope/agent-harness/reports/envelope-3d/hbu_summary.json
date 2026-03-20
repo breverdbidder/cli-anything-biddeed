@@ -1,0 +1,264 @@
+{
+  "generated_at": "2026-03-20T02:16:22.101Z",
+  "stats": {
+    "total_parcels": 1980,
+    "analyzed": 1980,
+    "errors": 0
+  },
+  "hbu_distribution": {
+    "VACANT_LAND_HOLD": 226,
+    "TEAR_DOWN_REBUILD": 1754
+  },
+  "top_25_opportunities": [
+    {
+      "parcel_id": "27 3702-00-751",
+      "zone_code": "R-1",
+      "situs": "750 JAMAICA SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 102957250,
+      "profit": 28079250,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3702-00-525",
+      "zone_code": "R-1",
+      "situs": "499 DESOTO SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 44465025,
+      "profit": 12126825,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3702-00-112",
+      "zone_code": "RM-1",
+      "situs": "290 QUEENS SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 37829275,
+      "profit": 10317075,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3702-00-250",
+      "zone_code": "R-1",
+      "situs": "475 CASSIA SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 36978150,
+      "profit": 10084950,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.01",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.02",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.03",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.04",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.05",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.06",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.07",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.08",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.09",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.10",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.11",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.12",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.13",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.14",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.15",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.16",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-50-3-5.17",
+      "zone_code": "C-1",
+      "situs": "1790 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 28264225,
+      "profit": 7708425,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-00-252",
+      "zone_code": "C-1",
+      "situs": "1426 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 24038300,
+      "profit": 6555900,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3702-00-253",
+      "zone_code": "PCS-2",
+      "situs": "535 CASSIA SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 21820975,
+      "profit": 5951175,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-00-273",
+      "zone_code": "C-1",
+      "situs": "1596 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 17658300,
+      "profit": 4815900,
+      "max_bid": 0,
+      "confidence": 75
+    },
+    {
+      "parcel_id": "27 3701-00-258",
+      "zone_code": "R-1",
+      "situs": "1525 HIGHWAY A1A SATELLITE BEACH 32937",
+      "hbu": "Tear Down & Rebuild",
+      "arv": 17486700,
+      "profit": 4769100,
+      "max_bid": 0,
+      "confidence": 75
+    }
+  ]
+}

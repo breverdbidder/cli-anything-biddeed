@@ -89,7 +89,7 @@ class ParcelSurveyor {
   async queryParcels(where, offset = 0) {
     const params = new URLSearchParams({
       where,
-      outFields: "PARCELNO,ACCOUNT,OWNER,SITUS,LEGAL,USE_CODE,ACRES",
+      outFields: "PARCEL_ID,TaxAcct,OWNER_NAME1,STREET_NUMBER,STREET_NAME,CITY,STATE,ZIP_CODE,USE_CODE,ACRES",
       returnGeometry: true,
       outSR: SR2881,
       f: "json",
@@ -120,20 +120,20 @@ class ParcelSurveyor {
    * Build where clause for municipality filtering
    */
   getWhereClause(municipality) {
-    // Municipality-specific OBJECTID ranges or spatial filters
-    // For county-wide, use simple pagination
+    // Use CITY field (actual BCPAO field name, not SITUS)
     const muniFilters = {
-      palm_bay:              "SITUS LIKE '%PALM BAY%' OR SITUS LIKE '%NE Palm Bay%'",
-      melbourne:             "SITUS LIKE '%MELBOURNE%'",
-      satellite_beach:       "SITUS LIKE '%SATELLITE%'",
-      indian_harbour_beach:  "SITUS LIKE '%INDIAN HARBOUR%' OR SITUS LIKE '%IHB%'",
-      cocoa_beach:           "SITUS LIKE '%COCOA BEACH%'",
-      titusville:            "SITUS LIKE '%TITUSVILLE%'",
-      cocoa:                 "SITUS LIKE '%COCOA%' AND SITUS NOT LIKE '%COCOA BEACH%'",
-      rockledge:             "SITUS LIKE '%ROCKLEDGE%'",
+      palm_bay:              "CITY='PALM BAY'",
+      melbourne:             "CITY='MELBOURNE'",
+      satellite_beach:       "CITY='SATELLITE BEACH'",
+      indian_harbour_beach:  "CITY='INDIAN HARBOUR BCH' OR CITY='INDIAN HARBOUR BEACH'",
+      cocoa_beach:           "CITY='COCOA BEACH'",
+      titusville:            "CITY='TITUSVILLE'",
+      cocoa:                 "CITY='COCOA'",
+      rockledge:             "CITY='ROCKLEDGE'",
+      unincorporated:        "CITY IS NULL OR CITY=''",
       all:                   "1=1",
     };
-    
+
     return muniFilters[municipality] || "1=1";
   }
 
@@ -146,9 +146,12 @@ class ParcelSurveyor {
       const attrs = feature.attributes || {};
       const geometry = feature.geometry;
       
-      const parcelId = attrs.PARCELNO || attrs.ACCOUNT;
+      const parcelId = attrs.PARCEL_ID || String(attrs.TaxAcct);
       if (!parcelId) continue;
-      
+
+      const situs = [attrs.STREET_NUMBER, attrs.STREET_NAME, attrs.CITY, attrs.STATE, attrs.ZIP_CODE]
+        .filter(Boolean).map(s => String(s).trim()).join(" ");
+
       let dimensions = null;
       if (geometry?.rings) {
         this.stats.withGeometry++;
@@ -158,9 +161,9 @@ class ParcelSurveyor {
 
       this.results.push({
         parcel_id: parcelId,
-        account: attrs.ACCOUNT,
-        owner: attrs.OWNER,
-        situs: attrs.SITUS,
+        account: attrs.TaxAcct,
+        owner: attrs.OWNER_NAME1,
+        situs,
         use_code: attrs.USE_CODE,
         acres: attrs.ACRES,
         lot_width_ft: dimensions?.lot_width_ft || null,

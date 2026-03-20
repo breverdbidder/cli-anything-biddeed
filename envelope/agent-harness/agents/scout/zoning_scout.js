@@ -46,6 +46,19 @@ const ZONING_DISTRICTS = {
   "IU-1":  { front: 25, side: 15, rear: 20, maxHeight: 50, lotCoverage: 60, far: 1.0, desc: "Industrial (limited)" },
   "IH":    { front: 30, side: 20, rear: 25, maxHeight: 65, lotCoverage: 65, far: 1.5, desc: "Heavy Industrial" },
   
+  // SATELLITE BEACH MUNICIPAL CODES (R-series)
+  "R-1":   { front: 25, side: 7.5, rear: 20, maxHeight: 35, lotCoverage: 40, far: 0.5, desc: "SB Single Family Residential" },
+  "R-2":   { front: 25, side: 7.5, rear: 20, maxHeight: 35, lotCoverage: 40, far: 0.5, desc: "SB Single Family Residential (small)" },
+  "RM-1":  { front: 25, side: 10, rear: 20, maxHeight: 45, lotCoverage: 50, far: 0.8, desc: "SB Multi-Family Residential" },
+  "RM-2":  { front: 25, side: 10, rear: 25, maxHeight: 55, lotCoverage: 55, far: 1.0, desc: "SB Multi-Family (high density)" },
+  "C-1":   { front: 0, side: 0, rear: 10, maxHeight: 65, lotCoverage: 80, far: 2.0, desc: "SB General Commercial" },
+  "C-2":   { front: 0, side: 0, rear: 5, maxHeight: 80, lotCoverage: 90, far: 3.0, desc: "SB Highway Commercial" },
+  "I-1":   { front: 25, side: 15, rear: 20, maxHeight: 50, lotCoverage: 60, far: 1.0, desc: "SB Light Industrial" },
+  "PCS-2": { front: 20, side: 5, rear: 15, maxHeight: 45, lotCoverage: 50, far: 0.8, desc: "SB Planned Commercial/Special" },
+  // GENERIC FALLBACK CODES
+  "AG":    { front: 50, side: 25, rear: 50, maxHeight: 35, lotCoverage: 20, far: 0.15, desc: "Agricultural" },
+  "RR-65": { front: 50, side: 25, rear: 50, maxHeight: 35, lotCoverage: 20, far: 0.15, desc: "Rural Residential (1 DU/65 acres)" },
+
   // PLANNED / SPECIAL
   "PUD":   { front: 20, side: 5, rear: 15, maxHeight: 45, lotCoverage: 50, far: 0.8, desc: "Planned Unit Development" },
   "PIP":   { front: 25, side: 15, rear: 20, maxHeight: 50, lotCoverage: 60, far: 1.0, desc: "Planned Industrial Park" },
@@ -207,16 +220,40 @@ class ZoningScout {
    * Falls back to this when municipal GIS isn't directly queryable
    */
   async queryZoneWiseSupabase(municipality) {
+    // Municipality → BCPAO section prefix for parcel_id filtering
+    const SECTION_PREFIXES = {
+      satellite_beach:      "27",
+      indian_harbour_beach: "27",
+      cocoa_beach:          "24",
+      melbourne:            "28",
+      palm_bay:             "29",
+      titusville:           "21",
+      cocoa:                "23",
+      rockledge:            "23",
+      unincorporated:       null, // no prefix filter — fetch all
+    };
+    const prefix = SECTION_PREFIXES[municipality];
+    const filter = prefix ? `&parcel_id=like.${prefix}*` : "";
     try {
-      const url = `${process.env.SUPABASE_URL}/rest/v1/parcel_zoning?source_municipality=eq.${municipality}&select=parcel_id,zone_code,use_code&limit=5000`;
-      const response = await fetch(url, {
-        headers: {
-          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        },
-      });
-      if (!response.ok) return [];
-      return await response.json();
+      // Table is parcel_zones, paginate up to 10K records
+      let all = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        const url = `${process.env.SUPABASE_URL}/rest/v1/parcel_zones?select=parcel_id,zone_code${filter}&limit=${pageSize}&offset=${offset}`;
+        const response = await fetch(url, {
+          headers: {
+            apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        });
+        if (!response.ok) break;
+        const batch = await response.json();
+        all = all.concat(batch);
+        if (batch.length < pageSize) break;
+        offset += pageSize;
+      }
+      return all;
     } catch (err) {
       console.error(`  ⚠️  ZoneWise Supabase query failed: ${err.message}`);
       return [];
