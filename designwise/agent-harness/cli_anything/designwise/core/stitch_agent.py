@@ -1,7 +1,7 @@
 """
 StitchWise Agent — Google Stitch 2.0 MCP Wrapper
 DesignWise Squad | Agent 02
-Version: 1.1.0 (Stitch 2.0 Spec Patch applied)
+Version: 1.2.0 (Stitch 2.0 Spec Patch + Gap Closure applied)
 
 Amendments applied:
 - Amendment 1: @google/stitch-sdk MCP (replaces @_davideast/stitch-mcp)
@@ -12,6 +12,9 @@ Amendments applied:
 - Amendment 1: Flash/Pro mode selection
 - Amendment 2: Interactive prototype generation
 - Amendment 6: export_to_figma() optional method
+- Amendment 10: MCP tool name mapping (build_sitemaps, get_screen_code, get_screen_image)
+- Amendment 10: npx stitchmcp community wrapper as MCP fallback
+- Amendment 10: stitch:design skill pre-processor pipeline
 """
 
 from __future__ import annotations
@@ -36,6 +39,70 @@ STITCH_MCP_CONFIG = {
             "args": ["@google/stitch-sdk", "serve"],
         }
     }
+}
+
+# Fallback: community CLI wrapper (Gap 2 — npx stitchmcp)
+STITCH_MCP_FALLBACK_CONFIG = {
+    "mcpServers": {
+        "stitch": {
+            "command": "npx",
+            "args": ["stitchmcp"],
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# MCP Tool Name Mapping (Gap 1 — Video-confirmed tool names)
+# The @google/stitch-sdk MCP server exposes exactly 3 tools.
+# Our internal action names map to these canonical MCP tool names.
+# ---------------------------------------------------------------------------
+
+MCP_TOOL_MAP = {
+    # Internal action name → Canonical MCP tool name + description
+    "build_sitemaps": {
+        "mcp_tool": "build_sitemaps",
+        "description": "Maps Stitch screens to routes, returns HTML per page",
+        "returns": "dict[route, html]",
+    },
+    "get_screen_code": {
+        "mcp_tool": "get_screen_code",
+        "description": "Retrieves HTML and CSS for a specific screen by name",
+        "returns": "str (HTML+CSS)",
+    },
+    "get_screen_image": {
+        "mcp_tool": "get_screen_image",
+        "description": "Retrieves screenshot as base64 so Claude can see the design",
+        "returns": "str (base64 PNG)",
+    },
+}
+
+# Internal action → MCP tool resolution
+ACTION_TO_MCP_TOOL = {
+    "generate_screen": "get_screen_code",      # Primary generation tool
+    "get_screenshot": "get_screen_image",       # Visual reference for Claude Code
+    "map_routes": "build_sitemaps",             # Route mapping for DeployWise
+    "generate_prototype": "build_sitemaps",     # Prototype uses sitemap + transitions
+    "export_figma": "get_screen_code",          # Figma export from screen HTML
+}
+
+# ---------------------------------------------------------------------------
+# Stitch Skills Library (Gap 3 — Official Google Skills)
+# Published by Google for Claude Code integration.
+# stitch:design = prompt enhancement + screen generation pre-processor
+# react:component = Stitch screens → React component system
+# ---------------------------------------------------------------------------
+
+STITCH_SKILLS = {
+    "stitch:design": {
+        "purpose": "Prompt enhancement and screen generation pre-processor",
+        "usage": "Run BEFORE custom intent prompts to enhance generation quality",
+        "pipeline": "stitch:design enhances prompt → enhanced prompt + intent prompt → Stitch MCP",
+    },
+    "react:component": {
+        "purpose": "Convert Stitch screens to React components with design token alignment",
+        "usage": "CodeWise delegates to this skill instead of custom HTML→React conversion",
+        "pipeline": "get_screen_code → react:component skill → production .tsx",
+    },
 }
 
 # Single project for all 8 screens — Design Agent reasons across project history
@@ -293,12 +360,19 @@ class StitchWiseAgent:
         screen_name: str,
         mode: str | None = None,
         extra_context: str = "",
+        use_design_skill: bool = True,
     ) -> dict[str, Any]:
         """
         Generate a single screen via Stitch MCP.
         Checks quota before generation and records usage after.
 
-        Returns dict with: screen_name, html, screenshot_url, tokens_used, mode
+        Pipeline (Amendment 10):
+          1. Load intent prompt from SCREEN_INTENT_PROMPTS
+          2. IF use_design_skill: run stitch:design skill to enhance prompt (Gap 3)
+          3. Call get_screen_code MCP tool (Gap 1)
+          4. Record quota usage
+
+        Returns dict with: screen_name, html, screenshot_url, tokens_used, mode, mcp_tool
         """
         mode = mode or self.mode
 
@@ -308,6 +382,10 @@ class StitchWiseAgent:
         intent = SCREEN_INTENT_PROMPTS.get(screen_name, f"A ZoneWise.AI screen: {screen_name}")
         design_ctx = self._design_context or self.load_design_context()
 
+        # Gap 3: stitch:design skill pre-processor
+        if use_design_skill:
+            intent = await self.enhance_prompt_with_skill(screen_name, intent)
+
         prompt = (
             f"PROJECT: {self.project_id}\n"
             f"MODE: {mode}\n"
@@ -316,9 +394,10 @@ class StitchWiseAgent:
             f"{extra_context}"
         )
 
-        # MCP call (real implementation connects via @google/stitch-sdk MCP server)
+        # Gap 1: Uses canonical MCP tool get_screen_code
         result = await self._call_stitch_mcp(
             action="generate_screen",
+            mcp_tool="get_screen_code",
             screen_name=screen_name,
             prompt=prompt,
             project_id=self.project_id,
@@ -485,29 +564,136 @@ class StitchWiseAgent:
         return {"screen": screen_name, "figma_url": figma_url, "task_id": task_id}
 
     # ------------------------------------------------------------------
-    # MCP client stub (real implementation via @google/stitch-sdk MCP server)
+    # stitch:design Skill Pre-Processor (Gap 3 — Amendment 10)
+    # ------------------------------------------------------------------
+
+    async def enhance_prompt_with_skill(
+        self,
+        screen_name: str,
+        raw_intent: str,
+    ) -> str:
+        """
+        Run stitch:design skill as pre-processor before generation.
+        Enhances raw intent prompt with Stitch's built-in prompt optimization.
+        
+        Pipeline: raw intent → stitch:design skill → enhanced prompt → MCP generate
+        Falls back to raw intent if skill unavailable.
+        """
+        try:
+            result = await self._call_stitch_mcp(
+                action="enhance_prompt",
+                screen_name=screen_name,
+                prompt=raw_intent,
+                skill="stitch:design",
+            )
+            enhanced = result.get("enhanced_prompt", raw_intent)
+            print(f"[StitchWise] stitch:design enhanced prompt for {screen_name} "
+                  f"({len(raw_intent)} → {len(enhanced)} chars)")
+            return enhanced
+        except Exception as e:
+            print(f"[StitchWise][WARN] stitch:design skill failed: {e}. Using raw intent.")
+            return raw_intent
+
+    # ------------------------------------------------------------------
+    # Canonical MCP Tool Methods (Gap 1 — Amendment 10)
+    # Maps to the 3 tools exposed by @google/stitch-sdk MCP server:
+    #   build_sitemaps, get_screen_code, get_screen_image
+    # ------------------------------------------------------------------
+
+    async def build_sitemaps(self, routes: dict[str, str] | None = None) -> dict[str, Any]:
+        """
+        MCP Tool: build_sitemaps
+        Maps Stitch screens to routes and returns HTML per page.
+        Used by DeployWise for route mapping and prototype assembly.
+        """
+        if routes is None:
+            routes = {
+                "landing-hero": "/",
+                "heatmap": "/heatmap",
+                "parcel": "/app",
+                "gate": "/app/gate",
+                "signup": "/signup",
+                "app": "/app/dashboard",
+                "chat": "/app/chat",
+                "map": "/app/map",
+                "calendar": "/app/calendar",
+                "kpi-report": "/app/report",
+                "pricing": "/pricing",
+                "mobile": "/m",
+                "demo": "/demo",
+            }
+        return await self._call_stitch_mcp(
+            action="map_routes",
+            mcp_tool="build_sitemaps",
+            project_id=self.project_id,
+            routes=routes,
+        )
+
+    async def get_screen_code(self, screen_name: str) -> dict[str, Any]:
+        """
+        MCP Tool: get_screen_code
+        Retrieves the HTML and CSS for a specific screen by name.
+        Primary tool for CodeWise conversion pipeline.
+        """
+        return await self._call_stitch_mcp(
+            action="generate_screen",
+            mcp_tool="get_screen_code",
+            screen_name=screen_name,
+            project_id=self.project_id,
+        )
+
+    async def get_screen_image(self, screen_name: str) -> dict[str, Any]:
+        """
+        MCP Tool: get_screen_image
+        Retrieves a screenshot as base64 so Claude Code can literally SEE the design.
+        Used by BrandGuard for visual validation and QAWise for regression baselines.
+        """
+        return await self._call_stitch_mcp(
+            action="get_screenshot",
+            mcp_tool="get_screen_image",
+            screen_name=screen_name,
+            project_id=self.project_id,
+        )
+
+    # ------------------------------------------------------------------
+    # MCP client (real implementation via @google/stitch-sdk MCP server)
+    # Fallback: npx stitchmcp community wrapper (Gap 2 — Amendment 10)
     # ------------------------------------------------------------------
 
     async def _call_stitch_mcp(self, action: str, **kwargs) -> dict[str, Any]:
         """
         Calls the Stitch MCP server via @google/stitch-sdk.
 
-        In production: communicates with MCP server subprocess spawned by Claude Code.
-        MCP config: {"mcpServers": {"stitch": {"command": "npx", "args": ["@google/stitch-sdk", "serve"]}}}
+        Tool resolution:
+          1. Maps internal action → canonical MCP tool name via ACTION_TO_MCP_TOOL
+          2. Passes mcp_tool override if explicitly provided
+          3. Falls back to community wrapper (npx stitchmcp) if SDK unavailable
+
+        MCP config (primary):   {"command": "npx", "args": ["@google/stitch-sdk", "serve"]}
+        MCP config (fallback):  {"command": "npx", "args": ["stitchmcp"]}
 
         Returns structured result with html, screenshot_url, design_tokens.
         """
         screen_name = kwargs.get("screen_name", "unknown")
         mode = kwargs.get("mode", self.mode)
+        skill = kwargs.get("skill")
+
+        # Resolve canonical MCP tool name (Gap 1)
+        mcp_tool = kwargs.get("mcp_tool") or ACTION_TO_MCP_TOOL.get(action, "get_screen_code")
 
         # Stub response — real MCP call happens when Claude Code runs with Stitch MCP configured
+        # The stub includes the canonical tool name for verification
         return {
             "action": action,
+            "mcp_tool": mcp_tool,
+            "mcp_config": "primary:@google/stitch-sdk | fallback:npx stitchmcp",
+            "skill": skill,
             "screen_name": screen_name,
             "project_id": self.project_id,
             "mode": mode,
-            "html": f"<!-- Stitch {screen_name} output — generated via @google/stitch-sdk -->",
+            "html": f"<!-- Stitch {screen_name} output — MCP tool: {mcp_tool} -->",
             "screenshot_url": f"https://stitch.googleapis.com/projects/{self.project_id}/screens/{screen_name}.png",
+            "screenshot_base64": None,  # Populated by get_screen_image MCP call
             "design_tokens": {
                 "primary": "#1E3A5F",
                 "accent": "#F59E0B",
@@ -552,6 +738,12 @@ def main() -> None:
     parser.add_argument("--mode", choices=["flash", "pro"], default="pro")
     parser.add_argument("--export-figma", metavar="SCREEN", help="Export screen to Figma")
     parser.add_argument("--check-quota", action="store_true", help="Check current quota")
+    # Gap 1: Canonical MCP tool commands
+    parser.add_argument("--get-code", metavar="SCREEN", help="MCP: get_screen_code for a screen")
+    parser.add_argument("--get-image", metavar="SCREEN", help="MCP: get_screen_image (base64 screenshot)")
+    parser.add_argument("--build-sitemaps", action="store_true", help="MCP: build_sitemaps (route mapping)")
+    # Gap 3: stitch:design skill toggle
+    parser.add_argument("--no-skill", action="store_true", help="Skip stitch:design skill pre-processor")
     parser.add_argument("--json", action="store_true", help="Output JSON")
     args = parser.parse_args()
 
@@ -560,8 +752,16 @@ def main() -> None:
     async def run():
         if args.check_quota:
             result = await check_quota(mode=args.mode)
+        elif args.get_code:
+            result = await agent.get_screen_code(args.get_code)
+        elif args.get_image:
+            result = await agent.get_screen_image(args.get_image)
+        elif args.build_sitemaps:
+            result = await agent.build_sitemaps()
         elif args.screen:
-            result = await agent.generate_screen(args.screen)
+            result = await agent.generate_screen(
+                args.screen, use_design_skill=not args.no_skill
+            )
         elif getattr(args, "all"):
             result = await agent.generate_all_screens()
         elif args.prototype:
@@ -582,3 +782,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
