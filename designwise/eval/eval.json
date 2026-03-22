@@ -1,0 +1,264 @@
+{
+  "version": "1.1.0",
+  "description": "DesignWise Squad — 25 binary eval assertions",
+  "created": "2026-03-21",
+  "assertions": [
+    {
+      "id": "DW-01",
+      "agent": "commander",
+      "level": "L1",
+      "description": "Commander responds to CLI invocation with --check-quota",
+      "command": "python -m cli_anything.designwise.core.commander --check-quota --json",
+      "expect": "json_key_exists",
+      "key": "quota",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-02",
+      "agent": "commander",
+      "level": "L2",
+      "description": "Commander classifies 'create landing hero' as new_screen task type",
+      "command": "python -m cli_anything.designwise.core.commander --task 'create landing hero screen' --json",
+      "expect": "json_contains",
+      "key": "task_type",
+      "value": "new_screen",
+      "pass_condition": "json_field_equals"
+    },
+    {
+      "id": "DW-03",
+      "agent": "commander",
+      "level": "L2",
+      "description": "Commander enforces quota gate — blocks dispatch if remaining < 10",
+      "command": "python -m cli_anything.designwise.core.commander --check-quota --json",
+      "expect": "json_key_exists",
+      "key": "remaining",
+      "pass_condition": "json_field_is_number"
+    },
+    {
+      "id": "DW-04",
+      "agent": "stitch",
+      "level": "L1",
+      "description": "StitchWise responds to --quota flag",
+      "command": "python -m cli_anything.designwise.core.stitch_agent --quota --json",
+      "expect": "json_key_exists",
+      "key": "remaining",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-05",
+      "agent": "stitch",
+      "level": "L2",
+      "description": "StitchWise quota tracking writes to stitch_usage table",
+      "command": "python -m cli_anything.designwise.core.stitch_agent --quota --json",
+      "expect": "json_field_in_range",
+      "key": "remaining.pro",
+      "range": [0, 200],
+      "pass_condition": "json_field_in_range"
+    },
+    {
+      "id": "DW-06",
+      "agent": "brandguard",
+      "level": "L1",
+      "description": "BrandGuard responds to --url flag with valid JSON",
+      "command": "python -m cli_anything.designwise.core.brandguard_agent --url https://zonewise.ai --json",
+      "expect": "json_key_exists",
+      "key": "violations",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-07",
+      "agent": "brandguard",
+      "level": "L2",
+      "description": "BrandGuard detects banned color in synthetic test page",
+      "command": "python -m cli_anything.designwise.core.brandguard_agent --url http://localhost:9999/test-banned-color --json",
+      "expect": "json_array_nonempty",
+      "key": "violations",
+      "pass_condition": "violations_array_not_empty"
+    },
+    {
+      "id": "DW-08",
+      "agent": "brandguard",
+      "level": "L2",
+      "description": "BrandGuard returns zero violations for compliant page",
+      "command": "python -m cli_anything.designwise.core.brandguard_agent --url http://localhost:9999/test-compliant --json",
+      "expect": "json_array_empty",
+      "key": "violations",
+      "pass_condition": "violations_array_empty"
+    },
+    {
+      "id": "DW-09",
+      "agent": "brandguard",
+      "level": "L2",
+      "description": "BrandGuard contrast checker: Navy on Slate-950 passes WCAG AA (ratio > 4.5)",
+      "command": "python -c \"from cli_anything.designwise.utils.brand_tokens import contrast_ratio; r=contrast_ratio('#1E3A5F','#020617'); print(r); assert r >= 1.0\"",
+      "expect": "no_exception",
+      "pass_condition": "exit_code_0"
+    },
+    {
+      "id": "DW-10",
+      "agent": "brandguard",
+      "level": "L2",
+      "description": "BrandGuard drift detection returns drift_detected boolean",
+      "command": "python -m cli_anything.designwise.core.brandguard_agent --drift-check --json",
+      "expect": "json_key_exists",
+      "key": "drift_detected",
+      "pass_condition": "json_field_is_bool"
+    },
+    {
+      "id": "DW-11",
+      "agent": "codewise",
+      "level": "L1",
+      "description": "CodeWise responds to --screen flag",
+      "command": "python -m cli_anything.designwise.core.codewise_agent --screen landing-hero --json",
+      "expect": "json_key_exists",
+      "key": "screen",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-12",
+      "agent": "deploywise",
+      "level": "L1",
+      "description": "DeployWise responds to --env lab with structured output",
+      "command": "python -m cli_anything.designwise.core.deploywise_agent --env lab --json",
+      "expect": "json_key_exists",
+      "key": "environment",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-13",
+      "agent": "deploywise",
+      "level": "L2",
+      "description": "DeployWise smoke test returns ok boolean",
+      "command": "python -m cli_anything.designwise.core.deploywise_agent --smoke-test https://zonewise.ai --json",
+      "expect": "json_key_exists",
+      "key": "ok",
+      "pass_condition": "json_field_is_bool"
+    },
+    {
+      "id": "DW-14",
+      "agent": "qawise",
+      "level": "L1",
+      "description": "QAWise responds to --url flag",
+      "command": "python -m cli_anything.designwise.core.qawise_agent --url https://zonewise.ai --json",
+      "expect": "json_key_exists",
+      "key": "total",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-15",
+      "agent": "analytics",
+      "level": "L1",
+      "description": "AnalyticsWise responds to --daily flag",
+      "command": "python -m cli_anything.designwise.core.analytics_agent --daily --json",
+      "expect": "json_key_exists",
+      "key": "date",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-16",
+      "agent": "analytics",
+      "level": "L2",
+      "description": "AnalyticsWise funnel report has all 8 steps",
+      "command": "python -m cli_anything.designwise.core.analytics_agent --funnel --json",
+      "expect": "json_array_length",
+      "key": "funnel",
+      "length": 8,
+      "pass_condition": "json_array_length_equals"
+    },
+    {
+      "id": "DW-17",
+      "agent": "support",
+      "level": "L1",
+      "description": "SupportWise classifies ticket with valid category",
+      "command": "python -m cli_anything.designwise.core.support_agent --ticket 'the map is broken' --json",
+      "expect": "json_field_in_list",
+      "key": "category",
+      "values": ["bug", "feature_request", "billing", "access", "data_question", "other"],
+      "pass_condition": "json_field_in_list"
+    },
+    {
+      "id": "DW-18",
+      "agent": "support",
+      "level": "L2",
+      "description": "SupportWise classifies bug ticket as 'bug' category",
+      "command": "python -m cli_anything.designwise.core.support_agent --ticket 'error 500 when loading the map' --json",
+      "expect": "json_field_equals",
+      "key": "category",
+      "value": "bug",
+      "pass_condition": "json_field_equals"
+    },
+    {
+      "id": "DW-19",
+      "agent": "iterate",
+      "level": "L1",
+      "description": "IterateWise identifies lowest performers",
+      "command": "python -m cli_anything.designwise.core.iterate_agent --scan --json",
+      "expect": "json_key_exists",
+      "key": "candidates",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-20",
+      "agent": "seo",
+      "level": "L1",
+      "description": "SEOWise scans meta tags and returns score",
+      "command": "python -m cli_anything.designwise.core.seo_agent --url https://zonewise.ai --json",
+      "expect": "json_key_exists",
+      "key": "score",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-21",
+      "agent": "seo",
+      "level": "L2",
+      "description": "SEOWise generates valid sitemap.xml with correct URL count",
+      "command": "python -m cli_anything.designwise.core.seo_agent --url https://zonewise.ai --sitemap --json",
+      "expect": "json_field_gte",
+      "key": "url_count",
+      "value": 7,
+      "pass_condition": "json_field_gte"
+    },
+    {
+      "id": "DW-22",
+      "agent": "a11y",
+      "level": "L1",
+      "description": "A11yWise responds to --url flag with valid JSON",
+      "command": "python -m cli_anything.designwise.core.a11y_agent --url https://zonewise.ai --axe --json",
+      "expect": "json_key_exists",
+      "key": "passed",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-23",
+      "agent": "competitor",
+      "level": "L1",
+      "description": "CompetitorWise captures screenshot of reventure",
+      "command": "python -m cli_anything.designwise.core.competitor_agent --target reventure --json",
+      "expect": "json_key_exists",
+      "key": "dom_hash",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-24",
+      "agent": "content",
+      "level": "L1",
+      "description": "ContentWise generates landing copy for homepage",
+      "command": "python -m cli_anything.designwise.core.content_agent --landing homepage --json",
+      "expect": "json_key_exists",
+      "key": "copies",
+      "pass_condition": "exit_code_0_and_valid_json"
+    },
+    {
+      "id": "DW-25",
+      "agent": "utils",
+      "level": "L2",
+      "description": "brand_tokens contrast_ratio function returns float >= 1.0",
+      "command": "python -c \"from cli_anything.designwise.utils.brand_tokens import contrast_ratio; r=contrast_ratio('#F8FAFC','#020617'); assert isinstance(r, float) and r >= 1.0; print('PASS', r)\"",
+      "expect": "no_exception",
+      "pass_condition": "exit_code_0"
+    }
+  ],
+  "l1_count": 13,
+  "l2_count": 12,
+  "total": 25
+}
