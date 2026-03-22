@@ -1,10 +1,10 @@
-name: "Summit: DesignWise S1 Complete — CLI + 9 Agents + Schema + Eval"
+name: "Summit: DesignWise S1 Complete — V1.2.0 Full Sprint"
 on:
   workflow_dispatch: {}
 
 jobs:
   s1-complete:
-    name: "Finish S1: CLI scaffold + remaining agents + Supabase + eval"
+    name: "S1: CLI + 13 Agents + Schema + Eval + Tests"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -25,14 +25,17 @@ jobs:
           command_timeout: 110m
           envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           script: |
+            set -e
             echo "=== [1/6] Setup claude user ==="
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
             mkdir -p /home/claude/.npm-global
             chown -R claude:claude /home/claude
 
             echo "=== [2/6] Update Claude Code ==="
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
             npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
-            claude --version 2>/dev/null
+            which claude && claude --version || echo "Claude Code not in PATH, checking npm global"
+            ls -la /home/claude/.npm-global/bin/claude 2>/dev/null || ls -la /usr/local/bin/claude 2>/dev/null || echo "WARN: claude binary not found"
 
             echo "=== [3/6] Setup auth token ==="
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
@@ -53,7 +56,7 @@ jobs:
             echo "Repo ready. Last commit:"
             git log --oneline -3
 
-            echo "=== [5/6] Run Claude Code ==="
+            echo "=== [5/6] Run Claude Code — S1 Complete ==="
             su - claude -c "
               export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
               export SUPABASE_URL='$SUPABASE_URL'
@@ -66,148 +69,41 @@ jobs:
 
               cd /opt/biddeed/cli-anything-biddeed
 
-              claude --print --dangerously-skip-permissions \
-                'MISSION: Complete DesignWise Squad Sprint 1. The spec patch (bf79c28) already built 4 core agents. You are finishing the remaining S1 tasks.
+              claude --print --auto-mode \
+                'MISSION: Complete DesignWise Squad Sprint 1 to 100%.
 
-              STEP 0 — READ CONTEXT
-              1. Read CLAUDE.md
-              2. Read docs/plans/DESIGNWISE-SPEC.md (V1.1.0)
-              3. Read docs/plans/DESIGNWISE-PLAN.md (V1.1.0)
-              4. List designwise/ directory to see what already exists
-              5. Skim the 4 existing agents to understand current code patterns:
-                 - designwise/agent-harness/cli_anything/designwise/core/brandguard_agent.py (479 lines)
-                 - designwise/agent-harness/cli_anything/designwise/core/commander.py (423 lines)
-                 - designwise/agent-harness/cli_anything/designwise/core/stitch_agent.py (584 lines)
-                 - designwise/agent-harness/cli_anything/designwise/core/codewise_agent.py (480 lines)
+              STEP 0 — READ THE DISPATCH DOC (MANDATORY FIRST ACTION)
+              Read this file completely before doing anything else:
+              cat docs/plans/DESIGNWISE-S1-DISPATCH.md
 
-              STEP 1 — CREATE SHARED UTILS (S1.1)
-              Create designwise/agent-harness/cli_anything/designwise/utils/:
-              a) supabase_client.py — shared Supabase helper (use SUPABASE_URL + SUPABASE_SERVICE_KEY env vars, httpx or requests, CRUD for all 11 designwise tables)
-              b) brand_tokens.py — DESIGN.md parser (load color tokens, font stack, banned colors, contrast rules). Parse markdown file into structured dict.
-              c) vercel_api.py — Vercel deploy/preview API client (create deployment, get preview URL, check status, trigger rollback). Use Vercel REST API.
-              All utils must be importable by agents.
+              This file contains:
+              - Exact list of 19 files that EXIST (do not recreate)
+              - Exact list of files that are MISSING (create these)
+              - 9 execution steps with file specs, method signatures, and commit messages
+              - Verification checklist (8 checks before Telegram)
+              - Failure handling protocol
 
-              STEP 2 — CREATE MAIN CLI (S1.1)
-              Create designwise/agent-harness/cli_anything/designwise/designwise_cli.py:
-              - 13 subcommands: commander, stitch, brandguard, code, deploy, qa, analytics, support, iterate, seo, a11y, competitor, content
-              - Each subcommand imports and calls the corresponding agent
-              - All subcommands support --json flag for structured output
-              - Help text describes each agent role
-              - Entry point: main() function
+              THEN also read:
+              cat CLAUDE.md
+              cat docs/plans/DESIGNWISE-SPEC.md | head -200
+              ls -la designwise/agent-harness/cli_anything/designwise/core/
+              ls -la designwise/tests/
 
-              Create designwise/agent-harness/setup.py:
-              - Package: cli-anything-designwise
-              - Entry point: designwise = cli_anything.designwise.designwise_cli:main
-              - Dependencies: httpx, playwright, langgraph (optional)
+              EXECUTION RULES:
+              1. Follow the 9 steps in DESIGNWISE-S1-DISPATCH.md IN ORDER
+              2. Commit after EACH step — never batch
+              3. Use git config user.email ci@biddeed.ai and user.name BidDeed-CI
+              4. Git remote: https://x-access-token:\${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
+              5. Push to main after each commit
+              6. For Supabase tables: try direct SQL via psql or pg npm package first. Connection: postgresql://postgres.mocerqjnksmhcjzxrewo:[service_role_key]@aws-0-us-east-1.pooler.supabase.com:6543/postgres. If that fails, create the migration SQL file and note it needs manual run.
+              7. Run ALL 8 verification checks from Step 9 before sending Telegram
+              8. NEVER claim 100% if any verification fails — send partial status instead
+              9. If context window hits 50%, stop and commit what you have, send partial Telegram
 
-              STEP 3 — CREATE 9 REMAINING AGENT STUBS (S1.1)
-              Create these files in designwise/agent-harness/cli_anything/designwise/core/:
-              Each agent must have: class with run() method, --json CLI support, docstring with role/triggers/outputs from SPEC.
-              Follow the same pattern as the existing 4 agents.
+              COST DISCIPLINE: No pip installs over 50MB. No Docker pulls. Use what is on the system.
+              NEVER-LIE: If a table creation fails, say it failed. If a test imports fail, say why.
 
-              a) deploywise_agent.py — 3-tier deploy gatekeeper (lab/preview/prod). Methods: deploy_to_lab(), create_pr(), check_gates(), promote_to_prod(), smoke_test(), rollback(). Uses vercel_api.py util.
-              b) qawise_agent.py — Visual regression + E2E. Methods: capture_screenshots(), diff_against_baseline(), run_e2e_flows(), run_lighthouse(). Uses Playwright.
-              c) analytics_agent.py — PostHog + funnel tracking. Methods: aggregate_daily(), generate_funnel_report(), check_conversion_alerts(). Reads from PostHog API, writes to page_analytics + conversion_funnel Supabase tables.
-              d) support_agent.py — Ticket classifier. Methods: classify_ticket(), auto_respond(), create_github_issue(), escalate_to_telegram(). Uses Claude Sonnet for classification.
-              e) iterate_agent.py — Karpathy self-improvement loop. Methods: identify_lowest_performers(), generate_variants(), configure_ab_test(), measure_significance(), promote_winner(). Full A/B testing pipeline.
-              f) seo_agent.py — SEO automation. Methods: scan_meta_tags(), generate_sitemap(), check_structured_data(), run_lighthouse_seo(), monitor_core_web_vitals(). 
-              g) a11y_agent.py — WCAG 2.1 AA compliance. Methods: run_axe_scan(), test_keyboard_navigation(), audit_aria_labels(), check_color_independence(). Uses axe-core via Playwright.
-              h) competitor_agent.py — Weekly competitor monitor. Methods: capture_screenshot(), diff_dom_hash(), extract_pricing(), detect_new_routes(), analyze_tech_stack(). Targets: propertyonion, reventure, dono, gridics, testfit.
-              i) content_agent.py — Content generation. Methods: generate_landing_copy(), generate_blog_post(), generate_email_sequence(), validate_seo(), validate_brand_tone(). Uses Claude Sonnet.
-
-              Each agent: minimum 150 lines with real method signatures, docstrings, error handling, JSON output format. NOT empty stubs — include the logic skeleton with TODO comments for implementation details.
-
-              STEP 4 — EXECUTE SUPABASE MIGRATION (S1.4)
-              Run the migration at supabase/migrations/20260321_designwise_stitch_patch.sql.
-              
-              Read the file first. Then execute each CREATE TABLE statement via curl:
-              curl -s -X POST \"\\${SUPABASE_URL}/rest/v1/rpc\" \\
-                -H \"apikey: \\${SUPABASE_SERVICE_KEY}\" \\
-                -H \"Authorization: Bearer \\${SUPABASE_SERVICE_KEY}\" \\
-                -H \"Content-Type: application/json\"
-
-              If rpc endpoint doesnt work for DDL, try the SQL execution endpoint or write a Node.js script using pg or postgres npm package to connect directly. The Supabase connection string can be derived from the URL.
-
-              Also create the ORIGINAL 10 tables from DESIGNWISE-SPEC.md section 4 if they dont exist:
-              design_tasks, brand_violations, visual_baselines, page_analytics, conversion_funnel, support_tickets, ab_tests, deploy_log, competitor_snapshots, seo_audits
-
-              Plus stitch_usage from the patch.
-              Plus ALTER TABLE design_tasks ADD COLUMN IF NOT EXISTS figma_url TEXT.
-
-              VERIFY each table exists by querying:
-              curl -s \"\\${SUPABASE_URL}/rest/v1/TABLE_NAME?select=count\" \\
-                -H \"apikey: \\${SUPABASE_SERVICE_KEY}\" \\
-                -H \"Authorization: Bearer \\${SUPABASE_SERVICE_KEY}\"
-
-              STEP 5 — CREATE BRANDGUARD PR CHECK WORKFLOW (S1.2)
-              Create .github/workflows/brandguard-pr-check.yml:
-              - Trigger: on pull_request targeting main branch
-              - Steps: checkout → setup python → install deps → run brandguard scan against PR preview URL
-              - Required check: blocks merge if violations found
-              - Output: PR comment with violation details
-
-              STEP 6 — CREATE EVAL FRAMEWORK (S1.6)
-              a) Create designwise/eval/eval.json — 25 binary assertions from SPEC section 5
-              b) Create designwise/eval/eval_runner.py — follows existing autoloop pattern from scripts/eval_runner.py
-              c) Create .github/workflows/autoloop-designwise.yml — nightly 3AM EST cron (one hour after main autoloop at 2AM)
-              d) L1 = agent activation (responds to CLI), L2 = output quality (25 assertions)
-
-              STEP 7 — WRITE REMAINING TESTS
-              Add to designwise/tests/:
-              - test_cli.py — 13 subcommand invocations, --json flag, --help flag (15 tests)
-              - test_brandguard_full.py — color validation, font validation, contrast calc, link check, nav check (20 tests)  
-              - test_commander_full.py — classification routing, state transitions, quota enforcement (10 tests)
-              - test_utils.py — supabase_client, brand_tokens parser, vercel_api (10 tests)
-              Total: 55+ new tests (28 existing + 55 new = 83+)
-
-              STEP 8 — GIT PUSH
-              git config user.email ci@biddeed.ai
-              git config user.name BidDeed-CI
-              git remote set-url origin https://x-access-token:\\${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
-
-              Commit after each major step. Push frequently. NEVER batch everything into one giant commit.
-              Commit messages: 
-              - \"feat(designwise): S1.1 — shared utils + CLI scaffold + setup.py\"
-              - \"feat(designwise): S1.1 — 9 remaining agent implementations\"
-              - \"feat(designwise): S1.4 — Supabase 11 tables created + verified\"
-              - \"feat(designwise): S1.2 — brandguard-pr-check.yml workflow\"
-              - \"feat(designwise): S1.6 — eval framework (25 assertions + autoloop)\"
-              - \"test(designwise): S1 — 55+ new tests for CLI, BrandGuard, Commander, utils\"
-
-              STEP 9 — TELEGRAM NOTIFICATION
-              When ALL steps complete:
-              curl -s -X POST \"https://api.telegram.org/bot\\${TELEGRAM_BOT_TOKEN}/sendMessage\" \\
-                -d chat_id=\"\\${TELEGRAM_CHAT_ID}\" \\
-                -d parse_mode=\"Markdown\" \\
-                -d text=\"✅ *DESIGNWISE SPRINT 1 COMPLETE*
-              
-              S1.1 Scaffold:
-              • designwise_cli.py (13 subcommands)
-              • setup.py (pip installable)
-              • 3 shared utils (supabase, brand_tokens, vercel)
-              • 9 agent implementations added (13 total)
-              
-              S1.2 BrandGuard:
-              • brandguard-pr-check.yml deployed
-              • Full Playwright scanner ready
-              
-              S1.3 Commander:
-              • LangGraph state machine operational
-              • Quota enforcement + parallel dispatch
-              
-              S1.4 Supabase:
-              • 11 tables created + verified
-              • RLS policies applied
-              
-              S1.6 Eval:
-              • eval.json (25 assertions)
-              • autoloop-designwise.yml (nightly 3AM EST)
-              
-              Tests: 83+ total
-              Repo: cli-anything-biddeed/designwise/\"
-
-              ZERO DOLLARS SPENT. ALL EXISTING INFRA.
-              '
+              GO. Execute Step 0 through Step 9. Push results. Send Telegram.'
             "
 
             echo "=== [6/6] Session complete ==="
