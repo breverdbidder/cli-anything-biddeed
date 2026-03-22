@@ -1,7 +1,7 @@
 """
 StitchWise Agent — Google Stitch 2.0 MCP Wrapper
 DesignWise Squad | Agent 02
-Version: 1.2.0 (Stitch 2.0 Spec Patch + Gap Closure applied)
+Version: 1.3.0 (S2.1 — Real MCP transport via StitchMCPClient)
 
 Amendments applied:
 - Amendment 1: @google/stitch-sdk MCP (replaces @_davideast/stitch-mcp)
@@ -15,6 +15,7 @@ Amendments applied:
 - Amendment 10: MCP tool name mapping (build_sitemaps, get_screen_code, get_screen_image)
 - Amendment 10: npx stitchmcp community wrapper as MCP fallback
 - Amendment 10: stitch:design skill pre-processor pipeline
+- S2.1: _call_stitch_mcp() replaced with real StitchMCPClient transport
 """
 
 from __future__ import annotations
@@ -26,6 +27,11 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 import httpx
+
+try:
+    from cli_anything.designwise.utils.stitch_mcp import StitchMCPClient
+except ImportError:
+    StitchMCPClient = None  # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -662,38 +668,31 @@ class StitchWiseAgent:
 
     async def _call_stitch_mcp(self, action: str, **kwargs) -> dict[str, Any]:
         """
-        Calls the Stitch MCP server via @google/stitch-sdk.
+        Calls the Stitch MCP server via StitchMCPClient (real transport, S2.1).
 
         Tool resolution:
           1. Maps internal action → canonical MCP tool name via ACTION_TO_MCP_TOOL
           2. Passes mcp_tool override if explicitly provided
-          3. Falls back to community wrapper (npx stitchmcp) if SDK unavailable
+          3. StitchMCPClient handles primary (@google/stitch-sdk) + fallback (npx stitchmcp)
+          4. On MCP unavailability, returns cached HTML or a typed stub for CI continuity
 
-        MCP config (primary):   {"command": "npx", "args": ["@google/stitch-sdk", "serve"]}
-        MCP config (fallback):  {"command": "npx", "args": ["stitchmcp"]}
-
-        Returns structured result with html, screenshot_url, design_tokens.
+        Returns structured result with html, screenshot_base64, design_tokens.
         """
         screen_name = kwargs.get("screen_name", "unknown")
         mode = kwargs.get("mode", self.mode)
         skill = kwargs.get("skill")
+        routes = kwargs.get("routes", ["/"])
 
         # Resolve canonical MCP tool name (Gap 1)
         mcp_tool = kwargs.get("mcp_tool") or ACTION_TO_MCP_TOOL.get(action, "get_screen_code")
 
-        # Stub response — real MCP call happens when Claude Code runs with Stitch MCP configured
-        # The stub includes the canonical tool name for verification
-        return {
+        base_result: dict[str, Any] = {
             "action": action,
             "mcp_tool": mcp_tool,
-            "mcp_config": "primary:@google/stitch-sdk | fallback:npx stitchmcp",
             "skill": skill,
             "screen_name": screen_name,
             "project_id": self.project_id,
             "mode": mode,
-            "html": f"<!-- Stitch {screen_name} output — MCP tool: {mcp_tool} -->",
-            "screenshot_url": f"https://stitch.googleapis.com/projects/{self.project_id}/screens/{screen_name}.png",
-            "screenshot_base64": None,  # Populated by get_screen_image MCP call
             "design_tokens": {
                 "primary": "#1E3A5F",
                 "accent": "#F59E0B",
@@ -702,6 +701,57 @@ class StitchWiseAgent:
             },
             "generated_at": datetime.utcnow().isoformat(),
         }
+
+        if StitchMCPClient is None:
+            # stitch_mcp module not importable (missing deps) — return typed stub
+            base_result.update({
+                "html": f"<!-- Stitch {screen_name} — StitchMCPClient unavailable -->",
+                "screenshot_base64": None,
+                "mcp_config": "unavailable",
+            })
+            return base_result
+
+        try:
+            client = StitchMCPClient()
+            await client.start()
+
+            if mcp_tool == "build_sitemaps":
+                html_map = await client.build_sitemaps(self.project_id, routes)
+                base_result.update({
+                    "html_map": html_map,
+                    "html": next(iter(html_map.values()), ""),
+                    "screenshot_base64": None,
+                    "mcp_config": "primary:@google/stitch-sdk | fallback:npx stitchmcp",
+                })
+
+            elif mcp_tool == "get_screen_image":
+                b64 = await client.get_screen_image(self.project_id, screen_name)
+                base_result.update({
+                    "html": f"<!-- {screen_name} — image only -->",
+                    "screenshot_base64": b64,
+                    "mcp_config": "primary:@google/stitch-sdk | fallback:npx stitchmcp",
+                })
+
+            else:  # get_screen_code (default)
+                html = await client.get_screen_code(self.project_id, screen_name)
+                base_result.update({
+                    "html": html,
+                    "screenshot_base64": None,
+                    "mcp_config": "primary:@google/stitch-sdk | fallback:npx stitchmcp",
+                })
+
+            await client.close()
+
+        except Exception as exc:
+            # MCP server unavailable — return cached stub so callers can continue
+            base_result.update({
+                "html": f"<!-- Stitch {screen_name} — MCP error: {exc} -->",
+                "screenshot_base64": None,
+                "mcp_config": "error",
+                "mcp_error": str(exc),
+            })
+
+        return base_result
 
     # ------------------------------------------------------------------
     # Telegram helper
