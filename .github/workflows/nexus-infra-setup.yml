@@ -1,0 +1,141 @@
+name: Nexus Infra Setup
+
+on:
+  repository_dispatch:
+    types: [nexus-infra]
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install PyNaCl
+        run: pip install pynacl
+
+      - name: Copy infra secrets to everest-nexus
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, base64, urllib.request
+          from nacl import encoding, public
+
+          token = os.environ["GH_PAT"]
+          repo = "breverdbidder/everest-nexus"
+
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/secrets/public-key",
+              headers={"Authorization": f"token {token}"}
+          )
+          pk_data = json.loads(urllib.request.urlopen(req).read())
+
+          def encrypt(value):
+              pk = public.PublicKey(pk_data["key"].encode(), encoding.Base64Encoder())
+              sealed = public.SealedBox(pk).encrypt(value.encode())
+              return base64.b64encode(sealed).decode()
+
+          for name in ["CF_API_TOKEN", "CF_ACCOUNT_ID", "VERCEL_TOKEN"]:
+              value = os.environ.get(name, "")
+              if not value:
+                  print(f"SKIP {name}: empty")
+                  continue
+              data = json.dumps({"encrypted_value": encrypt(value), "key_id": pk_data["key_id"]}).encode()
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/actions/secrets/{name}",
+                  data=data, method="PUT",
+                  headers={"Authorization": f"token {token}", "Content-Type": "application/json"}
+              )
+              print(f"{name}: HTTP {urllib.request.urlopen(req).status}")
+          PYEOF
+
+      - name: Add nexus.zonewise.ai CNAME via Cloudflare API
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          # Get zonewise.ai zone ID
+          ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=zonewise.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" | \
+            python3 -c "import json,sys; print(json.load(sys.stdin)['result'][0]['id'])")
+          echo "Zone ID: $ZONE_ID"
+
+          # Check if CNAME already exists
+          EXISTS=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=nexus.zonewise.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('result',[])))")
+
+          if [ "$EXISTS" = "0" ]; then
+            # Create CNAME
+            RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+              -H "Authorization: Bearer $CF_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "type": "CNAME",
+                "name": "nexus",
+                "content": "cname.vercel-dns.com",
+                "ttl": 1,
+                "proxied": false
+              }')
+            echo "CNAME created: $(echo $RESULT | python3 -c "import json,sys; d=json.load(sys.stdin); print('SUCCESS' if d.get('success') else d.get('errors','FAIL'))")"
+          else
+            echo "CNAME already exists"
+          fi
+
+      - name: Create Vercel project and link domain
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          # Check if project exists
+          EXISTS=$(curl -s "https://api.vercel.com/v9/projects/everest-nexus" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if d.get('id') else 'no')")
+
+          if [ "$EXISTS" = "no" ]; then
+            # Create project linked to GitHub repo
+            RESULT=$(curl -s -X POST "https://api.vercel.com/v10/projects" \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "name": "everest-nexus",
+                "framework": "nextjs",
+                "gitRepository": {
+                  "type": "github",
+                  "repo": "breverdbidder/everest-nexus"
+                },
+                "environmentVariables": [
+                  {"key": "NEXT_PUBLIC_SUPABASE_URL", "value": "https://mocerqjnksmhcjzxrewo.supabase.co", "target": ["production", "preview"]},
+                  {"key": "NEXT_PUBLIC_SUPABASE_ANON_KEY", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.Rl1R2x4MkklI1aSEFfc8Rj_2hMsRVNMlEklKlKQDw", "target": ["production", "preview"]}
+                ]
+              }')
+            PROJECT_ID=$(echo $RESULT | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','FAIL'))")
+            echo "Project created: $PROJECT_ID"
+
+            # Add domain
+            curl -s -X POST "https://api.vercel.com/v10/projects/everest-nexus/domains" \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"name": "nexus.zonewise.ai"}' | \
+              python3 -c "import json,sys; d=json.load(sys.stdin); print(f'Domain: {d.get(\"name\",\"FAIL\")} — verified: {d.get(\"verified\",\"pending\")}')"
+          else
+            echo "Project already exists"
+            # Still try to add domain
+            curl -s -X POST "https://api.vercel.com/v10/projects/everest-nexus/domains" \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"name": "nexus.zonewise.ai"}' | \
+              python3 -c "import json,sys; d=json.load(sys.stdin); print(f'Domain: {d.get(\"name\",\"FAIL\")}')" 2>/dev/null || echo "Domain may already be linked"
+          fi
+
+      - name: Telegram report
+        if: always()
+        env:
+          BIDDEED_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          BIDDEED_BOT_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$BIDDEED_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"$BIDDEED_BOT_CHAT_ID\",\"text\":\"🧠 NEXUS INFRA: ${{ job.status }}\n\n• CF secrets → everest-nexus\n• nexus.zonewise.ai CNAME → Vercel\n• Vercel project created + domain linked\n\n${{ job.status == 'success' && 'Zero HITL. All autonomous.' || 'Check logs for errors.' }}\"}" || true
