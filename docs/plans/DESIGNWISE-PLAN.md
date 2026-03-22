@@ -1,6 +1,6 @@
 # DESIGNWISE-PLAN.md
 # DesignWise Squad — Implementation Plan (Claude Code Handoff)
-# Date: 2026-03-21 | Sprints: 4 weeks | Version: 1.1.0
+# Date: 2026-03-21 | Sprints: 4 weeks | Version: 1.2.0
 # Repo: breverdbidder/cli-anything-biddeed
 # Target: breverdbidder/zonewise-web + breverdbidder/cli-anything-biddeed
 # Patch: Stitch 2.0 amendments applied 2026-03-21 (DESIGNWISE-SPEC-PATCH.md)
@@ -108,6 +108,11 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 - [ ] Save screenshots to Supabase Storage
 - [ ] CLI: `cli-anything-designwise stitch --screen "landing-hero" --json`
 - [x] **PATCH:** 7 quota tests (test_stitch_quota.py)
+- [x] **PATCH (A10):** MCP tool name mapping — build_sitemaps, get_screen_code, get_screen_image canonical tools + ACTION_TO_MCP_TOOL resolver
+- [x] **PATCH (A10):** npx stitchmcp community wrapper as MCP fallback config (STITCH_MCP_FALLBACK_CONFIG)
+- [x] **PATCH (A10):** stitch:design skill pre-processor — enhance_prompt_with_skill() runs before generation, --no-skill CLI flag to bypass
+- [x] **PATCH (A10):** CLI commands for canonical MCP tools: --get-code, --get-image, --build-sitemaps
+- [x] **PATCH (A10):** stitch_agent.py bumped to V1.2.0
 
 ### S2.2 — CodeWise Agent (P0)
 - [ ] Implement codewise_agent.py
@@ -301,7 +306,7 @@ git push origin lab
 
 ---
 
-## STITCH 2.0 PATCH TASKS (V1.1.0 — Sprints updated)
+## STITCH 2.0 PATCH TASKS (V1.2.0 — Sprints updated)
 
 ### Patch Sprint S1 (Week 1 additions)
 - [x] Create `stitch_usage` quota table (migration written, needs Supabase Dashboard run)
@@ -315,6 +320,11 @@ git push origin lab
 - [x] Stitch Skills Library react-component-conversion skill — Amendment 1
 - [x] BrandGuard URL extraction + DESIGN.md drift diff — Amendment 3
 - [x] CodeWise direct Stitch MCP pipeline (primary + fallback) — Amendment 4
+- [x] MCP tool name mapping: build_sitemaps, get_screen_code, get_screen_image — Amendment 10
+- [x] npx stitchmcp community wrapper as fallback MCP config — Amendment 10
+- [x] stitch:design skill pre-processor in generate_screen() pipeline — Amendment 10
+- [x] CLI commands for canonical MCP tools: --get-code, --get-image, --build-sitemaps — Amendment 10
+- [x] stitch_agent.py V1.2.0 with all 3 gaps closed — Amendment 10
 
 ### Patch Sprint S3 (Week 3 additions)
 - [x] Interactive prototype flow: generate_prototype() — Amendment 2
@@ -341,4 +351,5 @@ git push origin lab
 ---
 
 *Plan ready for Claude Code handoff. 2026-03-21.*
-*V1.1.0 Stitch 2.0 patch tasks added 2026-03-21.*
+*V1.2.0 Stitch 2.0 + Gap Closure patch tasks added 2026-03-21.*
+
