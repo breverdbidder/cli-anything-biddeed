@@ -1,6 +1,6 @@
 # Competitor Diff Report: PropertyOnion vs BidDeed.AI AuctionCalendar
 
-**Generated:** 2026-03-22 07:11 UTC
+**Generated:** 2026-03-22 07:15 UTC
 **Competitor URL:** https://propertyonion.com/property_search/Brevard?view_type=calendar
 **BidDeed.AI Component:** components/competitor-lens/AuctionCalendar.jsx
 **BrandGuard Score:** PASS 100/100

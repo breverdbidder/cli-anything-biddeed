@@ -1,6 +1,6 @@
 # Competitor Diff Report: Foreclosure.com vs BidDeed.AI PropertySearchGrid
 
-**Generated:** 2026-03-22 07:11 UTC
+**Generated:** 2026-03-22 07:15 UTC
 **Competitor URL:** https://www.foreclosure.com/listing/search-results/?stateCode=FL
 **BidDeed.AI Component:** components/competitor-lens/PropertySearchGrid.jsx
 **BrandGuard Score:** PASS 100/100
