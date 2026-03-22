@@ -12,16 +12,20 @@ jobs:
       - name: "Install psql"
         run: sudo apt-get install -y -qq postgresql-client
 
-      - name: "Run migration via shared pooler (IPv4, session mode)"
+      - name: "Run migration via shared pooler"
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          echo "=== Running migration via shared pooler ==="
-          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
-            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require" \
+          echo "=== Running migration ==="
+          psql \
+            -h aws-0-us-east-1.pooler.supabase.com \
+            -p 6543 \
+            -U postgres.mocerqjnksmhcjzxrewo \
+            -d postgres \
             -f designwise/migrations/001_designwise_tables.sql \
-            --echo-errors 2>&1
-          echo "=== Migration complete ==="
+            --echo-errors \
+            "sslmode=require" 2>&1
+          echo "=== Done ==="
 
       - name: "Verify 11 tables"
         env:
@@ -29,22 +33,15 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           PASS=0
-          FAIL=0
           for TABLE in design_tasks brand_violations visual_baselines page_analytics conversion_funnel support_tickets ab_tests deploy_log competitor_snapshots seo_audits stitch_usage; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "apikey: ${SUPABASE_SERVICE_KEY}" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
               "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
-            if [ "$STATUS" = "200" ]; then
-              echo "OK $TABLE"
-              PASS=$((PASS+1))
-            else
-              echo "FAIL $TABLE ($STATUS)"
-              FAIL=$((FAIL+1))
-            fi
+            if [ "$STATUS" = "200" ]; then echo "OK $TABLE"; PASS=$((PASS+1)); else echo "FAIL $TABLE ($STATUS)"; fi
           done
-          echo "Result: $PASS/11 tables verified"
-          if [ "$FAIL" -gt 0 ]; then exit 1; fi
+          echo "Result: $PASS/11"
+          if [ "$PASS" -lt 11 ]; then exit 1; fi
 
       - name: "Telegram"
         if: success()
@@ -55,8 +52,8 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d parse_mode="Markdown" \
-            --data-urlencode "text=✅ *DESIGNWISE S1.4 — MIGRATION VERIFIED*
-          🗄️ 11/11 tables confirmed via REST API
-          🔑 DB password + shared pooler IPv4 working
+            --data-urlencode "text=✅ *DESIGNWISE S1.4 VERIFIED*
+          🗄️ 11/11 tables via REST API
+          🔑 Pooler + password working
           _Zero-HITL migrations operational._"
 
