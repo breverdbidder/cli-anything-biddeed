@@ -1,108 +1,65 @@
-name: "Summit: UTCC SSH Executor + Foundation"
+name: Summit UTCC SSH Executor
 
 on:
   workflow_dispatch:
-
-env:
-  REPO_PATH: /home/claude/repos/cli-anything-biddeed
+    inputs:
+      max_minutes:
+        description: Max session minutes
+        required: false
+        default: '60'
 
 jobs:
   summit-utcc:
-    name: "⛰️ UTCC SSH Executor + Phase 1"
+    name: UTCC SSH Executor Build
     runs-on: ubuntu-latest
     timeout-minutes: 90
-
     steps:
-      - name: "1️⃣ Deploy to Hetzner via Claude Code"
+      - name: Deploy via Claude Code on Hetzner
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 80m
+          envs: CLAUDE_OAUTH_B64,GH_PAT,BIDDEED_BOT_TOKEN,BIDDEED_BOT_CHAT_ID
           script: |
             set -e
-            
-            # Setup Claude Code auth
-            export CLAUDE_CODE_OAUTH_TOKEN=$(echo "${{ secrets.CLAUDE_OAUTH_B64 }}" | base64 -d)
-            
-            # Switch to claude user with token forwarded
+            OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
             su - claude -c "
-              export CLAUDE_CODE_OAUTH_TOKEN='$(echo "${{ secrets.CLAUDE_OAUTH_B64 }}" | base64 -d)'
+              export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
               export NPM_CONFIG_PREFIX=/home/claude/.npm-global
               export PATH=/home/claude/.npm-global/bin:\$PATH
-              
-              cd /home/claude/repos/cli-anything-biddeed || {
-                mkdir -p /home/claude/repos
-                cd /home/claude/repos
-                git clone https://${{ secrets.GH_PAT }}@github.com/breverdbidder/cli-anything-biddeed.git
-                cd cli-anything-biddeed
-              }
-              
+              export BIDDEED_BOT_TOKEN='$BIDDEED_BOT_TOKEN'
+              export BIDDEED_BOT_CHAT_ID='$BIDDEED_BOT_CHAT_ID'
+              cd /home/claude/repos/cli-anything-biddeed 2>/dev/null || { mkdir -p /home/claude/repos && cd /home/claude/repos && git clone https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git && cd cli-anything-biddeed; }
               git pull origin main
-              
-              claude -p 'MISSION: Build UTCC SSH Executor + Foundation. You are working in cli-anything-biddeed repo.
+              claude -p \"MISSION: Build UTCC SSH Executor and Foundation for cli-anything-biddeed repo.
 
-CONTEXT: The current cloud_executor_v4.py calls the Anthropic API directly which has a dollar 0 balance. We need an SSH-based executor that routes through this Hetzner server where Claude Code runs on the Max plan at dollar 0 cost.
+PHASE 1 - SSH EXECUTOR WORKFLOW:
+Create .github/workflows/utcc-executor-ssh.yml triggered by repository_dispatch type utcc-dispatch. Uses appleboy/ssh-action to SSH into Hetzner (HETZNER_IP secret). Passes task from client_payload.task. Runs claude -p with the task using --dangerously-skip-permissions. Posts Telegram notification on completion using BIDDEED_BOT_TOKEN to BIDDEED_BOT_CHAT_ID.
 
-PHASE 1 — SSH EXECUTOR (CRITICAL):
-1. Create .github/workflows/utcc-executor-ssh.yml:
-   - Triggered by repository_dispatch type: utcc-dispatch
-   - Uses appleboy/ssh-action to SSH into this Hetzner server (host from HETZNER_IP secret, key from HETZNER_SSH_KEY)
-   - Passes task description from client_payload.task
-   - Runs: su - claude, export CLAUDE_CODE_OAUTH_TOKEN from CLAUDE_OAUTH_B64 secret (base64 -d), cd to repo, run claude -p with the task --dangerously-skip-permissions
-   - On completion: POST Telegram notification via BIDDEED_BOT_TOKEN to chat_id from BIDDEED_BOT_CHAT_ID secret
-   - Include timeout handling and error reporting
+PHASE 2 - SUPABASE MIGRATION:
+Create utcc/migrations/001_task_registry.sql with: task_registry table (id UUID PK, task_id TEXT UNIQUE, description TEXT, task_type TEXT, platform TEXT, triggered_by TEXT, status TEXT DEFAULT queued, gha_run_id BIGINT, gha_run_url TEXT, result_summary TEXT, error_message TEXT, tokens_used INT DEFAULT 0, cost_usd NUMERIC DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW(), dispatched_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, batch_id UUID, batch_index INT) and task_logs table (id UUID PK, task_id TEXT REFERENCES task_registry, timestamp TIMESTAMPTZ DEFAULT NOW(), level TEXT, message TEXT, metadata JSONB). Add indexes on status, batch_id, created_at DESC, platform. Enable RLS with anon SELECT and service_role INSERT/UPDATE.
+Then run the migration using curl to Supabase REST API at https://mocerqjnksmhcjzxrewo.supabase.co using the SUPABASE_KEY secret.
 
-PHASE 2 — SUPABASE MIGRATION:
-2. Run SQL migration via Supabase REST API (URL: https://mocerqjnksmhcjzxrewo.supabase.co, service role key from SUPABASE_SERVICE_ROLE_KEY or use the anon key from SUPABASE_KEY secret):
-   - CREATE TABLE IF NOT EXISTS task_registry (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, task_id TEXT UNIQUE NOT NULL, description TEXT, task_type TEXT CHECK (task_type IN ('"'"'gha_executor'"'"', '"'"'modal_conquest'"'"', '"'"'transcript'"'"', '"'"'claude_code'"'"', '"'"'sentinel'"'"', '"'"'custom'"'"')), platform TEXT CHECK (platform IN ('"'"'biddeed'"'"', '"'"'zonewise'"'"', '"'"'shared'"'"', '"'"'personal'"'"')), triggered_by TEXT, telegram_msg_id BIGINT, telegram_chat_id TEXT, status TEXT DEFAULT '"'"'queued'"'"' CHECK (status IN ('"'"'queued'"'"', '"'"'dispatched'"'"', '"'"'running'"'"', '"'"'success'"'"', '"'"'failed'"'"', '"'"'timeout'"'"', '"'"'cancelled'"'"')), gha_run_id BIGINT, gha_run_url TEXT, modal_job_id TEXT, result_summary TEXT, result_url TEXT, error_message TEXT, tokens_used INT DEFAULT 0, cost_usd NUMERIC(8,4) DEFAULT 0, iterations INT DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW(), dispatched_at TIMESTAMPTZ, started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, batch_id UUID, batch_index INT)
-   - CREATE TABLE IF NOT EXISTS task_logs (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, task_id TEXT REFERENCES task_registry(task_id), timestamp TIMESTAMPTZ DEFAULT NOW(), level TEXT, message TEXT, metadata JSONB)
-   - Create indexes on task_registry(status), task_registry(batch_id), task_registry(created_at DESC), task_registry(platform)
-   - Enable RLS, add SELECT policy for anon, INSERT/UPDATE policy for service_role
-   - ALTER PUBLICATION supabase_realtime ADD TABLE task_registry, task_logs
+PHASE 3 - PYTHON MODULES:
+Create utcc/__init__.py, utcc/registry.py (Supabase CRUD for task_registry), utcc/classifier.py (keyword routing: conquer to modal_conquest, transcript/youtube to transcript, sentinel/health to sentinel, default to gha_executor), utcc/notifier.py (Telegram helper using BIDDEED_BOT_TOKEN).
 
-PHASE 3 — PYTHON MODULES:
-3. Create utcc/registry.py — Supabase CRUD: create_task, update_status, get_active_tasks, get_batch
-4. Create utcc/classifier.py — keyword routing: conquer|conquest -> modal_conquest, transcript|youtube -> transcript, sentinel|health -> sentinel, default -> gha_executor
-5. Create utcc/notifier.py — Telegram helper: send_notification(chat_id, message) using BIDDEED_BOT_TOKEN env var
-6. Create utcc/__init__.py
+PHASE 4 - DISPATCHER WORKFLOW:
+Create .github/workflows/utcc-dispatcher.yml triggered by repository_dispatch type utcc-batch-dispatch. Reads batch_id, queries task_registry, matrix strategy per task, routes to correct executor, updates status, sends Telegram notification.
 
-PHASE 4 — BOT COMMANDS:
-7. Update bot code (find bot_v4.py or equivalent) — add commands:
-   - /parallel \"task1\" \"task2\" \"task3\" — parse quoted strings, create batch in task_registry, dispatch each via utcc-executor-ssh or utcc-dispatcher
-   - /tasks — list active tasks from task_registry
-   - /conquer — shortcut for modal_conquest type
-
-PHASE 5 — DISPATCHER WORKFLOW:
-8. Create .github/workflows/utcc-dispatcher.yml:
-   - Triggered by repository_dispatch type: utcc-batch-dispatch
-   - Reads batch_id from payload, queries task_registry for batch tasks
-   - Matrix strategy: one job per task, fail-fast: false
-   - Each job: classify task type, route to correct executor (SSH for claude_code, direct for transcript, etc)
-   - Update task_registry status on start/complete/fail
-   - Telegram notification per task completion
-
-COMMIT RULES:
-- git config user.email ci@biddeed.ai
-- git config user.name BidDeed-CI
-- Prefix all commits with UTCC:
-- Push to main after each logical unit
-- Send Telegram notification when ALL phases complete:
-  curl -s -X POST \"https://api.telegram.org/bot\${BIDDEED_BOT_TOKEN}/sendMessage\" -H \"Content-Type: application/json\" -d \"{\\"chat_id\\":\\"\${BIDDEED_BOT_CHAT_ID}\\",\\"text\\":\\"UTCC Phase 1-5 COMPLETE. SSH executor live. task_registry migrated. /parallel + /tasks + /conquer commands added. Dispatcher workflow deployed.\\",\\"parse_mode\\":\\"HTML\\"}\"
-
-Use secrets from environment: SUPABASE_URL, SUPABASE_KEY, BIDDEED_BOT_TOKEN, BIDDEED_BOT_CHAT_ID, FIRECRAWL_API_KEY are all in GitHub secrets for this repo.' --dangerously-skip-permissions
+COMMIT RULES: git config user.email ci@biddeed.ai, git config user.name BidDeed-CI, prefix commits with UTCC:, push to main. Send Telegram when done.\" --dangerously-skip-permissions
             "
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          BIDDEED_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          BIDDEED_BOT_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
 
-      - name: "2️⃣ Notify Telegram"
+      - name: Notify completion
         if: always()
         run: |
           STATUS="${{ job.status }}"
-          if [ "$STATUS" = "success" ]; then
-            EMOJI="✅"
-          else
-            EMOJI="❌"
-          fi
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${{ secrets.BIDDEED_BOT_CHAT_ID }}\",\"text\":\"${EMOJI} SUMMIT: UTCC SSH Executor\nStatus: ${STATUS}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+            -d "chat_id=${{ secrets.BIDDEED_BOT_CHAT_ID }}" \
+            -d "text=Summit UTCC: ${STATUS} - ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
