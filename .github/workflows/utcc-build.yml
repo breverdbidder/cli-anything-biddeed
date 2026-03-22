@@ -1,0 +1,32 @@
+name: UTCC Build
+
+on:
+  repository_dispatch:
+    types: [utcc-build]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: SSH to Hetzner
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 80m
+          envs: CLAUDE_OAUTH_B64,GH_PAT,BIDDEED_BOT_TOKEN,BIDDEED_BOT_CHAT_ID
+          script: |
+            set -e
+            OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
+            su - claude -c "export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN' && export NPM_CONFIG_PREFIX=/home/claude/.npm-global && export PATH=/home/claude/.npm-global/bin:\$PATH && export BIDDEED_BOT_TOKEN='$BIDDEED_BOT_TOKEN' && export BIDDEED_BOT_CHAT_ID='$BIDDEED_BOT_CHAT_ID' && cd /home/claude/repos/cli-anything-biddeed && git pull origin main && claude -p 'MISSION: Build UTCC SSH Executor and Foundation. PHASE 1 - Create .github/workflows/utcc-executor-ssh.yml triggered by repository_dispatch type utcc-dispatch. Uses appleboy/ssh-action to SSH into Hetzner. Passes task from client_payload.task. Runs claude -p with the task using --dangerously-skip-permissions. Posts Telegram notification on completion. PHASE 2 - Create utcc/migrations/001_task_registry.sql with task_registry and task_logs tables. Run via Supabase REST API. PHASE 3 - Create utcc/__init__.py, registry.py (CRUD), classifier.py (keyword routing), notifier.py (Telegram). PHASE 4 - Create .github/workflows/utcc-dispatcher.yml for batch dispatch. COMMIT: git config user.email ci@biddeed.ai, prefix UTCC:, push to main. Telegram notify when done.' --dangerously-skip-permissions"
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          BIDDEED_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          BIDDEED_BOT_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+      - name: Notify
+        if: always()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.BIDDEED_BOT_CHAT_ID }}" -d "text=UTCC Build: ${{ job.status }} - ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
