@@ -1,12 +1,8 @@
 name: Summit UTCC SSH Executor
 
 on:
-  workflow_dispatch:
-    inputs:
-      max_minutes:
-        description: Max session minutes
-        required: false
-        default: '60'
+  repository_dispatch:
+    types: [summit-utcc]
 
 jobs:
   summit-utcc:
