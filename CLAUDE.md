@@ -1,140 +1,180 @@
 # CLAUDE.md — BidDeed.AI / Everest Capital USA
 
-## Who I Am
-Ariel Shapira. Solo founder of BidDeed.AI and Everest Capital USA. 10+ years foreclosure investing in Brevard County, Florida. Licensed FL broker and general contractor. Building an AI-powered foreclosure auction intelligence platform. ADHD — I need systems that run themselves.
+## Identity
+```yaml
+founder: Ariel Shapira
+company: BidDeed.AI / Everest Capital USA
+experience: 10+ yr foreclosure investing, Brevard County FL
+licenses: FL broker, general contractor
+style: direct, no softening, facts+actions
+adhd: systems must self-run
+```
 
-## My Stack
-- **Repos:** github.com/breverdbidder/* (cli-anything-biddeed, zonewise-scraper-v4, biddeed-ai, biddeed-ai-ui, zonewise-web, cliproxy-gateway, tax-insurance-optimizer)
-- **Database:** Supabase (mocerqjnksmhcjzxrewo.supabase.co) — multi_county_auctions (245K rows), activities, insights, daily_metrics
-- **Compute:** Hetzner everest-dispatch (87.99.129.125) with CLIProxyAPI on 127.0.0.1:8317
-- **AI:** Gemini Flash (FREE via CLIProxyAPI), DeepSeek V3.2 ($0.28/1M), Claude (Max plan, never API)
-- **Deploy:** GitHub Actions + Cloudflare Pages + Render
-- **Brand:** Navy #1E3A5F, Orange #F59E0B, Inter font, bg #020617
+## Stack
+```yaml
+repos: github.com/breverdbidder/*
+  active: [cli-anything-biddeed, zonewise-scraper-v4, biddeed-ai, biddeed-ai-ui, zonewise-web, cliproxy-gateway, tax-insurance-optimizer]
+db: Supabase mocerqjnksmhcjzxrewo.supabase.co
+  tables: [multi_county_auctions(245K), activities, insights, daily_metrics]
+compute: Hetzner 87.99.129.125 (CLIProxyAPI 127.0.0.1:8317)
+ai:
+  free: Gemini Flash (CLIProxyAPI) — DEAD, keys expired
+  cheap: DeepSeek V3.2 ($0.28/1M)
+  primary: Claude (Max plan, never API)
+deploy: [GitHub Actions, Cloudflare Pages, Render]
+brand: { primary: "#1E3A5F", accent: "#F59E0B", font: Inter, bg: "#020617" }
+```
 
 ## Context Rules
+```yaml
+triggers:
+  auction_or_property: query Supabase multi_county_auctions first
+  case_number: search multi_county_auctions.case_number
+  deal_analysis: apply (ARV×70%)-Repairs-$10K-MIN($25K,15%×ARV)
+  pipeline_health: check daily_metrics + recent GHA runs
+  county_mention: verify counties/ config exists before assuming
+  build_request: follow cli-anything HARNESS.md 7-phase
+  deploy: push to GitHub, never local/GDrive
+  spend_over_10: STOP and confirm
+  context_switch: flag "📌 [previous task] still open"
+  summit: execute immediately, zero questions
+```
 
-When I mention an auction or property → query Supabase `multi_county_auctions` first
-When I mention a case number → search `multi_county_auctions` by case_number field
-When analyzing a deal → apply max bid formula: (ARV×70%)-Repairs-$10K-MIN($25K,15%×ARV)
-When I ask about pipeline health → check `daily_metrics` and recent GitHub Action runs
-When I mention a county → check if config exists in `counties/` before assuming anything
-When something needs building → follow cli-anything HARNESS.md 7-phase pattern
-When deploying code → push to GitHub, never local installs or Google Drive
-When spending money → stop and confirm if >$10/session
-When I context-switch mid-task → flag it: "📌 [previous task] is still open"
-When I say "Summit" → execute immediately, no questions, no clarification
-
-## How I Work
-- Direct, no softening language. Facts and actions.
-- Cost discipline: $10/session max. Batch operations. One attempt per approach.
-- Zero HITL: try 3 alternatives before surfacing a blocker.
-- Execute first, report results. Don't ask what to do.
-- Push back with strong opinions when you disagree.
-- Wrong = "I was wrong." Never invent numbers.
+## Work Principles
+```yaml
+rules:
+  - execute first, report results
+  - $10/session max, batch ops, one attempt per approach
+  - zero HITL: 3 alternatives before surfacing blocker
+  - push back with strong opinions when disagreeing
+  - wrong = "I was wrong", never invent numbers
+```
 
 ## Slash Commands
-- `/auction-brief` — morning auction briefing from Supabase
-- `/county-setup` — onboard a new Florida county
-- `/deal-intel` — process foreclosure documents into structured data
-- `/tldr` — end-of-session summary, updates memory.md
-- `/transcript` — YouTube video analysis via Hetzner pipeline
-- `/animated-ui` — Animated frontend builder for BidDeed.AI & ZoneWise.AI. 5-phase pipeline: Design System → 21st.dev components → Animation system → Assets → Build. Enforces house brand (navy #1E3A5F, orange #F59E0B, slate-950 #020617). Auto-deployed from breverdbidder/claude-skills-library to Hetzner /root/.claude/skills/
+```yaml
+commands:
+  /auction-brief: morning auction briefing from Supabase
+  /county-setup: onboard new FL county
+  /deal-intel: process foreclosure docs → structured data
+  /tldr: end-of-session summary, update memory.md
+  /transcript: YouTube video analysis via Hetzner pipeline
+  /animated-ui: >
+    5-phase: Design System → 21st.dev → Animation → Assets → Build.
+    Enforces house brand. Auto-deployed from claude-skills-library to Hetzner.
+```
 
-## Family Context (when relevant)
-- Wife Mariam: runs Property360 real estate, Protection Partners insurance, contracting
-- Son Michael (16): D1 competitive swimmer, Satellite Beach HS, keto diet, Shabbat observance
-- Orthodox practices: Shabbat (no work Fri sunset–Sat havdalah), kosher, holidays
+## Family
+```yaml
+wife: Mariam (Property360 real estate, Protection Partners insurance, contracting)
+son: Michael (16, D1 swimmer, Satellite Beach HS, keto diet, Shabbat)
+observance: Orthodox (Shabbat Fri sunset–Sat havdalah, kosher, holidays)
+```
 
-## Claude Code Session Hygiene (Mar 15, 2026)
+## Session Hygiene (Mar 15, 2026)
 
 ### Mandatory Plugins
-These plugins MUST be installed in every Claude Code environment:
-
-1. **Context7** — Live API documentation. Fixes 6-12 month knowledge lag on Supabase, Cloudflare, LangGraph, Firecrawl, Mapbox APIs. Install: `/plugin` → Discover → context7. Zero cost.
-2. **CC Status Line** — Context window monitor. Shows model, context %, session cost, git branch. Install: `npx cc-status-line@latest` before launching claude.
-3. **cctop** — Claude Code sessions dashboard. Monitor all sessions from one TUI: status, context %, tokens, errors, git branch. Install: `curl -fsSL https://raw.githubusercontent.com/DeanLa/cctop/main/install.sh | bash`. Run `cctop` in separate terminal. Fork: breverdbidder/cctop.
+```yaml
+plugins:
+  context7: { purpose: live API docs, install: "/plugin → context7", cost: $0 }
+  cc-status-line: { purpose: context monitor, install: "npx cc-status-line@latest" }
+  cctop: { purpose: sessions dashboard, install: "curl -fsSL https://raw.githubusercontent.com/DeanLa/cctop/main/install.sh | bash", fork: breverdbidder/cctop }
+```
 
 ### Context Window Rules
-- **50% RULE:** Kill and restart session when context reaches ~50%. Claude degrades well before 100%.
-- **NEVER /compact.** Worst of both worlds — loses working context but keeps stale/poisoned context. Always start fresh.
-- **Sub-agents for heavy work.** Dispatch sub-agents (via Superpowers execute-plan) so main orchestrator context stays clean.
-- **cli-anything harnesses:** Add context checkpoint between HARNESS.md phases. If context > 50% mid-pipeline, save state and restart.
-
-### CC Status Line Config
-```
-Line 1: model | context% | session_cost | session_clock
-Line 2: git_branch | git_worktree
+```yaml
+rules:
+  50pct_rule: kill+restart at ~50% context
+  never_compact: loses working context, keeps stale — always fresh start
+  sub_agents: dispatch via Superpowers for heavy work
+  harness_checkpoint: save state + restart if >50% mid-pipeline
+cc_status_line:
+  line1: "model | context% | session_cost | session_clock"
+  line2: "git_branch | git_worktree"
 ```
 
 ---
 
-# GSTACK PATTERNS (Cherry-picked from garrytan/gstack, MIT License)
-# Deployed: Mar 17, 2026 | Source: breverdbidder/gstack
+# GSTACK PATTERNS
+```yaml
+source: garrytan/gstack (MIT)
+deployed: Mar 17, 2026
+fork: breverdbidder/gstack
+```
 
-## AskUserQuestion Format (MANDATORY for all human-facing questions)
+## AskUserQuestion Format (MANDATORY)
+```yaml
+format:
+  1_reground: project + branch + current task (1-2 sentences)
+  2_eli16: plain English a 16yo follows, no jargon, concrete examples
+  3_recommend: "RECOMMENDATION: Choose [X] because [reason]"
+  4_options: "A) ... B) ... C) ..."
+assumption: user hasn't looked in 20 min, no code open
+```
 
-When asking the user ANY question, ALWAYS follow this structure:
+## Review Modes
 
-1. **Re-ground:** State the project, the current branch, and the current task. (1-2 sentences)
-2. **ELI16:** Explain the problem in plain English a smart 16-year-old could follow. No function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. **Options:** Lettered options: `A) ... B) ... C) ...`
+```mermaid
+flowchart TD
+  START{Review Type?} -->|strategic/product| CEO["/plan-ceo"]
+  START -->|technical/PR| ENG["/plan-eng"]
 
-Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+  CEO --> CEO_MODE{Select ONE mode}
+  CEO_MODE --> EXP["SCOPE EXPANSION<br/>10x version for 2x effort"]
+  CEO_MODE --> HOLD["HOLD SCOPE<br/>Max rigor, bulletproof"]
+  CEO_MODE --> RED_C["SCOPE REDUCTION<br/>Minimum viable, cut rest"]
 
-## Review Modes (use when reviewing plans or PRs)
+  ENG --> ENG_MODE{Select ONE mode}
+  ENG_MODE --> RED_E["SCOPE REDUCTION<br/>Propose minimal, review that"]
+  ENG_MODE --> BIG["BIG CHANGE<br/>Interactive, 4 sections, ≤8 issues each"]
+  ENG_MODE --> SMALL["SMALL CHANGE<br/>Compressed, 1 issue/section"]
+```
 
-### CEO Mode (Product Review)
-Use when: Strategic decisions, new features, product direction, architecture pivots.
-Trigger: `/plan-ceo` or when reviewing plans that change product behavior.
+### CEO Mode Directives
+```yaml
+directives:
+  - zero silent failures — every failure mode visible
+  - every error has a name — specific exception, not "handle errors"
+  - data flows have shadow paths — nil, empty, upstream error
+  - diagrams mandatory — Mermaid for every new data flow
+  - deferred = written in TODOS.md or doesn't exist
+  - optimize for 6-month future
+  - permission to say "scrap it and do this instead"
+critical: once mode selected, NEVER drift to another
+```
 
-Three sub-modes — ask user to select ONE, then COMMIT to it fully:
-- **SCOPE EXPANSION:** Dream big. Ask "what's the 10x version for 2x effort?" Find the 10-star product. Push scope UP.
-- **HOLD SCOPE:** Maximum rigor. Scope is accepted. Make it bulletproof — catch every failure mode, map every error path.
-- **SCOPE REDUCTION:** Be a surgeon. Find the minimum viable version. Cut everything else. Ruthless.
+### Eng Mode Sections
+```mermaid
+flowchart LR
+  A[1. Architecture] --> B[2. Code Quality]
+  B --> C[3. Tests]
+  C --> D[4. Performance]
+```
+```yaml
+eng_sections:
+  architecture: [system design, dependencies, coupling, scaling, security, failure scenarios]
+  code_quality: [DRY, error handling, edge cases, tech debt, over/under-engineering]
+  tests: [diagram UX/data/code flows, verify test exists, check eval.json]
+  performance: [N+1 queries, unbounded selects, missing indexes, recomputation]
+rule: STOP after each section, present issues one-at-a-time, resolve before next
+```
 
-**Critical rule:** Once mode is selected, DO NOT silently drift. If EXPANSION selected, don't argue for less. If REDUCTION selected, don't sneak scope back in.
-
-CEO Mode Prime Directives:
-1. Zero silent failures — every failure mode must be visible
-2. Every error has a name — don't say "handle errors", name the specific exception
-3. Data flows have shadow paths — nil input, empty input, upstream error. Trace all four.
-4. Diagrams are mandatory — ASCII art for every new data flow, state machine, pipeline
-5. Everything deferred must be written down — TODOS.md or it doesn't exist
-6. Optimize for 6-month future, not just today
-7. You have permission to say "scrap it and do this instead"
-
-### Eng Mode (Technical Review)
-Use when: Code review, PR review, technical implementation plans.
-Trigger: `/plan-eng` or when reviewing technical changes.
-
-Three sub-modes — ask user to select ONE:
-- **SCOPE REDUCTION:** Plan is overbuilt. Propose minimal version, then review that.
-- **BIG CHANGE:** Work through interactively, one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
-- **SMALL CHANGE:** Compressed review — scope check + one combined pass. Pick the single most important issue per section. One question round at the end.
-
-Eng Mode walks through 4 sections in order:
-1. **Architecture:** System design, dependencies, coupling, scaling, security, failure scenarios
-2. **Code Quality:** DRY violations, error handling, edge cases, tech debt, over/under-engineering
-3. **Tests:** Diagram all new UX/data flows/codepaths. For each, verify a test exists. Check eval.json assertions.
-4. **Performance:** N+1 queries, unbounded selects, missing indexes, unnecessary recomputation
-
-**STOP after each section.** Present issues one at a time with options and recommendations. Do NOT batch multiple issues. Only proceed after all issues in current section are resolved.
-
-## Fix-First Review (MANDATORY for all PR reviews)
-
-When reviewing code changes, apply the Fix-First heuristic from `docs/GSTACK_REVIEW_CHECKLIST.md`:
-1. Read the full diff FIRST
-2. Run Pass 1 (CRITICAL): SQL safety, race conditions, LLM trust boundary, enum completeness
-3. Run Pass 2 (INFORMATIONAL): Side effects, magic numbers, dead code, test gaps, crypto, types
-4. For each finding: AUTO-FIX if mechanical, ASK if ambiguous (see checklist for classification)
-5. Output format: `Pre-Landing Review: N issues (X critical, Y informational)` with AUTO-FIXED and NEEDS INPUT sections
-
+## Fix-First Review (MANDATORY)
+```mermaid
+flowchart TD
+  READ[1. Read full diff] --> P1[2. Pass 1 CRITICAL<br/>SQL safety, race conditions,<br/>LLM trust boundary, enum completeness]
+  P1 --> P2[3. Pass 2 INFORMATIONAL<br/>Side effects, magic numbers,<br/>dead code, test gaps, crypto, types]
+  P2 --> FIX{Mechanical?}
+  FIX -->|yes| AUTO[AUTO-FIX]
+  FIX -->|no| ASK[NEEDS INPUT]
+  AUTO --> OUT["Pre-Landing Review: N issues<br/>(X critical, Y informational)"]
+  ASK --> OUT
+```
 
 ## visual-explainer Skill
-- Source: ~/.claude/skills/visual-explainer/plugins/visual-explainer/SKILL.md
-- Read SKILL.md + references/ before generating any HTML diagram
-- Output to ~/.agent/diagrams/ and open in browser
-- Commands: /diff-review, /plan-review, /project-recap, /generate-web-diagram, /generate-slides, /fact-check
-- Brand preset: templates/biddeed-brand-preset.html (Navy #1E3A5F + Orange #F59E0B)
-- Auto-trigger: Any table with 4+ rows or 3+ columns renders as HTML instead of ASCII
+```yaml
+source: ~/.claude/skills/visual-explainer/plugins/visual-explainer/SKILL.md
+output: ~/.agent/diagrams/ (open in browser)
+commands: [/diff-review, /plan-review, /project-recap, /generate-web-diagram, /generate-slides, /fact-check]
+brand: templates/biddeed-brand-preset.html
+auto_trigger: "table 4+ rows OR 3+ columns → HTML, never ASCII"
+```
