@@ -1,0 +1,45 @@
+name: "DesignWise: S1.4 Schema Migration"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Run DesignWise 11 tables migration"
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "=== Running designwise S1.4 schema migration ==="
+          PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
+            -h db.mocerqjnksmhcjzxrewo.supabase.co \
+            -p 5432 -U postgres -d postgres \
+            -f designwise/migrations/001_designwise_tables.sql \
+            --echo-errors
+          echo "=== Migration complete ==="
+
+      - name: "Verify 11 tables exist"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          PASS=0
+          FAIL=0
+          for TABLE in design_tasks brand_violations visual_baselines page_analytics conversion_funnel support_tickets ab_tests deploy_log competitor_snapshots seo_audits stitch_usage; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+              "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ $TABLE: OK"
+              PASS=$((PASS+1))
+            else
+              echo "❌ $TABLE: $STATUS"
+              FAIL=$((FAIL+1))
+            fi
+          done
+          echo "Result: $PASS/11 tables verified"
+          if [ "$FAIL" -gt 0 ]; then exit 1; fi
