@@ -1,0 +1,165 @@
+name: UTCC Batch Dispatcher
+
+on:
+  repository_dispatch:
+    types: [utcc-batch-dispatch]
+
+jobs:
+  prepare:
+    name: "Resolve Batch Tasks"
+    runs-on: ubuntu-latest
+    outputs:
+      tasks: ${{ steps.query.outputs.tasks }}
+      batch_id: ${{ steps.query.outputs.batch_id }}
+      count: ${{ steps.query.outputs.count }}
+    steps:
+      - name: Query task_registry for batch
+        id: query
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          BATCH_ID: ${{ github.event.client_payload.batch_id }}
+        run: |
+          BATCH_ID="${BATCH_ID:-${{ github.event.client_payload.batch_id }}}"
+
+          if [ -z "$BATCH_ID" ]; then
+            echo "❌ No batch_id in client_payload"
+            exit 1
+          fi
+
+          echo "batch_id=$BATCH_ID" >> $GITHUB_OUTPUT
+
+          # Fetch all queued tasks for this batch
+          TASKS=$(curl -sf \
+            "${SUPABASE_URL}/rest/v1/task_registry?batch_id=eq.${BATCH_ID}&status=eq.queued&order=batch_index.asc" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Accept: application/json") || { echo "❌ Supabase query failed"; exit 1; }
+
+          COUNT=$(echo "$TASKS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          echo "tasks=$(echo "$TASKS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([{\"task_id\":t[\"task_id\"],\"task\":t[\"description\"],\"platform\":t[\"platform\"],\"task_type\":t[\"task_type\"]} for t in d]))")" >> $GITHUB_OUTPUT
+
+          echo "=== Batch $BATCH_ID: $COUNT tasks ==="
+
+  dispatch-hetzner:
+    name: "Dispatch Hetzner Tasks"
+    needs: prepare
+    if: needs.prepare.outputs.count > 0
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: ${{ fromJson(needs.prepare.outputs.tasks) }}
+      fail-fast: false
+      max-parallel: 3
+    steps:
+      - name: Skip non-Hetzner tasks
+        if: matrix.task.platform != 'hetzner'
+        run: echo "Skipping ${{ matrix.task.task_id }} — platform=${{ matrix.task.platform }}"
+
+      - name: Update status to dispatching
+        if: matrix.task.platform == 'hetzner'
+        run: |
+          curl -sf -X PATCH \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/task_registry?task_id=eq.${{ matrix.task.task_id }}" \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{"status":"dispatching"}' || true
+
+      - name: Dispatch to utcc-executor-ssh
+        if: matrix.task.platform == 'hetzner'
+        run: |
+          curl -sf -X POST \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "event_type": "utcc-dispatch",
+              "client_payload": {
+                "task_id": "${{ matrix.task.task_id }}",
+                "task": "${{ matrix.task.task }}",
+                "batch_id": "${{ needs.prepare.outputs.batch_id }}"
+              }
+            }'
+          echo "✅ Dispatched ${{ matrix.task.task_id }} to Hetzner executor"
+
+  dispatch-gha:
+    name: "Dispatch GHA Tasks"
+    needs: prepare
+    if: needs.prepare.outputs.count > 0
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: ${{ fromJson(needs.prepare.outputs.tasks) }}
+      fail-fast: false
+      max-parallel: 5
+    steps:
+      - name: Skip non-GHA tasks
+        if: matrix.task.platform != 'gha'
+        run: echo "Skipping ${{ matrix.task.task_id }} — platform=${{ matrix.task.platform }}"
+
+      - name: Update status to dispatching
+        if: matrix.task.platform == 'gha'
+        run: |
+          curl -sf -X PATCH \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/task_registry?task_id=eq.${{ matrix.task.task_id }}" \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{"status":"dispatching"}' || true
+
+      - name: Dispatch to GHA runner
+        if: matrix.task.platform == 'gha'
+        run: |
+          curl -sf -X POST \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/dispatch-gha.yml/dispatches" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "ref": "main",
+              "inputs": {
+                "prompt": "${{ matrix.task.task }}",
+                "repo": "${{ github.repository }}"
+              }
+            }'
+          echo "✅ Dispatched ${{ matrix.task.task_id }} to GHA runner"
+
+  notify-batch:
+    name: "Batch Telegram Notification"
+    needs: [prepare, dispatch-hetzner, dispatch-gha]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify
+        run: |
+          BATCH_ID="${{ needs.prepare.outputs.batch_id }}"
+          COUNT="${{ needs.prepare.outputs.count }}"
+          STATUS="${{ job.status }}"
+          H_STATUS="${{ needs.dispatch-hetzner.result }}"
+          G_STATUS="${{ needs.dispatch-gha.result }}"
+          EMOJI=$( [ "$H_STATUS" = "success" ] && [ "$G_STATUS" = "success" ] && echo "✅" || echo "⚠️" )
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MSG="${EMOJI} UTCC Batch Dispatched
+Batch: ${BATCH_ID}
+Tasks: ${COUNT}
+Hetzner: ${H_STATUS} | GHA: ${G_STATUS}
+${RUN_URL}"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ secrets.BIDDEED_BOT_CHAT_ID }}\",\"text\":\"${MSG}\"}" \
+            >/dev/null 2>&1 || true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## UTCC Batch Dispatch — ${{ needs.prepare.outputs.count }} tasks" >> $GITHUB_STEP_SUMMARY
+          echo "- **Batch ID**: ${{ needs.prepare.outputs.batch_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Hetzner**: ${{ needs.dispatch-hetzner.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GHA**: ${{ needs.dispatch-gha.result }}" >> $GITHUB_STEP_SUMMARY
