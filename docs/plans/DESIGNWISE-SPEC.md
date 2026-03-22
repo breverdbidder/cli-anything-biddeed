@@ -1,7 +1,7 @@
 # DESIGNWISE-SPEC.md
 # DesignWise Squad — Full Specification
-# Version: 1.1.0 | Date: 2026-03-21
-# Status: APPROVED by Product Owner | Stitch 2.0 Patch Applied 2026-03-21
+# Version: 1.2.0 | Date: 2026-03-21
+# Status: APPROVED by Product Owner | Stitch 2.0 Patch + Gap Closure Applied 2026-03-21
 # Repo: breverdbidder/cli-anything-biddeed → designwise/
 
 ---
@@ -610,7 +610,7 @@ ALL FOUR must pass. Branch protection enforces this.
 
 ---
 
-## 9. STITCH 2.0 AMENDMENTS (V1.1.0 — Applied 2026-03-21)
+## 9. STITCH 2.0 AMENDMENTS (V1.2.0 — Applied 2026-03-21)
 
 Source: DESIGNWISE-SPEC-PATCH.md | All 9 amendments from gap analysis applied.
 
@@ -679,7 +679,27 @@ Source: DESIGNWISE-SPEC-PATCH.md | All 9 amendments from gap analysis applied.
   - `test_prototype.py` — 7 tests (flow assembly + Figma export)
   - `test_parallel_dispatch.py` — 7 tests (Commander parallel mode)
 
+### Amendment 10: MCP Tool Mapping + Community Wrapper + stitch:design Skill (V1.2.0)
+Source: Gap analysis from YouTube transcript (Jkcy4SfGL00) — "Google Stitch 2.0 + Claude Code Pipeline"
+
+**Gap 1 — MCP Tool Name Mapping:**
+- 3 canonical MCP tools: `build_sitemaps`, `get_screen_code`, `get_screen_image`
+- `ACTION_TO_MCP_TOOL` dict resolves internal actions → canonical tool names
+- New StitchWise methods: `build_sitemaps()`, `get_screen_code()`, `get_screen_image()`
+- New CLI: `--get-code`, `--get-image`, `--build-sitemaps`
+
+**Gap 2 — npx stitchmcp Community Fallback:**
+- `STITCH_MCP_FALLBACK_CONFIG` with `npx stitchmcp` as backup if @google/stitch-sdk unavailable
+- Same 3 tools exposed, transparent fallback
+
+**Gap 3 — stitch:design Skill Pre-Processor:**
+- `enhance_prompt_with_skill()` runs stitch:design before custom intent prompts
+- Pipeline: raw intent → stitch:design → enhanced prompt → get_screen_code MCP
+- Graceful fallback to raw intent if skill unavailable
+- `--no-skill` CLI flag to bypass
+
 ---
 
 *Specification approved 2026-03-21. Ready for PLAN phase.*
-*V1.1.0 Stitch 2.0 patch applied 2026-03-21.*
+*V1.2.0 Gap Closure patch applied 2026-03-21 (Amendment 10).*
+
