@@ -1,7 +1,7 @@
 {
   "name": "competitorlens-pipeline",
-  "version": "1.0.0",
-  "description": "Sprint 1 assertions: crawl + extract stages",
+  "version": "2.0.0",
+  "description": "Sprint 1 + Sprint 2 assertions: crawl, extract, analyze, generate, validate stages",
   "assertions": [
     {
       "id": 1,
@@ -202,6 +202,142 @@
       "assertion": "_validate_blueprint returns empty list when all required fields present",
       "expected": true,
       "notes": "Clean blueprint passes validation"
+    },
+    {
+      "id": 26,
+      "stage": "analyze",
+      "category": "validation",
+      "assertion": "validate_report returns non-empty list when required fields missing",
+      "expected": true,
+      "notes": "Missing field detection in UXPatternReport"
+    },
+    {
+      "id": 27,
+      "stage": "analyze",
+      "category": "validation",
+      "assertion": "validate_report returns empty list when all required fields present",
+      "expected": true,
+      "notes": "Complete report passes validation"
+    },
+    {
+      "id": 28,
+      "stage": "analyze",
+      "category": "input",
+      "assertion": "analyze_blueprint returns error dict for empty blueprint input",
+      "expected": true,
+      "notes": "Graceful error — no crash"
+    },
+    {
+      "id": 29,
+      "stage": "analyze",
+      "category": "input",
+      "assertion": "analyze_blueprint returns error dict when blueprint has error key",
+      "expected": true,
+      "notes": "Propagates upstream errors"
+    },
+    {
+      "id": 30,
+      "stage": "analyze",
+      "category": "library",
+      "assertion": "extract_patterns_for_library returns list type",
+      "expected": true,
+      "notes": "Even for empty or minimal report"
+    },
+    {
+      "id": 31,
+      "stage": "generate",
+      "category": "utility",
+      "assertion": "_strip_markdown_fences removes ```jsx ... ``` wrappers from JSX",
+      "expected": true,
+      "notes": "LLMs often wrap output in markdown fences"
+    },
+    {
+      "id": 32,
+      "stage": "generate",
+      "category": "validation",
+      "assertion": "_validate_jsx_structure returns valid=False when export default missing",
+      "expected": true,
+      "notes": "Missing export default is a critical JSX issue"
+    },
+    {
+      "id": 33,
+      "stage": "generate",
+      "category": "naming",
+      "assertion": "_component_name_from_report returns 'AuctionCalendar' for calendar component type",
+      "expected": true,
+      "notes": "Component name auto-detection from UXPatternReport"
+    },
+    {
+      "id": 34,
+      "stage": "generate",
+      "category": "input",
+      "assertion": "generate_jsx returns error dict for empty report input",
+      "expected": true,
+      "notes": "Graceful error — no crash"
+    },
+    {
+      "id": 35,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "validate_jsx returns PASS for brand-compliant JSX content",
+      "expected": true,
+      "notes": "Navy + Orange + bg#020617 + Inter + hooks = PASS"
+    },
+    {
+      "id": 36,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "validate_jsx returns BLOCK for JSX containing purple color violation",
+      "expected": true,
+      "notes": "Purple gradient detection is critical"
+    },
+    {
+      "id": 37,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "validate_jsx returns BLOCK for empty JSX content",
+      "expected": true,
+      "notes": "Empty content always blocks"
+    },
+    {
+      "id": 38,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "AuctionCalendar.jsx passes BrandGuard with score >= 90",
+      "expected": true,
+      "notes": "First real output must pass BrandGuard target"
+    },
+    {
+      "id": 39,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "BrandGuard detects missing navy (#1E3A5F) as violation",
+      "expected": true,
+      "notes": "Navy is required brand element"
+    },
+    {
+      "id": 40,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "AuctionCalendar.jsx earns at least 4 bonus feature points",
+      "expected": true,
+      "notes": "ML score, BID/REVIEW/SKIP, lien, max bid = 4 minimum"
+    },
+    {
+      "id": 41,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "validate_file returns BLOCK status when file does not exist",
+      "expected": true,
+      "notes": "File not found = automatic BLOCK"
+    },
+    {
+      "id": 42,
+      "stage": "validate",
+      "category": "brandguard",
+      "assertion": "BrandGuard detects missing Supabase integration as violation",
+      "expected": true,
+      "notes": "Supabase hooks are required for data binding"
     }
   ]
 }
