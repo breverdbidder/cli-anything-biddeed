@@ -34,7 +34,8 @@ jobs:
               python3 -c "import json,sys,base64; print(base64.b64decode(json.load(sys.stdin)['content']).decode())" > /tmp/designwise_migration.sql
             echo "SQL file: $(wc -l < /tmp/designwise_migration.sql) lines"
 
-            echo "=== Install pg ==="
+            echo "=== Install pg in /tmp ==="
+            cd /tmp
             npm install pg 2>&1 | tail -3
 
             echo "=== Run migration via node-postgres ==="
@@ -129,3 +130,4 @@ jobs:
               --data-urlencode "text=${MSG}"
 
             rm -f /tmp/designwise_migration.sql /tmp/run_migration.js
+
