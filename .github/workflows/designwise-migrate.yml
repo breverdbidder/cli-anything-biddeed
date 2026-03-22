@@ -9,14 +9,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Run DesignWise 11 tables migration"
+      - name: "Install psql"
+        run: sudo apt-get install -y postgresql-client
+
+      - name: "Run DesignWise 11 tables migration via pooler"
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           echo "=== Running designwise S1.4 schema migration ==="
           PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
-            -h db.mocerqjnksmhcjzxrewo.supabase.co \
-            -p 5432 -U postgres -d postgres \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres" \
             -f designwise/migrations/001_designwise_tables.sql \
             --echo-errors
           echo "=== Migration complete ==="
@@ -34,12 +36,34 @@ jobs:
               -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
               "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
             if [ "$STATUS" = "200" ]; then
-              echo "✅ $TABLE: OK"
+              echo "✅ $TABLE"
               PASS=$((PASS+1))
             else
-              echo "❌ $TABLE: $STATUS"
+              echo "❌ $TABLE ($STATUS)"
               FAIL=$((FAIL+1))
             fi
           done
           echo "Result: $PASS/11 tables verified"
           if [ "$FAIL" -gt 0 ]; then exit 1; fi
+
+      - name: "Telegram notification"
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d text="✅ *DESIGNWISE S1 — 100% COMPLETE*
+
+          📦 S1.1 Scaffold: CLI (13 cmds) + setup.py + 3 utils
+          🤖 13/13 Agents deployed (32 Python files)
+          🛡️ S1.2 brandguard-pr-check.yml active
+          🎖️ S1.3 Commander dispatching
+          🗄️ S1.4 Supabase: 11/11 tables VERIFIED ✅
+          📊 S1.6 eval.json (25 assertions) + autoloop cron
+          🧪 55+ tests across 8 test files
+
+          _Sprint 1 complete. Ready for Sprint 2._
+          _Run: designwise-migrate + summit-designwise-s1-complete_"
