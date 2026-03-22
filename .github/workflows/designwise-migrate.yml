@@ -12,9 +12,10 @@ jobs:
       - name: "Install psql"
         run: sudo apt-get install -y -qq postgresql-client
 
-      - name: "Run migration via shared pooler"
+      - name: "Run migration"
         env:
           PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PGSSLMODE: require
         run: |
           echo "=== Running migration ==="
           psql \
@@ -23,8 +24,7 @@ jobs:
             -U postgres.mocerqjnksmhcjzxrewo \
             -d postgres \
             -f designwise/migrations/001_designwise_tables.sql \
-            --echo-errors \
-            "sslmode=require" 2>&1
+            --echo-errors 2>&1
           echo "=== Done ==="
 
       - name: "Verify 11 tables"
@@ -54,6 +54,6 @@ jobs:
             -d parse_mode="Markdown" \
             --data-urlencode "text=✅ *DESIGNWISE S1.4 VERIFIED*
           🗄️ 11/11 tables via REST API
-          🔑 Pooler + password working
+          🔑 Pooler + password confirmed
           _Zero-HITL migrations operational._"
 
