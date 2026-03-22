@@ -1,0 +1,207 @@
+{
+  "name": "competitorlens-pipeline",
+  "version": "1.0.0",
+  "description": "Sprint 1 assertions: crawl + extract stages",
+  "assertions": [
+    {
+      "id": 1,
+      "stage": "crawl",
+      "category": "api",
+      "assertion": "crawl_url returns dict with 'html' key when FIRECRAWL_API_KEY is missing",
+      "expected": true,
+      "notes": "Should return error dict, not raise exception"
+    },
+    {
+      "id": 2,
+      "stage": "crawl",
+      "category": "api",
+      "assertion": "crawl_url returns error dict when FIRECRAWL_API_KEY is empty string",
+      "expected": true,
+      "notes": "Graceful error — error key present in response"
+    },
+    {
+      "id": 3,
+      "stage": "crawl",
+      "category": "output",
+      "assertion": "crawl_url output includes keys: url, html, markdown, screenshot, metadata, crawled_at",
+      "expected": true,
+      "notes": "Schema validation of crawl output"
+    },
+    {
+      "id": 4,
+      "stage": "crawl",
+      "category": "output",
+      "assertion": "crawled_at field is a valid ISO 8601 timestamp string",
+      "expected": true,
+      "notes": "Datetime format: ends with Z or +00:00"
+    },
+    {
+      "id": 5,
+      "stage": "crawl",
+      "category": "validation",
+      "assertion": "crawl_url returns error when HTML length < 100 chars",
+      "expected": true,
+      "notes": "Short HTML = blocked or redirect"
+    },
+    {
+      "id": 6,
+      "stage": "extract",
+      "category": "input",
+      "assertion": "extract_blueprint returns error when crawl_result has empty html and markdown",
+      "expected": true,
+      "notes": "Graceful error — no crash"
+    },
+    {
+      "id": 7,
+      "stage": "extract",
+      "category": "output",
+      "assertion": "extract_blueprint output contains all required ComponentBlueprint fields",
+      "expected": true,
+      "notes": "Fields: sections, navigation, filters, dataDisplayPatterns, ctaPlacement, layoutType"
+    },
+    {
+      "id": 8,
+      "stage": "extract",
+      "category": "output",
+      "assertion": "extract_blueprint sets url field from crawl_result",
+      "expected": true,
+      "notes": "URL passthrough from crawl stage"
+    },
+    {
+      "id": 9,
+      "stage": "extract",
+      "category": "output",
+      "assertion": "extract_blueprint auto-detects competitor=PropertyOnion for propertyonion.com URLs",
+      "expected": true,
+      "notes": "_detect_competitor() function"
+    },
+    {
+      "id": 10,
+      "stage": "extract",
+      "category": "output",
+      "assertion": "extract_blueprint sets extractedAt to a valid ISO 8601 timestamp",
+      "expected": true,
+      "notes": "Datetime format validation"
+    },
+    {
+      "id": 11,
+      "stage": "extract",
+      "category": "llm",
+      "assertion": "CLIProxyAPI failure triggers fallback to DeepSeek direct API",
+      "expected": true,
+      "notes": "Retry logic: proxy first, then direct"
+    },
+    {
+      "id": 12,
+      "stage": "extract",
+      "category": "llm",
+      "assertion": "extract_blueprint returns error dict (not exception) when both LLM backends fail",
+      "expected": true,
+      "notes": "No uncaught exceptions"
+    },
+    {
+      "id": 13,
+      "stage": "extract",
+      "category": "truncation",
+      "assertion": "_truncate_html_for_llm returns string <= max_chars",
+      "expected": true,
+      "notes": "Token budget enforcement"
+    },
+    {
+      "id": 14,
+      "stage": "extract",
+      "category": "truncation",
+      "assertion": "_truncate_html_for_llm prefers markdown over HTML when markdown length > 500",
+      "expected": true,
+      "notes": "Markdown = cleaner signal for LLM"
+    },
+    {
+      "id": 15,
+      "stage": "supabase",
+      "category": "schema",
+      "assertion": "competitor_analyses table has required columns: id, competitor_name, source_url, component_type, layout_skeleton, brand_guard_status",
+      "expected": true,
+      "notes": "Verified via migration SQL"
+    },
+    {
+      "id": 16,
+      "stage": "supabase",
+      "category": "schema",
+      "assertion": "ux_pattern_library table has required columns: id, pattern_name, source_competitor, description, reuse_count",
+      "expected": true,
+      "notes": "Verified via migration SQL"
+    },
+    {
+      "id": 17,
+      "stage": "supabase",
+      "category": "rls",
+      "assertion": "competitor_analyses has RLS enabled",
+      "expected": true,
+      "notes": "ALTER TABLE ... ENABLE ROW LEVEL SECURITY"
+    },
+    {
+      "id": 18,
+      "stage": "supabase",
+      "category": "rls",
+      "assertion": "ux_pattern_library has RLS enabled",
+      "expected": true,
+      "notes": "ALTER TABLE ... ENABLE ROW LEVEL SECURITY"
+    },
+    {
+      "id": 19,
+      "stage": "supabase",
+      "category": "client",
+      "assertion": "save_analysis returns error dict when SUPABASE_SERVICE_KEY is not set",
+      "expected": true,
+      "notes": "Graceful error — no crash"
+    },
+    {
+      "id": 20,
+      "stage": "supabase",
+      "category": "client",
+      "assertion": "list_analyses returns empty list when SUPABASE_SERVICE_KEY is not set",
+      "expected": true,
+      "notes": "Consistent return type"
+    },
+    {
+      "id": 21,
+      "stage": "cli",
+      "category": "args",
+      "assertion": "_detect_competitor returns 'PropertyOnion' for propertyonion.com URL",
+      "expected": true,
+      "notes": "URL pattern matching"
+    },
+    {
+      "id": 22,
+      "stage": "cli",
+      "category": "args",
+      "assertion": "_detect_competitor returns 'Foreclosure.com' for foreclosure.com URL",
+      "expected": true,
+      "notes": "URL pattern matching"
+    },
+    {
+      "id": 23,
+      "stage": "cli",
+      "category": "args",
+      "assertion": "_detect_competitor returns 'Unknown' for unrecognized URLs",
+      "expected": true,
+      "notes": "Default fallback"
+    },
+    {
+      "id": 24,
+      "stage": "extract",
+      "category": "validation",
+      "assertion": "_validate_blueprint returns non-empty list when required fields missing",
+      "expected": true,
+      "notes": "Missing field detection"
+    },
+    {
+      "id": 25,
+      "stage": "extract",
+      "category": "validation",
+      "assertion": "_validate_blueprint returns empty list when all required fields present",
+      "expected": true,
+      "notes": "Clean blueprint passes validation"
+    }
+  ]
+}
