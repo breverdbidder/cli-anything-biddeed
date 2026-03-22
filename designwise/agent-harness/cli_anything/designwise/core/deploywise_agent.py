@@ -3,6 +3,7 @@ DeployWise Agent — SPEC Agent 05
 3-tier deployment gatekeeper + rollback controller for ZoneWise.AI.
 Pipeline: lab → preview (BrandGuard+QA+A11y+SEO gates) → production.
 Auto-rollback on smoke failure within 60s.
+Version: 1.2.0 (S2.3 — full 3-tier pipeline with GitHub API integration)
 """
 
 import argparse
@@ -12,6 +13,16 @@ import os
 import sys
 import time
 from typing import Any, Dict, List, Optional
+
+import httpx
+
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "breverdbidder/zonewise-web")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "740118343")
+
+REQUIRED_CHECKS = ["brandguard-pr-check", "qa-visual-regression", "a11y-check", "seo-check"]
+SMOKE_URLS = ["/", "/heatmap", "/app", "/pricing", "/demo"]
 
 
 class DeployWiseAgent:
@@ -80,33 +91,127 @@ class DeployWiseAgent:
             "branch": branch,
         }
 
-    async def create_pr_preview(self, branch: str, git_sha: str) -> Dict[str, Any]:
-        """Create a Vercel preview deployment for a PR branch."""
+    async def create_pr_preview(
+        self,
+        feature_branch: str,
+        target: str = "main",
+        git_sha: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Create a GitHub PR + Vercel preview deployment.
+
+        Returns: { pr_url, pr_number, preview_url }
+        """
+        if not GITHUB_TOKEN:
+            return {"error": "GITHUB_TOKEN not set", "pr_url": None}
+
+        # Create GitHub PR
+        pr_body = (
+            f"## DeployWise Preview\n\n"
+            f"- Branch: `{feature_branch}` → `{target}`\n"
+            f"- Gates required: {', '.join(REQUIRED_CHECKS)}\n\n"
+            "_Auto-created by DeployWise Agent 05 (S2.3)._"
+        )
+        pr_title = f"feat(designwise): {feature_branch}"
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{GITHUB_REPO}/pulls",
+                headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={"title": pr_title, "body": pr_body, "head": feature_branch, "base": target},
+            )
+
+        if resp.status_code not in (200, 201):
+            return {"error": f"PR creation failed: {resp.status_code} {resp.text[:200]}"}
+
+        pr_data = resp.json()
+        pr_number = pr_data["number"]
+        pr_url = pr_data["html_url"]
+
+        # Trigger Vercel preview via VercelClient
         vc = self._get_vercel_client()
-        if not vc:
-            return {"error": "VercelClient not available"}
-        result = await vc.create_deployment(branch=branch, git_sha=git_sha)
-        if "error" in result:
-            return result
-        deploy_id = result.get("id", "")
-        preview_url = await vc.get_preview_url(deploy_id)
+        preview_url = ""
+        if vc:
+            result = await vc.create_deployment(branch=feature_branch, git_sha=git_sha or "HEAD")
+            if "id" in result:
+                preview_url = await vc.get_preview_url(result["id"])
+
         return {
-            "deploy_id": deploy_id,
+            "pr_url": pr_url,
+            "pr_number": pr_number,
             "preview_url": preview_url,
-            "branch": branch,
-            "sha": git_sha,
+            "branch": feature_branch,
+            "target": target,
         }
 
-    async def check_all_gates(self, preview_url: str) -> Dict[str, Any]:
+    async def check_all_gates(
+        self,
+        pr_number: int,
+        poll_interval: int = 15,
+        max_wait: int = 600,
+    ) -> Dict[str, Any]:
         """
-        Run all gate checks (BrandGuard, QA, A11y, SEO) against preview URL.
-        Returns {gates: {name: pass/fail}, all_passed: bool}.
+        Poll GitHub API for required status checks on a PR.
+        Waits until all checks complete or timeout.
+
+        Required checks: brandguard-pr-check, qa-visual-regression, a11y-check, seo-check
+        Returns: { all_passed: bool, results: {check_name: status} }
         """
-        gates: Dict[str, Any] = {}
-        for gate_name in self.GATE_CHECKS:
-            gates[gate_name] = await self._run_gate(gate_name, preview_url)
-        all_passed = all(g.get("passed", False) for g in gates.values())
-        return {"gates": gates, "all_passed": all_passed, "url": preview_url}
+        if not GITHUB_TOKEN:
+            return {"all_passed": False, "error": "GITHUB_TOKEN not set", "results": {}}
+
+        deadline = time.time() + max_wait
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+
+        while time.time() < deadline:
+            async with httpx.AsyncClient(timeout=15) as client:
+                # Get PR head SHA
+                pr_resp = await client.get(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/pulls/{pr_number}",
+                    headers=headers,
+                )
+                if pr_resp.status_code != 200:
+                    return {"all_passed": False, "error": f"PR fetch failed: {pr_resp.status_code}"}
+                sha = pr_resp.json()["head"]["sha"]
+
+                # Get check runs for SHA
+                checks_resp = await client.get(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/commits/{sha}/check-runs",
+                    headers=headers,
+                )
+
+            results: Dict[str, Any] = {}
+            if checks_resp.status_code == 200:
+                for run in checks_resp.json().get("check_runs", []):
+                    name = run["name"]
+                    if name in REQUIRED_CHECKS:
+                        results[name] = {
+                            "status": run["status"],
+                            "conclusion": run.get("conclusion"),
+                            "passed": run.get("conclusion") == "success",
+                        }
+
+            # Check if all required checks present + completed
+            all_present = all(c in results for c in REQUIRED_CHECKS)
+            all_complete = all(r["status"] == "completed" for r in results.values())
+            all_passed = all(r.get("passed", False) for r in results.values())
+
+            if all_present and all_complete:
+                return {"all_passed": all_passed, "results": results, "sha": sha}
+
+            # Still pending — add missing checks as pending
+            for c in REQUIRED_CHECKS:
+                if c not in results:
+                    results[c] = {"status": "pending", "conclusion": None, "passed": False}
+
+            await asyncio.sleep(poll_interval)
+
+        return {"all_passed": False, "results": results, "error": f"Gate check timed out after {max_wait}s"}
 
     async def _run_gate(self, gate_name: str, url: str) -> Dict[str, Any]:
         """Run a single gate check. Returns {passed: bool, details: dict}."""
@@ -149,76 +254,163 @@ class DeployWiseAgent:
         except Exception as e:
             return {"passed": False, "gate": "seo", "details": {"error": str(e)}}
 
-    async def promote_to_production(self, deploy_id: str) -> Dict[str, Any]:
+    async def promote_to_production(
+        self,
+        pr_number: int,
+        merge_method: str = "squash",
+    ) -> Dict[str, Any]:
         """
-        Promote a verified preview deployment to production.
-        Only callable after all gates have passed.
+        Merge PR via GitHub API (only after all gates pass) → Vercel auto-deploys main.
+        Returns: { merge_sha, deploy_url }
         """
-        vc = self._get_vercel_client()
-        if not vc:
-            return {"error": "VercelClient not available"}
-        result = await vc.promote_to_production(deploy_id)
+        if not GITHUB_TOKEN:
+            return {"error": "GITHUB_TOKEN not set"}
+
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.put(
+                f"https://api.github.com/repos/{GITHUB_REPO}/pulls/{pr_number}/merge",
+                headers=headers,
+                json={
+                    "commit_message": f"chore(deploywise): promote PR #{pr_number} to production",
+                    "merge_method": merge_method,
+                },
+            )
+
+        if resp.status_code not in (200, 201):
+            return {"error": f"Merge failed: {resp.status_code} {resp.text[:200]}"}
+
+        data = resp.json()
+        merge_sha = data.get("sha", "")
+
         db = self._get_db()
         if db:
             await db.log_deploy(
-                commit_sha=deploy_id,
+                commit_sha=merge_sha,
                 branch="main",
                 tier="production",
-                status="promoted" if "error" not in result else "failed",
-                checks={"promoted_deploy": deploy_id},
+                status="promoted",
+                checks={"pr_number": pr_number, "merge_sha": merge_sha},
             )
-        return {"tier": "production", "deploy_id": deploy_id, "result": result}
 
-    async def run_smoke_test(self, url: str) -> Dict[str, Any]:
+        return {
+            "merged": True,
+            "merge_sha": merge_sha,
+            "pr_number": pr_number,
+            "tier": "production",
+            "deploy_url": "https://zonewise.ai",
+        }
+
+    async def run_smoke_test(self, base_url: str) -> Dict[str, Any]:
         """
-        Run smoke test against deployed URL. Must complete within SMOKE_TIMEOUT_SECONDS.
-        Checks: URL reachable, HTTP 200, page contains key content.
+        Hit 5 critical URLs within SMOKE_TIMEOUT_SECONDS.
+        Checks: HTTP 200 + page loads (non-empty response body).
+        Returns: { passed: bool, results: [{url, status, ok}] }
         """
+        base_url = base_url.rstrip("/")
         start = time.time()
-        try:
-            import httpx
-            deadline = start + self.SMOKE_TIMEOUT_SECONDS
-            while time.time() < deadline:
-                try:
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        resp = await client.get(url)
-                        elapsed = round(time.time() - start, 2)
-                        passed = resp.status_code == 200
-                        return {
-                            "passed": passed,
-                            "url": url,
-                            "status_code": resp.status_code,
-                            "elapsed_seconds": elapsed,
-                        }
-                except Exception:
-                    await asyncio.sleep(5)
-            return {"passed": False, "url": url, "error": "Smoke test timed out", "timeout": self.SMOKE_TIMEOUT_SECONDS}
-        except ImportError:
-            return {"passed": False, "error": "httpx not installed"}
+        results: List[Dict[str, Any]] = []
+        all_passed = True
 
-    async def auto_rollback(self, failed_deploy_id: str, stable_deploy_id: str) -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            for path in SMOKE_URLS:
+                full_url = base_url + path
+                ok = False
+                status_code = 0
+                elapsed = 0.0
+                deadline = start + self.SMOKE_TIMEOUT_SECONDS
+
+                while time.time() < deadline:
+                    try:
+                        resp = await client.get(full_url)
+                        status_code = resp.status_code
+                        elapsed = round(time.time() - start, 2)
+                        ok = resp.status_code == 200 and len(resp.text) > 100
+                        break
+                    except Exception:
+                        await asyncio.sleep(3)
+
+                results.append({
+                    "url": full_url,
+                    "status": status_code,
+                    "ok": ok,
+                    "elapsed": elapsed,
+                })
+                if not ok:
+                    all_passed = False
+
+        return {
+            "passed": all_passed,
+            "base_url": base_url,
+            "results": results,
+            "total_elapsed": round(time.time() - start, 2),
+        }
+
+    async def auto_rollback(
+        self,
+        commit_sha: str,
+        repo_path: str = ".",
+    ) -> Dict[str, Any]:
         """
-        Auto-rollback to stable_deploy_id after smoke failure on failed_deploy_id.
+        Revert HEAD commit + force-push to main, then send Telegram alert.
+        Also logs rollback to deploy_log in Supabase.
         """
-        vc = self._get_vercel_client()
-        if not vc:
-            return {"error": "VercelClient not available"}
-        result = await vc.rollback(stable_deploy_id)
+        import subprocess as sp
+
+        def run(cmd: list) -> tuple:
+            r = sp.run(cmd, cwd=repo_path, capture_output=True, text=True)
+            return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+        # git revert HEAD (non-interactive)
+        rc, out, err = run(["git", "revert", "HEAD", "--no-edit"])
+        if rc != 0:
+            return {"error": f"git revert failed: {err}", "action": "rollback_failed"}
+
+        # Push revert
+        rc2, out2, err2 = run(["git", "push", "origin", "main"])
+        if rc2 != 0:
+            return {"error": f"git push failed: {err2}", "action": "rollback_failed"}
+
+        # Log to Supabase
         db = self._get_db()
         if db:
             await db.log_deploy(
-                commit_sha=stable_deploy_id,
+                commit_sha=commit_sha,
                 branch="main",
                 tier="production",
                 status="rolled_back",
-                checks={"failed_deploy": failed_deploy_id, "stable_deploy": stable_deploy_id},
+                checks={"reverted_sha": commit_sha, "action": "auto_rollback"},
             )
+
+        # Telegram alert
+        await self._send_telegram(
+            f"🚨 DEPLOYWISE AUTO-ROLLBACK\n"
+            f"Smoke test failed. Reverted: {commit_sha[:8]}\n"
+            f"Production restored to previous commit."
+        )
+
         return {
             "action": "rollback",
-            "failed_deploy": failed_deploy_id,
-            "restored_to": stable_deploy_id,
-            "result": result,
+            "reverted_sha": commit_sha,
+            "pushed": True,
         }
+
+    async def _send_telegram(self, message: str) -> None:
+        """Send Telegram notification."""
+        if not TELEGRAM_TOKEN:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                    data={"chat_id": TELEGRAM_CHAT_ID, "text": message},
+                )
+        except Exception:
+            pass
 
     async def run(self, env: str = "lab", branch: str = "main", rollback: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """Main async entry point."""
