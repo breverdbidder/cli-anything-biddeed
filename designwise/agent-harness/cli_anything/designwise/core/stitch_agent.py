@@ -1,7 +1,7 @@
 """
 StitchWise Agent — Google Stitch 2.0 MCP Wrapper
 DesignWise Squad | Agent 02
-Version: 1.3.0 (S2.1 — Real MCP transport via StitchMCPClient)
+Version: 1.4.0 (S3.2 — STITCH_API_KEY wired for programmatic design generation)
 
 Amendments applied:
 - Amendment 1: @google/stitch-sdk MCP (replaces @_davideast/stitch-mcp)
@@ -231,6 +231,10 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "740118343")
+
+# S3.2 — STITCH_API_KEY for programmatic design generation
+# Injected into StitchMCPClient subprocess env so @google/stitch-sdk can authenticate
+STITCH_API_KEY = os.environ.get("STITCH_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
 
 
 def _supabase_headers() -> dict[str, str]:
@@ -712,7 +716,8 @@ class StitchWiseAgent:
             return base_result
 
         try:
-            client = StitchMCPClient()
+            # S3.2: Pass STITCH_API_KEY so @google/stitch-sdk can authenticate
+            client = StitchMCPClient(api_key=STITCH_API_KEY)
             await client.start()
 
             if mcp_tool == "build_sitemaps":

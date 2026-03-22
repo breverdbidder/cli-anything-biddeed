@@ -1,11 +1,16 @@
 """
 StitchMCPClient — Real MCP transport for Google Stitch 2.0
 DesignWise Squad | Utility
-Version: 1.0.0
+Version: 1.1.0 (S3.2 — STITCH_API_KEY wired in)
 
 JSON-RPC over stdio communication with:
   Primary:  npx @google/stitch-sdk serve
   Fallback: npx stitchmcp (community wrapper)
+
+Authentication (S3.2):
+  STITCH_API_KEY env var is forwarded to the MCP subprocess environment.
+  The SDK uses it to authenticate against Google Stitch API.
+  If STITCH_API_KEY is absent, the SDK may use gcloud ADC instead.
 
 Methods match the 3 canonical Stitch MCP tools:
   - build_sitemaps(project_id, routes)  → dict[route, html]
@@ -28,6 +33,10 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+# S3.2 — STITCH_API_KEY wired for programmatic design generation
+STITCH_API_KEY = os.environ.get("STITCH_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +80,14 @@ class StitchMCPClient:
         await client.close()
     """
 
-    def __init__(self, timeout: int = MCP_TIMEOUT):
+    def __init__(self, timeout: int = MCP_TIMEOUT, api_key: str | None = None):
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._request_id = 0
         self._timeout = timeout
         self._using_fallback = False
         self._lock = asyncio.Lock()
+        # S3.2: API key for Stitch authentication
+        self._api_key = api_key or STITCH_API_KEY
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -87,6 +98,15 @@ class StitchMCPClient:
         if self._proc and self._proc.returncode is None:
             return  # Already running
 
+        # S3.2: Build subprocess env with STITCH_API_KEY injected
+        env = os.environ.copy()
+        if self._api_key:
+            env["STITCH_API_KEY"] = self._api_key
+            env["GOOGLE_API_KEY"] = self._api_key
+            logger.info("StitchMCP: STITCH_API_KEY injected into subprocess env")
+        else:
+            logger.warning("StitchMCP: No STITCH_API_KEY — falling back to gcloud ADC")
+
         for cmd, is_fallback in [(MCP_PRIMARY_CMD, False), (MCP_FALLBACK_CMD, True)]:
             try:
                 self._proc = await asyncio.create_subprocess_exec(
@@ -94,6 +114,7 @@ class StitchMCPClient:
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=env,
                 )
                 # Send initialize handshake
                 await self._initialize()

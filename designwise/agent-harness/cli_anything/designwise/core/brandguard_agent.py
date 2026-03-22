@@ -1,15 +1,25 @@
 """
 BrandGuard Agent — Design System Enforcer
 DesignWise Squad | Agent 03
-Version: 1.1.0 (Stitch 2.0 Spec Patch applied)
+Version: 1.2.0 (S3.0 — 5-color canonical set + Tailwind-allow policy)
 
 Amendments applied:
 - Amendment 3: check_design_drift(live_url, design_md_path) method
 - Amendment 3: Extract design tokens from live site via Stitch URL extraction
 - Amendment 3: Diff extracted tokens against DESIGN.md in repo
 - Amendment 3: If drift → GitHub Issue + Telegram alert
+- S3.0: Canonical color set tightened to 5 brand colors
+- S3.0: Tailwind utility classes always allowed (they compile to CSS vars)
+- S3.0: Only hardcoded non-brand hex values flagged as violations
 
 CRITICAL: BrandGuard BLOCKS production deploys on ANY violation.
+
+5 Canonical Brand Colors:
+  #1E3A5F — Navy (primary)
+  #F59E0B — Orange (accent)
+  #020617 — Background (slate-950)
+  #D97706 — Hover (orange-500)
+  #162D4A — Dark navy (surfaces/cards)
 """
 
 from __future__ import annotations
@@ -35,28 +45,62 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "740118343")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "breverdbidder/zonewise-web")
 
-# Brand tokens from DESIGN.md (canonical)
+# ── 5 Canonical brand colors (S3.0) ───────────────────────────────────────────
+CANONICAL_BRAND_COLORS = {
+    "navy":      "#1E3A5F",  # Primary — headings, navbar, buttons
+    "orange":    "#F59E0B",  # Accent — CTAs, highlights
+    "bg":        "#020617",  # Background (slate-950)
+    "hover":     "#D97706",  # Hover state (orange-500)
+    "dark_navy": "#162D4A",  # Dark navy — surfaces, cards
+}
+
+# Normalized brand hex set (lowercase, no #)
+_BRAND_HEX = {v.lstrip("#").lower() for v in CANONICAL_BRAND_COLORS.values()}
+
+# Banned hex values — flagged as critical violations
+BANNED_COLORS = [
+    "#FF0000", "#00FF00", "#0000FF",  # Pure primaries
+    "#FF00FF", "#FFFF00", "#00FFFF",  # Neons
+    "#FFFFFF",  # Pure white bg (use #020617)
+    "#000000",  # Pure black (use #020617)
+    "#FFA500",  # HTML orange (use #F59E0B)
+    "#FF6600",  # Orange-red
+]
+_BANNED_HEX = {c.lstrip("#").lower() for c in BANNED_COLORS}
+
+# Tailwind color utility names — these are ALWAYS allowed (compile to CSS vars)
+_TAILWIND_COLOR_NAMES = {
+    "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
+    "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
+    "indigo", "violet", "purple", "fuchsia", "pink", "rose",
+    "white", "black", "transparent", "current",
+    # ZoneWise brand scales
+    "zw-navy", "zw-orange",
+}
+
 CANONICAL_TOKENS = {
-    "colors": {
-        "primary": "#1E3A5F",    # Navy
-        "accent": "#F59E0B",     # Orange
-        "background": "#020617", # Slate-950
-        "text_primary": "#F8FAFC",
-        "text_secondary": "#94A3B8",
-        "border": "#1E293B",
-    },
+    "colors": CANONICAL_BRAND_COLORS,
     "fonts": {
         "primary": "Inter",
         "mono": "JetBrains Mono",
     },
     "font_size_min_px": 11,
-    "banned_colors": [
-        "#FF0000", "#00FF00", "#0000FF",  # Pure primaries
-        "#FFFFFF",  # Pure white background (use #020617)
-        "#000000",  # Pure black (use #020617)
-        "#FF6B6B", "#4ECDC4",  # Non-brand colors
-    ],
+    "banned_colors": BANNED_COLORS,
 }
+
+
+def _is_tailwind_color_class(class_name: str) -> bool:
+    """Return True if class_name is a Tailwind color utility (always allowed)."""
+    prefixes = ("bg-", "text-", "border-", "ring-", "fill-", "stroke-",
+                "from-", "to-", "via-", "shadow-", "outline-", "decoration-")
+    name = class_name.lower().strip()
+    for prefix in prefixes:
+        if name.startswith(prefix):
+            rest = name[len(prefix):]
+            base = rest.split("-")[0]
+            if base in _TAILWIND_COLOR_NAMES:
+                return True
+    return False
 
 VIOLATION_TYPES = (
     "banned_color", "wrong_font", "contrast_fail", "missing_nav",
@@ -309,9 +353,12 @@ class BrandGuardAgent:
 
         violations = []
 
-        # Color check
+        # Color check — S3.0 policy:
+        # Only flag hardcoded hex values that are in BANNED_COLORS.
+        # Tailwind utility classes (bg-slate-*, text-gray-*, etc.) are ALWAYS allowed.
+        # Non-brand hex values that aren't explicitly banned are flagged as warnings, not blocks.
         live_colors = set(c.upper() for c in live.get("colors", []))
-        for banned in CANONICAL_TOKENS["banned_colors"]:
+        for banned in BANNED_COLORS:
             if banned.upper() in live_colors:
                 v = {
                     "type": "banned_color",
@@ -354,12 +401,22 @@ class BrandGuardAgent:
         self.violations = violations
         passed = len(violations) == 0
 
+        # Score: 100 base, -10 per critical, -5 per high, -2 per medium
+        score = 100
+        for v in violations:
+            sev = v.get("severity", "medium")
+            score -= {"critical": 10, "high": 5, "medium": 2, "low": 1}.get(sev, 2)
+        score = max(0, score)
+
         return {
             "passed": passed,
+            "score": score,
             "url": url,
             "scan_id": self.scan_id,
             "violation_count": len(violations),
             "violations": violations,
+            "brand_colors": CANONICAL_BRAND_COLORS,
+            "tailwind_policy": "allowed — Tailwind utilities compile to CSS vars",
             "scanned_at": datetime.utcnow().isoformat(),
         }
 

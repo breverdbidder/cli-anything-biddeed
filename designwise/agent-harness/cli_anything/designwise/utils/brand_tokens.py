@@ -1,7 +1,14 @@
 """
 brand_tokens.py — DesignWise brand design token utilities.
 Provides color validation, font checks, contrast calculations for ZoneWise.AI brand compliance.
-House brand: Navy #1E3A5F, Orange #F59E0B, Slate bg #020617, Font: Inter
+House brand (5 canonical colors): Navy #1E3A5F, Orange #F59E0B, bg #020617, hover #D97706, dark navy #162D4A
+Font: Inter
+
+Design policy:
+  - CANONICAL_BRAND_COLORS: The 5 exact hex values that define the brand.
+  - Tailwind utility classes (bg-slate-*, text-gray-*, etc.) are ALLOWED — they compile
+    to CSS variables, not hardcoded hex, and do not require explicit approval.
+  - Only hardcoded hex values that are not in CANONICAL_BRAND_COLORS are flagged.
 """
 
 import math
@@ -9,20 +16,24 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
-# ── Canonical brand constants (fallback when DESIGN.md not found) ──────────────
+# ── 5 Canonical brand colors (S3.0 — tightened from 10+ to 5) ─────────────────
 
+CANONICAL_BRAND_COLORS: Dict[str, str] = {
+    "navy":       "#1E3A5F",  # Primary navy — headings, navbar, buttons
+    "orange":     "#F59E0B",  # Accent orange — CTAs, highlights
+    "bg":         "#020617",  # Background (slate-950) — all page backgrounds
+    "hover":      "#D97706",  # Hover state (orange-500) — interactive elements
+    "dark_navy":  "#162D4A",  # Dark navy (navy-700) — surfaces, cards
+}
+
+# Canonical tokens for backwards compat + BrandGuard full validation
 CANONICAL_TOKENS: Dict[str, Any] = {
     "colors": {
-        "primary": "#1E3A5F",
-        "accent": "#F59E0B",
+        "primary":    "#1E3A5F",
+        "accent":     "#F59E0B",
         "background": "#020617",
-        "surface": "#0F172A",
-        "text_primary": "#F8FAFC",
-        "text_secondary": "#94A3B8",
-        "success": "#22C55E",
-        "warning": "#F59E0B",
-        "error": "#EF4444",
-        "border": "#1E293B",
+        "hover":      "#D97706",
+        "dark_navy":  "#162D4A",
     },
     "banned_colors": [
         "#FF0000",  # pure red
@@ -31,10 +42,17 @@ CANONICAL_TOKENS: Dict[str, Any] = {
         "#FF00FF",  # magenta
         "#FFFF00",  # yellow
         "#00FFFF",  # cyan
-        "#FFA500",  # html orange (use accent instead)
+        "#FFA500",  # html orange (use #F59E0B instead)
         "#800080",  # purple
         "#008000",  # html green
         "#FF6600",  # orange-red
+        "#FFFFFF",  # pure white bg (use #020617)
+        "#000000",  # pure black (use #020617)
+    ],
+    # Tailwind utility prefixes that are always allowed (compiled to CSS vars)
+    "tailwind_allowed_prefixes": [
+        "bg-", "text-", "border-", "ring-", "fill-", "stroke-",
+        "from-", "to-", "via-", "shadow-", "outline-",
     ],
     "fonts": {
         "heading": "Inter",
@@ -56,17 +74,43 @@ CANONICAL_TOKENS: Dict[str, Any] = {
     },
 }
 
-# Normalized set of brand color values (lowercase, no #)
-_BRAND_COLOR_VALS = {v.lstrip("#").lower() for v in CANONICAL_TOKENS["colors"].values()}
+# Normalized sets for fast lookup
+_BRAND_COLOR_VALS = {v.lstrip("#").lower() for v in CANONICAL_BRAND_COLORS.values()}
 _BANNED_COLOR_VALS = {c.lstrip("#").lower() for c in CANONICAL_TOKENS["banned_colors"]}
 _ALLOWED_FONTS = {"inter", "jetbrains mono", "jetbrains+mono"}
+
+# Tailwind scale classes never flagged as violations (they use CSS variables at build time)
+_TAILWIND_SCALE_NAMES = {
+    "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
+    "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
+    "indigo", "violet", "purple", "fuchsia", "pink", "rose", "white", "black",
+    "transparent", "current",
+}
+
+
+def is_tailwind_utility(class_name: str) -> bool:
+    """
+    Return True if class_name looks like a Tailwind color utility.
+    e.g. bg-slate-950, text-gray-400, border-amber-500
+    Tailwind utilities are ALWAYS allowed — they compile to CSS vars, not raw hex.
+    """
+    prefixes = CANONICAL_TOKENS["tailwind_allowed_prefixes"]
+    name_lower = class_name.lower().strip()
+    for prefix in prefixes:
+        if name_lower.startswith(prefix):
+            remainder = name_lower[len(prefix):]
+            # remainder is like "slate-950" or "gray-400" or "white"
+            parts = remainder.split("-")
+            if parts[0] in _TAILWIND_SCALE_NAMES:
+                return True
+    return False
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def get_canonical_colors() -> Dict[str, str]:
-    """Return canonical color palette dict."""
-    return dict(CANONICAL_TOKENS["colors"])
+    """Return the 5 canonical brand colors."""
+    return dict(CANONICAL_BRAND_COLORS)
 
 
 def load_design_md(path: str = "DESIGN.md") -> Dict[str, Any]:
