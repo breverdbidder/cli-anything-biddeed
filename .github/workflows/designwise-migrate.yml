@@ -8,99 +8,32 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - name: "Setup Node"
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: "Install pg"
-        run: npm install pg
-
-      - name: "Run migration via node-postgres"
+      - run: npm install pg
+      - name: "Run migration"
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: |
-          cat > /tmp/migrate.js << 'SCRIPT'
-          const { Client } = require("pg");
-          const fs = require("fs");
-          async function main() {
-            // Session mode pooler (port 5432, IPv4)
-            const configs = [
-              { label: "Session 5432", host: "aws-0-us-east-1.pooler.supabase.com", port: 5432, user: "postgres.mocerqjnksmhcjzxrewo" },
-              { label: "Transaction 6543", host: "aws-0-us-east-1.pooler.supabase.com", port: 6543, user: "postgres.mocerqjnksmhcjzxrewo" },
-            ];
-            let connected = false;
-            let client;
-            for (const cfg of configs) {
-              client = new Client({
-                host: cfg.host, port: cfg.port, user: cfg.user,
-                password: process.env.SUPABASE_DB_PASSWORD,
-                database: "postgres",
-                ssl: { rejectUnauthorized: false },
-                connectionTimeoutMillis: 10000,
-              });
-              try {
-                await client.connect();
-                console.log("Connected via " + cfg.label);
-                connected = true;
-                break;
-              } catch (err) {
-                console.log("SKIP " + cfg.label + ": " + err.message.slice(0, 80));
-                try { await client.end(); } catch(e) {}
-              }
-            }
-            if (!connected) { console.error("All connection methods failed"); process.exit(1); }
-            const sql = fs.readFileSync("designwise/migrations/001_designwise_tables.sql", "utf8");
-            const stmts = sql.split(";").filter(s => s.trim().length > 10);
-            console.log("Running " + stmts.length + " statements...");
-            let ok=0, skip=0, fail=0;
-            for (const stmt of stmts) {
-              try {
-                await client.query(stmt + ";");
-                const m = stmt.match(/public\.(\w+)/i);
-                if (m) console.log("  OK: " + m[1]);
-                ok++;
-              } catch(err) {
-                if (err.message.includes("already exists")) { skip++; }
-                else { console.error("  ERR: " + err.message.slice(0,100)); fail++; }
-              }
-            }
-            console.log("Result: " + ok + " ok, " + skip + " exist, " + fail + " fail");
-            await client.end();
-            if (fail > 0) process.exit(1);
-          }
-          main();
-          SCRIPT
-          node /tmp/migrate.js
-
-      - name: "Verify 11 tables via REST"
+        run: node designwise/migrations/run_migration.js
+      - name: "Verify 11 tables"
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           PASS=0
           for TABLE in design_tasks brand_violations visual_baselines page_analytics conversion_funnel support_tickets ab_tests deploy_log competitor_snapshots seo_audits stitch_usage; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-              "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "apikey: ${SUPABASE_SERVICE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
             if [ "$STATUS" = "200" ]; then echo "OK $TABLE"; PASS=$((PASS+1)); else echo "FAIL $TABLE ($STATUS)"; fi
           done
           echo "Result: $PASS/11"
           if [ "$PASS" -lt 11 ]; then exit 1; fi
-
       - name: "Telegram"
         if: success()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d parse_mode="Markdown" \
-            --data-urlencode "text=✅ *DESIGNWISE MIGRATION PIPELINE VERIFIED*
-          🗄️ 11/11 tables confirmed
-          🔌 node-postgres pooler connection working
-          _Zero-HITL DB migrations operational._"
-
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d chat_id="${TELEGRAM_CHAT_ID}" -d parse_mode="Markdown" --data-urlencode "text=✅ *DB MIGRATION PIPELINE VERIFIED*
+          🗄️ 11/11 tables + node-postgres pooler working
+          _Zero-HITL migrations operational._"
