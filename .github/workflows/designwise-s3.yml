@@ -1,0 +1,32 @@
+name: DesignWise S3
+on:
+  repository_dispatch:
+    types: [designwise-s3]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Claude Code on Hetzner
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 80m
+          envs: CLAUDE_OAUTH_B64,GH_PAT,BIDDEED_BOT_TOKEN,BIDDEED_BOT_CHAT_ID,GOOGLE_API_KEY,STITCH_API_KEY
+          script: |
+            set -e
+            OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
+            su - claude -c "export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN' && export NPM_CONFIG_PREFIX=/home/claude/.npm-global && export PATH=/home/claude/.npm-global/bin:\$PATH && export BIDDEED_BOT_TOKEN='$BIDDEED_BOT_TOKEN' && export BIDDEED_BOT_CHAT_ID='$BIDDEED_BOT_CHAT_ID' && export GH_PAT='$GH_PAT' && export GOOGLE_API_KEY='$GOOGLE_API_KEY' && export STITCH_API_KEY='$STITCH_API_KEY' && cd /home/claude/repos/cli-anything-biddeed && git pull origin main && claude -p 'MISSION: DesignWise S3 — Core Pages Build with Stitch 2.0. Read docs/plans/DESIGNWISE-SPEC.md and docs/plans/DESIGNWISE-PLAN.md. GOOGLE_API_KEY and STITCH_API_KEY are now available as env vars. S3.0 Fix BrandGuard canonical color set (GitHub Issue 43): tighten to 5 brand colors only (Navy 1E3A5F, Orange F59E0B, bg 020617, hover D97706, dark navy 162D4A). Allow Tailwind utilities but dont require them. S3.1 Build core ZoneWise pages using Stitch 2.0 MCP integration: landing page (Reventure-style heatmap lead magnet), 67-county auction calendar, split-screen app shell (chat LEFT map RIGHT), explorer page, KPIs dashboard. All pages must use house brand (Navy, Orange, Inter, bg slate-950). S3.2 Wire StitchWise agent to use STITCH_API_KEY for programmatic design generation. S3.3 Run BrandGuard validation on all generated pages — must score 100/100. Git prefix DW:, push main, Telegram notify with page count and BrandGuard scores.' --dangerously-skip-permissions"
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          BIDDEED_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          BIDDEED_BOT_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          STITCH_API_KEY: ${{ secrets.STITCH_API_KEY }}
+      - name: Notify
+        if: always()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.BIDDEED_BOT_CHAT_ID }}" -d "text=DesignWise S3: ${{ job.status }} - ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
