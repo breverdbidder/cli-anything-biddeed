@@ -1,8 +1,7 @@
 name: Nexus S1 Task + Workflow Intelligence
 
 on:
-  repository_dispatch:
-    types: [nexus-s1]
+  workflow_dispatch:
 
 jobs:
   build:
