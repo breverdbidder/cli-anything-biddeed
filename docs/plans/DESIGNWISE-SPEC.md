@@ -1,7 +1,7 @@
 # DESIGNWISE-SPEC.md
 # DesignWise Squad — Full Specification
-# Version: 1.0.0 | Date: 2026-03-21
-# Status: APPROVED by Product Owner
+# Version: 1.1.0 | Date: 2026-03-21
+# Status: APPROVED by Product Owner | Stitch 2.0 Patch Applied 2026-03-21
 # Repo: breverdbidder/cli-anything-biddeed → designwise/
 
 ---
@@ -608,4 +608,78 @@ ALL FOUR must pass. Branch protection enforces this.
 
 ---
 
+---
+
+## 9. STITCH 2.0 AMENDMENTS (V1.1.0 — Applied 2026-03-21)
+
+Source: DESIGNWISE-SPEC-PATCH.md | All 9 amendments from gap analysis applied.
+
+### Amendment 1: StitchWise MCP Config — @google/stitch-sdk (replaces @_davideast/stitch-mcp)
+```json
+{
+  "mcpServers": {
+    "stitch": {
+      "command": "npx",
+      "args": ["@google/stitch-sdk", "serve"]
+    }
+  }
+}
+```
+- **Intent-based vibe prompts** for all 8 screens (not wireframe specs)
+- **Batch generation:** 5+3 (not 8 sequential calls)
+- **Mode selection:** Flash for iteration, Pro for production screens
+- **Project context:** Single `zonewise-production` project for cross-screen consistency
+- **Stitch Skills Library:** `react-component-conversion` skill replaces custom HTML-to-React
+
+### Amendment 2: Interactive Prototype Generation
+- StitchWise generates full interactive prototype after all 8 screens complete
+- Flow: Landing → Heatmap → Parcel → Gate → Signup → App → Chat → Map
+- Export: interactive HTML to `lab.zonewise.ai/prototype`
+- Used by: QAWise E2E suite, investor demos, beta onboarding
+
+### Amendment 3: Weekly DESIGN.md Drift Detection (BrandGuard)
+- Cron: Sunday 8AM EST (`weekly-designmd-drift.yml`)
+- Process: Extract tokens from live site → diff against DESIGN.md → alert on drift
+- Output: GitHub Issue + Telegram alert
+- Method: `BrandGuardAgent.check_design_drift(live_url, design_md_path)`
+
+### Amendment 4: CodeWise Direct Stitch MCP Pipeline
+- **Primary path:** Claude Code + Stitch MCP → generates React directly (no HTML export)
+- **Fallback path:** HTML export + `react-component-conversion` skill
+- CLAUDE.md MCP config injected into CodeWise Claude Code sessions
+
+### Amendment 5: Commander Parallel Exploration Dispatch
+- A/B test setup: Commander dispatches N explorations in parallel via Stitch Agent Manager
+- Reduces quota: 1 session (vs N sequential calls)
+- Improves consistency: all variants share canvas context
+- `parallel_stitch_dispatch()` in commander.py
+
+### Amendment 6: Figma Archive (P2 Sprint 4)
+- Optional export after production screen approval
+- Stored in `design_tasks.figma_url` column
+- Priority: P2. Does NOT block any pipeline.
+
+### Amendment 7: Supabase Schema Updates
+- **New table:** `stitch_usage` — quota tracking (350/month free tier)
+  - Budget: 200 Pro (production) | 100 Flash (A/B) | 50 Flash (hotfixes)
+  - Alert at 280 (80%). Hard stop at 340 (remaining < 10).
+- **Altered table:** `design_tasks` — added `figma_url TEXT` column
+- Migration: `supabase/migrations/20260321_designwise_stitch_patch.sql`
+
+### Amendment 8: Quota Management Integration
+- Commander checks quota before every StitchWise dispatch
+- Alert at 80% (280/350) via Telegram
+- Raises `QuotaExceededError` if remaining < 10
+- Quota tracked in `stitch_usage` Supabase table
+
+### Amendment 9: Test Coverage
+- 28 new tests across 4 test files:
+  - `test_stitch_quota.py` — 7 tests (quota tracking + enforcement)
+  - `test_brand_drift.py` — 7 tests (URL extraction + drift detection)
+  - `test_prototype.py` — 7 tests (flow assembly + Figma export)
+  - `test_parallel_dispatch.py` — 7 tests (Commander parallel mode)
+
+---
+
 *Specification approved 2026-03-21. Ready for PLAN phase.*
+*V1.1.0 Stitch 2.0 patch applied 2026-03-21.*

@@ -1,8 +1,9 @@
 # DESIGNWISE-PLAN.md
 # DesignWise Squad — Implementation Plan (Claude Code Handoff)
-# Date: 2026-03-21 | Sprints: 4 weeks
+# Date: 2026-03-21 | Sprints: 4 weeks | Version: 1.1.0
 # Repo: breverdbidder/cli-anything-biddeed
 # Target: breverdbidder/zonewise-web + breverdbidder/cli-anything-biddeed
+# Patch: Stitch 2.0 amendments applied 2026-03-21 (DESIGNWISE-SPEC-PATCH.md)
 
 ---
 
@@ -60,6 +61,7 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 - [ ] Create pg_cron for cleanup (design_tasks, deploy_log: 90-day retention)
 - [ ] Create views: active_violations, daily_funnel, deploy_history
 - [ ] Verify with curl queries
+- [x] **PATCH:** Run migration `supabase/migrations/20260321_designwise_stitch_patch.sql` (stitch_usage + figma_url column)
 
 ### S1.5 — Fix CRITICAL Bugs (existing site)
 - [ ] Delete /public/demo.html (standalone file)
@@ -84,9 +86,15 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 ## SPRINT 2 — STITCH + BUILD (Week 2)
 
 ### S2.1 — StitchWise Agent (P0)
-- [ ] Implement stitch_agent.py
+- [x] **PATCH:** Implement stitch_agent.py (Amendment 1 — @google/stitch-sdk MCP)
 - [ ] Stitch MCP client wrapper (stitch_mcp.py)
-- [ ] Load DESIGN.md as context for every Stitch generation
+- [x] **PATCH:** Load DESIGN.md as context for every Stitch generation
+- [x] **PATCH:** Intent-based vibe prompts for all 8 screens (Amendment 1)
+- [x] **PATCH:** Batch generation 5+3 via generate_all_screens() (Amendment 1)
+- [x] **PATCH:** Flash/Pro mode selection (Amendment 1)
+- [x] **PATCH:** Quota check before every generation (Amendment 1)
+- [x] **PATCH:** generate_prototype() for interactive flow (Amendment 2)
+- [x] **PATCH:** export_to_figma() optional method (Amendment 6)
 - [ ] Generate 8 screens in order per DESIGN.md §Stitch Instructions:
   1. Landing page hero + heatmap section
   2. Split-screen app (chat left, map right)
@@ -99,7 +107,7 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 - [ ] Validate each screen against brand tokens before accepting
 - [ ] Save screenshots to Supabase Storage
 - [ ] CLI: `cli-anything-designwise stitch --screen "landing-hero" --json`
-- [ ] Write 8 tests (one per screen generation)
+- [x] **PATCH:** 7 quota tests (test_stitch_quota.py)
 
 ### S2.2 — CodeWise Agent (P0)
 - [ ] Implement codewise_agent.py
@@ -291,4 +299,46 @@ git push origin lab
 
 ---
 
+---
+
+## STITCH 2.0 PATCH TASKS (V1.1.0 — Sprints updated)
+
+### Patch Sprint S1 (Week 1 additions)
+- [x] Create `stitch_usage` quota table (migration written, needs Supabase Dashboard run)
+- [x] Commander quota check before StitchWise dispatch (Amendment 1)
+- [x] Telegram alert at 280/350 used (80%) — Amendment 1
+
+### Patch Sprint S2 (Week 2 additions)
+- [x] Intent-based vibe prompts for all 8 screens — Amendment 1
+- [x] Project-wide context threading (zonewise-production) — Amendment 1
+- [x] @google/stitch-sdk MCP config — Amendment 1
+- [x] Stitch Skills Library react-component-conversion skill — Amendment 1
+- [x] BrandGuard URL extraction + DESIGN.md drift diff — Amendment 3
+- [x] CodeWise direct Stitch MCP pipeline (primary + fallback) — Amendment 4
+
+### Patch Sprint S3 (Week 3 additions)
+- [x] Interactive prototype flow: generate_prototype() — Amendment 2
+- [x] Parallel exploration dispatch: parallel_stitch_dispatch() — Amendment 5
+
+### Patch Sprint S4 (Week 4 additions)
+- [x] Figma archive: export_to_figma() + design_tasks.figma_url column — Amendment 6
+
+### New GitHub Actions Workflows (Patch)
+| Workflow | Schedule | Agent | Amendment |
+|----------|----------|-------|-----------|
+| `weekly-designmd-drift.yml` | Sunday 8AM EST (0 13 * * 0) | BrandGuard drift check | 3 |
+
+### Updated Cron Table (Full)
+| Workflow | Schedule | Agent |
+|----------|----------|-------|
+| `nightly-audit.yml` | 2AM EST daily | BrandGuard full-site scan |
+| `autoloop-designwise.yml` | 3AM EST daily | 25-assertion eval loop |
+| `weekly-competitor.yml` | Sunday 6AM EST | CompetitorWise scan |
+| `weekly-seo.yml` | Sunday 7AM EST | SEOWise audit |
+| `weekly-designmd-drift.yml` | Sunday 8AM EST | BrandGuard drift check (NEW) |
+| `daily-analytics.yml` | 6AM EST daily | AnalyticsWise aggregation |
+
+---
+
 *Plan ready for Claude Code handoff. 2026-03-21.*
+*V1.1.0 Stitch 2.0 patch tasks added 2026-03-21.*
