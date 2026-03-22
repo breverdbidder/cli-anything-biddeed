@@ -87,7 +87,7 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 
 ### S2.1 — StitchWise Agent (P0)
 - [x] **PATCH:** Implement stitch_agent.py (Amendment 1 — @google/stitch-sdk MCP)
-- [ ] Stitch MCP client wrapper (stitch_mcp.py)
+- [x] **S2.1:** Stitch MCP client wrapper (stitch_mcp.py) — real JSON-RPC transport, retry 3x, cache, fallback to npx stitchmcp
 - [x] **PATCH:** Load DESIGN.md as context for every Stitch generation
 - [x] **PATCH:** Intent-based vibe prompts for all 8 screens (Amendment 1)
 - [x] **PATCH:** Batch generation 5+3 via generate_all_screens() (Amendment 1)
@@ -115,28 +115,30 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 - [x] **PATCH (A10):** stitch_agent.py bumped to V1.2.0
 
 ### S2.2 — CodeWise Agent (P0)
-- [ ] Implement codewise_agent.py
-- [ ] Stitch HTML → Next.js converter:
+- [x] **S2.2:** Implement codewise_agent.py (real implementation, V1.2.0)
+- [x] **S2.2:** Stitch HTML → Next.js converter:
   - Extract Tailwind classes → map to DESIGN.md CSS variables
   - Replace hardcoded colors → CSS variable references
   - Wrap in proper Next.js page component with TypeScript types
   - Add shadcn/ui components where applicable
-- [ ] Git workflow: create feature branch → commit → create PR
-- [ ] ESLint + TypeScript validation before PR creation
-- [ ] CLI: `cli-anything-designwise code --input stitch-output.html --route /app`
-- [ ] Write 10 tests (HTML parsing, color replacement, TS output)
+- [x] **S2.2:** convert_screen(), convert_all_screens(), create_feature_branch() methods
+- [x] **S2.2:** Git workflow: create feature branch → commit → create PR
+- [x] **S2.2:** ESLint + TypeScript validation before PR creation
+- [x] **S2.2:** CLI: `cli-anything-designwise code --input stitch-output.html --route /app`
+- [x] **S2.2:** 10 tests (test_codewise_full.py — HTML parsing, color replacement, TS output, routing, shadcn/ui)
 
 ### S2.3 — DeployWise Agent (P1)
-- [ ] Implement deploywise_agent.py
-- [ ] Lab deploy: push to `lab` branch → auto-deploys to lab.zonewise.ai
-- [ ] Preview: create PR → Vercel auto-generates preview URL
-- [ ] Gate: wait for BrandGuard + QAWise + A11y + SEO checks
-- [ ] Promote: merge PR → auto-deploys to production
-- [ ] Smoke test: Playwright hits 5 critical URLs within 60s of deploy
-- [ ] Rollback: if smoke fails → `git revert HEAD` → force push → Telegram alert
-- [ ] Supabase: insert deploy_log for every deploy
-- [ ] CLI: `cli-anything-designwise deploy --tier lab|preview|production`
-- [ ] Write 8 tests (deploy flow, gate logic, rollback)
+- [x] **S2.3:** Implement deploywise_agent.py (full 3-tier pipeline, V1.2.0)
+- [x] **S2.3:** Lab deploy: push to `lab` branch → auto-deploys to lab.zonewise.ai
+- [x] **S2.3:** Preview: create PR via GitHub API → Vercel auto-generates preview URL
+- [x] **S2.3:** Gate: poll GitHub check-runs API for brandguard + qa + a11y + seo
+- [x] **S2.3:** Promote: merge PR via GitHub API → auto-deploys to production
+- [x] **S2.3:** Smoke test: hits 5 critical URLs within 60s of deploy
+- [x] **S2.3:** Rollback: `git revert HEAD` → push → Telegram alert
+- [x] **S2.3:** Supabase: insert deploy_log for every deploy
+- [x] **S2.3:** CLI: `cli-anything-designwise deploy --tier lab|preview|production`
+- [x] **S2.3:** 10 tests (test_deploywise_full.py — deploy flow, gate logic, rollback)
+- [x] **S2.3:** qa-visual-regression.yml — Playwright + Pixelmatch, threshold 1%, baselines in Supabase
 
 ### S2.4 — Implement Core Pages
 - [ ] Landing page: hero + Reventure-style heatmap (full-width, always free)
@@ -159,7 +161,7 @@ These are the ONLY manual steps. Everything after is Zero-HITL.
 - [ ] E2E flows: landing → heatmap → click → gate → signup → app → chat → map
 - [ ] Lighthouse CI: Performance ≥80, Accessibility ≥90, SEO ≥80
 - [ ] CLI: `cli-anything-designwise qa --url lab.zonewise.ai --json`
-- [ ] Create qa-visual-regression.yml GitHub Action
+- [x] **S2.3:** Create qa-visual-regression.yml GitHub Action (moved to S2.3 support)
 - [ ] Write 12 tests
 
 ### S3.2 — AnalyticsWise Agent (P1)
