@@ -1,0 +1,60 @@
+name: "DesignWise Squad — Telegram Notify"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: "Send DesignWise Squad Deployment Notice"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="🎖️ *DESIGNWISE SQUAD — DEPLOYED*
+
+          🚀 *2 Claude Code sessions running on Hetzner*
+
+          *Session 1: Squad Foundation*
+          ├ Scaffolding 13-agent designwise/ harness
+          ├ Building BrandGuard (brand cop)
+          ├ Building Commander (LangGraph orchestrator)
+          ├ Creating 10 Supabase tables
+          └ Creating eval.json (25 assertions)
+          🔗 [View Run](https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/23393016649)
+
+          *Session 2: Critical Bug Fixes*
+          ├ Deleting demo.html → /app/demo (brand colors)
+          ├ Fixing /kpis (empty → loads 298 KPIs)
+          ├ Fixing /explorer (404 → working)
+          ├ Adding navbar + footer to ALL pages
+          ├ Creating /app split-screen shell
+          └ Creating lab branch → lab.zonewise.ai
+          🔗 [View Run](https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/23393016869)
+
+          *13 Agents:*
+          🎖️ Commander · 🎨 StitchWise · 🛡️ BrandGuard
+          ⚙️ CodeWise · 🚀 DeployWise · 🔍 QAWise
+          📊 AnalyticsWise · 💬 SupportWise · 🔄 IterateWise
+          🔎 SEOWise · ♿ AccessibilityWise · 🕵️ CompetitorWise · ✍️ ContentWise
+
+          *3-Tier Deploy:*
+          lab.zonewise.ai → Vercel previews → zonewise.ai
+          BrandGuard BLOCKS prod on ANY violation
+
+          *Pricing:* Free / Starter \$39 / Pro \$99
+
+          *Ariel TODO (15 min):*
+          ☐ Google Cloud + Stitch 2.0 API
+          ☐ Vercel lab subdomain
+          ☐ GitHub branch protection
+
+          ⏱ ETA: ~60-90 min per session
+          📱 You'll get ✅ pings when each completes"
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "parse_mode=Markdown" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${MSG}"
