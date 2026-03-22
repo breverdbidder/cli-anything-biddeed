@@ -5,109 +5,58 @@ on:
 jobs:
   migrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Run migration via Hetzner (node-postgres + pooler IPv4)"
-        uses: appleboy/ssh-action@v1.2.0
+      - name: "Install psql"
+        run: sudo apt-get install -y -qq postgresql-client
+
+      - name: "Run migration via shared pooler (IPv4, session mode)"
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "=== Running migration via shared pooler ==="
+          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require" \
+            -f designwise/migrations/001_designwise_tables.sql \
+            --echo-errors 2>&1
+          echo "=== Migration complete ==="
+
+      - name: "Verify 11 tables"
+        env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          PASS=0
+          FAIL=0
+          for TABLE in design_tasks brand_violations visual_baselines page_analytics conversion_funnel support_tickets ab_tests deploy_log competitor_snapshots seo_audits stitch_usage; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+              "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
+            if [ "$STATUS" = "200" ]; then
+              echo "OK $TABLE"
+              PASS=$((PASS+1))
+            else
+              echo "FAIL $TABLE ($STATUS)"
+              FAIL=$((FAIL+1))
+            fi
+          done
+          echo "Result: $PASS/11 tables verified"
+          if [ "$FAIL" -gt 0 ]; then exit 1; fi
+
+      - name: "Telegram"
+        if: success()
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        with:
-          host: ${{ secrets.HETZNER_IP }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 30s
-          command_timeout: 10m
-          envs: SUPABASE_DB_PASSWORD,SUPABASE_URL,SUPABASE_SERVICE_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GH_PAT
-          script: |
-            set -e
-
-            echo "=== Pull migration SQL ==="
-            curl -s -H "Authorization: token ${GH_PAT}" \
-              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/contents/designwise/migrations/001_designwise_tables.sql" | \
-              python3 -c "import json,sys,base64; print(base64.b64decode(json.load(sys.stdin)['content']).decode())" > /tmp/designwise_migration.sql
-            echo "SQL file: $(wc -l < /tmp/designwise_migration.sql) lines"
-
-            echo "=== Install pg ==="
-            cd /tmp && npm install pg 2>&1 | tail -3
-
-            echo "=== Run migration via node-postgres (pooler IPv4) ==="
-            cat > /tmp/run_migration.js << 'NODEJS'
-            const { Client } = require("/tmp/node_modules/pg");
-            const fs = require("fs");
-            async function main() {
-              const client = new Client({
-                host: "aws-0-us-east-1.pooler.supabase.com",
-                port: 6543,
-                user: "postgres.mocerqjnksmhcjzxrewo",
-                password: process.env.SUPABASE_DB_PASSWORD,
-                database: "postgres",
-                ssl: { rejectUnauthorized: false }
-              });
-              try {
-                await client.connect();
-                console.log("Connected via pooler (IPv4)");
-                const sql = fs.readFileSync("/tmp/designwise_migration.sql", "utf8");
-                const statements = sql.split(";").filter(s => s.trim().length > 10);
-                console.log("Executing " + statements.length + " statements...");
-                let ok = 0, skip = 0, fail = 0;
-                for (let i = 0; i < statements.length; i++) {
-                  const stmt = statements[i].trim() + ";";
-                  try {
-                    await client.query(stmt);
-                    const m = stmt.match(/public\.(\w+)/i);
-                    if (m) console.log("  OK: " + m[1]);
-                    ok++;
-                  } catch (err) {
-                    if (err.message.includes("already exists")) { skip++; }
-                    else { console.error("  FAIL: " + err.message.slice(0,120)); fail++; }
-                  }
-                }
-                console.log("Done: " + ok + " ok, " + skip + " skipped, " + fail + " failed");
-              } catch (err) {
-                console.error("Connection failed: " + err.message);
-                process.exit(1);
-              } finally { await client.end(); }
-            }
-            main();
-            NODEJS
-
-            node /tmp/run_migration.js
-
-            echo "=== Verify tables via REST ==="
-            PASS=0
-            FAIL=0
-            for TABLE in design_tasks brand_violations visual_baselines page_analytics conversion_funnel support_tickets ab_tests deploy_log competitor_snapshots seo_audits stitch_usage; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-                -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-                -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-                "${SUPABASE_URL}/rest/v1/${TABLE}?select=count&limit=0")
-              if [ "$STATUS" = "200" ]; then
-                echo "OK $TABLE"
-                PASS=$((PASS+1))
-              else
-                echo "FAIL $TABLE ($STATUS)"
-                FAIL=$((FAIL+1))
-              fi
-            done
-            echo "Tables: $PASS/11"
-
-            echo "=== Telegram ==="
-            MSG="✅ *DESIGNWISE S1.4 — DB MIGRATION VERIFIED*
-            🗄️ ${PASS}/11 tables confirmed via REST API
-            🔑 DB password updated + pooler IPv4 working
-            _Zero-HITL migrations operational._"
-
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TELEGRAM_CHAT_ID}" \
-              -d parse_mode="Markdown" \
-              --data-urlencode "text=${MSG}"
-
-            rm -f /tmp/designwise_migration.sql /tmp/run_migration.js
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            --data-urlencode "text=✅ *DESIGNWISE S1.4 — MIGRATION VERIFIED*
+          🗄️ 11/11 tables confirmed via REST API
+          🔑 DB password + shared pooler IPv4 working
+          _Zero-HITL migrations operational._"
 
