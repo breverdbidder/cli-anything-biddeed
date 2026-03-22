@@ -69,7 +69,7 @@ jobs:
 
               cd /opt/biddeed/cli-anything-biddeed
 
-              claude --print --auto-mode \
+              claude --print --dangerously-skip-permissions \
                 'MISSION: Complete DesignWise Squad Sprint 1 to 100%.
 
               STEP 0 — READ THE DISPATCH DOC (MANDATORY FIRST ACTION)
