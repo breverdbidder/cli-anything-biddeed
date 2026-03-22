@@ -1,14 +1,13 @@
-name: "Summit: Context Compression — Mermaid+YAML Migration"
+name: Summit Context Compression
 on:
   workflow_dispatch: {}
-
 jobs:
   compress:
-    name: "Convert CLAUDE.md → Mermaid+YAML"
+    name: Convert CLAUDE.md to Mermaid and YAML
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: "Execute on Hetzner"
+      - name: Execute on Hetzner
         uses: appleboy/ssh-action@v1.2.0
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -29,15 +28,11 @@ jobs:
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
             mkdir -p /home/claude/.npm-global
             chown -R claude:claude /home/claude
-
             npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -2
             claude --version 2>/dev/null
-
             echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
             OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
             rm -f /tmp/claude-oauth-token
-
-            # Clone all 5 repos
             mkdir -p /opt/biddeed
             for REPO in cli-anything-biddeed biddeed-ai biddeed-ai-ui zonewise-web zonewise-scraper-v4; do
               if [ ! -d "/opt/biddeed/$REPO" ]; then
@@ -48,59 +43,12 @@ jobs:
               git fetch origin main && git checkout main && git reset --hard origin/main
               chown -R claude:claude /opt/biddeed/$REPO
             done
-
-            echo "=== Run Claude Code: Context Compression ==="
-            su - claude -c "
-              export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
-              export NPM_CONFIG_PREFIX=/home/claude/.npm-global
-              export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
-              export GH_PAT='$GH_PAT'
-
-              cd /opt/biddeed/cli-anything-biddeed
-
-              claude --print --dangerously-skip-permissions \
-                'CONTEXT COMPRESSION MIGRATION — Convert all CLAUDE.md files from prose to Mermaid+YAML.
-
-              STEP 1: Read the spec and reference:
-              - docs/plans/CONTEXT-COMPRESSION-SPEC.md (conversion rules)
-              - docs/plans/CLAUDE-compressed-reference.md (reference implementation for this repo)
-
-              STEP 2: Convert cli-anything-biddeed/CLAUDE.md
-              - Replace current CLAUDE.md with the compressed reference version
-              - Verify no information was lost by diffing key sections
-              - Fix the GSTACK CEO Mode directive: change ASCII art references to Mermaid
-              - Git config: user.email ci@biddeed.ai, user.name BidDeed-CI
-              - Git commit: \"refactor: CLAUDE.md → Mermaid+YAML (context compression)\"
-              - Git push: git remote set-url origin https://x-access-token:\${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git
-
-              STEP 3: Convert remaining repos (one at a time):
-              For each of: biddeed-ai, biddeed-ai-ui, zonewise-web, zonewise-scraper-v4
-              - cd /opt/biddeed/REPO
-              - Read their CLAUDE.md
-              - Apply same conversion rules from the spec
-              - Keep repo-specific content (different repos have different context)
-              - Use cli-anything-biddeed as the style reference
-              - Git commit + push each one separately
-
-              STEP 4: Also convert any SKILL.md or HARNESS.md files found in cli-anything-biddeed that have prose sections convertible to Mermaid/YAML.
-
-              RULES:
-              - Mermaid for: pipelines, workflows, state machines, decision trees
-              - YAML for: configs, checklists, triggers, identity, rules
-              - Prose for: NOTHING representable as graph or data
-              - ASCII: BANNED — replace any found with Mermaid
-              - ZERO information loss — every fact must survive the conversion
-              - Report token count before/after for each file converted' \
-              2>&1 | tee /tmp/context-compression.log | tail -100
-            "
-
+            echo "=== Run Claude Code ==="
+            su - claude -c "export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'; export NPM_CONFIG_PREFIX=/home/claude/.npm-global; export PATH=/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin; export GH_PAT='$GH_PAT'; cd /opt/biddeed/cli-anything-biddeed; claude --print --dangerously-skip-permissions 'CONTEXT COMPRESSION MIGRATION. Read docs/plans/CONTEXT-COMPRESSION-SPEC.md and docs/plans/CLAUDE-compressed-reference.md first. Then: (1) Replace cli-anything-biddeed CLAUDE.md with compressed version from reference. Fix GSTACK CEO Mode ASCII refs to Mermaid. Git config ci@biddeed.ai BidDeed-CI. Commit and push. (2) For each of biddeed-ai biddeed-ai-ui zonewise-web zonewise-scraper-v4 in /opt/biddeed/: read their CLAUDE.md, apply same Mermaid+YAML conversion rules, keep repo-specific content, commit+push each. (3) Convert any SKILL.md or HARNESS.md prose sections in cli-anything-biddeed. Rules: Mermaid for flows, YAML for state, NEVER ASCII, NEVER prose for structured data, ZERO info loss. Report char count before/after each file.' 2>&1 | tee /tmp/context-compression.log | tail -100"
             EXIT_CODE=${PIPESTATUS[0]}
-
             echo "=== Telegram ==="
-            if [ $EXIT_CODE -eq 0 ]; then E="✅"; S="SUCCESS"; else E="❌"; S="FAILED (exit $EXIT_CODE)"; fi
-            SUMMARY=$(tail -20 /tmp/context-compression.log 2>/dev/null | head -10 | tr '
-' ' ' | cut -c1-400)
-            MSG="${E} Context Compression: ${S}%0A%0ARepos: 5 (cli-anything, biddeed-ai, biddeed-ai-ui, zonewise-web, zonewise-scraper-v4)%0ATarget: CLAUDE.md + SKILL.md + HARNESS.md%0A%0A${SUMMARY}"
-            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null 2>&1 || true
+            if [ $EXIT_CODE -eq 0 ]; then E="OK"; S="SUCCESS"; else E="FAIL"; S="FAILED exit $EXIT_CODE"; fi
+            SUMMARY=$(tail -20 /tmp/context-compression.log 2>/dev/null | head -10 | tr '\n' ' ' | cut -c1-400)
+            MSG="${E} Context Compression: ${S}. Repos: 5. ${SUMMARY}"
+            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null 2>&1 || true
             exit $EXIT_CODE
