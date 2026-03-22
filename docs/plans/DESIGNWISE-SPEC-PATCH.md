@@ -154,7 +154,7 @@ ALTER TABLE design_tasks ADD COLUMN figma_url TEXT;
 | Sprint | Patches |
 |--------|---------|
 | S1 | Quota management table + Commander quota check |
-| S2 | Intent prompting, project-wide context, SDK + Skills, URL extraction loop, Stitch-to-Claude-Code direct |
+| S2 | Intent prompting, project-wide context, SDK + Skills, URL extraction loop, Stitch-to-Claude-Code direct, **MCP tool mapping (A10), stitchmcp fallback (A10), stitch:design skill (A10)** |
 | S3 | Interactive prototyping, parallel explorations |
 | S4 | Figma archive (optional) |
 
@@ -165,4 +165,75 @@ ALTER TABLE design_tasks ADD COLUMN figma_url TEXT;
 
 ---
 
-*Patch approved 2026-03-21. Apply to DESIGNWISE-SPEC.md V1.1.0 and DESIGNWISE-PLAN.md V1.1.0.*
+## AMENDMENT 10: MCP Tool Mapping + Community Wrapper + stitch:design Skill (2026-03-21)
+
+Source: Gap analysis from YouTube transcript (Jkcy4SfGL00) — "Google Stitch 2.0 + Claude Code Pipeline"
+
+### Gap 1: MCP Tool Name Mapping
+
+The @google/stitch-sdk MCP server exposes exactly **3 canonical tools**:
+
+| MCP Tool | Purpose | Used By |
+|----------|---------|---------|
+| `build_sitemaps` | Maps Stitch screens to routes, returns HTML per page | DeployWise, prototype assembly |
+| `get_screen_code` | Retrieves HTML+CSS for a specific screen by name | CodeWise, primary generation |
+| `get_screen_image` | Retrieves screenshot as base64 (Claude can SEE the design) | BrandGuard visual validation, QAWise baselines |
+
+Internal action → MCP tool resolution:
+```python
+ACTION_TO_MCP_TOOL = {
+    "generate_screen": "get_screen_code",
+    "get_screenshot": "get_screen_image",
+    "map_routes": "build_sitemaps",
+    "generate_prototype": "build_sitemaps",
+    "export_figma": "get_screen_code",
+}
+```
+
+New StitchWise methods (direct MCP tool access):
+- `agent.build_sitemaps(routes)` → calls `build_sitemaps` MCP tool
+- `agent.get_screen_code(screen_name)` → calls `get_screen_code` MCP tool
+- `agent.get_screen_image(screen_name)` → calls `get_screen_image` MCP tool
+
+New CLI commands:
+- `cli-anything-designwise stitch --get-code landing-hero --json`
+- `cli-anything-designwise stitch --get-image landing-hero --json`
+- `cli-anything-designwise stitch --build-sitemaps --json`
+
+### Gap 2: npx stitchmcp Community Wrapper (Fallback)
+
+Primary MCP config (unchanged): `npx @google/stitch-sdk serve`
+Fallback MCP config (NEW): `npx stitchmcp`
+
+If official SDK unavailable, StitchWise falls back to community CLI wrapper. Both expose same 3 tools.
+
+```python
+STITCH_MCP_FALLBACK_CONFIG = {
+    "mcpServers": {
+        "stitch": {
+            "command": "npx",
+            "args": ["stitchmcp"],
+        }
+    }
+}
+```
+
+### Gap 3: stitch:design Skill Pre-Processor
+
+Google published official Stitch Skills Library with 2 skills:
+
+| Skill | Purpose | Integration |
+|-------|---------|-------------|
+| `stitch:design` | Prompt enhancement + screen generation pre-processor | Runs BEFORE custom intent prompts |
+| `react:component` | Stitch screens → React component system with design token alignment | CodeWise delegates (already in spec) |
+
+Pipeline: `Raw intent → stitch:design skill → enhanced prompt + DESIGN.md → get_screen_code MCP → HTML/CSS`
+
+New method: `agent.enhance_prompt_with_skill(screen_name, raw_intent)`
+New CLI flag: `--no-skill` to skip stitch:design pre-processor
+
+---
+
+*Patch approved 2026-03-21. Apply to DESIGNWISE-SPEC.md V1.2.0 and DESIGNWISE-PLAN.md V1.2.0.*
+*Amendment 10 (Gap Closure) applied 2026-03-21.*
+
