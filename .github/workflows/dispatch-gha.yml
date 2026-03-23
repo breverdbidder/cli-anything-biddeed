@@ -68,6 +68,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PROMPT: ${{ inputs.prompt }}
           TIMEOUT_MIN: ${{ inputs.timeout }}
         run: |
@@ -77,6 +78,7 @@ jobs:
 
           timeout $((60 * TIMEOUT_MIN)) claude --print --dangerously-skip-permissions "$PROMPT" 2>&1 || EXIT=$?
 
+          git pull --rebase origin main || true
           git add -A
           git diff --cached --quiet || {
             git commit -m "summit: GHA dispatch session"
@@ -97,3 +99,4 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"🏔️ ${MSG}\"}" \
             >/dev/null 2>&1 || true
+
