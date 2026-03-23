@@ -3,6 +3,10 @@ on:
   workflow_dispatch: {}
   repository_dispatch:
     types: [designwise-s3b]
+concurrency:
+  group: designwise-s3b
+  cancel-in-progress: true
+
 jobs:
   s3b:
     name: "S3B: Explorer Heatmap + Pricing + Conversion Gate + Mobile"
