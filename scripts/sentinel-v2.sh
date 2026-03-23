@@ -147,6 +147,32 @@ check_secret_exists() {
   [[ "$status" == "200" ]]
 }
 
+
+# === COOLDOWN: prevent cascade redispatch ===
+check_cooldown() {
+  local wf="$1"
+  local last_retry
+  last_retry=$(curl -sf "$SB_URL/rest/v1/sentinel_runs?workflow=eq.$wf&status=eq.retried&order=created_at.desc&limit=1&select=created_at" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null | \
+    python3 -c "import json,sys; rows=json.load(sys.stdin); print(rows[0]['created_at'] if rows else '')" 2>/dev/null)
+  
+  if [[ -n "$last_retry" ]]; then
+    local age_sec
+    age_sec=$(python3 -c "
+from datetime import datetime, timezone
+last = datetime.fromisoformat('$last_retry'.replace('Z','+00:00'))
+now = datetime.now(timezone.utc)
+print(int((now - last).total_seconds()))
+" 2>/dev/null || echo "999")
+    
+    if [[ "$age_sec" -lt 120 ]]; then
+      echo "⏳ Cooldown: last retry for $wf was ${age_sec}s ago (need 120s). Skipping."
+      return 1
+    fi
+  fi
+  return 0
+}
+
 # === SKIP NON-SUMMIT WORKFLOWS ===
 WF_LOWER=$(echo "$WORKFLOW_NAME" | tr '[:upper:]' '[:lower:]')
 if ! echo "$WF_LOWER" | grep -qiE "^summit|designwise|envelope|nexus"; then
@@ -358,6 +384,12 @@ RETRIES=$(sb_count_retries "$WORKFLOW_NAME" "$RUN_ID")
 
 # === APPLY FIX + REDISPATCH ===
 if [[ "$AUTOFIX" == true && "$RETRIES" -lt "$MAX_RETRIES" ]]; then
+  # Cooldown check
+  if ! check_cooldown "$WORKFLOW_NAME"; then
+    sb_insert "{\"workflow\":\"$WORKFLOW_NAME\",\"run_id\":$RUN_ID,\"attempt\":$((RETRIES+1)),\"status\":\"cooldown\",\"diagnosis\":\"Skipped — cooldown active\"}"
+    exit 0
+  fi
+
   echo "🔧 Fix attempt $((RETRIES+1))/$MAX_RETRIES for pattern: $PATTERN"
   
   # If we have a fixed workflow, push it first
