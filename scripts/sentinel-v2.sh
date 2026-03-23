@@ -348,6 +348,14 @@ elif echo "$LOGS" | grep -qi "ETIMEDOUT\|Connection timed out\|connection refuse
   PATTERN="ssh_timeout"
   FIX_DESC="SSH connection failed — retry with backoff"
 
+# --- PATTERN: Merge conflict ---
+elif echo "$LOGS" | grep -qi "needs merge\|CONFLICT\|Merge conflict\|Automatic merge failed"; then
+  PATTERN="merge_conflict"
+  FIX_DESC="Merge conflict on Hetzner clone — replacing git pull with rm -rf + fresh clone"
+  if echo "$WF_CONTENT" | grep -q "git pull"; then
+    FIXED_WF=$(echo "$WF_CONTENT" | sed 's|cd zonewise-web && .*git pull.*|rm -rf zonewise-web \&\& git clone https://\${GH_PAT}@github.com/breverdbidder/zonewise-web.git \&\& cd zonewise-web|g')
+  fi
+
 # --- PATTERN: Divergent branches ---
 elif echo "$LOGS" | grep -qi "divergent branches\|Need to specify how to reconcile"; then
   PATTERN="divergent_branches"
