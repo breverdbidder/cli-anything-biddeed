@@ -21,7 +21,7 @@
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"7b4b4dfa55c49654adba6cc361a7da4994c9d279775a727bb13598bd41fdcf2e","compiler_version":"v0.62.5","strict":true,"agent_id":"claude"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"dfa99cbd2c73a07e4696bbadea3e84f16db8386904632938e4af78b20e3eb2cb","compiler_version":"v0.62.5","strict":true,"agent_id":"claude"}
 
 name: "Doc Sync Agent"
 "on":
@@ -34,6 +34,7 @@ name: "Doc Sync Agent"
     - "*.py"
     - "*.js"
     - "*.ts"
+  workflow_dispatch:
 
 permissions: {}
 
