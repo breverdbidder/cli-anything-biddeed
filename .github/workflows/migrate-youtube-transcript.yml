@@ -1,0 +1,43 @@
+name: "YouTube Transcript: Table Migration"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install pg
+      - name: "Run youtube_transcript migration"
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: node migrations/run_youtube_transcript.js
+      - name: "Verify table via REST"
+        env:
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            "https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/youtube_transcript?select=count&limit=0")
+          echo "REST API check: HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then echo "❌ Table not accessible via REST"; exit 1; fi
+          echo "✅ youtube_transcript accessible via REST"
+      - name: "Telegram"
+        if: always()
+        env:
+          BIDDEED_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          BIDDEED_BOT_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          ICON=$([[ "$STATUS" == "success" ]] && echo "✅" || echo "❌")
+          curl -s -X POST "https://api.telegram.org/bot${BIDDEED_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${BIDDEED_BOT_CHAT_ID}" -d parse_mode="Markdown" \
+            --data-urlencode "text=${ICON} *YouTube Transcript Migration*
+          Status: ${STATUS}
+          Table: youtube_transcript
+          _Migrated from insights interim storage_"
