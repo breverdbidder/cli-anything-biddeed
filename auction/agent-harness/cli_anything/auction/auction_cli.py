@@ -17,12 +17,30 @@ from typing import Optional
 from cli_anything.auction.core.session import Session
 from cli_anything.auction.core import discovery
 from cli_anything.auction.core import analysis
+from cli_anything.auction.core import enrichment as enrichment_mod
 from cli_anything.auction.core import title_search
 from cli_anything.auction.core import report as report_mod
 from cli_anything.auction.core import export as export_mod
 
 _session: Optional[Session] = None
 _json_output = False
+
+
+def _send_telegram(message: str) -> None:
+    """Send a Telegram message if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set."""
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not bot_token or not chat_id:
+        return
+    try:
+        import httpx as _httpx
+        _httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 
 def get_session() -> Session:
@@ -168,16 +186,30 @@ def analyze_case_cmd(ctx, case_number, arv, repairs):
 
 
 @analyze.command("batch")
-@click.option("--date", required=True, help="Auction date or 'sample'")
+@click.option("--date", required=True, help="Auction date (YYYY-MM-DD, MM/DD/YYYY) or 'sample'")
+@click.option("--no-enrich", is_flag=True, help="Skip BCPAO enrichment (faster, less accurate ARV)")
+@click.option("--notify", is_flag=True, help="Send Telegram summary after analysis")
 @click.pass_context
 @handle_error
-def analyze_batch(ctx, date):
-    """Analyze all cases for a date."""
+def analyze_batch(ctx, date, no_enrich, notify):
+    """Analyze all cases for a date. Fetches live data from RealForeclose unless --date sample."""
     cases = discovery.scrape_auction_list(date)
     if not cases:
-        raise ValueError(f"No cases found for {date}. Try --date sample")
+        raise ValueError(
+            f"No cases found for {date}. "
+            f"Use --date sample for testing, or verify the date has scheduled auctions at realforeclose.com."
+        )
+
+    # Enrich with BCPAO property data (ARV from just_value)
+    if date != "sample" and not no_enrich:
+        if not _json_output:
+            click.echo(f"  Enriching {len(cases)} cases with BCPAO data...", err=True)
+        cases = enrichment_mod.enrich_cases(cases)
 
     result = analysis.batch_analyze(cases)
+    result["date"] = date
+    result["data_source"] = "sample_data" if date == "sample" else "live"
+
     session = get_session()
     session.record(f"analyze batch --date {date}", f"{result['bid']} BID / {result['review']} REVIEW / {result['skip']} SKIP")
 
@@ -189,7 +221,16 @@ def analyze_batch(ctx, date):
         except Exception as e:
             result["persist_error"] = str(e)
 
-    output(result, f"✓ Analyzed {result['total']}: {result['bid']} BID / {result['review']} REVIEW / {result['skip']} SKIP")
+    summary = f"{result['total']} cases: {result['bid']} BID / {result['review']} REVIEW / {result['skip']} SKIP"
+    output(result, f"✓ Analyzed {summary}")
+
+    if notify or os.environ.get("TELEGRAM_NOTIFY"):
+        msg = (
+            f"<b>🏠 Auction Batch — {date}</b>\n"
+            f"Total: {result['total']} | BID: {result['bid']} | REVIEW: {result['review']} | SKIP: {result['skip']}\n"
+            f"Source: {result['data_source']}"
+        )
+        _send_telegram(msg)
 
 
 @analyze.command("liens")

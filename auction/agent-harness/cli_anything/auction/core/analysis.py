@@ -102,8 +102,15 @@ def analyze_case(case_data: dict, arv: Optional[float] = None, repairs: Optional
 def estimate_arv(case_data: dict) -> float:
     """Estimate ARV from case data.
 
-    In production, this queries BCPAO comps. Currently uses judgment × 1.3 as rough estimate.
+    Priority:
+    1. BCPAO just_value (property appraiser assessed value — most accurate)
+    2. Judgment × 1.3 as last resort (only if no BCPAO data)
     """
+    just_value = case_data.get("just_value")
+    if just_value and isinstance(just_value, (int, float)) and just_value > 0:
+        return round(float(just_value), 2)
+
+    # Last resort: judgment multiplier
     judgment = case_data.get("judgment", 0)
     return round(judgment * 1.3, 2) if judgment > 0 else 0
 
