@@ -1,0 +1,40 @@
+name: "Everest Sentinel V2"
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Specific run ID to triage'
+        required: false
+
+jobs:
+  sentinel-v2:
+    name: "Patrol + Auto-Fix + Redispatch"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Prevent sentinel from triggering on itself
+    if: >
+      github.event_name != 'workflow_run' ||
+      !contains(github.event.workflow_run.name, 'Sentinel')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/sentinel-v2.sh
+            scripts/sentinel-v2-patrol.sh
+
+      - name: "Run Sentinel V2 Patrol"
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          REPO: ${{ github.repository }}
+          MANUAL_RUN_ID: ${{ github.event.inputs.run_id }}
+        run: |
+          chmod +x scripts/sentinel-v2.sh scripts/sentinel-v2-patrol.sh
+          bash scripts/sentinel-v2-patrol.sh
