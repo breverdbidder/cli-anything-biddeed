@@ -322,6 +322,14 @@ elif echo "$LOGS" | grep -qi "ETIMEDOUT\|Connection timed out\|connection refuse
   PATTERN="ssh_timeout"
   FIX_DESC="SSH connection failed — retry with backoff"
 
+# --- PATTERN: Divergent branches ---
+elif echo "$LOGS" | grep -qi "divergent branches\|Need to specify how to reconcile"; then
+  PATTERN="divergent_branches"
+  FIX_DESC="git pull failed on divergent branches — fixing to use --rebase"
+  if echo "$WF_CONTENT" | grep -q "git pull origin main" && ! echo "$WF_CONTENT" | grep -q "pull.rebase"; then
+    FIXED_WF=$(echo "$WF_CONTENT" | sed 's|git pull origin main|git config pull.rebase true \&\& git stash 2>/dev/null; git pull --rebase origin main || git reset --hard origin/main|g')
+  fi
+
 # --- PATTERN: Disk full ---
 elif echo "$LOGS" | grep -qi "disk.*full\|no space left\|ENOSPC"; then
   PATTERN="disk_full"
