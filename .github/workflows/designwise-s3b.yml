@@ -32,7 +32,7 @@ jobs:
             git config --global --add safe.directory /opt/biddeed/biddeed-housing-map
             cd /opt/biddeed
             if [ -d zonewise-web ]; then
-              cd zonewise-web && git pull origin main
+              cd zonewise-web && git config pull.rebase true && git stash 2>/dev/null; git pull --rebase origin main || (git stash drop 2>/dev/null; git reset --hard origin/main)
             else
               git clone https://${GH_PAT}@github.com/breverdbidder/zonewise-web.git
               cd zonewise-web
