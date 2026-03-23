@@ -25,6 +25,17 @@ deploy: [GitHub Actions, Cloudflare Pages, Render]
 brand: { primary: "#1E3A5F", accent: "#F59E0B", font: Inter, bg: "#020617" }
 ```
 
+## 3-Layer CLAUDE.md Hierarchy (Claude Architect Standard)
+```yaml
+layer_1_user: ~/.claude/CLAUDE.md  # personal prefs, not version-controlled
+layer_2_project: ./CLAUDE.md       # THIS FILE — team rules, architecture, triggers
+layer_3_path_rules: .claude/rules/ # pattern-matched, loaded ONLY when editing matching files
+  deployed: [harness(*/SKILL.md), evals(*/eval/**), scripts(scripts/**), youtube(youtube/**)]
+  principle: lean context window — rules load only when relevant
+  enforcement: hooks for 100% reliability (finance/security), prompts for style/tone
+```
+
+
 ## Context Rules
 ```yaml
 triggers:
