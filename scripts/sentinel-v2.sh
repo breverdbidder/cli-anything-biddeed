@@ -123,6 +123,15 @@ redispatch() {
   local wf_file="$1"
   local basename
   basename=$(basename "$wf_file")
+  
+  # Check if workflow has workflow_dispatch trigger before attempting
+  local wf_yaml
+  wf_yaml=$(get_wf_content "$wf_file")
+  if ! echo "$wf_yaml" | grep -q "workflow_dispatch"; then
+    echo "422_no_trigger"
+    return
+  fi
+  
   sleep 10  # Let GHA index any YAML changes
   local status
   status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
@@ -175,7 +184,8 @@ print(int((now - last).total_seconds()))
 
 # === SKIP NON-SUMMIT WORKFLOWS ===
 WF_LOWER=$(echo "$WORKFLOW_NAME" | tr '[:upper:]' '[:lower:]')
-if ! echo "$WF_LOWER" | grep -qiE "^summit|designwise|envelope|nexus"; then
+if ! echo "$WF_LOWER" | grep -qiE "^summit|designwise|envelope|nexus" || echo "$WF_LOWER" | grep -q "^\.github/workflows/"; then
+  # Also skip raw .github/workflows/ path names (stale/unnamed)
   echo "⏭️ Non-summit workflow: $WORKFLOW_NAME — skipping"
   exit 0
 fi
