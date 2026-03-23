@@ -41,6 +41,16 @@ tg_send() {
     -d "chat_id=${TG_CHAT}" -d "parse_mode=HTML" -d "text=$1" >/dev/null 2>&1 || true
 }
 
+# Noise filter: only alert on escalation-level events
+# Suppresses: auto-retry, successful completions, info-level events
+should_alert() {
+  local event_type="$1"
+  case "$event_type" in
+    escalation|oauth_expired|critical_failure) return 0 ;;  # ALERT
+    *) return 1 ;;  # SUPPRESS
+  esac
+}
+
 get_logs() {
   local run="$1"
   curl -sL -H "Authorization: token $GH_PAT" \
@@ -123,35 +133,26 @@ if [[ "$CONCLUSION" == "success" ]]; then
       sb_insert "{\"workflow\":\"$WORKFLOW_NAME\",\"run_id\":$RUN_ID,\"attempt\":$((RETRIES+1)),\"status\":\"retried\",\"diagnosis\":\"Silent failure: ${DURATION}s, 0 commits\",\"failure_pattern\":\"$PATTERN\",\"fixed_by\":\"sentinel_auto_retry\",\"original_run_id\":$RUN_ID}"
       
       DISPATCH_STATUS=$(redispatch "$WF_FILE")
-      tg_send "🔄 <b>SENTINEL AUTO-RETRY</b>
-Workflow: $WORKFLOW_NAME
-Pattern: $PATTERN
-Attempt: $((RETRIES+1))/$MAX_RETRIES
-Diagnosis: Completed in ${DURATION}s with 0 commits
-Fix: $FIX
-Run: $RUN_URL"
+      echo "🔄 SENTINEL AUTO-RETRY (suppressed from Telegram)"
     else
       echo "🚨 ESCALATE: Max retries reached or unrecoverable"
       sb_insert "{\"workflow\":\"$WORKFLOW_NAME\",\"run_id\":$RUN_ID,\"attempt\":$((RETRIES+1)),\"status\":\"escalated\",\"diagnosis\":\"Silent failure after $RETRIES retries. Pattern: $PATTERN\",\"failure_pattern\":\"$PATTERN\",\"original_run_id\":$RUN_ID}"
-      
-      tg_send "🚨 <b>SENTINEL ESCALATION</b>
+
+      if should_alert "escalation"; then
+        tg_send "🚨 <b>SENTINEL ESCALATION</b>
 Workflow: $WORKFLOW_NAME
 Status: FAILED after $MAX_RETRIES retries
 Pattern: $PATTERN
 Diagnosis: ${DURATION}s runtime, 0 Claude commits
 Last fix attempted: $FIX
 Logs: $RUN_URL"
+      fi
     fi
   else
     # Genuine success
     if [[ "$CLAUDE_COMMITS" -eq 0 ]]; then echo "⚠️ WARNING: Success but 0 Claude commits in ${DURATION}s — possible no-op"; fi; echo "✅ HEALTHY: ${DURATION}s runtime, $CLAUDE_COMMITS Claude commits"
     sb_insert "{\"workflow\":\"$WORKFLOW_NAME\",\"run_id\":$RUN_ID,\"attempt\":1,\"status\":\"healthy\",\"diagnosis\":\"Success: ${DURATION}s, $CLAUDE_COMMITS commits\"}"
-    
-    tg_send "✅ <b>SUMMIT COMPLETE</b>
-Workflow: $WORKFLOW_NAME
-Duration: $((DURATION/60))m ${DURATION}s
-Claude Commits: $CLAUDE_COMMITS
-Run: $RUN_URL"
+    echo "✅ SUMMIT COMPLETE (suppressed from Telegram)"
   fi
   exit 0
 fi
@@ -215,21 +216,18 @@ if [[ "$CONCLUSION" == "failure" || "$CONCLUSION" == "timed_out" || "$CONCLUSION
     fi
     
     DISPATCH_STATUS=$(redispatch "$WF_FILE")
-    tg_send "🔄 <b>SENTINEL AUTO-RETRY</b>
-Workflow: $WORKFLOW_NAME
-Conclusion: $CONCLUSION
-Pattern: $PATTERN
-Attempt: $((RETRIES+1))/$MAX_RETRIES
-Fix: $FIX
-Run: $RUN_URL"
+    echo "🔄 SENTINEL AUTO-RETRY (suppressed from Telegram)"
   else
     echo "🚨 ESCALATE: $PATTERN (autofix=$AUTOFIX, retries=$RETRIES)"
     sb_insert "{\"workflow\":\"$WORKFLOW_NAME\",\"run_id\":$RUN_ID,\"attempt\":$((RETRIES+1)),\"status\":\"escalated\",\"diagnosis\":\"$CONCLUSION after $RETRIES retries. Pattern: $PATTERN\",\"failure_pattern\":\"$PATTERN\",\"original_run_id\":$RUN_ID}"
-    
+
     # Extract last 30 lines of useful log
     LOG_SNIPPET=$(echo "$LOGS" | grep -v "^2026-.*##\|INPUT_\|Will download\|Drone SSH\|======\|^\s*$" | tail -20 | head -c 800)
-    
-    tg_send "🚨 <b>SENTINEL ESCALATION</b>
+
+    ALERT_TYPE="escalation"
+    [[ "$PATTERN" == "oauth_expired" ]] && ALERT_TYPE="oauth_expired"
+    if should_alert "$ALERT_TYPE"; then
+      tg_send "🚨 <b>SENTINEL ESCALATION</b>
 Workflow: $WORKFLOW_NAME
 Conclusion: $CONCLUSION
 Pattern: $PATTERN
@@ -238,5 +236,6 @@ Fix needed: $FIX
 Run: $RUN_URL
 
 <code>${LOG_SNIPPET}</code>"
+    fi
   fi
 fi
