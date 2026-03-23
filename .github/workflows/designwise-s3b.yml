@@ -27,6 +27,9 @@ jobs:
             OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
 
             mkdir -p /opt/biddeed
+            git config --global --add safe.directory /opt/biddeed/zonewise-web
+            git config --global --add safe.directory /opt/biddeed/reventure-clone-v2
+            git config --global --add safe.directory /opt/biddeed/biddeed-housing-map
             cd /opt/biddeed
             if [ -d zonewise-web ]; then
               cd zonewise-web && git pull origin main
@@ -34,7 +37,6 @@ jobs:
               git clone https://${GH_PAT}@github.com/breverdbidder/zonewise-web.git
               cd zonewise-web
             fi
-            git config --global --add safe.directory /opt/biddeed/zonewise-web
             npm ci 2>&1 | tail -5
             chown -R claude:claude /opt/biddeed/zonewise-web
 
