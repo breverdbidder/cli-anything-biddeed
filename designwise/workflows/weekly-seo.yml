@@ -1,0 +1,73 @@
+name: SEOWise Weekly Audit
+
+on:
+  schedule:
+    # Sundays 6AM EST (11:00 UTC)
+    - cron: '0 11 * * 0'
+  workflow_dispatch:
+
+jobs:
+  seo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install httpx
+          pip install -e designwise/agent-harness/
+
+      - name: Run SEOWise audit — production
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python -m cli_anything.designwise.core.seo_agent \
+            --url https://zonewise.ai \
+            --json | tee seo_report.json
+
+      - name: Run SEOWise audit — explorer
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python -m cli_anything.designwise.core.seo_agent \
+            --url https://zonewise.ai/explorer \
+            --json
+
+      - name: Run SEOWise audit — pricing
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python -m cli_anything.designwise.core.seo_agent \
+            --url https://zonewise.ai/pricing \
+            --json
+
+      - name: Generate sitemap
+        run: |
+          python -m cli_anything.designwise.core.seo_agent \
+            --sitemap \
+            --json
+
+      - name: Upload SEO report
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-report-${{ github.run_id }}
+          path: seo_report.json
+
+      - name: Notify Telegram on critical failures
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d text="⚠️ *SEOWise Weekly Audit FAILED*%0ACheck GHA run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

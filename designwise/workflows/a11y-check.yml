@@ -1,0 +1,77 @@
+name: AccessibilityWise PR Check
+
+on:
+  pull_request:
+    branches: [main, lab]
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'pages/**'
+      - '*.tsx'
+      - '*.ts'
+
+jobs:
+  a11y-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install httpx playwright
+          playwright install chromium --with-deps
+          pip install -e designwise/agent-harness/
+
+      - name: Run axe-core WCAG 2.1 AA scan — Vercel preview
+        env:
+          PREVIEW_URL: ${{ github.event.deployment_status.target_url || 'https://lab.zonewise.ai' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python -m cli_anything.designwise.core.a11y_agent \
+            --url "${PREVIEW_URL}" \
+            --json | tee a11y_report.json
+
+          # Fail if score < 90
+          python3 -c "
+          import json, sys
+          with open('a11y_report.json') as f:
+              r = json.load(f)
+          score = r.get('score', 0)
+          print(f'A11y score: {score}/100 (target >=90)')
+          if score < 90:
+              print(f'FAIL: score {score} below WCAG AA target of 90')
+              print('Violations:', json.dumps(r.get('axe_scan', {}).get('violations', [])[:5], indent=2))
+              sys.exit(1)
+          print('PASS')
+          "
+
+      - name: Upload accessibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-report-${{ github.run_id }}
+          path: a11y_report.json
+
+      - name: Comment PR with A11y score
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = {};
+            try { report = JSON.parse(fs.readFileSync('a11y_report.json', 'utf8')); } catch {}
+            const score = report.score ?? 'N/A';
+            const passed = report.passed ? '✅' : '❌';
+            const violations = report.axe_scan?.violation_count ?? 'N/A';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ♿ AccessibilityWise Report\n\n${passed} Score: **${score}/100** (target ≥90)\nViolations: ${violations}\n\n> WCAG 2.1 AA — axe-core scan`
+            });
