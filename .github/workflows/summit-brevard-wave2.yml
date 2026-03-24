@@ -1,6 +1,8 @@
 name: "Summit: Brevard Zoning Wave 2 — City GIS Probes"
 on:
   workflow_dispatch: {}
+  repository_dispatch:
+    types: [summit-wave2]
 
 jobs:
   wave2:
