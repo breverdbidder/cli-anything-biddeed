@@ -1,3 +1,4 @@
+# Playwright MCP installer for Hetzner — gives Claude Code browser eyes
 name: "Install Playwright MCP on Hetzner"
 on:
   workflow_dispatch: {}
