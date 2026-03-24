@@ -207,3 +207,26 @@ auto_trigger: "table 4+ rows OR 3+ columns → HTML, never ASCII"
 
 ### Engine
 All workflows use `engine: claude` with ANTHROPIC_API_KEY secret.
+
+
+## AUTODREAM (Memory 2.0)
+
+Status: PENDING_ACTIVATION
+
+```yaml
+autodream:
+  what: Background sub-agent that consolidates/prunes memory .md files
+  layers:
+    L1: Normal sessions (code, debug, refactor)
+    L2: AutoMemory (records decisions/patterns to memory.md)
+    L3: AutoDream (compacts/prunes L2 files periodically)
+  activation: /memory toggle AutoDream ON then /dream to invoke
+  cadence: ~12hr or ~300 sessions (unconfirmed)
+  scope: Only .md memory files, NEVER code/scripts
+  duration: 8-10 min typical
+  rules:
+    - Enable per-repo once available
+    - Do NOT disable AutoMemory (L2 feeds L3)
+    - Verify pruned files after first dream
+    - If AutoDream conflicts with CLAUDE.md manual sections, CLAUDE.md wins
+```
