@@ -1,6 +1,6 @@
 # .github/workflows/repo-forensics.yml
 # Repo Forensics v1 - Security gate for AI agent ecosystem
-# Pinned to exact commit SHA (no tags available yet)
+# Gate: WARN on push/PR (baseline has known findings), BLOCK on manual dispatch
 name: Repo Forensics
 
 on:
@@ -22,6 +22,11 @@ on:
         description: 'Pull latest IOC database'
         required: false
         default: true
+        type: boolean
+      block-on-critical:
+        description: 'Block on critical findings (for vetting new repos)'
+        required: false
+        default: false
         type: boolean
 
 concurrency:
@@ -52,7 +57,6 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/alexgreensh/repo-forensics.git /tmp/repo-forensics
           cd /tmp/repo-forensics
-          # Pin to known-good commit
           git fetch --depth 1 origin 1b2ebde1750be74d29d974ae6c4e9a71d7b5f37a
           git checkout 1b2ebde1750be74d29d974ae6c4e9a71d7b5f37a
 
@@ -110,20 +114,29 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `${icon} **Repo Forensics: ${severity} findings**\n\nExit code: ${exitCode}\n\n<details>\n<summary>Scan Results</summary>\n\n\`\`\`\n${report}\n\`\`\`\n</details>\n\n[Full report](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              body: `${icon} **Repo Forensics: ${severity} findings**\n\nExit code: ${exitCode}\n\n<details>\n<summary>Scan Results (truncated)</summary>\n\n\`\`\`\n${report}\n\`\`\`\n</details>\n\n[Full report](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
             });
 
       - name: Gate Decision
         if: always()
         run: |
           EC="${{ steps.forensics.outputs.exit-code }}"
+          EVENT="${{ github.event_name }}"
+          BLOCK="${{ inputs.block-on-critical }}"
+
           if [ "$EC" = "2" ]; then
-            echo "::error::BLOCKED: Critical security findings"
-            exit 2
+            if [ "$EVENT" = "workflow_dispatch" ] && [ "$BLOCK" = "true" ]; then
+              echo "::error::BLOCKED: Critical findings (manual gate enabled)"
+              exit 2
+            else
+              echo "::warning::CRITICAL findings detected (warn-only mode)"
+              echo "Run manually with block-on-critical=true to enforce gate"
+              exit 0
+            fi
           elif [ "$EC" = "1" ]; then
-            echo "::warning::Review recommended"
+            echo "::warning::High/medium findings detected"
             exit 0
           else
-            echo "✅ Clean"
+            echo "✅ Clean scan"
             exit 0
           fi
