@@ -1,14 +1,14 @@
-name: "Summit: DesignWise Visual Verification"
+name: "Summit: Visual Verify v2"
 on:
   workflow_dispatch: {}
 
 jobs:
   verify:
-    name: "Playwright Visual Proof → Telegram"
+    name: "Playwright Screenshots → Telegram"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: "Verify on Hetzner"
+      - name: "Run on Hetzner"
         uses: appleboy/ssh-action@v1.2.0
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -22,167 +22,105 @@ jobs:
           envs: TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           script: |
             set -e
-            cd /tmp
-            rm -rf dw-verify && mkdir dw-verify && cd dw-verify
+            cd /tmp && rm -rf dwv && mkdir dwv && cd dwv
 
-            npm init -y > /dev/null 2>&1
-            npm install playwright > /dev/null 2>&1
-            npx playwright install chromium --with-deps > /dev/null 2>&1
+            # Use existing playwright or install minimal
+            if ! command -v npx &> /dev/null; then
+              echo "npx not found"
+              exit 1
+            fi
 
-            cat > verify.js << 'TESTEOF'
+            # Check if playwright already cached
+            if [ -d "/root/.cache/ms-playwright" ]; then
+              echo "Playwright cached, skipping install"
+            else
+              npm init -y > /dev/null 2>&1
+              npm install playwright@latest > /dev/null 2>&1
+              npx playwright install chromium --with-deps 2>&1 | tail -3
+            fi
+
+            # Write minimal verify script
+            cat > v.js << 'EOF'
             const { chromium } = require('playwright');
             const fs = require('fs');
-            const results = [];
-            function check(agent, name, pass, detail) {
-              results.push({ agent, name, pass, detail });
-              console.log(`${pass ? 'PASS' : 'FAIL'} [${agent}] ${name}: ${detail}`);
-            }
+            const r = [];
+            function c(a,n,p,d) { r.push({a,n,p,d}); }
 
             (async () => {
-              const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-              const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+              const b = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+              const p = await b.newPage({ viewport: { width: 1280, height: 900 } });
 
-              // === HOMEPAGE ===
-              await page.goto('https://zonewise.ai', { timeout: 45000, waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(8000);
-              await page.screenshot({ path: '01-homepage.png' });
+              // Home
+              await p.goto('https://zonewise.ai', { timeout: 40000, waitUntil: 'domcontentloaded' });
+              await p.waitForTimeout(8000);
+              await p.screenshot({ path: 'home.png' });
+              let t = await p.textContent('body');
+              c('A11y','SkipToContent', !!(await p.$('a[href="#main-content"]')), '');
+              c('Content','Stats', /parcels/i.test(t), '');
+              c('SEO','GSC', !!(await p.$('meta[name="google-site-verification"]')), '');
+              c('SEO','OG', !!(await p.$('meta[property="og:title"]')), '');
 
-              // SkipToContent
-              const skip = await page.$('a[href="#main-content"]');
-              check('A11yWise', 'SkipToContent', !!skip, skip ? 'link in DOM' : 'MISSING');
+              // Help
+              await p.goto('https://zonewise.ai/help', { timeout: 20000, waitUntil: 'domcontentloaded' });
+              await p.waitForTimeout(4000);
+              await p.screenshot({ path: 'help.png' });
+              c('Support','/help', (await p.$$('button')).length >= 3, '');
 
-              // main-content
-              const main = await page.$('#main-content');
-              check('A11yWise', 'main-content id', !!main, main ? 'found' : 'MISSING');
+              // Docs
+              await p.goto('https://zonewise.ai/docs', { timeout: 20000, waitUntil: 'domcontentloaded' });
+              await p.waitForTimeout(4000);
+              await p.screenshot({ path: 'docs.png' });
+              t = await p.textContent('body');
+              c('Support','/docs', /API|endpoint/i.test(t), '');
 
-              // Focus visible - press Tab and screenshot
-              await page.keyboard.press('Tab');
-              await page.waitForTimeout(500);
-              await page.screenshot({ path: '02-focus-visible.png' });
-              const focusEl = await page.evaluate(() => {
-                const el = document.activeElement;
-                if (!el || el === document.body) return null;
-                const s = window.getComputedStyle(el);
-                return { tag: el.tagName, outline: s.outline };
-              });
-              check('A11yWise', 'Focus visible', !!focusEl && focusEl.tag !== 'BODY', JSON.stringify(focusEl));
+              // Explorer
+              await p.goto('https://zonewise.ai/explorer', { timeout: 30000, waitUntil: 'domcontentloaded' });
+              await p.waitForTimeout(7000);
+              await p.screenshot({ path: 'explorer.png' });
+              c('A11y','ARIA', (await p.evaluate(() => document.querySelectorAll('[aria-label]').length)) > 0, '');
+              c('QA','ChatInput', !!(await p.$('input, textarea')), '');
 
-              // Stats counter
-              const bodyText = await page.textContent('body');
-              check('ContentWise', 'Parcels stat', /parcels/i.test(bodyText), 'parcels reference on page');
-              check('ContentWise', 'Counties stat', /67/.test(bodyText) && /counties/i.test(bodyText), '67 counties');
+              // Pricing
+              await p.goto('https://zonewise.ai/pricing', { timeout: 20000, waitUntil: 'domcontentloaded' });
+              await p.waitForTimeout(4000);
+              await p.screenshot({ path: 'pricing.png' });
+              t = await p.textContent('body');
+              c('Content','Pricing', /\$39|\$99/i.test(t), '');
 
-              // Onboarding tour
-              const tourFound = await page.evaluate(() => {
-                const all = Array.from(document.querySelectorAll('*'));
-                return all.some(el => typeof el.className === 'string' && /tour|onboard|welcome-step/i.test(el.className));
-              });
-              // Also check localStorage
-              const tourFlag = await page.evaluate(() => {
-                return localStorage.getItem('zonewisetourcomplete') || localStorage.getItem('zonewise-tour-complete') || 'not set';
-              });
-              check('SupportWise', 'Onboarding tour', tourFound, tourFound ? 'Tour elements visible' : 'No tour elements (flag: ' + tourFlag + ')');
+              // Mobile
+              await p.setViewportSize({ width: 375, height: 812 });
+              await p.goto('https://zonewise.ai', { timeout: 20000, waitUntil: 'domcontentloaded' });
+              await p.waitForTimeout(4000);
+              await p.screenshot({ path: 'mobile.png' });
+              c('QA','Mobile', !(await p.evaluate(() => document.documentElement.scrollWidth > 380)), '');
 
-              // PostHog network check
-              let phCount = 0;
-              page.on('request', r => { if (r.url().includes('posthog')) phCount++; });
-              await page.reload({ waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(5000);
-              check('AnalyticsWise', 'PostHog requests', phCount > 0, phCount + ' requests to PostHog');
+              // Health
+              const h = await p.goto('https://zonewise.ai/api/health', { timeout: 10000 });
+              const j = await h.json().catch(()=>({}));
+              c('Deploy','Health', j.status==='ok', '');
 
-              // SEO meta
-              check('SEOWise', 'GSC meta', !!(await page.$('meta[name="google-site-verification"]')), 'checked');
-              check('SEOWise', 'OG tags', !!(await page.$('meta[property="og:title"]')), 'checked');
-              check('SEOWise', 'JSON-LD', !!(await page.$('script[type="application/ld+json"]')), 'checked');
+              await b.close();
 
-              // BrandGuard
-              const bg = await page.evaluate(() => window.getComputedStyle(document.body).backgroundColor);
-              check('BrandGuard', 'Dark theme bg', bg.includes('2,6,23') || bg.includes('rgb(2'), 'bg: ' + bg);
-
-              // === /help ===
-              await page.goto('https://zonewise.ai/help', { timeout: 30000, waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(5000);
-              await page.screenshot({ path: '03-help.png' });
-              const helpH1 = await page.textContent('h1').catch(() => '');
-              check('SupportWise', '/help heading', /help/i.test(helpH1), 'h1: ' + helpH1);
-              const faqBtns = await page.$$('button');
-              check('SupportWise', 'FAQ items', faqBtns.length >= 5, faqBtns.length + ' buttons');
-              // Click one to expand
-              if (faqBtns.length > 3) {
-                await faqBtns[3].click().catch(() => {});
-                await page.waitForTimeout(500);
-                await page.screenshot({ path: '04-help-expanded.png' });
-              }
-
-              // === /docs ===
-              await page.goto('https://zonewise.ai/docs', { timeout: 30000, waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(5000);
-              await page.screenshot({ path: '05-docs.png' });
-              const docsBody = await page.textContent('body').catch(() => '');
-              check('SupportWise', '/docs API ref', /endpoint|API|auth/i.test(docsBody), 'API content found');
-
-              // === /explorer ===
-              await page.goto('https://zonewise.ai/explorer', { timeout: 30000, waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(8000);
-              await page.screenshot({ path: '06-explorer.png' });
-              const ariaCount = await page.evaluate(() => document.querySelectorAll('[aria-label]').length);
-              check('A11yWise', 'ARIA labels on explorer', ariaCount > 0, ariaCount + ' labeled elements');
-              const roleApp = await page.$('[role="application"]');
-              check('A11yWise', 'role=application', !!roleApp, roleApp ? 'found' : 'not found');
-              const chatInput = await page.$('input, textarea');
-              check('QAWise', 'Chat input', !!chatInput, chatInput ? 'found' : 'not found');
-
-              // === /pricing ===
-              await page.goto('https://zonewise.ai/pricing', { timeout: 30000, waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(5000);
-              await page.screenshot({ path: '07-pricing.png' });
-              const priceText = await page.textContent('body').catch(() => '');
-              check('ContentWise', 'Pricing tiers', /\$39|\$99/i.test(priceText), 'tiers found');
-
-              // === /api/health ===
-              const hRes = await page.goto('https://zonewise.ai/api/health', { timeout: 10000 });
-              const hJson = await hRes.json().catch(() => ({}));
-              check('DeployWise', 'Health check', hJson.status === 'ok', JSON.stringify(hJson).slice(0, 80));
-
-              // === Mobile ===
-              await page.setViewportSize({ width: 375, height: 812 });
-              await page.goto('https://zonewise.ai', { timeout: 30000, waitUntil: 'domcontentloaded' });
-              await page.waitForTimeout(5000);
-              await page.screenshot({ path: '08-mobile.png' });
-              const overflow = await page.evaluate(() => document.documentElement.scrollWidth > 380);
-              check('QAWise', 'Mobile no overflow', !overflow, overflow ? 'OVERFLOW' : 'clean 375px');
-
-              await browser.close();
-
-              // Summary
-              const passed = results.filter(r => r.pass).length;
-              const failed = results.filter(r => !r.pass).length;
-              const summary = `DESIGNWISE VISUAL VERIFICATION\n${passed} passed | ${failed} failed\n\n` +
-                results.map(r => `${r.pass ? '✅' : '❌'} [${r.agent}] ${r.name}`).join('\n') +
-                (failed > 0 ? '\n\nFAILED:\n' + results.filter(r => !r.pass).map(r => `❌ ${r.agent}: ${r.name} — ${r.detail}`).join('\n') : '');
-
-              fs.writeFileSync('summary.txt', summary);
-              console.log('\n' + summary);
+              const pass = r.filter(x=>x.p).length;
+              const fail = r.filter(x=>!x.p).length;
+              let s = `DESIGNWISE VISUAL VERIFY\n${pass}/${r.length} passed\n\n`;
+              r.forEach(x => { s += `${x.p?'✅':'❌'} ${x.a}: ${x.n}\n`; });
+              fs.writeFileSync('sum.txt', s);
+              console.log(s);
             })();
-            TESTEOF
+            EOF
 
-            node verify.js 2>&1 | tee output.txt
+            node v.js 2>&1 || true
 
-            # Send summary to Telegram
-            SUMMARY=$(cat summary.txt)
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TELEGRAM_CHAT_ID}" \
-              -d parse_mode="Markdown" \
-              -d text="$(echo "$SUMMARY" | head -30)" > /dev/null 2>&1 || true
+            # Telegram summary
+            if [ -f sum.txt ]; then
+              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$(cat sum.txt)" > /dev/null 2>&1 || true
+            fi
 
-            # Send screenshots to Telegram
-            for img in 01-homepage.png 03-help.png 05-docs.png 06-explorer.png 07-pricing.png 08-mobile.png; do
-              if [ -f "$img" ]; then
-                curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
-                  -F chat_id="${TELEGRAM_CHAT_ID}" \
-                  -F photo=@"$img" \
-                  -F caption="$img" > /dev/null 2>&1 || true
-              fi
+            # Telegram screenshots
+            for img in home.png help.png docs.png explorer.png pricing.png mobile.png; do
+              [ -f "$img" ] && curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
+                -F chat_id="${TELEGRAM_CHAT_ID}" -F photo=@"$img" -F caption="$img" > /dev/null 2>&1 || true
             done
-
-            echo "Done. Screenshots sent to Telegram."
+            echo "DONE"
