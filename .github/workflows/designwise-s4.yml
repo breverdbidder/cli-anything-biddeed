@@ -19,30 +19,45 @@ jobs:
             scripts/deploy.sh
 
       - name: "Build on Hetzner"
-        uses: appleboy/ssh-action@v1.2.2
+        uses: appleboy/ssh-action@v1.2.0
         timeout-minutes: 110
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
         with:
           host: ${{ secrets.HETZNER_IP }}
-          username: claude
+          username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: GH_PAT,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
+          envs: CLAUDE_OAUTH_B64,GH_PAT,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
           command_timeout: 110m
           script: |
-            set -uo pipefail
-            export PATH="/home/claude/.npm-global/bin:$PATH"
-            export NPM_CONFIG_PREFIX="/home/claude/.npm-global"
-
+            set -e
             echo "=== DesignWise S4 — $(date) ==="
             id
+
+            # Setup claude user
+            id claude 2>/dev/null || useradd -m -s /bin/bash claude
+            export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+            export PATH="/home/claude/.npm-global/bin:$PATH"
+            
+            # Setup OAuth token
+            if [ -n "${CLAUDE_OAUTH_B64:-}" ]; then
+              echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
+              mkdir -p /home/claude/.claude
+              cp /tmp/claude-oauth-token /home/claude/.claude/oauth-token
+              chown -R claude:claude /home/claude/.claude
+            fi
+            
+            # Install Claude Code if missing
+            which claude || npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
 
             git config --global safe.directory '*'
 
             # Fresh clone
-            cd /opt/biddeed || mkdir -p /opt/biddeed && cd /opt/biddeed
+            mkdir -p /opt/biddeed
+            cd /opt/biddeed
             rm -rf zonewise-web
             git clone https://${GH_PAT}@github.com/breverdbidder/zonewise-web.git
             cd zonewise-web
@@ -67,6 +82,8 @@ jobs:
 
             heartbeat "1" "Claude Code starting — 6 phases"
 
+            export CLAUDE_CODE_OAUTH_TOKEN=$(cat /home/claude/.claude/oauth-token 2>/dev/null || cat /tmp/claude-oauth-token 2>/dev/null || echo "")
+            cd /opt/biddeed/zonewise-web
             claude --auto-mode 'You are executing DesignWise S4 Parity Sprint on zonewise-web.
 
             CURRENT SCORE: 4.2/10. TARGET: 8.5+/10.
