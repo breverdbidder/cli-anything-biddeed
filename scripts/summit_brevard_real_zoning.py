@@ -34,7 +34,7 @@ MUNICIPAL_GIS = {
 
 # BCPAO CITY names for each jurisdiction
 CITY_NAMES = {
-    "unincorporated_brevard": ["UNINCORPORATED"],
+    "unincorporated_brevard": ["", "BAREFOOT BAY", "MERRITT ISLAND", "MIMS", "MICCO", "GRANT"],
     "cocoa": ["COCOA"],
     "cocoa_beach": ["COCOA BEACH"],
     "satellite_beach": ["SATELLITE BEACH"],
@@ -72,7 +72,7 @@ def sb_upsert(rows, table="zoning_assignments"):
     total = 0
     for i in range(0, len(rows), 500):
         batch = rows[i:i+500]
-        resp = client.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=h, json=batch)
+        resp = client.post(f"{SUPABASE_URL}/rest/v1/{table}?on_conflict=parcel_id", headers=h, json=batch)
         if resp.status_code in (200, 201, 204):
             total += len(batch)
         else:
@@ -113,11 +113,12 @@ def download_zoning_polygons():
 def download_parcel_centroids(city_name):
     """Download parcel centroids from BCPAO for a given CITY."""
     tg(f"🏔️ Downloading parcels for CITY='{city_name}'...")
+    where = f"CITY='{city_name}'" if city_name else "CITY=' '"
     features = []
     offset = 0
     while True:
         resp = client.get(f"{BCPAO_PARCELS}/query", params={
-            "where": f"CITY='{city_name}'",
+            "where": where,
             "outFields": "PARCEL_ID,CITY",
             "returnGeometry": "true",
             "returnCentroid": "true",
