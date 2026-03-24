@@ -55,7 +55,7 @@ jobs:
 
       - name: Clone repo-forensics (pinned)
         run: |
-          git clone --depth 1 https://github.com/alexgreensh/repo-forensics.git /tmp/repo-forensics
+          git clone --depth 1 https://github.com/breverdbidder/repo-forensics.git /tmp/repo-forensics
           cd /tmp/repo-forensics
           git fetch --depth 1 origin 1b2ebde1750be74d29d974ae6c4e9a71d7b5f37a
           git checkout 1b2ebde1750be74d29d974ae6c4e9a71d7b5f37a
