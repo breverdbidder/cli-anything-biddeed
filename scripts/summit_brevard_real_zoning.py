@@ -156,15 +156,15 @@ def get_centroid(feature):
 
 
 def spatial_join(zoning_features, parcel_features, jurisdiction):
-    """Shapely STRtree spatial join — parcel centroids into zoning polygons."""
+    """Shapely 2.x STRtree spatial join — parcel centroids into zoning polygons."""
     from shapely.geometry import Polygon, Point
     from shapely.strtree import STRtree
 
     tg(f"🏔️ Building STRtree for {len(zoning_features)} polygons...")
 
-    # Build polygon geometries
+    # Build polygon geometries — parallel arrays (Shapely 2.x returns indices)
     geometries = []
-    zone_lookup = {}
+    zone_codes = []
     skipped = 0
     for f in zoning_features:
         geom_data = f.get("geometry", {})
@@ -181,7 +181,7 @@ def spatial_join(zoning_features, parcel_features, jurisdiction):
             geom = Polygon(rings[0])
             if geom.is_valid and not geom.is_empty:
                 geometries.append(geom)
-                zone_lookup[id(geom)] = zone
+                zone_codes.append(zone)
         except:
             skipped += 1
 
@@ -201,12 +201,13 @@ def spatial_join(zoning_features, parcel_features, jurisdiction):
             unmatched += 1
             continue
         pt = Point(x, y)
-        # Query tree
-        candidates = tree.query(pt)
+        # Shapely 2.x: query returns numpy indices into geometries array
+        candidate_indices = tree.query(pt)
         zone_code = None
-        for candidate in candidates:
-            if candidate.contains(pt):
-                zone_code = zone_lookup.get(id(candidate))
+        for idx in candidate_indices:
+            idx = int(idx)
+            if geometries[idx].contains(pt):
+                zone_code = zone_codes[idx]
                 break
         if zone_code:
             matched += 1
@@ -222,7 +223,6 @@ def spatial_join(zoning_features, parcel_features, jurisdiction):
 
     tg(f"  Matched: {matched}, Unmatched: {unmatched}")
     return results
-
 
 def probe_municipal_gis(city_key):
     """Probe known GIS endpoints for a municipality."""
