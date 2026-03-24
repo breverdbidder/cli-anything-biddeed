@@ -65,6 +65,66 @@ jobs:
           else
             echo "stale=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Repo Forensics health check
+        id: forensics
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check latest repo-forensics run status across all repos
+          REPOS="brevard-bidder-scraper cli-anything-biddeed biddeed-ai biddeed-ai-ui zonewise-web zonewise-scraper-v4 everest-nexus"
+          CLEAN=0
+          WARN=0
+          CRITICAL=0
+          NO_RUN=0
+          REPORT=""
+
+          for SHORT in $REPOS; do
+            REPO="breverdbidder/$SHORT"
+            # Get latest push-triggered forensics run
+            RUN=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/$REPO/actions/workflows/repo-forensics.yml/runs?per_page=1&event=push" 2>/dev/null)
+
+            CONCLUSION=$(echo "$RUN" | python3 -c "
+          import sys,json
+          try:
+              runs=json.load(sys.stdin).get('workflow_runs',[])
+              if runs: print(runs[0].get('conclusion','unknown'))
+              else: print('none')
+          except: print('error')
+          " 2>/dev/null)
+
+            DAYS_AGO=$(echo "$RUN" | python3 -c "
+          import sys,json
+          from datetime import datetime, timezone
+          try:
+              runs=json.load(sys.stdin).get('workflow_runs',[])
+              if runs:
+                  dt=datetime.fromisoformat(runs[0]['updated_at'].replace('Z','+00:00'))
+                  delta=(datetime.now(timezone.utc)-dt).days
+                  print(delta)
+              else: print(-1)
+          except: print(-1)
+          " 2>/dev/null)
+
+            case "$CONCLUSION" in
+              success) CLEAN=$((CLEAN+1)); ICON="✅" ;;
+              failure) WARN=$((WARN+1)); ICON="⚠️" ;;
+              none)    NO_RUN=$((NO_RUN+1)); ICON="❓" ;;
+              *)       WARN=$((WARN+1)); ICON="🔸" ;;
+            esac
+
+            REPORT="${REPORT}${ICON} ${SHORT} (${DAYS_AGO}d ago)\n"
+          done
+
+          echo "clean=$CLEAN" >> $GITHUB_OUTPUT
+          echo "warn=$WARN" >> $GITHUB_OUTPUT
+          echo "no_run=$NO_RUN" >> $GITHUB_OUTPUT
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Telegram report
         if: always()
         env:
@@ -79,6 +139,9 @@ jobs:
           STAGE="${{ steps.pipeline.outputs.pipeline_stage }}"
           DAYS="${{ steps.freshness.outputs.days_since_commit }}"
           STALE="${{ steps.freshness.outputs.stale }}"
+          F_CLEAN="${{ steps.forensics.outputs.clean }}"
+          F_WARN="${{ steps.forensics.outputs.warn }}"
+          F_REPORT="${{ steps.forensics.outputs.report }}"
 
           if [ "$FAILED" != "0" ] || [ "$STALE" = "true" ]; then
             ICON="🚨"
@@ -89,19 +152,21 @@ jobs:
           fi
 
           MSG="${ICON} CLI-Anything Weekly Health
-          
+
           ${STATUS}
           Tests: ${PASSED} passed, ${FAILED} failed
           ZoneWise: ${COUNTIES} counties
           Auction: ${REC}
           SwimIntel: ${SWIM}
           Pipeline: ${STAGE}
-          Last commit: ${DAYS} days ago"
+          Last commit: ${DAYS} days ago
+
+          🛡️ Repo Forensics (${F_CLEAN}/7 clean)
+          ${F_REPORT}"
 
           if [ "$STALE" = "true" ]; then
             MSG="${MSG}
-          
-          ⚠️ STALE: No commits in ${DAYS} days (>7 day limit). Use Summit to add features."
+          ⚠️ STALE: No commits in ${DAYS} days (>7 day limit)."
           fi
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
