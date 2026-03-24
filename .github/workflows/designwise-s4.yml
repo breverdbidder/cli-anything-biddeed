@@ -14,111 +14,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            docs/plans/DESIGNWISE-S4-DISPATCH.md
-            scripts/deploy.sh
+          sparse-checkout: docs/plans/DESIGNWISE-S4-DISPATCH.md
 
       - name: "Build on Hetzner"
         uses: appleboy/ssh-action@v1.2.0
-        timeout-minutes: 110
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: CLAUDE_OAUTH_B64,GH_PAT,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
+          envs: CLAUDE_OAUTH_B64,GH_PAT,BIDDEED_BOT_TOKEN,BIDDEED_BOT_CHAT_ID
           command_timeout: 110m
           script: |
             set -e
             echo "=== DesignWise S4 — $(date) ==="
             id
-
-            # Setup claude user
             id claude 2>/dev/null || useradd -m -s /bin/bash claude
             export NPM_CONFIG_PREFIX=/home/claude/.npm-global
             export PATH="/home/claude/.npm-global/bin:$PATH"
-            
-            # Setup OAuth token
             if [ -n "${CLAUDE_OAUTH_B64:-}" ]; then
               echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
               mkdir -p /home/claude/.claude
               cp /tmp/claude-oauth-token /home/claude/.claude/oauth-token
               chown -R claude:claude /home/claude/.claude
             fi
-            
-            # Install Claude Code if missing
             which claude || npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
-
             git config --global safe.directory '*'
-
-            # Fresh clone
-            mkdir -p /opt/biddeed
-            cd /opt/biddeed
+            mkdir -p /opt/biddeed && cd /opt/biddeed
             rm -rf zonewise-web
             git clone https://${GH_PAT}@github.com/breverdbidder/zonewise-web.git
             cd zonewise-web
-
-            # Heartbeat function
-            heartbeat() {
-              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${TELEGRAM_CHAT_ID}" -d "parse_mode=Markdown" \
-                --data-urlencode "text=🏔️ *S4 Parity* Phase $1: $2" 2>/dev/null || true
-            }
-
-            heartbeat "0" "Starting — reading dispatch doc"
-
-            # Read dispatch doc
-            DISPATCH=$(cat /opt/biddeed/zonewise-web/../cli-anything-biddeed/docs/plans/DESIGNWISE-S4-DISPATCH.md 2>/dev/null || curl -s -H "Authorization: token ${GH_PAT}" "https://raw.githubusercontent.com/breverdbidder/cli-anything-biddeed/main/docs/plans/DESIGNWISE-S4-DISPATCH.md")
-
-            # Run Claude Code with full dispatch as prompt
-            export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token 2>/dev/null || echo "")
-            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -f /home/claude/.claude/oauth-token ]; then
-              export CLAUDE_CODE_OAUTH_TOKEN=$(cat /home/claude/.claude/oauth-token)
-            fi
-
-            heartbeat "1" "Claude Code starting — 6 phases"
-
+            npm ci 2>&1 | tail -5
+            curl -s -X POST "https://api.telegram.org/bot${BIDDEED_BOT_TOKEN}/sendMessage" -d "chat_id=${BIDDEED_BOT_CHAT_ID}" -d "parse_mode=Markdown" --data-urlencode "text=🏔️ *S4 Parity* Starting — 6 phases, target 8.5+" || true
             export CLAUDE_CODE_OAUTH_TOKEN=$(cat /home/claude/.claude/oauth-token 2>/dev/null || cat /tmp/claude-oauth-token 2>/dev/null || echo "")
-            cd /opt/biddeed/zonewise-web
-            claude --auto-mode 'You are executing DesignWise S4 Parity Sprint on zonewise-web.
-
-            CURRENT SCORE: 4.2/10. TARGET: 8.5+/10.
-
-            Read docs/plans/DESIGNWISE-S4-DISPATCH.md from the cli-anything-biddeed repo (already fetched).
-
-            EXECUTE ALL 6 PHASES IN ORDER:
-
-            PHASE 1 (CRITICAL): Fix lib/explorer/constants.ts missing exports (ZONING_FILTERS, FREE_PARCEL_CLICKS, FREE_CHAT_MESSAGES, ChoroplethMetric type, ZoningFilter type, CHOROPLETH_COLOR_STOPS). Fix /demo.html 404 (add rewrite in next.config.mjs). Fix AnimatedSection opacity:0 fallback.
-
-            PHASE 2 (EXPLORER): Verify ExplorerMap renders with Mapbox. Verify chat streams via Anthropic SDK (ANTHROPIC_API_KEY is set). Wire MAP commands (FLY/CHOROPLETH/FILTER) from chat to map. Wire quick-action chips.
-
-            PHASE 3 (LANDING): Fix counter hydration (67/369/5950/10.8M). Fix hero animations. Wire homepage chips to /explorer.
-
-            PHASE 4 (SEO): Add JSON-LD structured data. Add unique meta descriptions per route. Verify sitemap + robots.txt.
-
-            PHASE 5 (UX): Add resizable chat panel. Chat↔Map bidirectional sync. Keyboard shortcuts (Cmd+K, Esc).
-
-            PHASE 6 (DEPLOY): npm run build zero errors. Commit per phase. Push to main.
-
-            RULES:
-            - Run npm run build after EVERY phase. If it fails, fix before moving on.
-            - Git commit after each phase with descriptive message.
-            - Git push after each phase.
-            - Send Telegram heartbeat: curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "parse_mode=Markdown" --data-urlencode "text=Phase N: description"
-            - If a phase fails after 3 attempts: commit what works, report failure, move to next phase.
-            - NEVER skip npm run build verification.
-            - Total budget: 110 minutes for all 6 phases.'
+            claude --auto-mode 'You are executing DesignWise S4 Parity Sprint on zonewise-web. CURRENT SCORE: 4.2/10. TARGET: 8.5+/10. PHASE 1 (CRITICAL - 30min): Fix lib/explorer/constants.ts missing exports. ExplorerV2.tsx imports ZONING_FILTERS, FREE_PARCEL_CLICKS, FREE_CHAT_MESSAGES, ChoroplethMetric type, ZoningFilter type, CHOROPLETH_COLOR_STOPS but they DO NOT EXIST in the file. This JS crash kills the entire Explorer page showing infinite spinner. ADD all missing exports. Also fix /demo.html 404 by adding rewrite in next.config.mjs to /explorer. Also fix AnimatedSection opacity:0 fallback so content is visible even if framer-motion fails to hydrate. PHASE 2 (EXPLORER - 45min): With P1 fix ExplorerMap should render. Verify Mapbox tiles load with choropleth. Verify chat streams via Anthropic SDK at /api/explorer/chat (ANTHROPIC_API_KEY is set). Wire MAP commands from chat to map. Wire quick-action chips. PHASE 3 (LANDING - 30min): Fix counter animation (67/369/5950/10.8M). Fix hero animations opacity fallback. Wire homepage chips to /explorer. PHASE 4 (SEO - 20min): Add JSON-LD structured data. Add unique meta descriptions per route. PHASE 5 (UX - 30min): Add resizable chat panel. Chat-Map bidirectional sync. Keyboard shortcuts Cmd+K and Esc. PHASE 6 (DEPLOY - 15min): npm run build ZERO errors. Commit and push per phase. RULES: Run npm run build after EVERY phase. Fix errors before moving on. Git commit and push after each phase with descriptive message. Send heartbeat per phase using curl to Telegram. If a phase fails after 3 attempts commit what works and move to next. NEVER skip npm run build. Budget 110 minutes total.'
 
       - name: "Deploy via force-alias"
         if: always()
         continue-on-error: true
         run: |
           sleep 15
-          # Trigger force-alias workflow
           curl -s -X POST \
             -H "Authorization: token ${{ secrets.GH_PAT }}" \
             -H "Accept: application/vnd.github+json" \
@@ -130,10 +64,9 @@ jobs:
         if: always()
         run: |
           STATUS="${{ job.status }}"
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.BIDDEED_BOT_CHAT_ID }}" \
             -d "parse_mode=Markdown" \
             --data-urlencode "text=*DesignWise S4 Parity* — ${STATUS}
-          Run: https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/${{ github.run_id }}
-          Score target: 4.2 → 8.5+
-          Phases: Explorer fix + Chat + Landing + SEO + UX + Deploy" || true
+          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Target: 4.2 → 8.5+" || true
