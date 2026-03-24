@@ -1,27 +1,102 @@
-name: "Summit: Brevard Wave 2 — All Remaining Municipalities"
+name: "Summit: Brevard Zoning Wave 2 — City GIS Probes"
 on:
   workflow_dispatch: {}
 
 jobs:
-  conquer:
-    name: "AGOL Extract + Conquer All"
+  wave2:
+    name: "Probe city GIS + ArcGIS Online for remaining 53K parcels"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install httpx shapely
-      - name: "Execute Wave 2 Conquest"
+      - name: "Execute on Hetzner via Claude Code"
+        uses: appleboy/ssh-action@v1.2.0
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/brevard_wave2_conquest.py
-      - uses: actions/upload-artifact@v4
         with:
-          name: wave2-results
-          path: wave2_results.json
-          retention-days: 90
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 30s
+          command_timeout: 110m
+          envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID
+          script: |
+            set -e
+            echo "=== [1/5] Setup ==="
+            id claude 2>/dev/null || useradd -m -s /bin/bash claude
+            mkdir -p /home/claude/.npm-global
+            chown -R claude:claude /home/claude
+
+            echo "=== [2/5] Claude Code ==="
+            npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -3
+
+            echo "=== [3/5] Auth ==="
+            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
+            OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+            rm -f /tmp/claude-oauth-token
+
+            echo "=== [4/5] Repo ==="
+            mkdir -p /opt/biddeed
+            if [ ! -d /opt/biddeed/cli-anything-biddeed ]; then
+              cd /opt/biddeed
+              git clone "https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git"
+            fi
+            cd /opt/biddeed/cli-anything-biddeed
+            git pull origin main 2>/dev/null || true
+            chown -R claude:claude /opt/biddeed
+
+            echo "=== [5/5] Claude Code Session ==="
+            su - claude -c "
+              export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
+              export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+              export PATH=/home/claude/.npm-global/bin:\$PATH
+              export SUPABASE_URL='$SUPABASE_URL'
+              export SUPABASE_KEY='$SUPABASE_SERVICE_KEY'
+              export TELEGRAM_BOT_TOKEN='$TELEGRAM_BOT_TOKEN'
+              export TELEGRAM_CHAT_ID='$TELEGRAM_CHAT_ID'
+              export GH_PAT='$GH_PAT'
+              cd /opt/biddeed/cli-anything-biddeed
+
+              claude --enable-auto-mode -p 'MISSION: Brevard Zoning Wave 2 — Fill remaining ~53K parcels with real zoning codes.
+
+READ FIRST: scripts/summit_brevard_real_zoning.py (the Wave 1 script that just ran successfully).
+
+CONTEXT: Wave 1 used the county Zoning_WKID2881 layer (Planning_Development/Zoning_WKID2881/MapServer/0) with Shapely STRtree spatial joins. Results:
+- unincorporated_brevard: 51,267/75,351 matched (68.7%) — 24K unmatched
+- cocoa: 20,989/29,886 (70.2%) — 9K unmatched  
+- satellite_beach: 3,245/8,525 (38.1%) — 5K unmatched
+- cocoa_beach: 1,669/10,841 (15.4%) — 9K unmatched
+- malabar: 0/1,431 (0%) — incorporated, own zoning
+- grant_valkaria: 0/3,067 (0%) — incorporated, own zoning
+- melbourne_village: 0/318 (0%) — incorporated, own zoning
+- palm_shores: 0/433 (0%) — incorporated, own zoning
+
+TASKS (execute in order):
+
+1. PROBE CITY GIS ENDPOINTS: For each city with gaps, search ArcGIS Online (hub.arcgis.com) and common municipal GIS patterns:
+   - Cocoa Beach: Try https://services.arcgis.com and search \"Cocoa Beach FL zoning\"
+   - Satellite Beach: Try municipalitys ArcGIS REST services
+   - Malabar: Check if Town of Malabar publishes zoning shapefiles
+   - Grant-Valkaria: Check city GIS
+   For each endpoint found, download zoning polygons and run spatial joins like Wave 1.
+
+2. UNINCORPORATED GAP (24K): The 24K unmatched unincorporated parcels may sit in areas without zoning designation or at polygon boundaries. Try:
+   - Buffer the county zoning polygons slightly (10ft) and re-match
+   - Check if any parcels fall in the FLU (Future Land Use) layer instead: Planning_Development/FLU_WKID2881/MapServer
+   - For remaining unmatched, query BCPAO USE_CODE field and map to nearest real zone code
+
+3. UPSERT RESULTS: Use Supabase REST API with on_conflict=parcel_id. Table: zoning_assignments. Columns: parcel_id, zone_code, jurisdiction, county (brevard), zone_updated_at.
+   Supabase URL: env SUPABASE_URL, Key: env SUPABASE_KEY
+
+4. TELEGRAM REPORT: Send summary to Telegram with per-jurisdiction counts before/after.
+   Bot token: env TELEGRAM_BOT_TOKEN, Chat ID: env TELEGRAM_CHAT_ID
+
+5. COMMIT any new scripts to the repo.
+
+CONSTRAINTS: $10 budget. Batch operations. One attempt per approach. If a city GIS endpoint doesnt exist after 2 probes, mark as NOT_AVAILABLE and move on.
+'
+            "
