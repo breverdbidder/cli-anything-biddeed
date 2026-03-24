@@ -1,0 +1,53 @@
+# .forensicsignore - Repo Forensics v1
+# Suppress known-good documentation/config noise only
+# Source code remains fully scanned
+# Generated 2026-03-24 | Review quarterly
+
+# GHA workflows: ${{ }} interpolation is standard, not injection
+# This is the #1 noise source (60-80% of findings)
+.github/workflows/*.yml
+.github/workflows/*.md
+.github/workflows/*.lock.yml
+
+# Documentation with example commands
+docs/*
+README.md
+CLAUDE.md
+CLAUDE.local.md
+HARNESS.md
+AUTOLOOP.md
+DEPLOYMENT_GUIDE.md
+INFRASTRUCTURE.md
+SUPERPOWERS.md
+BRAINSTORM_PROTOCOL.md
+SECURITY.md
+CHANGELOG.md
+REPO_MAP.md
+TODO.md
+memory.md
+AI_ARCHITECT_RULES.md
+SKILL.md
+POSITIONING.md
+AGENTS.md
+DESIGN.md
+
+# Claude/agent configuration (our own trusted configs)
+.claude/*
+.agents/*
+
+# Example env files (placeholder secrets, not real)
+.env.example
+.env.template
+.env.security.template
+.env.local.example
+
+# Test fixtures
+tests/*
+eval/*
+
+# SQL migrations (intentional schema changes)
+migrations/*
+supabase/*
+# Component docs and config
+components/*
+config/*
