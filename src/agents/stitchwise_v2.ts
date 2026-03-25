@@ -24,9 +24,9 @@ const OUTPUT_DIR = join(process.cwd(), "stitch-output");
 
 // ─── Stitch Client ───────────────────────────────────────────────
 function getClient(): Stitch {
-  const apiKey = process.env.STITCH_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.error("❌ STITCH_API_KEY not set. Generate at stitch.withgoogle.com → Settings → API Keys");
+    console.error("❌ GEMINI_API_KEY not set. Generate at Gemini API key (same GCP project)");
     process.exit(1);
   }
   const client = new StitchToolClient({
@@ -125,7 +125,7 @@ Usage:
   stitchwise dashboard <project-name>            Generate admin dashboard
   stitchwise landing <project-name>              Generate landing page
 
-Env: STITCH_API_KEY (required)
+Env: GEMINI_API_KEY (required)
     `);
     return;
   }
