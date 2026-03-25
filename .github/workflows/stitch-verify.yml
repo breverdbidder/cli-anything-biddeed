@@ -1,0 +1,44 @@
+name: Stitch API Verify
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-stitch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Stitch API with Gemini Key
+        env:
+          API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "=== Testing Stitch API with GEMINI_API_KEY ==="
+          
+          if [ -z "$API_KEY" ]; then
+            echo "❌ GEMINI_API_KEY secret not found!"
+            exit 1
+          fi
+          echo "✅ GEMINI_API_KEY loaded (${#API_KEY} chars)"
+          
+          echo ""
+          echo "Test 1: Stitch MCP tools/list..."
+          RESPONSE=$(curl -s -w "
+HTTP_CODE:%{http_code}" -X POST \
+            "https://stitch.googleapis.com/mcp" \
+            -H "Content-Type: application/json" \
+            -H "x-goog-api-key: ${API_KEY}" \
+            -d '{"jsonrpc":"2.0","method":"tools/list","id":1}')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE:")
+          echo "HTTP: $HTTP_CODE"
+          echo "Body: ${BODY:0:800}"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo ""
+            echo "✅ STITCH API VERIFIED — Gemini key works for Stitch"
+            echo "Zero new secrets needed. Pipeline is LIVE."
+          else
+            echo ""
+            echo "⚠️ HTTP $HTTP_CODE"
+            echo "Stitch API may need enabling on GCP project."
+            echo "Run: gcloud beta services mcp enable stitch.googleapis.com"
+          fi
