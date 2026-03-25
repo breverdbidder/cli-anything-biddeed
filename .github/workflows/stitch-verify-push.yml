@@ -2,34 +2,20 @@ name: Stitch API Verify
 on:
   push:
     paths:
-      - '.github/workflows/stitch-verify-push.yml'
       - 'scripts/verify-stitch.sh'
 jobs:
-  verify-stitch:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Test Stitch API with Gemini Key
+      - name: Test Stitch
         env:
-          API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          echo "=== Testing Stitch API with GEMINI_API_KEY ==="
-          if [ -z "$API_KEY" ]; then
-            echo "FAIL: GEMINI_API_KEY secret not found"
-            exit 1
-          fi
-          echo "Key loaded (${#API_KEY} chars)"
-          RESPONSE=$(curl -s -w "
-HTTP_CODE:%{http_code}" -X POST \
-            "https://stitch.googleapis.com/mcp" \
-            -H "Content-Type: application/json" \
-            -H "x-goog-api-key: ${API_KEY}" \
-            -d '{"jsonrpc":"2.0","method":"tools/list","id":1}')
-          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-          BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE:")
-          echo "HTTP: $HTTP_CODE"
-          echo "Response: ${BODY:0:1000}"
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "PASS: Stitch API verified with Gemini key"
-          else
-            echo "NEEDS ACTION: gcloud beta services mcp enable stitch.googleapis.com"
-          fi
+          echo "Testing Stitch API..."
+          if [ -z "$KEY" ]; then echo "NO KEY"; exit 1; fi
+          echo "Key: ${#KEY} chars"
+          HTTP=$(curl -s -o /tmp/body.txt -w "%{http_code}" -X POST "https://stitch.googleapis.com/mcp" -H "Content-Type: application/json" -H "x-goog-api-key: $KEY" -d '{"jsonrpc":"2.0","method":"tools/list","id":1}')
+          echo "HTTP: $HTTP"
+          cat /tmp/body.txt | head -c 1000
+          echo ""
+          if [ "$HTTP" = "200" ]; then echo "PASS"; else echo "FAIL - need gcloud enable"; fi
