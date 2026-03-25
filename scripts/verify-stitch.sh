@@ -1,3 +1,3 @@
 -e #!/bin/bash
-# Trigger file for stitch-verify workflow
-echo 'Stitch verify trigger'
+# Stitch verify trigger v2
+date
