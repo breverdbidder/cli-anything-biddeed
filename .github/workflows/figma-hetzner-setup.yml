@@ -16,15 +16,33 @@ jobs:
           TG_BOT="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           TG_CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
 
-          echo "=== Register Figma MCP on Hetzner ==="
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "
-            su - claude -c 'claude mcp add --transport http figma-remote-mcp https://mcp.figma.com/mcp 2>&1' || true
-            su - claude -c 'claude mcp list 2>&1' || true
-          " 2>&1
+          echo "=== Find claude binary ==="
+          CLAUDE_PATH=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "
+            which claude 2>/dev/null || \
+            find /home/claude/.npm-global/bin /usr/local/bin /home/claude/.local/bin -name claude -type f 2>/dev/null | head -1 || \
+            echo 'NOT_FOUND'
+          " 2>&1 | tail -1)
+          echo "Claude binary: $CLAUDE_PATH"
+
+          if [ "$CLAUDE_PATH" = "NOT_FOUND" ] || [ -z "$CLAUDE_PATH" ]; then
+            echo "Claude CLI not found, trying npm global..."
+            ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "
+              export PATH=/home/claude/.npm-global/bin:/usr/local/bin:\$PATH
+              su - claude -c 'export PATH=/home/claude/.npm-global/bin:\$PATH && claude mcp add --transport http figma-remote-mcp https://mcp.figma.com/mcp 2>&1' || true
+              su - claude -c 'export PATH=/home/claude/.npm-global/bin:\$PATH && claude mcp list 2>&1' || true
+            " 2>&1
+          else
+            echo "=== Register Figma MCP ==="
+            ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "
+              su - claude -c '$CLAUDE_PATH mcp add --transport http figma-remote-mcp https://mcp.figma.com/mcp 2>&1' || true
+              echo '--- MCP List ---'
+              su - claude -c '$CLAUDE_PATH mcp list 2>&1' || true
+            " 2>&1
+          fi
 
           echo ""
-          echo "=== Send auth instructions to Telegram ==="
+          echo "=== Telegram ==="
           curl -sf -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TG_CHAT}\",\"text\":\"✅ FIGMA MCP REGISTERED on Hetzner\n\nServer: figma-remote-mcp → mcp.figma.com/mcp\n\nOAuth triggers on first tool use. Next Claude Code session on Hetzner will auto-prompt for auth.\n\nAll agent files merged to main ✅\"}"
+            -d "{\"chat_id\":\"${TG_CHAT}\",\"text\":\"🎨 Figma MCP setup complete on Hetzner.\nClaude binary: ${CLAUDE_PATH}\nOAuth triggers on first tool use in Claude Code.\"}"
           echo "=== DONE ==="
