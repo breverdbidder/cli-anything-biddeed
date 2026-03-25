@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZoneWise Chatbot Admin | ZoneWise.AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy:   #1E3A5F;
+      --orange: #F59E0B;
+      --bg:     #020617;
+      --surface: #0f172a;
+      --surface2: #1e293b;
+      --border:  #334155;
+      --text:    #e2e8f0;
+      --muted:   #94a3b8;
+      --success: #34d399;
+      --danger:  #f87171;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── TOPBAR ─────────────────────────────────────────── */
+    .topbar {
+      height: 56px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo-mark {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--navy), #122544);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: var(--orange);
+      flex-shrink: 0;
+    }
+
+    .topbar-title {
+      font-size: 15px; font-weight: 600;
+    }
+
+    .topbar-title span { color: var(--orange); }
+
+    .topbar-sub {
+      font-size: 12px; color: var(--muted); margin-left: 4px;
+    }
+
+    .topbar-right {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .live-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(52, 211, 153, 0.1);
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      color: var(--success);
+    }
+
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--success);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .last-updated {
+      font-size: 11px; color: var(--muted);
+    }
+
+    /* ── LAYOUT ─────────────────────────────────────────── */
+    .shell {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── SECTION HEADER ─────────────────────────────────── */
+    .section-header {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── KPI GRID ───────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px; height: 100%;
+      background: var(--orange);
+      border-radius: 2px 0 0 2px;
+    }
+
+    .kpi-card:hover { border-color: rgba(245, 158, 11, 0.4); }
+
+    .kpi-label {
+      font-size: 11px; font-weight: 500;
+      color: var(--muted); margin-bottom: 8px;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+
+    .kpi-value {
+      font-size: 28px; font-weight: 700;
+      color: var(--text); line-height: 1;
+    }
+
+    .kpi-value.orange { color: var(--orange); }
+    .kpi-value.green  { color: var(--success); }
+    .kpi-value.red    { color: var(--danger); }
+
+    .kpi-delta {
+      font-size: 11px; margin-top: 6px;
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .kpi-delta.up   { color: var(--success); }
+    .kpi-delta.down { color: var(--danger); }
+    .kpi-delta.neutral { color: var(--muted); }
+
+    /* ── ACTIVE SESSIONS ────────────────────────────────── */
+    .active-card {
+      background: linear-gradient(135deg, rgba(30,58,95,0.6), rgba(30,58,95,0.2));
+      border: 1px solid rgba(30, 58, 95, 0.8);
+      border-radius: 10px;
+      padding: 16px 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .active-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px; height: 100%;
+      background: var(--navy);
+    }
+
+    .active-count {
+      font-size: 36px; font-weight: 700;
+      color: white; line-height: 1;
+    }
+
+    .active-label {
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    .active-sessions-list {
+      margin-top: 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+
+    .session-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px;
+    }
+
+    .session-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--success); flex-shrink: 0;
+      animation: pulse 1.5s infinite;
+    }
+
+    .session-id { color: var(--muted); font-family: monospace; }
+    .session-zone { color: var(--orange); margin-left: auto; font-size: 11px; }
+
+    /* ── TWO-COLUMN ROW ─────────────────────────────────── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .three-col { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 20px; }
+
+    @media (max-width: 900px) {
+      .two-col, .three-col { grid-template-columns: 1fr; }
+    }
+
+    /* ── PANEL ──────────────────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .panel-title {
+      font-size: 13px; font-weight: 600; color: var(--text);
+    }
+
+    .panel-badge {
+      font-size: 11px; padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.3);
+      color: var(--orange);
+    }
+
+    .panel-body { padding: 20px; }
+
+    /* ── INTENT CHART ───────────────────────────────────── */
+    .intent-chart { display: flex; flex-direction: column; gap: 10px; }
+
+    .intent-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .intent-label {
+      font-size: 12px; color: var(--muted);
+      width: 130px; flex-shrink: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .intent-bar-bg {
+      flex: 1; height: 8px; background: var(--surface2);
+      border-radius: 4px; overflow: hidden;
+    }
+
+    .intent-bar {
+      height: 100%; border-radius: 4px;
+      background: linear-gradient(90deg, var(--navy), var(--orange));
+      transition: width 0.6s ease;
+    }
+
+    .intent-pct {
+      font-size: 12px; font-weight: 600;
+      color: var(--text); width: 36px; text-align: right; flex-shrink: 0;
+    }
+
+    .intent-count {
+      font-size: 11px; color: var(--muted);
+      width: 48px; text-align: right; flex-shrink: 0;
+    }
+
+    /* ── TABLE ──────────────────────────────────────────── */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .data-table th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .data-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(51,65,85,0.5);
+      color: var(--text);
+      vertical-align: middle;
+    }
+
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .zone-pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(30,58,95,0.5);
+      border: 1px solid rgba(30,58,95,0.8);
+      font-size: 11px; font-weight: 600;
+      color: #93c5fd;
+      font-family: monospace;
+    }
+
+    .trend-up   { color: var(--success); font-size: 11px; }
+    .trend-down { color: var(--danger);  font-size: 11px; }
+    .trend-flat { color: var(--muted);   font-size: 11px; }
+
+    /* ── FEEDBACK PANEL ─────────────────────────────────── */
+    .satisfaction-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(51,65,85,0.5);
+    }
+
+    .satisfaction-row:last-child { border-bottom: none; }
+
+    .star-rating { font-size: 16px; flex-shrink: 0; }
+
+    .feedback-bar-bg {
+      flex: 1; height: 6px; background: var(--surface2);
+      border-radius: 3px; overflow: hidden;
+    }
+
+    .feedback-bar { height: 100%; border-radius: 3px; }
+    .feedback-bar.star5 { background: var(--success); }
+    .feedback-bar.star4 { background: #6ee7b7; }
+    .feedback-bar.star3 { background: var(--orange); }
+    .feedback-bar.star2 { background: #fb923c; }
+    .feedback-bar.star1 { background: var(--danger); }
+
+    .feedback-count {
+      font-size: 12px; color: var(--muted);
+      width: 36px; text-align: right; flex-shrink: 0;
+    }
+
+    .satisfaction-score {
+      text-align: center; padding: 20px 0 12px;
+    }
+
+    .score-big {
+      font-size: 48px; font-weight: 700; color: var(--orange); line-height: 1;
+    }
+
+    .score-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    .score-stars { font-size: 20px; margin-top: 8px; }
+
+    /* ── ERROR RATE ─────────────────────────────────────── */
+    .rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .rate-item {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .rate-value {
+      font-size: 22px; font-weight: 700;
+    }
+
+    .rate-value.ok  { color: var(--success); }
+    .rate-value.warn { color: var(--orange); }
+    .rate-value.bad { color: var(--danger); }
+
+    .rate-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    .recent-errors {
+      margin-top: 14px;
+    }
+
+    .error-item {
+      display: flex; gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(51,65,85,0.4);
+      font-size: 11px;
+    }
+
+    .error-item:last-child { border-bottom: none; }
+
+    .error-time { color: var(--muted); flex-shrink: 0; font-family: monospace; }
+    .error-msg  { color: var(--text); }
+    .error-type {
+      margin-left: auto; flex-shrink: 0;
+      padding: 1px 6px; border-radius: 3px;
+      font-size: 10px; font-weight: 600;
+      background: rgba(248,113,113,0.15);
+      border: 1px solid rgba(248,113,113,0.3);
+      color: var(--danger);
+    }
+
+    .error-type.warn-type {
+      background: rgba(245,158,11,0.15);
+      border-color: rgba(245,158,11,0.3);
+      color: var(--orange);
+    }
+
+    /* ── FOOTER ─────────────────────────────────────────── */
+    .footer {
+      text-align: center;
+      padding: 20px;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+
+    .footer span { color: var(--orange); }
+  </style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <div class="logo-mark">Z</div>
+  <div>
+    <div class="topbar-title">ZoneWise<span>.AI</span> — Chatbot Admin</div>
+  </div>
+  <div class="topbar-sub">Brevard County · Structured RAG · Supabase</div>
+  <div class="topbar-right">
+    <span class="last-updated">Updated 2026-03-25 09:41 EST</span>
+    <div class="live-badge">
+      <div class="live-dot"></div>
+      Live
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <!-- ROW 1: KPI STRIP -->
+  <div>
+    <div class="section-header">Session Metrics — Last 24 Hours</div>
+    <div class="kpi-grid">
+
+      <div class="kpi-card">
+        <div class="kpi-label">Total Sessions</div>
+        <div class="kpi-value orange">1,847</div>
+        <div class="kpi-delta up">↑ 12% vs yesterday</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">Messages / Session</div>
+        <div class="kpi-value">4.3</div>
+        <div class="kpi-delta up">↑ 0.4 vs avg</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">Avg Response Time</div>
+        <div class="kpi-value">1.8s</div>
+        <div class="kpi-delta neutral">→ stable</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">Total Messages</div>
+        <div class="kpi-value">7,942</div>
+        <div class="kpi-delta up">↑ 18% vs yesterday</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">Error Rate</div>
+        <div class="kpi-value red">2.3%</div>
+        <div class="kpi-delta down">↑ 0.4% vs yesterday</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">Fallback Rate</div>
+        <div class="kpi-value">8.1%</div>
+        <div class="kpi-delta down">↑ 1.2% vs avg</div>
+      </div>
+
+      <!-- Active Sessions card spanning wider feel -->
+      <div class="active-card">
+        <div class="active-label">Active Sessions Now</div>
+        <div class="active-count">23</div>
+        <div class="active-sessions-list">
+          <div class="session-row">
+            <div class="session-dot"></div>
+            <span class="session-id">#sess-7f2a</span>
+            <span class="session-zone">R-1A · setback</span>
+          </div>
+          <div class="session-row">
+            <div class="session-dot"></div>
+            <span class="session-id">#sess-3c8e</span>
+            <span class="session-zone">BU-1 · permitted</span>
+          </div>
+          <div class="session-row">
+            <div class="session-dot"></div>
+            <span class="session-id">#sess-a91d</span>
+            <span class="session-zone">PUD · height</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ROW 2: INTENT + ZONES TABLE -->
+  <div class="two-col">
+
+    <!-- Intent Distribution -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Intent Distribution</span>
+        <span class="panel-badge">7,942 messages</span>
+      </div>
+      <div class="panel-body">
+        <div class="intent-chart">
+          <div class="intent-row">
+            <div class="intent-label">Permitted Use</div>
+            <div class="intent-bar-bg">
+              <div class="intent-bar" style="width:34%"></div>
+            </div>
+            <div class="intent-pct">34%</div>
+            <div class="intent-count">2,700</div>
+          </div>
+          <div class="intent-row">
+            <div class="intent-label">Setback Rules</div>
+            <div class="intent-bar-bg">
+              <div class="intent-bar" style="width:22%"></div>
+            </div>
+            <div class="intent-pct">22%</div>
+            <div class="intent-count">1,747</div>
+          </div>
+          <div class="intent-row">
+            <div class="intent-label">General Info</div>
+            <div class="intent-bar-bg">
+              <div class="intent-bar" style="width:18%"></div>
+            </div>
+            <div class="intent-pct">18%</div>
+            <div class="intent-count">1,430</div>
+          </div>
+          <div class="intent-row">
+            <div class="intent-label">Comparison</div>
+            <div class="intent-bar-bg">
+              <div class="intent-bar" style="width:12%"></div>
+            </div>
+            <div class="intent-pct">12%</div>
+            <div class="intent-count">953</div>
+          </div>
+          <div class="intent-row">
+            <div class="intent-label">Lot Size</div>
+            <div class="intent-bar-bg">
+              <div class="intent-bar" style="width:9%"></div>
+            </div>
+            <div class="intent-pct">9%</div>
+            <div class="intent-count">715</div>
+          </div>
+          <div class="intent-row">
+            <div class="intent-label">Height Limits</div>
+            <div class="intent-bar-bg">
+              <div class="intent-bar" style="width:5%"></div>
+            </div>
+            <div class="intent-pct">5%</div>
+            <div class="intent-count">397</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Queried Zones -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Top Queried Zones</span>
+        <span class="panel-badge">24h</span>
+      </div>
+      <div class="panel-body" style="padding: 0;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Zone Code</th>
+              <th>Queries</th>
+              <th>Top Intent</th>
+              <th>Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="zone-pill">R-1A</span></td>
+              <td>842</td>
+              <td style="color:var(--muted)">Permitted Use</td>
+              <td><span class="trend-up">↑ 14%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">BU-1</span></td>
+              <td>671</td>
+              <td style="color:var(--muted)">Permitted Use</td>
+              <td><span class="trend-up">↑ 8%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">PUD</span></td>
+              <td>503</td>
+              <td style="color:var(--muted)">Height Limits</td>
+              <td><span class="trend-flat">→ 0%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">RVP</span></td>
+              <td>389</td>
+              <td style="color:var(--muted)">Setback</td>
+              <td><span class="trend-down">↓ 3%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">MFR</span></td>
+              <td>317</td>
+              <td style="color:var(--muted)">Lot Size</td>
+              <td><span class="trend-up">↑ 22%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">IU-1</span></td>
+              <td>241</td>
+              <td style="color:var(--muted)">Comparison</td>
+              <td><span class="trend-down">↓ 7%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">AU</span></td>
+              <td>198</td>
+              <td style="color:var(--muted)">Permitted Use</td>
+              <td><span class="trend-up">↑ 5%</span></td>
+            </tr>
+            <tr>
+              <td><span class="zone-pill">BU-2</span></td>
+              <td>154</td>
+              <td style="color:var(--muted)">Setback</td>
+              <td><span class="trend-flat">→ 1%</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ROW 3: SATISFACTION + ERROR RATES -->
+  <div class="two-col">
+
+    <!-- User Satisfaction -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">User Satisfaction &amp; Feedback</span>
+        <span class="panel-badge">312 ratings</span>
+      </div>
+      <div class="panel-body">
+        <div class="satisfaction-score">
+          <div class="score-big">4.2</div>
+          <div class="score-stars">★★★★☆</div>
+          <div class="score-label">Average rating from 312 user ratings</div>
+        </div>
+        <div>
+          <div class="satisfaction-row">
+            <div class="star-rating">★★★★★</div>
+            <div class="feedback-bar-bg">
+              <div class="feedback-bar star5" style="width:58%"></div>
+            </div>
+            <div class="feedback-count">181</div>
+          </div>
+          <div class="satisfaction-row">
+            <div class="star-rating">★★★★☆</div>
+            <div class="feedback-bar-bg">
+              <div class="feedback-bar star4" style="width:22%"></div>
+            </div>
+            <div class="feedback-count">69</div>
+          </div>
+          <div class="satisfaction-row">
+            <div class="star-rating">★★★☆☆</div>
+            <div class="feedback-bar-bg">
+              <div class="feedback-bar star3" style="width:10%"></div>
+            </div>
+            <div class="feedback-count">31</div>
+          </div>
+          <div class="satisfaction-row">
+            <div class="star-rating">★★☆☆☆</div>
+            <div class="feedback-bar-bg">
+              <div class="feedback-bar star2" style="width:6%"></div>
+            </div>
+            <div class="feedback-count">19</div>
+          </div>
+          <div class="satisfaction-row">
+            <div class="star-rating">★☆☆☆☆</div>
+            <div class="feedback-bar-bg">
+              <div class="feedback-bar star1" style="width:4%"></div>
+            </div>
+            <div class="feedback-count">12</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Rate + Fallbacks -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Error &amp; Fallback Rates</span>
+        <span class="panel-badge">Last 24h</span>
+      </div>
+      <div class="panel-body">
+        <div class="rate-grid">
+          <div class="rate-item">
+            <div class="rate-value bad">2.3%</div>
+            <div class="rate-label">Error Rate</div>
+          </div>
+          <div class="rate-item">
+            <div class="rate-value warn">8.1%</div>
+            <div class="rate-label">Fallback Rate</div>
+          </div>
+          <div class="rate-item">
+            <div class="rate-value ok">97.7%</div>
+            <div class="rate-label">Uptime</div>
+          </div>
+          <div class="rate-item">
+            <div class="rate-value ok">91.9%</div>
+            <div class="rate-label">RAG Hit Rate</div>
+          </div>
+        </div>
+
+        <div class="recent-errors">
+          <div class="section-header" style="margin-top:16px; margin-bottom:8px;">Recent Errors</div>
+          <div class="error-item">
+            <span class="error-time">09:38</span>
+            <span class="error-msg">Gemini timeout — zone lookup R-1A</span>
+            <span class="error-type">TIMEOUT</span>
+          </div>
+          <div class="error-item">
+            <span class="error-time">09:21</span>
+            <span class="error-msg">No RAG results — query: "BU-3 density"</span>
+            <span class="error-type warn-type">FALLBACK</span>
+          </div>
+          <div class="error-item">
+            <span class="error-time">08:55</span>
+            <span class="error-msg">Supabase row limit hit — parcel context</span>
+            <span class="error-type">DB_LIMIT</span>
+          </div>
+          <div class="error-item">
+            <span class="error-time">08:12</span>
+            <span class="error-msg">Intent mismatch — classified as general_info</span>
+            <span class="error-type warn-type">FALLBACK</span>
+          </div>
+          <div class="error-item">
+            <span class="error-time">07:44</span>
+            <span class="error-msg">Clerk auth token expired mid-session</span>
+            <span class="error-type">AUTH</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<footer class="footer">
+  ZoneWise<span>.AI</span> — Chatbot Admin Dashboard · Everest Capital USA · Brevard County FL ·
+  Generated 2026-03-25 · <em>Note: GEMINI_API_KEY not set — dashboard generated from layout spec without Stitch SDK</em>
+</footer>
+
+</body>
+</html>
