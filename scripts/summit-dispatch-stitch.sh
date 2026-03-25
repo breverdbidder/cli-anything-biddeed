@@ -2,7 +2,7 @@
 # SUMMIT DISPATCH: StitchWise V2 Agent Deployment
 # Target: cli-anything-biddeed
 # Branch: feat/stitch-agent-v2
-# Prereq: STITCH_API_KEY must be set as repo secret
+# Prereq: GEMINI_API_KEY must be set as repo secret
 
 set -euo pipefail
 
@@ -54,9 +54,9 @@ PHASE4
 echo "🧪 Phase 5: Running StitchWise eval suite..."
 ssh claude@${HETZNER} << 'PHASE5'
 cd /home/claude/repos/cli-anything-biddeed || exit 1
-# Eval requires STITCH_API_KEY — skip if not set
-if [ -z "${STITCH_API_KEY:-}" ]; then
-  echo "⚠️ STITCH_API_KEY not set — eval deferred until secret added"
+# Eval requires GEMINI_API_KEY — skip if not set
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  echo "⚠️ GEMINI_API_KEY not set — eval deferred until secret added"
 else
   python scripts/eval_runner.py eval/stitch/eval.json
 fi
@@ -75,7 +75,7 @@ git commit -m "feat(stitch): StitchWise V2 — programmatic Stitch SDK integrati
 - Add STITCH-AGENT-SPEC.md design doc
 - Brand-aware prompt builder (navy/orange/Inter)
 - Circuit breaker: max 3 retries, 300/mo budget
-- Requires STITCH_API_KEY repo secret"
+- Requires GEMINI_API_KEY repo secret"
 git push origin feat/stitch-agent-v2
 PHASE6
 
@@ -86,13 +86,13 @@ echo ""
 echo "📋 STATUS BOARD:"
 echo "  Agent code:     ✅ Deployed"
 echo "  MCP config:     ✅ Deployed"
-echo "  Eval suite:     ⏳ Waiting on STITCH_API_KEY"
+echo "  Eval suite:     ⏳ Waiting on GEMINI_API_KEY"
 echo "  Branch:         feat/stitch-agent-v2"
 echo ""
 echo "🔑 ARIEL ACTION REQUIRED (1 step):"
 echo "  1. Go to https://stitch.withgoogle.com"
 echo "  2. Profile → Stitch Settings → API Keys → Create Key"
-echo "  3. Add as GitHub secret: STITCH_API_KEY"
-echo "     gh secret set STITCH_API_KEY -R ${REPO}"
+echo "  3. Add as GitHub secret: GEMINI_API_KEY"
+echo "     gh secret set GEMINI_API_KEY -R ${REPO}"
 echo ""
 echo "Once key is set, Claude Code can call Stitch natively via MCP."
