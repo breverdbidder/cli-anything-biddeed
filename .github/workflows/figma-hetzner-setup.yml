@@ -1,0 +1,64 @@
+name: "Figma MCP Setup on Hetzner"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  setup:
+    name: "🎨 Figma MCP Install"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: "Install Figma MCP + send OAuth to Telegram"
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
+          TG_BOT="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          TG_CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+
+          echo "=== Step 1: Register Figma MCP server ==="
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no claude@87.99.129.125 "
+            # Register Figma remote MCP
+            claude mcp add --transport http figma-remote-mcp https://mcp.figma.com/mcp 2>&1 || true
+            echo 'MCP registered'
+
+            # Also try plugin install
+            claude plugin install figma@claude-plugins-official 2>&1 | tee /tmp/figma-plugin.log || true
+
+            # Check if already authed
+            claude mcp list 2>&1 | tee /tmp/figma-mcp.log || true
+          " 2>&1 | tee /tmp/hetzner-output.txt
+
+          echo ""
+          echo "=== Step 2: Check for OAuth URL ==="
+          # Look for OAuth URL in output
+          OAUTH_URL=$(grep -oP 'https://[^ ]*figma[^ ]*auth[^ ]*' /tmp/hetzner-output.txt || true)
+          if [ -z "$OAUTH_URL" ]; then
+            OAUTH_URL=$(grep -oP 'https://[^ ]*oauth[^ ]*' /tmp/hetzner-output.txt || true)
+          fi
+
+          if [ -n "$OAUTH_URL" ]; then
+            echo "OAuth URL found: $OAUTH_URL"
+            curl -sf -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\":\"${TG_CHAT}\",\"text\":\"🎨 FIGMA MCP AUTH — Click to authorize (one-time):\n${OAUTH_URL}\",\"disable_web_page_preview\":true}"
+          else
+            echo "No OAuth URL found in output — may need interactive auth"
+            # Send instruction to Telegram
+            curl -sf -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\":\"${TG_CHAT}\",\"text\":\"🎨 FIGMA MCP registered on Hetzner.\nMCP server: figma-remote-mcp → https://mcp.figma.com/mcp\n\nOAuth will trigger on first use. Run on Hetzner:\nssh claude@87.99.129.125\nclaude\n/mcp → figma-remote-mcp → Authenticate\n\nOr Claude Code will auto-prompt next session.\"}"
+          fi
+
+          echo ""
+          echo "=== Step 3: Verify ==="
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no claude@87.99.129.125 "
+            echo 'MCP servers:'
+            claude mcp list 2>&1 || true
+            echo ''
+            echo 'Plugins:'
+            cat ~/.claude.json 2>/dev/null | head -50 || echo 'No .claude.json'
+          " 2>&1
+
+          echo "=== DONE ==="
