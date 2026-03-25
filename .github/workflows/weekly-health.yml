@@ -125,6 +125,36 @@ jobs:
           echo -e "$REPORT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+
+      - name: Dream skill health check
+        id: dream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPOS="brevard-bidder-scraper cli-anything-biddeed biddeed-ai zonewise-web everest-nexus"
+          DREAM_OK=0
+          DREAM_MISS=0
+          DREAM_REPORT=""
+          for SHORT in $REPOS; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/breverdbidder/${SHORT}/contents/.claude/skills/dream/SKILL.md?ref=main")
+            if [ "$HTTP" = "200" ]; then
+              DREAM_OK=$((DREAM_OK+1))
+              DREAM_REPORT="${DREAM_REPORT}✅ ${SHORT}
+"
+            else
+              DREAM_MISS=$((DREAM_MISS+1))
+              DREAM_REPORT="${DREAM_REPORT}❌ ${SHORT}
+"
+            fi
+          done
+          echo "dream_ok=$DREAM_OK" >> $GITHUB_OUTPUT
+          echo "dream_miss=$DREAM_MISS" >> $GITHUB_OUTPUT
+          echo "dream_report<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$DREAM_REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Telegram report
         if: always()
         env:
@@ -142,6 +172,9 @@ jobs:
           F_CLEAN="${{ steps.forensics.outputs.clean }}"
           F_WARN="${{ steps.forensics.outputs.warn }}"
           F_REPORT="${{ steps.forensics.outputs.report }}"
+          D_OK="${{ steps.dream.outputs.dream_ok }}"
+          D_MISS="${{ steps.dream.outputs.dream_miss }}"
+          D_REPORT="${{ steps.dream.outputs.dream_report }}"
 
           if [ "$FAILED" != "0" ] || [ "$STALE" = "true" ]; then
             ICON="🚨"
@@ -162,7 +195,9 @@ jobs:
           Last commit: ${DAYS} days ago
 
           🛡️ Repo Forensics (${F_CLEAN}/7 clean)
-          ${F_REPORT}"
+          ${F_REPORT}
+          🧠 Dream Skill (${D_OK}/5 deployed)
+          ${D_REPORT}"
 
           if [ "$STALE" = "true" ]; then
             MSG="${MSG}
@@ -173,3 +208,4 @@ jobs:
             -d chat_id="${CHAT_ID}" \
             -d text="${MSG}" \
             -d parse_mode="HTML" || true
+
