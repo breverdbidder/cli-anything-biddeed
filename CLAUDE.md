@@ -276,3 +276,21 @@ tools: extract|implement|capture|variables|audit|write
 brand: navy=#1E3A5F, orange=#F59E0B, bg=#020617, font=Inter
 rate_limit: Per-minute (paid seat) or 6/mo (free)
 ```
+
+## MCP Servers (registered 2026-03-25)
+```yaml
+figma:
+  url: https://mcp.figma.com/mcp
+  transport: http
+  status: REGISTERED — OAuth PENDING (run /plugin → figma → Authenticate)
+  config: ~/.claude.json [project: cli-anything-biddeed/workspace]
+stitch:
+  command: npx -y @_davideast/stitch-mcp proxy
+  transport: stdio
+  status: REGISTERED — GEMINI_API_KEY required (not yet set in env)
+  config: ~/.claude.json [project: cli-anything-biddeed/workspace]
+next_steps:
+  - Ariel: complete Figma OAuth in browser (/plugin → figma → Authenticate)
+  - Ariel: set GEMINI_API_KEY in Hetzner server env or GitHub Actions secrets
+  - Deploy configs to: zonewise-web, biddeed-ai, biddeed-ai-ui, zonewise-scraper-v4
+```
