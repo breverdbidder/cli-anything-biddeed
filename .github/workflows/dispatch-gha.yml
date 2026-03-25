@@ -73,6 +73,7 @@ jobs:
           TIMEOUT_MIN: ${{ inputs.timeout }}
         run: |
           export CLAUDE_CODE_OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
+          unset ANTHROPIC_API_KEY  # FORCE OAuth (Max plan) — API key has no credits
           cd workspace
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ inputs.repo }}.git"
 
