@@ -89,7 +89,7 @@ stages:
       "command": "npx",
       "args": ["-y", "@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "${STITCH_API_KEY}"
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}"
       }
     }
   }
@@ -135,7 +135,7 @@ guardrails:
 
 ```yaml
 secrets:
-  STITCH_API_KEY:
+  GEMINI_API_KEY:
     source: stitch.withgoogle.com → Settings → API Keys → Create Key
     store: GitHub repo secret + Hetzner env
     status: PENDING — Ariel must generate this
@@ -151,7 +151,7 @@ dispatch:
     - npm install @google/stitch-sdk
     - Create src/agents/stitchwise_v2.ts
     - Add MCP config to .claude/settings.json
-    - Add STITCH_API_KEY to repo secrets
+    - Add GEMINI_API_KEY to repo secrets
     - Create eval/stitch/eval.json (25 assertions)
     - Update CLAUDE.md with Stitch pipeline
     - Run eval_runner.py
@@ -159,11 +159,10 @@ dispatch:
 
 ## ONE Blocker (Ariel Required)
 
-**Generate STITCH_API_KEY:**
-1. Go to https://stitch.withgoogle.com
-2. Click profile icon → Stitch Settings
-3. Go to API Keys section
-4. Click Create Key
-5. Copy key → paste as GitHub secret `STITCH_API_KEY`
-
-This is the ONLY human step. Everything else is automated.
+**Generate GEMINI_API_KEY:**
+**No new key needed.** Uses existing GEMINI_API_KEY from GitHub secrets (same GCP project).
+Only step: ensure Stitch API is enabled on the project:
+```
+gcloud beta services mcp enable stitch.googleapis.com --project=<PROJECT_ID>
+```
+If already enabled (likely), zero human action required.
