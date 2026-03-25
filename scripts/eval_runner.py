@@ -21,7 +21,23 @@ from datetime import datetime
 
 def load_eval(eval_path: str) -> dict:
     with open(eval_path) as f:
-        return json.load(f)
+        data = json.load(f)
+    # Normalize flat "assertions" format (no "tests" wrapper) → wrap into single test
+    if "assertions" in data and "tests" not in data:
+        normalized = []
+        for a in data["assertions"]:
+            normalized.append({
+                "id": a.get("id", ""),
+                "description": a.get("description") or a.get("desc", ""),
+                "check": a.get("check", ""),
+                **{k: v for k, v in a.items() if k not in ("id", "description", "desc", "check")}
+            })
+        data["tests"] = [{
+            "id": data.get("name", "eval"),
+            "prompt": data.get("description", ""),
+            "assertions": normalized
+        }]
+    return data
 
 def check_json_parseable(output: str) -> bool:
     try:
@@ -315,7 +331,7 @@ def run_eval(eval_path: str, outputs_dir: str, test_id: str = None) -> dict:
     scoreable = total_assertions - total_skipped
 
     return {
-        "skill": eval_data["skill"],
+        "skill": eval_data.get("skill") or eval_data.get("name", "unknown"),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "summary": {
             "total_assertions": total_assertions,
@@ -332,13 +348,18 @@ def run_eval(eval_path: str, outputs_dir: str, test_id: str = None) -> dict:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run binary assertion evals on harness output")
-    parser.add_argument("--eval-file", required=True, help="Path to eval.json")
+    parser.add_argument("eval_file_pos", nargs="?", default=None, help="Path to eval.json (positional)")
+    parser.add_argument("--eval-file", default=None, help="Path to eval.json")
     parser.add_argument("--outputs-dir", default="./eval_outputs", help="Directory with test output files")
     parser.add_argument("--output", default=None, help="Write results to JSON file")
     parser.add_argument("--test-id", default=None, help="Run single test by ID")
     args = parser.parse_args()
 
-    results = run_eval(args.eval_file, args.outputs_dir, args.test_id)
+    eval_file = args.eval_file or args.eval_file_pos
+    if not eval_file:
+        parser.error("eval file path required (positional or --eval-file)")
+
+    results = run_eval(eval_file, args.outputs_dir, args.test_id)
 
     if args.output:
         with open(args.output, "w") as f:
