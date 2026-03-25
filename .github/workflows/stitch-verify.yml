@@ -1,0 +1,62 @@
+name: Stitch API Verify
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-stitch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Stitch API with Gemini Key
+        env:
+          API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "=== Testing Stitch API with GEMINI_API_KEY ==="
+          
+          # Test 1: List tools on Stitch MCP endpoint
+          echo "Test 1: Stitch MCP list_tools..."
+          RESPONSE=$(curl -s -w "
+%{http_code}" -X POST \
+            "https://stitch.googleapis.com/mcp" \
+            -H "Content-Type: application/json" \
+            -H "x-goog-api-key: ${API_KEY}" \
+            -d '{"jsonrpc":"2.0","method":"tools/list","id":1}')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: $HTTP_CODE"
+          echo "Body (first 500 chars): ${BODY:0:500}"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Stitch API is ENABLED and working with Gemini key"
+          else
+            echo "❌ HTTP $HTTP_CODE — Stitch API may need enabling"
+            echo ""
+            echo "Full response: $BODY"
+            
+            # Test 2: Try alternate endpoint format
+            echo ""
+            echo "Test 2: Trying SSE endpoint..."
+            RESPONSE2=$(curl -s -w "
+%{http_code}" \
+              "https://stitch.googleapis.com/mcp/sse" \
+              -H "x-goog-api-key: ${API_KEY}")
+            HTTP2=$(echo "$RESPONSE2" | tail -1)
+            echo "SSE HTTP: $HTTP2"
+            
+            # Test 3: Try REST-style endpoint  
+            echo ""
+            echo "Test 3: Trying projects list..."
+            RESPONSE3=$(curl -s -w "
+%{http_code}" -X POST \
+              "https://stitch.googleapis.com/mcp" \
+              -H "Content-Type: application/json" \
+              -H "x-goog-api-key: ${API_KEY}" \
+              -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_projects","arguments":{}},"id":2}')
+            HTTP3=$(echo "$RESPONSE3" | tail -1)
+            BODY3=$(echo "$RESPONSE3" | head -n -1)
+            echo "HTTP: $HTTP3"
+            echo "Body: ${BODY3:0:500}"
+          fi
+          
+          echo ""
+          echo "=== DONE ==="
