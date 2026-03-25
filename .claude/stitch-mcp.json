@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "${STITCH_API_KEY}"
+        "STITCH_API_KEY": "${GEMINI_API_KEY}"
       }
     }
   }
