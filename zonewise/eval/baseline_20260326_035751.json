@@ -1,0 +1,220 @@
+{
+  "skill": "zonewise",
+  "timestamp": "2026-03-26T07:57:51.440844Z",
+  "summary": {
+    "total_assertions": 25,
+    "passed": 6,
+    "failed": 19,
+    "skipped": 0,
+    "score": 0.24,
+    "score_pct": "24.0%",
+    "perfect": false
+  },
+  "tests": [
+    {
+      "test_id": "T1_brevard_county_scrape",
+      "prompt": "Scrape zoning data for Brevard County, FL. Output structured JSON for the first 10 parcels.",
+      "passed": 1,
+      "failed": 4,
+      "skipped": 0,
+      "total": 5,
+      "score": 0.2,
+      "assertions": [
+        {
+          "assertion_id": "T1_A1",
+          "description": "Output is valid JSON (parseable without errors)",
+          "passed": true,
+          "error": null
+        },
+        {
+          "assertion_id": "T1_A2",
+          "description": "Every record contains a parcel_id field matching Brevard format (##-##-##-##-#####.#-####.#)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T1_A3",
+          "description": "Every record contains a non-null zone_code field",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T1_A4",
+          "description": "Every record contains a non-null zone_name field",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T1_A5",
+          "description": "zone_code values match known Brevard zoning codes (BU, GU, RS, RU, AU, IU, PUD, etc.)",
+          "passed": false,
+          "error": null
+        }
+      ]
+    },
+    {
+      "test_id": "T2_spatial_join",
+      "prompt": "Run county-wide spatial join for Brevard using STRtree bulk method. Report match statistics.",
+      "passed": 0,
+      "failed": 5,
+      "skipped": 0,
+      "total": 5,
+      "score": 0.0,
+      "assertions": [
+        {
+          "assertion_id": "T2_A1",
+          "description": "Output includes total_parcels as integer > 0",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T2_A2",
+          "description": "Output includes matched_parcels as integer > 0",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T2_A3",
+          "description": "Match rate (matched/total) is >= 0.95 (95%)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T2_A4",
+          "description": "Output includes unmatched_parcels array (even if empty)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T2_A5",
+          "description": "Processing time is reported in seconds as numeric value",
+          "passed": false,
+          "error": null
+        }
+      ]
+    },
+    {
+      "test_id": "T3_municipal_conquest",
+      "prompt": "Run municipal conquest for Palm Bay using BCPAO centroids SR2881 against gis.palmbayflorida.org Zoning/MapServer/0.",
+      "passed": 1,
+      "failed": 4,
+      "skipped": 0,
+      "total": 5,
+      "score": 0.2,
+      "assertions": [
+        {
+          "assertion_id": "T3_A1",
+          "description": "Output contains municipality field set to 'Palm Bay'",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T3_A2",
+          "description": "Output contains gis_source URL pointing to gis.palmbayflorida.org",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T3_A3",
+          "description": "No records use USE_CODE mapping (must use city's native zoning field)",
+          "passed": true,
+          "error": null
+        },
+        {
+          "assertion_id": "T3_A4",
+          "description": "Total matched parcels > 50000 (Palm Bay has ~78K parcels)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T3_A5",
+          "description": "Every zoning record includes both zone_code and zone_description",
+          "passed": false,
+          "error": null
+        }
+      ]
+    },
+    {
+      "test_id": "T4_supabase_persist",
+      "prompt": "Persist 10 zoning records to Supabase. Verify data integrity after write.",
+      "passed": 1,
+      "failed": 4,
+      "skipped": 0,
+      "total": 5,
+      "score": 0.2,
+      "assertions": [
+        {
+          "assertion_id": "T4_A1",
+          "description": "Supabase upsert returns status 200 or 201",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T4_A2",
+          "description": "Returned row count matches input count (10)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T4_A3",
+          "description": "No duplicate parcel_ids in output (all unique)",
+          "passed": true,
+          "error": null
+        },
+        {
+          "assertion_id": "T4_A4",
+          "description": "Every record has a created_at timestamp in ISO 8601 format",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T4_A5",
+          "description": "county field is lowercase string matching source county",
+          "passed": false,
+          "error": null
+        }
+      ]
+    },
+    {
+      "test_id": "T5_error_handling",
+      "prompt": "Attempt to scrape a non-existent county 'Fakeland'. Verify graceful error handling.",
+      "passed": 3,
+      "failed": 2,
+      "skipped": 0,
+      "total": 5,
+      "score": 0.6,
+      "assertions": [
+        {
+          "assertion_id": "T5_A1",
+          "description": "Output contains error field (not a stack trace)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T5_A2",
+          "description": "Error message is human-readable (no raw Python tracebacks)",
+          "passed": true,
+          "error": null
+        },
+        {
+          "assertion_id": "T5_A3",
+          "description": "Output does not contain null or undefined top-level fields",
+          "passed": true,
+          "error": null
+        },
+        {
+          "assertion_id": "T5_A4",
+          "description": "Exit code is non-zero (1 or 2)",
+          "passed": false,
+          "error": null
+        },
+        {
+          "assertion_id": "T5_A5",
+          "description": "Output is valid JSON even in error state",
+          "passed": true,
+          "error": null
+        }
+      ]
+    }
+  ]
+}
