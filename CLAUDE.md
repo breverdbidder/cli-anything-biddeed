@@ -30,7 +30,7 @@ brand: { primary: "#1E3A5F", accent: "#F59E0B", font: Inter, bg: "#020617" }
 layer_1_user: ~/.claude/CLAUDE.md  # personal prefs, not version-controlled
 layer_2_project: ./CLAUDE.md       # THIS FILE — team rules, architecture, triggers
 layer_3_path_rules: .claude/rules/ # pattern-matched, loaded ONLY when editing matching files
-  deployed: [harness(*/SKILL.md), evals(*/eval/**), scripts(scripts/**), youtube(youtube/**)]
+  deployed: [harness(*/SKILL.md), evals(*/eval/**), scripts(scripts/**), youtube(youtube/**), instruction-patterns(docs/INSTRUCTION-ENGINEERING-PATTERNS.md)]
   principle: lean context window — rules load only when relevant
   enforcement: hooks for 100% reliability (finance/security), prompts for style/tone
 ```
@@ -45,6 +45,7 @@ triggers:
   pipeline_health: check daily_metrics + recent GHA runs
   county_mention: verify counties/ config exists before assuming
   build_request: follow cli-anything HARNESS.md 7-phase
+  skill_or_harness_authoring: load docs/INSTRUCTION-ENGINEERING-PATTERNS.md first
   deploy: push to GitHub, never local/GDrive
   spend_over_10: STOP and confirm
   context_switch: flag "📌 [previous task] still open"
@@ -59,6 +60,22 @@ rules:
   - zero HITL: 3 alternatives before surfacing blocker
   - push back with strong opinions when disagreeing
   - wrong = "I was wrong", never invent numbers
+```
+
+## Instruction Engineering (Mar 25, 2026)
+```yaml
+source: docs/INSTRUCTION-ENGINEERING-PATTERNS.md
+origin: VoltAgent/awesome-codex-subagents (136 agents analyzed)
+when_to_load: authoring or editing ANY SKILL.md, HARNESS.md, or agent prompt
+patterns:
+  4_phase_working_mode: Map → Separate evidence from hypothesis → Smallest intervention → Validate
+  ownership_declaration: "Own [domain] as [framing], not [anti-pattern]"
+  focus_areas: 6-8 items naming concrete boundaries/tradeoffs (not abstract concepts)
+  quality_gates: verify/confirm/check/ensure/call_out (binary, not aspirational)
+  return_contract: scope → finding+evidence → intervention → validated → residual
+  guard_rail: single "Do not [#1 failure mode]" per agent
+  confidence_labels: CONFIRMED | HYPOTHESIS | UNKNOWN (enforces NEVER-LIE)
+  sandbox_mode: read-only for reviewers, workspace-write for builders
 ```
 
 ## Slash Commands
