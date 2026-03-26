@@ -1,0 +1,125 @@
+{
+  "generation": 1,
+  "results": {
+    "zonewise/eval/variants/v1_A.md": {
+      "pass_rate": 0.24,
+      "failures": [
+        "T1_A2",
+        "T1_A3",
+        "T1_A4",
+        "T1_A5",
+        "T2_A1",
+        "T2_A2",
+        "T2_A3",
+        "T2_A4",
+        "T2_A5",
+        "T3_A1",
+        "T3_A2",
+        "T3_A4",
+        "T3_A5",
+        "T4_A1",
+        "T4_A2",
+        "T4_A4",
+        "T4_A5",
+        "T5_A1",
+        "T5_A4"
+      ]
+    },
+    "zonewise/eval/variants/v1_B.md": {
+      "pass_rate": 0.24,
+      "failures": [
+        "T1_A2",
+        "T1_A3",
+        "T1_A4",
+        "T1_A5",
+        "T2_A1",
+        "T2_A2",
+        "T2_A3",
+        "T2_A4",
+        "T2_A5",
+        "T3_A1",
+        "T3_A2",
+        "T3_A4",
+        "T3_A5",
+        "T4_A1",
+        "T4_A2",
+        "T4_A4",
+        "T4_A5",
+        "T5_A1",
+        "T5_A4"
+      ]
+    },
+    "zonewise/eval/variants/v1_C.md": {
+      "pass_rate": 0.24,
+      "failures": [
+        "T1_A2",
+        "T1_A3",
+        "T1_A4",
+        "T1_A5",
+        "T2_A1",
+        "T2_A2",
+        "T2_A3",
+        "T2_A4",
+        "T2_A5",
+        "T3_A1",
+        "T3_A2",
+        "T3_A4",
+        "T3_A5",
+        "T4_A1",
+        "T4_A2",
+        "T4_A4",
+        "T4_A5",
+        "T5_A1",
+        "T5_A4"
+      ]
+    },
+    "zonewise/eval/variants/v1_D.md": {
+      "pass_rate": 0.24,
+      "failures": [
+        "T1_A2",
+        "T1_A3",
+        "T1_A4",
+        "T1_A5",
+        "T2_A1",
+        "T2_A2",
+        "T2_A3",
+        "T2_A4",
+        "T2_A5",
+        "T3_A1",
+        "T3_A2",
+        "T3_A4",
+        "T3_A5",
+        "T4_A1",
+        "T4_A2",
+        "T4_A4",
+        "T4_A5",
+        "T5_A1",
+        "T5_A4"
+      ]
+    },
+    "zonewise/eval/variants/v1_E.md": {
+      "pass_rate": 0.24,
+      "failures": [
+        "T1_A2",
+        "T1_A3",
+        "T1_A4",
+        "T1_A5",
+        "T2_A1",
+        "T2_A2",
+        "T2_A3",
+        "T2_A4",
+        "T2_A5",
+        "T3_A1",
+        "T3_A2",
+        "T3_A4",
+        "T3_A5",
+        "T4_A1",
+        "T4_A2",
+        "T4_A4",
+        "T4_A5",
+        "T5_A1",
+        "T5_A4"
+      ]
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "skill": "zonewise",
+  "generations": [
+    {
+      "generation": 1,
+      "winner": "v1_A.md",
+      "winner_pass_rate": 0.24,
+      "best_before": 0.24
+    }
+  ],
+  "final_pass_rate": 0.24
+}

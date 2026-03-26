@@ -1,12 +1,12 @@
-name: "Autoloop: Overnight Skill Self-Improvement (Hetzner)"
+name: "Evolutionary Skill Loop"
 
 on:
   schedule:
-    - cron: '0 7 * * *'  # 2 AM EST = 7 AM UTC
+    - cron: '0 7 * * *'  # 2 AM EST nightly
   workflow_dispatch:
     inputs:
-      skill:
-        description: 'Which skill to improve'
+      skill_name:
+        description: 'Skill to optimize'
         required: true
         type: choice
         options:
@@ -17,13 +17,21 @@ on:
           - forecaster
           - trendpredictor
           - sitemanager
-            - projecttracker
-      max_iterations:
-        description: 'Max iterations (default 50)'
+          - projecttracker
+      max_generations:
+        description: 'Max evolution generations'
         required: false
-        default: '50'
+        default: '3'
+      variant_count:
+        description: 'Variants per generation (default 5)'
+        required: false
+        default: '5'
+      target_pass_rate:
+        description: 'Stop when this pass rate is achieved (0.0-1.0)'
+        required: false
+        default: '0.95'
       dry_run:
-        description: 'Dry run (baseline only, no Claude Code loop)'
+        description: 'Dry run (baseline only, no evolution loop)'
         required: false
         type: boolean
         default: false
@@ -34,22 +42,26 @@ env:
   DEFAULT_SKILL: zonewise
 
 jobs:
-  autoloop:
-    name: "🔄 Autoloop: ${{ github.event.inputs.skill || 'zonewise' }}"
+  evolve:
+    name: "🧬 Evolutionary Loop: ${{ github.event.inputs.skill_name || 'zonewise' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
     steps:
-      - name: Determine skill
+      - name: Determine inputs
         id: config
         run: |
-          SKILL="${{ github.event.inputs.skill || env.DEFAULT_SKILL }}"
-          MAX="${{ github.event.inputs.max_iterations || '50' }}"
+          SKILL="${{ github.event.inputs.skill_name || env.DEFAULT_SKILL }}"
+          MAX="${{ github.event.inputs.max_generations || '3' }}"
+          VARIANTS="${{ github.event.inputs.variant_count || '5' }}"
+          TARGET="${{ github.event.inputs.target_pass_rate || '0.95' }}"
           DRY="${{ github.event.inputs.dry_run || 'false' }}"
           echo "skill=$SKILL" >> $GITHUB_OUTPUT
           echo "max=$MAX" >> $GITHUB_OUTPUT
+          echo "variants=$VARIANTS" >> $GITHUB_OUTPUT
+          echo "target=$TARGET" >> $GITHUB_OUTPUT
           echo "dry=$DRY" >> $GITHUB_OUTPUT
-          echo "🎯 Skill: $SKILL | Max: $MAX | Dry: $DRY"
+          echo "🎯 Skill: $SKILL | Generations: $MAX | Variants: $VARIANTS | Target: $TARGET | Dry: $DRY"
 
       - name: "1️⃣ Preflight"
         uses: appleboy/ssh-action@v1.2.0
@@ -63,30 +75,22 @@ jobs:
             set -e
             SKILL="${{ steps.config.outputs.skill }}"
 
-            # Ensure repo exists (auto-clone if missing)
             mkdir -p /opt/biddeed
             if [ ! -d "${{ env.REPO_PATH }}/.git" ]; then
               echo "📥 Repo not found — cloning..."
               git clone https://github.com/breverdbidder/cli-anything-biddeed.git ${{ env.REPO_PATH }}
             fi
 
-            # Pull latest
             cd ${{ env.REPO_PATH }}
             git pull origin main --ff-only 2>&1 | tail -3
 
-            # Verify Claude Code
-            command -v claude &>/dev/null || { echo "❌ Claude Code missing"; npm install -g @anthropic-ai/claude-code; }
-            claude --version 2>/dev/null || true
-
-            # Verify eval infrastructure
-            test -f "${{ env.REPO_PATH }}/$SKILL/eval/eval.json" || { echo "❌ Missing eval.json"; exit 1; }
+            command -v claude &>/dev/null || npm install -g @anthropic-ai/claude-code
             test -f "${{ env.REPO_PATH }}/scripts/eval_runner.py" || { echo "❌ Missing eval_runner.py"; exit 1; }
-            mkdir -p "${{ env.REPO_PATH }}/$SKILL/eval_outputs"
 
-            python3 --version
+            python3 scripts/eval_runner.py verify-ground-truth $SKILL
             echo "✅ Preflight: $SKILL ready"
 
-      - name: "2️⃣ Baseline eval"
+      - name: "2️⃣ Baseline Score"
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -97,20 +101,22 @@ jobs:
           script: |
             cd ${{ env.REPO_PATH }}
             SKILL="${{ steps.config.outputs.skill }}"
-            TS=$(date +%Y%m%d_%H%M%S)
+            python3 scripts/eval_runner.py baseline $SKILL
 
-            python3 scripts/eval_runner.py \
-              --eval-file "$SKILL/eval/eval.json" \
-              --outputs-dir "$SKILL/eval_outputs/" \
-              --output "$SKILL/eval/baseline_${TS}.json" 2>&1 || true
+      - name: "3️⃣ Current Skill Score"
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            python3 scripts/eval_runner.py score $SKILL
 
-            if [ -f "$SKILL/eval/baseline_${TS}.json" ]; then
-              python3 -c "import json; d=json.load(open('$SKILL/eval/baseline_${TS}.json')); print(f'📊 Baseline: {d[\"summary\"][\"score_pct\"]}')"
-            else
-              echo "📊 Baseline: first run (no prior outputs)"
-            fi
-
-      - name: "3️⃣ Autoloop — Claude Code auto-mode"
+      - name: "4️⃣ Evolutionary Loop"
         if: steps.config.outputs.dry != 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -123,60 +129,40 @@ jobs:
             cd ${{ env.REPO_PATH }}
             SKILL="${{ steps.config.outputs.skill }}"
             MAX="${{ steps.config.outputs.max }}"
+            VARIANTS="${{ steps.config.outputs.variants }}"
+            TARGET="${{ steps.config.outputs.target }}"
 
-            case "$SKILL" in
-              zonewise) SKILL_MD="zonewise/agent-harness/ZONEWISE.md" ;;
-              auction)  SKILL_MD="auction/agent-harness/AUCTION.md" ;;
-              reports)  SKILL_MD="reports/REPORTS.md" ;;
-              enricher) SKILL_MD="enricher/CLAUDE.md" ;;
-              forecaster) SKILL_MD="forecaster/CLAUDE.md" ;;
-              trendpredictor) SKILL_MD="trendpredictor/CLAUDE.md" ;;
-              sitemanager) SKILL_MD="sitemanager/CLAUDE.md" ;;
-              projecttracker) SKILL_MD="projecttracker/CLAUDE.md" ;;
-            esac
+            python3 scripts/eval_runner.py evolve \
+              --skill "$SKILL" \
+              --variants "$VARIANTS" \
+              --max-generations "$MAX" \
+              --target-pass-rate "$TARGET" \
+              --breed-on-plateau
 
-            read -r -d '' PROMPT << 'LOOPEOF'
-            Run a self-improvement loop on the SKILL_PLACEHOLDER skill (SKILLMD_PLACEHOLDER).
-
-            Eval file: SKILL_PLACEHOLDER/eval/eval.json
-            Eval runner: python scripts/eval_runner.py --eval-file SKILL_PLACEHOLDER/eval/eval.json --outputs-dir SKILL_PLACEHOLDER/eval_outputs/
-
-            For each iteration:
-            1. Run the skill against all 5 test prompts in eval.json
-            2. Save outputs to SKILL_PLACEHOLDER/eval_outputs/{test_id}.json (and .docx for report tests)
-            3. Run eval_runner.py and read the score
-            4. If any assertions fail, make ONE targeted change to SKILLMD_PLACEHOLDER to fix the failure
-            5. Re-run the tests and re-score
-            6. If score improved: git add -A && git commit -m "autoloop(SKILL_PLACEHOLDER): {old}% -> {new}% [{assertion}]" && git push origin main
-            7. If score dropped: git checkout -- SKILLMD_PLACEHOLDER and try a DIFFERENT change
-            8. Log each iteration as JSON line to SKILL_PLACEHOLDER/eval/autoloop_log.jsonl
-
-            RULES:
-            - ONE change per iteration to isolate improvements
-            - Never stop. Never ask. The human is asleep. You are autonomous
-            - If stuck 5x on same assertion, skip to next failure
-            - Maximum MAX_PLACEHOLDER iterations
-            - git push after every successful commit
-            - If context hits 50%, checkpoint to SKILL_PLACEHOLDER/eval/autoloop_checkpoint.json and stop
-            LOOPEOF
-
-            PROMPT="${PROMPT//SKILL_PLACEHOLDER/$SKILL}"
-            PROMPT="${PROMPT//SKILLMD_PLACEHOLDER/$SKILL_MD}"
-            PROMPT="${PROMPT//MAX_PLACEHOLDER/$MAX}"
-
-            PROMPT_FILE="/tmp/autoloop_prompt.txt"
-            echo "$PROMPT" > $PROMPT_FILE
-            LOG="$SKILL/eval/autoloop_session_$(date +%Y%m%d_%H%M%S).log"
-
-            echo "🚀 Autoloop: $SKILL | Max: $MAX | $(date)"
-            IS_SANDBOX=1 claude -p "$(cat $PROMPT_FILE)" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
-            echo "⏰ Done: $(date)"
-
-            # Push final state
+            # Commit any improvements (eval artifacts only — SKILL.md not modified per constraints)
             git add -A
-            git diff --cached --quiet || { git commit -m "autoloop($SKILL): session complete $(date +%Y%m%d)"; git push origin main; } || true
+            git diff --cached --quiet || {
+              git commit -m "autoloop($SKILL): evolutionary run gen${MAX} $(date +%Y%m%d)"
+              git push origin main
+            } || true
 
-      - name: "4️⃣ Results + Telegram"
+      - name: "5️⃣ Report to Supabase"
+        if: steps.config.outputs.dry != 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            SUPABASE_SERVICE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}" \
+              python3 scripts/eval_runner.py report $SKILL
+
+      - name: "6️⃣ Telegram Notification"
         if: always()
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -188,34 +174,23 @@ jobs:
           script: |
             cd ${{ env.REPO_PATH }}
             SKILL="${{ steps.config.outputs.skill }}"
-            TS=$(date +%Y%m%d_%H%M%S)
-
-            python3 scripts/eval_runner.py \
-              --eval-file "$SKILL/eval/eval.json" \
-              --outputs-dir "$SKILL/eval_outputs/" \
-              --output "$SKILL/eval/final_${TS}.json" 2>&1 || true
-
+            SCORE_FILE="$(find $SKILL/eval -name 'latest_score.json' 2>/dev/null | head -1)"
             SCORE="n/a"
-            [ -f "$SKILL/eval/final_${TS}.json" ] && SCORE=$(python3 -c "import json; d=json.load(open('$SKILL/eval/final_${TS}.json')); print(d['summary']['score_pct'])" 2>/dev/null || echo "n/a")
-
-            ITERS=0
-            [ -f "$SKILL/eval/autoloop_log.jsonl" ] && ITERS=$(wc -l < "$SKILL/eval/autoloop_log.jsonl")
-            COMMITS=$(git log --oneline --since="12 hours ago" --grep="autoloop" 2>/dev/null | wc -l)
-
-            echo "📊 Score: $SCORE | Iterations: $ITERS | Commits: $COMMITS"
+            [ -n "$SCORE_FILE" ] && SCORE=$(python3 -c "import json; d=json.load(open('$SCORE_FILE')); print(d.get('pass_rate_pct','n/a'))" 2>/dev/null || echo "n/a")
 
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
               -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "text=🔄 Autoloop Complete%0A%0ASkill: $SKILL%0AScore: $SCORE%0AIterations: $ITERS%0ACommits: $COMMITS%0AServer: Hetzner" \
+              -d "text=🧬 Evolutionary Loop Complete%0A%0ASkill: $SKILL%0APass Rate: $SCORE%0AGenerations: ${{ steps.config.outputs.max }}%0AVariants/Gen: ${{ steps.config.outputs.variants }}%0AServer: Hetzner" \
               > /dev/null 2>&1 || true
 
       - name: Summary
         if: always()
         run: |
           cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 🔄 Autoloop — ${{ steps.config.outputs.skill }}
-          **Server:** Hetzner everest-dispatch
-          **Max Iterations:** ${{ steps.config.outputs.max }}
+          ## 🧬 Evolutionary Skill Loop — ${{ steps.config.outputs.skill }}
+          **Generations:** ${{ steps.config.outputs.max }}
+          **Variants/gen:** ${{ steps.config.outputs.variants }}
+          **Target pass rate:** ${{ steps.config.outputs.target }}
           **Dry Run:** ${{ steps.config.outputs.dry }}
           Check Telegram for final scores.
           EOF

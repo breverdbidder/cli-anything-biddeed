@@ -1,0 +1,100 @@
+{
+  "generation": 1,
+  "failures": [
+    {
+      "id": "T1_A2",
+      "description": "Every record contains a parcel_id field matching Brevard format (##-##-##-##-#####.#-####.#)",
+      "error": null
+    },
+    {
+      "id": "T1_A3",
+      "description": "Every record contains a non-null zone_code field",
+      "error": null
+    },
+    {
+      "id": "T1_A4",
+      "description": "Every record contains a non-null zone_name field",
+      "error": null
+    },
+    {
+      "id": "T1_A5",
+      "description": "zone_code values match known Brevard zoning codes (BU, GU, RS, RU, AU, IU, PUD, etc.)",
+      "error": null
+    },
+    {
+      "id": "T2_A1",
+      "description": "Output includes total_parcels as integer > 0",
+      "error": null
+    },
+    {
+      "id": "T2_A2",
+      "description": "Output includes matched_parcels as integer > 0",
+      "error": null
+    },
+    {
+      "id": "T2_A3",
+      "description": "Match rate (matched/total) is >= 0.95 (95%)",
+      "error": null
+    },
+    {
+      "id": "T2_A4",
+      "description": "Output includes unmatched_parcels array (even if empty)",
+      "error": null
+    },
+    {
+      "id": "T2_A5",
+      "description": "Processing time is reported in seconds as numeric value",
+      "error": null
+    },
+    {
+      "id": "T3_A1",
+      "description": "Output contains municipality field set to 'Palm Bay'",
+      "error": null
+    },
+    {
+      "id": "T3_A2",
+      "description": "Output contains gis_source URL pointing to gis.palmbayflorida.org",
+      "error": null
+    },
+    {
+      "id": "T3_A4",
+      "description": "Total matched parcels > 50000 (Palm Bay has ~78K parcels)",
+      "error": null
+    },
+    {
+      "id": "T3_A5",
+      "description": "Every zoning record includes both zone_code and zone_description",
+      "error": null
+    },
+    {
+      "id": "T4_A1",
+      "description": "Supabase upsert returns status 200 or 201",
+      "error": null
+    },
+    {
+      "id": "T4_A2",
+      "description": "Returned row count matches input count (10)",
+      "error": null
+    },
+    {
+      "id": "T4_A4",
+      "description": "Every record has a created_at timestamp in ISO 8601 format",
+      "error": null
+    },
+    {
+      "id": "T4_A5",
+      "description": "county field is lowercase string matching source county",
+      "error": null
+    },
+    {
+      "id": "T5_A1",
+      "description": "Output contains error field (not a stack trace)",
+      "error": null
+    },
+    {
+      "id": "T5_A4",
+      "description": "Exit code is non-zero (1 or 2)",
+      "error": null
+    }
+  ]
+}
