@@ -10,36 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Ensure tables exist + build checkpoint
+      - name: Generate HTML checkpoint report
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           pip install requests --break-system-packages -q 2>/dev/null
-
-          cat > /tmp/checkpoint.py << 'PYSCRIPT'
-          import requests, json, os
+          python3 << 'PYSCRIPT'
+          import requests, json, os, base64
           from datetime import datetime, timezone, timedelta
 
-          GH_PAT = os.environ.get("GH_PAT", "")
+          GH = os.environ["GH_PAT"]
           SB_URL = os.environ.get("SUPABASE_URL", "")
           SB_KEY = os.environ.get("SUPABASE_KEY", "")
-          TODAY = datetime.now(timezone(timedelta(hours=-5))).strftime("%Y-%m-%d")
-          gh = lambda u: requests.get(u, headers={"Authorization": f"token {GH_PAT}"}, timeout=15).json()
+          EST = timezone(timedelta(hours=-5))
+          NOW = datetime.now(EST)
+          TODAY = NOW.strftime("%Y-%m-%d")
+          DAY_NAME = NOW.strftime("%A, %B %d, %Y")
+          gh = lambda u: requests.get(u, headers={"Authorization": f"token {GH}"}, timeout=15).json()
           sb = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
 
-          # Auto-create tables via RPC if needed
-          for table in ["daily_checkpoints", "daily_action_plans", "daily_scores"]:
-              try:
-                  r = requests.get(f"{SB_URL}/rest/v1/{table}?limit=0", headers=sb, timeout=10)
-                  if r.status_code == 200:
-                      continue
-              except:
-                  pass
-              print(f"Table {table} missing — will be created on first successful migration run")
-
-          # Scan repos
           repos = ["everest-stack","cli-anything-biddeed","brevard-bidder-scraper","zonewise-web","everest-nexus","biddeed-ai","zonewise-gtm","claude-chamber","swimsquad-ai"]
           domain_map = {
               "everest-stack": "BIDDEED", "brevard-bidder-scraper": "BIDDEED", "biddeed-ai": "BIDDEED",
@@ -47,7 +38,9 @@ jobs:
               "zonewise-web": "ZONEWISE", "zonewise-gtm": "GTM",
               "claude-chamber": "BIDDEED", "swimsquad-ai": "MICHAEL",
           }
+          domain_icons = {"BIDDEED": "🏗️", "ECOSYSTEM": "⚡", "ZONEWISE": "🗺️", "GTM": "📢", "MICHAEL": "🏊", "PROPERTY": "🏠", "PERSONAL": "🧠"}
 
+          # Scan repos
           items = []
           for repo in repos:
               try:
@@ -55,76 +48,176 @@ jobs:
                   if isinstance(commits, list):
                       for c in commits:
                           msg = c["commit"]["message"].split("\n")[0][:100]
-                          items.append({"date": TODAY, "domain": domain_map.get(repo, "PERSONAL"),
-                              "task": f"[{repo}] {msg}", "status": "completed",
-                              "detail": f"SHA: {c['sha'][:8]}", "priority": "P2"})
-              except:
-                  pass
+                          items.append({"domain": domain_map.get(repo, "PERSONAL"),
+                              "task": msg, "status": "completed", "repo": repo,
+                              "sha": c["sha"][:8], "url": c["html_url"]})
+              except: pass
 
           # GHA runs
+          gha_ok = gha_fail = gha_run = 0
           try:
-              runs = gh(f"https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/runs?created=%3E{TODAY}T00:00:00Z&per_page=30")
-              wr = runs.get("workflow_runs", [])
-              ok = sum(1 for r in wr if r.get("conclusion") == "success")
-              fail = sum(1 for r in wr if r.get("conclusion") == "failure")
-              run_ = sum(1 for r in wr if r.get("status") == "in_progress")
-              items.append({"date": TODAY, "domain": "ECOSYSTEM",
-                  "task": f"GHA: {ok}✅ {fail}❌ {run_}🔄 ({len(wr)} total runs)",
-                  "status": "completed" if fail == 0 else "in_progress", "priority": "P1" if fail > 2 else "P2"})
-          except:
-              pass
+              runs = gh(f"https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/runs?created=%3E{TODAY}T00:00:00Z&per_page=50")
+              for r in runs.get("workflow_runs", []):
+                  if r.get("conclusion") == "success": gha_ok += 1
+                  elif r.get("conclusion") == "failure": gha_fail += 1
+                  elif r.get("status") == "in_progress": gha_run += 1
+          except: pass
+
+          # Stale repos
+          stale = []
+          for repo in repos:
+              try:
+                  c = gh(f"https://api.github.com/repos/breverdbidder/{repo}/commits?per_page=1")
+                  if isinstance(c, list) and c:
+                      last = datetime.fromisoformat(c[0]["commit"]["author"]["date"].replace("Z","+00:00"))
+                      age = (datetime.now(timezone.utc) - last).days
+                      if age > 7: stale.append({"repo": repo, "days": age})
+              except: pass
+
+          # Domain aggregation
+          domains = {}
+          for i in items:
+              d = i["domain"]
+              domains.setdefault(d, {"items": [], "completed": 0, "total": 0})
+              domains[d]["items"].append(i)
+              domains[d]["total"] += 1
+              if i["status"] == "completed": domains[d]["completed"] += 1
+
+          total = len(items)
+          completed = sum(1 for i in items if i["status"] == "completed")
+          in_prog = sum(1 for i in items if i["status"] == "in_progress")
+          blocked = sum(1 for i in items if i["status"] == "blocked")
+          rate = round((completed / total * 100), 1) if total > 0 else 0
+          top = max(domains, key=lambda d: domains[d]["completed"]) if domains else "NONE"
+          worst = min(domains, key=lambda d: domains[d]["completed"]) if domains else "NONE"
 
           # Store to Supabase
           stored = 0
-          for item in items:
-              try:
-                  r = requests.post(f"{SB_URL}/rest/v1/daily_checkpoints", json=item, headers=sb, timeout=10)
-                  if r.status_code in (200, 201): stored += 1
-              except:
-                  pass
-
-          # Score
-          completed = sum(1 for i in items if i["status"] == "completed")
-          total = len(items)
-          rate = round((completed / total * 100), 1) if total > 0 else 0
-          dc = {}
           for i in items:
-              d = i["domain"]
-              dc.setdefault(d, {"c": 0, "t": 0})
-              dc[d]["t"] += 1
-              if i["status"] == "completed": dc[d]["c"] += 1
-          top = max(dc, key=lambda d: dc[d]["c"]) if dc else "NONE"
-          worst = min(dc, key=lambda d: dc[d]["c"]) if dc else "NONE"
-
+              try:
+                  r = requests.post(f"{SB_URL}/rest/v1/daily_checkpoints",
+                      json={"date": TODAY, "domain": i["domain"], "task": i["task"],
+                            "status": i["status"], "detail": i.get("sha",""), "priority": "P2"},
+                      headers=sb, timeout=10)
+                  if r.status_code in (200, 201): stored += 1
+              except: pass
           try:
               requests.post(f"{SB_URL}/rest/v1/daily_scores",
                   json={"date": TODAY, "total_items": total, "completed": completed,
-                        "in_progress": sum(1 for i in items if i["status"]=="in_progress"),
-                        "blocked": sum(1 for i in items if i["status"]=="blocked"),
-                        "completion_rate": rate, "top_domain": top, "worst_domain": worst},
+                        "in_progress": in_prog, "blocked": blocked, "completion_rate": rate,
+                        "top_domain": top, "worst_domain": worst},
                   headers=sb, timeout=10)
-          except:
-              pass
+          except: pass
 
-          # Telegram
-          msg = f"📊 *Daily Checkpoint: {TODAY}*\n\n"
-          msg += f"✅ Completed: {completed}/{total}\n"
-          msg += f"📈 Rate: {rate}%\n"
-          msg += f"🏆 Top: {top} | ⚠️ Weak: {worst}\n"
-          msg += f"💾 Supabase: {stored} items stored\n\n"
-          for d in sorted(dc.keys()):
-              msg += f"  {d}: {dc[d]['c']}/{dc[d]['t']}\n"
+          # Build HTML
+          domain_rows = ""
+          for d in sorted(domains.keys()):
+              dd = domains[d]
+              icon = domain_icons.get(d, "📋")
+              pct = round(dd["completed"]/dd["total"]*100) if dd["total"] > 0 else 0
+              items_html = ""
+              for item in dd["items"][:15]:
+                  st_icon = "✅" if item["status"]=="completed" else "🔄" if item["status"]=="in_progress" else "❌"
+                  link = f'<a href="{item.get("url","#")}" style="color:#F59E0B;text-decoration:none;font-size:11px">→</a>' if item.get("url") else ""
+                  items_html += f'<div class="item"><span class="st">{st_icon}</span><span class="task">[{item.get("repo","")}] {item["task"][:80]}</span>{link}</div>\n'
 
-          with open("/tmp/checkpoint_msg.txt", "w") as f:
-              f.write(msg)
-          print(msg)
+              bar_color = "#22c55e" if pct >= 80 else "#F59E0B" if pct >= 50 else "#ef4444"
+              domain_rows += f"""
+              <div class="domain">
+                <div class="dh"><span>{icon} {d}</span><span class="ds">{dd["completed"]}/{dd["total"]} ({pct}%)</span></div>
+                <div class="bar"><div class="fill" style="width:{pct}%;background:{bar_color}"></div></div>
+                {items_html}
+              </div>"""
+
+          stale_html = ""
+          if stale:
+              stale_html = '<div class="alert">⚠️ <strong>Stale repos:</strong> ' + ", ".join(f'{s["repo"]} ({s["days"]}d)' for s in stale) + '</div>'
+
+          html = f"""<!DOCTYPE html>
+          <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Daily Checkpoint — {TODAY}</title>
+          <style>
+          *{{margin:0;padding:0;box-sizing:border-box}}
+          body{{background:#020617;color:#f8fafc;font-family:Inter,-apple-system,sans-serif;padding:16px;max-width:800px;margin:0 auto}}
+          h1{{font-size:20px;font-weight:800;background:linear-gradient(135deg,#F59E0B,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
+          .sub{{color:#94a3b8;font-size:12px;margin-bottom:16px}}
+          .stats{{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}}
+          .stat{{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;text-align:center;flex:1;min-width:70px}}
+          .stat .n{{font-size:22px;font-weight:800}}
+          .stat .l{{font-size:9px;color:#64748b;text-transform:uppercase;margin-top:2px}}
+          .g{{color:#22c55e}}.y{{color:#F59E0B}}.r{{color:#ef4444}}.b{{color:#3b82f6}}
+          .domain{{background:#0f172a;border:1px solid #1e293b;border-radius:8px;margin-bottom:10px;padding:12px 14px}}
+          .dh{{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-bottom:6px}}
+          .ds{{color:#94a3b8;font-size:12px}}
+          .bar{{background:#1e293b;border-radius:3px;height:4px;margin-bottom:8px;overflow:hidden}}
+          .fill{{height:100%;border-radius:3px;transition:width 0.5s}}
+          .item{{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;border-bottom:1px solid #1e293b22}}
+          .st{{flex-shrink:0;width:18px;text-align:center}}
+          .task{{color:#cbd5e1;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+          .gha{{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:13px}}
+          .alert{{background:#ef444422;border-left:3px solid #ef4444;padding:10px 12px;margin-bottom:10px;color:#fca5a5;font-size:12px;border-radius:4px}}
+          .ft{{text-align:center;color:#475569;font-size:10px;margin-top:20px;padding-top:12px;border-top:1px solid #1e293b}}
+          </style></head><body>
+          <h1>🏔️ Daily Checkpoint</h1>
+          <p class="sub">{DAY_NAME} — Ariel Shapira — Everest Capital USA</p>
+          <div class="stats">
+            <div class="stat"><div class="n g">{completed}</div><div class="l">Completed</div></div>
+            <div class="stat"><div class="n y">{in_prog}</div><div class="l">In Progress</div></div>
+            <div class="stat"><div class="n r">{blocked}</div><div class="l">Blocked</div></div>
+            <div class="stat"><div class="n b">{rate}%</div><div class="l">Rate</div></div>
+            <div class="stat"><div class="n" style="color:#a78bfa">{len(domains)}</div><div class="l">Domains</div></div>
+          </div>
+          <div class="gha">⚙️ GHA Runs: <span class="g">{gha_ok}✅</span> <span class="r">{gha_fail}❌</span> <span class="y">{gha_run}🔄</span></div>
+          {stale_html}
+          {domain_rows}
+          <div class="ft">BidDeed.AI Daily Checkpoint System — Auto-generated {NOW.strftime('%I:%M %p EST')}</div>
+          </body></html>"""
+
+          with open("/tmp/checkpoint.html", "w") as f:
+              f.write(html)
+
+          # Push to brevard-bidder-landing/reports/
+          fname = f"checkpoint-{TODAY}.html"
+          content_b64 = base64.b64encode(html.encode()).decode()
+          existing = requests.get(
+              f"https://api.github.com/repos/breverdbidder/brevard-bidder-landing/contents/reports/{fname}",
+              headers={"Authorization": f"token {GH}"}, timeout=10)
+          payload = {"message": f"checkpoint: {TODAY}", "content": content_b64}
+          if existing.status_code == 200:
+              payload["sha"] = existing.json()["sha"]
+          r = requests.put(
+              f"https://api.github.com/repos/breverdbidder/brevard-bidder-landing/contents/reports/{fname}",
+              headers={"Authorization": f"token {GH}", "Content-Type": "application/json"},
+              json=payload, timeout=15)
+          if r.status_code in (200, 201):
+              print(f"✅ Report pushed: reports/{fname}")
+              url = f"https://brevard-bidder-landing.pages.dev/reports/{fname}"
+          else:
+              print(f"❌ Push failed: {r.status_code}")
+              url = "push_failed"
+
+          # Save URL for Telegram
+          with open("/tmp/report_url.txt", "w") as f:
+              f.write(url)
+          with open("/tmp/tg_msg.txt", "w") as f:
+              f.write(f"📊 *Daily Checkpoint: {TODAY}*\n\n")
+              f.write(f"✅ {completed}/{total} completed ({rate}%)\n")
+              f.write(f"🏆 Top: {top} | ⚠️ Weak: {worst}\n")
+              f.write(f"⚙️ GHA: {gha_ok}✅ {gha_fail}❌ {gha_run}🔄\n")
+              if stale: f.write(f"🧹 Stale: {', '.join(s['repo'] for s in stale)}\n")
+              f.write(f"\n👉 [View Full Report]({url})")
+
+          print(f"Report URL: {url}")
+          print(f"Supabase: {stored} items stored")
           PYSCRIPT
 
-          python3 /tmp/checkpoint.py
-
-      - name: Telegram
+      - name: Telegram with report link
         if: always()
         run: |
-          MSG=$(cat /tmp/checkpoint_msg.txt 2>/dev/null || echo "📊 Daily checkpoint complete")
+          MSG=$(cat /tmp/tg_msg.txt 2>/dev/null || echo "📊 Daily checkpoint complete")
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="$MSG" -d parse_mode="Markdown" > /dev/null
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview="false" > /dev/null
+EOF
