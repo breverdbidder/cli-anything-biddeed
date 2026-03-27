@@ -1,0 +1,225 @@
+name: Daily Action Plan (6:00 AM EST)
+
+on:
+  schedule:
+    - cron: '0 11 * * *'  # 11:00 AM UTC = 6:00 AM EST
+  workflow_dispatch:
+
+jobs:
+  action-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Generate action plan from open items
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          pip install requests --break-system-packages -q 2>/dev/null
+
+          python3 << 'PYSCRIPT'
+          import requests, json, os
+          from datetime import datetime, timezone, timedelta
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          GH_PAT = os.environ["GH_PAT"]
+          TODAY = datetime.now(timezone(timedelta(hours=-5))).strftime("%Y-%m-%d")
+          YESTERDAY = (datetime.now(timezone(timedelta(hours=-5))) - timedelta(days=1)).strftime("%Y-%m-%d")
+          sb = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
+
+          # ── Pull yesterday's open items ──
+          open_items = []
+          try:
+              r = requests.get(
+                  f"{SB_URL}/rest/v1/daily_checkpoints?date=eq.{YESTERDAY}&status=neq.completed&order=priority.asc",
+                  headers=sb, timeout=10)
+              if r.status_code == 200:
+                  open_items = r.json()
+          except Exception:
+              pass
+
+          # ── Pull blocked items (any date) ──
+          blocked = []
+          try:
+              r = requests.get(
+                  f"{SB_URL}/rest/v1/daily_checkpoints?status=eq.blocked&order=date.desc&limit=10",
+                  headers=sb, timeout=10)
+              if r.status_code == 200:
+                  blocked = r.json()
+          except Exception:
+              pass
+
+          # ── Pull weekly scores for pattern analysis ──
+          scores = []
+          try:
+              r = requests.get(
+                  f"{SB_URL}/rest/v1/daily_scores?order=date.desc&limit=7",
+                  headers=sb, timeout=10)
+              if r.status_code == 200:
+                  scores = r.json()
+          except Exception:
+              pass
+
+          # ── Pull pending Nexus tasks ──
+          nexus = []
+          try:
+              r = requests.get(
+                  f"{SB_URL}/rest/v1/nexus_tasks?status=in.(queued,dispatched,running)&order=priority.asc,created_at.asc&limit=10",
+                  headers=sb, timeout=10)
+              if r.status_code == 200:
+                  nexus = r.json()
+          except Exception:
+              pass
+
+          # ── Check for stale repos (>7 days no commits) ──
+          gh = lambda u: requests.get(u, headers={"Authorization": f"token {GH_PAT}"}, timeout=15).json()
+          stale_repos = []
+          for repo in ["everest-stack","cli-anything-biddeed","brevard-bidder-scraper","zonewise-web","everest-nexus","biddeed-ai"]:
+              try:
+                  commits = gh(f"https://api.github.com/repos/breverdbidder/{repo}/commits?per_page=1")
+                  if isinstance(commits, list) and commits:
+                      last = datetime.fromisoformat(commits[0]["commit"]["author"]["date"].replace("Z", "+00:00"))
+                      age = (datetime.now(timezone.utc) - last).days
+                      if age > 7:
+                          stale_repos.append(f"{repo} ({age}d)")
+              except Exception:
+                  pass
+
+          # ── Build ranked action plan ──
+          actions = []
+          rank = 1
+
+          # Priority 1: Blocked items (unblock these first)
+          for item in blocked:
+              actions.append({
+                  "date": TODAY, "rank": rank,
+                  "task": f"🔴 UNBLOCK: {item.get('task', 'unknown')[:80]}",
+                  "domain": item.get("domain", "UNKNOWN"),
+                  "source": f"Blocked since {item.get('date', '?')}",
+                  "reason": "Blocked items compound — unblock before new work",
+                  "estimated_minutes": 30
+              })
+              rank += 1
+
+          # Priority 2: Yesterday's in-progress items (finish what you started)
+          for item in open_items:
+              if item.get("status") == "in_progress":
+                  actions.append({
+                      "date": TODAY, "rank": rank,
+                      "task": f"🔄 FINISH: {item.get('task', 'unknown')[:80]}",
+                      "domain": item.get("domain", "UNKNOWN"),
+                      "source": "Yesterday's in-progress",
+                      "reason": "Half-done work = zero value. Complete before starting new.",
+                      "estimated_minutes": 45
+                  })
+                  rank += 1
+
+          # Priority 3: P0/P1 Nexus tasks
+          for t in nexus:
+              if t.get("priority") in ("P0", "P1"):
+                  actions.append({
+                      "date": TODAY, "rank": rank,
+                      "task": f"⚡ {t.get('priority')}: {t.get('description', 'unknown')[:80]}",
+                      "domain": t.get("project", "ECOSYSTEM"),
+                      "source": "Nexus task queue",
+                      "reason": f"SLA: {t.get('priority')} = {'2hr' if t.get('priority')=='P0' else '24hr'}",
+                      "estimated_minutes": 60
+                  })
+                  rank += 1
+
+          # Priority 4: Stale repos
+          for sr in stale_repos:
+              actions.append({
+                  "date": TODAY, "rank": rank,
+                  "task": f"🧹 STALE: {sr} — needs attention",
+                  "domain": "ECOSYSTEM",
+                  "source": "Repo staleness check",
+                  "reason": "Stale repos = abandoned work = technical debt",
+                  "estimated_minutes": 15
+              })
+              rank += 1
+
+          # Priority 5: Pending items from yesterday
+          for item in open_items:
+              if item.get("status") == "pending":
+                  actions.append({
+                      "date": TODAY, "rank": rank,
+                      "task": f"⏳ PENDING: {item.get('task', 'unknown')[:80]}",
+                      "domain": item.get("domain", "UNKNOWN"),
+                      "source": "Yesterday's pending",
+                      "reason": "Carried forward — will become blocked if ignored",
+                      "estimated_minutes": 30
+                  })
+                  rank += 1
+
+          # ── Pattern analysis ──
+          patterns = []
+          if len(scores) >= 3:
+              rates = [s.get("completion_rate", 0) for s in scores[:3]]
+              avg = sum(rates) / len(rates)
+              if avg < 50:
+                  patterns.append("⚠️ Completion rate below 50% for 3 days — too many items or scope creep")
+              trend = rates[0] - rates[-1] if len(rates) >= 2 else 0
+              if trend < -20:
+                  patterns.append("📉 Completion rate dropping — consider reducing daily scope")
+              elif trend > 20:
+                  patterns.append("📈 Completion rate improving — momentum building")
+
+              # Domain analysis
+              domains_seen = {}
+              for s in scores:
+                  d = s.get("worst_domain", "")
+                  if d:
+                      domains_seen[d] = domains_seen.get(d, 0) + 1
+              repeat_worst = [d for d, c in domains_seen.items() if c >= 3]
+              if repeat_worst:
+                  patterns.append(f"🔴 {', '.join(repeat_worst)} is weakest domain 3+ days in a row — systemic issue")
+
+          # ── Store action plan to Supabase ──
+          stored = 0
+          for a in actions:
+              try:
+                  r = requests.post(f"{SB_URL}/rest/v1/daily_action_plans", json=a, headers=sb, timeout=10)
+                  if r.status_code in (200, 201):
+                      stored += 1
+              except Exception:
+                  pass
+
+          # ── Build Telegram message ──
+          msg = f"🌅 *Action Plan: {TODAY}*\n"
+          msg += f"Open items: {len(open_items)} | Blocked: {len(blocked)} | Nexus P0/P1: {sum(1 for t in nexus if t.get('priority') in ('P0','P1'))}\n\n"
+
+          if actions:
+              for a in actions[:8]:  # Top 8 max for Telegram
+                  msg += f"{a['rank']}. {a['task']}\n"
+                  msg += f"   _{a.get('reason', '')[:60]}_\n\n"
+          else:
+              msg += "✅ No open items — clean slate today!\n"
+
+          if patterns:
+              msg += "*Patterns:*\n"
+              for p in patterns:
+                  msg += f"  {p}\n"
+
+          if stale_repos:
+              msg += f"\n*Stale repos:* {', '.join(stale_repos)}\n"
+
+          msg += f"\n_Generated {datetime.now(timezone(timedelta(hours=-5))).strftime('%I:%M %p EST')}_"
+
+          with open("/tmp/action_plan.txt", "w") as f:
+              f.write(msg)
+
+          print(msg)
+          print(f"\nStored {stored} actions to Supabase")
+          PYSCRIPT
+
+      - name: Telegram action plan
+        if: always()
+        run: |
+          MSG=$(cat /tmp/action_plan.txt 2>/dev/null || echo "🌅 Action plan generated")
+          curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown" > /dev/null
