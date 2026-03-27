@@ -8,7 +8,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: SUMMIT Dispatch to Hetzner
+      - name: Prepare Claude Code script
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+        run: |
+          cat > /tmp/run-claude.sh << 'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+
+          export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+          export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+          export PATH="/home/claude/.npm-global/bin:$PATH"
+
+          cd /home/claude/everest-stack
+          git pull origin main -q
+
+          echo "=== Repo: $(git rev-parse --short HEAD) ==="
+
+          pip install requests beautifulsoup4 playwright pdfplumber --break-system-packages -q 2>/dev/null || true
+          playwright install chromium 2>/dev/null || true
+
+          if [ ! -d /home/claude/brevard-bidder-scraper/.git ]; then
+            git clone https://github.com/breverdbidder/brevard-bidder-scraper.git /home/claude/brevard-bidder-scraper -q
+          else
+            cd /home/claude/brevard-bidder-scraper && git pull -q && cd /home/claude/everest-stack
+          fi
+
+          claude -p "Read CLAUDE.md and TODO.md. Build the full 13-point title search pipeline. Follow TODO.md tasks in order. Port scrapers from /home/claude/brevard-bidder-scraper. Test with: python3 scrapers/property_scraper.py --owner AMY_HORL --case 05-2025-CC-022459-XXCC-BC --mode title-search. Every field verified or source_unavailable. Push to GitHub when done." --allowedTools "Bash,Read,Write,Edit,Grep,Glob" 2>&1 | tail -200
+
+          echo "=== Session complete ==="
+          SCRIPT
+          chmod +x /tmp/run-claude.sh
+
+      - name: SUMMIT Dispatch
         env:
           CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
         run: |
@@ -17,56 +49,17 @@ jobs:
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
 
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=30 root@${{ secrets.HETZNER_IP }} "bash -s -- '$CLAUDE_OAUTH_B64'" << 'REMOTE'
-          set -euo pipefail
-          OAUTH_B64="$1"
+          scp -i ~/.ssh/hetzner -o StrictHostKeyChecking=no /tmp/run-claude.sh root@${{ secrets.HETZNER_IP }}:/tmp/run-claude.sh
 
-          echo "=== SUMMIT Phase 4b ==="
-          echo "Setting up Claude Code session..."
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=30 root@${{ secrets.HETZNER_IP }} "
+            echo '${{ secrets.CLAUDE_OAUTH_B64 }}' | base64 -d > /tmp/claude-oauth-token
+            chown claude:claude /tmp/claude-oauth-token /tmp/run-claude.sh
+            su - claude -c 'bash /tmp/run-claude.sh'
+            rm -f /tmp/claude-oauth-token
+          "
 
-          # Setup OAuth token
-          echo "$OAUTH_B64" | base64 -d > /tmp/claude-oauth-token 2>/dev/null
-          export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
-
-          # Switch to claude user
-          su - claude << 'CLSESSION'
-          set -euo pipefail
-          export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
-          export NPM_CONFIG_PREFIX=/home/claude/.npm-global
-          export PATH="/home/claude/.npm-global/bin:$PATH"
-
-          cd /home/claude/everest-stack
-          git pull origin main -q
-
-          echo "=== Repo ready: $(git rev-parse --short HEAD) ==="
-          echo "=== Starting Claude Code session ==="
-
-          # Install deps first
-          pip install requests beautifulsoup4 playwright pdfplumber --break-system-packages -q 2>/dev/null || true
-          playwright install chromium 2>/dev/null || true
-
-          # Run Claude Code with Phase 4b mission
-          claude -p "Read CLAUDE.md and TODO.md. This is the Phase 4b mission: build the full 13-point title search pipeline.
-
-Your job:
-1. Load TODO.md — follow every checkbox task in order
-2. Port scrapers from /home/claude/brevard-bidder-scraper (clone it first if not present)
-3. Build --mode title-search that runs all 13 points autonomously
-4. Test with: python3 scrapers/property_scraper.py --owner 'AMY HORL' --case '05-2025-CC-022459-XXCC-BC' --mode title-search
-5. Every field must say 'verified' or 'source_unavailable' — NEVER 'unknown'
-6. Push to GitHub when done
-7. Mark each TODO.md task [x] as you complete it
-
-Start by reading CLAUDE.md for the full spec, then clone brevard-bidder-scraper for source code to port." --allowedTools "Bash,Read,Write,Edit,Grep,Glob" 2>&1 | tail -200
-
-          echo "=== Claude Code session complete ==="
-          CLSESSION
-
-          rm -f /tmp/claude-oauth-token
-          echo "=== SUMMIT Phase 4b DONE ==="
-          REMOTE
-
-      - name: Verify results
+      - name: Verify
+        if: always()
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
@@ -74,18 +67,11 @@ Start by reading CLAUDE.md for the full spec, then clone brevard-bidder-scraper 
           ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
 
           ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ secrets.HETZNER_IP }} '
-            echo "=== Git status ==="
-            cd /home/claude/everest-stack && git log --oneline -5
-            echo ""
-            echo "=== Scraper files ==="
-            ls -la scrapers/*.py
-            echo ""
-            echo "=== Tests ==="
-            node --test test/skill-validation.test.js 2>&1 | grep "# pass\|# fail"
-            echo ""
-            echo "=== TODO progress ==="
-            grep -c "\[x\]" TODO.md 2>/dev/null || echo "0 tasks completed"
-            grep -c "\[ \]" TODO.md 2>/dev/null || echo "0 tasks remaining"
+            cd /home/claude/everest-stack
+            echo "SHA: $(git rev-parse --short HEAD)"
+            echo "Scrapers: $(ls scrapers/*.py 2>/dev/null | wc -l) files"
+            echo "Tests: $(node --test test/skill-validation.test.js 2>&1 | grep "# pass" | awk "{print \$3}") passing"
+            echo "TODO done: $(grep -c "\[x\]" TODO.md 2>/dev/null || echo 0)/$(grep -c "\[" TODO.md 2>/dev/null || echo 0)"
           '
 
       - name: Telegram
