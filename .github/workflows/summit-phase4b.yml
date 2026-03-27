@@ -1,0 +1,101 @@
+name: SUMMIT — Phase 4b Title Search Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  summit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: SUMMIT Dispatch to Hetzner
+        env:
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=30 root@${{ secrets.HETZNER_IP }} "bash -s -- '$CLAUDE_OAUTH_B64'" << 'REMOTE'
+          set -euo pipefail
+          OAUTH_B64="$1"
+
+          echo "=== SUMMIT Phase 4b ==="
+          echo "Setting up Claude Code session..."
+
+          # Setup OAuth token
+          echo "$OAUTH_B64" | base64 -d > /tmp/claude-oauth-token 2>/dev/null
+          export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+
+          # Switch to claude user
+          su - claude << 'CLSESSION'
+          set -euo pipefail
+          export CLAUDE_CODE_OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
+          export NPM_CONFIG_PREFIX=/home/claude/.npm-global
+          export PATH="/home/claude/.npm-global/bin:$PATH"
+
+          cd /home/claude/everest-stack
+          git pull origin main -q
+
+          echo "=== Repo ready: $(git rev-parse --short HEAD) ==="
+          echo "=== Starting Claude Code session ==="
+
+          # Install deps first
+          pip install requests beautifulsoup4 playwright pdfplumber --break-system-packages -q 2>/dev/null || true
+          playwright install chromium 2>/dev/null || true
+
+          # Run Claude Code with Phase 4b mission
+          claude -p "Read CLAUDE.md and TODO.md. This is the Phase 4b mission: build the full 13-point title search pipeline.
+
+Your job:
+1. Load TODO.md — follow every checkbox task in order
+2. Port scrapers from /home/claude/brevard-bidder-scraper (clone it first if not present)
+3. Build --mode title-search that runs all 13 points autonomously
+4. Test with: python3 scrapers/property_scraper.py --owner 'AMY HORL' --case '05-2025-CC-022459-XXCC-BC' --mode title-search
+5. Every field must say 'verified' or 'source_unavailable' — NEVER 'unknown'
+6. Push to GitHub when done
+7. Mark each TODO.md task [x] as you complete it
+
+Start by reading CLAUDE.md for the full spec, then clone brevard-bidder-scraper for source code to port." --allowedTools "Bash,Read,Write,Edit,Grep,Glob" 2>&1 | tail -200
+
+          echo "=== Claude Code session complete ==="
+          CLSESSION
+
+          rm -f /tmp/claude-oauth-token
+          echo "=== SUMMIT Phase 4b DONE ==="
+          REMOTE
+
+      - name: Verify results
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ secrets.HETZNER_IP }} '
+            echo "=== Git status ==="
+            cd /home/claude/everest-stack && git log --oneline -5
+            echo ""
+            echo "=== Scraper files ==="
+            ls -la scrapers/*.py
+            echo ""
+            echo "=== Tests ==="
+            node --test test/skill-validation.test.js 2>&1 | grep "# pass\|# fail"
+            echo ""
+            echo "=== TODO progress ==="
+            grep -c "\[x\]" TODO.md 2>/dev/null || echo "0 tasks completed"
+            grep -c "\[ \]" TODO.md 2>/dev/null || echo "0 tasks remaining"
+          '
+
+      - name: Telegram
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            🏔️ *SUMMIT Phase 4b: Title Search Pipeline*
+            Status: ${{ job.status }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
