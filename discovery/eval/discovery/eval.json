@@ -1,0 +1,35 @@
+{
+  "harness": "cli_anything.discovery",
+  "version": "1.0.0",
+  "total_assertions": 25,
+  "assertions": [
+    { "id": 1, "category": "activation", "name": "cli_loads_without_error", "command": "node src/index.js --help 2>&1", "expect": "contains:zonewise|auction|gtm", "critical": true },
+    { "id": 2, "category": "activation", "name": "exa_api_key_validated", "command": "EXA_API_KEY='' node src/index.js zonewise --county Test 2>&1", "expect": "contains:EXA_API_KEY not set", "critical": true },
+    { "id": 3, "category": "activation", "name": "mode_router_rejects_invalid", "command": "EXA_API_KEY=test node src/index.js invalid 2>&1", "expect": "contains:Usage", "critical": true },
+    { "id": 4, "category": "activation", "name": "dry_run_returns_estimate", "command": "EXA_API_KEY=test node src/index.js zonewise --county Orange --dry-run 2>&1", "expect": "contains:estimated_cost", "critical": true },
+    { "id": 5, "category": "activation", "name": "dry_run_shows_queries", "command": "EXA_API_KEY=test node src/index.js auction --county Brevard --dry-run 2>&1", "expect": "contains:foreclosure", "critical": false },
+
+    { "id": 6, "category": "output_quality", "name": "brevard_returns_bcpao", "command": "node src/index.js zonewise --county Brevard --state FL 2>&1", "expect": "contains:bcpao", "critical": true, "requires_api_key": true },
+    { "id": 7, "category": "output_quality", "name": "brevard_returns_clerk", "command": "node src/index.js auction --county Brevard --state FL 2>&1", "expect": "contains:brevardclerk", "critical": true, "requires_api_key": true },
+    { "id": 8, "category": "output_quality", "name": "orange_returns_ocpa", "command": "node src/index.js zonewise --county Orange --state FL 2>&1", "expect": "contains:ocpafl", "critical": true, "requires_api_key": true },
+    { "id": 9, "category": "output_quality", "name": "duval_returns_coj", "command": "node src/index.js zonewise --county Duval --state FL 2>&1", "expect": "contains:coj", "critical": true, "requires_api_key": true },
+    { "id": 10, "category": "output_quality", "name": "gov_domains_ranked_higher", "command": "EVAL_CHECK=gov_ranking", "expect": "gov_or_us_in_top_3", "critical": false, "requires_api_key": true },
+    { "id": 11, "category": "output_quality", "name": "duplicates_removed", "command": "EVAL_CHECK=dedup", "expect": "no_duplicate_urls_in_output", "critical": true, "requires_api_key": true },
+    { "id": 12, "category": "output_quality", "name": "classification_applied", "command": "EVAL_CHECK=classification", "expect": "all_results_have_classification", "critical": true, "requires_api_key": true },
+    { "id": 13, "category": "output_quality", "name": "highlight_filter_applied", "command": "EVAL_CHECK=highlight_filter", "expect": "no_results_below_0.25_score", "critical": false, "requires_api_key": true },
+    { "id": 14, "category": "output_quality", "name": "cost_tracking_accurate", "command": "EVAL_CHECK=cost_tracking", "expect": "cost_report_total_gt_0", "critical": true, "requires_api_key": true },
+    { "id": 15, "category": "output_quality", "name": "supabase_insert_succeeds", "command": "EVAL_CHECK=supabase_insert", "expect": "db_inserted_gt_0", "critical": true, "requires_api_key": true },
+
+    { "id": 16, "category": "integration", "name": "firecrawl_queue_populated", "command": "EVAL_CHECK=firecrawl_queue", "expect": "pending_count_gt_0", "critical": false, "requires_api_key": true },
+    { "id": 17, "category": "integration", "name": "county_conquest_updated", "command": "EVAL_CHECK=conquest_status", "expect": "discovery_complete_true_for_brevard", "critical": false, "requires_api_key": true },
+    { "id": 18, "category": "integration", "name": "batch_processes_multiple", "command": "node src/index.js zonewise --batch --dry-run 2>&1", "expect": "contains:pending counties", "critical": false, "requires_api_key": true },
+    { "id": 19, "category": "integration", "name": "gtm_returns_companies", "command": "node src/index.js gtm --vertical 'FL title companies' 2>&1", "expect": "contains:COMPANY", "critical": false, "requires_api_key": true },
+    { "id": 20, "category": "integration", "name": "report_shows_classifications", "command": "EVAL_CHECK=report_format", "expect": "contains:Classifications", "critical": true, "requires_api_key": true },
+
+    { "id": 21, "category": "edge_cases", "name": "handles_no_results_county", "command": "node src/index.js zonewise --county Fakecounty --state FL 2>&1", "expect": "exit_code_1_or_empty_results", "critical": false, "requires_api_key": true },
+    { "id": 22, "category": "edge_cases", "name": "respects_rate_limits", "command": "EVAL_CHECK=rate_limit", "expect": "min_200ms_between_requests", "critical": true, "requires_api_key": true },
+    { "id": 23, "category": "edge_cases", "name": "cost_cap_enforced", "command": "EVAL_CHECK=cost_cap", "expect": "stops_before_exceeding_10", "critical": true, "requires_api_key": true },
+    { "id": 24, "category": "edge_cases", "name": "invalid_county_handled", "command": "EXA_API_KEY=test node src/index.js zonewise 2>&1", "expect": "contains:Provide --county", "critical": true },
+    { "id": 25, "category": "edge_cases", "name": "missing_supabase_warns", "command": "EXA_API_KEY=test SUPABASE_SERVICE_ROLE_KEY='' node src/index.js zonewise --county Test --dry-run 2>&1", "expect": "not_crash", "critical": true }
+  ]
+}
