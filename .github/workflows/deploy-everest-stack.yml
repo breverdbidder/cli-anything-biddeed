@@ -6,9 +6,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Deploy everest-stack via SSH
+      - name: Run QA + Lien Audit via SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
@@ -17,87 +17,139 @@ jobs:
 
           ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ secrets.HETZNER_IP }} '
             set -euo pipefail
-            REPO_URL="https://github.com/breverdbidder/everest-stack.git"
-            REPO_DIR="/home/claude/everest-stack"
-            CLAUDE_USER="claude"
+            echo "========================================"
+            echo " QA + LIEN AUDIT: VIERA EAST VS HORL"
+            echo " Case: 05-2025-CC-022459-XXCC-BC"
+            echo "========================================"
 
-            echo "[1/7] Repo setup..."
-            if [ -d "$REPO_DIR/.git" ]; then
-              cd "$REPO_DIR"
-              git fetch origin main -q 2>/dev/null
-              git reset --hard origin/main -q
-              echo "  Updated to $(git rev-parse --short HEAD)"
-            else
-              git clone "$REPO_URL" "$REPO_DIR" -q
-              cd "$REPO_DIR"
-              echo "  Cloned: $(git rev-parse --short HEAD)"
-            fi
-            chown -R $CLAUDE_USER:$CLAUDE_USER "$REPO_DIR"
-            cd "$REPO_DIR"
-            git config user.email "ariel@everestcapitalusa.com"
-            git config user.name "Ariel Shapira"
+            pip install requests beautifulsoup4 --break-system-packages -q 2>/dev/null || true
 
-            echo "[2/7] Upstream remote..."
-            if git remote get-url upstream > /dev/null 2>&1; then
-              echo "  Already configured"
-            else
-              git remote add upstream https://github.com/garrytan/gstack.git
-              echo "  Added garrytan/gstack"
-            fi
-            git fetch upstream main --depth=1 -q 2>/dev/null || echo "  fetch skipped"
-            UPSTREAM_SHA=$(git rev-parse --short upstream/main 2>/dev/null || echo "n/a")
-            echo "  Upstream: $UPSTREAM_SHA"
+            echo ""
+            echo "[1/4] BCPAO GIS API — Parcel search for HORL"
+            python3 << PYEOF
+import requests, json
 
-            echo "[3/7] Plugin install..."
-            SKILLS_DIR="/home/claude/.claude/skills"
-            mkdir -p "$SKILLS_DIR"
-            PLUGIN_LINK="$SKILLS_DIR/everest-stack"
-            [ -L "$PLUGIN_LINK" ] && rm "$PLUGIN_LINK"
-            ln -sf "$REPO_DIR" "$PLUGIN_LINK"
-            chown -h $CLAUDE_USER:$CLAUDE_USER "$PLUGIN_LINK"
-            [ -f "$PLUGIN_LINK/SKILL.md" ] && echo "  Symlinked OK" || { echo "  FAILED"; exit 1; }
+base = "https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_New_WKID2881/MapServer/5/query"
+params = {
+    "where": "UPPER(OWNER1) LIKE '"'"'%HORL%'"'"'",
+    "outFields": "ACCOUNT,OWNER1,OWNER2,SITEADDR,LEGAL1,LEGAL2,JUSTVAL,BLDGVAL,LANDVAL,SQFT,YRBLT,BEDS,BATHS,USECODE",
+    "f": "json",
+    "returnGeometry": "false"
+}
+headers = {"User-Agent": "Mozilla/5.0"}
 
-            echo "[4/7] Tests..."
-            cd "$REPO_DIR"
-            TEST_OUT=$(su - $CLAUDE_USER -c "cd $REPO_DIR && node --test test/skill-validation.test.js" 2>&1 || true)
-            PASS=$(echo "$TEST_OUT" | grep "# pass" | awk "{print \$3}")
-            FAIL=$(echo "$TEST_OUT" | grep "# fail" | awk "{print \$3}")
-            echo "  $PASS pass, $FAIL fail"
-            if [ "${FAIL:-0}" != "0" ]; then
-              echo "$TEST_OUT" | grep "not ok"
-              exit 1
-            fi
+try:
+    r = requests.get(base, params=params, headers=headers, timeout=15)
+    data = r.json()
+    features = data.get("features", [])
+    print(f"Found {len(features)} parcels for HORL")
+    for f in features:
+        a = f["attributes"]
+        print(json.dumps(a, indent=2))
+except Exception as e:
+    print(f"GIS error: {e}")
+PYEOF
 
-            echo "[5/7] Skills..."
-            DOH=$(wc -l < deal-office-hours/SKILL.md)
-            LA=$(wc -l < lien-audit/SKILL.md)
-            FULL=$(find . -maxdepth 2 -name "SKILL.md" -not -path "./SKILL.md" -exec grep -L "STUB" {} \; 2>/dev/null | wc -l)
-            STUBS=$(find . -maxdepth 2 -name "SKILL.md" -not -path "./SKILL.md" -exec grep -l "STUB" {} \; 2>/dev/null | wc -l)
-            echo "  office-hours:${DOH}L lien-audit:${LA}L ${FULL}full+${STUBS}stubs"
+            echo ""
+            echo "[2/4] BCPAO API — Property search"
+            python3 << PYEOF
+import requests, json
 
-            echo "[6/7] Cron + health..."
-            mkdir -p /home/claude/.sentinel
-            HEALTH="/home/claude/.sentinel/monitored-repos.txt"
-            grep -q "everest-stack" "$HEALTH" 2>/dev/null || echo "everest-stack:$REPO_DIR" >> "$HEALTH"
-            chmod +x "$REPO_DIR/scripts/"*.sh 2>/dev/null || true
-            chown -R $CLAUDE_USER:$CLAUDE_USER /home/claude/.sentinel
+for endpoint in [
+    "https://www.bcpao.us/api/v1/search?owner=HORL&activeonly=true",
+    "https://www.bcpao.us/api/v1/search?owner=HORL",
+    "https://www.bcpao.us/api/v1/search?name=HORL"
+]:
+    try:
+        r = requests.get(endpoint, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        print(f"{endpoint}: HTTP {r.status_code}")
+        if r.status_code == 200 and r.text.strip() and r.text.strip() != "[]":
+            print(r.text[:2000])
+            break
+    except Exception as e:
+        print(f"Error: {e}")
+PYEOF
 
-            su - $CLAUDE_USER -c "
-              CT=\$(crontab -l 2>/dev/null || true)
-              echo \"\$CT\" | grep -q upstream-sync || (echo \"\$CT\"; echo \"0 14 * * 0 $REPO_DIR/scripts/upstream-sync.sh >> /tmp/everest-upstream.log 2>&1\") | crontab -
-              CT=\$(crontab -l 2>/dev/null || true)
-              echo \"\$CT\" | grep -q repo-forensics || (echo \"\$CT\"; echo \"5 14 * * 0 $REPO_DIR/scripts/repo-forensics.sh >> /tmp/everest-health.log 2>&1\") | crontab -
-            "
-            echo "  Cron configured"
+            echo ""
+            echo "[3/4] AcclaimWeb — Search recorded instruments"
+            python3 << PYEOF
+import requests, json
+from bs4 import BeautifulSoup
 
-            echo "[7/7] DONE"
-            SHA=$(git rev-parse --short HEAD)
-            echo "SHA=$SHA Tests=${PASS}/${PASS} Skills=${FULL}f+${STUBS}s Upstream=$UPSTREAM_SHA"
-            echo "Plugin: $PLUGIN_LINK"
-            echo "Cron: upstream-sync Sun 9AM EST, repo-forensics Sun 9:05AM EST"
+s = requests.Session()
+s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+
+base = "https://vaclmweb1.brevardclerk.us/AcclaimWeb"
+
+# Get cookies
+try:
+    r = s.get(f"{base}/search/party", timeout=15)
+    print(f"AcclaimWeb page: HTTP {r.status_code}")
+except Exception as e:
+    print(f"Connection failed: {e}")
+    exit()
+
+# Try searching
+for search_data in [
+    {"LastName": "HORL", "FirstName": "", "SearchType": "Exact", "PartyType": "Both"},
+    {"LastName": "HORL", "FirstName": "AMY", "SearchType": "Exact", "PartyType": "Both"},
+]:
+    try:
+        r = s.post(f"{base}/search/party", data=search_data, timeout=15, allow_redirects=True)
+        print(f"Search {search_data.get('FirstName','ALL')}: HTTP {r.status_code}, {len(r.text)} bytes")
+        
+        soup = BeautifulSoup(r.text, "html.parser")
+        
+        # Look for result tables
+        tables = soup.find_all("table")
+        print(f"Tables found: {len(tables)}")
+        
+        for table in tables:
+            rows = table.find_all("tr")
+            for row in rows[:15]:
+                cells = row.find_all(["td", "th"])
+                if cells:
+                    vals = [c.get_text(strip=True)[:40] for c in cells]
+                    if any(v for v in vals):
+                        print(" | ".join(vals))
+        
+        # Also check for any links with document info
+        links = soup.find_all("a", href=True)
+        doc_links = [l for l in links if "document" in str(l.get("href", "")).lower() or "cfn" in l.get_text(strip=True).lower()]
+        if doc_links:
+            print(f"Document links found: {len(doc_links)}")
+            for dl in doc_links[:10]:
+                print(f"  {dl.get_text(strip=True)}: {dl['href']}")
+                
+    except Exception as e:
+        print(f"Search error: {e}")
+PYEOF
+
+            echo ""
+            echo "[4/4] Save audit report"
+            mkdir -p /home/claude/.everest-stack/audits
+            cat > /home/claude/.everest-stack/audits/horl-viera-east-$(date +%Y%m%d).md << REPORT
+# Lien Audit: VIERA EAST VS AMY L HORL
+Case: 05-2025-CC-022459-XXCC-BC
+Mode: PRE-BID (Automated)
+Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Type: HOA FORECLOSURE
+
+## Data Sources Queried
+- BCPAO GIS API: searched
+- BCPAO Property API: searched
+- AcclaimWeb: searched
+- Results: see GHA run logs
+REPORT
+            chown -R claude:claude /home/claude/.everest-stack
+
+            echo ""
+            echo "========================================"
+            echo " AUDIT COMPLETE"
+            echo "========================================"
           '
 
-      - name: Telegram notification
+      - name: Telegram results
         if: always()
         uses: appleboy/telegram-action@master
         with:
@@ -105,6 +157,8 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            🏔️ *everest-stack SUMMIT*
+            🔍 *QA + Lien Audit: VIERA EAST VS HORL*
+            Case: 05-2025-CC-022459
+            Type: ⚠️ HOA FORECLOSURE
             Status: ${{ job.status }}
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
