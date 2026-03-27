@@ -10,7 +10,7 @@ jobs:
     if: github.event.label.name == 'coder'
     steps:
       - name: Create Coder Task
-        uses: coder/create-task-action@v0
+        uses: coder/create-task-action@v0.0.5
         with:
           coder-url: ${{ secrets.CODER_URL }}
           coder-token: ${{ secrets.CODER_TOKEN }}
@@ -20,7 +20,8 @@ jobs:
           coder-task-prompt: |
             Read the GitHub issue at ${{ github.event.issue.html_url }} using gh CLI.
             Follow CLAUDE.md directives. Load TODO.md if present.
-            Implement the fix, run tests, commit with descriptive message.
+            Read docs/plans/COUNTY-EXPANSION-CLAUDE.md for the full 5-phase pipeline.
+            Execute Phase 1-5 autonomously. Commit frequently.
             Open a PR with summary of changes. Do NOT wait for feedback.
           github-user-id: ${{ github.event.sender.id }}
           github-issue-url: ${{ github.event.issue.html_url }}
