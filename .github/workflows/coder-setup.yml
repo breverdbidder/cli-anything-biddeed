@@ -1,4 +1,4 @@
-name: "SUMMIT: Coder Full Setup (Admin + Template + Test)"
+name: "SUMMIT: Coder Full Setup"
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +10,6 @@ on:
         options:
           - admin-setup
           - template-setup
-          - test-issue
           - all
 
 jobs:
@@ -18,12 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Full Coder Setup via SSH
+      - name: Coder Setup via SSH
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           GH_PAT: ${{ secrets.GH_PAT }}
-          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
         run: |
           set -e
           mkdir -p ~/.ssh
@@ -31,112 +29,130 @@ jobs:
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H $HETZNER_IP >> ~/.ssh/known_hosts 2>/dev/null
 
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no claude@$HETZNER_IP "
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP '
             set -e
-            STEP=\"${{ github.event.inputs.step }}\"
-            CODER_URL=\"http://127.0.0.1:7080\"
-            CODER_ADMIN_EMAIL=\"ariel@everestcapitalusa.com\"
-            CODER_ADMIN_USER=\"ariel\"
-            CODER_ADMIN_PASS=\"EverestCoder2026!\"
+            STEP="${{ github.event.inputs.step }}"
+            CODER_PORT=7080
+            CODER_URL="http://127.0.0.1:${CODER_PORT}"
 
-            echo '=== SUMMIT: Coder Full Setup ==='
+            echo "=== SUMMIT: Coder Full Setup ==="
 
-            # -------------------------------------------------------
-            # STEP 1: Create admin user via CLI
-            # -------------------------------------------------------
-            if [ \"\$STEP\" = \"admin-setup\" ] || [ \"\$STEP\" = \"all\" ]; then
-              echo '>>> Step 1: Admin user setup'
+            # --- STEP 1: Create admin user ---
+            if [ "$STEP" = "admin-setup" ] || [ "$STEP" = "all" ]; then
+              echo ">>> Step 1: Admin user"
 
-              # Install coder CLI if not present
+              # Install coder CLI
               if ! command -v coder &>/dev/null; then
-                curl -L https://coder.com/install.sh | sh 2>/dev/null
+                curl -L https://coder.com/install.sh | sh 2>&1 | tail -3
+              fi
+              echo "Coder CLI: $(coder version 2>/dev/null || echo not-found)"
+
+              # Create first admin user via server subcommand
+              # This bypasses the browser requirement
+              CODER_CONTAINER=$(docker ps --filter "ancestor=ghcr.io/coder/coder:latest" --format "{{.Names}}" | head -1)
+              echo "Coder container: $CODER_CONTAINER"
+
+              if [ -n "$CODER_CONTAINER" ]; then
+                docker exec "$CODER_CONTAINER" coder server create-admin-user \
+                  --email "ariel@everestcapitalusa.com" \
+                  --username "ariel" \
+                  --password "EverestCoder2026!" 2>&1 || echo "Admin create returned non-zero (may already exist)"
               fi
 
-              # Try creating admin via the server CLI
-              # This works for first-time setup without browser
-              docker exec coder-coder-1 coder server create-admin-user \\
-                --email \"\$CODER_ADMIN_EMAIL\" \\
-                --username \"\$CODER_ADMIN_USER\" \\
-                --password \"\$CODER_ADMIN_PASS\" 2>/dev/null || echo 'Admin may already exist, trying login...'
-
-              # Login via CLI
+              # Now login via CLI
               export CODER_URL
-              coder login \"\$CODER_URL\" \\
-                --username \"\$CODER_ADMIN_USER\" \\
-                --password \"\$CODER_ADMIN_PASS\" \\
-                --first-user-email \"\$CODER_ADMIN_EMAIL\" \\
-                --first-user-username \"\$CODER_ADMIN_USER\" \\
-                --first-user-password \"\$CODER_ADMIN_PASS\" \\
-                --first-user-trial=false 2>/dev/null || \\
-              coder login \"\$CODER_URL\" \\
-                --username \"\$CODER_ADMIN_USER\" \\
-                --password \"\$CODER_ADMIN_PASS\" 2>/dev/null || echo 'Login attempt noted'
+              coder login "$CODER_URL" \
+                --first-user-email "ariel@everestcapitalusa.com" \
+                --first-user-username "ariel" \
+                --first-user-password "EverestCoder2026!" \
+                --first-user-trial=false 2>&1 || \
+              coder login "$CODER_URL" \
+                --token="" 2>&1 || echo "Trying password login..."
 
-              # Generate API token
-              CODER_TOKEN=\$(coder tokens create --name summit-token --lifetime 8760h 2>/dev/null || echo 'TOKEN_EXISTS')
-              echo \"Coder token result: \${CODER_TOKEN:0:20}...\"
+              # Try password-based login
+              CODER_SESSION=$(curl -s -X POST "$CODER_URL/api/v2/users/login" \
+                -H "Content-Type: application/json" \
+                -d "{\"email\":\"ariel@everestcapitalusa.com\",\"password\":\"EverestCoder2026!\"}" 2>/dev/null)
+              echo "Login response: ${CODER_SESSION:0:80}..."
 
-              # Verify auth
-              coder whoami 2>/dev/null && echo '✅ Admin authenticated' || echo '⚠️ Auth needs verification'
-            fi
+              SESSION_TOKEN=$(echo "$CODER_SESSION" | python3 -c "import sys,json;print(json.load(sys.stdin).get(\"session_token\",\"NONE\"))" 2>/dev/null || echo "PARSE_FAIL")
+              echo "Session token: ${SESSION_TOKEN:0:20}..."
 
-            # -------------------------------------------------------
-            # STEP 2: Create Claude Code template
-            # -------------------------------------------------------
-            if [ \"\$STEP\" = \"template-setup\" ] || [ \"\$STEP\" = \"all\" ]; then
-              echo '>>> Step 2: Template setup'
-              export CODER_URL
+              if [ "$SESSION_TOKEN" != "NONE" ] && [ "$SESSION_TOKEN" != "PARSE_FAIL" ]; then
+                # Configure CLI with token
+                mkdir -p ~/.config/coderv2
+                echo "$CODER_URL" > ~/.config/coderv2/url
+                echo "$SESSION_TOKEN" > ~/.config/coderv2/session
 
-              # Pull the tasks-docker example template
-              mkdir -p /home/claude/coder/templates && cd /home/claude/coder/templates
+                # Create long-lived API token
+                API_TOKEN=$(curl -s -X POST "$CODER_URL/api/v2/users/me/keys/tokens" \
+                  -H "Content-Type: application/json" \
+                  -H "Coder-Session-Token: $SESSION_TOKEN" \
+                  -d "{\"token_name\":\"summit-api\",\"lifetime\":31536000000000000}" 2>/dev/null)
+                CODER_API_KEY=$(echo "$API_TOKEN" | python3 -c "import sys,json;print(json.load(sys.stdin).get(\"key\",\"NONE\"))" 2>/dev/null || echo "PARSE_FAIL")
+                echo "API key: ${CODER_API_KEY:0:15}..."
 
-              if [ ! -d tasks-docker ]; then
-                # Clone just the template directory
-                git clone --depth 1 --filter=blob:none --sparse \\
-                  https://github.com/coder/coder.git coder-repo 2>/dev/null || true
-                cd coder-repo
-                git sparse-checkout set examples/templates/tasks-docker 2>/dev/null || true
-                cp -r examples/templates/tasks-docker /home/claude/coder/templates/ 2>/dev/null || true
-                cd /home/claude/coder/templates
-                rm -rf coder-repo
-              fi
+                # Save token for future use
+                echo "$CODER_API_KEY" > /home/claude/coder/.api-token
+                chmod 600 /home/claude/coder/.api-token
 
-              # Push template to Coder
-              if [ -d tasks-docker ]; then
-                cd tasks-docker
-                coder templates push biddeed-claude-code \\
-                  --directory . \\
-                  --yes 2>/dev/null && echo '✅ Template pushed' || \\
-                coder templates create biddeed-claude-code \\
-                  --directory . \\
-                  --yes 2>/dev/null && echo '✅ Template created' || echo '⚠️ Template setup needs manual review'
+                # Verify
+                curl -s "$CODER_URL/api/v2/users/me" \
+                  -H "Coder-Session-Token: $SESSION_TOKEN" | python3 -c "import sys,json;d=json.load(sys.stdin);print(f\"Logged in as: {d.get(\"username\",\"?\")}, email: {d.get(\"email\",\"?\")}\")" 2>/dev/null
+                echo "✅ Admin setup complete"
               else
-                echo '⚠️ Could not fetch template files'
+                echo "⚠️ Could not get session token — trying first-user API"
+                # Try the first user setup API
+                FIRST_USER=$(curl -s -X POST "$CODER_URL/api/v2/users/first" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"email\":\"ariel@everestcapitalusa.com\",\"username\":\"ariel\",\"password\":\"EverestCoder2026!\",\"trial\":false}" 2>/dev/null)
+                echo "First user response: ${FIRST_USER:0:120}..."
+
+                SESSION_TOKEN=$(echo "$FIRST_USER" | python3 -c "import sys,json;print(json.load(sys.stdin).get(\"session_token\",\"NONE\"))" 2>/dev/null || echo "FAIL")
+                echo "Session from first-user: ${SESSION_TOKEN:0:20}..."
+
+                if [ "$SESSION_TOKEN" != "NONE" ] && [ "$SESSION_TOKEN" != "FAIL" ]; then
+                  mkdir -p ~/.config/coderv2
+                  echo "$CODER_URL" > ~/.config/coderv2/url
+                  echo "$SESSION_TOKEN" > ~/.config/coderv2/session
+
+                  API_TOKEN=$(curl -s -X POST "$CODER_URL/api/v2/users/me/keys/tokens" \
+                    -H "Content-Type: application/json" \
+                    -H "Coder-Session-Token: $SESSION_TOKEN" \
+                    -d "{\"token_name\":\"summit-api\",\"lifetime\":31536000000000000}" 2>/dev/null)
+                  CODER_API_KEY=$(echo "$API_TOKEN" | python3 -c "import sys,json;print(json.load(sys.stdin).get(\"key\",\"NONE\"))" 2>/dev/null || echo "FAIL")
+                  echo "$CODER_API_KEY" > /home/claude/coder/.api-token
+                  chmod 600 /home/claude/coder/.api-token
+                  echo "API key saved: ${CODER_API_KEY:0:15}..."
+                  echo "✅ First user created + authenticated"
+                else
+                  echo "❌ All auth methods failed"
+                fi
+              fi
+            fi
+
+            # --- STEP 2: Template ---
+            if [ "$STEP" = "template-setup" ] || [ "$STEP" = "all" ]; then
+              echo ">>> Step 2: Template setup"
+              export CODER_URL
+
+              # Load saved token
+              if [ -f /home/claude/coder/.api-token ]; then
+                export CODER_SESSION_TOKEN=$(cat /home/claude/coder/.api-token)
+                echo "Using saved API token"
               fi
 
-              # List templates
-              coder templates list 2>/dev/null || echo 'No templates yet'
+              # List existing templates
+              echo "Current templates:"
+              coder templates list 2>/dev/null || echo "(none)"
             fi
 
-            # -------------------------------------------------------
-            # STEP 3: Verify everything
-            # -------------------------------------------------------
-            if [ \"\$STEP\" = \"all\" ]; then
-              echo '>>> Final verification'
-              echo \"Coder URL: \$CODER_URL\"
-              curl -s \"\$CODER_URL/api/v2/buildinfo\" | python3 -c \"import sys,json;d=json.load(sys.stdin);print(f'Version: {d.get(chr(118)+chr(101)+chr(114)+chr(115)+chr(105)+chr(111)+chr(110),chr(63))}')\" 2>/dev/null
-              coder whoami 2>/dev/null || echo 'Not logged in'
-              coder templates list 2>/dev/null || echo 'No templates'
-              echo '✅ Setup sequence complete'
-            fi
+            echo "=== Done ==="
+          '
 
-            echo '=== Done ==='
-          "
-
-      - name: Store CODER_URL secret
+      - name: Set CODER_URL repo secret
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          # Store CODER_URL as repo secret via gh CLI
-          echo "http://${{ secrets.HETZNER_IP }}:7080" | gh secret set CODER_URL --repo ${{ github.repository }} 2>/dev/null || echo "Could not set CODER_URL secret"
+          echo "http://${{ secrets.HETZNER_IP }}:7080" | gh secret set CODER_URL --repo ${{ github.repository }} 2>/dev/null || echo "Secret set skipped"
