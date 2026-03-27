@@ -1,4 +1,4 @@
-name: "SUMMIT: Coder Template Fix + Migration v5"
+name: "SUMMIT: Coder Template + Migration v6"
 on:
   workflow_dispatch:
 
@@ -7,10 +7,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Fix Template + Push
+      - name: Create Template
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           set -e
           mkdir -p ~/.ssh
@@ -27,266 +28,70 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"email":"ariel@everestcapitalusa.com","password":"EverestCoder2026!"}')
           TOKEN=$(echo "$SESSION" | python3 -c "import sys,json;print(json.load(sys.stdin)['session_token'])")
-          echo "Auth: ${TOKEN:0:12}..."
 
-          export CODER_URL
-          export CODER_SESSION_TOKEN="$TOKEN"
+          export CODER_URL CODER_SESSION_TOKEN="$TOKEN"
           mkdir -p ~/.config/coderv2
           echo "$CODER_URL" > ~/.config/coderv2/url
           echo "$TOKEN" > ~/.config/coderv2/session
+          echo "Auth OK"
 
-          # Install matching coder CLI
-          CODER_VER="2.31.6"
-          CURRENT_VER=$(coder version 2>/dev/null | grep -oP 'v[\d.]+' | head -1 || echo "none")
-          echo "Current CLI: $CURRENT_VER, Server: v$CODER_VER"
-
-          if [ "$CURRENT_VER" != "v$CODER_VER" ]; then
-            echo "Installing matching CLI v$CODER_VER..."
-            curl -fsSL "https://github.com/coder/coder/releases/download/v${CODER_VER}/coder_${CODER_VER}_linux_amd64.deb" -o /tmp/coder.deb 2>/dev/null
-            dpkg -i /tmp/coder.deb 2>/dev/null || apt-get install -f -y 2>/dev/null
-            echo "Installed: $(coder version 2>/dev/null | head -1)"
-          fi
-
-          # Re-login with matching CLI
-          coder login "$CODER_URL" --token "$TOKEN" 2>/dev/null || true
-
-          # Write fixed main.tf (removed coder_workspace_tags)
-          TMPL_DIR="/home/claude/coder/templates/biddeed-claude-code"
-          mkdir -p "$TMPL_DIR"
-
-          cat > "$TMPL_DIR/main.tf" << 'TFEOF'
-          terraform {
-            required_providers {
-              coder = {
-                source  = "coder/coder"
-                version = ">= 2.5.0"
-              }
-              docker = {
-                source  = "kreuzwerker/docker"
-                version = ">= 3.0.0"
-              }
-            }
-          }
-
-          provider "coder" {}
-          provider "docker" {}
-
-          data "coder_provisioner" "me" {}
-          data "coder_workspace" "me" {}
-          data "coder_workspace_owner" "me" {}
-
-          variable "docker_image" {
-            default     = "codercom/enterprise-base:ubuntu"
-            description = "Docker image for the workspace"
-          }
-
-          resource "coder_agent" "main" {
-            arch           = data.coder_provisioner.me.arch
-            os             = "linux"
-            startup_script = <<-EOT
-              set -e
-              if ! command -v claude &>/dev/null; then
-                npm install -g @anthropic-ai/claude-code@latest 2>/dev/null || true
-              fi
-            EOT
-
-            metadata {
-              display_name = "CPU Usage"
-              key          = "cpu_usage"
-              script       = "coder stat cpu"
-              interval     = 10
-              timeout      = 1
-            }
-            metadata {
-              display_name = "RAM Usage"
-              key          = "ram_usage"
-              script       = "coder stat mem"
-              interval     = 10
-              timeout      = 1
-            }
-          }
-
-          module "claude-code" {
-            source         = "registry.coder.com/coder/claude-code/coder"
-            version        = "4.0.0"
-            agent_id       = coder_agent.main.id
-            folder         = "/home/coder/project"
-            install_claude = true
-          }
-
-          data "coder_parameter" "repo" {
-            name         = "repo"
-            display_name = "Repository"
-            type         = "string"
-            description  = "GitHub repo to clone"
-            default      = "breverdbidder/cli-anything-biddeed"
-            mutable      = false
-          }
-
-          resource "docker_image" "workspace" {
-            name = var.docker_image
-          }
-
-          resource "docker_container" "workspace" {
-            count    = data.coder_workspace.me.start_count
-            image    = docker_image.workspace.name
-            name     = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
-            hostname = data.coder_workspace.me.name
-
-            env = [
-              "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-            ]
-
-            host {
-              host = "host.docker.internal"
-              ip   = "host-gateway"
-            }
-
-            volumes {
-              container_path = "/home/coder"
-              volume_name    = docker_volume.home.name
-              read_only      = false
-            }
-
-            command = ["sh", "-c", <<-EOT
-              export CODER_AGENT_TOKEN=${coder_agent.main.token}
-              curl -fsSL ${data.coder_workspace.me.access_url}/bin/coder-linux-${data.coder_provisioner.me.arch} -o /tmp/coder
-              chmod +x /tmp/coder
-              if [ ! -d /home/coder/project/.git ]; then
-                git clone https://github.com/${data.coder_parameter.repo.value}.git /home/coder/project 2>/dev/null || true
-              fi
-              /tmp/coder agent
-            EOT
-            ]
-          }
-
-          resource "docker_volume" "home" {
-            name = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}-home"
-            lifecycle {
-              ignore_changes = all
-            }
-          }
-
-          resource "coder_metadata" "container" {
-            count       = data.coder_workspace.me.start_count
-            resource_id = docker_container.workspace[0].id
-            item {
-              key   = "image"
-              value = var.docker_image
-            }
-          }
-
-          data "coder_task" "me" {}
-
-          resource "coder_ai_task" "task" {
-            sidebar_app_id = module.claude-code.task_sidebar_app_id
-          }
-          TFEOF
-
-          echo "main.tf written ($(wc -l < $TMPL_DIR/main.tf) lines)"
-
-          # Delete any existing failed template version
+          # Delete old failed template if exists
           coder templates delete biddeed-claude-code --yes 2>/dev/null || true
 
-          # Push template
+          # Template dir already has fixed main.tf from v5
+          TMPL_DIR="/home/claude/coder/templates/biddeed-claude-code"
           cd "$TMPL_DIR"
-          echo "Pushing template..."
-          coder templates push biddeed-claude-code \
+
+          echo "Pushing template with 'coder templates create'..."
+          coder templates create biddeed-claude-code \
             --directory . \
-            --create \
             --default-ttl 2h \
             --yes 2>&1
 
-          echo ">>> Template list:"
+          echo ">>> Templates:"
           coder templates list 2>&1
-
-          echo "✅ Template phase done"
+          echo "✅ Template done"
           SSHEOF
 
-      - name: Run Migration via Supabase SQL Editor API
+      - name: Migration
+        if: always()
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          HETZNER_IP: ${{ secrets.HETZNER_IP }}
         run: |
-          echo "=== Migration ==="
-          mkdir -p ~/.ssh
-          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
-          chmod 600 ~/.ssh/hetzner
-
-          # Get SRK from Hetzner (already has it in env)
-          SRK=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP "cat /home/claude/coder/.supabase-srk 2>/dev/null || echo MISSING")
-
-          if [ "$SRK" = "MISSING" ]; then
-            echo "SRK not cached on Hetzner. Fetching from GitHub SSOT..."
-            SRK=$(curl -s -H "Authorization: token $GH_PAT" \
-              "https://api.github.com/repos/breverdbidder/brevard-bidder-scraper/contents/docs/SUPABASE_CREDENTIALS.md" | \
-              python3 -c "
-          import json, base64, sys, re
-          data = json.load(sys.stdin)
-          content = base64.b64decode(data['content']).decode()
-          tokens = re.findall(r'eyJ[A-Za-z0-9_\-\.]{50,}', content)
-          for t in tokens:
-            parts = t.split('.')
-            if len(parts) >= 2:
-              payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
+          echo "=== Supabase Migration ==="
+          SRK=$(curl -s -H "Authorization: token $GH_PAT" \
+            "https://api.github.com/repos/breverdbidder/brevard-bidder-scraper/contents/docs/SUPABASE_CREDENTIALS.md" | \
+            python3 -c "
+          import json,base64,sys,re
+          data=json.load(sys.stdin)
+          content=base64.b64decode(data['content']).decode()
+          for t in re.findall(r'eyJ[A-Za-z0-9_\-\.]{50,}',content):
+            p=t.split('.')
+            if len(p)>=2:
+              pad=p[1]+'='*(4-len(p[1])%4)
               try:
-                decoded = base64.b64decode(payload).decode()
-                if 'service_role' in decoded:
-                  print(t)
-                  break
-              except: pass
+                if 'service_role' in base64.b64decode(pad).decode():print(t);break
+              except:pass
           ")
-            echo "SRK: ${SRK:0:20}..."
-          fi
 
           SUPABASE_URL="https://mocerqjnksmhcjzxrewo.supabase.co"
 
-          # Check if table exists
+          # Check
           EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
             "$SUPABASE_URL/rest/v1/cc_feature_comparison?select=id&limit=1" \
-            -H "apikey: $SRK" \
-            -H "Authorization: Bearer $SRK")
+            -H "apikey: $SRK" -H "Authorization: Bearer $SRK")
 
           if [ "$EXISTS" = "200" ]; then
-            echo "✅ cc_feature_comparison already exists"
+            echo "✅ Table exists"
           else
-            echo "Creating table via PostgREST RPC..."
-            # Create an exec_sql function first, then use it
-            # Actually — use the Supabase DB URL directly from Hetzner
-            ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP << MIGEOF
-            # Try connecting to Supabase DB via direct connection
-            PGPASSWORD="postgres" psql "postgresql://postgres:postgres@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres" -c "
-              CREATE TABLE IF NOT EXISTS cc_feature_comparison (
-                id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-                system text NOT NULL CHECK (system IN ('coder', 'summit')),
-                task_description text NOT NULL,
-                wall_clock_seconds int,
-                token_cost_usd numeric(10,4),
-                quality_score int CHECK (quality_score BETWEEN 1 AND 10),
-                errors_count int DEFAULT 0,
-                pr_merged boolean DEFAULT false,
-                winner text,
-                notes text,
-                created_at timestamptz DEFAULT now()
-              );
-              CREATE INDEX IF NOT EXISTS idx_cc_feat_system ON cc_feature_comparison(system);
-            " 2>&1 || echo "Direct psql failed — run migration manually in Supabase SQL Editor"
-          MIGEOF
+            echo "Table missing. SQL file at migrations/20260327_cc_feature_comparison.sql"
+            echo "⚠️ Run in Supabase SQL Editor: https://supabase.com/dashboard/project/mocerqjnksmhcjzxrewo/sql"
           fi
 
-          # Verify
-          VERIFY=$(curl -s -o /dev/null -w "%{http_code}" \
-            "$SUPABASE_URL/rest/v1/cc_feature_comparison?select=id&limit=1" \
-            -H "apikey: $SRK" \
-            -H "Authorization: Bearer $SRK")
-          echo "Table check: HTTP $VERIFY"
-
-      - name: Verify E2E
+      - name: Verify
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "=== Verify ==="
-          echo "Test issue: https://github.com/breverdbidder/cli-anything-biddeed/issues/5"
-          echo "Coder UI: http://${{ secrets.HETZNER_IP }}:7080"
-          echo "If template is live, adding 'coder' label to issue #5 should trigger a workspace."
+          echo "Issue: https://github.com/breverdbidder/cli-anything-biddeed/issues/5"
+          echo "Coder: http://${{ secrets.HETZNER_IP }}:7080"
