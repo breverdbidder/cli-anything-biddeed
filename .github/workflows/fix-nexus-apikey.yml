@@ -1,0 +1,71 @@
+name: Copy ANTHROPIC_API_KEY to everest-nexus
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copy-secret:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Copy ANTHROPIC_API_KEY to everest-nexus
+        run: |
+          set -euo pipefail
+          TARGET_REPO="breverdbidder/everest-nexus"
+          SECRET_NAME="ANTHROPIC_API_KEY"
+          SECRET_VALUE="${{ secrets.ANTHROPIC_API_KEY }}"
+          GH_PAT="${{ secrets.GH_PAT }}"
+
+          # Get repo public key for secret encryption
+          echo "Getting public key for $TARGET_REPO..."
+          KEY_DATA=$(curl -s -H "Authorization: token $GH_PAT" \
+            "https://api.github.com/repos/$TARGET_REPO/actions/secrets/public-key")
+
+          KEY_ID=$(echo "$KEY_DATA" | jq -r '.key_id')
+          PUB_KEY=$(echo "$KEY_DATA" | jq -r '.key')
+
+          echo "Key ID: $KEY_ID"
+
+          # Encrypt using libsodium via Python
+          pip install pynacl -q
+
+          ENCRYPTED=$(python3 -c "
+          from base64 import b64encode, b64decode
+          from nacl import encoding, public
+          import sys
+
+          public_key = b64decode('$PUB_KEY')
+          sealed_box = public.SealedBox(public.PublicKey(public_key))
+          encrypted = sealed_box.encrypt(b'''$SECRET_VALUE''')
+          print(b64encode(encrypted).decode('utf-8'))
+          ")
+
+          echo "Setting $SECRET_NAME in $TARGET_REPO..."
+          RESULT=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+            -H "Authorization: token $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$TARGET_REPO/actions/secrets/$SECRET_NAME" \
+            -d "{\"encrypted_value\":\"$ENCRYPTED\",\"key_id\":\"$KEY_ID\"}")
+
+          if [ "$RESULT" = "201" ] || [ "$RESULT" = "204" ]; then
+            echo "✅ $SECRET_NAME set in $TARGET_REPO (HTTP $RESULT)"
+          else
+            echo "❌ Failed to set secret (HTTP $RESULT)"
+            exit 1
+          fi
+
+          # Verify
+          VERIFY=$(curl -s -H "Authorization: token $GH_PAT" \
+            "https://api.github.com/repos/$TARGET_REPO/actions/secrets/$SECRET_NAME" | jq -r '.updated_at // "NOT_FOUND"')
+          echo "Verified: updated_at=$VERIFY"
+
+      - name: Telegram notification
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            🔑 *Secret Copy: ANTHROPIC_API_KEY → everest-nexus*
+            Status: ${{ job.status }}
