@@ -356,20 +356,37 @@ brand: navy=#1E3A5F, orange=#F59E0B, bg=#020617, font=Inter
 rate_limit: Per-minute (paid seat) or 6/mo (free)
 ```
 
-## MCP Servers (registered 2026-03-25)
+## MCP Servers (registered 2026-03-27)
 ```yaml
+exa:
+  command: npx -y mcp-remote https://mcp.exa.ai/mcp
+  transport: http
+  env: EXA_API_KEY (GitHub Actions secret — deployed to 4 repos)
+  status: LIVE ✅
+  use: Layer 2 semantic search for discovery harness
 figma:
   url: https://mcp.figma.com/mcp
   transport: http
-  status: REGISTERED — OAuth PENDING (run /plugin → figma → Authenticate)
-  config: ~/.claude.json [project: cli-anything-biddeed/workspace]
+  status: REGISTERED — OAuth PENDING
 stitch:
   command: npx -y @_davideast/stitch-mcp proxy
   transport: stdio
-  status: REGISTERED — GEMINI_API_KEY required (not yet set in env)
-  config: ~/.claude.json [project: cli-anything-biddeed/workspace]
-next_steps:
-  - Ariel: complete Figma OAuth in browser (/plugin → figma → Authenticate)
-  - Ariel: set GEMINI_API_KEY in Hetzner server env or GitHub Actions secrets
-  - Deploy configs to: zonewise-web, biddeed-ai, biddeed-ai-ui, zonewise-scraper-v4
+  status: REGISTERED — GEMINI_API_KEY required
+```
+
+## Exa Discovery Harness (deployed 2026-03-27)
+```yaml
+path: discovery/
+modes: [zonewise, auction, gtm]
+pipeline: query_build → exa_search → filter_rank → persist → firecrawl_handoff
+table: discovery_results (MIGRATION PENDING — run migrations/20260327_discovery_results.sql)
+eval: discovery/eval/discovery/eval.json (25 assertions)
+cost_cap: $10/session
+67_county_cost: ~$8.38
+cli:
+  zonewise: node discovery/src/index.js zonewise --county "Orange"
+  auction: node discovery/src/index.js auction --county "Brevard"
+  gtm: node discovery/src/index.js gtm --vertical "FL title companies"
+  batch: node discovery/src/index.js zonewise --batch
+  dry_run: node discovery/src/index.js zonewise --county "Duval" --dry-run
 ```
