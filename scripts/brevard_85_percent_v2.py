@@ -82,7 +82,7 @@ def sb_total_count():
     except:
         return 0
 
-def query_gis_parcels(where_clause, fields="PARCELNO,CITY,SITUS_ADDR", with_geometry=False):
+def query_gis_parcels(where_clause, fields="PARCEL_ID,CITY,SITUS_ADDR", with_geometry=False):
     """Download parcels matching a WHERE clause from Brevard GIS."""
     results = []
     offset = 0
@@ -174,7 +174,7 @@ def conquer_jurisdiction(jurisdiction, config):
     
     # Step 1: Get all parcels for this city from GIS
     if gis_city:
-        where = f"CITY='{gis_city}'"
+        where = ff"CITY LIKE '{gis_city}%'"
     else:
         # Unincorporated — need envelope number from jurisdiction name
         env_num = jurisdiction.split("_")[-1] if "_" in jurisdiction else ""
@@ -183,7 +183,7 @@ def conquer_jurisdiction(jurisdiction, config):
         # Fall back to downloading ALL unincorporated and filtering later
     
     print(f"  Querying GIS: {where}", flush=True)
-    parcels = query_gis_parcels(where, fields="PARCELNO,CITY,SITUS_ADDR", with_geometry=True)
+    parcels = query_gis_parcels(where, fields="PARCEL_ID,CITY,SITUS_ADDR", with_geometry=True)
     print(f"  Found {len(parcels)} parcels in GIS", flush=True)
     
     if not parcels:
@@ -198,7 +198,7 @@ def conquer_jurisdiction(jurisdiction, config):
     new_parcels = []
     for p in parcels:
         attrs = p.get("attributes", {})
-        parcel_id = (attrs.get("PARCELNO") or "").strip()
+        parcel_id = (attrs.get("PARCEL_ID") or "").strip()
         if not parcel_id:
             continue
         if parcel_id in existing:
@@ -249,7 +249,7 @@ def conquer_jurisdiction(jurisdiction, config):
     
     for i, p in enumerate(new_parcels):
         attrs = p.get("attributes", {})
-        parcel_id = (attrs.get("PARCELNO") or "").strip()
+        parcel_id = (attrs.get("PARCEL_ID") or "").strip()
         address = (attrs.get("SITUS_ADDR") or "").strip()
         geom = p.get("geometry", {})
         rings = geom.get("rings", [])
@@ -331,7 +331,7 @@ def attribute_only_conquest(jurisdiction, parcels):
     rows = []
     for p in parcels:
         attrs = p.get("attributes", {})
-        parcel_id = (attrs.get("PARCELNO") or "").strip()
+        parcel_id = (attrs.get("PARCEL_ID") or "").strip()
         address = (attrs.get("SITUS_ADDR") or "").strip()
         if parcel_id:
             rows.append({
