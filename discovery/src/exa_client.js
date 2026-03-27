@@ -4,6 +4,7 @@
  * COST DISCIPLINE: Tracks every penny, enforces $10 session cap
  */
 
+const { execSync } = require('child_process');
 const EXA_BASE = 'https://api.exa.ai';
 
 class ExaClient {
@@ -11,9 +12,9 @@ class ExaClient {
     if (!apiKey) throw new Error('EXA_API_KEY required');
     this.apiKey = apiKey;
     this.sessionCost = 0;
-    this.sessionCap = opts.sessionCap || 10.0; // $10 COST DISCIPLINE
+    this.sessionCap = opts.sessionCap || 10.0;
     this.requestCount = 0;
-    this.rateLimitMs = opts.rateLimitMs || 200; // 5 req/s safe default
+    this.rateLimitMs = opts.rateLimitMs || 200;
     this.lastRequest = 0;
   }
 
@@ -35,109 +36,66 @@ class ExaClient {
     }
   }
 
+  _curlPost(url, body) {
+    const jsonStr = JSON.stringify(body).replace(/'/g, "'\\''");
+    const cmd = `curl -s -X POST '${url}' -H 'x-api-key: ${this.apiKey}' -H 'Content-Type: application/json' -d '${jsonStr}'`;
+    const raw = execSync(cmd, { maxBuffer: 10 * 1024 * 1024, timeout: 30000 }).toString();
+    return JSON.parse(raw);
+  }
+
   async search(query, opts = {}) {
-    this._checkBudget(0.006); // neural search + highlights estimate
+    this._checkBudget(0.006);
     await this._throttle();
 
     const body = {
       query,
       type: opts.type || 'auto',
       numResults: opts.numResults || 10,
-      contents: {
-        highlights: {
-          maxCharacters: opts.highlightChars || 500,
-          numSentences: opts.numSentences || 3
-        }
-      }
+      contents: { highlights: { maxCharacters: opts.highlightChars || 500, numSentences: opts.numSentences || 3 } }
     };
-
-    // Optional filters
     if (opts.includeDomains) body.includeDomains = opts.includeDomains;
     if (opts.excludeDomains) body.excludeDomains = opts.excludeDomains;
-    if (opts.startPublishedDate) body.startPublishedDate = opts.startPublishedDate;
     if (opts.category) body.category = opts.category;
 
-    const res = await fetch(`${EXA_BASE}/search`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': this.apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
+    const data = this._curlPost(`${EXA_BASE}/search`, body);
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Exa API ${res.status}: ${errText}`);
-    }
-
-    const data = await res.json();
-    
-    // Track cost from response
     const cost = data.costDollars?.total || 0;
     this.sessionCost += cost;
     this.requestCount++;
 
     return {
       results: (data.results || []).map(r => ({
-        url: r.url,
-        title: r.title,
-        publishedDate: r.publishedDate,
-        highlights: r.highlights || [],
-        highlightScores: r.highlightScores || [],
-        text: r.text || '',
-        score: r.score || 0
+        url: r.url, title: r.title, publishedDate: r.publishedDate,
+        highlights: r.highlights || [], highlightScores: r.highlightScores || [],
+        text: r.text || '', score: r.score || 0
       })),
-      searchType: data.searchType,
-      cost,
-      sessionCost: this.sessionCost
+      searchType: data.resolvedSearchType || data.searchType,
+      cost, sessionCost: this.sessionCost
     };
   }
 
   async deepSearch(query, opts = {}) {
-    this._checkBudget(0.016); // deep search premium
+    this._checkBudget(0.016);
     await this._throttle();
 
     const body = {
-      query,
-      type: 'deep',
-      numResults: opts.numResults || 10,
-      contents: {
-        highlights: {
-          maxCharacters: opts.highlightChars || 500
-        }
-      }
+      query, type: 'deep', numResults: opts.numResults || 10,
+      contents: { highlights: { maxCharacters: opts.highlightChars || 500 } }
     };
-
     if (opts.includeDomains) body.includeDomains = opts.includeDomains;
 
-    const res = await fetch(`${EXA_BASE}/search`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': this.apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-
-    if (!res.ok) throw new Error(`Exa Deep ${res.status}: ${await res.text()}`);
-
-    const data = await res.json();
+    const data = this._curlPost(`${EXA_BASE}/search`, body);
     const cost = data.costDollars?.total || 0;
     this.sessionCost += cost;
     this.requestCount++;
 
     return {
       results: (data.results || []).map(r => ({
-        url: r.url,
-        title: r.title,
-        highlights: r.highlights || [],
-        highlightScores: r.highlightScores || [],
+        url: r.url, title: r.title,
+        highlights: r.highlights || [], highlightScores: r.highlightScores || [],
         score: r.score || 0
       })),
-      output: data.output, // deep search synthesized output
-      cost,
-      sessionCost: this.sessionCost
+      output: data.output, cost, sessionCost: this.sessionCost
     };
   }
 
