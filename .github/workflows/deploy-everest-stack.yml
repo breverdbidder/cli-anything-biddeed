@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Deploy and run scraper
+      - name: Deploy + Full HORL Audit
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
@@ -17,39 +17,41 @@ jobs:
 
           ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ secrets.HETZNER_IP }} 'bash -s' << 'REMOTE'
           set -euo pipefail
-
           REPO="/home/claude/everest-stack"
           PLUGIN="/home/claude/.claude/skills/everest-stack"
 
-          echo "[1/5] Repo update..."
-          cd "$REPO"
-          git fetch origin main -q && git reset --hard origin/main -q
+          echo "[1/7] Update repo..."
+          cd "$REPO" && git fetch origin main -q && git reset --hard origin/main -q
           echo "  SHA=$(git rev-parse --short HEAD)"
 
-          echo "[2/5] Plugin symlink..."
+          echo "[2/7] Symlink..."
           mkdir -p "$(dirname $PLUGIN)"
           [ -L "$PLUGIN" ] || ln -sf "$REPO" "$PLUGIN"
           echo "  OK"
 
-          echo "[3/5] Tests..."
+          echo "[3/7] Tests..."
           TEST_OUT=$(node --test test/skill-validation.test.js 2>&1 || true)
           PASS=$(echo "$TEST_OUT" | grep "# pass" | awk "{print \$3}")
           FAIL=$(echo "$TEST_OUT" | grep "# fail" | awk "{print \$3}")
           echo "  $PASS pass, $FAIL fail"
 
-          echo "[4/5] Install scraper deps..."
-          pip install requests beautifulsoup4 --break-system-packages -q 2>/dev/null || true
+          echo "[4/7] Install scraper deps..."
+          pip install requests beautifulsoup4 playwright --break-system-packages -q 2>/dev/null || true
+          playwright install chromium 2>/dev/null || echo "  Chromium install skipped"
           echo "  OK"
 
-          echo "[5/5] Run HORL audit..."
-          python3 "$REPO/scrapers/property_scraper.py" \
-            --owner "AMY HORL" \
-            --case "05-2025-CC-022459-XXCC-BC" \
-            --mode lien
+          echo "[5/7] Verify skills..."
+          FULL=$(find . -maxdepth 2 -name SKILL.md -exec grep -l "^---" {} \; | wc -l)
+          echo "  ${FULL} skills found"
+
+          echo "[6/7] Run HORL audit..."
+          cd "$REPO"
+          python3 scrapers/property_scraper.py --owner "AMY HORL" --case "05-2025-CC-022459-XXCC-BC" --mode lien 2>&1
 
           echo ""
-          echo "REPORT:"
-          cat /home/claude/.everest-stack/audits/horl-audit-*.json 2>/dev/null || echo "No report file found"
+          echo "[7/7] Check audit report..."
+          find /root/.everest-stack/audits/ -name "*horl*" -exec cat {} \; 2>/dev/null || echo "No report"
+          find /home/claude/.everest-stack/audits/ -name "*horl*" -exec cat {} \; 2>/dev/null || true
           REMOTE
 
       - name: Telegram
@@ -60,6 +62,6 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            🔍 *Phase 4 Scraper: VIERA EAST VS HORL*
+            🔍 *Phase 4 Full Audit: HORL*
             Status: ${{ job.status }}
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
