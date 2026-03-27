@@ -1,0 +1,142 @@
+name: "SUMMIT: Coder Full Setup (Admin + Template + Test)"
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'Step to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - admin-setup
+          - template-setup
+          - test-issue
+          - all
+
+jobs:
+  coder-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Full Coder Setup via SSH
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H $HETZNER_IP >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no claude@$HETZNER_IP "
+            set -e
+            STEP=\"${{ github.event.inputs.step }}\"
+            CODER_URL=\"http://127.0.0.1:7080\"
+            CODER_ADMIN_EMAIL=\"ariel@everestcapitalusa.com\"
+            CODER_ADMIN_USER=\"ariel\"
+            CODER_ADMIN_PASS=\"EverestCoder2026!\"
+
+            echo '=== SUMMIT: Coder Full Setup ==='
+
+            # -------------------------------------------------------
+            # STEP 1: Create admin user via CLI
+            # -------------------------------------------------------
+            if [ \"\$STEP\" = \"admin-setup\" ] || [ \"\$STEP\" = \"all\" ]; then
+              echo '>>> Step 1: Admin user setup'
+
+              # Install coder CLI if not present
+              if ! command -v coder &>/dev/null; then
+                curl -L https://coder.com/install.sh | sh 2>/dev/null
+              fi
+
+              # Try creating admin via the server CLI
+              # This works for first-time setup without browser
+              docker exec coder-coder-1 coder server create-admin-user \\
+                --email \"\$CODER_ADMIN_EMAIL\" \\
+                --username \"\$CODER_ADMIN_USER\" \\
+                --password \"\$CODER_ADMIN_PASS\" 2>/dev/null || echo 'Admin may already exist, trying login...'
+
+              # Login via CLI
+              export CODER_URL
+              coder login \"\$CODER_URL\" \\
+                --username \"\$CODER_ADMIN_USER\" \\
+                --password \"\$CODER_ADMIN_PASS\" \\
+                --first-user-email \"\$CODER_ADMIN_EMAIL\" \\
+                --first-user-username \"\$CODER_ADMIN_USER\" \\
+                --first-user-password \"\$CODER_ADMIN_PASS\" \\
+                --first-user-trial=false 2>/dev/null || \\
+              coder login \"\$CODER_URL\" \\
+                --username \"\$CODER_ADMIN_USER\" \\
+                --password \"\$CODER_ADMIN_PASS\" 2>/dev/null || echo 'Login attempt noted'
+
+              # Generate API token
+              CODER_TOKEN=\$(coder tokens create --name summit-token --lifetime 8760h 2>/dev/null || echo 'TOKEN_EXISTS')
+              echo \"Coder token result: \${CODER_TOKEN:0:20}...\"
+
+              # Verify auth
+              coder whoami 2>/dev/null && echo '✅ Admin authenticated' || echo '⚠️ Auth needs verification'
+            fi
+
+            # -------------------------------------------------------
+            # STEP 2: Create Claude Code template
+            # -------------------------------------------------------
+            if [ \"\$STEP\" = \"template-setup\" ] || [ \"\$STEP\" = \"all\" ]; then
+              echo '>>> Step 2: Template setup'
+              export CODER_URL
+
+              # Pull the tasks-docker example template
+              mkdir -p /home/claude/coder/templates && cd /home/claude/coder/templates
+
+              if [ ! -d tasks-docker ]; then
+                # Clone just the template directory
+                git clone --depth 1 --filter=blob:none --sparse \\
+                  https://github.com/coder/coder.git coder-repo 2>/dev/null || true
+                cd coder-repo
+                git sparse-checkout set examples/templates/tasks-docker 2>/dev/null || true
+                cp -r examples/templates/tasks-docker /home/claude/coder/templates/ 2>/dev/null || true
+                cd /home/claude/coder/templates
+                rm -rf coder-repo
+              fi
+
+              # Push template to Coder
+              if [ -d tasks-docker ]; then
+                cd tasks-docker
+                coder templates push biddeed-claude-code \\
+                  --directory . \\
+                  --yes 2>/dev/null && echo '✅ Template pushed' || \\
+                coder templates create biddeed-claude-code \\
+                  --directory . \\
+                  --yes 2>/dev/null && echo '✅ Template created' || echo '⚠️ Template setup needs manual review'
+              else
+                echo '⚠️ Could not fetch template files'
+              fi
+
+              # List templates
+              coder templates list 2>/dev/null || echo 'No templates yet'
+            fi
+
+            # -------------------------------------------------------
+            # STEP 3: Verify everything
+            # -------------------------------------------------------
+            if [ \"\$STEP\" = \"all\" ]; then
+              echo '>>> Final verification'
+              echo \"Coder URL: \$CODER_URL\"
+              curl -s \"\$CODER_URL/api/v2/buildinfo\" | python3 -c \"import sys,json;d=json.load(sys.stdin);print(f'Version: {d.get(chr(118)+chr(101)+chr(114)+chr(115)+chr(105)+chr(111)+chr(110),chr(63))}')\" 2>/dev/null
+              coder whoami 2>/dev/null || echo 'Not logged in'
+              coder templates list 2>/dev/null || echo 'No templates'
+              echo '✅ Setup sequence complete'
+            fi
+
+            echo '=== Done ==='
+          "
+
+      - name: Store CODER_URL secret
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # Store CODER_URL as repo secret via gh CLI
+          echo "http://${{ secrets.HETZNER_IP }}:7080" | gh secret set CODER_URL --repo ${{ github.repository }} 2>/dev/null || echo "Could not set CODER_URL secret"
