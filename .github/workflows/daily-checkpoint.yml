@@ -220,4 +220,3 @@ jobs:
             -d text="$MSG" \
             -d parse_mode="Markdown" \
             -d disable_web_page_preview="false" > /dev/null
-EOF
