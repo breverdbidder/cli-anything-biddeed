@@ -1,4 +1,4 @@
-name: "SUMMIT: Coder Template + Migration v6"
+name: "SUMMIT: Coder Template v7 (TF fix)"
 on:
   workflow_dispatch:
 
@@ -7,11 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Create Template
+      - name: Fix TF + Create Template
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           set -e
           mkdir -p ~/.ssh
@@ -22,27 +21,34 @@ jobs:
           ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP << 'SSHEOF'
           set -e
           CODER_URL="http://127.0.0.1:7080"
-
-          # Auth
           SESSION=$(curl -s -X POST "$CODER_URL/api/v2/users/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"ariel@everestcapitalusa.com","password":"EverestCoder2026!"}')
           TOKEN=$(echo "$SESSION" | python3 -c "import sys,json;print(json.load(sys.stdin)['session_token'])")
-
           export CODER_URL CODER_SESSION_TOKEN="$TOKEN"
           mkdir -p ~/.config/coderv2
           echo "$CODER_URL" > ~/.config/coderv2/url
           echo "$TOKEN" > ~/.config/coderv2/session
-          echo "Auth OK"
 
-          # Delete old failed template if exists
-          coder templates delete biddeed-claude-code --yes 2>/dev/null || true
-
-          # Template dir already has fixed main.tf from v5
+          # Fix the TF file: folder→workdir, remove install_claude
           TMPL_DIR="/home/claude/coder/templates/biddeed-claude-code"
           cd "$TMPL_DIR"
 
-          echo "Pushing template with 'coder templates create'..."
+          # Patch in-place
+          sed -i 's/folder         = "\/home\/coder\/project"/workdir        = "\/home\/coder\/project"/' main.tf
+          sed -i '/install_claude/d' main.tf
+
+          echo "Fixed main.tf. Module block:"
+          grep -A5 'module "claude-code"' main.tf
+
+          # Delete old failed template
+          coder templates delete biddeed-claude-code --yes 2>/dev/null || true
+
+          # Clean terraform cache to force fresh init
+          rm -rf .terraform .terraform.lock.hcl
+
+          # Create template
+          echo "Creating template..."
           coder templates create biddeed-claude-code \
             --directory . \
             --default-ttl 2h \
@@ -50,48 +56,5 @@ jobs:
 
           echo ">>> Templates:"
           coder templates list 2>&1
-          echo "✅ Template done"
+          echo "✅ DONE"
           SSHEOF
-
-      - name: Migration
-        if: always()
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          echo "=== Supabase Migration ==="
-          SRK=$(curl -s -H "Authorization: token $GH_PAT" \
-            "https://api.github.com/repos/breverdbidder/brevard-bidder-scraper/contents/docs/SUPABASE_CREDENTIALS.md" | \
-            python3 -c "
-          import json,base64,sys,re
-          data=json.load(sys.stdin)
-          content=base64.b64decode(data['content']).decode()
-          for t in re.findall(r'eyJ[A-Za-z0-9_\-\.]{50,}',content):
-            p=t.split('.')
-            if len(p)>=2:
-              pad=p[1]+'='*(4-len(p[1])%4)
-              try:
-                if 'service_role' in base64.b64decode(pad).decode():print(t);break
-              except:pass
-          ")
-
-          SUPABASE_URL="https://mocerqjnksmhcjzxrewo.supabase.co"
-
-          # Check
-          EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "$SUPABASE_URL/rest/v1/cc_feature_comparison?select=id&limit=1" \
-            -H "apikey: $SRK" -H "Authorization: Bearer $SRK")
-
-          if [ "$EXISTS" = "200" ]; then
-            echo "✅ Table exists"
-          else
-            echo "Table missing. SQL file at migrations/20260327_cc_feature_comparison.sql"
-            echo "⚠️ Run in Supabase SQL Editor: https://supabase.com/dashboard/project/mocerqjnksmhcjzxrewo/sql"
-          fi
-
-      - name: Verify
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          echo "Issue: https://github.com/breverdbidder/cli-anything-biddeed/issues/5"
-          echo "Coder: http://${{ secrets.HETZNER_IP }}:7080"
