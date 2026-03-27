@@ -106,3 +106,26 @@ Action: Approaching timeout. May need manual cancel + redispatch." >/dev/null 2>
 done
 
 echo "🛡️ SENTINEL PATROL COMPLETE"
+
+# ==============================
+# CODER WORKSPACES HEALTH CHECK
+# ==============================
+check_coder_health() {
+  CODER_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/v2/buildinfo 2>/dev/null || echo "000")
+  if [ "$CODER_HEALTH" != "200" ]; then
+    log_warn "Coder server DOWN (HTTP $CODER_HEALTH)"
+    cd /home/claude/coder && docker compose restart 2>/dev/null
+    sleep 10
+    CODER_RETRY=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/v2/buildinfo 2>/dev/null || echo "000")
+    if [ "$CODER_RETRY" != "200" ]; then
+      send_telegram "⚠️ Coder server DOWN after restart (HTTP $CODER_RETRY)"
+      log_to_supabase "coder_down" "restart_failed"
+    else
+      log_info "Coder server recovered after restart"
+    fi
+  fi
+}
+
+# Add to patrol run
+check_coder_health
+
