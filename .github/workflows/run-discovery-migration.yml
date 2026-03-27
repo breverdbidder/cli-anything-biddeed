@@ -1,6 +1,8 @@
-name: Run Discovery Migration
+name: Discovery Migration (one-shot)
 on:
-  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/run-discovery-migration.yml'
 
 jobs:
   migrate:
@@ -8,60 +10,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Run SQL Migration via pooler
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client dnsutils > /dev/null 2>&1
+      
+      - name: Run migration
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+          set -e
           
-          # Force IPv4 resolution and use session pooler (port 5432)
+          # Resolve IPv4
           POOLER_IP=$(dig +short aws-0-us-east-1.pooler.supabase.com A | head -1)
-          echo "Pooler IP: $POOLER_IP"
+          echo "Pooler IPv4: $POOLER_IP"
           
-          echo "Trying session pooler (port 5432)..."
-          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
-            -h "$POOLER_IP" \
-            -p 5432 \
-            -U "postgres.mocerqjnksmhcjzxrewo" \
-            -d postgres \
-            -f migrations/20260327_discovery_results.sql && echo "✅ Session pooler worked" && exit 0
-          
-          echo "Trying transaction pooler (port 6543)..."
-          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
-            -h "$POOLER_IP" \
-            -p 6543 \
-            -U "postgres.mocerqjnksmhcjzxrewo" \
-            -d postgres \
-            -f migrations/20260327_discovery_results.sql && echo "✅ Transaction pooler worked" && exit 0
-            
-          echo "Trying direct with IPv4..."
           DIRECT_IP=$(dig +short db.mocerqjnksmhcjzxrewo.supabase.co A | head -1)
-          echo "Direct IP: $DIRECT_IP"
-          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
-            -h "$DIRECT_IP" \
-            -p 5432 \
-            -U postgres \
-            -d postgres \
-            -f migrations/20260327_discovery_results.sql && echo "✅ Direct worked" && exit 0
+          echo "Direct IPv4: $DIRECT_IP"
           
-          echo "❌ All connection methods failed"
+          # Attempt 1: Session pooler
+          if PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
+            -h "${POOLER_IP}" -p 5432 \
+            -U "postgres.mocerqjnksmhcjzxrewo" -d postgres \
+            -f migrations/20260327_discovery_results.sql 2>/tmp/pg1.log; then
+            echo "✅ Migration via session pooler"
+            exit 0
+          fi
+          echo "Session pooler failed: $(cat /tmp/pg1.log)"
+          
+          # Attempt 2: Transaction pooler
+          if PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
+            -h "${POOLER_IP}" -p 6543 \
+            -U "postgres.mocerqjnksmhcjzxrewo" -d postgres \
+            -f migrations/20260327_discovery_results.sql 2>/tmp/pg2.log; then
+            echo "✅ Migration via transaction pooler"
+            exit 0
+          fi
+          echo "Transaction pooler failed: $(cat /tmp/pg2.log)"
+          
+          # Attempt 3: Direct
+          if [ -n "$DIRECT_IP" ]; then
+            if PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
+              -h "${DIRECT_IP}" -p 5432 \
+              -U postgres -d postgres \
+              -f migrations/20260327_discovery_results.sql 2>/tmp/pg3.log; then
+              echo "✅ Migration via direct connection"
+              exit 0
+            fi
+            echo "Direct failed: $(cat /tmp/pg3.log)"
+          fi
+          
+          echo "❌ All methods failed"
           exit 1
-          
-      - name: Verify table
+      
+      - name: Verify
         env:
           SRK: ${{ secrets.SUPABASE_KEY }}
         run: |
-          sleep 3
-          HTTP=$(curl -s -o /tmp/verify.json -w "%{http_code}" \
+          sleep 5
+          curl -sf \
             "https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/discovery_results?select=id&limit=1" \
             -H "apikey: ${SRK}" \
-            -H "Authorization: Bearer ${SRK}")
-          
-          echo "HTTP: $HTTP"
-          cat /tmp/verify.json
-          
-          if [ "$HTTP" = "200" ]; then
-            echo "✅ discovery_results table VERIFIED"
-          else
-            echo "⚠️ HTTP $HTTP — schema cache may need refresh. Table likely exists."
-          fi
+            -H "Authorization: Bearer ${SRK}" && echo "✅ Table verified" || echo "⚠️ Needs schema cache refresh"
