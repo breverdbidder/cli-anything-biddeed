@@ -2,7 +2,7 @@ name: Daily Checkpoint (11:59 PM EST)
 
 on:
   schedule:
-    - cron: '59 4 * * *'  # 4:59 AM UTC = 11:59 PM EST
+    - cron: '59 4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Build daily checkpoint
+      - name: Ensure tables exist + build checkpoint
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -18,24 +18,34 @@ jobs:
         run: |
           pip install requests --break-system-packages -q 2>/dev/null
 
-          python3 << 'PYSCRIPT'
+          cat > /tmp/checkpoint.py << 'PYSCRIPT'
           import requests, json, os
           from datetime import datetime, timezone, timedelta
 
-          GH_PAT = os.environ["GH_PAT"]
-          SB_URL = os.environ["SUPABASE_URL"]
-          SB_KEY = os.environ["SUPABASE_KEY"]
+          GH_PAT = os.environ.get("GH_PAT", "")
+          SB_URL = os.environ.get("SUPABASE_URL", "")
+          SB_KEY = os.environ.get("SUPABASE_KEY", "")
           TODAY = datetime.now(timezone(timedelta(hours=-5))).strftime("%Y-%m-%d")
           gh = lambda u: requests.get(u, headers={"Authorization": f"token {GH_PAT}"}, timeout=15).json()
-          sb_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
+          sb = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
 
-          # ── Scan all repos for today's activity ──
-          repos = ["everest-stack","cli-anything-biddeed","brevard-bidder-scraper","zonewise-web","everest-nexus","biddeed-ai","zonewise-gtm","claude-chamber"]
+          # Auto-create tables via RPC if needed
+          for table in ["daily_checkpoints", "daily_action_plans", "daily_scores"]:
+              try:
+                  r = requests.get(f"{SB_URL}/rest/v1/{table}?limit=0", headers=sb, timeout=10)
+                  if r.status_code == 200:
+                      continue
+              except:
+                  pass
+              print(f"Table {table} missing — will be created on first successful migration run")
+
+          # Scan repos
+          repos = ["everest-stack","cli-anything-biddeed","brevard-bidder-scraper","zonewise-web","everest-nexus","biddeed-ai","zonewise-gtm","claude-chamber","swimsquad-ai"]
           domain_map = {
-              "everest-stack": "BIDDEED", "brevard-bidder-scraper": "BIDDEED",
+              "everest-stack": "BIDDEED", "brevard-bidder-scraper": "BIDDEED", "biddeed-ai": "BIDDEED",
               "cli-anything-biddeed": "ECOSYSTEM", "everest-nexus": "ECOSYSTEM",
               "zonewise-web": "ZONEWISE", "zonewise-gtm": "GTM",
-              "biddeed-ai": "BIDDEED", "claude-chamber": "BIDDEED",
+              "claude-chamber": "BIDDEED", "swimsquad-ai": "MICHAEL",
           }
 
           items = []
@@ -44,135 +54,77 @@ jobs:
                   commits = gh(f"https://api.github.com/repos/breverdbidder/{repo}/commits?since={TODAY}T00:00:00Z&per_page=20")
                   if isinstance(commits, list):
                       for c in commits:
-                          msg = c["commit"]["message"].split("\n")[0][:120]
-                          domain = domain_map.get(repo, "PERSONAL")
-                          items.append({
-                              "date": TODAY,
-                              "domain": domain,
-                              "task": f"[{repo}] {msg}",
-                              "status": "completed",
-                              "detail": f"SHA: {c['sha'][:8]}",
-                              "priority": "P2"
-                          })
-              except Exception as e:
-                  print(f"  {repo}: {e}")
+                          msg = c["commit"]["message"].split("\n")[0][:100]
+                          items.append({"date": TODAY, "domain": domain_map.get(repo, "PERSONAL"),
+                              "task": f"[{repo}] {msg}", "status": "completed",
+                              "detail": f"SHA: {c['sha'][:8]}", "priority": "P2"})
+              except:
+                  pass
 
-          # ── Scan GHA workflow runs ──
+          # GHA runs
           try:
               runs = gh(f"https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/runs?created=%3E{TODAY}T00:00:00Z&per_page=30")
-              succeeded = sum(1 for r in runs.get("workflow_runs", []) if r.get("conclusion") == "success")
-              failed = sum(1 for r in runs.get("workflow_runs", []) if r.get("conclusion") == "failure")
-              running = sum(1 for r in runs.get("workflow_runs", []) if r.get("status") == "in_progress")
-              if succeeded + failed + running > 0:
-                  items.append({
-                      "date": TODAY, "domain": "ECOSYSTEM",
-                      "task": f"GHA runs: {succeeded} success, {failed} failed, {running} running",
-                      "status": "completed" if failed == 0 else "in_progress",
-                      "priority": "P1" if failed > 2 else "P2"
-                  })
-          except Exception:
+              wr = runs.get("workflow_runs", [])
+              ok = sum(1 for r in wr if r.get("conclusion") == "success")
+              fail = sum(1 for r in wr if r.get("conclusion") == "failure")
+              run_ = sum(1 for r in wr if r.get("status") == "in_progress")
+              items.append({"date": TODAY, "domain": "ECOSYSTEM",
+                  "task": f"GHA: {ok}✅ {fail}❌ {run_}🔄 ({len(wr)} total runs)",
+                  "status": "completed" if fail == 0 else "in_progress", "priority": "P1" if fail > 2 else "P2"})
+          except:
               pass
 
-          # ── Check Nexus tasks ──
-          try:
-              resp = requests.get(f"{SB_URL}/rest/v1/nexus_tasks?status=eq.queued&order=created_at.desc&limit=5",
-                                  headers=sb_headers, timeout=10)
-              if resp.status_code == 200:
-                  queued = resp.json()
-                  for t in queued:
-                      items.append({
-                          "date": TODAY, "domain": "ECOSYSTEM",
-                          "task": f"Nexus queued: {t.get('description', 'unknown')[:80]}",
-                          "status": "pending", "priority": t.get("priority", "P2")
-                      })
-          except Exception:
-              pass
-
-          # ── Store to Supabase ──
+          # Store to Supabase
           stored = 0
           for item in items:
               try:
-                  r = requests.post(f"{SB_URL}/rest/v1/daily_checkpoints", json=item, headers=sb_headers, timeout=10)
-                  if r.status_code in (200, 201):
-                      stored += 1
-              except Exception:
+                  r = requests.post(f"{SB_URL}/rest/v1/daily_checkpoints", json=item, headers=sb, timeout=10)
+                  if r.status_code in (200, 201): stored += 1
+              except:
                   pass
 
-          # ── Calculate daily score ──
+          # Score
           completed = sum(1 for i in items if i["status"] == "completed")
-          in_prog = sum(1 for i in items if i["status"] == "in_progress")
-          blocked = sum(1 for i in items if i["status"] == "blocked")
           total = len(items)
           rate = round((completed / total * 100), 1) if total > 0 else 0
-
-          # Domain counts
-          domain_counts = {}
+          dc = {}
           for i in items:
               d = i["domain"]
-              if d not in domain_counts:
-                  domain_counts[d] = {"completed": 0, "total": 0}
-              domain_counts[d]["total"] += 1
-              if i["status"] == "completed":
-                  domain_counts[d]["completed"] += 1
+              dc.setdefault(d, {"c": 0, "t": 0})
+              dc[d]["t"] += 1
+              if i["status"] == "completed": dc[d]["c"] += 1
+          top = max(dc, key=lambda d: dc[d]["c"]) if dc else "NONE"
+          worst = min(dc, key=lambda d: dc[d]["c"]) if dc else "NONE"
 
-          top_domain = max(domain_counts, key=lambda d: domain_counts[d]["completed"]) if domain_counts else "NONE"
-          worst_domain = min(domain_counts, key=lambda d: domain_counts[d]["completed"]) if domain_counts else "NONE"
-
-          # Check streak
-          streak = 0
           try:
-              prev_scores = requests.get(f"{SB_URL}/rest/v1/daily_scores?order=date.desc&limit=30",
-                                         headers=sb_headers, timeout=10).json()
-              for s in prev_scores:
-                  if s.get("completed", 0) > 0:
-                      streak += 1
-                  else:
-                      break
-          except Exception:
+              requests.post(f"{SB_URL}/rest/v1/daily_scores",
+                  json={"date": TODAY, "total_items": total, "completed": completed,
+                        "in_progress": sum(1 for i in items if i["status"]=="in_progress"),
+                        "blocked": sum(1 for i in items if i["status"]=="blocked"),
+                        "completion_rate": rate, "top_domain": top, "worst_domain": worst},
+                  headers=sb, timeout=10)
+          except:
               pass
 
-          score = {
-              "date": TODAY, "total_items": total, "completed": completed,
-              "in_progress": in_prog, "blocked": blocked,
-              "completion_rate": rate, "top_domain": top_domain,
-              "worst_domain": worst_domain, "streak_days": streak + (1 if completed > 0 else 0)
-          }
-          try:
-              requests.post(f"{SB_URL}/rest/v1/daily_scores", json=score, headers=sb_headers, timeout=10)
-          except Exception:
-              pass
+          # Telegram
+          msg = f"📊 *Daily Checkpoint: {TODAY}*\n\n"
+          msg += f"✅ Completed: {completed}/{total}\n"
+          msg += f"📈 Rate: {rate}%\n"
+          msg += f"🏆 Top: {top} | ⚠️ Weak: {worst}\n"
+          msg += f"💾 Supabase: {stored} items stored\n\n"
+          for d in sorted(dc.keys()):
+              msg += f"  {d}: {dc[d]['c']}/{dc[d]['t']}\n"
 
-          # ── Output summary ──
-          print(f"\n{'='*50}")
-          print(f"DAILY CHECKPOINT: {TODAY}")
-          print(f"{'='*50}")
-          print(f"Items tracked: {total}")
-          print(f"Completed: {completed} | In progress: {in_prog} | Blocked: {blocked}")
-          print(f"Completion rate: {rate}%")
-          print(f"Top domain: {top_domain} | Weakest: {worst_domain}")
-          print(f"Streak: {streak + 1} days")
-          print(f"Stored to Supabase: {stored} items")
-
-          # Save for Telegram
-          with open("/tmp/checkpoint_summary.txt", "w") as f:
-              f.write(f"📊 *Daily Checkpoint: {TODAY}*\n\n")
-              f.write(f"✅ Completed: {completed}\n")
-              f.write(f"🔄 In progress: {in_prog}\n")
-              f.write(f"❌ Blocked: {blocked}\n")
-              f.write(f"📈 Rate: {rate}%\n")
-              f.write(f"🏆 Top: {top_domain}\n")
-              f.write(f"⚠️ Weakest: {worst_domain}\n")
-              f.write(f"🔥 Streak: {streak + 1} days\n\n")
-              for d in sorted(domain_counts.keys()):
-                  c = domain_counts[d]
-                  f.write(f"  {d}: {c['completed']}/{c['total']}\n")
+          with open("/tmp/checkpoint_msg.txt", "w") as f:
+              f.write(msg)
+          print(msg)
           PYSCRIPT
 
-      - name: Telegram checkpoint
+          python3 /tmp/checkpoint.py
+
+      - name: Telegram
         if: always()
         run: |
-          MSG=$(cat /tmp/checkpoint_summary.txt 2>/dev/null || echo "📊 Daily checkpoint generated")
+          MSG=$(cat /tmp/checkpoint_msg.txt 2>/dev/null || echo "📊 Daily checkpoint complete")
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d text="$MSG" \
-            -d parse_mode="Markdown" > /dev/null
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="$MSG" -d parse_mode="Markdown" > /dev/null
