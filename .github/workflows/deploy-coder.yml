@@ -3,13 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: 'Deployment phase (install|template|verify|all)'
+        description: 'Deployment phase'
         required: true
         default: 'all'
         type: choice
         options:
           - install
-          - template
           - verify
           - all
 
@@ -19,68 +18,63 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Deploy Coder to Hetzner
-        uses: appleboy/ssh-action@v1
         env:
-          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        with:
-          host: 87.99.129.125
-          username: claude
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: CLAUDE_OAUTH_B64,GH_PAT
-          command_timeout: 25m
-          script: |
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H $HETZNER_IP >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no claude@$HETZNER_IP '
             set -e
             echo "=== SUMMIT: Coder Workspaces Deployment ==="
-            echo "Phase: ${{ github.event.inputs.phase }}"
-            
             PHASE="${{ github.event.inputs.phase }}"
-            
+
             # --- PHASE 1: INSTALL ---
             if [ "$PHASE" = "install" ] || [ "$PHASE" = "all" ]; then
               echo ">>> Phase 1: Installing Coder via Docker Compose"
               mkdir -p /home/claude/coder && cd /home/claude/coder
-              
-              # Download compose file
-              curl -L https://raw.githubusercontent.com/coder/coder/main/compose.yaml -o docker-compose.yaml
-              
+
+              # Download compose file if not present
+              if [ ! -f docker-compose.yaml ]; then
+                curl -L https://raw.githubusercontent.com/coder/coder/main/compose.yaml -o docker-compose.yaml
+              fi
+
               # Get docker group GID
-              DOCKER_GID=$(getent group docker | cut -d: -f3)
+              DOCKER_GID=$(getent group docker | cut -d: -f3 || echo "999")
               echo "Docker GID: $DOCKER_GID"
-              
-              # Set environment vars
+
+              # Set env
               export CODER_ACCESS_URL="http://87.99.129.125:3000"
               export CODER_TELEMETRY_ENABLE="false"
-              
-              # Update group_add in compose file
-              sed -i "s/group_add:.*/group_add:\n        - \"$DOCKER_GID\"/" docker-compose.yaml 2>/dev/null || true
-              
+
               # Start Coder
-              docker compose up -d
-              
-              # Wait for startup
+              docker compose up -d 2>&1 || docker-compose up -d 2>&1
               sleep 15
-              
-              # Verify
-              CODER_VERSION=$(curl -s http://localhost:3000/api/v2/buildinfo | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','UNKNOWN'))" 2>/dev/null || echo "STARTUP_PENDING")
-              echo "Coder version: $CODER_VERSION"
+
+              CODER_VER=$(curl -s http://localhost:3000/api/v2/buildinfo 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get(chr(118)+chr(101)+chr(114)+chr(115)+chr(105)+chr(111)+chr(110),chr(85)+chr(78)+chr(75)))" 2>/dev/null || echo "PENDING")
+              echo "Coder version: $CODER_VER"
             fi
-            
+
             # --- PHASE 2: VERIFY ---
             if [ "$PHASE" = "verify" ] || [ "$PHASE" = "all" ]; then
               echo ">>> Verification"
-              CODER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/v2/buildinfo)
+              CODER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/v2/buildinfo 2>/dev/null || echo "000")
               echo "Coder API status: $CODER_STATUS"
-              
+
               if [ "$CODER_STATUS" = "200" ]; then
                 echo "✅ Coder server is LIVE at http://87.99.129.125:3000"
               else
-                echo "❌ Coder server not responding. Check docker logs."
-                docker logs coder-coder-1 --tail 30 2>/dev/null || docker logs coder_coder_1 --tail 30 2>/dev/null || true
+                echo "❌ Coder not responding. Docker status:"
+                docker ps --filter "name=coder" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
+                docker logs coder-coder-1 --tail 20 2>/dev/null || docker logs coder_coder_1 --tail 20 2>/dev/null || true
               fi
-              
-              # Container status
-              docker ps --filter "name=coder" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+              docker ps --filter "name=coder" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
             fi
-            
+
             echo "=== SUMMIT: Coder deployment complete ==="
+          '
