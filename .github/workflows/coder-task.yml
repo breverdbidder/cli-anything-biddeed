@@ -1,0 +1,28 @@
+name: Coder Task from Issue
+on:
+  issues:
+    types: [labeled]
+permissions:
+  issues: write
+jobs:
+  coder-create-task:
+    runs-on: ubuntu-latest
+    if: github.event.label.name == 'coder'
+    steps:
+      - name: Create Coder Task
+        uses: coder/create-task-action@v0
+        with:
+          coder-url: ${{ secrets.CODER_URL }}
+          coder-token: ${{ secrets.CODER_TOKEN }}
+          coder-organization: "default"
+          coder-template-name: "biddeed-claude-code"
+          coder-task-name-prefix: "gh-task"
+          coder-task-prompt: |
+            Read the GitHub issue at ${{ github.event.issue.html_url }} using gh CLI.
+            Follow CLAUDE.md directives. Load TODO.md if present.
+            Implement the fix, run tests, commit with descriptive message.
+            Open a PR with summary of changes. Do NOT wait for feedback.
+          github-user-id: ${{ github.event.sender.id }}
+          github-issue-url: ${{ github.event.issue.html_url }}
+          github-token: ${{ github.token }}
+          comment-on-issue: true
