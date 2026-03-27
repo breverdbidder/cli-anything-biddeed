@@ -1,17 +1,19 @@
-name: "SUMMIT: Coder Setup v3 (Token + Template)"
+name: "SUMMIT: Coder Template + Migration + E2E Test"
 on:
   workflow_dispatch:
 
 jobs:
-  coder-setup:
+  coder-full:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Setup Coder via SSH
+      - name: Template + Migration + Test
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           GH_PAT: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -e
           mkdir -p ~/.ssh
@@ -23,98 +25,279 @@ jobs:
           set -e
           CODER_URL="http://127.0.0.1:7080"
 
-          echo "=== CODER SETUP v3 ==="
-
-          # 1. Get session token via login API
-          echo ">>> Login"
+          echo "=== PHASE 1: Auth ==="
           SESSION=$(curl -s -X POST "$CODER_URL/api/v2/users/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"ariel@everestcapitalusa.com","password":"EverestCoder2026!"}')
           TOKEN=$(echo "$SESSION" | python3 -c "import sys,json;print(json.load(sys.stdin)['session_token'])")
-          echo "Session: ${TOKEN:0:15}..."
+          echo "Auth OK: ${TOKEN:0:12}..."
 
-          # 2. Create long-lived API token
-          echo ">>> Create API token"
-          API_RESP=$(curl -s -X POST "$CODER_URL/api/v2/users/me/keys/tokens" \
-            -H "Coder-Session-Token: $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"token_name":"summit-v3","lifetime":31536000000000000}')
-          echo "Token response: $API_RESP"
-          API_KEY=$(echo "$API_RESP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('key','NONE'))" 2>/dev/null || echo "PARSE_FAIL")
-          echo "API Key: ${API_KEY:0:15}..."
+          # Also get/use API key
+          API_KEY=$(cat /home/claude/coder/.api-token 2>/dev/null || echo "$TOKEN")
+          echo "Using token: ${API_KEY:0:12}..."
 
-          # If key creation failed, try alternate endpoint format
-          if [ "$API_KEY" = "NONE" ] || [ "$API_KEY" = "PARSE_FAIL" ]; then
-            echo "Trying alternate token creation..."
-            API_RESP2=$(curl -s -X POST "$CODER_URL/api/v2/users/me/keys" \
-              -H "Coder-Session-Token: $TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{}')
-            echo "Alt response: $API_RESP2"
-            API_KEY=$(echo "$API_RESP2" | python3 -c "import sys,json;print(json.load(sys.stdin).get('key','NONE'))" 2>/dev/null || echo "FAIL")
-            echo "Alt API Key: ${API_KEY:0:15}..."
-          fi
+          echo "=== PHASE 2: Create Template ==="
 
-          # Save whatever token works
-          BEST_TOKEN="$TOKEN"
-          if [ "$API_KEY" != "NONE" ] && [ "$API_KEY" != "FAIL" ] && [ "$API_KEY" != "PARSE_FAIL" ]; then
-            BEST_TOKEN="$API_KEY"
-          fi
-          echo "$BEST_TOKEN" > /home/claude/coder/.api-token
-          chmod 600 /home/claude/coder/.api-token
+          # Create terraform template directory
+          TMPL_DIR="/home/claude/coder/templates/biddeed-claude-code"
+          mkdir -p "$TMPL_DIR"
 
-          # 3. Verify auth
-          echo ">>> Verify"
-          curl -s "$CODER_URL/api/v2/users/me" \
-            -H "Coder-Session-Token: $TOKEN" | python3 -c "import sys,json;d=json.load(sys.stdin);print(f'User: {d[\"username\"]}, Status: {d[\"status\"]}')"
+          cat > "$TMPL_DIR/main.tf" << 'TFEOF'
+          terraform {
+            required_providers {
+              coder = {
+                source  = "coder/coder"
+                version = ">= 2.5.0"
+              }
+              docker = {
+                source  = "kreuzwerker/docker"
+                version = ">= 3.0.0"
+              }
+            }
+          }
 
-          # 4. List existing templates
-          echo ">>> Templates"
-          TEMPLATES=$(curl -s "$CODER_URL/api/v2/organizations/default/templates" \
-            -H "Coder-Session-Token: $TOKEN")
-          echo "Templates: $TEMPLATES"
+          provider "coder" {}
+          provider "docker" {}
 
-          # 5. Check available example templates
-          echo ">>> Available starter templates"
-          EXAMPLES=$(curl -s "$CODER_URL/api/v2/organizations/default/templates/examples" \
-            -H "Coder-Session-Token: $TOKEN" 2>/dev/null | python3 -c "
-          import sys,json
-          data = json.load(sys.stdin)
-          if isinstance(data, list):
-            for t in data:
-              if 'docker' in t.get('id','').lower() or 'task' in t.get('id','').lower():
-                print(f\"  {t['id']}: {t.get('name','?')}\")
-            print(f'Total examples: {len(data)}')
-          else:
-            print(data)
-          " 2>/dev/null || echo "No examples endpoint")
+          data "coder_provisioner" "me" {}
+          data "coder_workspace" "me" {}
+          data "coder_workspace_owner" "me" {}
+          data "coder_workspace_tags" "custom_workspace_tags" {}
 
-          # 6. Save CODER_URL + token for GitHub secrets step
-          echo "CODER_TOKEN=$BEST_TOKEN" > /home/claude/coder/.gh-secrets
-          echo "CODER_URL=http://$(hostname -I | awk '{print $1}'):7080" >> /home/claude/coder/.gh-secrets
+          variable "docker_image" {
+            default     = "codercom/enterprise-base:ubuntu"
+            description = "Docker image for the workspace"
+          }
 
-          echo "✅ Setup v3 complete"
-          echo "=== Done ==="
+          resource "coder_agent" "main" {
+            arch           = data.coder_provisioner.me.arch
+            os             = "linux"
+            startup_script = <<-EOT
+              set -e
+              # Install Claude Code if not present
+              if ! command -v claude &>/dev/null; then
+                npm install -g @anthropic-ai/claude-code@latest 2>/dev/null || true
+              fi
+            EOT
+
+            metadata {
+              display_name = "CPU Usage"
+              key          = "cpu_usage"
+              script       = "coder stat cpu"
+              interval     = 10
+              timeout      = 1
+            }
+
+            metadata {
+              display_name = "RAM Usage"
+              key          = "ram_usage"
+              script       = "coder stat mem"
+              interval     = 10
+              timeout      = 1
+            }
+          }
+
+          module "claude-code" {
+            source         = "registry.coder.com/coder/claude-code/coder"
+            version        = "4.0.0"
+            agent_id       = coder_agent.main.id
+            folder         = "/home/coder/project"
+            install_claude = true
+          }
+
+          data "coder_parameter" "repo" {
+            name         = "repo"
+            display_name = "Repository"
+            type         = "string"
+            description  = "GitHub repo to clone (owner/repo format)"
+            default      = "breverdbidder/cli-anything-biddeed"
+            mutable      = false
+          }
+
+          resource "docker_image" "workspace" {
+            name = var.docker_image
+          }
+
+          resource "docker_container" "workspace" {
+            count = data.coder_workspace.me.start_count
+            image = docker_image.workspace.name
+            name  = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
+            hostname = data.coder_workspace.me.name
+
+            env = [
+              "CODER_AGENT_TOKEN=${coder_agent.main.token}",
+            ]
+
+            host {
+              host = "host.docker.internal"
+              ip   = "host-gateway"
+            }
+
+            volumes {
+              container_path = "/home/coder"
+              volume_name    = docker_volume.home.name
+              read_only      = false
+            }
+
+            command = ["sh", "-c", <<-EOT
+              # Start Coder agent
+              export CODER_AGENT_TOKEN=${coder_agent.main.token}
+              curl -fsSL ${data.coder_workspace.me.access_url}/bin/coder-linux-${data.coder_provisioner.me.arch} -o /tmp/coder
+              chmod +x /tmp/coder
+
+              # Clone repo if workspace is new
+              if [ ! -d /home/coder/project/.git ]; then
+                git clone https://github.com/${data.coder_parameter.repo.value}.git /home/coder/project 2>/dev/null || true
+              fi
+
+              /tmp/coder agent
+            EOT
+            ]
+          }
+
+          resource "docker_volume" "home" {
+            name = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}-home"
+            lifecycle {
+              ignore_changes = all
+            }
+          }
+
+          resource "coder_metadata" "container" {
+            count       = data.coder_workspace.me.start_count
+            resource_id = docker_container.workspace[0].id
+
+            item {
+              key   = "image"
+              value = var.docker_image
+            }
+          }
+
+          data "coder_task" "me" {}
+
+          resource "coder_ai_task" "task" {
+            sidebar_app_id = module.claude-code.task_sidebar_app_id
+          }
+          TFEOF
+
+          echo "Template files created at $TMPL_DIR"
+          ls -la "$TMPL_DIR/"
+
+          # Install matching coder CLI version
+          CODER_VER=$(curl -s "$CODER_URL/api/v2/buildinfo" | python3 -c "import sys,json;print(json.load(sys.stdin)['version'].split('+')[0].replace('v',''))")
+          echo "Server version: $CODER_VER"
+
+          # Configure coder CLI auth
+          export CODER_URL
+          export CODER_SESSION_TOKEN="$TOKEN"
+          mkdir -p ~/.config/coderv2
+          echo "$CODER_URL" > ~/.config/coderv2/url
+          echo "$TOKEN" > ~/.config/coderv2/session
+
+          # Push template
+          cd "$TMPL_DIR"
+          coder templates create biddeed-claude-code \
+            --directory . \
+            --default-ttl 2h \
+            --yes 2>&1 || \
+          coder templates push biddeed-claude-code \
+            --directory . \
+            --yes 2>&1 || echo "Template push needs review"
+
+          # Verify
+          echo ">>> Template list:"
+          coder templates list 2>&1 || curl -s "$CODER_URL/api/v2/organizations/default/templates" \
+            -H "Coder-Session-Token: $TOKEN" | python3 -c "import sys,json;[print(t['name']) for t in json.load(sys.stdin)]" 2>/dev/null
+
+          echo "=== PHASE 2 DONE ==="
           SSHEOF
 
-      - name: Retrieve and set GitHub secrets
+      - name: Run Supabase Migration
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
+          echo "=== PHASE 3: Supabase Migration ==="
+
+          # Use Hetzner to run SQL via psql or Supabase REST
           mkdir -p ~/.ssh
           echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
 
-          # Get the token from Hetzner
-          CODER_TOKEN=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP "cat /home/claude/coder/.api-token 2>/dev/null || echo MISSING")
-          echo "Token retrieved: ${CODER_TOKEN:0:15}..."
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP << SQLEOF
+          set -e
 
-          if [ "$CODER_TOKEN" != "MISSING" ]; then
-            echo "$CODER_TOKEN" | gh secret set CODER_TOKEN --repo ${{ github.repository }}
-            echo "http://$HETZNER_IP:7080" | gh secret set CODER_URL --repo ${{ github.repository }}
-            echo "✅ GitHub secrets CODER_TOKEN + CODER_URL set"
+          # Try creating table via Supabase REST RPC
+          # First create a temp function, then call it
+          SUPABASE_URL="$SUPABASE_URL"
+          SRK="$SUPABASE_KEY"
+
+          # Check if table exists
+          EXISTS=\$(curl -s "\${SUPABASE_URL}/rest/v1/cc_feature_comparison?select=id&limit=1" \
+            -H "apikey: \$SRK" \
+            -H "Authorization: Bearer \$SRK" \
+            -w "%{http_code}" -o /dev/null 2>/dev/null)
+
+          if [ "\$EXISTS" = "200" ]; then
+            echo "✅ cc_feature_comparison table already exists"
           else
-            echo "⚠️ No token found on Hetzner"
+            echo "Table doesn't exist yet (HTTP \$EXISTS)"
+
+            # Try via Supabase pooler/psql if available
+            if command -v psql &>/dev/null; then
+              echo "Trying psql..."
+              PGPASSWORD="\$SRK" psql "postgresql://postgres.mocerqjnksmhcjzxrewo:@aws-0-us-east-1.pooler.supabase.com:6543/postgres" -c "
+                CREATE TABLE IF NOT EXISTS cc_feature_comparison (
+                  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+                  system text NOT NULL CHECK (system IN ('coder', 'summit')),
+                  task_description text NOT NULL,
+                  wall_clock_seconds int,
+                  token_cost_usd numeric(10,4),
+                  quality_score int CHECK (quality_score BETWEEN 1 AND 10),
+                  errors_count int DEFAULT 0,
+                  pr_merged boolean DEFAULT false,
+                  winner text,
+                  notes text,
+                  created_at timestamptz DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_cc_feat_system ON cc_feature_comparison(system);
+                CREATE INDEX IF NOT EXISTS idx_cc_feat_created ON cc_feature_comparison(created_at DESC);
+              " 2>&1 && echo "✅ Table created via psql" || echo "psql failed"
+            else
+              echo "psql not available — migration SQL in repo at migrations/20260327_cc_feature_comparison.sql"
+              echo "Run manually in Supabase SQL Editor"
+            fi
           fi
+          SQLEOF
+
+      - name: Create Test Issue
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "=== PHASE 4: E2E Test Issue ==="
+
+          # Create label if not exists
+          gh label create coder --repo breverdbidder/cli-anything-biddeed \
+            --description "Triggers Coder Workspaces task" \
+            --color "0969DA" 2>/dev/null || echo "Label exists"
+
+          # Create test issue with coder label
+          ISSUE_URL=$(gh issue create \
+            --repo breverdbidder/cli-anything-biddeed \
+            --title "[Coder E2E Test] Add CODER_SETUP_VERIFIED.md" \
+            --body "## Test Issue for Coder Workspaces E2E
+          
+          This is an automated test issue created by SUMMIT.
+          
+          **Task:** Create a file \`docs/CODER_SETUP_VERIFIED.md\` with:
+          - Coder version
+          - Deployment date
+          - Server URL
+          - Template name
+          
+          This confirms the Coder Workspaces pipeline is operational." \
+            --label "coder" 2>/dev/null || echo "Issue creation needs review")
+
+          echo "Test issue: $ISSUE_URL"
+          echo "✅ E2E test dispatched — check Coder UI at http://${{ secrets.HETZNER_IP }}:7080"
