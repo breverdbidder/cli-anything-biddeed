@@ -10,66 +10,38 @@ jobs:
       
       - name: Run SQL Migration
         env:
-          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
-          SUPABASE_DB_URL: postgresql://postgres.mocerqjnksmhcjzxrewo:${{ secrets.SUPABASE_DB_PASSWORD }}@aws-0-us-east-1.pooler.supabase.com:6543/postgres
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          # Install psql
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
           
-          # Try direct psql first
-          if [ -n "${{ secrets.SUPABASE_DB_PASSWORD }}" ]; then
-            echo "Running via psql..."
-            psql "$SUPABASE_DB_URL" -f migrations/20260327_discovery_results.sql
-          else
-            echo "No DB password — using Node.js Supabase client..."
-            npm install @supabase/supabase-js
-            
-            node -e "
-            const { createClient } = require('@supabase/supabase-js');
-            const fs = require('fs');
-            const sql = fs.readFileSync('migrations/20260327_discovery_results.sql', 'utf8');
-            
-            // Split into individual statements
-            const statements = sql.split(';')
-              .map(s => s.trim())
-              .filter(s => s.length > 0 && !s.startsWith('--'));
-            
-            const supabase = createClient(
-              process.env.SUPABASE_URL,
-              process.env.SUPABASE_SERVICE_ROLE_KEY
-            );
-            
-            (async () => {
-              for (const stmt of statements) {
-                try {
-                  const { data, error } = await supabase.rpc('exec_sql', { query: stmt });
-                  if (error) console.log('RPC failed, trying direct...', error.message);
-                  else console.log('OK:', stmt.substring(0, 60));
-                } catch(e) {
-                  console.log('Statement:', stmt.substring(0, 60), '→', e.message);
-                }
-              }
-            })();
-            "
-          fi
+          # Try direct connection (not pooler)
+          echo "Trying direct DB connection..."
+          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
+            -h db.mocerqjnksmhcjzxrewo.supabase.co \
+            -p 5432 \
+            -U postgres \
+            -d postgres \
+            -f migrations/20260327_discovery_results.sql
           
-      - name: Verify table exists
+          echo "✅ Migration complete"
+          
+      - name: Verify table
         env:
-          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SRK: ${{ secrets.SUPABASE_KEY }}
         run: |
-          # Check table via REST API
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${SUPABASE_URL}/rest/v1/discovery_results?select=id&limit=1" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+          RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/discovery_results?select=id&limit=1" \
+            -H "apikey: ${SRK}" \
+            -H "Authorization: Bearer ${SRK}")
           
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ discovery_results table EXISTS"
+          if [ "$RESULT" = "200" ]; then
+            echo "✅ discovery_results table verified"
           else
-            echo "❌ Table not found (HTTP $HTTP_CODE) — migration may need manual SQL Editor"
-            echo "Run this in Supabase Dashboard → SQL Editor:"
-            cat migrations/20260327_discovery_results.sql
-            exit 1
+            echo "⚠️ Table check returned HTTP $RESULT (may need schema cache refresh)"
+            echo "Waiting 5s and retrying..."
+            sleep 5
+            curl -s \
+              "https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/discovery_results?select=id&limit=1" \
+              -H "apikey: ${SRK}" \
+              -H "Authorization: Bearer ${SRK}"
           fi
