@@ -7,36 +7,14 @@ on:
 jobs:
   migrate:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install psql
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
-      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install pg
       - name: Run migration
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: |
-          # Use connection URI with hostname (SNI required for tenant routing)
-          echo "Attempting session pooler with SNI hostname..."
-          psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
-            -f migrations/20260327_discovery_results.sql \
-            && echo "✅ Done" && exit 0
-
-          echo "Attempting transaction pooler..."
-          psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres" \
-            -f migrations/20260327_discovery_results.sql \
-            && echo "✅ Done" && exit 0
-          
-          echo "❌ Failed — check SUPABASE_DB_PASSWORD secret"
-          exit 1
-      
-      - name: Verify
-        env:
-          SRK: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          sleep 5
-          curl -sf \
-            "https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/discovery_results?select=id&limit=1" \
-            -H "apikey: ${SRK}" \
-            -H "Authorization: Bearer ${SRK}" && echo "✅ Table verified" || echo "⚠️ Schema cache refresh needed"
+        run: node migrations/run_discovery_migration.js
