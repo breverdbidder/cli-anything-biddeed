@@ -13,6 +13,7 @@ jobs:
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: claude
+          password: ${{ secrets.HETZNER_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script_stop: true
           command_timeout: 8m
