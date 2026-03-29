@@ -82,6 +82,14 @@ jobs:
 
             echo '[4/5] Build Paperclip...'
             cd \"\$REPO_DIR\"
+
+            echo '  Writing .env for docker compose...'
+            AUTH_SECRET=\$(cat /home/claude/.paperclip-auth-secret 2>/dev/null || openssl rand -hex 32)
+            echo \"\$AUTH_SECRET\" > /home/claude/.paperclip-auth-secret
+            chmod 600 /home/claude/.paperclip-auth-secret
+            printf 'BETTER_AUTH_SECRET=%s\nPAPERCLIP_PUBLIC_URL=https://ops.biddeed.ai\nPAPERCLIP_ALLOWED_HOSTNAMES=ops.biddeed.ai,localhost\nNODE_ENV=production\nDATABASE_URL=file:/root/.paperclip/db.sqlite\n' \"\$AUTH_SECRET\" > .env
+            echo '  .env written'
+
             # Check if docker is available and prefer it
             if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
               echo '  Using Docker...'
