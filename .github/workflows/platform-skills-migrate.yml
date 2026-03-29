@@ -7,20 +7,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install psql + supabase CLI
-        run: |
-          sudo apt-get install -y postgresql-client
-          # Install Supabase CLI
-          wget -q https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz
-          tar xzf supabase_linux_amd64.tar.gz
-          sudo mv supabase /usr/local/bin/
-          supabase --version
+      - name: Install psql
+        run: sudo apt-get install -y postgresql-client
 
       - name: Run migration
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
           set -uo pipefail
           export PGSSLMODE=require
@@ -30,16 +23,17 @@ jobs:
 
           SUCCESS=0
 
-          # Try pooler connections (transaction + session mode, both regions)
+          # Try all pooler + direct connection patterns
           for CONN in \
             "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
             "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require" \
-            "postgresql://postgres:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
-            "postgresql://postgres:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require" \
             "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
             "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
+            "postgresql://postgres.${PROJECT_REF}:${SUPABASE_KEY}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
+            "postgresql://postgres:${SUPABASE_KEY}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
           ; do
-            echo "Trying: $(echo $CONN | sed 's|:[^:@]*@|:***@|g')"
+            SAFE_CONN=$(echo "$CONN" | sed 's|:[^:@]*@|:***@|g')
+            echo "Trying: $SAFE_CONN"
             if psql "$CONN" -c "SELECT 1" 2>&1; then
               echo "Connected! Running migration..."
               psql "$CONN" -f migrations/20260328_platform_skills_eval.sql
@@ -55,41 +49,11 @@ jobs:
             fi
           done
 
-          # Fallback: Supabase CLI with service role key
-          if [ "$SUCCESS" = "0" ] && [ -n "${SUPABASE_KEY:-}" ]; then
-            echo "=== Trying Supabase CLI approach ==="
-            # Extract project URL
-            PROJ_URL="${SUPABASE_URL:-https://${PROJECT_REF}.supabase.co}"
-            echo "Using URL: $PROJ_URL"
-
-            # Use curl with service role key to execute SQL via REST
-            RESPONSE=$(curl -s -w "\n%{http_code}" \
-              -H "apikey: ${SUPABASE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_KEY}" \
-              -H "Content-Type: application/json" \
-              "${PROJ_URL}/rest/v1/rpc/exec_sql" \
-              -d '{"sql": "SELECT 1"}' 2>&1 || true)
-            echo "REST probe: $RESPONSE"
-
-            # If REST probe works, execute migration via psql using Supabase key as password
-            for CONN in \
-              "postgresql://postgres.${PROJECT_REF}:${SUPABASE_KEY}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
-              "postgresql://postgres:${SUPABASE_KEY}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
-            ; do
-              echo "Trying with SUPABASE_KEY as password: $(echo $CONN | sed 's|:[^:@]*@|:***@|g')"
-              if psql "$CONN" -c "SELECT 1" 2>&1; then
-                echo "Connected with service key!"
-                psql "$CONN" -f migrations/20260328_platform_skills_eval.sql
-                SUCCESS=1
-                break
-              fi
-            done
-          fi
-
           if [ "$SUCCESS" = "0" ]; then
             echo "ERROR: All connection attempts failed."
-            echo "BLOCKER: SUPABASE_DB_PASSWORD secret needs to be updated."
-            echo "Run: supabase gen key --project-ref ${PROJECT_REF} to get fresh credentials"
-            echo "Then update GitHub secret: gh secret set SUPABASE_DB_PASSWORD --body 'new_password' --repo breverdbidder/cli-anything-biddeed"
+            echo ""
+            echo "BLOCKER: SUPABASE_DB_PASSWORD secret is stale or incorrect."
+            echo "To fix: Go to Supabase Dashboard → Settings → Database → Database Password"
+            echo "Then: gh secret set SUPABASE_DB_PASSWORD --body 'new_password' --repo breverdbidder/cli-anything-biddeed"
             exit 1
           fi
