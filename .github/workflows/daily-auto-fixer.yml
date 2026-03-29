@@ -60,7 +60,17 @@ jobs:
                   # Log chronic failures (5+ in a row) but don't disable — just report
                   for wf, count in wf_fails.items():
                       if count >= 5:
-                          fixes.append(f"⚠️ {repo}/{wf}: {count} failures — needs attention")
+                          fixes.append(f"⚠️ {repo}/{wf}: {count} failures")
+                          # Auto-disable if 10+ failures
+                          if count >= 10:
+                              try:
+                                  wf_list = requests.get(f"https://api.github.com/repos/breverdbidder/{repo}/actions/workflows?per_page=100", headers=gh_h, timeout=10).json().get("workflows", [])
+                                  for w in wf_list:
+                                      if w["name"] == wf_name and w["state"] == "active":
+                                          dr = requests.put(f"https://api.github.com/repos/breverdbidder/{repo}/actions/workflows/{w['id']}/disable", headers=gh_h, timeout=10)
+                                          if dr.status_code == 204: fixes.append(f"🔧 DISABLED {repo}/{wf_name}")
+                                          break
+                              except: pass
                           stale_wf_fixed += 1
               except Exception as e:
                   errors.append(f"GHA scan {repo}: {e}")
