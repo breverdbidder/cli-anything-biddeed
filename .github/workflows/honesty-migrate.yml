@@ -1,0 +1,21 @@
+name: Deploy Honesty Protocol Tables
+on: workflow_dispatch
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install psql
+        run: sudo apt-get install -y postgresql-client
+      
+      - name: Run migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -f migrations/20260328_honesty_protocol.sql
+          echo "=== Verify tables ==="
+          psql "$DATABASE_URL" -c "\dt honesty_violations"
+          psql "$DATABASE_URL" -c "\dt claim_audit"
+          psql "$DATABASE_URL" -c "SELECT count(*) as violations FROM honesty_violations"
