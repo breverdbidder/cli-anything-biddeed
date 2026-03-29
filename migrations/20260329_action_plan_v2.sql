@@ -109,8 +109,8 @@ INSERT INTO artifact_vault (title, artifact_type, domain, status, importance, so
 ),
 (
   'Algoma Full CI Report (PRD/PRS/SWOT/Battle Card)',
-  'docx', 'GTM', 'buried', 9,
-  'https://claude.ai/chat/bd1df173-fb7e-4d71-a67e-ea31b8c29305',
+  'md', 'GTM', 'deployed', 9,
+  'docs/plans/ALGOMA-CI-REPORT.md',
   ARRAY['competitive-intel','algoma']
 ),
 (
