@@ -1,0 +1,211 @@
+{
+  "skill_id": "codesearch",
+  "version": "1.0.0",
+  "description": "25 binary assertions for CodeSearch multi-repo code intelligence skill",
+  "spec": "specs/CODESEARCH-SPEC.md",
+  "issue": "breverdbidder/cli-anything-biddeed#19",
+  "pass_threshold": 0.8,
+  "autoloop_compatible": true,
+  "assertions": [
+    {
+      "id": 1,
+      "layer": "L1",
+      "category": "activation",
+      "input": "search code for Smart Router LLM routing logic",
+      "expected": "Skill activates and calls hybrid_code_search",
+      "type": "binary"
+    },
+    {
+      "id": 2,
+      "layer": "L1",
+      "category": "activation",
+      "input": "find function max_bid_formula in cli-anything-biddeed",
+      "expected": "Skill activates and filters by repo=cli-anything-biddeed",
+      "type": "binary"
+    },
+    {
+      "id": 3,
+      "layer": "L1",
+      "category": "activation",
+      "input": "codesearch Supabase RLS policy --language sql",
+      "expected": "Skill activates and filters by language=sql",
+      "type": "binary"
+    },
+    {
+      "id": 4,
+      "layer": "L1",
+      "category": "activation",
+      "input": "index repo everest-nexus",
+      "expected": "Skill activates and calls index_repo for everest-nexus",
+      "type": "binary"
+    },
+    {
+      "id": 5,
+      "layer": "L1",
+      "category": "activation",
+      "input": "show codesearch stats",
+      "expected": "Skill activates and queries code_repos table",
+      "type": "binary"
+    },
+    {
+      "id": 6,
+      "layer": "L2",
+      "category": "output_schema",
+      "input": "search 'Supabase upsert' and return results",
+      "expected": "Output contains keys: query, results, total, search_ms",
+      "type": "binary"
+    },
+    {
+      "id": 7,
+      "layer": "L2",
+      "category": "output_schema",
+      "input": "search results must include chunk metadata",
+      "expected": "Each result has: repo_name, filepath, language, chunk_body, start_line, symbol_name, score",
+      "type": "binary"
+    },
+    {
+      "id": 8,
+      "layer": "L2",
+      "category": "embedding",
+      "input": "embed text using Gemini Flash",
+      "expected": "Embedding dimension is exactly 768",
+      "type": "binary"
+    },
+    {
+      "id": 9,
+      "layer": "L2",
+      "category": "embedding",
+      "input": "check embedding model used",
+      "expected": "Model is text-embedding-004 (free tier, $0 cost)",
+      "type": "binary"
+    },
+    {
+      "id": 10,
+      "layer": "L2",
+      "category": "chunking",
+      "input": "chunk a Python file with a function definition",
+      "expected": "chunk_type='function', symbol_name contains function name, chunk not empty",
+      "type": "binary"
+    },
+    {
+      "id": 11,
+      "layer": "L2",
+      "category": "chunking",
+      "input": "chunk a TypeScript file with class definitions",
+      "expected": "chunk_type='class', symbol_name extracted, start_line > 0",
+      "type": "binary"
+    },
+    {
+      "id": 12,
+      "layer": "L2",
+      "category": "chunking",
+      "input": "chunk a Shell script (unsupported by tree-sitter)",
+      "expected": "Fallback line chunking used, chunk_type='block', chunk_body not empty",
+      "type": "binary"
+    },
+    {
+      "id": 13,
+      "layer": "L2",
+      "category": "chunking",
+      "input": "chunk a file larger than 100KB",
+      "expected": "File is skipped, returns empty list",
+      "type": "binary"
+    },
+    {
+      "id": 14,
+      "layer": "L2",
+      "category": "skip_rules",
+      "input": "index a repo containing node_modules/ directory",
+      "expected": "node_modules/ files are excluded from indexing",
+      "type": "binary"
+    },
+    {
+      "id": 15,
+      "layer": "L2",
+      "category": "skip_rules",
+      "input": "index a repo containing .git/ directory",
+      "expected": ".git/ files are excluded from indexing",
+      "type": "binary"
+    },
+    {
+      "id": 16,
+      "layer": "L2",
+      "category": "incremental",
+      "input": "index repo that was already indexed at same HEAD commit",
+      "expected": "Status is 'up_to_date', no embedding calls made",
+      "type": "binary"
+    },
+    {
+      "id": 17,
+      "layer": "L2",
+      "category": "incremental",
+      "input": "index repo with --full flag (force reindex)",
+      "expected": "All files processed regardless of last_indexed_commit",
+      "type": "binary"
+    },
+    {
+      "id": 18,
+      "layer": "L2",
+      "category": "git",
+      "input": "get HEAD commit for a cloned repo",
+      "expected": "Returns 40-char SHA string, not empty",
+      "type": "binary"
+    },
+    {
+      "id": 19,
+      "layer": "L2",
+      "category": "database",
+      "input": "upsert code_chunks to Supabase",
+      "expected": "Upsert uses merge-duplicates on (repo_name, filepath, start_line, commit_sha)",
+      "type": "binary"
+    },
+    {
+      "id": 20,
+      "layer": "L2",
+      "category": "database",
+      "input": "update code_repos after indexing",
+      "expected": "code_repos row has last_indexed_commit = HEAD, chunk_count > 0",
+      "type": "binary"
+    },
+    {
+      "id": 21,
+      "layer": "L2",
+      "category": "honesty",
+      "input": "report stats without querying DB",
+      "expected": "Skill REFUSES to report counts without SELECT COUNT(*) query — guard rail enforced",
+      "type": "binary"
+    },
+    {
+      "id": 22,
+      "layer": "L2",
+      "category": "honesty",
+      "input": "declare indexing done with 0 chunks",
+      "expected": "Skill CALLS OUT 0-chunk result, does not declare success",
+      "type": "binary"
+    },
+    {
+      "id": 23,
+      "layer": "L2",
+      "category": "cost",
+      "input": "embedding 10000 chunks with Gemini Flash",
+      "expected": "Cost is $0 (free tier) — no paid API calls",
+      "type": "binary"
+    },
+    {
+      "id": 24,
+      "layer": "L2",
+      "category": "hybrid_search",
+      "input": "search with vector_weight=0.7, text_weight=0.3",
+      "expected": "hybrid_code_search called with correct weights summing to 1.0",
+      "type": "binary"
+    },
+    {
+      "id": 25,
+      "layer": "L2",
+      "category": "tier1_coverage",
+      "input": "index all Tier 1 repos",
+      "expected": "All 5 repos (cli-anything-biddeed, zonewise-web, everest-nexus, cliproxy-gateway, biddeed-ai) indexed with >1000 total chunks",
+      "type": "binary"
+    }
+  ]
+}

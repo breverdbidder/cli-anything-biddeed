@@ -143,3 +143,23 @@
 ### BLOCKER 2: SUPABASE_DB_PASSWORD still fails auth — needs fresh reset in Supabase Dashboard
 ### Honesty: biddeed.ai DNS diagnosis = VERIFIED. Fix workflow created = VERIFIED. biddeed.ai online = UNTESTED (blocked)
 ### BLOCKER: Same as Sessions 8-9 — SUPABASE_DB_PASSWORD must be reset at Supabase Dashboard → Settings → Database
+
+## Session 12: CodeSearch — Issue #19 (partial ✅)
+- [x] Read issue #19 (breverdbidder/cli-anything-biddeed#19) — CodeSearch Multi-Repo Code Intelligence
+- [x] Read specs/CODESEARCH-SPEC.md (stolen from TabbyML/tabby, adapted to Python + Supabase pgvector)
+- [x] Create migrations/20260329_codesearch.sql — code_repos + code_chunks tables, vector/pg_trgm extensions, hybrid_code_search function, indexes, RLS
+- [x] Create skills/codesearch/codesearch.py — full indexing pipeline (clone/pull, tree-sitter chunk, Gemini Flash embed, Supabase upsert, search/index/stats CLI)
+- [x] Create skills/codesearch/requirements.txt — tree-sitter, supabase, httpx, click
+- [x] Create skills/codesearch/SKILL.md — Platform Skills format with guard rail
+- [x] Create skills/codesearch/eval.json — 25 binary assertions (L1+L2), pass_threshold=0.8, autoloop_compatible=true
+- [x] Create .github/workflows/codesearch-index.yml — nightly 3AM incremental + Sunday 4AM full reindex + chunk threshold verification
+- [x] Create .github/workflows/codesearch-migrate.yml — dispatch-based migration (handles both codesearch + platform_skills_eval)
+- [ ] Run migrations/20260329_codesearch.sql — BLOCKED: SUPABASE_DB_PASSWORD stale (same as Sessions 8-11)
+- [ ] Run migrations/20260328_platform_skills_eval.sql — BLOCKED: same
+- [ ] Index Tier 1 repos (>1000 chunks) — BLOCKED: needs running Hetzner + valid DB
+- [ ] Verify hybrid_code_search function returns results — BLOCKED: needs migration first
+- [ ] Comment on issue #19 with progress — BLOCKED: no GH_TOKEN in build env
+
+### BLOCKER (persistent): SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard → Settings → Database
+### To unblock: Reset password → update SUPABASE_DB_PASSWORD secret → dispatch codesearch-migrate.yml
+### Honesty: All code artifacts = VERIFIED (created, syntactically correct). DB migration = UNTESTED (auth blocked).
