@@ -328,3 +328,13 @@
 - [ ] GHA workflow execution: deploy to zonewise.ai/roadmap — UNTESTED (will run on push trigger)
 
 ### HONESTY: Roadmap doc + HTML built + pushed = VERIFIED. Competitor claims tagged VERIFIED (Gridics 3D massing, Algoma $2.3M seed, TestFit unit mix — all from public product pages). 20-phase priority = INFERRED from gap analysis. Live at zonewise.ai/roadmap = UNTESTED (depends on PAT4 write access to zonewise-web + Vercel auto-deploy).
+
+## Session 24: Issue #37 — chat_ground_truth + chat_reconciliation tables ✅
+- [x] Read issue #37: P0 — Create chat_ground_truth + chat_reconciliation tables for forensic validation of Q1 chat backfill
+- [x] Created migrations/20260329_chat_ground_truth.sql: exact DDL from issue (chat_ground_truth PRIMARY KEY session_id, chat_reconciliation with trust_score + missing_ids/orphan_ids arrays + 3 indexes)
+- [x] Created .github/workflows/chat-ground-truth-migrate.yml: follows chat-sessions-migrate.yml pattern (Phase 0: REST check → Phase 1: psql 5-conn fallback → Phase 2: REST verify with test inserts → Summary)
+- [x] Committed (50409db1) and pushed to main — VERIFIED
+- [ ] Workflow triggered: UNTESTED — gh CLI not authenticated in this environment; trigger manually via: gh workflow run chat-ground-truth-migrate.yml --repo breverdbidder/cli-anything-biddeed
+- [ ] Issue #37 comment: UNTESTED — same gh auth blocker
+
+### HONESTY: Migration SQL + GHA workflow written and pushed = VERIFIED (commit 50409db1). Workflow execution and DB table creation = UNTESTED (SUPABASE_DB_PASSWORD auth failures documented in Sessions 8–23 — may also block this migration).
