@@ -1,8 +1,8 @@
-name: "Daily Auto-Fixer (6:01 AM EST)"
+name: "Daily Auto-Fixer (6:01 AM EDT)"
 
 on:
   schedule:
-    - cron: '1 11 * * *'  # 6:01 AM EST = 11:01 UTC (EDT=10:01)
+    - cron: '1 10 * * *'  # 6:01 AM EDT = 10:01 UTC (switch to 11:01 Nov)
   workflow_dispatch:
 
 jobs:
@@ -125,27 +125,40 @@ jobs:
               errors.append(f"Sentinel check: {e}")
 
           # === BUILD REPORT ===
-          report = f"🔧 AUTO-FIXER — {NOW.strftime('%A %b %d, %I:%M %p')}\n\n"
+          report = f"🔧 AUTO-FIXER — {NOW.strftime('%A %b %d, %I:%M %p')}
+
+"
           
           if not fixes and not errors:
-              report += "✅ All clear. No open violations, no stale P0s, no chronic GHA failures.\n"
+              report += "✅ All clear. No open violations, no stale P0s, no chronic GHA failures.
+"
           else:
               if open_violations:
-                  report += f"🔴 {len(open_violations)} honesty violation(s) open\n"
+                  report += f"🔴 {len(open_violations)} honesty violation(s) open
+"
               if stale_p0:
-                  report += f"🟡 {len(stale_p0)} P0 task(s) stale >24h\n"
+                  report += f"🟡 {len(stale_p0)} P0 task(s) stale >24h
+"
               if stale_wf_fixed:
-                  report += f"⚠️ {stale_wf_fixed} workflow(s) with 5+ failures\n"
-              report += "\nDetails:\n"
+                  report += f"⚠️ {stale_wf_fixed} workflow(s) with 5+ failures
+"
+              report += "
+Details:
+"
               for f in fixes[:15]:  # Cap at 15 to avoid Telegram limit
-                  report += f"  {f}\n"
+                  report += f"  {f}
+"
               if len(fixes) > 15:
-                  report += f"  ... and {len(fixes)-15} more\n"
+                  report += f"  ... and {len(fixes)-15} more
+"
           
           if errors:
-              report += f"\n❌ Errors: {len(errors)}\n"
+              report += f"
+❌ Errors: {len(errors)}
+"
               for e in errors[:5]:
-                  report += f"  {e}\n"
+                  report += f"  {e}
+"
 
           print(report)
 
@@ -159,9 +172,11 @@ jobs:
                       json={"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML"},
                       timeout=10
                   )
-                  print(f"\n{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
+                  print(f"
+{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
               except Exception as e:
-                  print(f"\n❌ Telegram: {e}")
+                  print(f"
+❌ Telegram: {e}")
 
           # === LOG TO SUPABASE ===
           try:
