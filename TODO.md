@@ -318,6 +318,13 @@
 
 ### HONESTY: CI report created from web research (VERIFIED sources) + INFERRED pricing/tech stack. Artifact_vault SQL updated. nexus_tasks DB update UNTESTED (Supabase password blocker persists).
 
+## Session 25: Issue #39 — GHA Failure utcc-dispatcher.yml ✅
+- [x] Diagnosed root cause: multi-line MSG var in notify-batch job had lines at col 0 inside run: | block scalar — YAML terminated block prematurely, "Batch:" parsed as YAML key → 0 jobs, workflow file issue
+- [x] Verified fix already applied in commit 2c5b9cc0 (issue-33 YAML repair session)
+- [x] Proof: 20/20 failures BEFORE fix, 0/0 failures AFTER fix commit (2026-03-29T14:12Z)
+- [x] Commented on issue #39 with root cause + proof, closed issue
+- [x] task-lifecycle workflow triggered automatically on issue close
+
 ## Session 23: Issue #36 — GTM-012 ZoneWise Feature Roadmap ✅
 - [x] Read issue #36: GTM-012 — Build ZoneWise feature roadmap from competitive gap analysis (20 phases, close gaps vs Algoma/Gridics/TestFit)
 - [x] Analyzed competitors: Gridics (3D massing/national/by-right), Algoma (feasibility/pro forma/entitlement), TestFit (unit mix/parking/program)
