@@ -2,7 +2,7 @@ name: Continuous Executor (Every 2 Hours)
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '*/30 * * * *'  # Every 30min to keep 3 slots filled
   workflow_dispatch:
 
 jobs:
