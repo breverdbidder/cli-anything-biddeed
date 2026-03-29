@@ -115,10 +115,16 @@ jobs:
                   > docker-compose.yml
                 echo '  Created docker-compose.yml'
               fi
-              docker compose down 2>/dev/null || true
-              docker compose build --no-cache -q
-              docker compose up -d
-              echo '  Docker container started'
+              # Only rebuild if not already running (avoid slow no-cache rebuilds)
+              if docker ps --format '{{.Names}}' 2>/dev/null | grep -q paperclip; then
+                echo '  Container running — recreating with new .env...'
+                docker compose up -d --force-recreate 2>/dev/null || docker restart paperclip-server 2>/dev/null || true
+              else
+                echo '  First run — building (may take 10-15 min)...'
+                docker compose build -q 2>/dev/null || docker compose build
+                docker compose up -d
+              fi
+              echo '  Docker start attempted'
             else
               echo '  Using direct Node.js (no Docker)...'
               # Install dependencies and build
