@@ -126,4 +126,20 @@
 
 ### Phase 1 Status: UNTESTED — 5/5 skills VERIFIED (structure + assertion count). Migration + eval scoring BLOCKED on DB password.
 ### Next: Reset SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml → run dual evals per candidate
+
+## Session 11: Issue #18 — biddeed.ai offline (partial ✅)
+- [x] Read issue #18 (breverdbidder/cli-anything-biddeed#18)
+- [x] Diagnose: biddeed.ai has ZERO DNS records (empty CF zone dcb6876f057e0bb88be181d6e8d0dcbc) — VERIFIED
+- [x] Confirmed: brevard-bidder-landing.pages.dev is LIVE (HTTP 200, BidDeed brand) — VERIFIED
+- [x] Created .github/workflows/fix-biddeed-dns.yml — adds CNAME + CF Pages custom domain
+- [x] Dispatched fix-biddeed-dns.yml (runs 23706143611, 23706175941, 23706195313)
+- [x] Found blocker: CF_API_TOKEN has Zone:Read only, missing Zone:DNS:Edit permission
+- [x] Dispatched platform-skills-migrate.yml — still BLOCKED (SUPABASE_DB_PASSWORD auth fails)
+- [x] Commented on issue #18 with full diagnosis + 3 fix options for Ariel
+- [ ] Re-run fix-biddeed-dns.yml after CF_API_TOKEN gets DNS:Edit permission
+- [ ] Verify: curl https://biddeed.ai → HTTP 200
+
+### BLOCKER 1: CF_API_TOKEN needs Zone:DNS:Edit scope — add in CF Dashboard → API Tokens
+### BLOCKER 2: SUPABASE_DB_PASSWORD still fails auth — needs fresh reset in Supabase Dashboard
+### Honesty: biddeed.ai DNS diagnosis = VERIFIED. Fix workflow created = VERIFIED. biddeed.ai online = UNTESTED (blocked)
 ### BLOCKER: Same as Sessions 8-9 — SUPABASE_DB_PASSWORD must be reset at Supabase Dashboard → Settings → Database
