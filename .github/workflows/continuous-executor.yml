@@ -19,5 +19,5 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          pip install requests --break-system-packages -q 2>/dev/null
+          pip install requests xgboost numpy --break-system-packages -q 2>/dev/null
           python3 scripts/continuous_executor.py
