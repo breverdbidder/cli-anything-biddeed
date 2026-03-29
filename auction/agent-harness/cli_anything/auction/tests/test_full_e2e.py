@@ -7,6 +7,12 @@ import sys
 import shutil
 
 import pytest
+import os
+
+SKIP_LIVE = pytest.mark.skipif(
+    os.environ.get('CI') == 'true',
+    reason='RealForeclose blocks GHA IPs (403)'
+)
 from click.testing import CliRunner
 
 from cli_anything.auction.auction_cli import cli
@@ -21,6 +27,7 @@ class TestCLIRunner:
         assert result.exit_code == 0
         assert "Auction CLI" in result.output
 
+    @SKIP_LIVE
     def test_discover_upcoming(self):
         result = self.runner.invoke(cli, ["--json", "discover", "upcoming"])
         assert result.exit_code == 0
@@ -155,6 +162,7 @@ class TestCLISubprocess:
         data = json.loads(result.stdout)
         assert data["total"] > 0
 
+    @SKIP_LIVE
     def test_discover_upcoming_json(self):
         result = self._run(["--json", "discover", "upcoming"])
         assert result.returncode == 0
