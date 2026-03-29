@@ -1,8 +1,8 @@
-name: Daily Action Plan (6:00 AM EST)
+name: Daily Action Plan (6:00 AM EDT)
 
 on:
   schedule:
-    - cron: '0 11 * * *'  # 6 AM EST = 11 UTC
+    - cron: '0 10 * * *'  # 6:00 AM EDT = 10:00 UTC (switch to 11:00 Nov)
   workflow_dispatch:
 
 jobs:
@@ -177,15 +177,19 @@ jobs:
           lines.append(f"📊 {len(open_tasks)} open | {len(p0_tasks)} P0 | {len(overdue)} overdue | {len(blocked_tasks)} blocked")
           lines.append(f"👤 Ariel: {len(ariel_tasks)} | 🤖 Claude: {len(claude_tasks)}")
 
-          message = "\n".join(lines)
+          message = "
+".join(lines)
           print(message)
 
 
           # Add honesty violations to message
           if violations:
-              message += "\n🔴 HONESTY VIOLATIONS (OPEN):\n"
+              message += "
+🔴 HONESTY VIOLATIONS (OPEN):
+"
               for v in violations:
-                  message += f"  [{v.get('severity','?')}] {v.get('domain','?')}: {v.get('claim','?')[:50]}\n"
+                  message += f"  [{v.get('severity','?')}] {v.get('domain','?')}: {v.get('claim','?')[:50]}
+"
 
           # === 5. SEND TO TELEGRAM ===
           if TG_TOKEN and TG_CHAT:
@@ -196,7 +200,8 @@ jobs:
                       timeout=10
                   )
                   if r.status_code == 200:
-                      print("\n✅ Telegram sent")
+                      print("
+✅ Telegram sent")
                   else:
                       # Retry without parse_mode in case of formatting issues
                       r2 = requests.post(
@@ -204,11 +209,14 @@ jobs:
                           json={"chat_id": TG_CHAT, "text": message},
                           timeout=10
                       )
-                      print(f"\n{'✅' if r2.status_code == 200 else '❌'} Telegram retry: {r2.status_code}")
+                      print(f"
+{'✅' if r2.status_code == 200 else '❌'} Telegram retry: {r2.status_code}")
               except Exception as e:
-                  print(f"\n❌ Telegram failed: {e}")
+                  print(f"
+❌ Telegram failed: {e}")
           else:
-              print("\n⚠️ No Telegram credentials — skipping send")
+              print("
+⚠️ No Telegram credentials — skipping send")
 
           # === 6. STORE IN SUPABASE ===
           try:
