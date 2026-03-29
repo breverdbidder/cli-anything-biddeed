@@ -1,0 +1,53 @@
+name: ML Priority — Nightly Retrain
+
+on:
+  schedule:
+    - cron: '0 5 * * *'  # 1 AM EDT = 5 UTC, retrain before morning plan
+  workflow_dispatch:
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      MODEL_PATH: /tmp/priority_model.pkl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install xgboost numpy requests -q
+      - name: Train XGBoost on latest data
+        run: python3 scripts/ml_priority_engine.py
+      - name: Upload model as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: priority-model
+          path: /tmp/priority_model.pkl
+          retention-days: 7
+      - name: Store model in Supabase
+        run: |
+          python3 << 'PYSCRIPT'
+          import requests, json, base64, os
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          sb_h = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+          
+          with open("/tmp/priority_model.pkl", "rb") as f:
+              model_b64 = base64.b64encode(f.read()).decode()
+          
+          # Store in insights table
+          r = requests.post(f"{SB_URL}/rest/v1/insights", headers=sb_h, json={
+              "type": "ml_model",
+              "category": "priority_engine",
+              "content": json.dumps({
+                  "model_b64_truncated": model_b64[:100] + "...",
+                  "trained_at": __import__("datetime").datetime.now().isoformat(),
+                  "samples": "latest",
+              }),
+          }, timeout=10)
+          print(f"Model logged: HTTP {r.status_code}")
+          PYSCRIPT
