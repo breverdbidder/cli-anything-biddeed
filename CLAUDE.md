@@ -314,7 +314,8 @@ autodream:
 ## Stitch Integration
 ```mermaid
 graph LR
-    BG[BrandGuard] -->|brand_kit.json| PW[PromptWise]
+    BG[BrandGuard] -->|brand_kit.json| UM[UIUXProMax]
+    UM -->|design-intelligence| PW[PromptWise]
     PW -->|gemini-optimized prompt| SW[StitchWise V2]
     SW -->|SDK call| API[stitch.googleapis.com/mcp]
     API -->|HTML+screenshot| DS[DesignScore]
@@ -332,6 +333,16 @@ budget: 300 gen/mo (350 limit - 50 reserve)
 circuit_breaker: 3 retries/design
 brand: navy=#1E3A5F, orange=#F59E0B, bg=#020617, font=Inter
 commands: generate | list | export | dashboard | landing
+
+uiuxpromax:
+  install: npx uipro-cli init --ai claude
+  skill: .claude/skills/ui-ux-pro-max/SKILL.md
+  scripts: .claude/skills/ui-ux-pro-max/scripts/search.py
+  version: "2.5.0"
+  position: BETWEEN BrandGuard and PromptWise
+  role: design-intelligence (styles, palettes, fonts) — suggestions only, BrandGuard enforces brand
+  brand_override: false  # BrandGuard always wins — UIUXProMax is advisory only
+  repoeval_score: 84.65 (ADOPT — 2026-03-29)
 ```
 
 # ── FigmaWise Pipeline (added 2026-03-25) ──
