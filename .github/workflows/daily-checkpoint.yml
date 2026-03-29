@@ -74,6 +74,18 @@ jobs:
                       if age > 7: stale.append({"repo": repo, "days": age})
               except: pass
 
+
+          # === HONESTY PROTOCOL: Open Violations ===
+          open_violations = []
+          try:
+              r = requests.get(
+                  f"{SB_URL}/rest/v1/honesty_violations?resolved=eq.false&order=severity.asc",
+                  headers=sb, timeout=10
+              )
+              if r.status_code == 200:
+                  open_violations = r.json()
+          except: pass
+
           # Domain aggregation
           domains = {}
           for i in items:
