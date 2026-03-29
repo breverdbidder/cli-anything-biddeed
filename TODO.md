@@ -163,3 +163,22 @@
 ### BLOCKER (persistent): SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard → Settings → Database
 ### To unblock: Reset password → update SUPABASE_DB_PASSWORD secret → dispatch codesearch-migrate.yml
 ### Honesty: All code artifacts = VERIFIED (created, syntactically correct). DB migration = UNTESTED (auth blocked).
+
+## Session 13: ACTION-PLAN-V2 — Issue #21 (partial ✅)
+- [x] Read issue #21 (breverdbidder/cli-anything-biddeed#21) — ACTION-PLAN-V2 spec
+- [x] Read specs/ACTION-PLAN-V2-SPEC.md (10-step pipeline, ML scoring, artifact vault)
+- [x] Create migrations/20260329_action_plan_v2.sql — artifact_vault + task_carryforward + daily_digest tables + 8 artifacts seeded
+- [x] Rewrite scripts/daily_action_plan.py — V2 10-step pipeline: ml_priority_score(), carryforward, artifact check, 7-section Telegram, daily_digest storage
+- [x] Create scripts/evening_verification_sweep.py — 5 PM EST sweep, honesty scoring, violation logging
+- [x] Create .github/workflows/daily-verification-sweep.yml — cron 0 21 * * * (5 PM EDT)
+- [x] Create .github/workflows/action-plan-v2-migrate.yml — 6-connection fallback migration
+- [x] Update .github/workflows/daily-action-plan.yml — V2 name
+- [x] Committed + pushed (commit 09bd6c78)
+- [ ] Run migrations/20260329_action_plan_v2.sql — BLOCKED: SUPABASE_DB_PASSWORD stale (dispatch action-plan-v2-migrate.yml after reset)
+- [ ] Verify 5 platform skills (Sessions 7/11): VERIFIED — 5/5 have SKILL.md + 25 assertions each
+- [ ] Run migrations/20260328_platform_skills_eval.sql — BLOCKED: same DB password blocker
+- [ ] Comment on issue #21 — BLOCKED: no GH_TOKEN in build env
+
+### Phase 1 Status: Code = VERIFIED (committed, pushed). DB tables = UNTESTED (migration blocked).
+### BLOCKER (persistent): SUPABASE_DB_PASSWORD must be reset → dispatch action-plan-v2-migrate.yml + platform-skills-migrate.yml
+### Platform Skills: 5/5 candidates VERIFIED in .claude/skills/ (zonewise-scraper, cost-discipline, honesty-protocol, brand-colors, ship-gate)
