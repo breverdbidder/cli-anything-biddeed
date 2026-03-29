@@ -28,13 +28,77 @@ def tg(msg):
         except:
             pass
 
+def get_sun_times():
+    """Get sunset for Satellite Beach FL (28.1798, -80.5996) from sunrise-sunset.org API."""
+    import math
+    lat, lng = 28.1798, -80.5996
+    # Calculate sunset using NOAA algorithm (no external dependency)
+    from datetime import date
+    today = NOW.date()
+    n = today.timetuple().tm_yday
+    # Solar noon approximation
+    lng_hour = lng / 15.0
+    t_rise = n + ((18 - lng_hour) / 24.0)
+    # Sun mean anomaly
+    M = (0.9856 * t_rise) - 3.289
+    # Sun true longitude
+    L = M + (1.916 * math.sin(math.radians(M))) + (0.020 * math.sin(math.radians(2*M))) + 282.634
+    L = L % 360
+    # Right ascension
+    RA = math.degrees(math.atan(0.91764 * math.tan(math.radians(L))))
+    RA = RA % 360
+    L_quad = (L // 90) * 90
+    RA_quad = (RA // 90) * 90
+    RA = RA + (L_quad - RA_quad)
+    RA = RA / 15.0
+    # Sun declination
+    sinDec = 0.39782 * math.sin(math.radians(L))
+    cosDec = math.cos(math.asin(sinDec))
+    # Sunset hour angle (civil sunset for Shabbat = 90.833 degrees)
+    zenith = 90.833
+    cos_H = (math.cos(math.radians(zenith)) - (sinDec * math.sin(math.radians(lat)))) / (cosDec * math.cos(math.radians(lat)))
+    if cos_H > 1 or cos_H < -1:
+        return None  # no sunset
+    H = math.degrees(math.acos(cos_H))
+    H = H / 15.0
+    T = H + RA - (0.06571 * t_rise) - 6.622
+    UT = (T - lng_hour) % 24
+    # Convert to EST/EDT
+    offset = -4  # EDT
+    local = UT + offset
+    if local < 0: local += 24
+    sunset_hour = int(local)
+    sunset_min = int((local - sunset_hour) * 60)
+    return {"sunset_hour": sunset_hour, "sunset_min": sunset_min}
+
 def is_shabbat():
-    """No dispatches Friday sunset to Saturday sunset."""
-    dow = NOW.weekday()  # 0=Mon
-    hour = NOW.hour
-    if dow == 4 and hour >= 17: return True   # Friday after 5pm
-    if dow == 5: return True                   # Saturday
-    if dow == 6 and hour < 6: return True      # Sunday before 6am (buffer)
+    """Precise Shabbat guard for Satellite Beach FL.
+    Starts: Friday at sunset (candle lighting ~18min before)
+    Ends: Saturday at havdalah (sunset + 42min) + 10min Ariel buffer
+    Total: work resumes havdalah + 10 minutes."""
+    sun = get_sun_times()
+    if not sun:
+        # Fallback: conservative Friday 6pm - Saturday 9pm
+        dow = NOW.weekday()
+        if dow == 4 and NOW.hour >= 18: return True
+        if dow == 5 and NOW.hour < 21: return True
+        return False
+    
+    sunset_h = sun["sunset_hour"]
+    sunset_m = sun["sunset_min"]
+    dow = NOW.weekday()  # 4=Friday, 5=Saturday
+    current_minutes = NOW.hour * 60 + NOW.minute
+    sunset_minutes = sunset_h * 60 + sunset_m
+    
+    # Friday: Shabbat starts at sunset
+    if dow == 4 and current_minutes >= sunset_minutes:
+        return True
+    
+    # Saturday: Shabbat until havdalah (sunset + 42min) + 10min buffer
+    havdalah_minutes = sunset_minutes + 42 + 10
+    if dow == 5 and current_minutes < havdalah_minutes:
+        return True
+    
     return False
 
 # === 1. CHECK RUNNING SUMMITS (WIP=1) ===
