@@ -81,3 +81,18 @@
 
 ### Detects: css-grid/flexbox, gsap/framer/css-animations, glassmorphism, parallax, hero sections, card grids + 17 more patterns
 ### UNTESTED: Supabase persistence (DB auth failed from build env)
+
+## Session 9: claude-2x-statusline Adoption — Issue #14 (partial ✅)
+- [x] Read issue #14 (breverdbidder/cli-anything-biddeed#14)
+- [x] Clone claude-2x-statusline to ~/.claude/cc-2x-statusline (Full tier)
+- [x] Run install.sh <<< "3" — verified statusline output LIVE
+- [x] CLAUDE.md updated — replaced cc-status-line entry (+ statusline config block)
+- [x] scripts/setup-claude-hygiene.sh updated — idempotent install, npm uninstall cc-status-line
+- [x] Old cc-status-line removed (not installed globally, confirmed)
+- [x] Committed + pushed (commit 7f346751)
+- [x] Issue #14 comment posted with progress
+- [ ] Update CLAUDE.md in other 4 repos (zonewise-web, brevard-bidder-scraper, everest-nexus, 5th) — needs separate sessions
+- [ ] Run migrations/20260328_platform_skills_eval.sql — BLOCKED: SUPABASE_DB_PASSWORD stale (GHA runs 23705885058, 23705897033 both fail auth)
+
+### BLOCKER: SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard, then update secret in all repos
+### Honesty: DB migration = UNTESTED. Statusline adoption in cli-anything-biddeed = VERIFIED (live output confirmed)
