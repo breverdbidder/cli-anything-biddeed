@@ -1,0 +1,33 @@
+name: Platform Skills Eval Migration
+on: workflow_dispatch
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Run migration
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export PGSSLMODE=require
+
+          echo "=== Connecting to Supabase ==="
+          CONN="postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require"
+
+          echo "=== Running migration ==="
+          psql "$CONN" -f migrations/20260328_platform_skills_eval.sql
+
+          echo "=== Verifying tables ==="
+          psql "$CONN" -c "
+            SELECT
+              'skills_eval_results' AS tbl, COUNT(*) FROM skills_eval_results
+            UNION ALL
+            SELECT 'skills_adoption_log', COUNT(*) FROM skills_adoption_log;
+          "
+          echo "Migration complete. VERIFIED."

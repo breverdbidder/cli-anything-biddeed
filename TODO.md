@@ -50,3 +50,17 @@
 - [x] 23/23 tests passing
 - [x] Open-source integrations mapped: OpenMud, ai-underwriting, ConstructionAI, LangGraph
 - [x] Full spec document: docs/plans/BTR_SQUAD_SPEC.md
+
+## Session 7: Platform Skills Adoption — Phase 1 Eval (Issue #8)
+- [x] Read issue #8 and spec PLATFORM-SKILLS-ADOPTION.md
+- [ ] Run migration SQL: migrations/20260328_platform_skills_eval.sql (dispatch via platform-skills-migrate.yml — needs SUPABASE_DB_PASSWORD secret)
+- [x] Convert `zonewise-scraper` → .claude/skills/zonewise-scraper/ (SKILL.md + eval.json)
+- [x] Convert `cost-discipline` → .claude/skills/cost-discipline/ (SKILL.md + eval.json)
+- [x] Convert `honesty-protocol` → .claude/skills/honesty-protocol/ (SKILL.md + eval.json)
+- [x] Convert `brand-colors` → .claude/skills/brand-colors/ (SKILL.md + eval.json)
+- [x] Convert `ship-gate` → .claude/skills/ship-gate/ (SKILL.md + eval.json)
+- [ ] Run dual eval: same task both systems per candidate, score into cc_feature_comparison
+- [ ] Decision: ADOPT/EVAL/KEEP per candidate (curl/DB proof required)
+
+### Phase 1 Status: UNTESTED — skills created, migration + eval scoring pending
+### Next: Dispatch platform-skills-migrate.yml, then run evals against each skill
