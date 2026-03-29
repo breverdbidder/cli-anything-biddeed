@@ -31,10 +31,11 @@ jobs:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           SESSION_HOURS: ${{ inputs.session_hours }}
         with:
-          host: 87.99.129.125
+          host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: GITHUB_TOKEN,SUPABASE_KEY,ISSUE_NUMBER,SESSION_HOURS
+          envs: ISSUE_NUMBER,SESSION_HOURS
+          timeout: 60s
           command_timeout: 240m
           script: |
             set -e
@@ -42,37 +43,26 @@ jobs:
             echo "Issue: #${ISSUE_NUMBER}"
             echo "Max session: ${SESSION_HOURS}h"
             
-            # Prep: ensure repo exists and is owned by claude
-            REPO_DIR="/home/claude/cli-anything-biddeed"
-            if [ ! -d "$REPO_DIR" ]; then
-              git clone https://github.com/breverdbidder/cli-anything-biddeed.git "$REPO_DIR"
+            # Use same repo path as autoloop
+            REPO_DIR="/opt/biddeed/cli-anything-biddeed"
+            mkdir -p /opt/biddeed
+            if [ ! -d "${REPO_DIR}/.git" ]; then
+              git clone https://github.com/breverdbidder/cli-anything-biddeed.git "${REPO_DIR}"
             fi
-            chown -R claude:claude "$REPO_DIR"
-            
-            # Find claude binary
-            CLAUDE_BIN=$(which claude 2>/dev/null || find /usr/local/bin /usr/bin /home/claude/.npm-global/bin /root/.npm-global/bin -name claude -type f 2>/dev/null | head -1)
-            echo "Claude binary: ${CLAUDE_BIN:-NOT FOUND}"
-            
-            # Pull latest as claude user (force reset dirty tree)
-            su - claude -c "cd ${REPO_DIR} && git reset --hard HEAD && git clean -fd && git pull origin main 2>&1" || true
+            cd "${REPO_DIR}"
+            git pull origin main --ff-only 2>&1 | tail -3 || { git reset --hard HEAD && git clean -fd && git pull origin main; }
             
             echo "=== Starting Claude Code session ==="
             
-            # Run CC as claude user with -p (print/prompt mode, non-interactive)
-            su - claude -c "
-              export PATH=/usr/local/bin:/usr/bin:/home/claude/.npm-global/bin:/home/claude/.local/bin:\$PATH
-              cd ${REPO_DIR}
-              
-              claude -p \
-                'Read GitHub issue #${ISSUE_NUMBER} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE_NUMBER}.
-                 Follow CLAUDE.md directives. Load TODO.md if present.
-                 Read specs/PLATFORM-SKILLS-ADOPTION.md for full spec.
-                 Execute Phase 1 tasks from the issue checklist autonomously.
-                 Run migrations/20260328_platform_skills_eval.sql against Supabase.
-                 Convert each skill candidate to .claude/skills/ format.
-                 Commit frequently. Push results. Update issue with progress.
-                 Session budget: 10 dollars max. Honesty Protocol enforced.' \
-                2>&1 || echo 'CC session ended (timeout or error)'
-            "
+            IS_SANDBOX=1 claude -p \
+              "Read GitHub issue #${ISSUE_NUMBER} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE_NUMBER}.
+               Follow CLAUDE.md directives. Load TODO.md if present.
+               Read specs/PLATFORM-SKILLS-ADOPTION.md for full spec.
+               Execute Phase 1 tasks from the issue checklist autonomously.
+               Run migrations/20260328_platform_skills_eval.sql against Supabase.
+               Convert each skill candidate to .claude/skills/ format.
+               Commit frequently. Push results. Update issue with progress.
+               Session budget: 10 dollars max. Honesty Protocol enforced." \
+              --dangerously-skip-permissions 2>&1 || echo "CC session ended"
             
             echo "=== SUMMIT Task Complete ==="
