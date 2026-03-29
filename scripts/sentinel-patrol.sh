@@ -126,6 +126,8 @@ check_coder_health() {
   fi
 }
 
-# Add to patrol run
-check_coder_health
+# Only run Coder health check on Hetzner (not in GitHub Actions — localhost:3000 unavailable)
+if [[ -z "${GITHUB_ACTIONS:-}" ]]; then
+  check_coder_health
+fi
 
