@@ -104,7 +104,7 @@ observance: Orthodox (Shabbat Fri sunset–Sat havdalah, kosher, holidays)
 ```yaml
 plugins:
   context7: { purpose: live API docs, install: "/plugin → context7", cost: $0 }
-  cc-status-line: { purpose: context monitor, install: "npx cc-status-line@latest" }
+  claude-2x-statusline: { purpose: context monitor, install: "git clone https://github.com/Nadav-Fux/claude-2x-statusline.git ~/.claude/cc-2x-statusline && bash ~/.claude/cc-2x-statusline/install.sh <<< '3'", tier: Full, repoeval: 86, replaces: cc-status-line }
   cctop: { purpose: sessions dashboard, install: "curl -fsSL https://raw.githubusercontent.com/DeanLa/cctop/main/install.sh | bash", fork: breverdbidder/cctop }
 ```
 
@@ -119,9 +119,11 @@ rules:
   never_compact: loses working context, keeps stale — always fresh start
   sub_agents: dispatch via Superpowers for heavy work
   harness_checkpoint: save state + restart if >50% mid-pipeline
-cc_status_line:
-  line1: "model | context% | session_cost | session_clock"
-  line2: "git_branch | git_worktree"
+claude_2x_statusline:
+  plugin: ~/.claude/cc-2x-statusline/statusline.sh
+  slash_commands: [/statusline-minimal, /statusline-standard, /statusline-full]
+  line1: "peak_status | model | git_branch | unsaved | rate_limits"
+  line2: "timeline bar | 5h rate | weekly rate"
 ```
 
 ---

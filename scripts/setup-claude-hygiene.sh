@@ -1,17 +1,24 @@
 #!/bin/bash
 # Claude Code Session Hygiene Setup
 # Run this ONCE on any dev machine to install mandatory plugins
-# Created: Mar 15, 2026 | Updated: Mar 17, 2026
+# Created: Mar 15, 2026 | Updated: Mar 29, 2026 (claude-2x-statusline replaces cc-status-line)
 
 set -e
 
 echo "=== Claude Code Session Hygiene Setup ==="
 echo ""
 
-# 1. Install CC Status Line
-echo "[1/3] Installing CC Status Line..."
-npx cc-status-line@latest
-echo "✅ CC Status Line installed"
+# 1. Install claude-2x-statusline (RepoEval 86 → ADOPT, replaces cc-status-line)
+echo "[1/3] Installing claude-2x-statusline (Full tier)..."
+if [ ! -d "$HOME/.claude/cc-2x-statusline" ]; then
+  git clone https://github.com/Nadav-Fux/claude-2x-statusline.git ~/.claude/cc-2x-statusline
+  bash ~/.claude/cc-2x-statusline/install.sh <<< "3"
+  echo "✅ claude-2x-statusline installed (Full tier)"
+else
+  echo "✅ claude-2x-statusline already installed at ~/.claude/cc-2x-statusline"
+fi
+# Remove old cc-status-line if present
+npm uninstall -g cc-status-line 2>/dev/null || true
 echo ""
 
 # 2. Install cctop (Claude Code Sessions Dashboard)
@@ -37,7 +44,7 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "REMEMBER:"
-echo "  • Kill sessions at 50% context (watch the status bar)"
+echo "  • Kill sessions at 50% context (watch the claude-2x-statusline bar)"
 echo "  • NEVER use /compact — start fresh instead"
 echo "  • Run cctop in a separate terminal to monitor all sessions"
 echo "  • Use Superpowers execute-plan for heavy work (sub-agents)"
