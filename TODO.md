@@ -215,5 +215,6 @@
 
 ### Platform Skills: 5/5 VERIFIED (scripts/validate_platform_skills.py run = ALL PASS)
 ### Sentinel: VERIFIED fixed in Session 14. Issue #23 task is pre-fix (stale nexus_task entry).
+### Migration workflow: Updated with Hetzner SSH fallback (commits 9ff4f8ff + b135406e by parallel summit)
 ### BLOCKER (persistent Sessions 8-15): SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard → Settings → Database
-### To unblock: Reset password → gh secret set SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml
+### To unblock: Reset password → gh secret set SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml → runs via Hetzner if direct psql fails
