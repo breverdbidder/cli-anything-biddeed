@@ -1,0 +1,179 @@
+name: SUMMIT Verifier — 30min Loop
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Every 30 minutes, 24/6
+  workflow_dispatch: {}
+
+jobs:
+  verify-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify SUMMIT runs + auto-dispatch next batch
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+        run: |
+          pip install requests --quiet
+
+          python3 << 'PYEOF'
+          import requests, json, os, time
+          from datetime import datetime, timezone
+
+          GH = os.environ["GH_TOKEN"]
+          SB_URL = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co")
+          SB_KEY = os.environ.get("SUPABASE_KEY", "")
+          TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+          TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "740118343")
+          REPO = "breverdbidder/cli-anything-biddeed"
+          MAX_PARALLEL = 3
+
+          gh_h = {"Authorization": f"token {GH}", "Accept": "application/vnd.github.v3+json"}
+          sb_h = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
+
+          def tg(msg):
+              if TG_TOKEN:
+                  try:
+                      requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+                          json={"chat_id": TG_CHAT, "text": msg[:4000], "parse_mode": "Markdown"}, timeout=10)
+                  except: pass
+
+          def update_nexus_task(task_id, status, summary=""):
+              if not SB_KEY: return
+              patch = {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}
+              if summary: patch["result_summary"] = summary[:500]
+              if status == "done": patch["completed_at"] = datetime.now(timezone.utc).isoformat()
+              try:
+                  requests.patch(f"{SB_URL}/rest/v1/nexus_tasks?task_id=eq.{task_id}", headers=sb_h, json=patch, timeout=10)
+              except: pass
+
+          # STEP 1: Get all SUMMIT runs
+          r = requests.get(f"https://api.github.com/repos/{REPO}/actions/workflows/summit-task.yml/runs?per_page=10", headers=gh_h, timeout=15)
+          runs = r.json().get("workflow_runs", [])
+
+          active = [r for r in runs if r["status"] in ("in_progress", "queued")]
+          completed_new = [r for r in runs if r["status"] == "completed" and r.get("conclusion") in ("success", "failure")]
+
+          print(f"Active SUMMIT runs: {len(active)}")
+          print(f"Recently completed: {len(completed_new)}")
+
+          # STEP 2: For completed runs, extract issue number and mark nexus_tasks
+          # Map issue titles to nexus task IDs
+          TITLE_TO_TASK = {
+              "biddeed.ai": "BIDDEED-010",
+              "paperclip": "SHIP-001",
+              "competitor": "GTM-010",
+              "feature gaps": "ZONE-010",
+              "envelope conquest": "ZONE-011",
+              "brevard envelope": "ZONE-001",
+              "gha health": "ECO-010",
+              "lcm swim": "MICHAEL-010",
+              "algoma": "GTM-011",
+              "competitors page": "ZONE-012",
+              "feature roadmap": "GTM-012",
+          }
+
+          newly_done = []
+          for run in completed_new:
+              title_lower = run.get("display_title", "").lower()
+              for keyword, task_id in TITLE_TO_TASK.items():
+                  if keyword in title_lower:
+                      status = "done" if run["conclusion"] == "success" else "failed"
+                      update_nexus_task(task_id, status, f"SUMMIT Run #{run['run_number']} {run['conclusion']}")
+                      newly_done.append(f"{task_id}: {run['conclusion']}")
+                      print(f"  Marked {task_id} → {status}")
+                      break
+
+          # STEP 3: Count slots available
+          slots_available = MAX_PARALLEL - len(active)
+          print(f"Slots available: {slots_available}")
+
+          if slots_available <= 0:
+              msg = f"🔄 *SUMMIT Verifier*\n{len(active)} runs active, 0 slots. Waiting."
+              if newly_done:
+                  msg += f"\n✅ Completed: {', '.join(newly_done)}"
+              tg(msg)
+              print("No slots. Exiting.")
+              exit(0)
+
+          # STEP 4: Get next P0/P1 tasks from nexus_tasks that are NOT done
+          if SB_KEY:
+              r = requests.get(
+                  f"{SB_URL}/rest/v1/nexus_tasks?select=task_id,description,priority,status,project&status=neq.done&status=neq.success&status=neq.failed&status=neq.cancelled&owner=eq.claude_code&order=priority.asc,created_at.asc&limit=10",
+                  headers={"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}, timeout=10)
+              pending = r.json() if r.status_code == 200 else []
+          else:
+              pending = []
+
+          # Filter out GHA noise (GHA-* tasks)
+          pending = [t for t in pending if not t["task_id"].startswith("GHA-")]
+          print(f"Pending real tasks: {len(pending)}")
+
+          # Check which tasks already have open SUMMIT issues to avoid duplicates
+          r = requests.get(f"https://api.github.com/repos/{REPO}/issues?labels=summit&state=open&per_page=30", headers=gh_h, timeout=15)
+          open_issues = r.json() if r.status_code == 200 else []
+          open_titles = " ".join([i.get("title","").lower() for i in open_issues])
+
+          dispatched = []
+          for task in pending[:slots_available]:
+              # Skip if already has an open SUMMIT issue
+              task_id_lower = task["task_id"].lower()
+              desc_words = task["description"].lower().split()[:5]
+              if any(w in open_titles for w in desc_words if len(w) > 5):
+                  print(f"  Skip {task['task_id']}: already has open issue")
+                  continue
+
+              # Create issue
+              issue_body = f"""## AUTO-DISPATCHED by SUMMIT Verifier
+**Task:** {task['task_id']}
+**Priority:** {task['priority']}
+**Project:** {task['project']}
+
+## MISSION
+{task['description']}
+
+## RULES
+- Read CLAUDE.md first
+- Execute autonomously — zero HITL
+- Verify with curl/DB proof before marking done
+- Update nexus_tasks status on completion
+- Honesty Protocol enforced
+"""
+              r = requests.post(f"https://api.github.com/repos/{REPO}/issues", headers=gh_h, json={
+                  "title": f"{task['priority']}: {task['task_id']} — {task['description'][:80]}",
+                  "labels": ["summit"],
+                  "body": issue_body
+              })
+              if r.status_code == 201:
+                  issue_num = r.json()["number"]
+                  # Dispatch
+                  d = requests.post(
+                      f"https://api.github.com/repos/{REPO}/actions/workflows/summit-task.yml/dispatches",
+                      headers=gh_h,
+                      json={"ref": "main", "inputs": {"issue_number": str(issue_num), "timeout_minutes": "90"}}
+                  )
+                  update_nexus_task(task["task_id"], "dispatched", f"SUMMIT Issue #{issue_num}")
+                  dispatched.append(f"#{issue_num} {task['task_id']}")
+                  print(f"  Dispatched {task['task_id']} → Issue #{issue_num} (HTTP {d.status_code})")
+                  time.sleep(3)
+
+          # STEP 5: Telegram report
+          now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+          msg = f"🔄 *SUMMIT Verifier — {now}*\n"
+          msg += f"Active: {len(active)} | Slots: {slots_available}\n"
+          if newly_done:
+              msg += f"✅ Done: {', '.join(newly_done)}\n"
+          if dispatched:
+              msg += f"🚀 Dispatched: {', '.join(dispatched)}\n"
+          if not dispatched and not newly_done:
+              msg += "No changes. Monitoring.\n"
+          msg += f"Queue: {len(pending)} tasks remaining"
+          tg(msg)
+          print(f"\nSummary: {len(active)} active, {len(newly_done)} completed, {len(dispatched)} dispatched, {len(pending)} queued")
+          PYEOF
