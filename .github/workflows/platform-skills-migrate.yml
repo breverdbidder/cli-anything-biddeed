@@ -13,21 +13,37 @@ jobs:
       - name: Run migration
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           export PGSSLMODE=require
 
-          echo "=== Connecting to Supabase ==="
-          CONN="postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require"
+          echo "=== Trying multiple Supabase connection patterns ==="
 
-          echo "=== Running migration ==="
-          psql "$CONN" -f migrations/20260328_platform_skills_eval.sql
+          SUCCESS=0
+          for CONN in \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require" \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require" \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
+          ; do
+            echo "Trying: $CONN"
+            if psql "$CONN" -c "SELECT 1" 2>&1; then
+              echo "Connected! Running migration..."
+              psql "$CONN" -f migrations/20260328_platform_skills_eval.sql
+              echo "=== Verifying tables ==="
+              psql "$CONN" -c "
+                SELECT 'skills_eval_results' AS tbl, COUNT(*) FROM skills_eval_results
+                UNION ALL
+                SELECT 'skills_adoption_log', COUNT(*) FROM skills_adoption_log;
+              "
+              echo "Migration complete. VERIFIED."
+              SUCCESS=1
+              break
+            fi
+          done
 
-          echo "=== Verifying tables ==="
-          psql "$CONN" -c "
-            SELECT
-              'skills_eval_results' AS tbl, COUNT(*) FROM skills_eval_results
-            UNION ALL
-            SELECT 'skills_adoption_log', COUNT(*) FROM skills_adoption_log;
-          "
-          echo "Migration complete. VERIFIED."
+          if [ "$SUCCESS" = "0" ]; then
+            echo "ERROR: All connection attempts failed. Check SUPABASE_DB_PASSWORD secret."
+            exit 1
+          fi
