@@ -84,24 +84,24 @@ jobs:
               echo '  Using Docker...'
               # Create/update docker-compose if missing
               if [ ! -f docker-compose.yml ] && [ ! -f docker-compose.yaml ]; then
-                cat > docker-compose.yml << 'DOCKEREOF'
-version: '3.8'
-services:
-  paperclip:
-    build: .
-    container_name: paperclip-server
-    ports:
-      - \"127.0.0.1:3100:3100\"
-    volumes:
-      - paperclip-data:/root/.paperclip
-    environment:
-      - NODE_ENV=production
-      - PAPERCLIP_PUBLIC_URL=https://ops.biddeed.ai
-      - PAPERCLIP_ALLOWED_HOSTNAMES=ops.biddeed.ai,localhost
-    restart: unless-stopped
-volumes:
-  paperclip-data:
-DOCKEREOF
+                printf '%s\n' \
+                  \"version: '3.8'\" \
+                  \"services:\" \
+                  \"  paperclip:\" \
+                  \"    build: .\" \
+                  \"    container_name: paperclip-server\" \
+                  \"    ports:\" \
+                  \"      - '127.0.0.1:3100:3100'\" \
+                  \"    volumes:\" \
+                  \"      - paperclip-data:/root/.paperclip\" \
+                  \"    environment:\" \
+                  \"      - NODE_ENV=production\" \
+                  \"      - PAPERCLIP_PUBLIC_URL=https://ops.biddeed.ai\" \
+                  \"      - PAPERCLIP_ALLOWED_HOSTNAMES=ops.biddeed.ai,localhost\" \
+                  \"    restart: unless-stopped\" \
+                  \"volumes:\" \
+                  \"  paperclip-data:\" \
+                  > docker-compose.yml
                 echo '  Created docker-compose.yml'
               fi
               docker compose down 2>/dev/null || true
@@ -261,25 +261,8 @@ DOCKEREOF
             set -euo pipefail
 
             echo "[nginx] Writing ops.biddeed.ai config..."
-            cat > /etc/nginx/sites-available/ops-biddeed << '"'"'NGINXEOF'"'"'
-server {
-    listen 80;
-    server_name ops.biddeed.ai;
-
-    location / {
-        proxy_pass http://127.0.0.1:3100;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 86400;
-    }
-}
-NGINXEOF
+            NGINX_CONF="/etc/nginx/sites-available/ops-biddeed"
+            printf "server {\n    listen 80;\n    server_name ops.biddeed.ai;\n\n    location / {\n        proxy_pass http://127.0.0.1:3100;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade \$http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_set_header Host \$host;\n        proxy_set_header X-Real-IP \$remote_addr;\n        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto \$scheme;\n        proxy_cache_bypass \$http_upgrade;\n        proxy_read_timeout 86400;\n    }\n}\n" > "$NGINX_CONF"
 
             ln -sf /etc/nginx/sites-available/ops-biddeed /etc/nginx/sites-enabled/ 2>/dev/null || true
             nginx -t
