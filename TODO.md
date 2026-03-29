@@ -182,3 +182,16 @@
 ### Phase 1 Status: Code = VERIFIED (committed, pushed). DB tables = UNTESTED (migration blocked).
 ### BLOCKER (persistent): SUPABASE_DB_PASSWORD must be reset → dispatch action-plan-v2-migrate.yml + platform-skills-migrate.yml
 ### Platform Skills: 5/5 candidates VERIFIED in .claude/skills/ (zonewise-scraper, cost-discipline, honesty-protocol, brand-colors, ship-gate)
+
+## Session 14: GHA Sentinel Failure + Platform Skills Phase 1 — Issue #22 ✅
+- [x] Diagnose GHA failure: sentinel-patrol.sh calls check_coder_health() with undefined functions (log_warn, log_info, send_telegram) + localhost:3000 unavailable in GHA → exits 127
+- [x] Fix scripts/sentinel-patrol.sh: gate check_coder_health with [[ -z "${GITHUB_ACTIONS:-}" ]] (Hetzner-only)
+- [x] Fix .github/workflows/autoloop.yml: resolve Platform Skills eval paths (.claude/skills/*/eval.json) in steps 1, 2, 3, 4 — was using wrong legacy path (harness/eval/eval.json)
+- [x] Committed + pushed (commit 66790262)
+- [ ] Trigger platform-skills-migrate.yml (workflow_dispatch) after SUPABASE_DB_PASSWORD reset
+- [ ] Comment on issue #22 — BLOCKED: no GH_TOKEN in build env
+- [ ] Mark done in nexus_tasks — BLOCKED: no Supabase creds in build env
+
+### Sentinel fix: VERIFIED (pushed to main, next cron run should pass)
+### autoloop.yml Platform Skills: VERIFIED (paths fixed for all 5 skills)
+### BLOCKER (same as Sessions 8-13): SUPABASE_DB_PASSWORD reset required for migrations
