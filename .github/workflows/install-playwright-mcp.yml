@@ -35,21 +35,7 @@ jobs:
             # Also add to .claude.json directly as backup
             CLAUDE_JSON="/home/claude/.claude.json"
             if [ -f "$CLAUDE_JSON" ]; then
-              python3 -c "
-import json
-with open('$CLAUDE_JSON') as f:
-    d = json.load(f)
-if 'mcpServers' not in d:
-    d['mcpServers'] = {}
-d['mcpServers']['playwright'] = {
-    'type': 'stdio',
-    'command': 'npx',
-    'args': ['-y', '@playwright/mcp@latest']
-}
-with open('$CLAUDE_JSON', 'w') as f:
-    json.dump(d, f, indent=2)
-print('✅ Added Playwright MCP to .claude.json')
-"
+              python3 -c "import json; d=json.load(open('$CLAUDE_JSON')); d.setdefault('mcpServers',{})['playwright']={'type':'stdio','command':'npx','args':['-y','@playwright/mcp@latest']}; json.dump(d, open('$CLAUDE_JSON','w'), indent=2); print('Added Playwright MCP to .claude.json')"
             else
               echo '{"mcpServers":{"playwright":{"type":"stdio","command":"npx","args":["-y","@playwright/mcp@latest"]}}}' > "$CLAUDE_JSON"
               echo "✅ Created .claude.json with Playwright MCP"
