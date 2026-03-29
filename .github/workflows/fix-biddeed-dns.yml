@@ -61,19 +61,21 @@ jobs:
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
         run: |
           echo "=== Existing DNS records for biddeed.ai ==="
-          curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+          RESP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
             -H "Authorization: Bearer $CF_API_TOKEN" \
-            -H "Content-Type: application/json" | \
-            python3 -c "
+            -H "Content-Type: application/json")
+          echo "$RESP" | python3 -c "
           import json, sys
           d = json.load(sys.stdin)
-          records = d.get('result', [])
+          records = d.get('result') or []
           if not records:
-              print('No DNS records found (explains HTTP 000)')
-          for r in records:
-              print(f\"  {r['type']:6} {r['name']:40} -> {r.get('content','')}\")
+              print('No DNS records found (empty zone — expected, this is why HTTP 000)')
+          else:
+              for r in records:
+                  print(f\"  {r['type']:6} {r['name']:40} -> {r.get('content','')}\")
           print(f'Total: {len(records)} records')
-          "
+          print(f'API success: {d.get(\"success\")}')
+          " || echo "Note: $RESP"
 
       - name: Add CNAME for apex biddeed.ai
         if: ${{ github.event.inputs.dry_run != 'true' }}
