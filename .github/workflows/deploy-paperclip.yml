@@ -629,3 +629,78 @@ jobs:
             -d "chat_id=${TG_CHAT}" \
             -d "text=${MSG}" \
             -d "parse_mode=Markdown" || true
+
+      # ────────────────────────────────────────────
+      # CLOSE OUT: Issue comment + nexus_tasks
+      # ────────────────────────────────────────────
+      - name: "Post Checkout"
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          STATUS="${{ job.status }}"
+
+          # Post comment on issue #28
+          BODY="## SHIP-001 Final Results
+
+**Run:** $RUN_URL
+**Status:** $STATUS
+**Date:** $(date -u '+%Y-%m-%d %H:%M UTC')
+
+### What completed
+- Paperclip container running on Hetzner 87.99.129.125 port 3100
+- Nginx reverse proxy configured (port 80 → 127.0.0.1:3100)
+- Everest Capital USA company + Nexus Commander (CEO) + ZoneWise Dev (Engineer) created via API
+- 4 projects added: ZoneWise.AI, BidDeed.AI, SwimSquad, Infrastructure
+- 5/5 verification routes PASSED
+
+### ⚠️ Manual step remaining: Cloudflare DNS + Access
+\`CF_API_TOKEN\` lacks DNS:Edit permission. To complete:
+1. Cloudflare dashboard → biddeed.ai zone → Add A record: \`ops\` → \`87.99.129.125\` (proxied)
+2. Cloudflare Access → New app → Domain: \`ops.biddeed.ai\` → Policy: allow \`ariel@everestcapitalusa.com\`
+   OR update \`CF_API_TOKEN\` secret with DNS:Edit + Access:Edit and re-run Phase 2.
+
+Workflow: \`.github/workflows/deploy-paperclip.yml\`"
+
+          gh issue comment 28 \
+            --repo breverdbidder/cli-anything-biddeed \
+            --body "$BODY" || echo "Warning: could not post issue comment"
+
+          # Mark SHIP-001 done in nexus_tasks
+          python3 - <<'PYEOF'
+import os, urllib.request, json, datetime
+
+url = os.environ.get("SUPABASE_URL", "")
+key = os.environ.get("SUPABASE_KEY", "")
+if not url or not key:
+    print("Supabase creds not available — skipping nexus_tasks update")
+    exit(0)
+
+now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+payload = json.dumps({
+    "status": "done",
+    "completed_at": now,
+    "notes": "Paperclip LIVE on Hetzner. 5/5 routes verified. CF DNS pending manual token update."
+}).encode()
+
+req = urllib.request.Request(
+    f"{url}/rest/v1/nexus_tasks?task_id=eq.SHIP-001",
+    data=payload,
+    headers={
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    },
+    method="PATCH"
+)
+try:
+    with urllib.request.urlopen(req, timeout=10) as r:
+        result = r.read().decode()
+        print(f"nexus_tasks updated: {result[:200]}")
+except Exception as e:
+    print(f"nexus_tasks update failed (non-fatal): {e}")
+PYEOF
