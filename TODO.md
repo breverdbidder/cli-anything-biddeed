@@ -262,6 +262,24 @@
 ### To unblock: Go to Supabase Dashboard → Settings → Database → Reset Password → update SUPABASE_DB_PASSWORD secret in GitHub
 ### Platform Skills: 5/5 VERIFIED (structure). Dual eval scoring = UNTESTED (migration blocked).
 
+## Session 20: Issue #32 — ZONE-011 Envelope Conquest Fix (✅ VERIFIED-CODE / UNTESTED-DB)
+- [x] Read issue #32 (MODAL [P0|88] ZONE-011: Cocoa Beach 9%, Titusville 39%, Cocoa 41%)
+- [x] Diagnosed 5 root causes (all VERIFIED via code analysis):
+  - Cocoa prefix bug: "23" (rockledge!) → "22" in SECTION_PREFIXES — was querying wrong city for months
+  - Missing GIS endpoints for titusville/cocoa/cocoa_beach (null/PENDING)
+  - Missing FL municipal zone codes (B-1..B-5, I-1/I-2, R-1A, R-1AA, RSF/RMF/C-series)
+  - Wrong AGOL field names (PARCEL_ID vs Name for parcel ID)
+  - No FL pattern fallback — unknown codes got null setbacks → Architect skipped parcels
+- [x] Fixed `envelope/agent-harness/agents/scout/zoning_scout.js` (commit 4b39739d) — VERIFIED
+- [x] Created `.github/workflows/zone011-fix-titusville-cocoa-cocoabeach.yml` — VERIFIED
+- [x] Pushed to main — auto-triggered zone011 workflow (path filter: zoning_scout.js)
+- [ ] Verify workflow ran: check GHA for zone011-fix-titusville-cocoa-cocoabeach run
+- [ ] Verify envelope_cache coverage: 85%+ for prefixes 21/22/24 — UNTESTED (DB query needed)
+- [ ] Comment on issue #32 — workflow report job posts comment via GH_TOKEN (auto)
+- [ ] Mark nexus_tasks done — BLOCKED: no Supabase creds in build env
+
+### Fixes: zoning_scout.js prefix+GIS+codes+fields+fallback = VERIFIED (committed). DB conquest = UNTESTED (workflow running).
+
 ## Session 19: Issue #27 — biddeed.ai offline (partial ✅)
 - [x] Read issue #27 (MODAL [P0|108] BIDDEED-010: Get biddeed.ai back ONLINE — HTTP 000)
 - [x] Confirmed: biddeed.ai zone ID dcb6876f057e0bb88be181d6e8d0dcbc, DNS zone empty — VERIFIED
