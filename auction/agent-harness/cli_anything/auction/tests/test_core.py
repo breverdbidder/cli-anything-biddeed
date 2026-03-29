@@ -2,6 +2,12 @@
 
 import json
 import pytest
+import os
+
+SKIP_LIVE = pytest.mark.skipif(
+    os.environ.get('CI') == 'true',
+    reason='RealForeclose blocks GHA IPs (403)'
+)
 
 # ── Analysis tests (the core business logic) ─────────────────────────
 
@@ -139,11 +145,13 @@ from cli_anything.auction.core.discovery import (
 
 
 class TestDiscovery:
+    @SKIP_LIVE
     def test_upcoming(self):
         result = get_upcoming_auctions()
         assert result["county"] == "brevard"
         assert result["count"] > 0
 
+    @SKIP_LIVE
     def test_upcoming_with_date(self):
         result = get_upcoming_auctions(date="2026-03-15")
         assert result["date"] == "2026-03-15"
