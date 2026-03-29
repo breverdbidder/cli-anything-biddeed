@@ -317,3 +317,14 @@
 - [x] Committed and pushed to main — VERIFIED
 
 ### HONESTY: CI report created from web research (VERIFIED sources) + INFERRED pricing/tech stack. Artifact_vault SQL updated. nexus_tasks DB update UNTESTED (Supabase password blocker persists).
+
+## Session 23: Issue #36 — GTM-012 ZoneWise Feature Roadmap ✅
+- [x] Read issue #36: GTM-012 — Build ZoneWise feature roadmap from competitive gap analysis (20 phases, close gaps vs Algoma/Gridics/TestFit)
+- [x] Analyzed competitors: Gridics (3D massing/national/by-right), Algoma (feasibility/pro forma/entitlement), TestFit (unit mix/parking/program)
+- [x] Created docs/plans/GTM-012-ZONEWISE-ROADMAP.md: gap analysis matrix (24 existing + 20 missing features), 20-phase roadmap, priority matrix (4 tiers), GTM battle cards, 6-month metrics
+- [x] Created pages/roadmap.html: investor-grade visual roadmap page, brand compliant (Navy/Orange/Inter), phase cards, threat grid, priority table, metrics section
+- [x] Created .github/workflows/deploy-roadmap-page.yml: pushes to breverdbidder/zonewise-web → Vercel, Telegram notify, issue #36 comment, nexus_tasks update
+- [x] Committed and pushed to main — VERIFIED
+- [ ] GHA workflow execution: deploy to zonewise.ai/roadmap — UNTESTED (will run on push trigger)
+
+### HONESTY: Roadmap doc + HTML built + pushed = VERIFIED. Competitor claims tagged VERIFIED (Gridics 3D massing, Algoma $2.3M seed, TestFit unit mix — all from public product pages). 20-phase priority = INFERRED from gap analysis. Live at zonewise.ai/roadmap = UNTESTED (depends on PAT4 write access to zonewise-web + Vercel auto-deploy).
