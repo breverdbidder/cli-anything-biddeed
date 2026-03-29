@@ -298,3 +298,13 @@
 ###   B) Token: CF Dashboard → API Tokens → Add Zone:DNS:Edit for biddeed.ai → update CF_API_TOKEN → run fix-biddeed-dns.yml
 ### Post-fix: biddeed.ai CF Pages custom domain already registered (status: initializing) — will activate once DNS resolves
 ### HONESTY: All diagnosis = VERIFIED. biddeed.ai online = UNTESTED (blocked on DNS).
+
+## Session 21: Issue #34 — ZONE-012 competitors page ✅
+- [x] Read issue #34: ZONE-012 — Deploy zonewise.ai/competitors with 8-competitor, 28-feature analysis
+- [x] Explored workspace: found COMPETITORLENS-SPEC.md, existing diff reports, deploy-landing-pages.yml mechanism
+- [x] Built pages/competitors.html: investor-ready, 8 competitors × 28 features, brand compliant (Navy/Orange/Inter)
+- [x] Created .github/workflows/deploy-competitors-page.yml: pushes to breverdbidder/zonewise-web via GitHub API → Vercel
+- [x] Committed cc77feab and pushed to main — VERIFIED
+- [ ] GHA workflow execution: deploy to zonewise.ai/competitors — UNTESTED (will run on push trigger)
+
+### HONESTY: HTML built + pushed = VERIFIED (commit cc77feab). Live at zonewise.ai/competitors = UNTESTED (depends on PAT4 having write access to zonewise-web repo and Vercel auto-deploy).
