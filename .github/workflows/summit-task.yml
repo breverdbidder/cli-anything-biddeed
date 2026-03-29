@@ -32,7 +32,7 @@ jobs:
           SESSION_HOURS: ${{ inputs.session_hours }}
         with:
           host: 87.99.129.125
-          username: claude
+          username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           envs: GITHUB_TOKEN,SUPABASE_KEY,ISSUE_NUMBER,SESSION_HOURS
           command_timeout: 240m
@@ -42,24 +42,24 @@ jobs:
             echo "Issue: #${ISSUE_NUMBER}"
             echo "Max session: ${SESSION_HOURS}h"
             
-            # Navigate to repo
-            cd ~/cli-anything-biddeed || git clone https://github.com/breverdbidder/cli-anything-biddeed.git ~/cli-anything-biddeed
-            cd ~/cli-anything-biddeed
-            git pull origin main
-            
-            # Read CLAUDE.md directives
-            echo "=== Loading CLAUDE.md ==="
-            
-            # Start Claude Code session with issue context
-            timeout ${SESSION_HOURS}h claude --auto \
-              "Read GitHub issue #${ISSUE_NUMBER} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE_NUMBER}.
-               Follow CLAUDE.md directives. Load TODO.md if present.
-               Read specs/PLATFORM-SKILLS-ADOPTION.md for full spec.
-               Execute Phase 1 tasks from the issue checklist autonomously.
-               Run migrations/20260328_platform_skills_eval.sql against Supabase.
-               Convert each skill candidate to .claude/skills/ format.
-               Commit frequently. Push results. Update issue with progress.
-               Session budget: \$10 max. Honesty Protocol enforced." \
-              2>&1 || true
+            # Ensure claude user has repo
+            su - claude -c "
+              cd ~/cli-anything-biddeed 2>/dev/null || git clone https://github.com/breverdbidder/cli-anything-biddeed.git ~/cli-anything-biddeed
+              cd ~/cli-anything-biddeed
+              git pull origin main
+              
+              echo '=== Starting Claude Code session ==='
+              
+              timeout ${SESSION_HOURS}h claude --auto \
+                'Read GitHub issue #${ISSUE_NUMBER} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE_NUMBER}.
+                 Follow CLAUDE.md directives. Load TODO.md if present.
+                 Read specs/PLATFORM-SKILLS-ADOPTION.md for full spec.
+                 Execute Phase 1 tasks from the issue checklist autonomously.
+                 Run migrations/20260328_platform_skills_eval.sql against Supabase.
+                 Convert each skill candidate to .claude/skills/ format.
+                 Commit frequently. Push results. Update issue with progress.
+                 Session budget: 10 dollars max. Honesty Protocol enforced.' \
+                2>&1 || true
+            "
             
             echo "=== SUMMIT Task Complete ==="
