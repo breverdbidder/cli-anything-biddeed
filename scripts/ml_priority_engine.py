@@ -111,13 +111,20 @@ def extract_features(task, history_stats=None):
     status_map = {"queued": 0, "dispatched": 1, "running": 2, "blocked": -1}
     features["status_num"] = status_map.get(task.get("status", "queued"), 0)
     
+    # Chat intelligence features (from daily_action_plans with source=chat_intelligence)
+    features["chat_mention_count"] = task.get("chat_mention_count", 0)
+    features["chat_frustration"] = task.get("chat_frustration", 0)
+    features["chat_recency"] = task.get("chat_recency", 0)
+    features["chat_domain_rank"] = task.get("chat_domain_rank", 50)
+    
     return features
 
 FEATURE_NAMES = [
     "priority_num", "sla_days", "domain_num", "is_ariel", "carry_count",
     "age_days", "hour", "day_of_week", "is_friday",
     "domain_completion_rate", "domain_avg_age", "overall_queue_size",
-    "is_fix", "is_build", "is_gha", "desc_length", "status_num"
+    "is_fix", "is_build", "is_gha", "desc_length", "status_num",
+    "chat_mention_count", "chat_frustration", "chat_recency", "chat_domain_rank"
 ]
 
 def train_xgboost(tasks_with_outcomes, history_stats=None):
@@ -318,6 +325,41 @@ def build_training_data(sb_url, sb_key):
             training.append(fake_task)
     except Exception as e:
         print(f"Checkpoints fetch error: {e}")
+    
+    # 2b. Pull chat intelligence signals from daily_action_plans
+    chat_signals = {}
+    try:
+        r = requests.get(f"{sb_url}/rest/v1/daily_action_plans?source=eq.chat_intelligence&order=created_at.desc&limit=100",
+            headers=sb_h, timeout=10)
+        if r.status_code == 200:
+            for sig in r.json():
+                domain = sig.get("domain", "ECOSYSTEM")
+                rank = sig.get("rank", 99)
+                task_desc = sig.get("task", "").lower()
+                reason = sig.get("reason", "").lower()
+                
+                # Extract frustration level from reason text
+                frust = 0
+                for word in ["burning", "never delivered", "sabotage", "drain", "alternatives", "failure"]:
+                    if word in reason: frust = max(frust, 8)
+                for word in ["highest priority", "most important"]:
+                    if word in reason: frust = max(frust, 6)
+                
+                if domain not in chat_signals or rank < chat_signals[domain].get("best_rank", 99):
+                    chat_signals[domain] = {"best_rank": rank, "frustration": frust, "mentions": 1, "keywords": task_desc.split()[:5]}
+                else:
+                    chat_signals[domain]["mentions"] = chat_signals[domain].get("mentions", 0) + 1
+                    chat_signals[domain]["frustration"] = max(chat_signals[domain].get("frustration", 0), frust)
+    except: pass
+    
+    # Enrich training tasks with chat intelligence
+    for t in training:
+        domain = t.get("project", "ECOSYSTEM")
+        cs = chat_signals.get(domain, {})
+        t["chat_mention_count"] = cs.get("mentions", 0)
+        t["chat_frustration"] = cs.get("frustration", 0)
+        t["chat_recency"] = 1.0 if cs else 0.0
+        t["chat_domain_rank"] = 100 - cs.get("best_rank", 50) * 10  # rank 1 = score 90
     
     # 3. Compute history stats for feature engineering
     history_stats = {}
