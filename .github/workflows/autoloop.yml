@@ -316,14 +316,7 @@ jobs:
               --output "$L3_OUT" 2>&1 || true
 
             echo "📊 L3 Analysis: $L3_OUT"
-            [ -f "$L3_OUT" ] && python3 -c "
-import json, sys
-d=json.load(open('$L3_OUT'))
-a=d.get('analysis',{})
-evo=a.get('evolution_suggestion')
-print(f\"L3: pass_rate={d['pass_rate']:.0%} | completed={a.get('task_completed')} | evo={evo['type'] if evo else 'none'}\")
-if evo: print(f\"Direction: {evo.get('direction','')}\")
-" 2>/dev/null || true
+            [ -f "$L3_OUT" ] && python3 -c "import json,sys; d=json.load(open('$L3_OUT')); a=d.get('analysis',{}); evo=a.get('evolution_suggestion'); print(f\"L3: pass_rate={d['pass_rate']:.0%} | completed={a.get('task_completed')} | evo={evo['type'] if evo else 'none'}\"); evo and print(f\"Direction: {evo.get('direction','\"\")}\")" 2>/dev/null || true
 
             # Commit L3 analysis file
             git add "$L3_OUT" 2>/dev/null || true

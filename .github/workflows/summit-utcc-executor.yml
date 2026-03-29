@@ -39,22 +39,7 @@ jobs:
               export BIDDEED_BOT_CHAT_ID='$BIDDEED_BOT_CHAT_ID'
               cd /home/claude/repos/cli-anything-biddeed 2>/dev/null || { mkdir -p /home/claude/repos && cd /home/claude/repos && git clone https://${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git && cd cli-anything-biddeed; }
               git pull origin main
-              claude -p \"MISSION: Build UTCC SSH Executor and Foundation for cli-anything-biddeed repo.
-
-PHASE 1 - SSH EXECUTOR WORKFLOW:
-Create .github/workflows/utcc-executor-ssh.yml triggered by repository_dispatch type utcc-dispatch. Uses appleboy/ssh-action to SSH into Hetzner (HETZNER_IP secret). Passes task from client_payload.task. Runs claude -p with the task using --dangerously-skip-permissions. Posts Telegram notification on completion using BIDDEED_BOT_TOKEN to BIDDEED_BOT_CHAT_ID.
-
-PHASE 2 - SUPABASE MIGRATION:
-Create utcc/migrations/001_task_registry.sql with: task_registry table (id UUID PK, task_id TEXT UNIQUE, description TEXT, task_type TEXT, platform TEXT, triggered_by TEXT, status TEXT DEFAULT queued, gha_run_id BIGINT, gha_run_url TEXT, result_summary TEXT, error_message TEXT, tokens_used INT DEFAULT 0, cost_usd NUMERIC DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW(), dispatched_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, batch_id UUID, batch_index INT) and task_logs table (id UUID PK, task_id TEXT REFERENCES task_registry, timestamp TIMESTAMPTZ DEFAULT NOW(), level TEXT, message TEXT, metadata JSONB). Add indexes on status, batch_id, created_at DESC, platform. Enable RLS with anon SELECT and service_role INSERT/UPDATE.
-Then run the migration using curl to Supabase REST API at https://mocerqjnksmhcjzxrewo.supabase.co using the SUPABASE_KEY secret.
-
-PHASE 3 - PYTHON MODULES:
-Create utcc/__init__.py, utcc/registry.py (Supabase CRUD for task_registry), utcc/classifier.py (keyword routing: conquer to modal_conquest, transcript/youtube to transcript, sentinel/health to sentinel, default to gha_executor), utcc/notifier.py (Telegram helper using BIDDEED_BOT_TOKEN).
-
-PHASE 4 - DISPATCHER WORKFLOW:
-Create .github/workflows/utcc-dispatcher.yml triggered by repository_dispatch type utcc-batch-dispatch. Reads batch_id, queries task_registry, matrix strategy per task, routes to correct executor, updates status, sends Telegram notification.
-
-COMMIT RULES: git config user.email ci@biddeed.ai, git config user.name BidDeed-CI, prefix commits with UTCC:, push to main. Send Telegram when done.\" --dangerously-skip-permissions
+              claude -p \"MISSION: Build UTCC SSH Executor and Foundation for cli-anything-biddeed repo. PHASE 1 - SSH EXECUTOR WORKFLOW: Create .github/workflows/utcc-executor-ssh.yml triggered by repository_dispatch type utcc-dispatch. Uses appleboy/ssh-action to SSH into Hetzner (HETZNER_IP secret). Passes task from client_payload.task. Runs claude -p with the task using --dangerously-skip-permissions. Posts Telegram notification on completion using BIDDEED_BOT_TOKEN to BIDDEED_BOT_CHAT_ID. PHASE 2 - SUPABASE MIGRATION: Create utcc/migrations/001_task_registry.sql with: task_registry table (id UUID PK, task_id TEXT UNIQUE, description TEXT, task_type TEXT, platform TEXT, triggered_by TEXT, status TEXT DEFAULT queued, gha_run_id BIGINT, gha_run_url TEXT, result_summary TEXT, error_message TEXT, tokens_used INT DEFAULT 0, cost_usd NUMERIC DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW(), dispatched_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, batch_id UUID, batch_index INT) and task_logs table (id UUID PK, task_id TEXT REFERENCES task_registry, timestamp TIMESTAMPTZ DEFAULT NOW(), level TEXT, message TEXT, metadata JSONB). Add indexes on status, batch_id, created_at DESC, platform. Enable RLS with anon SELECT and service_role INSERT/UPDATE. Then run the migration using curl to Supabase REST API at https://mocerqjnksmhcjzxrewo.supabase.co using the SUPABASE_KEY secret. PHASE 3 - PYTHON MODULES: Create utcc/__init__.py, utcc/registry.py (Supabase CRUD for task_registry), utcc/classifier.py (keyword routing: conquer to modal_conquest, transcript/youtube to transcript, sentinel/health to sentinel, default to gha_executor), utcc/notifier.py (Telegram helper using BIDDEED_BOT_TOKEN). PHASE 4 - DISPATCHER WORKFLOW: Create .github/workflows/utcc-dispatcher.yml triggered by repository_dispatch type utcc-batch-dispatch. Reads batch_id, queries task_registry, matrix strategy per task, routes to correct executor, updates status, sends Telegram notification. COMMIT RULES: git config user.email ci@biddeed.ai, git config user.name BidDeed-CI, prefix commits with UTCC:, push to main. Send Telegram when done.\" --dangerously-skip-permissions
             "
         env:
           CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}

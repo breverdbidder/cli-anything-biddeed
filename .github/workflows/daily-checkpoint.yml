@@ -141,48 +141,32 @@ jobs:
           else: grade = "🔴 D"
 
           # 6. BUILD TELEGRAM MESSAGE
-          msg = f"📊 DAILY CHECKPOINT — {DAY_NAME}
-
-"
-          msg += f"{grade} Score: {honest_score}/100
-
-"
-          msg += f"📋 Tasks: {tasks_done} done today | {tasks_open} open | {tasks_blocked} blocked
-"
-          msg += f"🔨 Activity: {commit_count} commits across {active_repos}/{len(repos)} repos
-"
-          msg += f"⚙️ GHA: {gha_ok}✅ {gha_fail}❌ ({gha_health}% health)
-"
+          msg = f"📊 DAILY CHECKPOINT — {DAY_NAME}\n\n"
+          msg += f"{grade} Score: {honest_score}/100\n\n"
+          msg += f"📋 Tasks: {tasks_done} done today | {tasks_open} open | {tasks_blocked} blocked\n"
+          msg += f"🔨 Activity: {commit_count} commits across {active_repos}/{len(repos)} repos\n"
+          msg += f"⚙️ GHA: {gha_ok}✅ {gha_fail}❌ ({gha_health}% health)\n"
           
           if open_violations > 0:
-              msg += f"🔴 Honesty: {open_violations} open violation(s) (-{violation_penalty}pts)
-"
+              msg += f"🔴 Honesty: {open_violations} open violation(s) (-{violation_penalty}pts)\n"
           else:
-              msg += f"✅ Honesty: clean
-"
+              msg += f"✅ Honesty: clean\n"
 
           # Top completed tasks today
           done_today = [t for t in nexus_items if t["completed_today"]]
           if done_today:
-              msg += f"
-✅ Completed today:
-"
+              msg += f"✅ Completed today:\n"
               for t in done_today[:5]:
-                  msg += f"  [{t['priority']}] {t['desc']}
-"
+                  msg += f"  [{t['priority']}] {t['desc']}\n"
 
           # Open P0/P1
           urgent = [t for t in nexus_items if t["priority"] in ("P0","P1") and t["status"] not in ("completed","cancelled")]
           if urgent:
-              msg += f"
-🚨 Open P0/P1:
-"
+              msg += f"🚨 Open P0/P1:\n"
               for t in urgent[:5]:
-                  msg += f"  [{t['priority']}] {t['desc']} ({t['status']})
-"
+                  msg += f"  [{t['priority']}] {t['desc']} ({t['status']})\n"
 
-          msg += f"
-📊 Scoring: tasks({task_score}×.4) + GHA({gha_score}×.3) - violations({violation_penalty}×.2) + activity({activity_score}×.1)"
+          msg += f"📊 Scoring: tasks({task_score}×.4) + GHA({gha_score}×.3) - violations({violation_penalty}×.2) + activity({activity_score}×.1)"
 
           print(msg)
 
@@ -194,11 +178,9 @@ jobs:
                       json={"chat_id": TG_CHAT, "text": msg[:4000]},
                       timeout=10
                   )
-                  print(f"
-{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
+                  print(f"{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
               except Exception as e:
-                  print(f"
-❌ Telegram: {e}")
+                  print(f"❌ Telegram: {e}")
 
           # 8. SAVE TO SUPABASE
           if SB_URL and SB_KEY:

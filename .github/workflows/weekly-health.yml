@@ -141,12 +141,10 @@ jobs:
               "https://api.github.com/repos/breverdbidder/${SHORT}/contents/.claude/skills/dream/SKILL.md?ref=main")
             if [ "$HTTP" = "200" ]; then
               DREAM_OK=$((DREAM_OK+1))
-              DREAM_REPORT="${DREAM_REPORT}✅ ${SHORT}
-"
+              DREAM_REPORT="${DREAM_REPORT}✅ ${SHORT}\n"
             else
               DREAM_MISS=$((DREAM_MISS+1))
-              DREAM_REPORT="${DREAM_REPORT}❌ ${SHORT}
-"
+              DREAM_REPORT="${DREAM_REPORT}❌ ${SHORT}\n"
             fi
           done
           echo "dream_ok=$DREAM_OK" >> $GITHUB_OUTPUT

@@ -125,40 +125,27 @@ jobs:
               errors.append(f"Sentinel check: {e}")
 
           # === BUILD REPORT ===
-          report = f"🔧 AUTO-FIXER — {NOW.strftime('%A %b %d, %I:%M %p')}
-
-"
+          report = f"🔧 AUTO-FIXER — {NOW.strftime('%A %b %d, %I:%M %p')}\n\n"
           
           if not fixes and not errors:
-              report += "✅ All clear. No open violations, no stale P0s, no chronic GHA failures.
-"
+              report += "✅ All clear. No open violations, no stale P0s, no chronic GHA failures.\n"
           else:
               if open_violations:
-                  report += f"🔴 {len(open_violations)} honesty violation(s) open
-"
+                  report += f"🔴 {len(open_violations)} honesty violation(s) open\n"
               if stale_p0:
-                  report += f"🟡 {len(stale_p0)} P0 task(s) stale >24h
-"
+                  report += f"🟡 {len(stale_p0)} P0 task(s) stale >24h\n"
               if stale_wf_fixed:
-                  report += f"⚠️ {stale_wf_fixed} workflow(s) with 5+ failures
-"
-              report += "
-Details:
-"
+                  report += f"⚠️ {stale_wf_fixed} workflow(s) with 5+ failures\n"
+              report += "\nDetails:\n"
               for f in fixes[:15]:  # Cap at 15 to avoid Telegram limit
-                  report += f"  {f}
-"
+                  report += f"  {f}\n"
               if len(fixes) > 15:
-                  report += f"  ... and {len(fixes)-15} more
-"
+                  report += f"  ... and {len(fixes)-15} more\n"
           
           if errors:
-              report += f"
-❌ Errors: {len(errors)}
-"
+              report += f"❌ Errors: {len(errors)}\n"
               for e in errors[:5]:
-                  report += f"  {e}
-"
+                  report += f"  {e}\n"
 
           print(report)
 
@@ -172,11 +159,9 @@ Details:
                       json={"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML"},
                       timeout=10
                   )
-                  print(f"
-{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
+                  print(f"{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
               except Exception as e:
-                  print(f"
-❌ Telegram: {e}")
+                  print(f"❌ Telegram: {e}")
 
           # === LOG TO SUPABASE ===
           try:

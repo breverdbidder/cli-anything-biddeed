@@ -155,11 +155,7 @@ jobs:
           EMOJI=$( [ "$H_STATUS" = "success" ] && [ "$G_STATUS" = "success" ] && echo "✅" || echo "⚠️" )
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          MSG="${EMOJI} UTCC Batch Dispatched
-Batch: ${BATCH_ID}
-Tasks: ${COUNT}
-Hetzner: ${H_STATUS} | GHA: ${G_STATUS}
-${RUN_URL}"
+          MSG="${EMOJI} UTCC Batch Dispatched\nBatch: ${BATCH_ID}\nTasks: ${COUNT}\nHetzner: ${H_STATUS} | GHA: ${G_STATUS}\n${RUN_URL}"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
