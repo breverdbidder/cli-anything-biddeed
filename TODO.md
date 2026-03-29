@@ -64,3 +64,20 @@
 
 ### Phase 1 Status: UNTESTED — skills created, migration + eval scoring pending
 ### Next: Dispatch platform-skills-migrate.yml, then run evals against each skill
+
+## Session 8: TeardownWise Agent — Issue #10 ✅
+- [x] Read issue #10 (breverdbidder/cli-anything-biddeed#10)
+- [x] Create teardown_bundles migration (designwise/migrations/002_teardown_bundles.sql)
+- [x] Implement TeardownWise agent (teardown_agent.py) — full async pipeline
+- [x] Register `teardown` CLI in designwise_cli.py
+- [x] Add teardown_bundles to supabase_client.py TABLES registry
+- [x] 33/33 tests passing (designwise/tests/test_teardownwise.py)
+- [x] Create DESIGNWISE-V3-UPGRADES.md (Upgrades 1-4 roadmap)
+- [x] Update CLAUDE.md with TeardownWise section
+- [x] Committed + pushed (commit bcd3baec)
+- [ ] Run 002_teardown_bundles.sql migration (dispatch designwise-migrate.yml — needs DB connection)
+- [ ] Live test against 3 reference sites (pending migration)
+- [ ] Comment on issue #10 (no GH_TOKEN in build env)
+
+### Detects: css-grid/flexbox, gsap/framer/css-animations, glassmorphism, parallax, hero sections, card grids + 17 more patterns
+### UNTESTED: Supabase persistence (DB auth failed from build env)
