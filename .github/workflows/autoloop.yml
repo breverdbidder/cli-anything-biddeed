@@ -23,6 +23,9 @@ on:
           - honesty-protocol
           - brand-colors
           - ship-gate
+          - designwise
+          - exa-discovery
+          - skill-creator
       max_iterations:
         description: 'Max iterations (default 50)'
         required: false

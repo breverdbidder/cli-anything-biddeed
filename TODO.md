@@ -218,3 +218,21 @@
 ### Migration workflow: Updated with Hetzner SSH fallback (commits 9ff4f8ff + b135406e by parallel summit)
 ### BLOCKER (persistent Sessions 8-15): SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard → Settings → Database
 ### To unblock: Reset password → gh secret set SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml → runs via Hetzner if direct psql fails
+### To unblock: Reset password → gh secret set SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml
+
+## Session 16: Platform Skills Phase 3 — Issue #25 (partial ✅)
+- [x] Attempted migrations/20260328_platform_skills_eval.sql — BLOCKED: AUTH FAIL all 8 hosts (same persistent DB password blocker)
+- [x] Verified all 5 Phase 1 skills in .claude/skills/ (zonewise-scraper, cost-discipline, honesty-protocol, brand-colors, ship-gate) — VERIFIED: SKILL.md + eval.json + 25 assertions each
+- [x] Created Phase 3 skill: .claude/skills/designwise/ — SKILL.md + eval.json (25 assertions, TeardownWise/StitchWise pipeline)
+- [x] Created Phase 3 skill: .claude/skills/exa-discovery/ — SKILL.md + eval.json (25 assertions, Exa semantic search harness)
+- [x] Created Phase 3 skill: .claude/skills/skill-creator/ — SKILL.md + eval.json (25 assertions, meta-skill for authoring skills)
+- [x] Updated autoloop.yml dispatch options to include designwise, exa-discovery, skill-creator
+- [ ] Run migrations/20260328_platform_skills_eval.sql — BLOCKED: SUPABASE_DB_PASSWORD stale
+- [ ] Run dual eval: same task both systems per Phase 1 candidate, score into cc_feature_comparison — BLOCKED: needs DB
+- [ ] Decision: ADOPT/EVAL/KEEP per candidate — BLOCKED: needs eval scoring
+- [ ] Comment on issue #25 — BLOCKED: no GH_TOKEN in build env
+
+### Phase 1 Status: 5/5 skills VERIFIED. Migration + eval scoring BLOCKED (DB password).
+### Phase 3 Status: 3/3 new skills CREATED and VERIFIED (designwise, exa-discovery, skill-creator).
+### autoloop.yml: UPDATED to include all 8 Platform Skills (5 Phase 1 + 3 Phase 3).
+### BLOCKER (persistent across Sessions 8-16): Reset SUPABASE_DB_PASSWORD at Supabase Dashboard → Settings → Database → then update secret in all repos
