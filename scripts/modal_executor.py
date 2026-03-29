@@ -21,7 +21,7 @@ secrets = modal.Secret.from_name("everest-secrets")
     secrets=[secrets],
     timeout=5400,  # 90 minutes max per task
     retries=0,
-    concurrency_limit=5,  # Up to 5 parallel tasks
+    max_containers=5,  # Up to 5 parallel tasks
 )
 def execute_task(task: dict) -> dict:
     """Execute a single task autonomously in its own container."""
