@@ -1,0 +1,231 @@
+import requests, json, os
+from datetime import datetime, timezone, timedelta
+
+# === CONFIG ===
+SB_URL = os.environ["SUPABASE_URL"]
+SB_KEY = os.environ["SUPABASE_KEY"]
+TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
+GH_PAT = os.environ.get("GH_PAT", "")
+EST = timezone(timedelta(hours=-4))  # EDT
+NOW = datetime.now(EST)
+TODAY = NOW.strftime("%Y-%m-%d")
+DAY_NAME = NOW.strftime("%A, %B %d")
+sb_h = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+gh_h = {"Authorization": f"token {GH_PAT}"} if GH_PAT else {}
+
+# === 1. PULL OPEN TASKS FROM NEXUS ===
+open_tasks = []
+try:
+    r = requests.get(
+        f"{SB_URL}/rest/v1/nexus_tasks?status=in.(queued,running,dispatched,blocked)&order=priority.asc,sla_deadline.asc.nullslast",
+        headers=sb_h, timeout=10
+    )
+    if r.status_code == 200:
+        open_tasks = r.json()
+except Exception as e:
+    print(f"⚠️ Nexus query failed: {e}")
+
+# === 2. CALCULATE URGENCY ===
+p0_tasks = []
+overdue = []
+ariel_tasks = []
+claude_tasks = []
+blocked_tasks = []
+
+for t in open_tasks:
+    tid = t.get("task_id", "?")
+    desc = t.get("description", "")[:100]
+    pri = t.get("priority", "P3")
+    owner = t.get("owner", "?")
+    status = t.get("status", "?")
+    sla = t.get("sla_deadline")
+    project = t.get("project", "?")
+    
+    # Check overdue
+    days_left = None
+    urgent_flag = ""
+    if sla:
+        try:
+            deadline = datetime.fromisoformat(sla.replace("Z", "+00:00"))
+            days_left = (deadline - datetime.now(timezone.utc)).days
+            if days_left < 0:
+                urgent_flag = "🔴 OVERDUE"
+                overdue.append(t)
+            elif days_left <= 7:
+                urgent_flag = "🟡 THIS WEEK"
+            elif days_left <= 14:
+                urgent_flag = "🟠 2 WEEKS"
+        except:
+            pass
+
+    entry = {
+        "id": tid, "desc": desc, "pri": pri, "owner": owner,
+        "status": status, "project": project, "days_left": days_left,
+        "urgent": urgent_flag, "sla": sla
+    }
+
+    if pri == "P0":
+        p0_tasks.append(entry)
+    if status == "blocked":
+        blocked_tasks.append(entry)
+    if owner == "ariel":
+        ariel_tasks.append(entry)
+    else:
+        claude_tasks.append(entry)
+
+# === 3. CHECK YESTERDAY'S GHA HEALTH ===
+gha_ok = gha_fail = 0
+yesterday = (NOW - timedelta(days=1)).strftime("%Y-%m-%d")
+try:
+    repos = ["cli-anything-biddeed", "zonewise-web", "everest-nexus", "zonewise-gtm", "brevard-bidder-scraper"]
+    for repo in repos:
+        r = requests.get(
+            f"https://api.github.com/repos/breverdbidder/{repo}/actions/runs?created=%3E{yesterday}T00:00:00Z&per_page=50",
+            headers=gh_h, timeout=10
+        )
+        if r.status_code == 200:
+            for run in r.json().get("workflow_runs", []):
+                if run.get("conclusion") == "success": gha_ok += 1
+                elif run.get("conclusion") == "failure": gha_fail += 1
+except:
+    pass
+
+# === 3b. HONESTY PROTOCOL — Open Violations ===
+try:
+    hv = requests.get(
+        f"{SB_URL}/rest/v1/honesty_violations?resolved=eq.false&order=severity.asc",
+        headers=sb_h, timeout=10
+    )
+    if hv.status_code == 200:
+        violations = hv.json()
+except:
+    violations = []
+
+# === 4. BUILD TELEGRAM MESSAGE ===
+lines = []
+lines.append(f"🏔️ DAILY ACTION PLAN — {DAY_NAME}")
+lines.append(f"⏰ {NOW.strftime('%I:%M %p')} EST")
+lines.append("")
+
+# P0 / Deadlines first
+if p0_tasks or overdue:
+    lines.append("🚨 CRITICAL (P0 + Deadlines):")
+    for t in p0_tasks:
+        dl = ""
+        if t["days_left"] is not None:
+            dl = f" [{t['days_left']}d left]"
+        icon = "👤" if t["owner"] == "ariel" else "🤖"
+        lines.append(f"  {icon} {t['id']}: {t['desc'][:60]}{dl} {t['urgent']}")
+    lines.append("")
+
+# Ariel's tasks
+ariel_non_p0 = [t for t in ariel_tasks if t["pri"] != "P0"]
+if ariel_non_p0:
+    lines.append("👤 ARIEL TODO:")
+    for t in ariel_non_p0:
+        dl = f" [{t['days_left']}d]" if t["days_left"] is not None else ""
+        lines.append(f"  [{t['pri']}] {t['id']}: {t['desc'][:60]}{dl}")
+    lines.append("")
+
+# Claude Code tasks
+if claude_tasks:
+    lines.append("🤖 CLAUDE CODE QUEUE:")
+    for t in claude_tasks:
+        st = "🔄" if t["status"] == "running" else "⬜"
+        lines.append(f"  {st} [{t['pri']}] {t['id']}: {t['desc'][:60]}")
+    lines.append("")
+
+# Blocked
+if blocked_tasks:
+    lines.append("🚫 BLOCKED:")
+    for t in blocked_tasks:
+        lines.append(f"  {t['id']}: {t['desc'][:60]} (owner: {t['owner']})")
+    lines.append("")
+
+# GHA health
+total_gha = gha_ok + gha_fail
+if total_gha > 0:
+    health = gha_ok / total_gha * 100
+    emoji = "✅" if health > 80 else "⚠️" if health > 50 else "🔴"
+    lines.append(f"{emoji} GHA: {gha_ok}✅ {gha_fail}❌ ({health:.0f}% health)")
+    lines.append("")
+
+# Summary
+lines.append(f"📊 {len(open_tasks)} open | {len(p0_tasks)} P0 | {len(overdue)} overdue | {len(blocked_tasks)} blocked")
+lines.append(f"👤 Ariel: {len(ariel_tasks)} | 🤖 Claude: {len(claude_tasks)}")
+
+message = "
+".join(lines)
+print(message)
+
+
+# Add honesty violations to message
+if violations:
+    message += "
+🔴 HONESTY VIOLATIONS (OPEN):
+"
+    for v in violations:
+        message += f"  [{v.get('severity','?')}] {v.get('domain','?')}: {v.get('claim','?')[:50]}
+"
+
+# === 5. SEND TO TELEGRAM ===
+if TG_TOKEN and TG_CHAT:
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": TG_CHAT, "text": message[:4000], "parse_mode": "HTML"},
+            timeout=10
+        )
+        if r.status_code == 200:
+            print("
+✅ Telegram sent")
+        else:
+            # Retry without parse_mode in case of formatting issues
+            r2 = requests.post(
+                f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+                json={"chat_id": TG_CHAT, "text": message},
+                timeout=10
+            )
+            print(f"
+{'✅' if r2.status_code == 200 else '❌'} Telegram retry: {r2.status_code}")
+    except Exception as e:
+        print(f"
+❌ Telegram failed: {e}")
+else:
+    print("
+⚠️ No Telegram credentials — skipping send")
+
+# === 6. STORE IN SUPABASE ===
+try:
+    # Store ranked action items
+    rank = 0
+    for t in sorted(open_tasks, key=lambda x: ({"P0":0,"P1":1,"P2":2,"P3":3}.get(x.get("priority","P3"),3))):
+        rank += 1
+        item = {
+            "date": TODAY,
+            "rank": rank,
+            "task": f"[{t.get('task_id','?')}] {t.get('description','')[:100]}",
+            "domain": t.get("project", "PERSONAL"),
+            "reason": f"Owner: {t.get('owner','?')} | SLA: {t.get('sla_deadline','none')} | Status: {t.get('status','?')}",
+        }
+        requests.post(f"{SB_URL}/rest/v1/daily_action_plans", headers=sb_h, json=item, timeout=5)
+
+    # Store daily score
+    score = {
+        "date": TODAY,
+        "total_items": len(open_tasks),
+        "completed": len([t for t in open_tasks if t.get("status") == "success"]),
+        "in_progress": len([t for t in open_tasks if t.get("status") == "running"]),
+        "blocked": len([t for t in open_tasks if t.get("status") == "blocked"]),
+        "completion_rate": 0.0,
+        "top_domain": max(set(t.get("project","?") for t in open_tasks), key=lambda d: sum(1 for t in open_tasks if t.get("project")==d)) if open_tasks else "NONE",
+        "worst_domain": "NONE",
+        "streak_days": 0,
+    }
+    # Delete existing score for today first
+    requests.delete(f"{SB_URL}/rest/v1/daily_scores?date=eq.{TODAY}", headers=sb_h, timeout=5)
+    requests.post(f"{SB_URL}/rest/v1/daily_scores", headers=sb_h, json=score, timeout=5)
+    print("✅ Supabase stored")
+except Exception as e:
+    print(f"⚠️ Supabase store error: {e}")
