@@ -66,22 +66,16 @@ jobs:
           script: |
             set -e
             PROJECT_REF="mocerqjnksmhcjzxrewo"
-            REPO_DIR="/opt/biddeed/cli-anything-biddeed"
-            if [ -d "$REPO_DIR" ]; then
-              git -C "$REPO_DIR" pull --ff-only origin main 2>/dev/null || true
-            else
-              git clone https://github.com/breverdbidder/cli-anything-biddeed.git "$REPO_DIR" 2>/dev/null || true
-            fi
-            if [ ! -f "$REPO_DIR/migrations/20260328_platform_skills_eval.sql" ]; then
-              echo "ERROR: migration file not found on Hetzner"
-              exit 1
-            fi
+            RAW_URL="https://raw.githubusercontent.com/breverdbidder/cli-anything-biddeed/main/migrations/20260328_platform_skills_eval.sql"
+            curl -sf "$RAW_URL" -o /tmp/platform_skills_migration.sql
+            echo "Migration SQL downloaded ($(wc -l < /tmp/platform_skills_migration.sql) lines)"
+            which psql 2>/dev/null || apt-get install -y postgresql-client -q
             export PGSSLMODE=require
             SUCCESS=0
             for CONN in "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require" "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require"; do
               echo "Hetzner trying: $(echo $CONN | sed 's|:[^:@]*@|:***@|g')"
               if psql "$CONN" -c "SELECT 1" 2>/dev/null; then
-                psql "$CONN" -f "$REPO_DIR/migrations/20260328_platform_skills_eval.sql"
+                psql "$CONN" -f /tmp/platform_skills_migration.sql
                 psql "$CONN" -c "SELECT table_name FROM information_schema.tables WHERE table_name IN ('skills_eval_results','skills_adoption_log') ORDER BY 1;"
                 echo "MIGRATION VERIFIED FROM HETZNER"
                 SUCCESS=1
