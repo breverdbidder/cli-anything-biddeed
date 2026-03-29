@@ -66,6 +66,43 @@ const ZONING_DISTRICTS = {
   "TU-2":  { front: 10, side: 5, rear: 10, maxHeight: 65, lotCoverage: 70, far: 2.0, desc: "Traditional Urban (core)" },
   "GU":    { front: 25, side: 7.5, rear: 20, maxHeight: 35, lotCoverage: 35, far: 0.4, desc: "General Use" },
   "SEU":   { front: 25, side: 7.5, rear: 20, maxHeight: 35, lotCoverage: 40, far: 0.5, desc: "Suburban Estate Use" },
+
+  // FL MUNICIPAL B-SERIES COMMERCIAL (Titusville, Cocoa, and other FL cities)
+  "B-1":   { front: 15, side: 0,    rear: 10, maxHeight: 35, lotCoverage: 70, far: 1.5, desc: "Neighborhood Commercial" },
+  "B-2":   { front: 15, side: 0,    rear: 10, maxHeight: 45, lotCoverage: 75, far: 2.0, desc: "General Commercial" },
+  "B-3":   { front: 15, side: 5,    rear: 15, maxHeight: 45, lotCoverage: 70, far: 1.5, desc: "Highway Commercial" },
+  "B-4":   { front: 0,  side: 0,    rear: 0,  maxHeight: 65, lotCoverage: 90, far: 3.0, desc: "Central Business District" },
+  "B-5":   { front: 0,  side: 0,    rear: 5,  maxHeight: 80, lotCoverage: 90, far: 4.0, desc: "Downtown Commercial" },
+
+  // FL MUNICIPAL I-SERIES INDUSTRIAL
+  "I-1":   { front: 25, side: 10,   rear: 15, maxHeight: 40, lotCoverage: 60, far: 1.0, desc: "Light Industrial" },
+  "I-2":   { front: 30, side: 15,   rear: 20, maxHeight: 50, lotCoverage: 65, far: 1.5, desc: "Heavy Industrial" },
+
+  // FL MUNICIPAL R-SERIES (Titusville, Cocoa, and other FL cities)
+  "R-1A":  { front: 30, side: 10,   rear: 25, maxHeight: 35, lotCoverage: 30, far: 0.35, desc: "Single Family Residential (large lot)" },
+  "R-1AA": { front: 35, side: 10,   rear: 30, maxHeight: 35, lotCoverage: 25, far: 0.30, desc: "Single Family Residential (estate lot)" },
+  "R-2":   { front: 25, side: 7.5,  rear: 20, maxHeight: 35, lotCoverage: 40, far: 0.50, desc: "Two-Family Residential" },
+  "R-3":   { front: 25, side: 8,    rear: 20, maxHeight: 40, lotCoverage: 50, far: 0.80, desc: "Multi-Family Residential" },
+  "R-3A":  { front: 25, side: 8,    rear: 20, maxHeight: 40, lotCoverage: 50, far: 0.80, desc: "Multi-Family Residential (alt)" },
+  "R-4":   { front: 20, side: 8,    rear: 15, maxHeight: 55, lotCoverage: 65, far: 1.50, desc: "High Density Multi-Family" },
+
+  // COCOA BEACH SPECIFIC (coastal city RSF/RMF/CN codes)
+  "RSF-1": { front: 20, side: 7.5,  rear: 15, maxHeight: 35, lotCoverage: 35, far: 0.45, desc: "CB Single Family (standard)" },
+  "RSF-2": { front: 15, side: 5,    rear: 10, maxHeight: 35, lotCoverage: 40, far: 0.50, desc: "CB Single Family (small lot)" },
+  "RMF-1": { front: 20, side: 7.5,  rear: 15, maxHeight: 40, lotCoverage: 50, far: 0.80, desc: "CB Multi-Family (low density)" },
+  "RMF-2": { front: 20, side: 8,    rear: 15, maxHeight: 50, lotCoverage: 60, far: 1.20, desc: "CB Multi-Family (medium density)" },
+  "RMF-3": { front: 20, side: 8,    rear: 15, maxHeight: 65, lotCoverage: 70, far: 2.00, desc: "CB Multi-Family (high density)" },
+  "C-N":   { front: 15, side: 0,    rear: 10, maxHeight: 35, lotCoverage: 75, far: 1.50, desc: "CB Neighborhood Commercial" },
+  "C-G":   { front: 15, side: 0,    rear: 10, maxHeight: 45, lotCoverage: 80, far: 2.50, desc: "CB General Commercial" },
+  "C-T":   { front: 15, side: 5,    rear: 15, maxHeight: 45, lotCoverage: 75, far: 2.00, desc: "CB Tourist Commercial" },
+  "CBD":   { front: 0,  side: 0,    rear: 0,  maxHeight: 65, lotCoverage: 90, far: 3.50, desc: "Central Business District" },
+
+  // GENERIC FL MUNICIPAL FALLBACKS (A-series agricultural/residential)
+  "A-1":   { front: 50, side: 25,   rear: 50, maxHeight: 35, lotCoverage: 20, far: 0.15, desc: "Agriculture" },
+  "A-2":   { front: 50, side: 25,   rear: 50, maxHeight: 35, lotCoverage: 20, far: 0.15, desc: "Agriculture (rural)" },
+  "R-O":   { front: 25, side: 7.5,  rear: 20, maxHeight: 35, lotCoverage: 40, far: 0.50, desc: "Residential Office" },
+  "P":     { front: 25, side: 15,   rear: 25, maxHeight: 35, lotCoverage: 20, far: 0.10, desc: "Public/Institutional" },
+  "OS":    { front: 25, side: 25,   rear: 25, maxHeight: 35, lotCoverage: 10, far: 0.05, desc: "Open Space" },
 };
 
 // Municipal GIS endpoint registry
@@ -100,24 +137,33 @@ const MUNICIPALITIES = {
   },
   cocoa_beach: {
     name: "Cocoa Beach",
-    gis_url: null,
+    // AGOL — CBParcelsMaster2021 has Zoning field + Name for parcel ID
+    gis_url: "https://services5.arcgis.com/U4PMgBw5XA2nmleg/arcgis/rest/services/CBParcelsMaster2021/FeatureServer/0",
+    zone_field: "Zoning",
+    parcel_id_field: "Name",
     sr: 2881,
-    parcel_count: 8000,
-    status: "PENDING",
+    parcel_count: 10843,
+    status: "CONQUERED",
   },
   titusville: {
     name: "Titusville",
-    gis_url: null,
+    // City GIS — CommunityDevelopment/MapServer/15 has Zone_Code field
+    gis_url: "https://gis.titusville.com/arcgis/rest/services/CommunityDevelopment/MapServer/15",
+    zone_field: "Zone_Code",
+    parcel_id_field: "PARCEL_ID",
     sr: 2881,
-    parcel_count: 25000,
-    status: "PENDING",
+    parcel_count: 28118,
+    status: "CONQUERED",
   },
   cocoa: {
     name: "Cocoa",
-    gis_url: null,
+    // AGOL — Cocoa_Zoning_with_Split_Lots has Zoning field + Name for parcel ID
+    gis_url: "https://services1.arcgis.com/Tex1uhbqnOZPx6qT/arcgis/rest/services/Cocoa_Zoning_with_Split_Lots/FeatureServer/0",
+    zone_field: "Zoning",
+    parcel_id_field: "Name",
     sr: 2881,
-    parcel_count: 12000,
-    status: "PENDING",
+    parcel_count: 29882,
+    status: "CONQUERED",
   },
   rockledge: {
     name: "Rockledge",
@@ -172,6 +218,13 @@ class ZoningScout {
       return { ...ZONING_DISTRICTS[prefixMatch], zone_code: code, resolution: "prefix" };
     }
     
+    // FL pattern-based fallback — infer setbacks from first letter + category
+    // This handles municipal codes not in ZONING_DISTRICTS lookup
+    const flFallback = this.getFlPatternFallback(code);
+    if (flFallback) {
+      return { ...flFallback, zone_code: code, resolution: "fl_pattern_fallback" };
+    }
+
     // Unknown — flag for manual review
     return {
       zone_code: code,
@@ -180,6 +233,37 @@ class ZoningScout {
       desc: "UNKNOWN — requires manual mapping",
       resolution: "unknown",
     };
+  }
+
+  /**
+   * FL pattern-based fallback for unrecognized zone codes.
+   * Handles codes like "RS-1B", "RMF-4", "B-2A", "I-3", etc.
+   * that vary by municipality but follow common FL patterns.
+   */
+  getFlPatternFallback(code) {
+    const c = code.toUpperCase();
+    // Industrial
+    if (/^I[-_]?[0-9]/.test(c) || c.startsWith("IND") || c.startsWith("LI") || c.startsWith("IU"))
+      return { front: 25, side: 10, rear: 15, maxHeight: 45, lotCoverage: 62, far: 1.0, desc: "Industrial (FL pattern fallback)" };
+    // Commercial B-series
+    if (/^B[-_]?[0-9]/.test(c) || c.startsWith("BC") || c.startsWith("CB") || c.startsWith("GC"))
+      return { front: 15, side: 0, rear: 10, maxHeight: 45, lotCoverage: 75, far: 2.0, desc: "Commercial (FL pattern fallback)" };
+    // Commercial C-series
+    if (/^C[-_]?[0-9A-Z]/.test(c) && !c.startsWith("CBD"))
+      return { front: 15, side: 0, rear: 10, maxHeight: 45, lotCoverage: 75, far: 2.0, desc: "Commercial C-series (FL pattern fallback)" };
+    // Multi-family R or RMF
+    if (/^R(MF|M|U-2|[-_]?[34])/.test(c))
+      return { front: 20, side: 8, rear: 15, maxHeight: 45, lotCoverage: 55, far: 1.0, desc: "Multi-Family (FL pattern fallback)" };
+    // Single-family R-series
+    if (/^R[-_]?[1-2]/.test(c) || /^RS/.test(c) || /^RSF/.test(c))
+      return { front: 25, side: 7.5, rear: 20, maxHeight: 35, lotCoverage: 35, far: 0.45, desc: "Single Family (FL pattern fallback)" };
+    // Agricultural / large lot
+    if (/^(A|AG|AU|AR|RE|EU|SR|RR)/.test(c))
+      return { front: 50, side: 25, rear: 50, maxHeight: 35, lotCoverage: 20, far: 0.15, desc: "Agricultural/Estate (FL pattern fallback)" };
+    // Institutional / public
+    if (/^(P|INST|PARK|PF|CF|MH$)/.test(c))
+      return { front: 25, side: 15, rear: 25, maxHeight: 35, lotCoverage: 20, far: 0.10, desc: "Public/Institutional (FL pattern fallback)" };
+    return null;
   }
 
   /**
@@ -193,9 +277,14 @@ class ZoningScout {
       return [];
     }
 
+    // Use per-municipality field names (AGOL endpoints may differ from ArcGIS MapServer)
+    const zoneField = config.zone_field || "ZONING";
+    const pidField = config.parcel_id_field || "PARCEL_ID";
+    const outFields = [pidField, zoneField, "OBJECTID"].filter((v, i, a) => a.indexOf(v) === i).join(",");
+
     const params = new URLSearchParams({
       where: "1=1",
-      outFields: "PARCEL_ID,ZONING,ZONE_CODE,ZONE_DESC,OBJECTID",
+      outFields,
       returnGeometry: false,
       f: "json",
       resultOffset: offset,
@@ -207,6 +296,7 @@ class ZoningScout {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       return data.features || [];
     } catch (err) {
       console.error(`  ❌ GIS query failed for ${config.name}: ${err.message}`);
@@ -221,15 +311,17 @@ class ZoningScout {
    */
   async queryZoneWiseSupabase(municipality) {
     // Municipality → BCPAO section prefix for parcel_id filtering
+    // BCPAO parcel_id section prefixes — first 2 digits of parcel_id
+    // Source: envelope-conquest.yml PREFIX_MAP (authoritative)
     const SECTION_PREFIXES = {
-      satellite_beach:      "27",
-      indian_harbour_beach: "27",
-      cocoa_beach:          "24",
-      melbourne:            "28",
-      palm_bay:             "29",
+      satellite_beach:      "20",  // was "27" — BUG FIX
       titusville:           "21",
-      cocoa:                "23",
+      cocoa:                "22",  // was "23" — BUG FIX (was pointing to rockledge!)
       rockledge:            "23",
+      cocoa_beach:          "24",
+      melbourne:            "25",  // was "28" — BUG FIX
+      palm_bay:             "26",  // "29" is also palm_bay (palm_bay_29)
+      indian_harbour_beach: "20",  // satellite beach / IHB share prefix area
       unincorporated:       null, // no prefix filter — fetch all
     };
     const prefix = SECTION_PREFIXES[municipality];
@@ -292,8 +384,15 @@ class ZoningScout {
 
     // Resolve each parcel's zone code to setback params
     for (const parcel of parcels) {
-      const rawCode = parcel.attributes?.ZONING || parcel.attributes?.ZONE_CODE || parcel.zone_code;
-      const parcelId = parcel.attributes?.PARCEL_ID || parcel.parcel_id;
+      // Handle different field names across GIS providers:
+      // - ArcGIS MapServer: PARCEL_ID, ZONING or ZONE_CODE
+      // - AGOL FeatureServer (Cocoa, Cocoa Beach): Name (parcel ID), Zoning
+      // - Titusville CommunityDevelopment: Zone_Code
+      const rawCode = parcel.attributes?.Zoning || parcel.attributes?.ZONING ||
+                      parcel.attributes?.Zone_Code || parcel.attributes?.ZONE_CODE ||
+                      parcel.zone_code;
+      const parcelId = parcel.attributes?.PARCEL_ID || parcel.attributes?.Name ||
+                       parcel.parcel_id;
       
       if (!parcelId) continue;
       
