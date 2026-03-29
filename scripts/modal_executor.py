@@ -179,7 +179,7 @@ def continuous_loop():
     except:
         pass
 
-    MAX_PARALLEL = 3  # Modal can do 5, but GHA runners are limited
+    MAX_PARALLEL = 3  # Always maintain 3 tasks running
     slots = max(0, MAX_PARALLEL - running)
     print(f"Running: {running} | Slots available: {slots}")
 
