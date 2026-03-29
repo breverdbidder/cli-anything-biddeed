@@ -1,0 +1,23 @@
+name: Continuous Executor (Every 2 Hours)
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run continuous executor
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          pip install requests --break-system-packages -q 2>/dev/null
+          python3 scripts/continuous_executor.py
