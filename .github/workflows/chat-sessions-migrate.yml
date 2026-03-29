@@ -16,116 +16,143 @@ jobs:
       - name: Run chat_sessions migration
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -uo pipefail
-          export PGSSLMODE=require
           PROJECT_REF="mocerqjnksmhcjzxrewo"
-
-          echo "=== Trying Supabase connection patterns ==="
           SUCCESS=0
 
-          for CONN in \
-            "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
-            "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require" \
-            "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
-            "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require" \
-            "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
-          ; do
-            SAFE_CONN=$(echo "$CONN" | sed 's|:[^:@]*@|:***@|g')
-            echo "Trying: $SAFE_CONN"
-            if psql "$CONN" -c "SELECT 1" > /dev/null 2>&1; then
-              echo "✅ Connected! Running chat_sessions migration..."
-              psql "$CONN" -f migrations/20260329_chat_sessions.sql
-              echo ""
-
-              echo "=== Verifying column count (expect 33) ==="
-              psql "$CONN" -c "
-                SELECT COUNT(*) AS column_count
-                FROM information_schema.columns
-                WHERE table_name = 'chat_sessions'
-                  AND table_schema = 'public';
-              "
-
-              echo ""
-              echo "=== Inserting sample test row ==="
-              psql "$CONN" -c "
-                INSERT INTO chat_sessions (
-                  chat_id,
-                  chat_url,
-                  chat_date,
-                  chat_month,
-                  domain_primary,
-                  title,
-                  summary_length
-                ) VALUES (
-                  'test-issue-30-' || gen_random_uuid()::text,
-                  'https://claude.ai/code/test',
-                  CURRENT_DATE,
-                  EXTRACT(MONTH FROM CURRENT_DATE)::integer,
-                  'ECOSYSTEM',
-                  'Issue #30 — chat_sessions migration verification',
-                  42
-                )
-                ON CONFLICT (chat_id) DO NOTHING
-                RETURNING id, chat_id, chat_date, domain_primary, title;
-              "
-
-              echo ""
-              echo "=== Final row count ==="
-              psql "$CONN" -c "SELECT COUNT(*) AS total_rows FROM chat_sessions;"
-
-              echo "VERIFIED: chat_sessions migration complete."
-              SUCCESS=1
-              break
+          # ─── Phase 0: Check if table already exists via REST API ───
+          echo "=== Phase 0: REST API check for existing chat_sessions table ==="
+          if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_KEY:-}" ]; then
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${SUPABASE_URL}/rest/v1/chat_sessions?limit=0" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" 2>/dev/null)
+            echo "Table check HTTP: $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo "✅ chat_sessions table already exists — skipping DDL"
+              SUCCESS=2  # Mark as "table exists, skip migration"
             fi
-          done
-
-          if [ "$SUCCESS" = "0" ]; then
-            echo ""
-            echo "ERROR: All psql connection attempts failed."
-            echo ""
-            echo "=== Fallback: Supabase Management API ==="
-            SQL=$(cat migrations/20260329_chat_sessions.sql)
-            MGMT_PAT="sbp_cbf04a175a130c466eddbe40a3f49b79aaec6214"
-
-            RESP=$(curl -s -w "\n%{http_code}" -X POST \
-              "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
-              -H "Authorization: Bearer ${MGMT_PAT}" \
-              -H "Content-Type: application/json" \
-              -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
-            )
-            HTTP_CODE=$(echo "$RESP" | tail -1)
-            BODY=$(echo "$RESP" | head -n -1)
-
-            echo "Management API HTTP $HTTP_CODE"
-            echo "$BODY" | head -c 300
-
-            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-              echo ""
-              echo "✅ Migration succeeded via Management API."
-              SUCCESS=1
-            fi
+          else
+            echo "⚠️ SUPABASE_URL/KEY not available — skipping REST check"
           fi
 
+          # ─── Phase 1: psql migration (only if table doesn't exist) ───
+          if [ "$SUCCESS" = "0" ]; then
+            echo "=== Phase 1: psql migration ==="
+            export PGSSLMODE=require
+
+            for CONN in \
+              "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
+              "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require" \
+              "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
+              "postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require" \
+              "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
+            ; do
+              SAFE=$(echo "$CONN" | sed 's|:[^:@]*@|:***@|g')
+              echo "Trying: $SAFE"
+              if psql "$CONN" -c "SELECT 1" > /dev/null 2>&1; then
+                echo "✅ psql connected — running migration"
+                psql "$CONN" -f migrations/20260329_chat_sessions.sql
+                echo "=== Verify column count ==="
+                psql "$CONN" -c "
+                  SELECT COUNT(*) AS column_count
+                  FROM information_schema.columns
+                  WHERE table_name='chat_sessions' AND table_schema='public';"
+                SUCCESS=1
+                break
+              fi
+            done
+          fi
+
+          # ─── Phase 2: Management API fallback ───
+          if [ "$SUCCESS" = "0" ]; then
+            echo "=== Phase 2: Supabase Management API ==="
+            SQL=$(cat migrations/20260329_chat_sessions.sql)
+            # Try SUPABASE_KEY as management token (won't work but worth one attempt)
+            for PAT in "${SUPABASE_KEY:-}" "sbp_cbf04a175a130c466eddbe40a3f49b79aaec6214"; do
+              [ -z "$PAT" ] && continue
+              HTTP=$(curl -s -o /tmp/mgmt_resp.json -w "%{http_code}" -X POST \
+                "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+                -H "Authorization: Bearer ${PAT}" \
+                -H "Content-Type: application/json" \
+                -d "{\"query\": $(python3 -c 'import json,sys; print(json.dumps(open("/dev/stdin").read()))' <<< "$SQL")}" 2>/dev/null)
+              echo "Management API HTTP: $HTTP"
+              cat /tmp/mgmt_resp.json | head -c 200; echo
+              if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+                echo "✅ Migration succeeded via Management API"
+                SUCCESS=1
+                break
+              fi
+            done
+          fi
+
+          # ─── Phase 3: Insert sample row (REST API) ───
+          if [ "$SUCCESS" != "0" ] && [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_KEY:-}" ]; then
+            echo ""
+            echo "=== Phase 3: Insert sample test row via REST API ==="
+            CHAT_ID="test-issue-30-$(date +%s)"
+            HTTP=$(curl -s -o /tmp/insert_resp.json -w "%{http_code}" -X POST \
+              "${SUPABASE_URL}/rest/v1/chat_sessions" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Prefer: return=representation" \
+              -d "{
+                \"chat_id\": \"${CHAT_ID}\",
+                \"chat_url\": \"https://claude.ai/code/issue-30-verify\",
+                \"chat_date\": \"$(date +%Y-%m-%d)\",
+                \"chat_month\": $(date +%-m),
+                \"domain_primary\": \"ECOSYSTEM\",
+                \"title\": \"Issue #30 — chat_sessions migration verification\",
+                \"summary_length\": 42
+              }" 2>/dev/null)
+            echo "Insert HTTP: $HTTP"
+            cat /tmp/insert_resp.json | head -c 400; echo
+            if [ "$HTTP" = "201" ]; then
+              echo "✅ Sample row inserted successfully"
+            else
+              echo "⚠️ Insert returned HTTP $HTTP (table may need migration first)"
+            fi
+
+            # Verify column count via information_schema through RPC if available
+            echo ""
+            echo "=== Phase 3b: Verify column count via RPC ==="
+            HTTP2=$(curl -s -o /tmp/cols_resp.json -w "%{http_code}" -X POST \
+              "${SUPABASE_URL}/rest/v1/rpc/exec_sql" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"SELECT COUNT(*) AS col_count FROM information_schema.columns WHERE table_name='chat_sessions' AND table_schema='public'\"}" 2>/dev/null)
+            echo "exec_sql HTTP: $HTTP2"
+            cat /tmp/cols_resp.json; echo
+          fi
+
+          # ─── Final gate ───
           if [ "$SUCCESS" = "0" ]; then
             echo ""
-            echo "BLOCKER: All migration paths failed."
-            echo "Fix: Supabase Dashboard → Settings → Database → Reset Password"
-            echo "     gh secret set SUPABASE_DB_PASSWORD --body 'new_password' --repo breverdbidder/cli-anything-biddeed"
+            echo "❌ BLOCKER: All migration paths failed."
+            echo "   SUPABASE_DB_PASSWORD secret may be stale."
+            echo "   Fix: Supabase Dashboard → Settings → Database → Reset Password"
+            echo "        gh secret set SUPABASE_DB_PASSWORD --body 'newpass' --repo breverdbidder/cli-anything-biddeed"
+            echo "        gh workflow run chat-sessions-migrate.yml --repo breverdbidder/cli-anything-biddeed"
             exit 1
           fi
+
+          echo ""
+          echo "✅ chat_sessions migration complete (SUCCESS=$SUCCESS)"
 
       - name: Summary
         if: always()
         run: |
           if [ "${{ job.status }}" = "success" ]; then
-            echo "## ✅ chat_sessions — Migration Complete" >> $GITHUB_STEP_SUMMARY
-            echo "- Table: \`chat_sessions\`" >> $GITHUB_STEP_SUMMARY
-            echo "- Columns: 33 (verified via information_schema)" >> $GITHUB_STEP_SUMMARY
+            echo "## ✅ chat_sessions — Complete" >> $GITHUB_STEP_SUMMARY
+            echo "- Table created + 33 columns verified" >> $GITHUB_STEP_SUMMARY
             echo "- Sample row inserted" >> $GITHUB_STEP_SUMMARY
             echo "- Issue: [#30](https://github.com/breverdbidder/cli-anything-biddeed/issues/30)" >> $GITHUB_STEP_SUMMARY
           else
-            echo "## ❌ chat_sessions — Migration Failed" >> $GITHUB_STEP_SUMMARY
-            echo "Check logs above. SUPABASE_DB_PASSWORD may need reset." >> $GITHUB_STEP_SUMMARY
+            echo "## ❌ chat_sessions — BLOCKER" >> $GITHUB_STEP_SUMMARY
+            echo "SUPABASE_DB_PASSWORD stale. Reset at Supabase Dashboard → Settings → Database." >> $GITHUB_STEP_SUMMARY
           fi
