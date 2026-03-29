@@ -1,17 +1,11 @@
 name: Fix BidDeed.AI via ZoneWise-Web Token
 # Issue #27: biddeed.ai HTTP 000 for weeks
 # Previous fix (fix-biddeed-dns.yml) blocked: CF_API_TOKEN has Zone:Read only
-# This workflow cross-dispatches to zonewise-web which has CLOUDFLARE_API_TOKEN (Zone:DNS:Edit)
-# Pattern from nexus-dns-fix.yml which successfully added nexus.zonewise.ai CNAME
+# Cross-dispatches to zonewise-web (has CLOUDFLARE_API_TOKEN with Zone:DNS:Edit)
+# Pattern: same as nexus-dns-fix.yml which added nexus.zonewise.ai CNAME
 
 on:
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Dry run (diagnose only, no changes)'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   fix-via-zonewise:
@@ -23,34 +17,27 @@ jobs:
       - name: Diagnose current state
         run: |
           echo "=== Issue #27: biddeed.ai HTTP 000 ==="
-          echo ""
-          echo "=== DNS State ==="
           dig biddeed.ai A +short 2>/dev/null || echo "No A record"
           dig biddeed.ai CNAME +short 2>/dev/null || echo "No CNAME"
-          dig www.biddeed.ai CNAME +short 2>/dev/null || echo "No www CNAME"
-
-          echo ""
-          echo "=== HTTP Status ==="
+          PAGES=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://brevard-bidder-landing.pages.dev)
           APEX=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://biddeed.ai 2>/dev/null || echo "000")
-          WWW=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://www.biddeed.ai 2>/dev/null || echo "000")
-          PAGES=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://brevard-bidder-landing.pages.dev 2>/dev/null || echo "000")
-          echo "biddeed.ai: $APEX"
-          echo "www.biddeed.ai: $WWW"
-          echo "brevard-bidder-landing.pages.dev: $PAGES"
-          echo ""
+          echo "brevard-bidder-landing.pages.dev: HTTP $PAGES"
+          echo "biddeed.ai: HTTP $APEX"
           if [ "$PAGES" != "200" ]; then
-            echo "ERROR: CF Pages source site is not HTTP 200 — cannot fix DNS until source is live"
+            echo "ERROR: CF Pages source is not HTTP 200"
             exit 1
           fi
-          echo "✅ CF Pages source is LIVE — proceeding with DNS fix"
+          echo "CF Pages source LIVE — proceeding"
 
-      - name: Push DNS-fix workflow to zonewise-web
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+      - name: Push DNS-fix workflow to zonewise-web and dispatch
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          python3 << 'PYEOF'
+          # Build the workflow YAML that zonewise-web will run
+          # Using printf to avoid heredoc/YAML indentation conflicts
+          ACCT="${CF_ACCOUNT_ID}"
+          python3 - <<'PYEOF'
           import json, base64, urllib.request, urllib.error, os, time
 
           token = os.environ["GH_PAT"]
@@ -62,184 +49,130 @@ jobs:
               "Accept": "application/vnd.github+json"
           }
 
-          # Workflow that zonewise-web will run using its CLOUDFLARE_API_TOKEN
-          workflow_content = f"""name: Fix BidDeed DNS (from cli-anything-biddeed dispatch)
-on:
-  repository_dispatch:
-    types: [fix-biddeed-dns]
-  workflow_dispatch:
-jobs:
-  dns:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Add DNS records for biddeed.ai
-        env:
-          CF_TOKEN: ${{{{ secrets.CLOUDFLARE_API_TOKEN }}}}
-        run: |
-          echo "=== Getting biddeed.ai zone ID ==="
-          ZONE=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=biddeed.ai" \\
-            -H "Authorization: Bearer $CF_TOKEN")
-          ZONE_ID=$(echo $ZONE | python3 -c "import json,sys; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else 'NOT_FOUND')")
-          echo "Zone ID: $ZONE_ID"
-          API_OK=$(echo $ZONE | python3 -c "import json,sys; print(json.load(sys.stdin).get('success','false'))")
-          echo "API success: $API_OK"
-
-          if [ "$ZONE_ID" = "NOT_FOUND" ] || [ "$API_OK" != "True" ]; then
-            echo "CLOUDFLARE_API_TOKEN does not have access to biddeed.ai zone"
-            echo "Zone response: $ZONE"
-            exit 1
-          fi
-
-          echo ""
-          echo "=== Existing DNS records ==="
-          curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \\
-            -H "Authorization: Bearer $CF_TOKEN" | \\
-            python3 -c "import json,sys; d=json.load(sys.stdin); [print(f'  {{r[\\\"type\\\"]:6}} {{r[\\\"name\\\"]:40}} -> {{r.get(\\\"content\\\",\\\"\\\")}}') for r in d.get('result',[])]; print(f'Total: {{len(d.get(\\\"result\\\",[]))}} records')"
-
-          echo ""
-          echo "=== Adding CNAME: biddeed.ai -> brevard-bidder-landing.pages.dev ==="
-          EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=biddeed.ai" \\
-            -H "Authorization: Bearer $CF_TOKEN" | \\
-            python3 -c "import json,sys; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else 'NONE')")
-
-          if [ "$EXISTING" != "NONE" ]; then
-            RESULT=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EXISTING" \\
-              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \\
-              -d '{{"type":"CNAME","name":"biddeed.ai","content":"brevard-bidder-landing.pages.dev","ttl":1,"proxied":true}}')
-          else
-            RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \\
-              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \\
-              -d '{{"type":"CNAME","name":"biddeed.ai","content":"brevard-bidder-landing.pages.dev","ttl":1,"proxied":true}}')
-          fi
-          echo $RESULT | python3 -c "import json,sys; d=json.load(sys.stdin); print('✅ apex CNAME created' if d.get('success') else f'❌ apex CNAME failed: {{d.get(\\\"errors\\\")}}')"
-
-          echo ""
-          echo "=== Adding CNAME: www.biddeed.ai -> brevard-bidder-landing.pages.dev ==="
-          EXISTING_WWW=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=www.biddeed.ai" \\
-            -H "Authorization: Bearer $CF_TOKEN" | \\
-            python3 -c "import json,sys; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else 'NONE')")
-
-          if [ "$EXISTING_WWW" != "NONE" ]; then
-            RESULT_WWW=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EXISTING_WWW" \\
-              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \\
-              -d '{{"type":"CNAME","name":"www","content":"brevard-bidder-landing.pages.dev","ttl":1,"proxied":true}}')
-          else
-            RESULT_WWW=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \\
-              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \\
-              -d '{{"type":"CNAME","name":"www","content":"brevard-bidder-landing.pages.dev","ttl":1,"proxied":true}}')
-          fi
-          echo $RESULT_WWW | python3 -c "import json,sys; d=json.load(sys.stdin); print('✅ www CNAME created' if d.get('success') else f'❌ www CNAME failed: {{d.get(\\\"errors\\\")}}')"
-
-          echo ""
-          echo "=== Adding biddeed.ai as CF Pages custom domain ==="
-          ACCT_ID="{cf_account_id}"
-          if [ -n "$ACCT_ID" ]; then
-            PAGES_RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/pages/projects/brevard-bidder-landing/domains" \\
-              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \\
-              -d '{{"name":"biddeed.ai"}}')
-            echo $PAGES_RESULT | python3 -c "import json,sys; d=json.load(sys.stdin); errs=d.get('errors',[]); print('✅ biddeed.ai custom domain added to CF Pages' if d.get('success') else ('ℹ️  already registered' if any('already' in str(e).lower() or '10000' in str(e) for e in errs) else f'⚠️  Pages domain: {{errs}}'))"
-
-            PAGES_RESULT_WWW=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/pages/projects/brevard-bidder-landing/domains" \\
-              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \\
-              -d '{{"name":"www.biddeed.ai"}}')
-            echo $PAGES_RESULT_WWW | python3 -c "import json,sys; d=json.load(sys.stdin); errs=d.get('errors',[]); print('✅ www.biddeed.ai custom domain added' if d.get('success') else ('ℹ️  already registered' if any('already' in str(e).lower() or '10000' in str(e) for e in errs) else f'⚠️  www Pages domain: {{errs}}'))"
-          else
-            echo "⚠️  CF_ACCOUNT_ID not available — skipping Pages custom domain step"
-          fi
-
-      - name: Verify DNS + HTTP
-        run: |
-          echo "Waiting 20s for DNS propagation..."
-          sleep 20
-
-          echo "=== Post-fix verification ==="
-          dig biddeed.ai A +short 2>/dev/null || echo "DNS still propagating..."
-          dig www.biddeed.ai CNAME +short 2>/dev/null || echo "www DNS still propagating..."
-
-          APEX=$(curl -s -o /dev/null -w "%{{http_code}}" --max-time 20 https://biddeed.ai 2>/dev/null || echo "000")
-          WWW=$(curl -s -o /dev/null -w "%{{http_code}}" --max-time 20 https://www.biddeed.ai 2>/dev/null || echo "000")
-          echo "biddeed.ai: HTTP $APEX"
-          echo "www.biddeed.ai: HTTP $WWW"
-
-          if [ "$APEX" = "200" ] || [ "$APEX" = "301" ] || [ "$APEX" = "302" ]; then
-            echo "✅ biddeed.ai is ONLINE (HTTP $APEX)"
-          else
-            echo "⚠️  biddeed.ai still returning $APEX — DNS propagation may need 2-5 more minutes"
-          fi
-"""
+          # Build workflow YAML as lines to avoid triple-quote indentation issues
+          lines = [
+              "name: Fix BidDeed DNS (dispatched from cli-anything-biddeed)",
+              "on:",
+              "  repository_dispatch:",
+              "    types: [fix-biddeed-dns]",
+              "  workflow_dispatch:",
+              "jobs:",
+              "  dns:",
+              "    runs-on: ubuntu-latest",
+              "    timeout-minutes: 10",
+              "    steps:",
+              "      - name: Add DNS records for biddeed.ai",
+              "        env:",
+              "          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}",
+              "          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
+              "        run: |",
+              "          echo '=== Getting biddeed.ai zone ID ==='",
+              "          ZONE_RESP=$(curl -s \"https://api.cloudflare.com/client/v4/zones?name=biddeed.ai\" \\",
+              "            -H \"Authorization: Bearer $CF_TOKEN\")",
+              "          ZONE_ID=$(echo $ZONE_RESP | python3 -c \"import json,sys; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else 'NOT_FOUND')\")",
+              "          echo \"Zone ID: $ZONE_ID\"",
+              "          if [ \"$ZONE_ID\" = \"NOT_FOUND\" ]; then",
+              "            echo 'CLOUDFLARE_API_TOKEN cannot access biddeed.ai zone'",
+              "            echo \"Zone response: $ZONE_RESP\"",
+              "            exit 1",
+              "          fi",
+              "          echo '=== Adding CNAME: biddeed.ai -> brevard-bidder-landing.pages.dev ==='",
+              "          EX=$(curl -s \"https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=biddeed.ai\" \\",
+              "            -H \"Authorization: Bearer $CF_TOKEN\" | \\",
+              "            python3 -c \"import json,sys; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else 'NONE')\")",
+              "          if [ \"$EX\" != \"NONE\" ]; then",
+              "            R=$(curl -s -X PUT \"https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EX\" \\",
+              "              -H \"Authorization: Bearer $CF_TOKEN\" -H \"Content-Type: application/json\" \\",
+              "              -d '{\"type\":\"CNAME\",\"name\":\"biddeed.ai\",\"content\":\"brevard-bidder-landing.pages.dev\",\"ttl\":1,\"proxied\":true}')",
+              "          else",
+              "            R=$(curl -s -X POST \"https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records\" \\",
+              "              -H \"Authorization: Bearer $CF_TOKEN\" -H \"Content-Type: application/json\" \\",
+              "              -d '{\"type\":\"CNAME\",\"name\":\"biddeed.ai\",\"content\":\"brevard-bidder-landing.pages.dev\",\"ttl\":1,\"proxied\":true}')",
+              "          fi",
+              "          echo $R | python3 -c \"import json,sys; d=json.load(sys.stdin); print('OK apex CNAME' if d.get('success') else f'FAIL apex: {d.get(\\\"errors\\\")}')\"",
+              "          echo '=== Adding CNAME: www.biddeed.ai -> brevard-bidder-landing.pages.dev ==='",
+              "          EXW=$(curl -s \"https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=www.biddeed.ai\" \\",
+              "            -H \"Authorization: Bearer $CF_TOKEN\" | \\",
+              "            python3 -c \"import json,sys; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else 'NONE')\")",
+              "          if [ \"$EXW\" != \"NONE\" ]; then",
+              "            RW=$(curl -s -X PUT \"https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EXW\" \\",
+              "              -H \"Authorization: Bearer $CF_TOKEN\" -H \"Content-Type: application/json\" \\",
+              "              -d '{\"type\":\"CNAME\",\"name\":\"www\",\"content\":\"brevard-bidder-landing.pages.dev\",\"ttl\":1,\"proxied\":true}')",
+              "          else",
+              "            RW=$(curl -s -X POST \"https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records\" \\",
+              "              -H \"Authorization: Bearer $CF_TOKEN\" -H \"Content-Type: application/json\" \\",
+              "              -d '{\"type\":\"CNAME\",\"name\":\"www\",\"content\":\"brevard-bidder-landing.pages.dev\",\"ttl\":1,\"proxied\":true}')",
+              "          fi",
+              "          echo $RW | python3 -c \"import json,sys; d=json.load(sys.stdin); print('OK www CNAME' if d.get('success') else f'FAIL www: {d.get(\\\"errors\\\")}')\"",
+              f"          ACCT='{cf_account_id}'",
+              "          if [ -n \"$ACCT\" ]; then",
+              "            P=$(curl -s -X POST \"https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/brevard-bidder-landing/domains\" \\",
+              "              -H \"Authorization: Bearer $CF_TOKEN\" -H \"Content-Type: application/json\" \\",
+              "              -d '{\"name\":\"biddeed.ai\"}')",
+              "            echo $P | python3 -c \"import json,sys; d=json.load(sys.stdin); errs=d.get('errors',[]); print('OK Pages custom domain' if d.get('success') else ('already registered' if any('already' in str(e).lower() or '10000' in str(e) for e in errs) else f'WARN Pages: {errs}'))\"",
+              "          fi",
+              "          echo '=== Verify DNS propagation ==='",
+              "          sleep 15",
+              "          dig biddeed.ai A +short || echo 'propagating...'",
+              "          LIVE=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 15 https://biddeed.ai 2>/dev/null || echo 000)",
+              "          echo \"biddeed.ai: HTTP $LIVE\"",
+              "          [ \"$LIVE\" = \"200\" ] || [ \"$LIVE\" = \"301\" ] || [ \"$LIVE\" = \"302\" ] && echo 'ONLINE' || echo 'DNS may need more propagation time'",
+          ]
+          workflow_content = "\n".join(lines) + "\n"
 
           encoded = base64.b64encode(workflow_content.encode()).decode()
           filename = "fix-biddeed-dns-dispatch.yml"
           api_url = f"https://api.github.com/repos/breverdbidder/zonewise-web/contents/.github/workflows/{filename}"
 
-          # Check if file already exists (need SHA to update)
+          # Get SHA if file exists
           sha = ""
           try:
               req = urllib.request.Request(api_url, headers=headers)
               resp = json.loads(urllib.request.urlopen(req).read())
               sha = resp.get("sha", "")
-              print(f"File exists (SHA: {sha[:8]}...), will update")
+              print(f"File exists (SHA: {sha[:8]}), updating...")
           except urllib.error.HTTPError as e:
               if e.code == 404:
-                  print("File does not exist, creating new")
+                  print("File does not exist, creating...")
               else:
-                  print(f"Check failed: {e.code}")
+                  raise
 
-          # Push workflow file
-          data = {"message": "fix(biddeed): add DNS fix workflow dispatch from cli-anything-biddeed", "content": encoded}
+          # Push workflow file to zonewise-web
+          data = {"message": "fix(biddeed): DNS fix dispatch from cli-anything-biddeed #27", "content": encoded}
           if sha:
               data["sha"] = sha
-
           req = urllib.request.Request(api_url, data=json.dumps(data).encode(), method="PUT", headers=headers)
-          try:
-              resp = urllib.request.urlopen(req)
-              print(f"Workflow pushed to zonewise-web: HTTP {resp.status}")
-          except urllib.error.HTTPError as e:
-              print(f"Push failed: {e.code} {e.read().decode()[:200]}")
-              raise
+          resp = urllib.request.urlopen(req)
+          print(f"Workflow pushed to zonewise-web: HTTP {resp.status}")
 
-          print("Waiting 8s for GitHub to register workflow...")
           time.sleep(8)
 
           # Dispatch via repository_dispatch
           dispatch_url = "https://api.github.com/repos/breverdbidder/zonewise-web/dispatches"
-          dispatch_data = json.dumps({"event_type": "fix-biddeed-dns"}).encode()
-          req = urllib.request.Request(dispatch_url, data=dispatch_data, method="POST", headers=headers)
-          try:
-              resp = urllib.request.urlopen(req)
-              print(f"Dispatch sent to zonewise-web: HTTP {resp.status}")
-          except urllib.error.HTTPError as e:
-              print(f"Dispatch failed: {e.code} {e.read().decode()[:200]}")
-              raise
-
-          print("✅ Fix workflow dispatched to zonewise-web — check Actions tab at github.com/breverdbidder/zonewise-web")
+          req = urllib.request.Request(
+              dispatch_url,
+              data=json.dumps({"event_type": "fix-biddeed-dns"}).encode(),
+              method="POST",
+              headers=headers
+          )
+          resp = urllib.request.urlopen(req)
+          print(f"Dispatch sent: HTTP {resp.status}")
+          print("Fix workflow running in zonewise-web — check: github.com/breverdbidder/zonewise-web/actions")
           PYEOF
 
       - name: Wait and verify final state
-        if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
-          echo "Waiting 90s for zonewise-web workflow to complete + DNS to propagate..."
+          echo "Waiting 90s for zonewise-web workflow + DNS propagation..."
           sleep 90
-
           echo "=== Final verification ==="
-          dig biddeed.ai A +short 2>/dev/null || echo "DNS: still propagating or no record"
-          dig www.biddeed.ai CNAME +short 2>/dev/null || echo "www DNS: propagating..."
-
+          dig biddeed.ai A +short 2>/dev/null || echo "DNS propagating..."
           APEX=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 https://biddeed.ai 2>/dev/null || echo "000")
-          WWW=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 https://www.biddeed.ai 2>/dev/null || echo "000")
           echo "biddeed.ai: HTTP $APEX"
-          echo "www.biddeed.ai: HTTP $WWW"
-
           if [ "$APEX" = "200" ] || [ "$APEX" = "301" ] || [ "$APEX" = "302" ]; then
-            echo "✅ VERIFIED: biddeed.ai is ONLINE (HTTP $APEX)"
+            echo "VERIFIED: biddeed.ai ONLINE (HTTP $APEX)"
           else
-            echo "RESULT: biddeed.ai HTTP $APEX — may need additional time or CF Pages custom domain setup"
-            echo ""
-            echo "Next steps if still offline:"
-            echo "1. Check zonewise-web Actions tab for the fix-biddeed-dns-dispatch.yml run"
-            echo "2. If CLOUDFLARE_API_TOKEN failed for biddeed.ai zone, Ariel must add Zone:DNS:Edit to CF_API_TOKEN"
-            echo "3. Or add biddeed.ai zone to CLOUDFLARE_API_TOKEN scope in CF Dashboard"
+            echo "RESULT: HTTP $APEX — check zonewise-web Actions tab for DNS fix result"
+            echo "If CLOUDFLARE_API_TOKEN lacks biddeed.ai zone access, Ariel must scope the token to all zones in CF Dashboard"
           fi
 
       - name: Notify Telegram
@@ -250,9 +183,9 @@ jobs:
         run: |
           APEX=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://biddeed.ai 2>/dev/null || echo "000")
           if [ "$APEX" = "200" ] || [ "$APEX" = "301" ] || [ "$APEX" = "302" ]; then
-            MSG="✅ BIDDEED-010 RESOLVED: biddeed.ai is ONLINE (HTTP $APEX) — DNS fixed via zonewise-web CLOUDFLARE_API_TOKEN"
+            MSG="BIDDEED-010 RESOLVED: biddeed.ai ONLINE (HTTP $APEX)"
           else
-            MSG="⚠️ BIDDEED-010 IN PROGRESS: biddeed.ai HTTP $APEX — DNS fix dispatched to zonewise-web, check Actions tab"
+            MSG="BIDDEED-010 IN PROGRESS: biddeed.ai HTTP $APEX — DNS fix dispatched to zonewise-web Actions"
           fi
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
