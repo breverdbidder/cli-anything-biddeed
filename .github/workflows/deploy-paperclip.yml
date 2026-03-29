@@ -72,10 +72,13 @@ jobs:
             git fetch upstream --depth=1 -q 2>/dev/null || echo '  upstream fetch skipped (network)'
 
             echo '[3/5] Check Node/pnpm versions...'
-            node --version 2>/dev/null || { curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; }
+            node --version 2>/dev/null || { curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs -q; }
             node --version
-            npm install -g pnpm@9 -q 2>/dev/null || true
-            pnpm --version
+            if ! command -v pnpm >/dev/null 2>&1; then
+              npm install -g pnpm@9 --quiet 2>/dev/null || npm install -g pnpm --quiet 2>/dev/null || true
+            fi
+            pnpm --version 2>/dev/null || echo "  pnpm not available, will use npm"
+            PKG_MGR=$(command -v pnpm >/dev/null 2>&1 && echo pnpm || echo npm)
 
             echo '[4/5] Build Paperclip...'
             cd \"\$REPO_DIR\"
@@ -111,13 +114,13 @@ jobs:
             else
               echo '  Using direct Node.js (no Docker)...'
               # Install dependencies and build
-              pnpm install --frozen-lockfile 2>/dev/null || pnpm install
-              pnpm build 2>/dev/null || (npm run build 2>/dev/null || echo '  build step skipped')
+              \$PKG_MGR install 2>/dev/null || npm install
+              \$PKG_MGR run build 2>/dev/null || npm run build 2>/dev/null || echo '  build step skipped'
               # Kill existing pm2 instance if running
               pm2 delete paperclip 2>/dev/null || true
               npm install -g pm2 -q
-              pm2 start 'pnpm start' --name paperclip 2>/dev/null || \
-                pm2 start 'npm start' --name paperclip
+              pm2 start \"\$PKG_MGR start\" --name paperclip 2>/dev/null || \
+                pm2 start \"npm start\" --name paperclip
               pm2 save
             fi
 
@@ -549,7 +552,7 @@ jobs:
           items=d if isinstance(d,list) else d.get(\"result\",[])
           print(\",\".join(a.get(\"name\",\"\") for a in items if isinstance(a,dict)))
           " 2>/dev/null || echo "")
-              echo "  ✅ [agents] Found: ${AGENT_NAMES:-'(none yet)'}"
+              echo "  ✅ [agents] Found: ${AGENT_NAMES:-(none yet)}"
               PASS=$((PASS+1))
             else
               echo "  ⚠️  [agents] No company ID — skipping agent check"
