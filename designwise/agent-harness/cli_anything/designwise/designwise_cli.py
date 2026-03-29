@@ -117,6 +117,14 @@ AGENTS = {
             {"flags": ["--blog"], "kwargs": {"help": "Blog post topic", "default": None}},
         ],
     },
+    "teardown": {
+        "help": "TeardownWise — Site technique analyzer (UPGRADE 1)",
+        "module": "cli_anything.designwise.core.teardown_agent",
+        "args": [
+            {"flags": ["url"], "kwargs": {"help": "URL to analyze", "nargs": "?", "default": None}},
+            {"flags": ["--json"], "kwargs": {"help": "Output raw JSON", "action": "store_true"}},
+        ],
+    },
 }
 
 

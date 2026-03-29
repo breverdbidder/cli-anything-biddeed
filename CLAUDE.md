@@ -757,3 +757,26 @@ anti_patterns:
   - Creating plans about testing instead of testing
   - Dismissing gaps as "least relevant" without evidence
 ```
+
+# ── TeardownWise Agent (added 2026-03-29) ──
+
+## TeardownWise Config
+```yaml
+agent: cli_anything.designwise.core.teardown_agent.TeardownWiseAgent
+cli: cli-anything-designwise teardown <url>
+table: teardown_bundles (Supabase)
+migration: designwise/migrations/002_teardown_bundles.sql
+spec: docs/plans/DESIGNWISE-V3-UPGRADES.md (UPGRADE 1)
+issue: breverdbidder/cli-anything-biddeed#10
+tests: designwise/tests/test_teardownwise.py (33 tests)
+output:
+  techniques: layout_technique, animation_library, color_system, typography
+  components: effects[], component_patterns[]
+detects:
+  layout: [css-grid, flexbox, css-grid+flexbox, float]
+  animation: [gsap, framer-motion, anime-js, lottie, aos, css-animations, none]
+  effects: [glassmorphism, parallax, scroll-animations, gradient-mesh, particle-effects, blur-overlay, sticky-nav]
+  components: [hero-section, card-grid, pricing-table, testimonials, sticky-nav, modal, accordion, tabs, infinite-scroll, toast-notifications]
+pipeline: web_fetch → extract CSS/JS → fetch FULL (500 KB cap) → detect → persist → return JSON
+brand_guard: BrandGuard override enforces Navy #1E3A5F + Orange #F59E0B + Inter + bg #020617
+```

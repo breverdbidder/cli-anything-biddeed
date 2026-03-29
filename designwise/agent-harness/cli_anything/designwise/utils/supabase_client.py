@@ -27,6 +27,7 @@ TABLES: List[str] = [
     "competitor_snapshots",
     "seo_audits",
     "stitch_usage",
+    "teardown_bundles",
 ]
 
 _TABLES_SET = set(TABLES)
