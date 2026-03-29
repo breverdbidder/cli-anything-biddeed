@@ -42,13 +42,26 @@ jobs:
             echo "Issue: #${ISSUE_NUMBER}"
             echo "Max session: ${SESSION_HOURS}h"
             
-            # Ensure claude user has repo
+            # Prep: ensure repo exists and is owned by claude
+            REPO_DIR="/home/claude/cli-anything-biddeed"
+            if [ ! -d "$REPO_DIR" ]; then
+              git clone https://github.com/breverdbidder/cli-anything-biddeed.git "$REPO_DIR"
+            fi
+            chown -R claude:claude "$REPO_DIR"
+            
+            # Find claude binary
+            CLAUDE_BIN=$(which claude 2>/dev/null || find /usr/local/bin /usr/bin /home/claude/.npm-global/bin /root/.npm-global/bin -name claude -type f 2>/dev/null | head -1)
+            echo "Claude binary: ${CLAUDE_BIN:-NOT FOUND}"
+            
+            # Pull latest as claude user
+            su - claude -c "cd ${REPO_DIR} && git pull origin main 2>&1" || true
+            
+            echo "=== Starting Claude Code session ==="
+            
+            # Run CC as claude user with explicit PATH
             su - claude -c "
-              cd ~/cli-anything-biddeed 2>/dev/null || git clone https://github.com/breverdbidder/cli-anything-biddeed.git ~/cli-anything-biddeed
-              cd ~/cli-anything-biddeed
-              git pull origin main
-              
-              echo '=== Starting Claude Code session ==='
+              export PATH=/usr/local/bin:/usr/bin:/home/claude/.npm-global/bin:/home/claude/.local/bin:\$PATH
+              cd ${REPO_DIR}
               
               timeout ${SESSION_HOURS}h claude --auto \
                 'Read GitHub issue #${ISSUE_NUMBER} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE_NUMBER}.
@@ -59,7 +72,7 @@ jobs:
                  Convert each skill candidate to .claude/skills/ format.
                  Commit frequently. Push results. Update issue with progress.
                  Session budget: 10 dollars max. Honesty Protocol enforced.' \
-                2>&1 || true
+                2>&1 || echo 'CC session ended (timeout or error)'
             "
             
             echo "=== SUMMIT Task Complete ==="
