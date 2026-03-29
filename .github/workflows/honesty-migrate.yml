@@ -14,11 +14,21 @@ jobs:
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          # Direct connection (not pooler)
-          DATABASE_URL="postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres"
-          echo "Connecting to Supabase direct..."
-          psql "$DATABASE_URL" -f migrations/20260328_honesty_protocol.sql
-          echo "=== Verify ==="
-          psql "$DATABASE_URL" -c "SELECT count(*) as violations FROM honesty_violations;"
-          psql "$DATABASE_URL" -c "SELECT count(*) as claims FROM claim_audit;"
-          echo "Migration complete ✅"
+          # Try session-mode pooler (port 5432)
+          for CONN in \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
+            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
+            "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"; do
+            echo "Trying connection..."
+            if psql "$CONN" -c "SELECT 1" 2>/dev/null; then
+              echo "Connected! Running migration..."
+              psql "$CONN" -f migrations/20260328_honesty_protocol.sql
+              echo "=== Verify ==="
+              psql "$CONN" -c "SELECT count(*) as violations FROM honesty_violations;"
+              psql "$CONN" -c "SELECT count(*) as claims FROM claim_audit;"
+              echo "Migration complete"
+              exit 0
+            fi
+          done
+          echo "All connection attempts failed"
+          exit 1
