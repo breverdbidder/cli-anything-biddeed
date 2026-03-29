@@ -195,3 +195,25 @@
 ### Sentinel fix: VERIFIED (pushed to main, next cron run should pass)
 ### autoloop.yml Platform Skills: VERIFIED (paths fixed for all 5 skills)
 ### BLOCKER (same as Sessions 8-13): SUPABASE_DB_PASSWORD reset required for migrations
+
+## Session 15: Issue #23 — Modal-Dispatched Sentinel Fix + Platform Skills Phase 1 Verification
+- [x] Read issue #23 (MODAL [P2|65] GHA-294482: GHA failure: Everest Sentinel) — created by Modal executor from nexus_tasks
+- [x] Code-review sentinel-patrol.sh: Session 14 fix confirmed correct (check_coder_health gated by [[ -z "${GITHUB_ACTIONS:-}" ]])
+- [x] Verify all 5 Platform Skills exist and pass structural validation:
+  - zonewise-scraper: SKILL.md + 25 assertions ✅
+  - cost-discipline: SKILL.md + 25 assertions ✅
+  - honesty-protocol: SKILL.md + 25 assertions ✅
+  - brand-colors: SKILL.md + 25 assertions ✅
+  - ship-gate: SKILL.md + 25 assertions ✅
+- [x] Create scripts/validate_platform_skills.py — structural validator, runs without DB (VERIFIED: all 5 pass)
+- [x] Attempt migration: psql to pooler.supabase.com:6543 and :5432 — FAILED: password auth failed
+- [ ] Run migrations/20260328_platform_skills_eval.sql — BLOCKED: SUPABASE_DB_PASSWORD stale
+- [ ] Run dual eval: same task both systems per candidate — BLOCKED: needs migration + summit infra
+- [ ] Decision: ADOPT/EVAL/KEEP per candidate — BLOCKED: needs eval scores
+- [ ] Update nexus_tasks task GHA-294482 → completed — BLOCKED: no Supabase creds
+- [ ] Comment on issue #23 — BLOCKED: no GH_TOKEN in build env
+
+### Platform Skills: 5/5 VERIFIED (scripts/validate_platform_skills.py run = ALL PASS)
+### Sentinel: VERIFIED fixed in Session 14. Issue #23 task is pre-fix (stale nexus_task entry).
+### BLOCKER (persistent Sessions 8-15): SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard → Settings → Database
+### To unblock: Reset password → gh secret set SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml
