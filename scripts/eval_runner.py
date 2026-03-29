@@ -5,19 +5,62 @@ eval_runner.py — Karpathy-style binary assertion evaluator for cli-anything ha
 Usage:
     python eval_runner.py --eval-file zonewise/eval/eval.json --output results.json
     python eval_runner.py --eval-file auction/eval/eval.json --output results.json --test-id T1_max_bid_calculation
+    python eval_runner.py --eval-file .claude/skills/zonewise-scraper/eval.json --output results.json --l3
 
 Reads eval.json, runs each test's assertions against actual output files,
 produces a pass/fail score. Designed for autonomous self-improvement loops.
+
+--l3 flag: after scoring, call scripts/l3_analyze.py for post-execution LLM analysis.
+           Also annotates each failed assertion with Levenshtein similarity score.
 """
 
 import json
 import re
 import sys
 import os
+import subprocess
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
+
+
+# ── L3: Levenshtein fuzzy similarity ──────────────────────────────────────
+
+def _levenshtein(a: str, b: str) -> int:
+    if len(a) < len(b):
+        return _levenshtein(b, a)
+    if len(b) == 0:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for ca in a:
+        curr = [prev[0] + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (0 if ca == cb else 1)))
+        prev = curr
+    return prev[-1]
+
+
+def levenshtein_similarity(a: str, b: str) -> float:
+    """Normalized Levenshtein similarity in [0, 1]."""
+    a, b = str(a), str(b)
+    if not a and not b:
+        return 1.0
+    max_len = max(len(a), len(b))
+    if max_len == 0:
+        return 1.0
+    return 1.0 - (_levenshtein(a, b) / max_len)
+
+
+def classify_failure(expected: str, actual: str) -> tuple:
+    """Classify failed assertion: returns (evolution_type, similarity_score)."""
+    sim = levenshtein_similarity(str(expected), str(actual))
+    if sim > 0.7:
+        return "fix", sim
+    elif sim > 0.3:
+        return "derived", sim
+    else:
+        return "captured", sim
 
 def load_eval(eval_path: str) -> dict:
     with open(eval_path) as f:
@@ -268,12 +311,23 @@ def run_assertion(assertion: dict, output_data, output_file: str = None) -> dict
         passed = False
         error = str(e)
 
-    return {
+    result = {
         "assertion_id": assertion["id"],
         "description": assertion["description"],
         "passed": passed,
         "error": error
     }
+
+    # L3: annotate failures with Levenshtein similarity for evolution classification
+    if passed is False and error:
+        evo_type, sim = classify_failure(
+            assertion.get("description", ""),
+            error
+        )
+        result["l3_similarity"] = round(sim, 3)
+        result["l3_evolution_hint"] = evo_type
+
+    return result
 
 def run_test(test: dict, output_data, output_file: str = None) -> dict:
     """Run all assertions for a test."""
@@ -353,6 +407,13 @@ if __name__ == "__main__":
     parser.add_argument("--outputs-dir", default="./eval_outputs", help="Directory with test output files")
     parser.add_argument("--output", default=None, help="Write results to JSON file")
     parser.add_argument("--test-id", default=None, help="Run single test by ID")
+    # L3 flags
+    parser.add_argument("--l3", action="store_true",
+                        help="Run L3 post-execution analyzer after eval (requires GEMINI_API_KEY or DEEPSEEK_API_KEY)")
+    parser.add_argument("--skill-md", default=None,
+                        help="Path to SKILL.md (required with --l3)")
+    parser.add_argument("--run-id", default=None,
+                        help="Run ID for L3 tracing (defaults to timestamp)")
     args = parser.parse_args()
 
     eval_file = args.eval_file or args.eval_file_pos
@@ -361,12 +422,52 @@ if __name__ == "__main__":
 
     results = run_eval(eval_file, args.outputs_dir, args.test_id)
 
-    if args.output:
-        with open(args.output, "w") as f:
+    output_path = args.output
+    if output_path:
+        with open(output_path, "w") as f:
             json.dump(results, f, indent=2)
-        print(f"Results written to {args.output}")
+        print(f"Results written to {output_path}")
     else:
         print(json.dumps(results, indent=2))
+
+    # ── L3: Post-Execution Analyzer ────────────────────────────────────────
+    if args.l3:
+        skill_name = results.get("skill", "unknown")
+        run_id = args.run_id or f"autoloop_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+
+        # Resolve skill-md path: explicit arg or auto-discover from .claude/skills/
+        skill_md = args.skill_md
+        if not skill_md:
+            candidate = Path(f".claude/skills/{skill_name}/SKILL.md")
+            if candidate.exists():
+                skill_md = str(candidate)
+
+        # Write results to temp file if no --output was given
+        if not output_path:
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w")
+            json.dump(results, tmp)
+            tmp.close()
+            output_path = tmp.name
+
+        if skill_md and Path(skill_md).exists():
+            l3_output = output_path.replace(".json", "_l3.json") if output_path else f"{skill_name}_l3.json"
+            l3_cmd = [
+                sys.executable, str(Path(__file__).parent / "l3_analyze.py"),
+                "--skill", skill_name,
+                "--skill-md", skill_md,
+                "--eval-results", output_path,
+                "--run-id", run_id,
+                "--output", l3_output
+            ]
+            print(f"\n[eval_runner] Running L3 analyzer: {' '.join(l3_cmd)}", file=sys.stderr)
+            l3_exit = subprocess.call(l3_cmd)
+            if l3_exit == 2:
+                print(f"[eval_runner] L3: evolution suggestion generated → {l3_output}", file=sys.stderr)
+            elif l3_exit != 0:
+                print(f"[eval_runner] L3: analyzer exited {l3_exit}", file=sys.stderr)
+        else:
+            print(f"[eval_runner] L3: SKILL.md not found at {skill_md or 'auto-discover failed'} — skipping", file=sys.stderr)
 
     # Exit with non-zero if any failures
     sys.exit(0 if results["summary"]["perfect"] else 1)

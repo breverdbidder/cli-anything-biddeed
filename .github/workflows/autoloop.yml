@@ -17,13 +17,23 @@ on:
           - forecaster
           - trendpredictor
           - sitemanager
-            - projecttracker
+          - projecttracker
+          - zonewise-scraper
+          - cost-discipline
+          - honesty-protocol
+          - brand-colors
+          - ship-gate
       max_iterations:
         description: 'Max iterations (default 50)'
         required: false
         default: '50'
       dry_run:
         description: 'Dry run (baseline only, no Claude Code loop)'
+        required: false
+        type: boolean
+        default: false
+      l3:
+        description: 'Run L3 post-execution analyzer after eval'
         required: false
         type: boolean
         default: false
@@ -209,13 +219,74 @@ jobs:
               -d "text=🔄 Autoloop Complete%0A%0ASkill: $SKILL%0AScore: $SCORE%0AIterations: $ITERS%0ACommits: $COMMITS%0AServer: Hetzner" \
               > /dev/null 2>&1 || true
 
+      - name: "5️⃣ L3 Post-Execution Analyzer"
+        if: ${{ github.event.inputs.l3 == 'true' }}
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 10m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            RUN_ID="autoloop_$(date +%Y%m%d_%H%M%S)"
+            TS=$(date +%Y%m%d_%H%M%S)
+
+            # Resolve SKILL.md path: platform skill or harness skill
+            if [ -f ".claude/skills/$SKILL/SKILL.md" ]; then
+              SKILL_MD=".claude/skills/$SKILL/SKILL.md"
+              EVAL_FILE=".claude/skills/$SKILL/eval.json"
+            else
+              SKILL_MD="$SKILL/agent-harness/${SKILL^^}.md"
+              EVAL_FILE="$SKILL/eval/eval.json"
+            fi
+
+            # Use latest final eval output or re-run baseline
+            FINAL=$(ls -t "$SKILL/eval/final_"*.json 2>/dev/null | head -1 || true)
+            if [ -z "$FINAL" ]; then
+              FINAL="$SKILL/eval/l3_baseline_${TS}.json"
+              python3 scripts/eval_runner.py \
+                --eval-file "$EVAL_FILE" \
+                --outputs-dir "$SKILL/eval_outputs/" \
+                --output "$FINAL" 2>&1 || true
+            fi
+
+            L3_OUT="$SKILL/eval/l3_analysis_${TS}.json"
+
+            SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            SUPABASE_KEY="${{ secrets.SUPABASE_KEY }}" \
+            GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+            python3 scripts/l3_analyze.py \
+              --skill "$SKILL" \
+              --skill-md "$SKILL_MD" \
+              --eval-results "$FINAL" \
+              --run-id "$RUN_ID" \
+              --output "$L3_OUT" 2>&1 || true
+
+            echo "📊 L3 Analysis: $L3_OUT"
+            [ -f "$L3_OUT" ] && python3 -c "
+import json, sys
+d=json.load(open('$L3_OUT'))
+a=d.get('analysis',{})
+evo=a.get('evolution_suggestion')
+print(f\"L3: pass_rate={d['pass_rate']:.0%} | completed={a.get('task_completed')} | evo={evo['type'] if evo else 'none'}\")
+if evo: print(f\"Direction: {evo.get('direction','')}\")
+" 2>/dev/null || true
+
+            # Commit L3 analysis file
+            git add "$L3_OUT" 2>/dev/null || true
+            git diff --cached --quiet || git commit -m "autoloop-l3($SKILL): analysis $RUN_ID" && git push origin main || true
+
       - name: Summary
         if: always()
         run: |
           cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 🔄 Autoloop — ${{ steps.config.outputs.skill }}
+          ## Autoloop — ${{ steps.config.outputs.skill }}
           **Server:** Hetzner everest-dispatch
           **Max Iterations:** ${{ steps.config.outputs.max }}
           **Dry Run:** ${{ steps.config.outputs.dry }}
+          **L3 Analyzer:** ${{ github.event.inputs.l3 || 'false' }}
           Check Telegram for final scores.
           EOF

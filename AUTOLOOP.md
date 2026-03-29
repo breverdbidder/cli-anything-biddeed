@@ -177,6 +177,97 @@ See `.github/workflows/autoloop.yml` for nightly runs at 2AM EST.
 - **JSONL log** of every iteration (full audit trail)
 - **50% context rule** still applies — if context window fills, the loop should checkpoint and restart
 
+---
+
+## Layer 3: Self-Evolving Skills (AUTOLOOP L3)
+
+**Status:** DEPLOYED — Migration pending (migrations/20260329_autoloop_l3.sql)
+**Spec:** specs/AUTOLOOP-L3-SPEC.md
+**Source:** Patterns extracted from HKUDS/OpenSpace (REPOEVAL 58/100 EVAL)
+**Issue:** breverdbidder/cli-anything-biddeed#16
+
+### Architecture
+
+```
+L1: Activation → L2: Binary Quality → L3A: Post-Execution Analyzer
+                                    → L3B: Skill Lineage DAG
+                                    → L3C: Fuzzy Skill Matching
+```
+
+### L3A: Post-Execution Analyzer
+
+After eval_runner.py runs 25 assertions, pipe results + SKILL.md to Gemini Flash:
+
+```bash
+python scripts/l3_analyze.py \
+    --skill zonewise-scraper \
+    --skill-md .claude/skills/zonewise-scraper/SKILL.md \
+    --eval-results zonewise/eval/final_20260329.json \
+    --run-id autoloop_20260329_020000
+```
+
+Or inline via eval_runner with `--l3` flag:
+
+```bash
+python scripts/eval_runner.py \
+    --eval-file .claude/skills/zonewise-scraper/eval.json \
+    --outputs-dir zonewise/eval_outputs/ \
+    --output results.json \
+    --l3 \
+    --skill-md .claude/skills/zonewise-scraper/SKILL.md
+```
+
+Three evolution types:
+- **FIX** (similarity > 0.7): Repair existing skill in-place. Same name, new content.
+- **DERIVED** (similarity 0.3–0.7): Create enhanced variant. New skill like `{parent}-v2`.
+- **CAPTURED** (similarity < 0.3): Brand new skill from novel pattern. No parent.
+
+### L3B: Skill Lineage DAG
+
+Every skill version tracked in `skill_lineage` Supabase table:
+- `content_hash`: SHA256 of SKILL.md — links to git commit (no full content stored)
+- `pass_rate`: Computed from total_pass/total_runs (auto-updated each nightly run)
+- `generation`: 0 = imported/root, N = generations of FIX/DERIVED evolution
+- `is_active`: Only latest passing version active per skill name
+
+### L3C: Fuzzy Failure Classification
+
+Levenshtein similarity scores annotate each failed assertion in eval output:
+
+```json
+{
+  "assertion_id": 12,
+  "passed": false,
+  "error": "zone_source not in allowed set",
+  "l3_similarity": 0.42,
+  "l3_evolution_hint": "derived"
+}
+```
+
+Classification thresholds: `fix` > 0.7 | `derived` 0.3–0.7 | `captured` < 0.3
+
+### GHA Integration
+
+autoloop.yml step 5 (`5️⃣ L3 Post-Execution Analyzer`) runs when `l3=true` dispatch input.
+Supports all 5 Platform Skills + 8 legacy harness skills via `skill` choice input.
+
+### Supabase Tables
+
+| Table | Purpose |
+|-------|---------|
+| `skill_analyses` | Per-run LLM analysis: task_completed, evolution_type, direction |
+| `skill_lineage` | Version DAG: origin, generation, pass_rate, content_hash |
+| `active_skill_lineage` | View: latest active version per skill with pass rate % |
+
+### Cost
+
+```yaml
+per_night: $0.00 (Gemini Flash free tier)
+fallback:  $0.01/night (DeepSeek V3.2 at $0.28/1M)
+```
+
+---
+
 ## Binary Assertion Design Principles
 
 Good assertions are **binary** (true/false, no subjectivity):
