@@ -12,10 +12,10 @@ jobs:
       
       - name: Run migration
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
+          DATABASE_URL="postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres"
           psql "$DATABASE_URL" -f migrations/20260328_honesty_protocol.sql
-          echo "=== Verify tables ==="
-          psql "$DATABASE_URL" -c "\dt honesty_violations"
-          psql "$DATABASE_URL" -c "\dt claim_audit"
-          psql "$DATABASE_URL" -c "SELECT count(*) as violations FROM honesty_violations"
+          echo "=== Verify ==="
+          psql "$DATABASE_URL" -c "SELECT count(*) as violations FROM honesty_violations;"
+          psql "$DATABASE_URL" -c "SELECT count(*) as claims FROM claim_audit;"
