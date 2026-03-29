@@ -183,16 +183,16 @@ jobs:
 
           # Add honesty violations to message
           if violations:
-              msg += "\n🔴 HONESTY VIOLATIONS (OPEN):\n"
+              message += "\n🔴 HONESTY VIOLATIONS (OPEN):\n"
               for v in violations:
-                  msg += f"  [{v.get('severity','?')}] {v.get('domain','?')}: {v.get('claim','?')[:50]}\n"
+                  message += f"  [{v.get('severity','?')}] {v.get('domain','?')}: {v.get('claim','?')[:50]}\n"
 
           # === 5. SEND TO TELEGRAM ===
           if TG_TOKEN and TG_CHAT:
               try:
                   r = requests.post(
                       f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                      json={"chat_id": TG_CHAT, "text": message, "parse_mode": "HTML"},
+                      json={"chat_id": TG_CHAT, "text": message[:4000], "parse_mode": "HTML"},
                       timeout=10
                   )
                   if r.status_code == 200:
