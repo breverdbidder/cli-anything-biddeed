@@ -111,3 +111,19 @@
 
 ### BLOCKER: SUPABASE_DB_PASSWORD must be reset in Supabase Dashboard, then update secret in all repos
 ### Honesty: DB migration = UNTESTED. Statusline adoption in cli-anything-biddeed = VERIFIED (live output confirmed)
+
+## Session 10: Platform Skills Phase 1 — Issue #17 (partial ✅)
+- [x] Read issue #17 (breverdbidder/cli-anything-biddeed#17) and spec PLATFORM-SKILLS-ADOPTION.md
+- [x] Verify all 5 skill candidates exist: zonewise-scraper, cost-discipline, honesty-protocol, brand-colors, ship-gate
+- [x] Verify all eval.json files: 25 assertions each, pass_threshold=0.8, autoloop_compatible=true
+- [x] Verify all SKILL.md files follow spec template (Role, Working Mode, Focus Areas, Quality Gates, Output Format, Constraints, Guard Rail)
+- [x] Confirm platform-skills-migrate.yml workflow exists (6-connection-pattern fallback)
+- [x] Add node_modules/ to .gitignore
+- [x] Add pg dependency to package.json (required by run_migration.js)
+- [ ] Run migrations/20260328_platform_skills_eval.sql — BLOCKED: SUPABASE_DB_PASSWORD stale
+- [ ] Run dual eval: same task both systems per candidate, score into cc_feature_comparison
+- [ ] Decision: ADOPT/EVAL/KEEP per candidate (curl/DB proof required)
+
+### Phase 1 Status: UNTESTED — 5/5 skills VERIFIED (structure + assertion count). Migration + eval scoring BLOCKED on DB password.
+### Next: Reset SUPABASE_DB_PASSWORD → dispatch platform-skills-migrate.yml → run dual evals per candidate
+### BLOCKER: Same as Sessions 8-9 — SUPABASE_DB_PASSWORD must be reset at Supabase Dashboard → Settings → Database

@@ -31,6 +31,9 @@ Thumbs.db
 htmlcov/
 .coverage
 
+# Node
+node_modules/
+
 # Session files
 *.session.json
 pipeline_reports/

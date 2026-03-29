@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@_davideast/stitch-mcp": "^0.5.1",
-    "@google/stitch-sdk": "^0.0.3"
+    "@google/stitch-sdk": "^0.0.3",
+    "pg": "^8.20.0"
   }
 }
