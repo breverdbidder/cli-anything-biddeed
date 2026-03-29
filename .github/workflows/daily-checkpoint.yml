@@ -1,8 +1,8 @@
-name: "Daily Checkpoint (11:59 PM EST)"
+name: "Daily Checkpoint (11:59 PM EDT)"
 
 on:
   schedule:
-    - cron: '59 4 * * *'
+    - cron: '59 3 * * *'  # 11:59 PM EDT = 3:59 UTC (switch to 4:59 Nov)
   workflow_dispatch:
 
 jobs:
@@ -141,32 +141,48 @@ jobs:
           else: grade = "🔴 D"
 
           # 6. BUILD TELEGRAM MESSAGE
-          msg = f"📊 DAILY CHECKPOINT — {DAY_NAME}\n\n"
-          msg += f"{grade} Score: {honest_score}/100\n\n"
-          msg += f"📋 Tasks: {tasks_done} done today | {tasks_open} open | {tasks_blocked} blocked\n"
-          msg += f"🔨 Activity: {commit_count} commits across {active_repos}/{len(repos)} repos\n"
-          msg += f"⚙️ GHA: {gha_ok}✅ {gha_fail}❌ ({gha_health}% health)\n"
+          msg = f"📊 DAILY CHECKPOINT — {DAY_NAME}
+
+"
+          msg += f"{grade} Score: {honest_score}/100
+
+"
+          msg += f"📋 Tasks: {tasks_done} done today | {tasks_open} open | {tasks_blocked} blocked
+"
+          msg += f"🔨 Activity: {commit_count} commits across {active_repos}/{len(repos)} repos
+"
+          msg += f"⚙️ GHA: {gha_ok}✅ {gha_fail}❌ ({gha_health}% health)
+"
           
           if open_violations > 0:
-              msg += f"🔴 Honesty: {open_violations} open violation(s) (-{violation_penalty}pts)\n"
+              msg += f"🔴 Honesty: {open_violations} open violation(s) (-{violation_penalty}pts)
+"
           else:
-              msg += f"✅ Honesty: clean\n"
+              msg += f"✅ Honesty: clean
+"
 
           # Top completed tasks today
           done_today = [t for t in nexus_items if t["completed_today"]]
           if done_today:
-              msg += f"\n✅ Completed today:\n"
+              msg += f"
+✅ Completed today:
+"
               for t in done_today[:5]:
-                  msg += f"  [{t['priority']}] {t['desc']}\n"
+                  msg += f"  [{t['priority']}] {t['desc']}
+"
 
           # Open P0/P1
           urgent = [t for t in nexus_items if t["priority"] in ("P0","P1") and t["status"] not in ("completed","cancelled")]
           if urgent:
-              msg += f"\n🚨 Open P0/P1:\n"
+              msg += f"
+🚨 Open P0/P1:
+"
               for t in urgent[:5]:
-                  msg += f"  [{t['priority']}] {t['desc']} ({t['status']})\n"
+                  msg += f"  [{t['priority']}] {t['desc']} ({t['status']})
+"
 
-          msg += f"\n📊 Scoring: tasks({task_score}×.4) + GHA({gha_score}×.3) - violations({violation_penalty}×.2) + activity({activity_score}×.1)"
+          msg += f"
+📊 Scoring: tasks({task_score}×.4) + GHA({gha_score}×.3) - violations({violation_penalty}×.2) + activity({activity_score}×.1)"
 
           print(msg)
 
@@ -178,9 +194,11 @@ jobs:
                       json={"chat_id": TG_CHAT, "text": msg[:4000]},
                       timeout=10
                   )
-                  print(f"\n{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
+                  print(f"
+{'✅' if r.status_code == 200 else '❌'} Telegram: {r.status_code}")
               except Exception as e:
-                  print(f"\n❌ Telegram: {e}")
+                  print(f"
+❌ Telegram: {e}")
 
           # 8. SAVE TO SUPABASE
           if SB_URL and SB_KEY:
