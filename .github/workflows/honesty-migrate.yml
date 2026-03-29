@@ -14,21 +14,24 @@ jobs:
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          # Try session-mode pooler (port 5432)
-          for CONN in \
-            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
-            "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
-            "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"; do
-            echo "Trying connection..."
-            if psql "$CONN" -c "SELECT 1" 2>/dev/null; then
-              echo "Connected! Running migration..."
-              psql "$CONN" -f migrations/20260328_honesty_protocol.sql
-              echo "=== Verify ==="
-              psql "$CONN" -c "SELECT count(*) as violations FROM honesty_violations;"
-              psql "$CONN" -c "SELECT count(*) as claims FROM claim_audit;"
-              echo "Migration complete"
-              exit 0
-            fi
-          done
-          echo "All connection attempts failed"
-          exit 1
+          set -x
+          # Force IPv4, show all errors
+          export PGSSLMODE=require
+          
+          echo "=== Attempt 1: session pooler ==="
+          psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require" -c "SELECT 1" 2>&1 || true
+          
+          echo "=== Attempt 2: transaction pooler ==="
+          psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" -c "SELECT 1" 2>&1 || true
+          
+          echo "=== Attempt 3: direct IPv4 forced ==="
+          DIRECT_IP=$(dig +short A db.mocerqjnksmhcjzxrewo.supabase.co | head -1)
+          echo "Resolved to: $DIRECT_IP"
+          psql "postgresql://postgres:${SUPABASE_DB_PASSWORD}@${DIRECT_IP}:5432/postgres?sslmode=require" -c "SELECT 1" 2>&1 || true
+          
+          echo "=== Attempt 4: use DATABASE_URL pattern from brevard-bidder-scraper ==="
+          psql "postgres://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres" -c "SELECT 1" 2>&1 || true
+          
+          echo "=== DNS check ==="
+          dig +short aws-0-us-east-1.pooler.supabase.com 2>&1 | head -3
+          dig +short db.mocerqjnksmhcjzxrewo.supabase.co 2>&1 | head -3
