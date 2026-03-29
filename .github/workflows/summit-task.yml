@@ -53,17 +53,17 @@ jobs:
             CLAUDE_BIN=$(which claude 2>/dev/null || find /usr/local/bin /usr/bin /home/claude/.npm-global/bin /root/.npm-global/bin -name claude -type f 2>/dev/null | head -1)
             echo "Claude binary: ${CLAUDE_BIN:-NOT FOUND}"
             
-            # Pull latest as claude user
-            su - claude -c "cd ${REPO_DIR} && git pull origin main 2>&1" || true
+            # Pull latest as claude user (force reset dirty tree)
+            su - claude -c "cd ${REPO_DIR} && git reset --hard HEAD && git clean -fd && git pull origin main 2>&1" || true
             
             echo "=== Starting Claude Code session ==="
             
-            # Run CC as claude user with explicit PATH
+            # Run CC as claude user with -p (print/prompt mode, non-interactive)
             su - claude -c "
               export PATH=/usr/local/bin:/usr/bin:/home/claude/.npm-global/bin:/home/claude/.local/bin:\$PATH
               cd ${REPO_DIR}
               
-              timeout ${SESSION_HOURS}h claude --auto \
+              claude -p \
                 'Read GitHub issue #${ISSUE_NUMBER} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE_NUMBER}.
                  Follow CLAUDE.md directives. Load TODO.md if present.
                  Read specs/PLATFORM-SKILLS-ADOPTION.md for full spec.
