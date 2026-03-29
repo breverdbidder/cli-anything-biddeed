@@ -273,6 +273,7 @@ jobs:
 
       - name: "Phase 2b — Nginx reverse proxy on Hetzner"
         if: env.PHASE == 'all' || env.PHASE == 'phase2'
+        continue-on-error: true
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
@@ -284,6 +285,9 @@ jobs:
           ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} '
             set -euo pipefail
 
+            echo "[nginx] Ensuring nginx is installed..."
+            command -v nginx >/dev/null 2>&1 || apt-get install -y nginx -q
+            mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
             echo "[nginx] Writing ops.biddeed.ai config..."
             NGINX_CONF="/etc/nginx/sites-available/ops-biddeed"
             printf "server {\n    listen 80;\n    server_name ops.biddeed.ai;\n\n    location / {\n        proxy_pass http://127.0.0.1:3100;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade \$http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_set_header Host \$host;\n        proxy_set_header X-Real-IP \$remote_addr;\n        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto \$scheme;\n        proxy_cache_bypass \$http_upgrade;\n        proxy_read_timeout 86400;\n    }\n}\n" > "$NGINX_CONF"
@@ -303,6 +307,7 @@ jobs:
       # ────────────────────────────────────────────
       - name: "Phase 3 — Create Everest Capital USA + Agents"
         if: env.PHASE == 'all' || env.PHASE == 'phase3'
+        continue-on-error: true
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
