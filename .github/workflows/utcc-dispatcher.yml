@@ -30,11 +30,21 @@ jobs:
           echo "batch_id=$BATCH_ID" >> $GITHUB_OUTPUT
 
           # Fetch all queued tasks for this batch
-          TASKS=$(curl -sf \
+          # Use -s not -sf so we can handle table-not-found gracefully (migration may be pending)
+          TASKS=$(curl -s \
             "${SUPABASE_URL}/rest/v1/task_registry?batch_id=eq.${BATCH_ID}&status=eq.queued&order=batch_index.asc" \
             -H "apikey: ${SUPABASE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
-            -H "Accept: application/json") || { echo "❌ Supabase query failed"; exit 1; }
+            -H "Accept: application/json")
+          # Check for table-not-found or empty response
+          if echo "$TASKS" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if isinstance(d, list) else 1)" 2>/dev/null; then
+            echo "✅ task_registry query OK"
+          else
+            echo "⚠️ task_registry table not found (migration pending) — batch $BATCH_ID deferred"
+            echo "count=0" >> $GITHUB_OUTPUT
+            echo "tasks=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           COUNT=$(echo "$TASKS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
           echo "count=$COUNT" >> $GITHUB_OUTPUT

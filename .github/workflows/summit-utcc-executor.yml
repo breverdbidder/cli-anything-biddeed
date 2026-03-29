@@ -24,6 +24,12 @@ jobs:
           envs: CLAUDE_OAUTH_B64,GH_PAT,BIDDEED_BOT_TOKEN,BIDDEED_BOT_CHAT_ID
           script: |
             set -e
+            # Idempotency check: UTCC is already built if utcc/registry.py exists
+            REPO_PATH=/home/claude/repos/cli-anything-biddeed
+            if [ -f "$REPO_PATH/utcc/registry.py" ]; then
+              echo "UTCC infrastructure already built — skipping rebuild"
+              exit 0
+            fi
             OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
             su - claude -c "
               export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'

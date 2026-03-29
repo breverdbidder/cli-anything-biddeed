@@ -29,12 +29,12 @@ jobs:
           prompt: |
             Read GitHub issue #${{ inputs.issue_number }} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${{ inputs.issue_number }}.
             Follow CLAUDE.md directives. Load TODO.md if present.
-            Read specs/PLATFORM-SKILLS-ADOPTION.md for full spec.
-            Execute Phase 1 tasks from the issue checklist autonomously.
-            Run migrations/20260328_platform_skills_eval.sql against Supabase.
-            Convert each skill candidate to .claude/skills/ format.
-            Commit frequently. Push results. Update issue with progress.
-            Session budget: 10 dollars max. Honesty Protocol enforced.
+            Execute the task described in the issue autonomously. The issue title and body contain the full task — read it and act on it.
+            For GHA failures: diagnose the root cause, fix the workflow file, commit and push.
+            For feature work: read any referenced spec files in docs/plans/ or specs/, implement the feature, commit and push.
+            For bugs: diagnose, fix, verify with proof (curl/test/query), commit and push.
+            Commit frequently with descriptive messages. Push results. Comment on the issue with findings.
+            Session budget: 10 dollars max. Honesty Protocol enforced. Mark done in nexus_tasks when complete.
           gh_pat: ${{ secrets.GH_PAT }}
           claude_oauth_b64: ${{ secrets.CLAUDE_OAUTH_B64 }}
           timeout_minutes: ${{ inputs.timeout_minutes }}

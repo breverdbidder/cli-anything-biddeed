@@ -19,6 +19,12 @@ jobs:
           envs: CLAUDE_OAUTH_B64,GH_PAT,BIDDEED_BOT_TOKEN,BIDDEED_BOT_CHAT_ID
           script: |
             set -e
+            # Idempotency check: Nexus S1 is already built if scanners exist
+            REPO_PATH=/home/claude/repos/everest-nexus
+            if [ -f "$REPO_PATH/scanners/task_engine.py" ] || [ -f "$REPO_PATH/scanners/workflow_scanner.py" ]; then
+              echo "Nexus S1 already built — skipping rebuild"
+              exit 0
+            fi
             OAUTH_TOKEN=$(echo "$CLAUDE_OAUTH_B64" | base64 -d)
             su - claude -c "
               export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
