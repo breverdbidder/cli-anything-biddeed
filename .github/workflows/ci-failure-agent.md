@@ -30,6 +30,8 @@ When a CI workflow fails, diagnose the root cause and create or update an issue.
 - Daily Auto-Fixer
 - Hetzner Watchdog
 - SUMMIT Verifier — 30min Loop
+- Continuous Executor (Every 2 Hours)
+- Morning Executor (6 AM EST — Sun-Thu, Sat)
 
 ### DEDUP — Before creating an issue:
 1. Search open issues with label `ci-failure` for the exact workflow name.

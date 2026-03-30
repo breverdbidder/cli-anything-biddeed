@@ -59,6 +59,8 @@ jobs:
         github.event.workflow_run.name != 'Daily Auto-Fixer' &&
         github.event.workflow_run.name != 'Hetzner Watchdog' &&
         github.event.workflow_run.name != 'SUMMIT Verifier — 30min Loop' &&
+        github.event.workflow_run.name != 'Continuous Executor (Every 2 Hours)' &&
+        github.event.workflow_run.name != 'Morning Executor (6 AM EST — Sun-Thu, Sat)' &&
         !startsWith(github.event.workflow_run.name, 'SHIP-')
       ))
     runs-on: ubuntu-slim
