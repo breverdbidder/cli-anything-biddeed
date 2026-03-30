@@ -95,11 +95,45 @@ jobs:
                   
                   if matched:
                       if WF_CONCLUSION == "success":
-                          update_task(tid, {"status": "success", "completed_at": datetime.now(timezone.utc).isoformat(),
-                              "result_summary": f"GHA run {WF_RUN_ID} succeeded"})
-                          msg = f"✅ TASK COMPLETE: {tid}\n{t.get('description','')[:80]}\nRun: {WF_RUN_URL}"
-                          tg(msg)
-                          print(msg)
+                          # ── OUTPUT GATE: check issue has real comments before marking success ──
+                          _has_output = True
+                          _issue_num = ""
+                          _desc = t.get("description", "") or tid
+                          import re as _re
+                          _im = _re.search(r"[#](\d+)|issue[\s_]*(\d+)", _desc, _re.IGNORECASE)
+                          if _im:
+                              _issue_num = _im.group(1) or _im.group(2)
+                          if _issue_num:
+                              try:
+                                  _cr = urllib.request.Request(f"https://api.github.com/repos/{REPO}/issues/{_issue_num}/comments?per_page=5",
+                                      headers={"Authorization": f"token {GH_PAT}", "Accept": "application/vnd.github.v3+json"})
+                                  _cc = json.loads(urllib.request.urlopen(_cr).read())
+                                  _real = [c for c in _cc if "traycer" not in c.get("user",{}).get("login","") and "Sprint assigned" not in c.get("body","")[:20]]
+                                  _has_output = len(_real) > 0
+                              except:
+                                  _has_output = True
+                          if not _has_output:
+                              update_task(tid, {"status": "failed", "error_message": f"GHOST SUCCESS: GHA passed but zero output on #{_issue_num}",
+                                  "gha_run_url": WF_RUN_URL})
+                              msg = f"⚠️ GHOST SUCCESS: {tid}\nGHA passed but zero output. #{_issue_num}\nRun: {WF_RUN_URL}"
+                              tg(msg)
+                              print(msg)
+                          else:
+                              # ── PW GATE: trigger Playwright for UI tasks ──
+                              _ui_kw = ["chat","deploy","frontend","page","ui","html","competitor","stripe","split"]
+                              if any(k in _desc.lower() for k in _ui_kw):
+                                  try:
+                                      _pw = json.dumps({"ref":"main","inputs":{"url":"https://zonewise.ai/chat-v2","selectors":".aui-root,textarea,[class*=grid]","max_attempts":"3","issue_number":_issue_num or ""}}).encode()
+                                      urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{REPO}/actions/workflows/playwright-verify.yml/dispatches",
+                                          data=_pw, headers={"Authorization":f"token {GH_PAT}","Accept":"application/vnd.github.v3+json","Content-Type":"application/json"}, method="POST"))
+                                      print(f"  🎭 Playwright verify triggered for {tid}")
+                                  except:
+                                      pass
+                              update_task(tid, {"status": "success", "completed_at": datetime.now(timezone.utc).isoformat(),
+                                  "result_summary": f"GHA run {WF_RUN_ID} succeeded — output verified"})
+                              msg = f"✅ TASK COMPLETE (verified): {tid}\n{t.get('description','')[:80]}\nRun: {WF_RUN_URL}"
+                              tg(msg)
+                              print(msg)
                       elif WF_CONCLUSION == "failure":
                           update_task(tid, {"status": "failed", "error_message": f"GHA run {WF_RUN_ID} failed",
                               "gha_run_url": WF_RUN_URL})
