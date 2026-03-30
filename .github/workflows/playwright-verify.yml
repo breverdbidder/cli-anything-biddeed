@@ -477,8 +477,22 @@ jobs:
                 echo ""
                 echo "❌ Checks failed on attempt ${ATTEMPT}."
 
-                if [ -n "${REPAIR_WORKFLOW}" ] && [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; then
-                  echo "  Triggering repair workflow: ${REPAIR_WORKFLOW}"
+                if [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; then
+                  echo "  Running autorepair-loop.py on failure results..."
+                  
+                  # Save failure results for autorepair
+                  echo '{}' > /tmp/verify-results.json  # Node script saves results
+                  
+                  # Pull latest autorepair script
+                  cd /opt/biddeed/cli-anything-biddeed 2>/dev/null && git pull --ff-only 2>/dev/null || true
+                  
+                  # Run autorepair
+                  if [ -f "/opt/biddeed/cli-anything-biddeed/scripts/autorepair-loop.py" ]; then
+                    GH_PAT="${GH_PAT}" python3 /opt/biddeed/cli-anything-biddeed/scripts/autorepair-loop.py /tmp/verify-results.json                       && echo "  ✅ Autorepair applied fix(es)"                       || echo "  ⚠️ Autorepair found no fix"
+                    echo "  Waiting 120s for deploy-prod to complete..."
+                    sleep 120
+                  elif [ -n "${REPAIR_WORKFLOW}" ]; then
+                    echo "  Fallback: triggering repair workflow: ${REPAIR_WORKFLOW}"
                   DISPATCH_BODY="{\"ref\":\"main\"}"
                   curl -s -X POST \
                     -H "Authorization: token ${GH_PAT}" \
