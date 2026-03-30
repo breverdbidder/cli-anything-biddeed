@@ -1,18 +1,21 @@
 name: "Playwright Verify — Hetzner SSH (generic)"
-# Issue: breverdbidder/cli-anything-biddeed#103
+# Issue: breverdbidder/cli-anything-biddeed#105
 #
-# Generic Playwright verification workflow that SSHes to Hetzner and runs
+# Enterprise-grade Playwright verification workflow that SSHes to Hetzner and runs
 # browser automation against any URL with configurable CSS selector checks.
 #
 # Checks performed:
-#   1. http_status      — no HTTP 500 errors
-#   2. content_length   — page has >500 chars of visible text
-#   3. selectors        — all provided CSS selectors found
-#   4. desktop_render   — screenshot at 1280×800 viewport
-#   5. mobile_render    — screenshot at 375×812 viewport (no horizontal overflow)
+#   1. http_status        — no HTTP 500 errors
+#   2. content_length     — smart threshold: 100 chars for chat UIs, 500 for standard pages
+#   3. selectors          — all provided CSS selectors found
+#   4. desktop_render     — screenshot at 1280×800 viewport → Supabase upload
+#   5. mobile_render      — screenshot at 375×812 viewport (no horizontal overflow) → Supabase upload
+#   6. console_errors     — zero JavaScript errors in browser console
+#   7. functional_test    — fill textarea, submit, wait 20s, validate keyword response
+#   8. functional_screenshot — post-response screenshot → Supabase upload
 #
-# Screenshots saved to /tmp/verify-desktop.png and /tmp/verify-mobile.png on Hetzner,
-# then uploaded to Supabase storage bucket deployment-screenshots/.
+# Screenshots uploaded to Supabase storage bucket deployment-screenshots/ with public URLs.
+# Results posted as GitHub issue comment with screenshot URLs and ENTERPRISE-GRADE verdict.
 #
 # Auto-repair loop: if checks fail, triggers workflow_dispatch on the repair_workflow
 # input (if provided) and re-runs up to max_attempts times.
@@ -40,6 +43,18 @@ on:
         description: "GitHub issue number to post results to (optional)"
         required: false
         default: ""
+      enable_functional_test:
+        description: "Enable functional test — fill textarea + submit + validate response (true/false)"
+        required: false
+        default: "true"
+      test_address:
+        description: "Address to submit in textarea for functional test"
+        required: false
+        default: "1600 Orlando Ave Cocoa Beach FL"
+      response_keywords:
+        description: "Comma-separated keywords to validate in functional test response"
+        required: false
+        default: "parcel,zone,residential,zoning"
 
 jobs:
   playwright-verify:
@@ -67,13 +82,16 @@ jobs:
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
           REPO: "breverdbidder/cli-anything-biddeed"
+          ENABLE_FUNCTIONAL_TEST: ${{ inputs.enable_functional_test || 'true' }}
+          TEST_ADDRESS: ${{ inputs.test_address || '1600 Orlando Ave Cocoa Beach FL' }}
+          RESPONSE_KEYWORDS: ${{ inputs.response_keywords || 'parcel,zone,residential,zoning' }}
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 60s
           command_timeout: 80m
-          envs: TARGET_URL,CSS_SELECTORS,REPAIR_WORKFLOW,MAX_ATTEMPTS,ISSUE_NUMBER,SUPABASE_URL,SUPABASE_KEY,TG_TOKEN,TG_CHAT,GH_PAT,REPO
+          envs: TARGET_URL,CSS_SELECTORS,REPAIR_WORKFLOW,MAX_ATTEMPTS,ISSUE_NUMBER,SUPABASE_URL,SUPABASE_KEY,TG_TOKEN,TG_CHAT,GH_PAT,REPO,ENABLE_FUNCTIONAL_TEST,TEST_ADDRESS,RESPONSE_KEYWORDS
           script: |
             set -euo pipefail
             WORK_DIR="/tmp/pw-verify-$(date +%s)"
@@ -102,19 +120,23 @@ jobs:
             const https = require('https');
             const { execSync } = require('child_process');
 
-            const TARGET     = process.env.TARGET_URL   || '';
-            const SELECTORS  = (process.env.CSS_SELECTORS || '').split(',').map(s => s.trim()).filter(Boolean);
-            const SUPA_URL   = process.env.SUPABASE_URL  || '';
-            const SUPA_KEY   = process.env.SUPABASE_KEY  || '';
-            const TG_TOKEN   = process.env.TG_TOKEN      || '';
-            const TG_CHAT    = process.env.TG_CHAT       || '';
-            const GH_PAT     = process.env.GH_PAT        || '';
-            const ISSUE_NUM  = process.env.ISSUE_NUMBER  || '';
-            const REPO       = process.env.REPO          || '';
+            const TARGET          = process.env.TARGET_URL             || '';
+            const SELECTORS       = (process.env.CSS_SELECTORS || '').split(',').map(s => s.trim()).filter(Boolean);
+            const SUPA_URL        = process.env.SUPABASE_URL            || '';
+            const SUPA_KEY        = process.env.SUPABASE_KEY            || '';
+            const TG_TOKEN        = process.env.TG_TOKEN                || '';
+            const TG_CHAT         = process.env.TG_CHAT                 || '';
+            const GH_PAT          = process.env.GH_PAT                  || '';
+            const ISSUE_NUM       = process.env.ISSUE_NUMBER            || '';
+            const REPO            = process.env.REPO                    || '';
+            const FUNC_ENABLED    = (process.env.ENABLE_FUNCTIONAL_TEST || 'true') === 'true';
+            const TEST_ADDRESS    = process.env.TEST_ADDRESS            || '1600 Orlando Ave Cocoa Beach FL';
+            const RESP_KEYWORDS   = (process.env.RESPONSE_KEYWORDS || 'parcel,zone,residential,zoning').split(',').map(s => s.trim());
 
-            const DESKTOP_SS = '/tmp/verify-desktop.png';
-            const MOBILE_SS  = '/tmp/verify-mobile.png';
-            const RESULTS    = [];
+            const DESKTOP_SS  = '/tmp/verify-desktop.png';
+            const MOBILE_SS   = '/tmp/verify-mobile.png';
+            const FUNC_SS     = '/tmp/verify-functional.png';
+            const RESULTS     = [];
 
             function log(name, passed, detail) {
               RESULTS.push({ name, passed, detail });
@@ -275,6 +297,13 @@ jobs:
               const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
               const dPage   = await desktop.newPage();
 
+              // ── Console error monitoring ───────────────────────────────────────
+              const consoleErrors = [];
+              dPage.on('console', msg => {
+                if (msg.type() === 'error') consoleErrors.push(msg.text());
+              });
+              dPage.on('pageerror', err => consoleErrors.push(err.message));
+
               try {
                 const resp = await dPage.goto(TARGET, { waitUntil: 'networkidle', timeout: 30000 });
                 if (resp && resp.status() >= 500) {
@@ -284,14 +313,48 @@ jobs:
                   log('desktop_render', true, `Screenshot saved → ${DESKTOP_SS}`);
                 }
 
-                // Content length check
+                // ── Smart content length check ─────────────────────────────────
                 const bodyText = await dPage.evaluate(() => document.body ? document.body.innerText : '');
-                log('content_length', bodyText.length > 500, `${bodyText.length} chars visible text`);
+                const hasTextarea = (await dPage.locator('textarea').count()) > 0;
+                const contentThreshold = hasTextarea ? 100 : 500;
+                log('content_length', bodyText.length > contentThreshold,
+                  `${bodyText.length} chars visible text (threshold: ${contentThreshold} — ${hasTextarea ? 'chat UI detected' : 'standard page'})`);
 
-                // CSS selector checks
+                // ── CSS selector checks ────────────────────────────────────────
                 for (const sel of SELECTORS) {
                   const count = await dPage.locator(sel).count();
                   log(`selector:${sel}`, count > 0, count > 0 ? `found ${count} element(s)` : 'NOT FOUND');
+                }
+
+                // ── Console error check ────────────────────────────────────────
+                log('console_errors', consoleErrors.length === 0,
+                  consoleErrors.length === 0
+                    ? 'No JavaScript errors detected'
+                    : `${consoleErrors.length} error(s): ${consoleErrors.slice(0, 3).join(' | ')}`);
+
+                // ── Functional test: fill textarea + submit + validate ──────────
+                if (FUNC_ENABLED && hasTextarea) {
+                  try {
+                    const ta = dPage.locator('textarea').first();
+                    await ta.fill(TEST_ADDRESS);
+                    await ta.press('Enter');
+                    console.log(`[functional] Submitted "${TEST_ADDRESS}" — waiting 20s for response...`);
+                    await dPage.waitForTimeout(20000);
+
+                    const responseText = await dPage.evaluate(() => document.body ? document.body.innerText : '');
+                    const matchedKw = RESP_KEYWORDS.find(k => responseText.toLowerCase().includes(k.toLowerCase()));
+                    log('functional_test', !!matchedKw,
+                      matchedKw
+                        ? `Response contains keyword "${matchedKw}"`
+                        : `No keywords found (${RESP_KEYWORDS.join(',')}) in ${responseText.length}-char response`);
+
+                    await dPage.screenshot({ path: FUNC_SS, fullPage: false });
+                    log('functional_screenshot', true, `Post-response screenshot saved → ${FUNC_SS}`);
+                  } catch (fe) {
+                    log('functional_test', false, `Functional test error: ${fe.message}`);
+                  }
+                } else if (FUNC_ENABLED && !hasTextarea) {
+                  log('functional_test', true, 'SKIPPED — no textarea found on page');
                 }
               } catch (e) {
                 log('desktop_render', false, `Error: ${e.message}`);
@@ -319,8 +382,12 @@ jobs:
 
               // ── Upload screenshots ─────────────────────────────────────────
               const ts = Date.now();
-              const desktopUrl = await uploadToSupabase(DESKTOP_SS, `desktop-${ts}.png`);
-              const mobileUrl  = await uploadToSupabase(MOBILE_SS,  `mobile-${ts}.png`);
+              const desktopUrl  = await uploadToSupabase(DESKTOP_SS, `desktop-${ts}.png`);
+              const mobileUrl   = await uploadToSupabase(MOBILE_SS,  `mobile-${ts}.png`);
+              const funcUrl     = await uploadToSupabase(FUNC_SS,    `functional-${ts}.png`);
+              if (desktopUrl)  log('supabase_desktop_upload', true, `Uploaded → ${desktopUrl}`);
+              if (mobileUrl)   log('supabase_mobile_upload',  true, `Uploaded → ${mobileUrl}`);
+              if (funcUrl)     log('supabase_func_upload',    true, `Uploaded → ${funcUrl}`);
 
               // ── Persist results ────────────────────────────────────────────
               const allPassed = RESULTS.every(r => r.passed);
@@ -335,18 +402,26 @@ jobs:
 
               // ── Build result summary ───────────────────────────────────────
               const rows = RESULTS.map(r => `| ${r.passed ? '✅' : '❌'} | \`${r.name}\` | ${r.detail} |`).join('\n');
+              const enterpriseChecks = ['http_status','desktop_render','mobile_render','content_length','console_errors','functional_test','supabase_desktop_upload','supabase_mobile_upload'];
+              const enterprisePassed = enterpriseChecks.every(c => {
+                const r = RESULTS.find(x => x.name === c);
+                return !r || r.passed;
+              }) && allPassed;
+              const verdict = enterprisePassed ? '🏆 ENTERPRISE-GRADE' : '⚠️  NOT ENTERPRISE-GRADE';
               const summary = [
                 `## Playwright Verify — ${allPassed ? '✅ ALL PASS' : '❌ FAILURES DETECTED'}`,
                 `**URL:** ${TARGET}`,
                 `**Timestamp:** ${new Date().toISOString()}`,
+                `**Verdict:** ${verdict}`,
                 '',
                 '| Status | Check | Detail |',
                 '|--------|-------|--------|',
                 rows,
                 '',
-                desktopUrl ? `**Desktop screenshot:** [view](${desktopUrl})` : '**Desktop screenshot:** saved to /tmp/verify-desktop.png on Hetzner',
-                mobileUrl  ? `**Mobile screenshot:** [view](${mobileUrl})`  : '**Mobile screenshot:** saved to /tmp/verify-mobile.png on Hetzner',
-              ].join('\n');
+                desktopUrl  ? `**Desktop screenshot:** [view](${desktopUrl})`    : '**Desktop screenshot:** saved to /tmp/verify-desktop.png on Hetzner',
+                mobileUrl   ? `**Mobile screenshot:** [view](${mobileUrl})`     : '**Mobile screenshot:** saved to /tmp/verify-mobile.png on Hetzner',
+                funcUrl     ? `**Functional screenshot:** [view](${funcUrl})`   : '',
+              ].filter(l => l !== '').join('\n');
 
               console.log('\n' + summary);
 
@@ -356,7 +431,7 @@ jobs:
               }
 
               // Send Telegram notification
-              const tgText = `*Playwright Verify* — ${allPassed ? '✅ PASS' : '❌ FAIL'}\nURL: ${TARGET}\n${RESULTS.map(r => `${r.passed ? '✅' : '❌'} ${r.name}`).join('\n')}`;
+              const tgText = `*Playwright Verify* — ${allPassed ? '✅ PASS' : '❌ FAIL'}\n${verdict}\nURL: ${TARGET}\n${RESULTS.map(r => `${r.passed ? '✅' : '❌'} ${r.name}`).join('\n')}`;
               await sendTelegram(tgText, allPassed ? null : DESKTOP_SS);
 
               // Exit 1 if any check failed so the loop can detect it
