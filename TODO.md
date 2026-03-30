@@ -605,3 +605,27 @@ infrastructure timeout (ubuntu-slim runner unavailability or container pull fail
 - [x] Verified YAML syntax valid
 - [x] Commenting on issue #81 BLOCKED (no GH_TOKEN in env)
 - [x] Updated TODO.md with session 37 notes
+
+---
+
+## Session 38: Issue #82 — GHA-670060: weekly-health.yml ✅ COMPLETE
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#82
+**Workflow:** `.github/workflows/weekly-health.yml`
+
+### Root cause:
+Same stale-failure pattern as issues #72, #78-#81. GHA-670060 refers to push-triggered
+runs that failed on 2026-03-29 (during active debugging sessions, prior commits).
+Fix was already applied in commit `2c5b9cc0` (Session 20 YAML bare-quotes fix).
+
+### Verification (VERIFIED):
+- Fresh `workflow_dispatch` triggered: run 23745609304 → ✅ ALL 11 steps passed (35s)
+- No code changes required
+
+### Actions taken:
+- [x] Confirmed most recent workflow_dispatch (23733431943, 2026-03-30) already passing
+- [x] Triggered fresh workflow_dispatch run 23745609304 → success ✓
+- [x] Commented on issue #82 with proof
+- [x] Closed issue #82 (not planned — already fixed)
+- [x] Updated TODO.md with session 38 notes
