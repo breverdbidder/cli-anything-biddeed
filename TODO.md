@@ -780,3 +780,29 @@ Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Run 237086
 - [x] Updated TODO.md with session 43 notes
 - [ ] BLOCKED: Cannot comment on issue #90 — no GH_TOKEN in environment
 - [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
+---
+
+## Session 46 — Issue #95 GHA-751029 sprint-parallel.yml resolved
+
+### Problem:
+`.github/workflows/sprint-parallel.yml` failing with "workflow file issue" on every push.
+
+### Root cause:
+`task2-dify` step had a nested bash heredoc (`<< 'ENVEOF'`) with 7 lines of content at column 0 (lines 94–100). YAML block scalar parser terminated the `run: |` block at those unindented lines. Same col-0 heredoc pattern as issues #91 and #92.
+
+### Fix:
+Replaced nested heredoc with `echo` commands properly indented within the outer SSH REMOTE block. Commit `8e5b83ff`.
+
+### Verification:
+- YAML validation: `python3 -c "import yaml; yaml.safe_load(...)"` → `YAML valid` ✅
+- Post-fix push: `CI — Full Test Suite` success, `Repo Forensics` success ✅
+- Commented on issue #95 with proof ✅
+
+### Actions taken:
+- [x] Diagnosed: col-0 heredoc content in task2-dify run block
+- [x] Fixed: replaced ENVEOF heredoc with echo commands
+- [x] Committed: `8e5b83ff`
+- [x] Pushed to main ✅
+- [x] Commented on issue #95 ✅
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
