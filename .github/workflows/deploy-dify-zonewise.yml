@@ -1,0 +1,247 @@
+name: "Deploy ZoneWise Dify to Hetzner"
+
+on:
+  workflow_dispatch: {}
+
+env:
+  HETZNER_HOST: 87.99.129.125
+  DIFY_DIR: /opt/dify-zonewise
+  DIFY_REPO: breverdbidder/dify-zonewise
+  DIFY_PORT: 3100
+
+jobs:
+  deploy-dify:
+    name: "Deploy Dify ZoneWise"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H ${{ env.HETZNER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          echo "✅ SSH configured"
+
+      - name: Pre-flight — server resources
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          echo "=== RAM ==="
+          $SSH "free -h"
+
+          echo "=== CPU ==="
+          $SSH "nproc"
+
+          echo "=== Disk ==="
+          $SSH "df -h /"
+
+          echo "=== Existing Docker containers ==="
+          $SSH "docker ps -a 2>/dev/null || echo 'Docker not running or not installed'"
+
+          # Verify minimums
+          RAM_GB=$($SSH "free -g | awk '/Mem:/{print \$2}'")
+          CPU=$($SSH "nproc")
+          DISK_AVAIL=$($SSH "df / | awk 'NR==2{print int(\$4/1024/1024)}'")
+
+          echo "RAM: ${RAM_GB}GB | CPU: ${CPU} cores | Disk avail: ${DISK_AVAIL}GB"
+
+          if [ "${RAM_GB}" -lt 4 ]; then
+            echo "❌ Insufficient RAM: ${RAM_GB}GB (need 4GB+)"
+            exit 1
+          fi
+          if [ "${CPU}" -lt 2 ]; then
+            echo "❌ Insufficient CPU: ${CPU} (need 2+)"
+            exit 1
+          fi
+          if [ "${DISK_AVAIL}" -lt 10 ]; then
+            echo "❌ Insufficient disk: ${DISK_AVAIL}GB (need 10GB+)"
+            exit 1
+          fi
+          echo "✅ Server resources OK"
+
+      - name: Install Docker + Docker Compose (if needed)
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          $SSH "
+            if ! command -v docker &>/dev/null; then
+              echo 'Installing Docker...'
+              curl -fsSL https://get.docker.com | sh
+              systemctl enable docker
+              systemctl start docker
+            else
+              echo 'Docker already installed'
+              docker --version
+            fi
+
+            if ! command -v docker-compose &>/dev/null && ! docker compose version &>/dev/null 2>&1; then
+              echo 'Installing Docker Compose plugin...'
+              apt-get install -y docker-compose-plugin 2>/dev/null || \
+                curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose && \
+                chmod +x /usr/local/bin/docker-compose
+            else
+              echo 'Docker Compose already available'
+            fi
+          "
+
+      - name: Clone ZoneWise Dify fork
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          $SSH "
+            set -e
+            if [ -d ${{ env.DIFY_DIR }} ]; then
+              echo 'Repo already exists — pulling latest...'
+              cd ${{ env.DIFY_DIR }}
+              git pull origin main 2>/dev/null || git pull origin master 2>/dev/null || true
+            else
+              echo 'Cloning breverdbidder/dify-zonewise...'
+              git clone https://${{ secrets.GH_PAT }}@github.com/${{ env.DIFY_REPO }}.git ${{ env.DIFY_DIR }} 2>/dev/null || \
+              git clone https://github.com/langgenius/dify.git ${{ env.DIFY_DIR }}
+            fi
+            echo '✅ Repo ready at ${{ env.DIFY_DIR }}'
+            ls ${{ env.DIFY_DIR }}/
+          "
+
+      - name: Configure ZoneWise environment
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          # Write .env for Dify docker compose
+          $SSH "cat > ${{ env.DIFY_DIR }}/docker/.env << 'ENVEOF'
+# ZoneWise Dify Configuration
+EDITION=SELF_HOSTED
+DEPLOY_ENV=PRODUCTION
+
+# Server
+SERVER_WORKER_AMOUNT=2
+GUNICORN_TIMEOUT=360
+
+# DB — use Supabase for persistence
+DB_USERNAME=postgres
+DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
+DB_HOST=aws-0-us-west-2.pooler.supabase.com
+DB_PORT=6543
+DB_DATABASE=postgres
+
+# Redis (local)
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+
+# Storage (local)
+STORAGE_TYPE=local
+STORAGE_LOCAL_PATH=/app/api/storage
+
+# Secret
+SECRET_KEY=$(openssl rand -hex 32)
+
+# Init password
+INIT_PASSWORD=zonewise2026
+
+# Sandbox
+CODE_EXECUTION_SANDBOX_HOST=sandbox
+CODE_EXECUTION_SANDBOX_PORT=8194
+
+# Web
+CONSOLE_API_URL=http://87.99.129.125:3100
+CONSOLE_WEB_URL=http://87.99.129.125:3100
+SERVICE_API_URL=http://87.99.129.125:3100
+APP_WEB_URL=http://87.99.129.125:3100
+
+# Nginx port override handled by nginx config
+EXPOSE_NGINX_PORT=3100
+NGINX_HTTPS_ENABLED=false
+ENVEOF
+echo '✅ .env written'"
+
+      - name: Configure nginx port 3100
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          # Override nginx config to listen on port 3100
+          $SSH "
+            NGINX_CONF=${{ env.DIFY_DIR }}/docker/nginx/nginx.conf
+            PROXY_CONF=${{ env.DIFY_DIR }}/docker/nginx/proxy.conf
+
+            if [ -f \"\$NGINX_CONF\" ]; then
+              # Update listen port from 80 to 3100
+              sed -i 's/listen 80;/listen 3100;/g' \"\$NGINX_CONF\"
+              sed -i 's/listen\\s*80;/listen 3100;/g' \"\$NGINX_CONF\"
+              echo '✅ nginx.conf updated to port 3100'
+              grep -n 'listen' \"\$NGINX_CONF\" | head -5
+            else
+              echo 'nginx.conf not found at expected path, listing docker/ contents:'
+              ls ${{ env.DIFY_DIR }}/docker/ 2>/dev/null || ls ${{ env.DIFY_DIR }}/ | head -20
+            fi
+          "
+
+      - name: Deploy via Docker Compose
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          $SSH "
+            set -e
+            cd ${{ env.DIFY_DIR }}/docker
+
+            echo '=== Starting Dify stack ==='
+            # Try docker compose (v2) first, fall back to docker-compose (v1)
+            if docker compose version &>/dev/null 2>&1; then
+              COMPOSE='docker compose'
+            else
+              COMPOSE='docker-compose'
+            fi
+
+            # Pull images first
+            \$COMPOSE pull 2>&1 | tail -5 || true
+
+            # Start services (detached)
+            \$COMPOSE up -d 2>&1
+
+            echo '=== Waiting 30s for services to initialize ==='
+            sleep 30
+
+            echo '=== Container status ==='
+            \$COMPOSE ps
+
+            echo '✅ Dify stack launched'
+          "
+
+      - name: Verify HTTP 200 on port 3100
+        run: |
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_HOST }}"
+
+          echo "=== Waiting additional 30s for nginx to be ready ==="
+          sleep 30
+
+          # Verify from within the server
+          RESULT=$($SSH "curl -s -o /dev/null -w '%{http_code}' http://localhost:3100 2>/dev/null || echo '000'")
+          echo "HTTP status from server: $RESULT"
+
+          # Verify from outside
+          EXTERNAL=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 15 http://${{ env.HETZNER_HOST }}:3100 2>/dev/null || echo '000')
+          echo "HTTP status from GitHub runner: $EXTERNAL"
+
+          if [ "$RESULT" = "200" ] || [ "$RESULT" = "301" ] || [ "$RESULT" = "302" ]; then
+            echo "✅ Dify is UP — HTTP $RESULT on port 3100"
+          elif [ "$EXTERNAL" = "200" ] || [ "$EXTERNAL" = "301" ] || [ "$EXTERNAL" = "302" ]; then
+            echo "✅ Dify is UP externally — HTTP $EXTERNAL on port 3100"
+          else
+            echo "⚠️ Unexpected status: local=$RESULT external=$EXTERNAL"
+            echo "=== Container logs ==="
+            $SSH "cd ${{ env.DIFY_DIR }}/docker && docker compose logs --tail=50 nginx 2>/dev/null || docker-compose logs --tail=50 nginx 2>/dev/null || true"
+            exit 1
+          fi
+
+      - name: Telegram notification
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI=$( [ "$STATUS" = "success" ] && echo "✅" || echo "❌" )
+          MSG="${EMOJI} Dify ZoneWise Deploy: ${STATUS}%0AHost: http://87.99.129.125:3100%0ARepo: ${{ env.DIFY_REPO }}%0AIssue: %2386"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=${MSG}" > /dev/null 2>&1 || true
