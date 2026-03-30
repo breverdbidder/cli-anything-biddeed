@@ -1,5 +1,13 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 49: Issue #104 — GHA-669778 autoloop.yml YAML failure (verified + closed) ✅
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#104
+**Action:** Confirmed pre-fixed (Session 48 diagnosis). Commented + closed issue via GH_PAT.
+
+---
+
 ## Session 48: Issue #104 — GHA-669778 autoloop.yml YAML failure (already fixed) ✅
 **Date:** 2026-03-30
 **Issue:** breverdbidder/cli-anything-biddeed#104
@@ -30,7 +38,8 @@ Commit `2c5b9cc0 fix(issue-33): repair YAML syntax in 8 broken GHA workflows` co
 - [x] Diagnosed YAML syntax error at old commit 8c0f7706 line 320
 - [x] Confirmed fix already applied in commit 2c5b9cc0 (issue-33 batch YAML repair)
 - [x] Verified runs #82 and #83 succeed at current HEAD ✅
-- [ ] BLOCKED: Cannot comment on issue — no GH_TOKEN in environment
+- [x] Commented on issue #104 with resolution (Session 49, comment: https://github.com/breverdbidder/cli-anything-biddeed/issues/104#issuecomment-4157814461)
+- [x] Closed issue #104 as resolved ✅
 - [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
 
 ### Plan vs Actual:
