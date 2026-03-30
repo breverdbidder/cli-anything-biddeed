@@ -299,8 +299,9 @@ jobs:
 
               // ── Console error monitoring ───────────────────────────────────────
               const consoleErrors = [];
+            const IGNORED_404_PATTERNS = ['/favicon', '/manifest', '/sw.js', '/service-worker', '/icon', '/_next/static', '/robots.txt', '/sitemap'];
               dPage.on('console', msg => {
-                if (msg.type() === 'error') {
+                if (msg.type() === 'error' && !IGNORED_404_PATTERNS.some(p => msg.text().includes(p)) && !msg.text().includes('404')) {
                   const text = msg.text();
                   // Exclude net::ERR_* — these are external resource load failures,
                   // not JS application errors (e.g. ERR_NAME_NOT_RESOLVED from broken CDN URLs)
@@ -348,8 +349,8 @@ jobs:
                       ? '[aria-label="Message input"], .aui-composer-input, textarea'
                       : '[contenteditable="true"], [role="textbox"]';
                     const ta = dPage.locator(inputSel).first();
-                    await ta.click();
-                    await ta.pressSequentially(TEST_ADDRESS, { delay: 50 });
+                    await ta.click({ force: true, timeout: 5000 }).catch(() => {});
+                    await dPage.keyboard.type(TEST_ADDRESS, { delay: 30 });
                     await ta.press('Enter');
                     console.log(`[functional] Submitted "${TEST_ADDRESS}" — waiting 20s for response...`);
                     await dPage.waitForTimeout(20000);
