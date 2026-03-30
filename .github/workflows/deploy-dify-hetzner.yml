@@ -71,17 +71,15 @@ jobs:
             if [ ! -f .env ]; then
               cp .env.example .env
               SECRET=$(openssl rand -hex 32)
-              
-              cat >> .env << 'ENVEOF'
-CONSOLE_API_URL=http://87.99.129.125:3100/console/api
-CONSOLE_WEB_URL=http://87.99.129.125:3100
-SERVICE_API_URL=http://87.99.129.125:3100/api
-APP_WEB_URL=http://87.99.129.125:3100
-VECTOR_STORE=pgvector
-COMPOSE_PROFILES=pgvector,postgresql
-INIT_PASSWORD=zonewise2026
-ENVEOF
-              
+
+              printf 'CONSOLE_API_URL=http://87.99.129.125:3100/console/api\n' >> .env
+              printf 'CONSOLE_WEB_URL=http://87.99.129.125:3100\n' >> .env
+              printf 'SERVICE_API_URL=http://87.99.129.125:3100/api\n' >> .env
+              printf 'APP_WEB_URL=http://87.99.129.125:3100\n' >> .env
+              printf 'VECTOR_STORE=pgvector\n' >> .env
+              printf 'COMPOSE_PROFILES=pgvector,postgresql\n' >> .env
+              printf 'INIT_PASSWORD=zonewise2026\n' >> .env
+
               sed -i "s/SECRET_KEY=.*/SECRET_KEY=$SECRET/" .env
               
               # Change nginx port to 3100
