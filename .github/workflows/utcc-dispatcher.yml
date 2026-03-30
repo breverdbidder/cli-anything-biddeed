@@ -48,7 +48,12 @@ jobs:
 
           COUNT=$(echo "$TASKS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
           echo "count=$COUNT" >> $GITHUB_OUTPUT
-          echo "tasks=$(echo "$TASKS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([{\"task_id\":t[\"task_id\"],\"task\":t[\"description\"],\"platform\":t[\"platform\"],\"task_type\":t[\"task_type\"]} for t in d]))")" >> $GITHUB_OUTPUT
+          TASKS_JSON=$(echo "$TASKS" | python3 -c "import sys,json; d=json.load(sys.stdin); out=[{'task_id':t.get('task_id',''),'task':t.get('description',''),'platform':t.get('platform','gha'),'task_type':t.get('task_type','claude')} for t in d]; print(json.dumps(out))" 2>/dev/null || echo '[]')
+          {
+            echo 'tasks<<TASKS_EOF'
+            printf '%s\n' "$TASKS_JSON"
+            echo 'TASKS_EOF'
+          } >> $GITHUB_OUTPUT
 
           echo "=== Batch $BATCH_ID: $COUNT tasks ==="
 
@@ -80,21 +85,25 @@ jobs:
 
       - name: Dispatch to utcc-executor-ssh
         if: matrix.task.platform == 'hetzner'
+        env:
+          TASK_ID: ${{ matrix.task.task_id }}
+          TASK: ${{ matrix.task.task }}
+          BATCH_ID: ${{ needs.prepare.outputs.batch_id }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
         run: |
+          PAYLOAD=$(jq -n \
+            --arg task_id "$TASK_ID" \
+            --arg task "$TASK" \
+            --arg batch_id "$BATCH_ID" \
+            '{"event_type":"utcc-dispatch","client_payload":{"task_id":$task_id,"task":$task,"batch_id":$batch_id}}')
           curl -sf -X POST \
-            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            "https://api.github.com/repos/${REPO}/dispatches" \
+            -H "Authorization: Bearer ${GH_PAT}" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
-            -d '{
-              "event_type": "utcc-dispatch",
-              "client_payload": {
-                "task_id": "${{ matrix.task.task_id }}",
-                "task": "${{ matrix.task.task }}",
-                "batch_id": "${{ needs.prepare.outputs.batch_id }}"
-              }
-            }'
-          echo "✅ Dispatched ${{ matrix.task.task_id }} to Hetzner executor"
+            -d "$PAYLOAD"
+          echo "✅ Dispatched ${TASK_ID} to Hetzner executor"
 
   dispatch-gha:
     name: "Dispatch GHA Tasks"
@@ -124,20 +133,23 @@ jobs:
 
       - name: Dispatch to GHA runner
         if: matrix.task.platform == 'gha'
+        env:
+          TASK_ID: ${{ matrix.task.task_id }}
+          TASK: ${{ matrix.task.task }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
         run: |
+          PAYLOAD=$(jq -n \
+            --arg prompt "$TASK" \
+            --arg repo "$REPO" \
+            '{"ref":"main","inputs":{"prompt":$prompt,"repo":$repo}}')
           curl -sf -X POST \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/dispatch-gha.yml/dispatches" \
-            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            "https://api.github.com/repos/${REPO}/actions/workflows/dispatch-gha.yml/dispatches" \
+            -H "Authorization: Bearer ${GH_PAT}" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
-            -d '{
-              "ref": "main",
-              "inputs": {
-                "prompt": "${{ matrix.task.task }}",
-                "repo": "${{ github.repository }}"
-              }
-            }'
-          echo "✅ Dispatched ${{ matrix.task.task_id }} to GHA runner"
+            -d "$PAYLOAD"
+          echo "✅ Dispatched ${TASK_ID} to GHA runner"
 
   notify-batch:
     name: "Batch Telegram Notification"
