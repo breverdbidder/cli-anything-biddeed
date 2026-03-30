@@ -561,9 +561,9 @@ Multi-line `MSG` variable in Telegram notification step of `ship-paperclip-68.ym
 - SignalDetector imports clean: OK
 - EvolutionService end-to-end: OK (3 signals detected in dry-run, entries=0 expected without API keys)
 - eval_runner wired: OK (grep confirms 'evolution' in eval_runner.py)
-- evolutions.json: will be created on first live solidify run
+- evolutions.json: CREATED in session 49 at `.claude/skills/zonewise-scraper/evolutions.json` (commit `58cda539`)
 
-### DB tables: UNTESTED — dispatch skill-evolution-migrate or run migrations/20260330_skill_evolution.sql manually after SUPABASE_DB_PASSWORD reset
+### DB tables: BLOCKED — Session 49 confirmed HTTP 404 via GHA REST check. DB password auth fails (SUPABASE_DB_PASSWORD + SUPABASE_KEY both rejected). ACTION: Run `migrations/20260330_skill_evolution.sql` in Supabase SQL Editor https://app.supabase.com/project/mocerqjnksmhcjzxrewo/sql/new
 ### SUMMIT auto-dispatch: UNTESTED — requires GH_TOKEN + 3 consecutive failed evolution attempts
 ### HONESTY: All code artifacts VERIFIED (pushed). LLM patch generation UNTESTED (no API keys in build env — expected).
 
