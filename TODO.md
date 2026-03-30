@@ -691,3 +691,23 @@ Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Failures (
 - [x] Commented resolution on issue #85 with VERIFIED root cause analysis
 - [x] Closed issue #85 (not planned — stale)
 - [x] Updated TODO.md with session 41 notes
+
+## Session 42 — Issue #87 (GHA-669612 daily-auto-fixer.yml)
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#87
+
+### Root cause:
+Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Run 23708669612 was a push-triggered failure from 2026-03-29T12:07 UTC (pre-fix) reported as "workflow file issue" by GitHub. The ci-failure-agent detected this historical failure and auto-dispatched issue #87 on 2026-03-30T15:28 UTC.
+
+### Verification (VERIFIED):
+- Run 23740461658: ✅ SUCCESS (scheduled, 2026-03-30T10:36 UTC)
+- Run 23731512705: ✅ SUCCESS (workflow_dispatch, 2026-03-30T06:42 UTC)
+- Failing run 23708669612 was 0s duration — GitHub rejected YAML at that commit, pre-fix
+
+### Actions taken:
+- [x] Diagnosed: stale issue, root cause YAML syntax error pre-dating commit 2c5b9cc0
+- [x] Confirmed fix already applied (2 successful runs today as proof)
+- [x] Commented resolution on issue #87 with VERIFIED root cause analysis
+- [x] Closed issue #87 (completed — stale)
+- [x] Updated TODO.md with session 42 notes
