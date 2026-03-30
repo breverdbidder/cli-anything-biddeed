@@ -369,3 +369,26 @@
 ### DB tables: UNTESTED — dispatch skill-evolution-migrate or run migrations/20260330_skill_evolution.sql manually after SUPABASE_DB_PASSWORD reset
 ### SUMMIT auto-dispatch: UNTESTED — requires GH_TOKEN + 3 consecutive failed evolution attempts
 ### HONESTY: All code artifacts VERIFIED (pushed). LLM patch generation UNTESTED (no API keys in build env — expected).
+
+## Session 27: Issue #70 — Brevard Envelope Conquest 68%→85% (partial ✅)
+
+### Root Cause Found (VERIFIED)
+- `scripts/brevard_85_percent_v2.py` had syntax error at line 177: `ff"..."` (double-f string)
+- Python SyntaxError = script NEVER ran = explains why Cocoa Beach stayed at 9%, Titusville 39%, Cocoa 41%
+- `python3 -c "import py_compile; py_compile.compile(...)"` confirmed the error
+
+### Actions Taken
+- [x] Fix: `ff"CITY LIKE '{gis_city}%'"` → `f"CITY LIKE '{gis_city}%'"` — VERIFIED SYNTAX OK
+- [x] Create: `.github/workflows/summit-issue70-conquest.yml` — 3 parallel tracks:
+  * Track 1A: Titusville + Melbourne (municipal GIS via summit_conquest_v5.py)
+  * Track 1B: Cocoa + Rockledge (AGOL via summit_conquest_v5b.py)
+  * Track 2: Cocoa Beach + Palm Bay 29 + Unincorp 30 (BCPAO overlay, fixed script)
+  * Verify: NEVER-LIE audit job with live Supabase COUNT queries
+- [x] Committed d14019fb + pushed to main
+
+### Pending
+- [ ] Dispatch `summit-issue70-conquest.yml` from GitHub Actions tab (manual — no GH_TOKEN in build env)
+- [ ] Verify audit report after run — expect Cocoa Beach, Titusville, Cocoa to exceed 85%
+
+### BLOCKER: No GH_TOKEN in build environment — dispatch manually at github.com/breverdbidder/cli-anything-biddeed/actions/workflows/summit-issue70-conquest.yml
+### Honesty: Fix = VERIFIED (syntax passes). Coverage improvement = UNTESTED (workflow not yet dispatched).
