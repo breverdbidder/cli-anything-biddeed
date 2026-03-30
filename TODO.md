@@ -628,4 +628,26 @@ Fix was already applied in commit `2c5b9cc0` (Session 20 YAML bare-quotes fix).
 - [x] Triggered fresh workflow_dispatch run 23745609304 → success ✓
 - [x] Commented on issue #82 with proof
 - [x] Closed issue #82 (not planned — already fixed)
+
+## Session 39: Issue #66 — SUMMIT AUDIT+FIX (✅ VERIFIED-CODE / UNTESTED-DB)
+- [x] Read issue #66 (SUMMIT: AUDIT+FIX — Verify #61-65 outputs, fill gaps, deploy missing)
+- [x] Audited: morning-executor.yml MISSING → CREATED
+- [x] Audited: nightly-scorer.yml MISSING → CREATED
+- [x] Audited: modal/ directory MISSING → CREATED (3 functions)
+- [x] Created .github/workflows/morning-executor.yml (cron 0 11 * * 0-4,6 — 6 AM EST, excludes Friday)
+- [x] Created .github/workflows/nightly-scorer.yml (cron 59 4 * * 0-4,6 — 11:59 PM EST, excludes Friday)
+- [x] Created modal/xgboost_scorer.py — Modal scheduled function, nightly scoring + ml_score updates
+- [x] Created modal/vault_sync.py — Modal 6-hour sync cycle, artifact_vault → Google Drive
+- [x] Created modal/scraper.py — Modal county scraper, parallel batches, concurrency≤50
+- [x] Created migrations/20260330_modal_tables.sql — modal_runs + vault_sync_log tables + RLS
+- [x] Committed (abbcaaaa) + pushed — VERIFIED
+- [ ] Run migrations/20260330_modal_tables.sql — BLOCKED: SUPABASE_DB_PASSWORD stale (same persistent blocker)
+- [ ] modal deploy modal/xgboost_scorer.py + modal/vault_sync.py + modal/scraper.py — BLOCKED: MODAL_TOKEN_ID/SECRET in repo secrets only
+- [ ] Verify ops.biddeed.ai HTTP 200 — BLOCKED: Paperclip deploy requires HETZNER_SSH_KEY
+- [ ] Comment on issue #66 — BLOCKED: no GH_TOKEN in build env
+
+### Code artifacts: VERIFIED (committed, pushed commit abbcaaaa)
+### DB migration: UNTESTED (SUPABASE_DB_PASSWORD auth blocked, same Sessions 8-38)
+### Modal deploy: UNTESTED (needs MODAL_TOKEN_ID secret — dispatch modal-deploy.yml after DB unblocked)
+### To unblock: Reset SUPABASE_DB_PASSWORD in Supabase Dashboard → then dispatch codesearch-migrate.yml (handles all pending migrations)
 - [x] Updated TODO.md with session 38 notes
