@@ -46,8 +46,21 @@ jobs:
     needs: pre_activation
     # zizmor: ignore[dangerous-triggers] - workflow_run trigger is secured with role and fork validation
     if: >
-      (needs.pre_activation.outputs.activated == 'true') && (github.event_name != 'workflow_run' || github.event.workflow_run.repository.id == github.repository_id &&
-      (!(github.event.workflow_run.repository.fork)))
+      (needs.pre_activation.outputs.activated == 'true') &&
+      (github.event_name != 'workflow_run' || (
+        github.event.workflow_run.repository.id == github.repository_id &&
+        (!(github.event.workflow_run.repository.fork)) &&
+        github.event.workflow_run.conclusion == 'failure' &&
+        github.event.workflow_run.name != 'Everest Sentinel' &&
+        github.event.workflow_run.name != 'Everest Sentinel V2' &&
+        github.event.workflow_run.name != 'Sprint Parallel Executor (24/6)' &&
+        github.event.workflow_run.name != 'Issue Triage Agent' &&
+        github.event.workflow_run.name != 'Ci Failure Agent' &&
+        github.event.workflow_run.name != 'Daily Auto-Fixer' &&
+        github.event.workflow_run.name != 'Hetzner Watchdog' &&
+        github.event.workflow_run.name != 'SUMMIT Verifier — 30min Loop' &&
+        !startsWith(github.event.workflow_run.name, 'SHIP-')
+      ))
     runs-on: ubuntu-slim
     permissions:
       contents: read
