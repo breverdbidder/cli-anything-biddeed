@@ -26,15 +26,31 @@ jobs:
             nproc
             docker ps -a 2>/dev/null | head -10 || echo "Docker not yet running"
 
-            RAM_GB=$(free -g | awk '/Mem:/{print $2}')
+            RAM_MB=$(free -m | awk '/Mem:/{print $2}')
             CPU=$(nproc)
             DISK=$(df / | awk 'NR==2{print int($4/1024/1024)}')
-            echo "RAM: ${RAM_GB}GB | CPU: ${CPU} | Disk: ${DISK}GB free"
+            echo "RAM: ${RAM_MB}MB | CPU: ${CPU} | Disk: ${DISK}GB free"
 
-            if [ "${RAM_GB}" -lt 4 ]; then echo "ERROR: need 4GB RAM"; exit 1; fi
+            if [ "${RAM_MB}" -lt 3500 ]; then echo "ERROR: need 4GB RAM, have ${RAM_MB}MB"; exit 1; fi
             if [ "${CPU}" -lt 2 ]; then echo "ERROR: need 2 CPU"; exit 1; fi
             if [ "${DISK}" -lt 10 ]; then echo "ERROR: need 10GB disk"; exit 1; fi
-            echo "✅ Resources OK"
+            echo "✅ Resources OK (${RAM_MB}MB RAM)"
+
+            echo ""
+            echo "=== Handle port 3100 conflict ==="
+            if ss -tlnp | grep -q ':3100 '; then
+              echo "Port 3100 is in use — checking what's running:"
+              ss -tlnp | grep ':3100'
+              # Stop paperclip deploy server if it's occupying port 3100
+              if docker ps --format '{{.Names}} {{.Ports}}' | grep -q '3100'; then
+                CONFLICT_CONTAINER=$(docker ps --format '{{.Names}} {{.Ports}}' | grep '3100' | awk '{print $1}')
+                echo "Stopping container: ${CONFLICT_CONTAINER}"
+                docker stop "${CONFLICT_CONTAINER}" || true
+                echo "✅ Port 3100 freed"
+              fi
+            else
+              echo "Port 3100 is free"
+            fi
 
             echo ""
             echo "=== Docker setup ==="
