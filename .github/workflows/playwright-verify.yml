@@ -320,7 +320,7 @@ jobs:
 
                 // ── Smart content length check ─────────────────────────────────
                 const bodyText = await dPage.evaluate(() => document.body ? document.body.innerText : '');
-                const hasTextarea = (await dPage.locator('textarea').count()) > 0;
+                const hasTextarea = (await dPage.locator('[aria-label="Message input"], .aui-composer-input, textarea').count()) > 0;
                 // assistant-ui Composer uses contenteditable, not textarea — detect both
                 const hasContentEditable = (await dPage.locator('[contenteditable="true"], [role="textbox"]').count()) > 0;
                 const hasComposerInput = hasTextarea || hasContentEditable;
@@ -345,7 +345,7 @@ jobs:
                 if (FUNC_ENABLED && hasComposerInput) {
                   try {
                     const inputSel = hasTextarea
-                      ? 'textarea'
+                      ? '[aria-label="Message input"], .aui-composer-input, textarea'
                       : '[contenteditable="true"], [role="textbox"]';
                     const ta = dPage.locator(inputSel).first();
                     await ta.fill(TEST_ADDRESS);
