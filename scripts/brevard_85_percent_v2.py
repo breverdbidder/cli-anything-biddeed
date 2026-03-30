@@ -174,7 +174,7 @@ def conquer_jurisdiction(jurisdiction, config):
     
     # Step 1: Get all parcels for this city from GIS
     if gis_city:
-        where = ff"CITY LIKE '{gis_city}%'"
+        where = f"CITY LIKE '{gis_city}%'"
     else:
         # Unincorporated — need envelope number from jurisdiction name
         env_num = jurisdiction.split("_")[-1] if "_" in jurisdiction else ""
