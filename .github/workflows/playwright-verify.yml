@@ -385,12 +385,17 @@ jobs:
               const desktopUrl  = await uploadToSupabase(DESKTOP_SS, `desktop-${ts}.png`);
               const mobileUrl   = await uploadToSupabase(MOBILE_SS,  `mobile-${ts}.png`);
               const funcUrl     = await uploadToSupabase(FUNC_SS,    `functional-${ts}.png`);
-              if (desktopUrl)  log('supabase_desktop_upload', true, `Uploaded → ${desktopUrl}`);
-              if (mobileUrl)   log('supabase_mobile_upload',  true, `Uploaded → ${mobileUrl}`);
-              if (funcUrl)     log('supabase_func_upload',    true, `Uploaded → ${funcUrl}`);
+              log('supabase_desktop_upload', !!desktopUrl, desktopUrl ? `Uploaded → ${desktopUrl}` : 'Upload failed — check SUPABASE_URL/KEY');
+              log('supabase_mobile_upload',  !!mobileUrl,  mobileUrl  ? `Uploaded → ${mobileUrl}`  : 'Upload failed — check SUPABASE_URL/KEY');
+              log('supabase_func_upload',    !!funcUrl,    funcUrl    ? `Uploaded → ${funcUrl}`    : 'Upload failed or functional screenshot not taken');
+
+              // Pre-log results_posted intent (ISSUE_NUM known at this point)
+              log('results_posted', !!ISSUE_NUM, ISSUE_NUM ? `Will post comment on issue #${ISSUE_NUM}` : 'SKIPPED — no issue_number provided');
+
+              // ── Compute allPassed AFTER all checks logged ──────────────────
+              const allPassed = RESULTS.every(r => r.passed);
 
               // ── Persist results ────────────────────────────────────────────
-              const allPassed = RESULTS.every(r => r.passed);
               await persistCheck({
                 url: TARGET,
                 checks: RESULTS,
@@ -402,7 +407,7 @@ jobs:
 
               // ── Build result summary ───────────────────────────────────────
               const rows = RESULTS.map(r => `| ${r.passed ? '✅' : '❌'} | \`${r.name}\` | ${r.detail} |`).join('\n');
-              const enterpriseChecks = ['http_status','desktop_render','mobile_render','content_length','console_errors','functional_test','supabase_desktop_upload','supabase_mobile_upload'];
+              const enterpriseChecks = ['http_status','desktop_render','mobile_render','content_length','console_errors','functional_test','supabase_desktop_upload','supabase_mobile_upload','supabase_func_upload','results_posted'];
               const enterprisePassed = enterpriseChecks.every(c => {
                 const r = RESULTS.find(x => x.name === c);
                 return !r || r.passed;
