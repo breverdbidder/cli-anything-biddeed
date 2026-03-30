@@ -213,10 +213,15 @@ jobs:
                           
                           # Skip if already tracked
                           if auto_tid in existing_ids: continue
-                          # Skip self-referential (this workflow)
-                          if "Task Lifecycle" in wf_name: continue
-                          # Skip checkpoint/action-plan (they succeed)
-                          if "Checkpoint" in wf_name or "Action Plan" in wf_name: continue
+                          # Skip meta/infrastructure workflows (noise — mirror ci-failure-agent IGNORE LIST)
+                          skip_patterns = [
+                              "Task Lifecycle", "Checkpoint", "Action Plan",
+                              "Issue Triage Agent", "CI Failure Agent", "Ci Failure Agent",
+                              "Everest Sentinel", "Daily Auto-Fixer", "Hetzner Watchdog",
+                              "SUMMIT Verifier", "Continuous Executor", "Morning Executor",
+                              "Sprint Parallel Executor", "Doc Sync Agent",
+                          ]
+                          if any(p in wf_name for p in skip_patterns): continue
                           
                           created = create_task({
                               "task_id": auto_tid,
