@@ -369,3 +369,32 @@
 ### DB tables: UNTESTED — dispatch skill-evolution-migrate or run migrations/20260330_skill_evolution.sql manually after SUPABASE_DB_PASSWORD reset
 ### SUMMIT auto-dispatch: UNTESTED — requires GH_TOKEN + 3 consecutive failed evolution attempts
 ### HONESTY: All code artifacts VERIFIED (pushed). LLM patch generation UNTESTED (no API keys in build env — expected).
+
+---
+
+## Session 27 — Issue #69: ECO-003 GHA Billing Audit (2026-03-30)
+
+### Status: COMPLETE ✅
+
+### What was done:
+- [x] Audited 29 repos for GHA workflow runs over 7-day window
+- [x] Computed total minutes: ~1,057 min (wall-clock) across 440+ runs
+- [x] Identified top 10 workflows by minutes consumed
+- [x] Detected 22 workflows with 3+ consecutive failures
+- [x] Disabled 19 broken workflows (3 were pre-existing disabled)
+- [x] Protected: sentinel.yml, summit-task.yml, autoloop.yml, weekly-health.yml — all preserved
+- [x] Posted findings to issue #69 comment
+
+### Key findings (VERIFIED):
+- #1 resource consumer: biddeed-ai/Playwright Tests — 546 min / 18 runs / 30 min avg
+- Monthly projection: ~4,600 min (2.3x over 2,000 min free tier)
+- everest-dispatch: 11 broken setup/diagnostic workflows — likely Hetzner auth failure
+- Billing API: 404 (no read:org scope) — minutes computed from run timestamps
+
+### Repos/workflows disabled:
+- biddeed-ai: lint.yml (18 failures)
+- everest-nexus: nexus-s3.yml (17 failures)
+- zonewise-scraper-v4: ci-failure-agent.lock.yml, nightly_scrape.yml
+- skillforge-ai: ci-intelligence.yml, nightly-ci-analysis.yml
+- cli-anything-biddeed: issue-triage-agent.lock.yml
+- everest-dispatch: 11 setup/diagnostic workflows + summit.yml
