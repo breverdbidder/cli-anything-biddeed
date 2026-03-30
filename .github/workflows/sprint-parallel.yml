@@ -90,15 +90,14 @@ jobs:
               if [ ! -f .env ]; then
                 cp .env.example .env
                 SECRET=$(openssl rand -hex 32)
-                cat >> .env << 'ENVEOF'
-CONSOLE_API_URL=http://$(hostname -I | awk '{print $1}'):3100/console/api
-CONSOLE_WEB_URL=http://$(hostname -I | awk '{print $1}'):3100
-SERVICE_API_URL=http://$(hostname -I | awk '{print $1}'):3100/api
-APP_WEB_URL=http://$(hostname -I | awk '{print $1}'):3100
-VECTOR_STORE=pgvector
-COMPOSE_PROFILES=pgvector,postgresql
-INIT_PASSWORD=zonewise2026
-ENVEOF
+                _IP=$(hostname -I | awk '{print $1}')
+                echo "CONSOLE_API_URL=http://${_IP}:3100/console/api" >> .env
+                echo "CONSOLE_WEB_URL=http://${_IP}:3100" >> .env
+                echo "SERVICE_API_URL=http://${_IP}:3100/api" >> .env
+                echo "APP_WEB_URL=http://${_IP}:3100" >> .env
+                echo "VECTOR_STORE=pgvector" >> .env
+                echo "COMPOSE_PROFILES=pgvector,postgresql" >> .env
+                echo "INIT_PASSWORD=zonewise2026" >> .env
                 sed -i "s/SECRET_KEY=.*/SECRET_KEY=$SECRET/" .env
                 sed -i 's/80:80/3100:80/' docker-compose.yaml
               fi
