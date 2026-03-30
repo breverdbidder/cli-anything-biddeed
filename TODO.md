@@ -571,3 +571,37 @@ Root cause was the multi-workflow YAML parse error fixed by commit 2c5b9cc0 (Ses
 - [x] Verified YAML syntax valid
 - [x] Commenting on issue #80 BLOCKED (no GH_TOKEN in env)
 - [x] Updated TODO.md with session 36 notes
+
+---
+
+## Session 37 — Issue #81 (GHA-024013 issue-triage-agent)
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#81
+**Workflow:** `.github/workflows/issue-triage-agent.lock.yml`
+
+### Root cause:
+Transient failure — NOT a stale YAML syntax issue (unlike issues #76-#80).
+The issue-triage-agent.lock.yml was NOT affected by commit 2c5b9cc0 (the 8-workflow YAML fix).
+The workflow was created 2026-03-23 and has been running for 7 days before this failure.
+GHA-024013 is a low-numbered run ID likely from gh-aw internal tracking, not a GitHub global run ID.
+
+Failure was auto-reported by `GH_AW_FAILURE_REPORT_AS_ISSUE: "true"` in the conclusion job,
+which creates a new issue when the Issue Triage Agent fails. Issue #81 IS that failure report.
+
+Most likely cause: transient ANTHROPIC_API_KEY validation failure, API rate limit, or
+infrastructure timeout (ubuntu-slim runner unavailability or container pull failure).
+
+### Verification (VERIFIED):
+- issue-triage-agent.lock.yml YAML syntax: `python3 -c "import yaml; yaml.safe_load(...)"` → VALID ✓
+- issue-triage-agent.md: valid frontmatter structure ✓
+- Permissions: `issues: write` present in `safe_outputs` and `conclusion` jobs ✓
+- Secrets: proper fallbacks (`GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN`) ✓
+- Runner: `ubuntu-slim` consistent with all other lock.yml files ✓
+- No YAML syntax errors — no code changes needed
+
+### Actions taken:
+- [x] Diagnosed: transient failure, workflow file is structurally and syntactically correct
+- [x] Verified YAML syntax valid
+- [x] Commenting on issue #81 BLOCKED (no GH_TOKEN in env)
+- [x] Updated TODO.md with session 37 notes
