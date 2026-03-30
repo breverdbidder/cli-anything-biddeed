@@ -1,5 +1,28 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 54: Issue #112 — SUMMIT Fix Envelope Conquest Gaps 68% → 85%+ 🚀
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#112
+
+### Deliverables:
+- [x] Created `.github/workflows/summit-issue112-conquest.yml` — 5-step pipeline
+- [x] Created `scripts/quality_metadata_backfill.py` — zone_source + zone_confidence backfill
+- [x] Committed + pushed (commit `d87f7887`)
+
+### Pipeline Steps (sequential, fail-safe):
+1. `brevard_85_percent_v2.py` — Cocoa Beach (9%), Titusville (39%), Cocoa (41%), unincorporated, rockledge, palm_bay_29, melbourne
+2. `cdp_zoning_fix.py` — Merritt Island (19K), Barefoot Bay (4K), Micco (1K), Mims, Grant
+3. `quality_metadata_backfill.py` — DOR_UC codes → use_code_crosswalk/low; real codes → spatial_join/high
+4. `photo_url_fill.py` — bcpao.us photo URL fill for all 351K parcels
+5. NEVER-LIE audit — exact DB counts, Telegram report
+
+### Pending (manual):
+- [ ] Trigger workflow via GitHub Actions UI: `SUMMIT #112: Fix Envelope Conquest Gaps — 68% → 85%+`
+- [ ] Monitor Telegram for per-step results
+- [ ] Verify final coverage ≥ 85% from audit step output
+
+---
+
 ## Session 53: Issue #111 — SUMMIT P0 biddeed.ai Back ONLINE ✅
 **Date:** 2026-03-30
 **Issue:** breverdbidder/cli-anything-biddeed#111
