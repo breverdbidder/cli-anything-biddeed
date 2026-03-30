@@ -16,7 +16,6 @@ jobs:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          script_stop: true
           command_timeout: 25m
           script: |
             set -e
