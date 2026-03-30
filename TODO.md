@@ -423,3 +423,22 @@
 - everest-dispatch: 11 setup/diagnostic workflows + summit.yml
 
 **Session 29 (Issue #71):** GHA-206009 daily-auto-fixer.yml failure — ROOT CAUSE: YAML syntax error at line 133 (bare double-quote before ✅ emoji parsed as YAML key). Fix was already applied in commit 2c5b9cc0 (issue-33 fix). VERIFIED: triggered workflow_dispatch → success (run #23731512705, 2026-03-30T06:42:59Z). Issue #71 closed.
+
+---
+
+## Session 30 — Issue #72: GHA-206005 weekly-health.yml failure (2026-03-30)
+
+### Status: COMPLETE ✅
+
+### Root cause:
+Same YAML bare-quotes issue as Issue #71/#33. Commit 2c5b9cc0 (Session 20) had already fixed the bare newlines in DREAM_REPORT string (replaced literal newline at col 0 with `\n` escape). No code changes needed.
+
+### Verification (VERIFIED):
+- Triggered workflow_dispatch run #23733431943 (2026-03-30T07:39:03Z)
+- All 11 steps passed: install, tests, CLIs, LangGraph, freshness, forensics, dream, Telegram
+- Conclusion: success ✅
+
+### Actions taken:
+- [x] Triggered workflow_dispatch → run #23733431943 → all 11 steps SUCCESS
+- [x] Commented resolution on issue #72 with run link
+- [x] Closed issue #72
