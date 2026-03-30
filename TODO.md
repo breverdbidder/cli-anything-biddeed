@@ -1,5 +1,28 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 44: Issue #91 — GHA-292962 ship-paperclip-68.yml YAML fix ✅
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#91
+
+### Root cause:
+Multi-line `MSG` variable in Telegram notification step of `ship-paperclip-68.yml` had continuation lines at column 0 (lines 312-314), causing YAML scanner error: "while scanning a simple key / could not find expected ':'". Same pattern as fixed in `utcc-dispatcher.yml` by commit `2c5b9cc0`.
+
+### Verification (VERIFIED):
+- YAML parse before fix: `yaml.scanner.ScannerError` at line 313 ✅
+- Fix applied: collapsed multi-line MSG to single line with `\n` escapes ✅
+- YAML parse after fix: `YAML VALID` ✅
+- Commit: `f20acc94` — pushed to main ✅
+
+### Actions taken:
+- [x] Diagnosed: active YAML syntax error in ship-paperclip-68.yml (NOT stale — this file wasn't in 2c5b9cc0)
+- [x] Fixed: collapsed multi-line MSG variable using \n escapes
+- [x] Verified YAML valid after fix
+- [x] Committed f20acc94 + pushed to main
+- [ ] BLOCKED: Cannot comment on issue #91 — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
+---
+
 ## Session 1: Fork + Foundation + Shared Utilities ✅
 - [x] Create GitHub repo breverdbidder/cli-anything-biddeed
 - [x] Create directory structure (PEP 420 namespace)
