@@ -711,3 +711,25 @@ Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Run 237086
 - [x] Commented resolution on issue #87 with VERIFIED root cause analysis
 - [x] Closed issue #87 (completed — stale)
 - [x] Updated TODO.md with session 42 notes
+
+## Session 43 — Issue #90 (GHA-669352 deploy-paperclip.yml)
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#90
+
+### Root cause:
+Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Run 23708669352 was a stale failure from 2026-03-29T12:07–13:26 UTC batch (pre-fix). The ci-failure-agent detected this historical failure and auto-dispatched issue #90 on 2026-03-30.
+
+### Verification (VERIFIED):
+- YAML parse check: `python3 -c "import yaml; yaml.safe_load(...)"` → YAML VALID ✅
+- Workflow trigger: `workflow_dispatch` only (no automated triggers) ✅
+- 9 fix commits applied to deploy-paperclip.yml since initial creation ✅
+- Last fix: commit 2c5b9cc0 repaired YAML syntax across 8 workflows including this one ✅
+- Failing run 23708669352 predates all fixes — stale pre-fix failure ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, root cause YAML syntax errors pre-dating commit 2c5b9cc0
+- [x] Confirmed fix already applied (YAML valid at HEAD)
+- [x] Updated TODO.md with session 43 notes
+- [ ] BLOCKED: Cannot comment on issue #90 — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
