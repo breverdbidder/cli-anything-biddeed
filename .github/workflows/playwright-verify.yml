@@ -498,6 +498,7 @@ jobs:
 
                   echo "  Waiting 90s for repair to take effect..."
                   sleep 90
+                  fi
                 fi
               fi
             done
