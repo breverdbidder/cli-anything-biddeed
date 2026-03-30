@@ -78,20 +78,67 @@ jobs:
             fi
             SECRET=$(openssl rand -hex 32)
             sed -i "s/SECRET_KEY=.*/SECRET_KEY=${SECRET}/" .env
-            grep -q "^INIT_PASSWORD=" .env && sed -i "s/^INIT_PASSWORD=.*/INIT_PASSWORD=zonewise2026/" .env || echo "INIT_PASSWORD=zonewise2026" >> .env
-            grep -q "^CONSOLE_WEB_URL=" .env && sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://87.99.129.125:3100|" .env || echo "CONSOLE_WEB_URL=http://87.99.129.125:3100" >> .env
-            grep -q "^VECTOR_STORE=" .env && sed -i "s/^VECTOR_STORE=.*/VECTOR_STORE=pgvector/" .env || echo "VECTOR_STORE=pgvector" >> .env
+
+            # Port 3100 via EXPOSE_NGINX_PORT (Dify native env var)
+            grep -q "^EXPOSE_NGINX_PORT=" .env \
+              && sed -i "s/^EXPOSE_NGINX_PORT=.*/EXPOSE_NGINX_PORT=3100/" .env \
+              || echo "EXPOSE_NGINX_PORT=3100" >> .env
+            grep -q "^NGINX_HTTPS_ENABLED=" .env \
+              && sed -i "s/^NGINX_HTTPS_ENABLED=.*/NGINX_HTTPS_ENABLED=false/" .env \
+              || echo "NGINX_HTTPS_ENABLED=false" >> .env
+
+            # Passwords and URLs
+            grep -q "^INIT_PASSWORD=" .env \
+              && sed -i "s/^INIT_PASSWORD=.*/INIT_PASSWORD=zonewise2026/" .env \
+              || echo "INIT_PASSWORD=zonewise2026" >> .env
+            grep -q "^CONSOLE_WEB_URL=" .env \
+              && sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://87.99.129.125:3100|" .env \
+              || echo "CONSOLE_WEB_URL=http://87.99.129.125:3100" >> .env
+            grep -q "^SERVICE_API_URL=" .env \
+              && sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://87.99.129.125:3100|" .env \
+              || echo "SERVICE_API_URL=http://87.99.129.125:3100" >> .env
+            grep -q "^APP_WEB_URL=" .env \
+              && sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://87.99.129.125:3100|" .env \
+              || echo "APP_WEB_URL=http://87.99.129.125:3100" >> .env
+
+            # pgvector
+            grep -q "^VECTOR_STORE=" .env \
+              && sed -i "s/^VECTOR_STORE=.*/VECTOR_STORE=pgvector/" .env \
+              || echo "VECTOR_STORE=pgvector" >> .env
+
+            echo "→ .env configured (port 3100, INIT_PASSWORD=zonewise2026, VECTOR_STORE=pgvector)"
 
             echo ""
-            echo "=== Configure nginx port 3100 ==="
-            if grep -q "80:80" docker-compose.yaml 2>/dev/null; then
-              sed -i 's/80:80/3100:80/g' docker-compose.yaml
-              echo "→ Port mapped 3100:80 in docker-compose.yaml"
-            elif grep -q "listen 80" nginx/nginx.conf 2>/dev/null; then
-              sed -i 's/listen 80/listen 3100/g' nginx/nginx.conf
-              echo "→ nginx.conf updated to port 3100"
+            echo "=== Configure nginx port 3100 in docker-compose ==="
+            # Dify uses ${EXPOSE_NGINX_PORT:-80}:80 or similar patterns
+            # The .env EXPOSE_NGINX_PORT=3100 handles this for modern Dify
+            # Also patch any hardcoded 80:80 or "80:80" in docker-compose files
+            for COMPOSE_FILE in docker-compose.yaml docker-compose.yml; do
+              if [ -f "$COMPOSE_FILE" ]; then
+                echo "Patching $COMPOSE_FILE..."
+                # Replace hardcoded 80:80 → 3100:80
+                sed -i 's/"80:80"/"3100:80"/g' "$COMPOSE_FILE"
+                sed -i "s/'80:80'/'3100:80'/g" "$COMPOSE_FILE"
+                sed -i 's/- 80:80/- 3100:80/g' "$COMPOSE_FILE"
+                echo "✅ $COMPOSE_FILE patched"
+              fi
+            done
+
+            echo ""
+            echo "=== Check for port 80 conflicts on host ==="
+            if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+              echo "Port 80 in use on host — finding the process:"
+              ss -tlnp | grep ':80 ' || true
+              PORT80_CONTAINER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep '0.0.0.0:80->' | awk '{print $1}' | head -1)
+              if [ -n "$PORT80_CONTAINER" ]; then
+                echo "Stopping container on port 80: ${PORT80_CONTAINER}"
+                docker stop "${PORT80_CONTAINER}" || true
+                echo "✅ Port 80 freed"
+              else
+                echo "Non-Docker process on port 80 — will rely on EXPOSE_NGINX_PORT=3100"
+              fi
             else
-              echo "→ No port config found to update (may already be correct)"
+              echo "Port 80 is free"
             fi
 
             echo ""
