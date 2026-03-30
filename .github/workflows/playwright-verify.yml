@@ -300,7 +300,12 @@ jobs:
               // ── Console error monitoring ───────────────────────────────────────
               const consoleErrors = [];
               dPage.on('console', msg => {
-                if (msg.type() === 'error') consoleErrors.push(msg.text());
+                if (msg.type() === 'error') {
+                  const text = msg.text();
+                  // Exclude net::ERR_* — these are external resource load failures,
+                  // not JS application errors (e.g. ERR_NAME_NOT_RESOLVED from broken CDN URLs)
+                  if (!text.includes('net::ERR_')) consoleErrors.push(text);
+                }
               });
               dPage.on('pageerror', err => consoleErrors.push(err.message));
 
@@ -316,9 +321,12 @@ jobs:
                 // ── Smart content length check ─────────────────────────────────
                 const bodyText = await dPage.evaluate(() => document.body ? document.body.innerText : '');
                 const hasTextarea = (await dPage.locator('textarea').count()) > 0;
-                const contentThreshold = hasTextarea ? 100 : 500;
+                // assistant-ui Composer uses contenteditable, not textarea — detect both
+                const hasContentEditable = (await dPage.locator('[contenteditable="true"], [role="textbox"]').count()) > 0;
+                const hasComposerInput = hasTextarea || hasContentEditable;
+                const contentThreshold = hasComposerInput ? 100 : 500;
                 log('content_length', bodyText.length > contentThreshold,
-                  `${bodyText.length} chars visible text (threshold: ${contentThreshold} — ${hasTextarea ? 'chat UI detected' : 'standard page'})`);
+                  `${bodyText.length} chars visible text (threshold: ${contentThreshold} — ${hasComposerInput ? 'chat UI detected' : 'standard page'})`);
 
                 // ── CSS selector checks ────────────────────────────────────────
                 for (const sel of SELECTORS) {
@@ -332,10 +340,14 @@ jobs:
                     ? 'No JavaScript errors detected'
                     : `${consoleErrors.length} error(s): ${consoleErrors.slice(0, 3).join(' | ')}`);
 
-                // ── Functional test: fill textarea + submit + validate ──────────
-                if (FUNC_ENABLED && hasTextarea) {
+                // ── Functional test: fill composer input + submit + validate ────
+                // Supports textarea (standard) and contenteditable/role="textbox" (assistant-ui)
+                if (FUNC_ENABLED && hasComposerInput) {
                   try {
-                    const ta = dPage.locator('textarea').first();
+                    const inputSel = hasTextarea
+                      ? 'textarea'
+                      : '[contenteditable="true"], [role="textbox"]';
+                    const ta = dPage.locator(inputSel).first();
                     await ta.fill(TEST_ADDRESS);
                     await ta.press('Enter');
                     console.log(`[functional] Submitted "${TEST_ADDRESS}" — waiting 20s for response...`);
@@ -353,8 +365,8 @@ jobs:
                   } catch (fe) {
                     log('functional_test', false, `Functional test error: ${fe.message}`);
                   }
-                } else if (FUNC_ENABLED && !hasTextarea) {
-                  log('functional_test', true, 'SKIPPED — no textarea found on page');
+                } else if (FUNC_ENABLED && !hasComposerInput) {
+                  log('functional_test', true, 'SKIPPED — no textarea or contenteditable found on page');
                 }
               } catch (e) {
                 log('desktop_render', false, `Error: ${e.message}`);
