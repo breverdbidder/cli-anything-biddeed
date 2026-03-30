@@ -269,7 +269,58 @@ jobs:
               -d "text=🔄 Autoloop Complete%0A%0ASkill: $SKILL%0AScore: $SCORE%0AIterations: $ITERS%0ACommits: $COMMITS%0AServer: Hetzner" \
               > /dev/null 2>&1 || true
 
-      - name: "5️⃣ L3 Post-Execution Analyzer"
+      - name: "5️⃣ Evolution V2 — LLM Patch on Score Drop"
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 10m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            SKILL="${{ steps.config.outputs.skill }}"
+            TS=$(date +%Y%m%d_%H%M%S)
+
+            # Resolve paths
+            if [ -f ".claude/skills/$SKILL/eval.json" ]; then
+              EVAL_FILE=".claude/skills/$SKILL/eval.json"
+              EVAL_OUT_DIR=".claude/skills/$SKILL/eval_outputs"
+            else
+              EVAL_FILE="$SKILL/eval/eval.json"
+              EVAL_OUT_DIR="$SKILL/eval_outputs"
+            fi
+
+            # Find latest session log and baseline score
+            SESSION_LOG=$(ls -t "$EVAL_OUT_DIR"/autoloop_session_*.log 2>/dev/null | head -1 || echo "")
+            BASELINE_FILE=$(ls -t "$EVAL_OUT_DIR"/baseline_*.json 2>/dev/null | head -1 || echo "")
+            FINAL_FILE=$(ls -t "$EVAL_OUT_DIR"/final_*.json 2>/dev/null | head -1 || echo "")
+
+            SCORE_BEFORE="0.0"
+            if [ -n "$BASELINE_FILE" ]; then
+              SCORE_BEFORE=$(python3 -c "import json; d=json.load(open('$BASELINE_FILE')); print(d['summary']['score'])" 2>/dev/null || echo "0.0")
+            fi
+
+            CURRENT_EVAL="$EVAL_OUT_DIR/evo_check_${TS}.json"
+            SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            SUPABASE_KEY="${{ secrets.SUPABASE_KEY }}" \
+            DEEPSEEK_API_KEY="${{ secrets.DEEPSEEK_API_KEY }}" \
+            GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+            TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+            TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            python3 scripts/eval_runner.py \
+              --eval-file "$EVAL_FILE" \
+              --outputs-dir "$EVAL_OUT_DIR/" \
+              --output "$CURRENT_EVAL" \
+              --evolve \
+              --score-before "$SCORE_BEFORE" \
+              ${SESSION_LOG:+--session-log "$SESSION_LOG"} \
+              2>&1 || true
+
+            echo "✅ Evolution V2 step complete"
+
+      - name: "6️⃣ L3 Post-Execution Analyzer (optional)"
         if: ${{ github.event.inputs.l3 == 'true' }}
         uses: appleboy/ssh-action@v1.2.0
         with:

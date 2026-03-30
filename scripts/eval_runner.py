@@ -414,6 +414,13 @@ if __name__ == "__main__":
                         help="Path to SKILL.md (required with --l3)")
     parser.add_argument("--run-id", default=None,
                         help="Run ID for L3 tracing (defaults to timestamp)")
+    # Evolution V2 flags
+    parser.add_argument("--evolve", action="store_true",
+                        help="Run AUTOLOOP V2 evolution on score drop instead of blind revert")
+    parser.add_argument("--score-before", type=float, default=None,
+                        help="Baseline score (0.0-1.0) to compare against for regression detection")
+    parser.add_argument("--session-log", default=None,
+                        help="Path to session log file for additional signal detection")
     args = parser.parse_args()
 
     eval_file = args.eval_file or args.eval_file_pos
@@ -468,6 +475,47 @@ if __name__ == "__main__":
                 print(f"[eval_runner] L3: analyzer exited {l3_exit}", file=sys.stderr)
         else:
             print(f"[eval_runner] L3: SKILL.md not found at {skill_md or 'auto-discover failed'} — skipping", file=sys.stderr)
+
+    # ── Evolution V2: on score drop, generate patches instead of blind revert ──
+    if args.evolve:
+        current_score = results["summary"]["score"]
+        score_before = args.score_before
+        skill_name = results.get("skill", "unknown")
+        evolved = False
+
+        if score_before is not None and current_score < score_before:
+            print(f"\n[eval_runner] ⚠️  Score dropped: {score_before:.1%} → {current_score:.1%} — triggering evolution", file=sys.stderr)
+            try:
+                # Add evolution/ parent dir to path if needed
+                evolution_dir = Path(__file__).parent.parent / "evolution"
+                if evolution_dir.exists():
+                    sys.path.insert(0, str(Path(__file__).parent.parent))
+                from evolution.service import EvolutionService
+
+                # Read session log if provided
+                session_log_text = None
+                if args.session_log and Path(args.session_log).exists():
+                    session_log_text = Path(args.session_log).read_text()
+
+                svc = EvolutionService(skill_name=skill_name)
+                evo_result = svc.on_eval_score_drop(
+                    score_before=score_before,
+                    score_after=current_score,
+                    session_log=session_log_text,
+                )
+                print(
+                    f"[eval_runner] Evolution: signals={evo_result.get('signals', 0)} "
+                    f"entries={evo_result.get('entries', 0)} "
+                    f"applied={evo_result.get('applied', 0)}",
+                    file=sys.stderr,
+                )
+                evolved = evo_result.get("applied", 0) > 0
+            except ImportError:
+                print("[eval_runner] evolution/ module not found — skipping V2 evolution", file=sys.stderr)
+            except Exception as e:
+                print(f"[eval_runner] Evolution error: {e}", file=sys.stderr)
+        elif score_before is not None:
+            print(f"[eval_runner] Score: {score_before:.1%} → {current_score:.1%} (no regression)", file=sys.stderr)
 
     # Exit with non-zero if any failures
     sys.exit(0 if results["summary"]["perfect"] else 1)
