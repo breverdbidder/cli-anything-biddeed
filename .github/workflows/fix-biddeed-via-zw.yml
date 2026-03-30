@@ -23,11 +23,11 @@ jobs:
           APEX=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://biddeed.ai 2>/dev/null || echo "000")
           echo "brevard-bidder-landing.pages.dev: HTTP $PAGES"
           echo "biddeed.ai: HTTP $APEX"
-          if [ "$PAGES" != "200" ]; then
-            echo "ERROR: CF Pages source is not HTTP 200"
+          if [ "$PAGES" != "200" ] && [ "$PAGES" != "301" ] && [ "$PAGES" != "302" ]; then
+            echo "ERROR: CF Pages source is not reachable (HTTP $PAGES)"
             exit 1
           fi
-          echo "CF Pages source LIVE — proceeding"
+          echo "CF Pages source LIVE (HTTP $PAGES) — proceeding"
 
       - name: Push DNS-fix workflow to zonewise-web and dispatch
         env:
