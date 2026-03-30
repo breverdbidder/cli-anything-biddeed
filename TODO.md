@@ -345,3 +345,27 @@
 - [ ] Issue #37 comment: UNTESTED — same gh auth blocker
 
 ### HONESTY: Migration SQL + GHA workflow written and pushed = VERIFIED (commit 50409db1). Workflow execution and DB table creation = UNTESTED (SUPABASE_DB_PASSWORD auth failures documented in Sessions 8–23 — may also block this migration).
+
+## Session 26: Issue #67 — AUTOLOOP V2 LLM-Powered Skill Evolution Engine ✅
+- [x] Read issue #67: P0/SUMMIT — Build evolution/ module beating JiuwenClaw on every dimension
+- [x] Created evolution/__init__.py — public exports for all 6 classes
+- [x] Created evolution/schema.py — EvolutionSignal/Entry/File dataclasses, 4 signal types, Supabase DDL SQL embedded
+- [x] Created evolution/signal_detector.py — hybrid regex+LLM (DeepSeek V3.2) signal detection, 4 signal types including score_regression + sentinel_alert (NEW vs JiuwenClaw)
+- [x] Created evolution/evolver.py — multi-LLM Smart Router: Gemini Flash (RCA) → DeepSeek V3.2 (patch) → Claude Sonnet (fallback), eval_score_before/after + token_cost tracking
+- [x] Created evolution/store.py — dual Supabase SSOT + evolutions.json sidecar, solidify() SKILL.md injection, format_evolution_report() for Telegram
+- [x] Created evolution/service.py — orchestrator: on_eval_score_drop(), on_sentinel_alert(), SUMMIT auto-dispatch after 3 failures, /evolve + /solidify commands, Telegram notifications
+- [x] Created migrations/20260330_skill_evolution.sql — skill_evolution_signals + skill_evolution_entries with RLS
+- [x] Wired scripts/eval_runner.py — --evolve --score-before --session-log flags; score drop triggers evolution BEFORE fallback revert
+- [x] Wired .github/workflows/autoloop.yml — new step 5 evolution hook with Supabase/LLM env vars
+- [x] Committed (dd196e4b) + pushed to main — VERIFIED
+
+### Verification gates (VERIFIED):
+- all 6 evolution/ files exist: OK __init__.py schema.py signal_detector.py evolver.py store.py service.py
+- SignalDetector imports clean: OK
+- EvolutionService end-to-end: OK (3 signals detected in dry-run, entries=0 expected without API keys)
+- eval_runner wired: OK (grep confirms 'evolution' in eval_runner.py)
+- evolutions.json: will be created on first live solidify run
+
+### DB tables: UNTESTED — dispatch skill-evolution-migrate or run migrations/20260330_skill_evolution.sql manually after SUPABASE_DB_PASSWORD reset
+### SUMMIT auto-dispatch: UNTESTED — requires GH_TOKEN + 3 consecutive failed evolution attempts
+### HONESTY: All code artifacts VERIFIED (pushed). LLM patch generation UNTESTED (no API keys in build env — expected).
