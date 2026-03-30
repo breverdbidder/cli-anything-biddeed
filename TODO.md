@@ -1,5 +1,29 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 45: Issue #92 — GHA-751641 nightly-scorer.yml YAML fix ✅
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#92
+
+### Root cause:
+Python f-string `msg = f"""..."""` at lines 135-142 had content lines at column 0 (`Tasks scored:`, `Tomorrow's top priorities:`, `{task_lines}`, `Next run:`) breaking YAML block scalar. Also `MSG="...` at lines 182-183 had `Run:` at column 0. Same recurring multi-line string pattern.
+
+### Verification (VERIFIED):
+- YAML parse before fix: `yaml.scanner.ScannerError` at line 137 col 31 ✅
+- Fix 1: f-string collapsed to parenthesized string concatenation ✅
+- Fix 2: MSG collapsed to single line ✅
+- YAML parse after fix: `YAML VALID ✅` ✅
+- Commit: `1605f80c` — pushed to main ✅
+
+### Actions taken:
+- [x] Diagnosed: YAML syntax error in nightly-scorer.yml (f-string + MSG)
+- [x] Fixed both multi-line string violations
+- [x] Verified YAML valid after fix
+- [x] Committed 1605f80c + pushed to main
+- [ ] BLOCKED: Cannot comment on issue #92 — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
+---
+
 ## Session 44: Issue #91 — GHA-292962 ship-paperclip-68.yml YAML fix ✅
 **Date:** 2026-03-30
 **Issue:** breverdbidder/cli-anything-biddeed#91
