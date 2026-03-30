@@ -651,3 +651,23 @@ Fix was already applied in commit `2c5b9cc0` (Session 20 YAML bare-quotes fix).
 ### Modal deploy: UNTESTED (needs MODAL_TOKEN_ID secret — dispatch modal-deploy.yml after DB unblocked)
 ### To unblock: Reset SUPABASE_DB_PASSWORD in Supabase Dashboard → then dispatch codesearch-migrate.yml (handles all pending migrations)
 - [x] Updated TODO.md with session 38 notes
+
+## Session 40 — Issue #84 (GHA-669981 summit-utcc-executor.yml)
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#84
+
+### Root cause:
+Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Run 23708669981 (GHA-669981) failed at commit 21f93d52 because the `claude -p` multi-line prompt broke out of the `script: |` block scalar — lines like `PHASE 1 - SSH EXECUTOR WORKFLOW:` appeared at column 0, causing "could not find expected ':'" YAML parse error. CI failure agent auto-created issue #84 on 2026-03-30 based on this stale March 29 failure. The fix was already in commit 2c5b9cc0.
+
+### Verification (VERIFIED):
+- YAML syntax valid at HEAD: `yaml.safe_load(summit-utcc-executor.yml)` → YAML valid ✅
+- No new runs since fix commit (last run 2026-03-29T13:26) ✅
+- Trigger: `workflow_dispatch` only — no push trigger ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, root cause YAML syntax error at commit 21f93d52
+- [x] Confirmed fix already applied by commit 2c5b9cc0 (Session 20)
+- [x] Commented resolution on issue #84 with VERIFIED root cause analysis
+- [x] Closed issue #84 (not planned — stale)
+- [x] Updated TODO.md with session 40 notes
