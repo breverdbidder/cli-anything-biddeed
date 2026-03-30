@@ -173,24 +173,13 @@ def stage_owner(parcel_id: str = None, address: str = None) -> Dict:
 
         # Address-based lookup via GIS
         elif address:
-            where = f"SITUS_ADDR LIKE '%{_sanitize_address(address)}%'"
-            r = client.get(
-                f"{BCPAO_PARCEL}/query",
-                params={
-                    "where": where,
-                    "outFields": "TaxAcct,OWNER_NAME,PARCEL_ID,SITUS_ADDR",
-                    "returnGeometry": "false",
-                    "f": "json",
-                },
-            )
-            if r.status_code == 200:
-                features = r.json().get("features", [])
-                if features:
-                    attrs = features[0]["attributes"]
-                    profile["owner_name"] = attrs.get("OWNER_NAME", "").strip()
-                    profile["parcel_id"] = attrs.get("PARCEL_ID", "")
-                    profile["confidence"] = 0.80
-                    log("OWNER", f"GIS match: {profile['owner_name']}", "OK")
+            features = _query_gis_by_address(client, address)
+            if features:
+                attrs = features[0]["attributes"]
+                profile["owner_name"] = (attrs.get("OWNER_NAME1") or "").strip()
+                profile["parcel_id"] = attrs.get("PARCEL_ID", "")
+                profile["confidence"] = 0.80
+                log("OWNER", f"GIS match: {profile['owner_name']}", "OK")
 
         # Classify owner type
         if profile["owner_name"]:
@@ -218,12 +207,102 @@ def _build_mailing(rec: Dict) -> str:
     return ", ".join(p.strip() for p in parts if p and p.strip())
 
 
+_DIRECTION_PREFIXES = {"N", "S", "E", "W", "NE", "NW", "SE", "SW"}
+_STREET_TYPES = {"AVE", "BLVD", "CIR", "CT", "DR", "ESMT", "EXPY", "FWY", "HWY", "LN",
+                 "PKWY", "PL", "RD", "SQ", "ST", "TER", "TRL", "WAY", "CSWY", "CV", "PATH"}
+_TYPE_NORMALIZE = {
+    "AVENUE": "AVE", "BOULEVARD": "BLVD", "CIRCLE": "CIR", "COURT": "CT",
+    "DRIVE": "DR", "HIGHWAY": "HWY", "LANE": "LN", "PARKWAY": "PKWY",
+    "PLACE": "PL", "ROAD": "RD", "SQUARE": "SQ", "STREET": "ST",
+    "TERRACE": "TER", "TRAIL": "TRL", "CAUSEWAY": "CSWY",
+}
+
+
+def _parse_address_components(addr: str) -> Dict:
+    """Parse address into GIS field components: number, direction, name, type."""
+    street = addr.split(",")[0].strip().upper()
+    # Remove unit/apt
+    street = re.sub(r'\s+(APT|UNIT|STE|#)\s*\S*', '', street).strip()
+    tokens = street.split()
+    if not tokens:
+        return {}
+    idx = 0
+    number = tokens[idx]; idx += 1
+    direction = ""
+    if idx < len(tokens) and tokens[idx] in _DIRECTION_PREFIXES:
+        direction = tokens[idx]; idx += 1
+    name_tokens = tokens[idx:]
+    stype = ""
+    if name_tokens:
+        last = _TYPE_NORMALIZE.get(name_tokens[-1], name_tokens[-1])
+        if last in _STREET_TYPES:
+            stype = last
+            name_tokens = name_tokens[:-1]
+    return {"number": number, "direction": direction, "name": " ".join(name_tokens), "type": stype}
+
+
+def _query_gis_by_address(client: httpx.Client, address: str, proximity: int = 5) -> List[Dict]:
+    """
+    Query BCPAO GIS parcel layer by parsed address components.
+
+    Falls back progressively:
+      1. Exact number + direction + name
+      2. Exact number + name (drop direction)
+      3. Proximity ±N + name (for off-by-one numbering gaps)
+    Returns list of GIS feature dicts (may be empty).
+    """
+    parts = _parse_address_components(address)
+    if not parts or not parts.get("number") or not parts.get("name"):
+        return []
+
+    out_fields = "PARCEL_ID,OWNER_NAME1,STREET_NUMBER,STREET_DIRECTION_PREFIX,STREET_NAME,STREET_TYPE,CITY"
+
+    def _gis_query(where: str) -> List[Dict]:
+        try:
+            r = client.get(
+                f"{BCPAO_PARCEL}/query",
+                params={"where": where, "outFields": out_fields, "returnGeometry": "false", "f": "json"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if not data.get("error"):
+                    return data.get("features", [])
+        except Exception:
+            pass
+        return []
+
+    name_clause = f"STREET_NAME LIKE '%{parts['name']}%'"
+    num = parts["number"]
+
+    # Pass 1: exact number + direction + name
+    if parts["direction"]:
+        features = _gis_query(f"STREET_NUMBER='{num}' AND STREET_DIRECTION_PREFIX='{parts['direction']}' AND {name_clause}")
+        if features:
+            return features
+
+    # Pass 2: exact number + name (no direction)
+    features = _gis_query(f"STREET_NUMBER='{num}' AND {name_clause}")
+    if features:
+        return features
+
+    # Pass 3: proximity ±N — try nearby numbers
+    if num.isdigit():
+        n = int(num)
+        nearby = [str(n + d) for d in range(-proximity, proximity + 1) if d != 0]
+        in_clause = ",".join(f"'{x}'" for x in nearby)
+        features = _gis_query(f"STREET_NUMBER IN ({in_clause}) AND {name_clause}")
+        if features:
+            # Sort by closest number
+            features.sort(key=lambda f: abs(int(f["attributes"].get("STREET_NUMBER", "0") or "0") - n))
+            return features[:1]  # Return closest match only
+
+    return []
+
+
 def _sanitize_address(addr: str) -> str:
-    """Extract street portion for GIS LIKE query."""
-    # Remove city/state/zip, keep street
+    """Extract street portion for GIS LIKE query (legacy, use _query_gis_by_address instead)."""
     parts = addr.split(",")
     street = parts[0].strip().upper()
-    # Remove unit/apt
     street = re.sub(r'\s+(APT|UNIT|STE|#)\s*\S*', '', street)
     return street
 
