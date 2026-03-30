@@ -671,3 +671,23 @@ Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Run 237086
 - [x] Commented resolution on issue #84 with VERIFIED root cause analysis
 - [x] Closed issue #84 (not planned — stale)
 - [x] Updated TODO.md with session 40 notes
+
+## Session 41 — Issue #85 (GHA-669443 utcc-build.yml)
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#85
+
+### Root cause:
+Same YAML syntax error pattern fixed by commit 2c5b9cc0 (Session 20). Failures (runs 23708669443–23710084702, all 2026-03-29T12:07–13:26 UTC) were pre-fix. The fix was applied at 2026-03-29T14:11 UTC. Nexus scanner detected the historical failures and auto-dispatched issue #85 on 2026-03-30T14:33 UTC.
+
+### Verification (VERIFIED):
+- YAML syntax valid at HEAD: `python3 -c "import yaml; yaml.safe_load(...)"` → YAML valid ✅
+- No failure runs on 2026-03-30 or later ✅
+- Workflow trigger: `repository_dispatch: [utcc-build]` only ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, root cause YAML syntax errors pre-dating commit 2c5b9cc0
+- [x] Confirmed fix already applied by commit 2c5b9cc0 (Session 20)
+- [x] Commented resolution on issue #85 with VERIFIED root cause analysis
+- [x] Closed issue #85 (not planned — stale)
+- [x] Updated TODO.md with session 41 notes
