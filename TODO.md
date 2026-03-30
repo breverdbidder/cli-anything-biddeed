@@ -547,3 +547,27 @@ Same stale-failure pattern as Issues #71, #72, #74, #76, #77, #78. CI-failure-ag
 - [x] Commented resolution on issue #79 with verification evidence
 - [x] Closed issue #79 (not planned — stale)
 - [x] Updated TODO.md with session 35 notes
+
+---
+
+## Session 36 — Issue #80 (GHA-205934 autoloop.yml)
+
+**Date:** 2026-03-30
+**Issue:** breverdbidder/cli-anything-biddeed#80
+**Workflow:** `.github/workflows/autoloop.yml`
+
+### Root cause:
+Stale-failure pattern identical to Issue #74 (also autoloop.yml, GHA-206100, resolved session 31).
+GHA-205934 run number is LOWER than GHA-206100 — failure predates the fix applied in session 31.
+Root cause was the multi-workflow YAML parse error fixed by commit 2c5b9cc0 (Session 20).
+
+### Verification (VERIFIED):
+- autoloop.yml YAML syntax: `python3 -c "import yaml; yaml.safe_load(...)"` → VALID ✓
+- Issue #74 (same workflow, later run) already resolved and closed in session 31
+- No code changes needed
+
+### Actions taken:
+- [x] Diagnosed: stale issue, GHA-205934 predates fix in commit 2c5b9cc0
+- [x] Verified YAML syntax valid
+- [x] Commenting on issue #80 BLOCKED (no GH_TOKEN in env)
+- [x] Updated TODO.md with session 36 notes
