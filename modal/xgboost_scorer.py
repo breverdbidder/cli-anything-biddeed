@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# CONFIDENTIAL — Trade Secret of Everest Capital USA
+# Protected under DTSA (18 U.S.C. § 1836) and FUTSA (Fla. Stat. § 688)
+# Unauthorized disclosure prohibited.
 """Modal: XGBoost Scorer — retrain + score nexus_tasks.
 Issue: breverdbidder/cli-anything-biddeed#66
 Schedule: nightly via nightly-scorer.yml (11:59 PM EST)

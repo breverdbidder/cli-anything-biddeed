@@ -1,3 +1,6 @@
+# CONFIDENTIAL — Trade Secret of Everest Capital USA
+# Protected under DTSA (18 U.S.C. § 1836) and FUTSA (Fla. Stat. § 688)
+# Unauthorized disclosure prohibited.
 """Auction analysis — ARV, max bid calculation, and recommendations.
 
 Core formula: max_bid = (ARV × 70%) - repairs - $10K - MIN($25K, 15% × ARV)

@@ -1,3 +1,6 @@
+// CONFIDENTIAL — Trade Secret of Everest Capital USA
+// Protected under DTSA (18 U.S.C. § 1836) and FUTSA (Fla. Stat. § 688)
+// Unauthorized disclosure prohibited.
 /**
  * ============================================================================
  * AGENT 6: CMA ANALYST 💰  — THE MONEY AGENT

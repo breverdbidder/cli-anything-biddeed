@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# CONFIDENTIAL — Trade Secret of Everest Capital USA
+# Protected under DTSA (18 U.S.C. § 1836) and FUTSA (Fla. Stat. § 688)
+# Unauthorized disclosure prohibited.
 """ML Priority Engine — Three-tier scoring for task prioritization.
 Tier 1: XGBoost (trained on historical data, primary scorer)
 Tier 2: Gemini Flash (LLM context scoring, $0 free tier)
