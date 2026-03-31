@@ -40,6 +40,9 @@ jobs:
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
 
+          # Ensure destination directory exists on server before scp
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} "mkdir -p /tmp/paperclip-deploy"
+
           # Copy app files to server
           scp -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -r \
             paperclip/server.js \
