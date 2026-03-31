@@ -48,7 +48,7 @@ jobs:
           r = requests.patch(
               f"{SB_URL}/rest/v1/nexus_tasks?task_id=eq.{TASK_ID}",
               headers=sb_h,
-              json={"status": "completed", "completed_at": now, "resolution": REASON},
+              json={"status": "completed", "completed_at": now},
               timeout=10,
           )
 
