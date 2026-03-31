@@ -120,200 +120,200 @@ jobs:
             # ── P1: Write lib/stripe/paywall.ts ──────────────────────────────
             mkdir -p lib/stripe
             cat > lib/stripe/paywall.ts << 'PAYWALL_EOF'
-import { createClient } from '@supabase/supabase-js';
-
-const FREE_LOOKUPS = 3;
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export interface PaywallResult {
-  allowed: boolean;
-  lookupCount: number;
-  isPro: boolean;
-  lookupsRemaining: number;
-}
-
-export async function checkAndIncrementLookup(sessionId: string): Promise<PaywallResult> {
-  const { data: existing } = await supabase
-    .from('paywall_sessions')
-    .select('lookup_count, is_pro')
-    .eq('session_id', sessionId)
-    .single();
-
-  const isPro = existing?.is_pro ?? false;
-  const currentCount = existing?.lookup_count ?? 0;
-
-  if (isPro) {
-    await supabase.from('paywall_sessions').upsert({
-      session_id: sessionId,
-      lookup_count: currentCount + 1,
-      is_pro: true,
-      last_lookup_at: new Date().toISOString(),
-    }, { onConflict: 'session_id' });
-    return { allowed: true, lookupCount: currentCount + 1, isPro: true, lookupsRemaining: Infinity };
-  }
-
-  if (currentCount >= FREE_LOOKUPS) {
-    return { allowed: false, lookupCount: currentCount, isPro: false, lookupsRemaining: 0 };
-  }
-
-  const newCount = currentCount + 1;
-  await supabase.from('paywall_sessions').upsert({
-    session_id: sessionId,
-    lookup_count: newCount,
-    is_pro: false,
-    last_lookup_at: new Date().toISOString(),
-  }, { onConflict: 'session_id' });
-
-  return { allowed: true, lookupCount: newCount, isPro: false, lookupsRemaining: FREE_LOOKUPS - newCount };
-}
-
-export async function activateProSession(
-  sessionId: string,
-  stripeCustomerId: string,
-  stripeSubId: string
-): Promise<void> {
-  await supabase.from('paywall_sessions').upsert({
-    session_id: sessionId,
-    is_pro: true,
-    stripe_customer_id: stripeCustomerId,
-    stripe_sub_id: stripeSubId,
-    pro_since: new Date().toISOString(),
-  }, { onConflict: 'session_id' });
-}
-PAYWALL_EOF
+            import { createClient } from '@supabase/supabase-js';
+            
+            const FREE_LOOKUPS = 3;
+            
+            const supabase = createClient(
+              process.env.SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!
+            );
+            
+            export interface PaywallResult {
+              allowed: boolean;
+              lookupCount: number;
+              isPro: boolean;
+              lookupsRemaining: number;
+            }
+            
+            export async function checkAndIncrementLookup(sessionId: string): Promise<PaywallResult> {
+              const { data: existing } = await supabase
+                .from('paywall_sessions')
+                .select('lookup_count, is_pro')
+                .eq('session_id', sessionId)
+                .single();
+            
+              const isPro = existing?.is_pro ?? false;
+              const currentCount = existing?.lookup_count ?? 0;
+            
+              if (isPro) {
+                await supabase.from('paywall_sessions').upsert({
+                  session_id: sessionId,
+                  lookup_count: currentCount + 1,
+                  is_pro: true,
+                  last_lookup_at: new Date().toISOString(),
+                }, { onConflict: 'session_id' });
+                return { allowed: true, lookupCount: currentCount + 1, isPro: true, lookupsRemaining: Infinity };
+              }
+            
+              if (currentCount >= FREE_LOOKUPS) {
+                return { allowed: false, lookupCount: currentCount, isPro: false, lookupsRemaining: 0 };
+              }
+            
+              const newCount = currentCount + 1;
+              await supabase.from('paywall_sessions').upsert({
+                session_id: sessionId,
+                lookup_count: newCount,
+                is_pro: false,
+                last_lookup_at: new Date().toISOString(),
+              }, { onConflict: 'session_id' });
+            
+              return { allowed: true, lookupCount: newCount, isPro: false, lookupsRemaining: FREE_LOOKUPS - newCount };
+            }
+            
+            export async function activateProSession(
+              sessionId: string,
+              stripeCustomerId: string,
+              stripeSubId: string
+            ): Promise<void> {
+              await supabase.from('paywall_sessions').upsert({
+                session_id: sessionId,
+                is_pro: true,
+                stripe_customer_id: stripeCustomerId,
+                stripe_sub_id: stripeSubId,
+                pro_since: new Date().toISOString(),
+              }, { onConflict: 'session_id' });
+            }
+            PAYWALL_EOF
             echo "✅ lib/stripe/paywall.ts written"
 
             # ── P2: Write app/api/stripe/checkout/route.ts ───────────────────
             mkdir -p app/api/stripe/checkout
             cat > app/api/stripe/checkout/route.ts << 'CHECKOUT_EOF'
-import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
-const BASE_URL = process.env.NEXT_PUBLIC_URL ?? 'https://zonewise.ai';
-
-export async function POST(req: NextRequest) {
-  const { sessionId } = await req.json().catch(() => ({}));
-  if (!sessionId) return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
-
-  const checkoutSession = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    line_items: [{
-      price_data: {
-        currency: 'usd',
-        product_data: { name: 'ZoneWise Pro', description: 'Unlimited property lookups — cancel anytime' },
-        unit_amount: 1500,
-        recurring: { interval: 'month' },
-      },
-      quantity: 1,
-    }],
-    mode: 'subscription',
-    success_url: `${BASE_URL}/chat?success=1&sid={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${BASE_URL}/chat`,
-    metadata: { zonewise_session_id: sessionId },
-    allow_promotion_codes: true,
-  });
-
-  return NextResponse.json({ url: checkoutSession.url });
-}
-CHECKOUT_EOF
+            import { NextRequest, NextResponse } from 'next/server';
+            import Stripe from 'stripe';
+            
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+            const BASE_URL = process.env.NEXT_PUBLIC_URL ?? 'https://zonewise.ai';
+            
+            export async function POST(req: NextRequest) {
+              const { sessionId } = await req.json().catch(() => ({}));
+              if (!sessionId) return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
+            
+              const checkoutSession = await stripe.checkout.sessions.create({
+                payment_method_types: ['card'],
+                line_items: [{
+                  price_data: {
+                    currency: 'usd',
+                    product_data: { name: 'ZoneWise Pro', description: 'Unlimited property lookups — cancel anytime' },
+                    unit_amount: 1500,
+                    recurring: { interval: 'month' },
+                  },
+                  quantity: 1,
+                }],
+                mode: 'subscription',
+                success_url: `${BASE_URL}/chat?success=1&sid={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${BASE_URL}/chat`,
+                metadata: { zonewise_session_id: sessionId },
+                allow_promotion_codes: true,
+              });
+            
+              return NextResponse.json({ url: checkoutSession.url });
+            }
+            CHECKOUT_EOF
             echo "✅ app/api/stripe/checkout/route.ts written"
 
             # ── P3: Write app/api/stripe/webhook/route.ts ────────────────────
             mkdir -p app/api/stripe/webhook
             cat > app/api/stripe/webhook/route.ts << 'WEBHOOK_EOF'
-import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { activateProSession } from '@/lib/stripe/paywall';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
-
-export async function POST(req: NextRequest) {
-  const body = await req.text();
-  const sig = req.headers.get('stripe-signature');
-  if (!sig) return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 400 });
-
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
-  } catch (err) {
-    console.error('[stripe/webhook] signature verification failed:', err);
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.CheckoutSession;
-    const zonewiseSessionId = session.metadata?.zonewise_session_id;
-    if (zonewiseSessionId && session.subscription) {
-      await activateProSession(zonewiseSessionId, session.customer as string, session.subscription as string);
-      console.log(`[stripe/webhook] Pro activated for session ${zonewiseSessionId}`);
-    }
-  }
-
-  return NextResponse.json({ received: true });
-}
-WEBHOOK_EOF
+            import { NextRequest, NextResponse } from 'next/server';
+            import Stripe from 'stripe';
+            import { activateProSession } from '@/lib/stripe/paywall';
+            
+            const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+            
+            export async function POST(req: NextRequest) {
+              const body = await req.text();
+              const sig = req.headers.get('stripe-signature');
+              if (!sig) return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 400 });
+            
+              let event: Stripe.Event;
+              try {
+                event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+              } catch (err) {
+                console.error('[stripe/webhook] signature verification failed:', err);
+                return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+              }
+            
+              if (event.type === 'checkout.session.completed') {
+                const session = event.data.object as Stripe.CheckoutSession;
+                const zonewiseSessionId = session.metadata?.zonewise_session_id;
+                if (zonewiseSessionId && session.subscription) {
+                  await activateProSession(zonewiseSessionId, session.customer as string, session.subscription as string);
+                  console.log(`[stripe/webhook] Pro activated for session ${zonewiseSessionId}`);
+                }
+              }
+            
+              return NextResponse.json({ received: true });
+            }
+            WEBHOOK_EOF
             echo "✅ app/api/stripe/webhook/route.ts written"
 
             # ── P4: Write components/PaywallModal.tsx ────────────────────────
             mkdir -p components
             cat > components/PaywallModal.tsx << 'MODAL_EOF'
-'use client';
-import { useState } from 'react';
-
-interface Props { onClose: () => void; sessionId: string; }
-
-export function PaywallModal({ onClose, sessionId }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleUpgrade() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
-      const data = await res.json();
-      if (data.url) { window.location.href = data.url; }
-      else { setError('Failed to start checkout. Please try again.'); setLoading(false); }
-    } catch { setError('Network error. Please try again.'); setLoading(false); }
-  }
-
-  return (
-    <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999 }} onClick={onClose}>
-      <div style={{ background:'#0f172a',border:'1px solid #1E3A5F',borderRadius:'12px',padding:'36px 40px',maxWidth:'420px',width:'90%',textAlign:'center',fontFamily:'Inter,sans-serif',color:'#f8fafc' }} onClick={e=>e.stopPropagation()}>
-        <div style={{ fontSize:'40px',marginBottom:'12px' }}>🔒</div>
-        <h2 style={{ margin:'0 0 8px',fontSize:'22px',fontWeight:700 }}>You&apos;ve used your 3 free lookups</h2>
-        <p style={{ margin:'0 0 24px',color:'#94a3b8',fontSize:'15px',lineHeight:'1.5' }}>
-          Upgrade to ZoneWise Pro for unlimited property lookups, zoning intelligence, and deal analysis.
-        </p>
-        <div style={{ background:'#1E3A5F',borderRadius:'8px',padding:'16px 20px',marginBottom:'24px' }}>
-          <span style={{ fontSize:'32px',fontWeight:800,color:'#F59E0B' }}>$15</span>
-          <span style={{ color:'#94a3b8',fontSize:'15px' }}> / month</span>
-          <p style={{ margin:'6px 0 0',color:'#cbd5e1',fontSize:'13px' }}>Unlimited lookups · Cancel anytime</p>
-        </div>
-        <ul style={{ listStyle:'none',padding:0,margin:'0 0 24px',textAlign:'left',color:'#cbd5e1',fontSize:'14px' }}>
-          {['Unlimited property lookups','Full zoning district details','Permitted uses & setbacks','Deal analysis (ARV × 70%)','Brevard + Orange + Duval counties'].map(f=>(
-            <li key={f} style={{ marginBottom:'8px' }}><span style={{ color:'#F59E0B',marginRight:'8px' }}>✓</span>{f}</li>
-          ))}
-        </ul>
-        <button onClick={handleUpgrade} disabled={loading} style={{ width:'100%',padding:'14px 0',background:loading?'#374151':'#F59E0B',color:loading?'#9ca3af':'#0f172a',border:'none',borderRadius:'8px',fontSize:'16px',fontWeight:700,cursor:loading?'not-allowed':'pointer',marginBottom:'12px' }}>
-          {loading ? 'Redirecting to Stripe…' : 'Upgrade to Pro — $15/mo'}
-        </button>
-        {error && <p style={{ color:'#f87171',fontSize:'13px',marginBottom:'12px' }}>{error}</p>}
-        <button onClick={onClose} style={{ background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:'13px' }}>Maybe later</button>
-      </div>
-    </div>
-  );
-}
-MODAL_EOF
+            'use client';
+            import { useState } from 'react';
+            
+            interface Props { onClose: () => void; sessionId: string; }
+            
+            export function PaywallModal({ onClose, sessionId }: Props) {
+              const [loading, setLoading] = useState(false);
+              const [error, setError] = useState<string | null>(null);
+            
+              async function handleUpgrade() {
+                setLoading(true);
+                setError(null);
+                try {
+                  const res = await fetch('/api/stripe/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId }),
+                  });
+                  const data = await res.json();
+                  if (data.url) { window.location.href = data.url; }
+                  else { setError('Failed to start checkout. Please try again.'); setLoading(false); }
+                } catch { setError('Network error. Please try again.'); setLoading(false); }
+              }
+            
+              return (
+                <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999 }} onClick={onClose}>
+                  <div style={{ background:'#0f172a',border:'1px solid #1E3A5F',borderRadius:'12px',padding:'36px 40px',maxWidth:'420px',width:'90%',textAlign:'center',fontFamily:'Inter,sans-serif',color:'#f8fafc' }} onClick={e=>e.stopPropagation()}>
+                    <div style={{ fontSize:'40px',marginBottom:'12px' }}>🔒</div>
+                    <h2 style={{ margin:'0 0 8px',fontSize:'22px',fontWeight:700 }}>You&apos;ve used your 3 free lookups</h2>
+                    <p style={{ margin:'0 0 24px',color:'#94a3b8',fontSize:'15px',lineHeight:'1.5' }}>
+                      Upgrade to ZoneWise Pro for unlimited property lookups, zoning intelligence, and deal analysis.
+                    </p>
+                    <div style={{ background:'#1E3A5F',borderRadius:'8px',padding:'16px 20px',marginBottom:'24px' }}>
+                      <span style={{ fontSize:'32px',fontWeight:800,color:'#F59E0B' }}>$15</span>
+                      <span style={{ color:'#94a3b8',fontSize:'15px' }}> / month</span>
+                      <p style={{ margin:'6px 0 0',color:'#cbd5e1',fontSize:'13px' }}>Unlimited lookups · Cancel anytime</p>
+                    </div>
+                    <ul style={{ listStyle:'none',padding:0,margin:'0 0 24px',textAlign:'left',color:'#cbd5e1',fontSize:'14px' }}>
+                      {['Unlimited property lookups','Full zoning district details','Permitted uses & setbacks','Deal analysis (ARV × 70%)','Brevard + Orange + Duval counties'].map(f=>(
+                        <li key={f} style={{ marginBottom:'8px' }}><span style={{ color:'#F59E0B',marginRight:'8px' }}>✓</span>{f}</li>
+                      ))}
+                    </ul>
+                    <button onClick={handleUpgrade} disabled={loading} style={{ width:'100%',padding:'14px 0',background:loading?'#374151':'#F59E0B',color:loading?'#9ca3af':'#0f172a',border:'none',borderRadius:'8px',fontSize:'16px',fontWeight:700,cursor:loading?'not-allowed':'pointer',marginBottom:'12px' }}>
+                      {loading ? 'Redirecting to Stripe…' : 'Upgrade to Pro — $15/mo'}
+                    </button>
+                    {error && <p style={{ color:'#f87171',fontSize:'13px',marginBottom:'12px' }}>{error}</p>}
+                    <button onClick={onClose} style={{ background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:'13px' }}>Maybe later</button>
+                  </div>
+                </div>
+              );
+            }
+            MODAL_EOF
             echo "✅ components/PaywallModal.tsx written"
 
             # ── P5: Patch app/api/explorer/chat/route.ts ─────────────────────
@@ -327,35 +327,35 @@ MODAL_EOF
 
                 # Inject paywall check — insert after first 'export async function POST' + 'const body'/'const { '
                 python3 - "$CHAT_ROUTE" << 'PATCHER_EOF'
-import sys, re
-path = sys.argv[1]
-src = open(path).read()
-
-# Find the POST function body opening — insert paywall check after first json parse
-paywall_block = """
-  // ── Paywall check ─────────────────────────────────────────────────────────
-  const sessionId = req.headers.get('x-session-id') ?? 'anonymous';
-  const paywall = await checkAndIncrementLookup(sessionId);
-  if (!paywall.allowed) {
-    return NextResponse.json(
-      { paywall: true, checkoutUrl: '/api/stripe/checkout' },
-      { status: 402 }
-    );
-  }
-  // ── End paywall check ──────────────────────────────────────────────────────
-"""
-
-# Insert after the first NextRequest parameter usage in POST function
-pattern = r'(export async function POST\(req: NextRequest\)\s*\{)'
-replacement = r'\1' + paywall_block
-result = re.sub(pattern, replacement, src, count=1)
-if result == src:
-    # Fallback: insert after first closing brace of function signature
-    result = src.replace('export async function POST(req: NextRequest) {',
-                         'export async function POST(req: NextRequest) {' + paywall_block, 1)
-open(path, 'w').write(result)
-print('Paywall check injected into chat route')
-PATCHER_EOF
+            import sys, re
+            path = sys.argv[1]
+            src = open(path).read()
+            
+            # Find the POST function body opening — insert paywall check after first json parse
+            paywall_block = """
+              // ── Paywall check ─────────────────────────────────────────────────────────
+              const sessionId = req.headers.get('x-session-id') ?? 'anonymous';
+              const paywall = await checkAndIncrementLookup(sessionId);
+              if (!paywall.allowed) {
+                return NextResponse.json(
+                  { paywall: true, checkoutUrl: '/api/stripe/checkout' },
+                  { status: 402 }
+                );
+              }
+              // ── End paywall check ──────────────────────────────────────────────────────
+            """
+            
+            # Insert after the first NextRequest parameter usage in POST function
+            pattern = r'(export async function POST\(req: NextRequest\)\s*\{)'
+            replacement = r'\1' + paywall_block
+            result = re.sub(pattern, replacement, src, count=1)
+            if result == src:
+                # Fallback: insert after first closing brace of function signature
+                result = src.replace('export async function POST(req: NextRequest) {',
+                                     'export async function POST(req: NextRequest) {' + paywall_block, 1)
+            open(path, 'w').write(result)
+            print('Paywall check injected into chat route')
+            PATCHER_EOF
                 echo "✅ Patched $CHAT_ROUTE with paywall check"
               else
                 echo "ℹ️  $CHAT_ROUTE already patched — skipping"
@@ -364,25 +364,25 @@ PATCHER_EOF
               echo "⚠️  $CHAT_ROUTE not found — creating stub"
               mkdir -p app/api/explorer/chat
               cat > "$CHAT_ROUTE" << 'CHAT_STUB_EOF'
-import { NextRequest, NextResponse } from 'next/server';
-import { checkAndIncrementLookup } from '@/lib/stripe/paywall';
-
-export async function POST(req: NextRequest) {
-  // ── Paywall check ──────────────────────────────────────────────────────────
-  const sessionId = req.headers.get('x-session-id') ?? 'anonymous';
-  const paywall = await checkAndIncrementLookup(sessionId);
-  if (!paywall.allowed) {
-    return NextResponse.json(
-      { paywall: true, checkoutUrl: '/api/stripe/checkout' },
-      { status: 402 }
-    );
-  }
-  // ── End paywall check ──────────────────────────────────────────────────────
-
-  // TODO: wire to existing LLM/Claude handler
-  return NextResponse.json({ message: 'OK', lookupsRemaining: paywall.lookupsRemaining });
-}
-CHAT_STUB_EOF
+            import { NextRequest, NextResponse } from 'next/server';
+            import { checkAndIncrementLookup } from '@/lib/stripe/paywall';
+            
+            export async function POST(req: NextRequest) {
+              // ── Paywall check ──────────────────────────────────────────────────────────
+              const sessionId = req.headers.get('x-session-id') ?? 'anonymous';
+              const paywall = await checkAndIncrementLookup(sessionId);
+              if (!paywall.allowed) {
+                return NextResponse.json(
+                  { paywall: true, checkoutUrl: '/api/stripe/checkout' },
+                  { status: 402 }
+                );
+              }
+              // ── End paywall check ──────────────────────────────────────────────────────
+            
+              // TODO: wire to existing LLM/Claude handler
+              return NextResponse.json({ message: 'OK', lookupsRemaining: paywall.lookupsRemaining });
+            }
+            CHAT_STUB_EOF
             fi
 
             # ── P6: Install stripe npm package ───────────────────────────────
@@ -500,40 +500,40 @@ CHAT_STUB_EOF
           if [ "$STATUS" = "success" ]; then
             BODY="## ✅ Stripe Paywall Deployed
 
-**Issue #93 implementation complete.**
+          **Issue #93 implementation complete.**
 
-### What was deployed
-- \`lib/stripe/paywall.ts\` — session-based lookup counter (Supabase-backed)
-- \`app/api/stripe/checkout/route.ts\` — Stripe Checkout session creator (\$15/mo)
-- \`app/api/stripe/webhook/route.ts\` — Stripe webhook → marks session as pro
-- \`components/PaywallModal.tsx\` — upgrade modal with brand colors
-- \`app/api/explorer/chat/route.ts\` — patched with paywall check (HTTP 402 after 3 lookups)
-- \`migrations/20260330_stripe_paywall.sql\` — \`paywall_sessions\` table in Supabase
+          ### What was deployed
+          - \`lib/stripe/paywall.ts\` — session-based lookup counter (Supabase-backed)
+          - \`app/api/stripe/checkout/route.ts\` — Stripe Checkout session creator (\$15/mo)
+          - \`app/api/stripe/webhook/route.ts\` — Stripe webhook → marks session as pro
+          - \`components/PaywallModal.tsx\` — upgrade modal with brand colors
+          - \`app/api/explorer/chat/route.ts\` — patched with paywall check (HTTP 402 after 3 lookups)
+          - \`migrations/20260330_stripe_paywall.sql\` — \`paywall_sessions\` table in Supabase
 
-### Paywall flow
-1. Lookups 1-3: allowed, counter incremented in \`paywall_sessions\`
-2. Lookup 4+: \`HTTP 402 { paywall: true, checkoutUrl: \"/api/stripe/checkout\" }\`
-3. Upgrade: Stripe Checkout → \$15/mo subscription
-4. Post-payment: webhook sets \`is_pro=true\` → unlimited lookups
+          ### Paywall flow
+          1. Lookups 1-3: allowed, counter incremented in \`paywall_sessions\`
+          2. Lookup 4+: \`HTTP 402 { paywall: true, checkoutUrl: \"/api/stripe/checkout\" }\`
+          3. Upgrade: Stripe Checkout → \$15/mo subscription
+          4. Post-payment: webhook sets \`is_pro=true\` → unlimited lookups
 
-### Next steps
-- Add \`STRIPE_SECRET_KEY\`, \`STRIPE_WEBHOOK_SECRET\`, \`STRIPE_PUBLISHABLE_KEY\` to Hetzner \`.env.local\`
-- Register webhook endpoint in Stripe Dashboard: \`https://zonewise.ai/api/stripe/webhook\`
-- Wire \`<PaywallModal>\` into the chat UI component (show when \`data.paywall === true\`)
-- Generate session ID client-side (localStorage UUID) and send as \`X-Session-Id\` header
+          ### Next steps
+          - Add \`STRIPE_SECRET_KEY\`, \`STRIPE_WEBHOOK_SECRET\`, \`STRIPE_PUBLISHABLE_KEY\` to Hetzner \`.env.local\`
+          - Register webhook endpoint in Stripe Dashboard: \`https://zonewise.ai/api/stripe/webhook\`
+          - Wire \`<PaywallModal>\` into the chat UI component (show when \`data.paywall === true\`)
+          - Generate session ID client-side (localStorage UUID) and send as \`X-Session-Id\` header
 
-HONESTY PROTOCOL: UNTESTED on live Stripe — requires \`STRIPE_SECRET_KEY\` secret. Smoke test result above.
+          HONESTY PROTOCOL: UNTESTED on live Stripe — requires \`STRIPE_SECRET_KEY\` secret. Smoke test result above.
 
-[Run \$${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          [Run \$${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           else
             BODY="## ⚠️ Stripe Paywall Deploy — $STATUS
 
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-Check logs for details. Common causes:
-- \`STRIPE_SECRET_KEY\` secret not set
-- \`HETZNER_SSH_KEY\` secret not set
-- zonewise-web build failure"
+          Check logs for details. Common causes:
+          - \`STRIPE_SECRET_KEY\` secret not set
+          - \`HETZNER_SSH_KEY\` secret not set
+          - zonewise-web build failure"
           fi
 
           gh issue comment 93 \
