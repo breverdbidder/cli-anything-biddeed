@@ -2,6 +2,10 @@ name: Close Stale Issue #115 — GHA-044084 Resolved
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/close-stale-115.yml'
 
 jobs:
   close-stale:
