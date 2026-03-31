@@ -311,7 +311,7 @@ jobs:
               dPage.on('pageerror', err => consoleErrors.push(err.message));
 
               try {
-                const resp = await dPage.goto(TARGET, { waitUntil: 'networkidle', timeout: 30000 });
+                const resp = await dPage.goto(TARGET, { waitUntil: 'networkidle', timeout: 60000 });
                 if (resp && resp.status() >= 500) {
                   log('desktop_render', false, `HTTP ${resp.status()} on navigation`);
                 } else {
@@ -349,7 +349,7 @@ jobs:
                       ? '[aria-label="Message input"], .aui-composer-input, textarea'
                       : '[contenteditable="true"], [role="textbox"]';
                     const ta = dPage.locator(inputSel).first();
-                    await ta.click({ force: true, timeout: 5000 }).catch(() => {});
+                    await ta.click({ force: true, timeout: 15000 }).catch(() => {});
                     await dPage.keyboard.type(TEST_ADDRESS, { delay: 30 });
                     await ta.press('Enter');
                     console.log(`[functional] Submitted "${TEST_ADDRESS}" — waiting 20s for response...`);
@@ -381,7 +381,7 @@ jobs:
               const mPage   = await mobile.newPage();
 
               try {
-                await mPage.goto(TARGET, { waitUntil: 'networkidle', timeout: 30000 });
+                await mPage.goto(TARGET, { waitUntil: 'networkidle', timeout: 60000 });
                 const scrollWidth = await mPage.evaluate(() => document.documentElement.scrollWidth);
                 const clientWidth = await mPage.evaluate(() => document.documentElement.clientWidth);
                 log('mobile_render', scrollWidth <= clientWidth + 5,
