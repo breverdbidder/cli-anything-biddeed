@@ -458,21 +458,21 @@ jobs:
               const statusEmoji = failed === 0 ? '✅' : '❌';
               const comment = `## ${statusEmoji} chat-v2 Playwright Verification — ${new Date().toISOString().slice(0, 16)} UTC
 
-**Result: ${passed}/7 checks passed**
+            **Result: ${passed}/7 checks passed**
 
-| Status | Check | Detail |
-|--------|-------|--------|
-${checkLines}
+            | Status | Check | Detail |
+            |--------|-------|--------|
+            ${checkLines}
 
-**Console errors:** ${consoleErrors.length === 0 ? 'None ✅' : `${consoleErrors.length} errors ⚠️`}
+            **Console errors:** ${consoleErrors.length === 0 ? 'None ✅' : `${consoleErrors.length} errors ⚠️`}
 
-**Screenshots:**
-${desktopUrl ? `- [Desktop 1440×900](${desktopUrl})` : '- Desktop: upload failed/skipped'}
-${mobileUrl ? `- [Mobile 375×812](${mobileUrl})` : '- Mobile: upload failed/skipped'}
+            **Screenshots:**
+            ${desktopUrl ? `- [Desktop 1440×900](${desktopUrl})` : '- Desktop: upload failed/skipped'}
+            ${mobileUrl ? `- [Mobile 375×812](${mobileUrl})` : '- Mobile: upload failed/skipped'}
 
-${failed === 0 ? '🎯 **All 7 checks PASSING — enterprise-grade quality confirmed.**' : `⚠️ **${failed} check(s) failing — retry loop continuing.**`}
+            ${failed === 0 ? '🎯 **All 7 checks PASSING — enterprise-grade quality confirmed.**' : `⚠️ **${failed} check(s) failing — retry loop continuing.**`}
 
-_Verified from Hetzner 87.99.129.125 via Playwright headless Chromium_`;
+            _Verified from Hetzner 87.99.129.125 via Playwright headless Chromium_`;
 
               console.log('\n=== GitHub Issue Comment ===');
               console.log(comment);
