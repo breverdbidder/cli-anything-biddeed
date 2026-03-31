@@ -464,6 +464,7 @@ jobs:
 
             while [ "$ATTEMPT" -lt "${MAX_ATTEMPTS}" ]; do
               ATTEMPT=$((ATTEMPT + 1))
+              cd "$WORK_DIR"
               echo ""
               echo "═══════════════════════════════════════════════════════════════"
               echo "  Playwright verify — attempt ${ATTEMPT}/${MAX_ATTEMPTS}  │  $(date -u)"
