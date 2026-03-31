@@ -48,7 +48,7 @@ jobs:
       - name: Get current file SHA from zonewise-web
         id: get_sha
         run: |
-          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.PAT4 }}" \
+          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
             "https://api.github.com/repos/breverdbidder/zonewise-web/contents/public/roadmap/index.html")
           SHA=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
@@ -90,7 +90,7 @@ jobs:
 
           HTTP_CODE=$(curl -s -o /tmp/deploy_response.json -w "%{http_code}" \
             -X PUT \
-            -H "Authorization: token ${{ secrets.PAT4 }}" \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
             -H "Content-Type: application/json" \
             -d "$BODY" \
             "https://api.github.com/repos/breverdbidder/zonewise-web/contents/public/roadmap/index.html")
@@ -195,7 +195,7 @@ jobs:
           Run: [\`${{ github.run_id }}\`](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
           curl -s -X POST \
-            -H "Authorization: token ${{ secrets.PAT4 }}" \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
             -H "Content-Type: application/json" \
             -d "{\"body\": $(echo "$BODY" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}" \
             "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/36/comments" || true
