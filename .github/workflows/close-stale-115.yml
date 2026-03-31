@@ -20,60 +20,38 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pip install requests --break-system-packages -q 2>/dev/null
-          python3 << 'PYSCRIPT'
-          import requests, os
-          from datetime import datetime, timezone
-
-          SB_URL = os.environ["SUPABASE_URL"]
-          SB_KEY = os.environ["SUPABASE_KEY"]
-          GH_TOKEN = os.environ["GH_TOKEN"]
-          REPO = "breverdbidder/cli-anything-biddeed"
-
-          sb_h = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
-          gh_h = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"}
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="breverdbidder/cli-anything-biddeed"
 
           # 1. Mark GHA-044084 as done in nexus_tasks
-          r = requests.patch(
-              f"{SB_URL}/rest/v1/nexus_tasks?task_id=eq.GHA-044084",
-              headers=sb_h,
-              json={
-                  "status": "done",
-                  "completed_at": datetime.now(timezone.utc).isoformat(),
-                  "result_summary": "Stale task — root cause fixed by #114 (labels + skip_patterns). No current failure.",
-                  "updated_at": datetime.now(timezone.utc).isoformat(),
-              }
-          )
-          print(f"Supabase update: {r.status_code} — {r.text[:200]}")
+          SB_PAYLOAD=$(jq -n \
+            --arg ts "$TIMESTAMP" \
+            '{status:"done",completed_at:$ts,result_summary:"Stale task — root cause fixed by #114 (labels + skip_patterns). No current failure.",updated_at:$ts}')
+
+          SB_RESULT=$(curl -s -o /tmp/sb_out.txt -w "%{http_code}" -X PATCH \
+            "${SUPABASE_URL}/rest/v1/nexus_tasks?task_id=eq.GHA-044084" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$SB_PAYLOAD")
+          echo "Supabase update: $SB_RESULT — $(cat /tmp/sb_out.txt | head -c 200)"
 
           # 2. Comment on issue #115
-          comment = """## Root Cause Analysis — VERIFIED
+          COMMENT_BODY=$(jq -n '{body:"## Root Cause Analysis — VERIFIED\n\n**Finding:** GHA-044084 is a stale nexus_task created before commit `06391cd9` (issue #114) was deployed.\n\n**Current state:** Issue Triage Agent is operational. No active failure. GHA-044084 marked `done` in nexus_tasks.\n\n**No workflow changes needed.** Closing as resolved."}')
 
-**Finding:** GHA-044084 is a stale nexus_task created *before* commit `06391cd9` (issue #114) was deployed.
-
-**Timeline:**
-- Issue Triage Agent failed → `task-lifecycle.yml` created nexus task `GHA-044084` (no skip pattern in place yet)
-- Commit `06391cd9` fixed both problems:
-  1. Added "Issue Triage Agent" to `skip_patterns` in `task-lifecycle.yml` → no more stale tasks
-  2. Created `setup-labels.yml` → all required labels now exist in the repo
-- Continuous Executor picked up the stale GHA-044084 task and dispatched it as issue #115
-
-**Current state:** Issue Triage Agent is operational. No active failure. GHA-044084 marked `done` in nexus_tasks.
-
-**No workflow changes needed.** Closing as resolved."""
-
-          r2 = requests.post(
-              f"https://api.github.com/repos/{REPO}/issues/115/comments",
-              headers=gh_h,
-              json={"body": comment}
-          )
-          print(f"Comment: {r2.status_code}")
+          GH_COMMENT=$(curl -s -o /tmp/gh_comment.txt -w "%{http_code}" -X POST \
+            "https://api.github.com/repos/${REPO}/issues/115/comments" \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d "$COMMENT_BODY")
+          echo "Comment: $GH_COMMENT"
 
           # 3. Close issue #115
-          r3 = requests.patch(
-              f"https://api.github.com/repos/{REPO}/issues/115",
-              headers=gh_h,
-              json={"state": "closed", "state_reason": "completed"}
-          )
-          print(f"Close issue: {r3.status_code}")
-          PYSCRIPT
+          GH_CLOSE=$(curl -s -o /tmp/gh_close.txt -w "%{http_code}" -X PATCH \
+            "https://api.github.com/repos/${REPO}/issues/115" \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{"state":"closed","state_reason":"completed"}')
+          echo "Close issue: $GH_CLOSE"
