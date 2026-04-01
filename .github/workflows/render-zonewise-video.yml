@@ -1,4 +1,4 @@
-name: Render ZoneWise Demo Video
+name: Render ZoneWise Demo Video (v2)
 
 on:
   workflow_dispatch:
