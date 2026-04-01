@@ -1,0 +1,39 @@
+{
+  "_comment": "BidDeed.AI CC hooks config snippet — merge into .claude/settings.json in each repo.",
+  "_source": "scripts/hooks/ (ported from affaan-m/everything-claude-code, MIT, extended for BidDeed.AI stack)",
+  "_deploy_to": [
+    "cli-anything-biddeed",
+    "brevard-bidder-scraper",
+    "zonewise-web",
+    "zonewise-desktop",
+    "everest-vault",
+    "hermes-agent",
+    "swimsquad-ai"
+  ],
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node scripts/hooks/pre-bash-commit-quality.js",
+          "description": "Block git commits that contain hardcoded secrets (Supabase JWT, Mapbox, DeepSeek, Exa, Firecrawl, OpenAI, GitHub PAT, AWS), debugger statements, or linter errors.",
+          "fail_open": true
+        }
+      ]
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Edit|Write|MultiEdit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node scripts/hooks/config-protection.js",
+          "description": "Block modifications to linter/formatter config files (.eslintrc, .prettierrc, biome.json, ruff.toml, etc.). Fix source code instead of weakening rules.",
+          "fail_open": true
+        }
+      ]
+    }
+  ]
+}

@@ -782,3 +782,53 @@ detects:
 pipeline: web_fetch → extract CSS/JS → fetch FULL (500 KB cap) → detect → persist → return JSON
 brand_guard: BrandGuard override enforces Navy #1E3A5F + Orange #F59E0B + Inter + bg #020617
 ```
+
+# ── Pre-Commit Quality Hooks (added 2026-04-01) ──
+
+## CC Hooks Config
+
+```yaml
+source: affaan-m/everything-claude-code (MIT) — extended for BidDeed.AI ecosystem
+scripts:
+  - scripts/hooks/pre-bash-commit-quality.js  # secret detection + linter + debugger check
+  - scripts/hooks/config-protection.js        # blocks linter/formatter config weakening
+config_snippet: docs/hooks/cc-hooks-config.json
+issue: breverdbidder/cli-anything-biddeed#160
+
+hook_1_pre_bash_commit_quality:
+  event: PreToolUse
+  matcher: Bash (git commit)
+  blocks_on:
+    - secrets: [sk- (OpenAI/DeepSeek), ghp_ (GitHub PAT), AKIA (AWS), eyJ.. (Supabase JWT), pk.eyJ (Mapbox), fc- (Firecrawl), sd_ (Supadata), api_key=]
+    - debugger statements (error — blocks)
+    - linter errors: eslint / pylint / golint (error — blocks)
+  warns_on:
+    - console.log (warning — non-blocking)
+    - TODO/FIXME without issue reference (info — non-blocking)
+    - commit message not conventional format (warning — non-blocking)
+  fail_open: true  # hook errors never block legitimate work
+
+hook_2_config_protection:
+  event: PreToolUse
+  matcher: Edit | Write | MultiEdit
+  protected_files:
+    js: [.eslintrc*, eslint.config.*, .prettierrc*, prettier.config.*, biome.json, biome.jsonc]
+    python: [.ruff.toml, ruff.toml]
+    shell: [.shellcheckrc, .stylelintrc*, .markdownlint*]
+  message: "Fix the source code — do not weaken linter rules"
+  fail_open: true
+
+deploy_to:
+  - cli-anything-biddeed ✅
+  - brevard-bidder-scraper
+  - zonewise-web
+  - zonewise-desktop
+  - everest-vault
+  - hermes-agent
+  - swimsquad-ai
+
+adoption:
+  step_1: "Copy scripts/hooks/ into target repo"
+  step_2: "Merge docs/hooks/cc-hooks-config.json into .claude/settings.json hooks array"
+  step_3: "Verify: stage file with fake sk-test123... → confirm commit blocked"
+```
