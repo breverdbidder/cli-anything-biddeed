@@ -1,0 +1,76 @@
+name: Debug + Fix Coder on Hetzner
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-coder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: SSH Debug Coder
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H $HETZNER_IP >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 root@$HETZNER_IP << 'SSHEOF'
+          set -x
+
+          echo "=== SYSTEM RESOURCES ==="
+          free -h
+          df -h /
+          uptime
+
+          echo "=== DOCKER STATUS ==="
+          docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+          echo "=== CODER CONTAINER LOGS (last 100 lines) ==="
+          docker logs coder-coder-1 --tail 100 2>&1 || echo "No coder-coder-1 container"
+
+          echo "=== CODER DOCKER COMPOSE ==="
+          COMPOSE_DIR=""
+          for d in /root/coder /opt/coder /home/coder /root; do
+            if [ -f "$d/docker-compose.yml" ] || [ -f "$d/docker-compose.yaml" ]; then
+              COMPOSE_DIR="$d"
+              echo "Found compose at $d"
+              cat "$d/docker-compose.yml" 2>/dev/null || cat "$d/docker-compose.yaml" 2>/dev/null
+              break
+            fi
+          done
+          [ -z "$COMPOSE_DIR" ] && find / -name "docker-compose*" -path "*/coder*" 2>/dev/null | head -5
+
+          echo "=== ATTEMPTING FULL RESTART ==="
+          if [ -n "$COMPOSE_DIR" ]; then
+            cd "$COMPOSE_DIR"
+            docker compose down 2>/dev/null || docker-compose down 2>/dev/null
+            sleep 3
+            docker compose up -d 2>/dev/null || docker-compose up -d 2>/dev/null
+            echo "Compose restarted from $COMPOSE_DIR"
+          else
+            docker restart coder-coder-1 2>/dev/null || echo "Cannot restart"
+          fi
+
+          echo "=== WAITING FOR HEALTH (90s max) ==="
+          for i in $(seq 1 45); do
+            HTTP=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7080 --max-time 3 2>/dev/null || echo "000")
+            echo "  Attempt $i: HTTP $HTTP"
+            if echo "$HTTP" | grep -qE '^[23]'; then
+              echo "CODER IS UP"
+              docker logs coder-coder-1 --tail 20 2>&1
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "=== STILL DOWN — FINAL DIAGNOSTICS ==="
+          docker logs coder-coder-1 --tail 50 2>&1
+          docker inspect coder-coder-1 --format '{{.State.ExitCode}} {{.State.Error}}' 2>/dev/null
+          netstat -tlnp 2>/dev/null | grep -E '7080|3000|8080' || ss -tlnp | grep -E '7080|3000|8080'
+          echo "CODER FAILED TO START"
+          exit 1
+          SSHEOF
