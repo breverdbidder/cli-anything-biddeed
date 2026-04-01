@@ -1,1 +1,0 @@
-"""SwimIntel CLI Agent."""

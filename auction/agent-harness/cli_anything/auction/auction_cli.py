@@ -183,6 +183,8 @@ def analyze_case_cmd(ctx, case_number, arv, repairs):
         if repairs is not None:
             kwargs["repairs"] = repairs
         result = run_tool(_agent, "auction_analyze", **kwargs)
+        if "error" in result:
+            raise ValueError(result["error"])
     else:
         case_data = discovery.get_case_details(case_number)
         if not case_data:
