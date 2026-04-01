@@ -1,5 +1,28 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 55: Issue #157 — GHA-726909 Fix BidDeed DNS (stale)
+**Date:** 2026-04-01
+**Issue:** breverdbidder/cli-anything-biddeed#157
+
+### Root cause (VERIFIED):
+- GHA-726909 was "Fix BidDeed DNS (dispatched from cli-anything-biddeed)" running in zonewise-web
+- Failure was a stale pre-fix run (same pattern as issues #84, #85, #87, #90, #95, #100)
+- DNS fix was applied by commit `aa84e55d` (2026-03-30 18:50 UTC)
+- Session 53 (Issue #111) confirmed biddeed.ai ONLINE at 2026-03-30 22:56 UTC
+
+### Verification (VERIFIED):
+- biddeed.ai DNS: A records 172.67.222.51, 104.21.54.12 (Cloudflare proxy) ✅
+- biddeed.ai HTTP: 200 ✅
+- fix-biddeed-via-zw.yml YAML: valid ✅
+- fix-biddeed-dns.yml YAML: valid ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, DNS already fixed, site ONLINE
+- [x] YAML valid at HEAD — no code changes needed
+- [x] Updated TODO.md with session 55 notes
+- [ ] BLOCKED: Cannot comment on issue #157 — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
 ## Session 54: Issue #112 — SUMMIT Fix Envelope Conquest Gaps 68% → 85%+ 🚀
 **Date:** 2026-03-30
 **Issue:** breverdbidder/cli-anything-biddeed#112
