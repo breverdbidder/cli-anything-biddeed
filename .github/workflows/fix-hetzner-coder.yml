@@ -1,0 +1,71 @@
+name: Fix Hetzner Coder Instance
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-coder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install SSH
+        run: sudo apt-get install -y -qq sshpass
+
+      - name: Diagnose and restart Coder
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -e
+          export SSHPASS="$HETZNER_PASSWORD"
+          SSH="sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
+
+          echo "=== Docker containers ==="
+          $SSH "docker ps -a --format 'table {{.Names}}	{{.Status}}	{{.Ports}}'" || true
+
+          echo "=== Systemd coder units ==="
+          $SSH "systemctl list-units --all | grep -i coder" || true
+
+          echo "=== Restarting all stopped containers ==="
+          $SSH "docker start \$(docker ps -a -q --filter 'status=exited') 2>/dev/null" || true
+
+          echo "=== Restarting coder specifically ==="
+          $SSH "docker restart \$(docker ps -a --filter 'name=coder' -q) 2>/dev/null" || true
+          $SSH "systemctl restart coder 2>/dev/null" || true
+
+          echo "=== Waiting 10s for startup ==="
+          sleep 10
+
+          echo "=== Verify ==="
+          $SSH "docker ps --format 'table {{.Names}}	{{.Status}}	{{.Ports}}'"
+          $SSH "curl -sf http://localhost:7080/api/v2/buildinfo || curl -sf http://localhost:3000/api/v2/buildinfo || echo 'Coder API not responding on 7080 or 3000'"
+
+      - name: Re-trigger coder-task for SUMMIT 171
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # Remove and re-add coder label to re-trigger
+          curl -s -X DELETE \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/171/labels/coder" || true
+          sleep 2
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/171/labels" \
+            -d '["coder"]'
+
+      - name: Re-trigger coder-task for SUMMIT 172
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          curl -s -X DELETE \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/172/labels/coder" || true
+          sleep 2
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/172/labels" \
+            -d '["coder"]'
+
+          echo "=== Both SUMMITs re-triggered ==="
