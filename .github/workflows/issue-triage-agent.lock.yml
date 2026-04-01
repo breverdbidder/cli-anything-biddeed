@@ -834,6 +834,7 @@ jobs:
       - name: Execute Claude Code CLI
         if: always() && steps.detection_guard.outputs.run_detection == 'true'
         id: detection_agentic_execution
+        continue-on-error: true
         # Allowed tools (sorted):
         # - Bash(cat)
         # - Bash(grep)
@@ -879,6 +880,14 @@ jobs:
           GIT_COMMITTER_NAME: github-actions[bot]
           MCP_TIMEOUT: 120000
           MCP_TOOL_TIMEOUT: 60000
+      - name: Detect billing error in detection phase
+        id: detection_billing_check
+        if: steps.detection_agentic_execution.outcome == 'failure'
+        run: |
+          if grep -q '"error":"billing_error"\|Credit balance is too low' /tmp/gh-aw/threat-detection/detection.log 2>/dev/null; then
+            echo "::warning::ANTHROPIC_API_KEY has insufficient credit balance (detected in threat detection phase). Top up at console.anthropic.com."
+            echo "billing_error=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Parse threat detection results
         id: parse_detection_results
         if: always() && steps.detection_guard.outputs.run_detection == 'true'
