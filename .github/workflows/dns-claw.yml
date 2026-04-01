@@ -1,0 +1,41 @@
+name: DNS — claw.zonewise.ai
+on:
+  workflow_dispatch:
+jobs:
+  dns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Setup CNAME
+        env:
+          CF_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          ZONE="b32406b78aaaefd55557d77c843a5940"
+          
+          # Check existing
+          EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?name=claw.zonewise.ai&type=CNAME" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json")
+          
+          COUNT=$(echo "$EXISTING" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('result',[])))")
+          echo "Existing records: $COUNT"
+          
+          if [ "$COUNT" = "0" ]; then
+            echo "Creating CNAME..."
+            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" \
+              -H "Authorization: Bearer $CF_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"type":"CNAME","name":"claw","content":"claw-zonewise.pages.dev","proxied":true}'
+          else
+            RID=$(echo "$EXISTING" | python3 -c "import json,sys; print(json.load(sys.stdin)['result'][0]['id'])")
+            echo "Updating record $RID..."
+            curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records/$RID" \
+              -H "Authorization: Bearer $CF_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"type":"CNAME","name":"claw","content":"claw-zonewise.pages.dev","proxied":true}'
+          fi
+          
+          echo ""
+          echo "Verifying..."
+          sleep 3
+          curl -s -o /dev/null -w "claw.zonewise.ai: HTTP %{http_code}" https://claw.zonewise.ai --max-time 10 || echo "DNS propagating..."
