@@ -9,40 +9,42 @@ on:
 jobs:
   run-claude-code:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       matrix:
         issue: ${{ fromJson(format('[{0}]', inputs.issues)) }}
+      fail-fast: false
     steps:
       - name: Run Claude Code on Hetzner for issue ${{ matrix.issue }}
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_OAUTH: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          CLAUDE_CODE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}
           ISSUE: ${{ matrix.issue }}
         run: |
           mkdir -p ~/.ssh
           echo "$HETZNER_SSH_KEY" > ~/.ssh/key
           chmod 600 ~/.ssh/key
-          SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
-
-          echo "=== Check if Claude Code CLI installed ==="
-          $SSH "which claude || npm ls -g @anthropic-ai/claude-code 2>/dev/null || echo NOT_INSTALLED"
-
-          echo "=== Install Claude Code if needed ==="
-          $SSH "which claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code"
+          SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o BatchMode=yes root@${HETZNER_IP}"
 
           echo "=== Setup workspace ==="
           $SSH "mkdir -p /root/summit-${ISSUE} && cd /root/summit-${ISSUE} && \
             (test -d cli-anything-biddeed/.git && cd cli-anything-biddeed && git pull || \
-            git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git)"
+            git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git) && \
+            cd cli-anything-biddeed && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
+
+          echo "=== Configure Claude Code auth ==="
+          $SSH "mkdir -p /root/.claude && \
+            echo '${CLAUDE_OAUTH}' | base64 -d > /root/.claude/.credentials.json 2>/dev/null; \
+            test -n '${CLAUDE_CODE_OAUTH}' && echo '{\"claudeAiOauth\":{\"accessToken\":\"${CLAUDE_CODE_OAUTH}\"}}' > /root/.claude/.credentials.json 2>/dev/null; \
+            echo 'Auth configured'"
 
           echo "=== Run Claude Code on SUMMIT #${ISSUE} ==="
           $SSH "cd /root/summit-${ISSUE}/cli-anything-biddeed && \
-            export ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY}' && \
-            claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE}. Execute ALL tasks listed in the issue body. Follow CLAUDE.md directives. Commit and push results. Zero human-in-the-loop. Report completion by commenting on the issue.' \
+            claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE} using: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} | jq .body. Then execute ALL tasks. Follow CLAUDE.md. Commit and push. Comment on the issue when done.' \
             --allowedTools 'Bash(*)' 'Read' 'Write' 'Edit' \
-            2>&1 | tail -100"
+            2>&1 | tail -200" || echo "Claude Code exited"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
