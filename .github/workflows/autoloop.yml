@@ -83,9 +83,10 @@ jobs:
               git clone https://github.com/breverdbidder/cli-anything-biddeed.git ${{ env.REPO_PATH }}
             fi
 
-            # Pull latest
+            # Sync to remote — reset handles case where prior push failed leaving local ahead
             cd ${{ env.REPO_PATH }}
-            git pull origin main --ff-only 2>&1 | tail -3
+            git fetch origin main 2>&1 | tail -3
+            git reset --hard origin/main 2>&1 | tail -1
 
             # Verify Claude Code
             command -v claude &>/dev/null || { echo "❌ Claude Code missing"; npm install -g @anthropic-ai/claude-code; }
@@ -218,7 +219,8 @@ jobs:
             IS_SANDBOX=1 claude -p "$(cat $PROMPT_FILE)" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
             echo "⏰ Done: $(date)"
 
-            # Push final state
+            # Push final state (use PAT so push succeeds and next run's fetch is clean)
+            git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/breverdbidder/cli-anything-biddeed.git
             git add -A
             git diff --cached --quiet || { git commit -m "autoloop($SKILL): session complete $(date +%Y%m%d)"; git push origin main; } || true
 
