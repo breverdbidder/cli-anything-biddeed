@@ -19,6 +19,15 @@ from cli_anything.zonewise.core import scraper
 from cli_anything.zonewise.core import parser
 from cli_anything.zonewise.core import export as export_mod
 
+# ToolRegistry integration — every command gets logging, metrics, permission gating
+try:
+    from cli_anything_shared.cli_integration import create_agent, run_tool, print_agent_status
+    _agent = create_agent("zonewise", permission="workspace-write")
+    _REGISTRY_ACTIVE = True
+except ImportError:
+    _agent = None
+    _REGISTRY_ACTIVE = False
+
 _session: Optional[Session] = None
 _json_output = False
 
@@ -98,7 +107,11 @@ def county():
 @handle_error
 def county_list(state):
     """List available counties."""
-    counties = scraper.get_county_list(state)
+    if _REGISTRY_ACTIVE:
+        data = run_tool(_agent, "zonewise_county_list", state=state)
+        counties = data.get("counties", [])
+    else:
+        counties = scraper.get_county_list(state)
     if _json_output:
         click.echo(json.dumps({"state": state, "count": len(counties), "counties": counties}, indent=2))
     else:
@@ -115,7 +128,10 @@ def county_list(state):
 def county_scrape(ctx, county_name, tier):
     """Scrape zoning data for a county."""
     session = get_session()
-    result = scraper.scrape_county(county_name, tier=tier)
+    if _REGISTRY_ACTIVE:
+        result = run_tool(_agent, "zonewise_county_scrape", county=county_name, tier=tier)
+    else:
+        result = scraper.scrape_county(county_name, tier=tier)
     session.current_county = county_name.lower()
     session.record(f"county scrape --county {county_name} --tier {tier}", result.get("status"))
 
@@ -135,7 +151,10 @@ def county_scrape(ctx, county_name, tier):
 @handle_error
 def county_status(county_name):
     """Check last scrape status for a county."""
-    result = scraper.get_scrape_status(county_name)
+    if _REGISTRY_ACTIVE:
+        result = run_tool(_agent, "zonewise_scrape_status", county=county_name)
+    else:
+        result = scraper.get_scrape_status(county_name)
     output(result, f"Status for {county_name}:")
 
 

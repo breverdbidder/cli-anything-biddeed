@@ -22,6 +22,15 @@ from cli_anything.auction.core import title_search
 from cli_anything.auction.core import report as report_mod
 from cli_anything.auction.core import export as export_mod
 
+# ToolRegistry integration
+try:
+    from cli_anything_shared.cli_integration import create_agent, run_tool, print_agent_status
+    _agent = create_agent("auction", permission="read-only")
+    _REGISTRY_ACTIVE = True
+except ImportError:
+    _agent = None
+    _REGISTRY_ACTIVE = False
+
 _session: Optional[Session] = None
 _json_output = False
 
@@ -115,7 +124,10 @@ def discover():
 @handle_error
 def discover_upcoming(date):
     """List upcoming auction dates."""
-    result = discovery.get_upcoming_auctions(date)
+    if _REGISTRY_ACTIVE:
+        result = run_tool(_agent, "auction_upcoming", date=date)
+    else:
+        result = discovery.get_upcoming_auctions(date)
     output(result, f"Upcoming auctions:")
 
 
@@ -164,11 +176,18 @@ def analyze():
 @handle_error
 def analyze_case_cmd(ctx, case_number, arv, repairs):
     """Full analysis of a single case."""
-    case_data = discovery.get_case_details(case_number)
-    if not case_data:
-        raise ValueError(f"Case {case_number} not found. Use 'discover scrape --date sample' to load sample data.")
-
-    result = analysis.analyze_case(case_data, arv=arv, repairs=repairs)
+    if _REGISTRY_ACTIVE:
+        kwargs = {"case_number": case_number}
+        if arv is not None:
+            kwargs["arv"] = arv
+        if repairs is not None:
+            kwargs["repairs"] = repairs
+        result = run_tool(_agent, "auction_analyze", **kwargs)
+    else:
+        case_data = discovery.get_case_details(case_number)
+        if not case_data:
+            raise ValueError(f"Case {case_number} not found. Use 'discover scrape --date sample' to load sample data.")
+        result = analysis.analyze_case(case_data, arv=arv, repairs=repairs)
     session = get_session()
     session.record(f"analyze case --case {case_number}", result.get("recommendation"))
 

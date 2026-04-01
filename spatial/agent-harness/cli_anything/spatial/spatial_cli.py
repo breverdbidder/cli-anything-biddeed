@@ -20,6 +20,15 @@ from cli_anything.spatial.core import discovery
 from cli_anything.spatial.core import conquest
 from cli_anything.spatial.core import export as export_mod
 
+# ToolRegistry integration
+try:
+    from cli_anything_shared.cli_integration import create_agent, run_tool, print_agent_status
+    _agent = create_agent("spatial", permission="read-only")
+    _REGISTRY_ACTIVE = True
+except ImportError:
+    _agent = None
+    _REGISTRY_ACTIVE = False
+
 _session: Optional[Session] = None
 _json_output = False
 
@@ -128,6 +137,18 @@ def conquer(county, safeguard, persist):
 @handle_error
 def discover(county, url):
     """Discover and probe GIS endpoints for a county."""
+    if _REGISTRY_ACTIVE and not url:
+        endpoint_result = run_tool(_agent, "spatial_discover_endpoint", county=county)
+        if "error" not in endpoint_result:
+            info = {"county": county, "status": "known", **endpoint_result}
+            zones_result = run_tool(_agent, "spatial_discover_zones",
+                endpoint_url=endpoint_result["zoning"],
+                zone_field=endpoint_result.get("zone_field", "ZONING"))
+            info["districts_found"] = len(zones_result)
+            info["total_polygons"] = sum(zones_result.values())
+            info["zones"] = dict(sorted(zones_result.items(), key=lambda x: -x[1])[:20])
+            output(info, f"✓ {county}: {len(zones_result)} districts, {sum(zones_result.values()):,} polygons")
+            return
     endpoint = discovery.get_endpoint(county)
 
     if endpoint:
@@ -172,7 +193,11 @@ def validate(county, safeguard):
 @handle_error
 def list_counties():
     """List counties with known GIS endpoints."""
-    counties = discovery.list_known_counties()
+    if _REGISTRY_ACTIVE:
+        data = run_tool(_agent, "spatial_list_counties")
+        counties = data.get("known", [])
+    else:
+        counties = discovery.list_known_counties()
     if _json_output:
         click.echo(json.dumps({"counties": counties, "count": len(counties)}, indent=2))
     else:

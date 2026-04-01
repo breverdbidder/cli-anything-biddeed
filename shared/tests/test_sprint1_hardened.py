@@ -342,3 +342,78 @@ class TestAgentToolWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# =============================================
+# CLI INTEGRATION TESTS (was 0, now 8+)
+# =============================================
+
+class TestCLIIntegration(unittest.TestCase):
+
+    def test_create_agent_zonewise(self):
+        from cli_anything_shared.cli_integration import create_agent
+        agent = create_agent("zonewise", permission="workspace-write")
+        self.assertEqual(agent.AGENT_NAME, "zonewise")
+        self.assertEqual(agent.registry.permission_level, PermissionMode.WORKSPACE_WRITE)
+
+    def test_create_agent_auction(self):
+        from cli_anything_shared.cli_integration import create_agent
+        agent = create_agent("auction", permission="read-only")
+        self.assertEqual(agent.AGENT_NAME, "auction")
+        self.assertEqual(agent.registry.permission_level, PermissionMode.READ_ONLY)
+
+    def test_create_agent_spatial(self):
+        from cli_anything_shared.cli_integration import create_agent
+        agent = create_agent("spatial")
+        self.assertEqual(len(agent.registry.names()), 5)
+
+    def test_create_agent_unknown_raises(self):
+        from cli_anything_shared.cli_integration import create_agent
+        with self.assertRaises(ValueError):
+            create_agent("nonexistent")
+
+    def test_run_tool_success(self):
+        from cli_anything_shared.cli_integration import create_agent, run_tool
+        agent = TestAgent(permission=PermissionMode.READ_ONLY)
+        result = run_tool(agent, "search", q="test data")
+        self.assertEqual(result["query"], "test data")
+        self.assertIn("results", result)
+
+    def test_run_tool_permission_denied_raises_click_exception(self):
+        import click
+        from cli_anything_shared.cli_integration import run_tool
+        agent = TestAgent(permission=PermissionMode.READ_ONLY)
+        with self.assertRaises(click.ClickException) as ctx:
+            run_tool(agent, "write_file", path="/x", content="y")
+        self.assertIn("permission denied", str(ctx.exception))
+
+    def test_run_tool_handler_error_raises_click_exception(self):
+        import click
+        from cli_anything_shared.cli_integration import run_tool
+        agent = TestAgent(permission=PermissionMode.READ_ONLY)
+        with self.assertRaises(click.ClickException) as ctx:
+            run_tool(agent, "failing", q="boom")
+        self.assertIn("connection refused", str(ctx.exception))
+
+    def test_run_tool_tracks_metrics(self):
+        from cli_anything_shared.cli_integration import run_tool
+        agent = TestAgent(permission=PermissionMode.READ_ONLY)
+        run_tool(agent, "search", q="a")
+        run_tool(agent, "search", q="b")
+        self.assertEqual(agent.metrics.summary()["total_calls"], 2)
+
+    def test_print_agent_status_no_crash(self):
+        from cli_anything_shared.cli_integration import print_agent_status
+        agent = TestAgent(permission=PermissionMode.READ_ONLY)
+        agent.execute_tool("search", {"q": "test"})
+        # Just verify no exception
+        try:
+            print_agent_status(agent)
+        except SystemExit:
+            pass  # click.echo may fail in test context
+
+    def test_permission_map_coverage(self):
+        from cli_anything_shared.cli_integration import create_agent
+        for perm in ["read-only", "workspace-write", "danger-full-access"]:
+            agent = create_agent("zonewise", permission=perm)
+            self.assertIsNotNone(agent)
