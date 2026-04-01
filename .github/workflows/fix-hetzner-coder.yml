@@ -1,69 +1,57 @@
-name: "Fix Hetzner Coder — One-Shot"
+name: Fix Hetzner Coder Instance
 on:
   workflow_dispatch:
 
 jobs:
   fix-coder:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Install sshpass
-        run: sudo apt-get install -y -qq sshpass
-
-      - name: Diagnose Hetzner
+      - name: SSH diagnose and restart
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
-          set -e
-          export SSHPASS="$HETZNER_PASSWORD"
-          SSH="sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
-
-          echo "=== Connectivity ==="
-          $SSH "echo CONNECTED && uptime && df -h / | tail -1"
-
-          echo "=== Docker containers ==="
-          $SSH "docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'" || echo "Docker not available"
-
-          echo "=== Find Coder ==="
-          $SSH "docker ps -a | grep -i coder || echo NO_CODER_CONTAINER"
-          $SSH "systemctl list-units --type=service | grep -i coder || echo NO_CODER_SERVICE"
-          $SSH "which coder 2>/dev/null && coder version || echo NO_CODER_BINARY"
-
-      - name: Restart Coder
-        env:
-          HETZNER_IP: ${{ secrets.HETZNER_IP }}
-          HETZNER_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
-        run: |
-          export SSHPASS="$HETZNER_PASSWORD"
-          SSH="sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
-
-          echo "=== Restarting Coder ==="
-          $SSH 'CODER_CTR=$(docker ps -a --filter "name=coder" -q 2>/dev/null); if [ -n "$CODER_CTR" ]; then docker restart $CODER_CTR && echo DOCKER_RESTARTED; fi'
-          $SSH 'systemctl is-enabled coder 2>/dev/null && systemctl restart coder && echo SYSTEMD_RESTARTED || true'
-
-          echo "=== Waiting 10s ==="
+          set +e
+          mkdir -p ~/.ssh
+          
+          # Try SSH key first
+          if [ -n "$HETZNER_SSH_KEY" ]; then
+            echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner_key
+            chmod 600 ~/.ssh/hetzner_key
+            SSH="timeout 10 ssh -i ~/.ssh/hetzner_key -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          else
+            sudo apt-get install -y -qq sshpass
+            export SSHPASS="$HETZNER_PASSWORD"
+            SSH="timeout 10 sshpass -e ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
+          fi
+          
+          echo "=== Testing connectivity ==="
+          timeout 5 bash -c "echo > /dev/tcp/${HETZNER_IP}/22" 2>&1 && echo "PORT 22 OPEN" || echo "PORT 22 CLOSED/TIMEOUT"
+          
+          echo "=== Docker status ==="
+          $SSH "docker ps -a --format 'table {{.Names}}	{{.Status}}	{{.Ports}}'" 2>&1 || echo "SSH FAILED"
+          
+          echo "=== Restart all containers ==="
+          $SSH "docker start \$(docker ps -a -q --filter status=exited) 2>/dev/null; docker restart \$(docker ps -a --filter name=coder -q) 2>/dev/null; systemctl restart coder 2>/dev/null; echo RESTART_DONE" 2>&1 || echo "RESTART FAILED"
+          
           sleep 10
+          
+          echo "=== Verify ==="
+          $SSH "docker ps --format 'table {{.Names}}	{{.Status}}'; curl -sf http://localhost:7080/api/v2/buildinfo 2>/dev/null || curl -sf http://localhost:3000/api/v2/buildinfo 2>/dev/null || echo 'Coder API not responding'" 2>&1 || echo "VERIFY FAILED"
 
-          echo "=== Listening ports ==="
-          $SSH "ss -tlnp | grep -E '(7080|3000|8080|443|80)' || echo NO_EXPECTED_PORTS"
-
-          echo "=== Verify Coder API ==="
-          $SSH 'curl -sf http://localhost:7080/api/v2/buildinfo 2>/dev/null || curl -sf http://localhost:3000/api/v2/buildinfo 2>/dev/null || curl -sf http://localhost:8080/api/v2/buildinfo 2>/dev/null || echo CODER_API_NOT_RESPONDING'
-
-      - name: Re-trigger SUMMIT dispatches
+      - name: Re-trigger SUMMIT 171 and 172
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "Removing and re-adding coder label to re-trigger coder-task.yml"
           for ISSUE in 171 172; do
             curl -s -X DELETE -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE/labels/coder" || true
+              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/labels/coder" || true
             sleep 2
-            curl -s -X POST -H "Authorization: token $GH_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '["coder"]' \
-              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE/labels"
-            echo "Re-triggered issue #$ISSUE"
+            curl -s -X POST -H "Authorization: token $GH_TOKEN" -H "Content-Type: application/json" \
+              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/labels" \
+              -d '["coder"]'
+            echo "Re-triggered SUMMIT #${ISSUE}"
           done
