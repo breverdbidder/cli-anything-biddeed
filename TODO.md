@@ -1,5 +1,27 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 58: Issue #199 — GHA-997331 summit-utcc-executor.yml failure (stale)
+**Date:** 2026-04-01
+**Issue:** breverdbidder/cli-anything-biddeed#199
+
+### Root cause (VERIFIED):
+- GHA-997331 failed before 2026-03-29T14:11Z
+- Cause 1: YAML syntax error in `.github/workflows/summit-utcc-executor.yml` — bare quotes at column 0 in large claude prompt caused 0 jobs parsed
+- Cause 2: Idempotency check for `utcc/registry.py` ran BEFORE git pull — stale/missing local clone on Hetzner triggered expensive claude build which timed out
+- Fix 1 already applied: commit `2c5b9cc0` (2026-03-29 14:11 UTC) — YAML syntax fix across 8 workflows
+- Fix 2 already applied: commit `5e9b056b` (2026-04-01) — git pull/clone moved before idempotency check
+
+### Verification (VERIFIED):
+- Current YAML: valid (python3 yaml.safe_load confirms) ✅
+- Idempotency guard: git pull runs before `if [ -f utcc/registry.py ]` check ✅
+- Both fixes in main ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, both fixes already in main
+- [x] Created close-stale-199.yml and pushed to main
+- [ ] BLOCKED: Cannot dispatch close workflow — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
 ## Session 57: Issue #198 — GHA-997411 utcc-build.yml failure (stale)
 **Date:** 2026-04-01
 **Issue:** breverdbidder/cli-anything-biddeed#198
