@@ -15,49 +15,38 @@ jobs:
           mkdir -p ~/.ssh
           echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
-          ssh-keyscan -H $HETZNER_IP >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H $HETZNER_IP >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=20 root@$HETZNER_IP 'bash -s' << 'REMOTEOF'
-          echo "=== SYSTEM RESOURCES ==="
+          cat > /tmp/remote.sh << 'SCRIPT'
+          echo "=== SYSTEM ==="
           free -h
           df -h /
           uptime
-
-          echo "=== DOCKER STATUS ==="
-          docker ps -a --format "table {{.Names}}\t{{.Status}}" 2>&1
-
-          echo "=== CODER LOGS (last 50) ==="
+          echo "=== DOCKER ==="
+          docker ps -a
+          echo "=== CODER LOGS ==="
           docker logs coder-coder-1 --tail 50 2>&1 || echo "no container"
-
-          echo "=== FIND COMPOSE ==="
-          find / -maxdepth 3 -name "docker-compose*" 2>/dev/null | head -10
-
-          echo "=== RESTART VIA COMPOSE ==="
-          for d in /root/coder /opt/coder /home/coder /root; do
-            if [ -f "$d/docker-compose.yml" ] || [ -f "$d/docker-compose.yaml" ]; then
-              echo "Using $d"
-              cd "$d"
-              docker compose down 2>&1 || true
-              sleep 5
-              docker compose up -d 2>&1 || true
-              break
-            fi
-          done
-
-          echo "=== HEALTH CHECK (2min) ==="
+          echo "=== COMPOSE FILES ==="
+          find / -maxdepth 3 -name "docker-compose*" 2>/dev/null
+          echo "=== RESTART ==="
+          cd /root/coder 2>/dev/null || cd /opt/coder 2>/dev/null || true
+          docker compose down 2>&1 || true
+          sleep 5
+          docker compose up -d 2>&1 || true
+          echo "=== HEALTH ==="
           for i in $(seq 1 60); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7080 --max-time 3 2>/dev/null)
-            if [ "$CODE" != "000" ] && [ "$CODE" != "" ]; then
-              echo "Attempt $i: HTTP $CODE — CODER IS UP"
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7080 --max-time 3 2>/dev/null || echo 000)
+            if [ "$CODE" != "000" ] && [ -n "$CODE" ]; then
+              echo "CODER UP: HTTP $CODE at attempt $i"
               exit 0
             fi
-            [ $((i % 10)) -eq 0 ] && echo "Attempt $i: still waiting..."
+            [ $((i % 10)) -eq 0 ] && echo "attempt $i: waiting..."
             sleep 2
           done
-
-          echo "=== FAILED — DIAGNOSTICS ==="
+          echo "=== FAILED ==="
           docker logs coder-coder-1 --tail 30 2>&1 || true
-          docker inspect coder-coder-1 --format '{{.State.ExitCode}} {{.State.Error}}' 2>/dev/null || true
-          echo "CODER DID NOT RECOVER"
           exit 1
-          REMOTEOF
+          SCRIPT
+
+          scp -i ~/.ssh/hetzner -o StrictHostKeyChecking=no /tmp/remote.sh root@$HETZNER_IP:/tmp/debug-coder.sh
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=20 root@$HETZNER_IP 'bash /tmp/debug-coder.sh'
