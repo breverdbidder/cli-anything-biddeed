@@ -1,48 +1,73 @@
-name: Fix Hetzner Coder Instance
+name: Setup Coder User and Re-trigger
 on:
   workflow_dispatch:
-
 jobs:
-  fix-coder:
+  setup:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: SSH diagnose and restart
+      - name: Setup Coder user via API
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
-          HETZNER_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          CODER_URL: ${{ secrets.CODER_URL }}
+          CODER_TOKEN: ${{ secrets.CODER_TOKEN }}
         run: |
           set +e
+          
+          echo "=== Check Coder API ==="
+          curl -sf -H "Coder-Session-Token: ${CODER_TOKEN}" "${CODER_URL}/api/v2/buildinfo" 2>&1 || echo "API check failed, trying via SSH"
+          
+          echo "=== SSH into Hetzner to configure Coder ==="
           mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner_key
+          chmod 600 ~/.ssh/hetzner_key
+          SSH="timeout 15 ssh -i ~/.ssh/hetzner_key -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
           
-          # Try SSH key first
-          if [ -n "$HETZNER_SSH_KEY" ]; then
-            echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner_key
-            chmod 600 ~/.ssh/hetzner_key
-            SSH="timeout 10 ssh -i ~/.ssh/hetzner_key -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
-          else
-            sudo apt-get install -y -qq sshpass
-            export SSHPASS="$HETZNER_PASSWORD"
-            SSH="timeout 10 sshpass -e ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
-          fi
+          echo "=== List existing Coder users ==="
+          $SSH "docker exec coder-coder-1 coder users list 2>/dev/null || echo 'coder CLI not in container'"
           
-          echo "=== Testing connectivity ==="
-          timeout 5 bash -c "echo > /dev/tcp/${HETZNER_IP}/22" 2>&1 && echo "PORT 22 OPEN" || echo "PORT 22 CLOSED/TIMEOUT"
+          echo "=== Try Coder API to list users ==="
+          CODER_USERS=$(curl -sf -H "Coder-Session-Token: ${CODER_TOKEN}" "${CODER_URL}/api/v2/users" 2>&1)
+          echo "$CODER_USERS" | python3 -c "
+          import json,sys
+          try:
+            d=json.load(sys.stdin)
+            users = d.get('users', d) if isinstance(d, dict) else d
+            if isinstance(users, list):
+              for u in users:
+                print(f'User: {u.get(\"username\",\"?\")} | ID: {u.get(\"id\",\"?\")} | Status: {u.get(\"status\",\"?\")}')
+            else:
+              print(f'Raw: {str(d)[:500]}')
+          except: print('Failed to parse users')" 2>&1
           
-          echo "=== Docker status ==="
-          $SSH "docker ps -a --format 'table {{.Names}}	{{.Status}}	{{.Ports}}'" 2>&1 || echo "SSH FAILED"
+          echo "=== List Coder templates ==="
+          curl -sf -H "Coder-Session-Token: ${CODER_TOKEN}" "${CODER_URL}/api/v2/organizations/default/templates" 2>&1 | python3 -c "
+          import json,sys
+          try:
+            templates=json.load(sys.stdin)
+            if isinstance(templates, list):
+              for t in templates:
+                print(f'Template: {t.get(\"name\",\"?\")} | ID: {t.get(\"id\",\"?\")}')
+            else:
+              print(f'Raw: {str(templates)[:500]}')
+          except: print('No templates found')" 2>&1
           
-          echo "=== Restart all containers ==="
-          $SSH "docker start \$(docker ps -a -q --filter status=exited) 2>/dev/null; docker restart \$(docker ps -a --filter name=coder -q) 2>/dev/null; systemctl restart coder 2>/dev/null; echo RESTART_DONE" 2>&1 || echo "RESTART FAILED"
-          
-          sleep 10
-          
-          echo "=== Verify ==="
-          $SSH "docker ps --format 'table {{.Names}}	{{.Status}}'; curl -sf http://localhost:7080/api/v2/buildinfo 2>/dev/null || curl -sf http://localhost:3000/api/v2/buildinfo 2>/dev/null || echo 'Coder API not responding'" 2>&1 || echo "VERIFY FAILED"
+          echo "=== Create GitHub-linked user ==="
+          curl -sf -X POST -H "Coder-Session-Token: ${CODER_TOKEN}" -H "Content-Type: application/json" \
+            "${CODER_URL}/api/v2/users" \
+            -d '{"username":"ariel","name":"Ariel Shapira","email":"ariel@everestcapitalusa.com","password":"temp-change-me-now","login_type":"password","disable_login":false,"organization_ids":[]}' 2>&1 || echo "User creation response above"
 
-      - name: Re-trigger SUMMIT 171 and 172
-        if: success()
+          echo "=== Link GitHub identity ==="
+          # Get the user ID first
+          USER_ID=$(curl -sf -H "Coder-Session-Token: ${CODER_TOKEN}" "${CODER_URL}/api/v2/users/ariel" 2>&1 | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+          echo "User ID: $USER_ID"
+          
+          echo "=== DONE - Manual steps may be needed ==="
+          echo "If user creation failed, you may need to link GitHub OAuth in Coder admin UI"
+
+      - name: Re-trigger SUMMITs
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
@@ -53,5 +78,5 @@ jobs:
             curl -s -X POST -H "Authorization: token $GH_TOKEN" -H "Content-Type: application/json" \
               "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/labels" \
               -d '["coder"]'
-            echo "Re-triggered SUMMIT #${ISSUE}"
+            echo "Re-triggered #${ISSUE}"
           done
