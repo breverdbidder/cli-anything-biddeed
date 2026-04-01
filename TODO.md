@@ -1,5 +1,26 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 56: Issue #197 — GHA-997602 weekly-health.yml failure (stale)
+**Date:** 2026-04-01
+**Issue:** breverdbidder/cli-anything-biddeed#197
+
+### Root cause (VERIFIED):
+- GHA run 23709997602 failed on 2026-03-29T13:21Z (and 23710084631 at 13:26Z)
+- Cause: YAML syntax error in `.github/workflows/weekly-health.yml` — bare quotes at column 0 in Dream skill health check step caused 0 jobs to be parsed
+- Fix already applied: commit `2c5b9cc0` (2026-03-29 14:11 UTC) — fixed bare quotes → `\n` escape sequences
+
+### Verification (VERIFIED):
+- Run 23824760004 (2026-03-31): conclusion=success ✅
+- Run 23745609304 (2026-03-30): conclusion=success ✅
+- Run 23733431943 (2026-03-30): conclusion=success ✅
+- Local: 234 passed, 6 skipped. All CLIs callable. LangGraph pipeline=complete ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, YAML fix already in main, workflow passing
+- [x] Created close-stale-197.yml and pushed to main
+- [ ] BLOCKED: Cannot dispatch close workflow — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
 ## Session 55: Issue #157 — GHA-726909 Fix BidDeed DNS (stale)
 **Date:** 2026-04-01
 **Issue:** breverdbidder/cli-anything-biddeed#157
