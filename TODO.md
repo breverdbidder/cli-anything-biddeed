@@ -1,5 +1,26 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 57: Issue #198 — GHA-997411 utcc-build.yml failure (stale)
+**Date:** 2026-04-01
+**Issue:** breverdbidder/cli-anything-biddeed#198
+
+### Root cause (VERIFIED):
+- GHA runs 23709807689–23710084702 failed between 2026-03-29T12:12–13:26Z (event: push)
+- Cause: YAML syntax error in `.github/workflows/utcc-build.yml` — multi-line Claude prompt with content at column 0 caused 0 jobs to be parsed
+- Fix already applied: commit `2c5b9cc0` (2026-03-29 14:11 UTC) — collapsed multi-line prompt to single line with `\n` escapes
+- Further improved: commit `12ea2bb7` — pull repo before idempotency check (fix #151)
+
+### Verification (VERIFIED):
+- Current YAML: valid (python3 yaml.safe_load confirms) ✅
+- Triggers: repository_dispatch only (push trigger removed — no more spurious runs) ✅
+- No failed runs after 2026-03-29 14:11 UTC ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, YAML fix already in main (commit 2c5b9cc0)
+- [x] Updated TODO.md with session 57 notes
+- [x] Committed and pushed session notes
+- [ ] BLOCKED: Cannot comment on issue #198 — no GH_TOKEN in environment
+
 ## Session 56: Issue #197 — GHA-997602 weekly-health.yml failure (stale)
 **Date:** 2026-04-01
 **Issue:** breverdbidder/cli-anything-biddeed#197
