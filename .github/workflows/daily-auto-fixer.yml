@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install deps
-        run: pip install requests --break-system-packages -q
+        run: python3 -m pip install requests --break-system-packages -q
 
       - name: Auto-fix open items
         env:
@@ -66,9 +66,9 @@ jobs:
                               try:
                                   wf_list = requests.get(f"https://api.github.com/repos/breverdbidder/{repo}/actions/workflows?per_page=100", headers=gh_h, timeout=10).json().get("workflows", [])
                                   for w in wf_list:
-                                      if w["name"] == wf_name and w["state"] == "active":
+                                      if w["name"] == wf and w["state"] == "active":
                                           dr = requests.put(f"https://api.github.com/repos/breverdbidder/{repo}/actions/workflows/{w['id']}/disable", headers=gh_h, timeout=10)
-                                          if dr.status_code == 204: fixes.append(f"🔧 DISABLED {repo}/{wf_name}")
+                                          if dr.status_code == 204: fixes.append(f"🔧 DISABLED {repo}/{wf}")
                                           break
                               except: pass
                           stale_wf_fixed += 1
