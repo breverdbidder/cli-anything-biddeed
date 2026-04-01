@@ -1,5 +1,24 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 60: Issue #201 — GHA-997117 daily-checkpoint.yml failure (stale)
+**Date:** 2026-04-01
+**Issue:** breverdbidder/cli-anything-biddeed#201
+
+### Root cause (VERIFIED):
+- GHA-997117 failed before 2026-03-29T14:11Z
+- Cause: YAML syntax errors in `daily-checkpoint.yml` — f-string closing quotes at col 0 (11 fixes) + content at col 0 (5 fixes) caused 0 jobs parsed
+- Fix already applied: commit `2c5b9cc0` (2026-03-29 14:11 UTC) — YAML syntax fix across 8 workflows including daily-checkpoint.yml
+
+### Verification (VERIFIED):
+- Current YAML: valid (`python3 yaml.safe_load` confirms) ✅
+- `daily-checkpoint.yml` listed in commit `2c5b9cc0` fix ✅
+- Fix in main ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, fix already in main (commit 2c5b9cc0)
+- [ ] BLOCKED: Cannot comment on issue — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
 ## Session 59: Issue #200 — GHA-997519 utcc-dispatcher.yml failure (stale)
 **Date:** 2026-04-01
 **Issue:** breverdbidder/cli-anything-biddeed#200
