@@ -1,0 +1,92 @@
+name: "Fix Coder User Setup — One-Shot"
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-coder-user:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install sshpass
+        run: sudo apt-get install -y -qq sshpass
+
+      - name: Create Coder user linked to GitHub
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          export SSHPASS="$HETZNER_PASSWORD"
+          SSH="sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
+
+          echo "=== Coder API health ==="
+          $SSH "curl -sf http://localhost:7080/api/v2/buildinfo | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\"version\"])'"
+
+          echo "=== Check existing users ==="
+          $SSH "docker exec coder-coder-1 coder users list 2>/dev/null || echo 'Trying alternate...'"
+
+          echo "=== Get first user / create if needed ==="
+          $SSH '
+            export CODER_URL=http://localhost:7080
+            
+            # Check if any admin user exists
+            USERS=$(curl -sf http://localhost:7080/api/v2/users 2>/dev/null)
+            if [ -z "$USERS" ] || echo "$USERS" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get(\"count\",0)==0 else 1)" 2>/dev/null; then
+              echo "No users exist. Creating first user (admin)..."
+              curl -sf -X POST http://localhost:7080/api/v2/users/first \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"email\": \"ariel@everestcapitalusa.com\",
+                  \"username\": \"ariel\",
+                  \"name\": \"Ariel Shapira\",
+                  \"password\": \"Everest2026!Coder\",
+                  \"trial\": false
+                }" && echo "ADMIN_CREATED"
+            else
+              echo "Users already exist"
+              echo "$USERS" | python3 -c "import json,sys; d=json.load(sys.stdin); [print(f\"  {u.get(\"username\",\"\")} id={u.get(\"id\",\"\")} status={u.get(\"status\",\"\")}\") for u in d.get(\"users\",[])]" 2>/dev/null || true
+            fi
+          '
+
+          echo "=== Login and get session token ==="
+          $SSH '
+            TOKEN=$(curl -sf -X POST http://localhost:7080/api/v2/users/login \
+              -H "Content-Type: application/json" \
+              -d "{\"email\": \"ariel@everestcapitalusa.com\", \"password\": \"Everest2026!Coder\"}" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin).get(\"session_token\",\"\"))")
+            
+            if [ -n "$TOKEN" ]; then
+              echo "SESSION_TOKEN_OK"
+              
+              # Link GitHub identity (user ID 245927826)
+              echo "=== Linking GitHub identity ==="
+              # Get user ID first
+              ME=$(curl -sf http://localhost:7080/api/v2/users/me \
+                -H "Coder-Session-Token: $TOKEN")
+              USER_ID=$(echo "$ME" | python3 -c "import json,sys; print(json.load(sys.stdin).get(\"id\",\"\"))")
+              echo "Coder user ID: $USER_ID"
+              
+              # Check auth methods
+              curl -sf http://localhost:7080/api/v2/users/me \
+                -H "Coder-Session-Token: $TOKEN" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(f\"Username: {d.get(\"username\",\"\")}\")
+print(f\"Email: {d.get(\"email\",\"\")}\")
+print(f\"Status: {d.get(\"status\",\"\")}\")
+print(f\"Login Type: {d.get(\"login_type\",\"\")}\")
+"
+
+              # Store token for later use
+              echo "CODER_SESSION=$TOKEN"
+            else
+              echo "LOGIN_FAILED"
+            fi
+          '
+
+          echo "=== Configure GitHub OAuth on Coder ==="
+          $SSH '
+            # Check current Coder config for GitHub OAuth
+            docker exec coder-coder-1 env | grep -i github || echo "No GitHub OAuth configured"
+            docker exec coder-coder-1 env | grep -i CODER_OAUTH || echo "No OAuth env vars"
+            docker exec coder-coder-1 env | grep -i CODER_EXTERNAL || echo "No external auth"
+          '
