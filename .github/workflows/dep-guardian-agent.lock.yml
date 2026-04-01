@@ -551,6 +551,7 @@ jobs:
         run: bash ${RUNNER_TEMP}/gh-aw/actions/clean_git_credentials.sh
       - name: Execute Claude Code CLI
         id: agentic_execution
+        continue-on-error: true
         # Allowed tools (sorted):
         # - Bash
         # - BashOutput
@@ -648,6 +649,14 @@ jobs:
           GIT_COMMITTER_NAME: github-actions[bot]
           MCP_TIMEOUT: 120000
           MCP_TOOL_TIMEOUT: 60000
+      - name: Detect billing error
+        id: billing_check
+        if: steps.agentic_execution.outcome == 'failure'
+        run: |
+          if grep -q '"error":"billing_error"\|Credit balance is too low' /tmp/gh-aw/agent-stdio.log 2>/dev/null; then
+            echo "::warning::ANTHROPIC_API_KEY has insufficient credit balance. Top up at console.anthropic.com."
+            echo "billing_error=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Configure Git credentials
         env:
           REPO_NAME: ${{ github.repository }}
