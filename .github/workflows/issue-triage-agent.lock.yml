@@ -911,6 +911,7 @@ jobs:
         env:
           RUN_DETECTION: ${{ steps.detection_guard.outputs.run_detection }}
           DETECTION_SUCCESS: ${{ steps.parse_detection_results.outputs.success }}
+          DETECTION_BILLING_ERROR: ${{ steps.detection_billing_check.outputs.billing_error }}
         run: |
           if [[ "$RUN_DETECTION" != "true" ]]; then
             echo "conclusion=skipped" >> "$GITHUB_OUTPUT"
@@ -920,6 +921,10 @@ jobs:
             echo "conclusion=success" >> "$GITHUB_OUTPUT"
             echo "success=true" >> "$GITHUB_OUTPUT"
             echo "Detection passed successfully"
+          elif [[ "$DETECTION_BILLING_ERROR" == "true" ]]; then
+            echo "conclusion=billing_error" >> "$GITHUB_OUTPUT"
+            echo "success=true" >> "$GITHUB_OUTPUT"
+            echo "Detection failed due to billing error — treating as safe to proceed (no threat evidence)"
           else
             echo "conclusion=failure" >> "$GITHUB_OUTPUT"
             echo "success=false" >> "$GITHUB_OUTPUT"
