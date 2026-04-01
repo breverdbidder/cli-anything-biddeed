@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install deps
-        run: pip install xgboost numpy requests -q
+        run: pip install xgboost numpy requests scikit-learn -q
       
       - name: Run Chat Intelligence Pipeline
         run: |
