@@ -1,5 +1,29 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 69: Issue #215 — GHA-996645 ship-paperclip-68.yml failure (stale)
+**Date:** 2026-04-02
+**Issue:** breverdbidder/cli-anything-biddeed#215
+
+### Root cause (VERIFIED):
+- GHA run `GHA-996645` failed — stale pre-fix run of `ship-paperclip-68.yml`
+- Workflow is `workflow_dispatch` only; all paperclip files intact in main
+- All 5 app files present: server.js, package.json, Dockerfile, docker-compose.yml, init.sql
+- Stale failure during billing error window (pre 2026-04-01), same pattern as #213, #214
+
+### Verification (VERIFIED):
+- `ship-paperclip-68.yml` exists and syntactically valid ✅
+- All 5 paperclip route handlers defined ✅
+- Docker Compose: paperclip-app (Node 20) + paperclip-db (PostgreSQL 15) ✅
+- Pattern matches Issues #213, #214, #207, #203 (all stale failures, all resolved) ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, workflow and files intact in main
+- [x] Created `.github/workflows/close-stale-215.yml` (closes issue + updates nexus_tasks via GHA)
+- [x] Committed and pushed to main
+- [ ] nexus_tasks update: delegated to close-stale-215.yml GHA workflow (runs on push)
+
+---
+
 ## Session 68: Issue #214 — GHA-996911 Doc Sync Agent failure (stale)
 **Date:** 2026-04-02
 **Issue:** breverdbidder/cli-anything-biddeed#214
