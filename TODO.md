@@ -1,5 +1,27 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 68: Issue #214 — GHA-996911 Doc Sync Agent failure (stale)
+**Date:** 2026-04-02
+**Issue:** breverdbidder/cli-anything-biddeed#214
+
+### Root cause (VERIFIED):
+- GHA run `GHA-996911` failed — stale pre-fix run of `Doc Sync Agent` in cli-anything-biddeed
+- Fix already applied: commit `bdfd9bf7` (2026-04-01, Issue #159): `continue-on-error: true` added to Execute Claude Code CLI step
+- Billing fix confirmed in `doc-sync-agent.lock.yml`: `continue-on-error` at line 564, `Detect billing error` at line 662
+
+### Verification (VERIFIED):
+- `grep -n "continue-on-error" doc-sync-agent.lock.yml` → line 564 ✅
+- `grep -n "Detect billing error" doc-sync-agent.lock.yml` → line 662 ✅
+- Pattern matches Issues #213, #185-188 (all stale billing failures, all resolved) ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, billing fix already in main (commit bdfd9bf7)
+- [x] Created `.github/workflows/close-stale-214.yml` (closes issue + updates nexus_tasks via GHA)
+- [x] Committed `f247e763` and pushed to main
+- [ ] nexus_tasks update: delegated to close-stale-214.yml GHA workflow (runs on push)
+
+---
+
 ## Session 67: Issue #209 — GHA-084499 summit-utcc-executor.yml failure (stale)
 **Date:** 2026-04-02
 **Issue:** breverdbidder/cli-anything-biddeed#209
