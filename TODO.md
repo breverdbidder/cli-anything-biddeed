@@ -1,5 +1,29 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 67: Issue #209 — GHA-084499 summit-utcc-executor.yml failure (stale)
+**Date:** 2026-04-02
+**Issue:** breverdbidder/cli-anything-biddeed#209
+
+### Root cause (VERIFIED):
+- GHA run `23710084499` failed — stale pre-fix run of `summit-utcc-executor.yml`
+- Fix already applied: commit `f18b122c` (session 58, Issue #199 — same workflow, same failure)
+- `utcc/registry.py` EXISTS — idempotency check confirms UTCC already built ✅
+- Current workflow has `git pull` before idempotency check — correct ✅
+
+### Verification (VERIFIED):
+- Failing run GHA-084499: predates commit `f18b122c` ✅
+- `utcc/registry.py` present → workflow would exit 0 on any new run ✅
+- git log confirms 9+ sessions of stale-failure resolutions, same pattern ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, fix already in main (commit f18b122c)
+- [x] Commented on issue with diagnosis
+- [x] Closed issue #209
+- [x] Updated TODO.md with session 67 notes
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
+---
+
 ## Session 66: Issue #208 — GHA-084399 autoloop.yml failure (stale)
 **Date:** 2026-04-02
 **Issue:** breverdbidder/cli-anything-biddeed#208
