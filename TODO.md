@@ -1,5 +1,27 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 64: Issue #206 — GHA-084702 utcc-build.yml failure (stale)
+**Date:** 2026-04-02
+**Issue:** breverdbidder/cli-anything-biddeed#206
+
+### Root cause (VERIFIED):
+- GHA-084702 failed before 2026-03-29T14:11Z
+- Cause: YAML syntax error in `.github/workflows/utcc-build.yml` — same root cause as Issue #198 (Session 57)
+- Fix already applied: commit `2c5b9cc0` (2026-03-29 14:11 UTC) — YAML syntax fix across 8 workflows including utcc-build.yml
+- Further improved: commit `12ea2bb7` — pull repo before idempotency check (fix #151)
+
+### Verification (VERIFIED):
+- Current YAML: valid (`python3 yaml.safe_load` confirms) ✅
+- `utcc-build.yml` previously fixed in commit `2c5b9cc0` ✅
+- Identical pattern to Session 57 (Issue #198): stale run predates fix commit ✅
+- Fix in main ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, fix already in main (commit 2c5b9cc0)
+- [x] Updated TODO.md with session 64 notes
+- [ ] BLOCKED: Cannot comment on issue — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
 ## Session 63: Issue #205 — GHA-084631 weekly-health.yml failure (stale)
 **Date:** 2026-04-02
 **Issue:** breverdbidder/cli-anything-biddeed#205
