@@ -1,5 +1,27 @@
 # CLI-Anything BidDeed — TODO ✅ COMPLETE
 
+## Session 65: Issue #207 — GHA-084321 deploy-paperclip.yml failure (stale)
+**Date:** 2026-04-02
+**Issue:** breverdbidder/cli-anything-biddeed#207
+
+### Root cause (VERIFIED):
+- GHA-084321 failed before 2026-03-29T14:11Z
+- Cause: YAML syntax error in `.github/workflows/deploy-paperclip.yml` — multi-line BODY var + Python heredoc with content at col 0 caused 0 jobs parsed
+- Fix already applied: commit `2c5b9cc0` (2026-03-29 14:11 UTC) — YAML syntax fix across 8 workflows including deploy-paperclip.yml
+- Identical pattern to Session 61 (Issue #203, GHA-950854) — same workflow, same root cause
+
+### Verification (VERIFIED):
+- Current YAML: valid (`python3 yaml.safe_load` confirms) ✅
+- `deploy-paperclip.yml` explicitly listed in commit `2c5b9cc0` fix ✅
+- Failing run GHA-084321 predates fix commit — stale pre-fix failure ✅
+- 11 fix commits applied to deploy-paperclip.yml since initial creation ✅
+
+### Actions taken:
+- [x] Diagnosed: stale issue, fix already in main (commit 2c5b9cc0)
+- [x] Updated TODO.md with session 65 notes
+- [ ] BLOCKED: Cannot comment on issue — no GH_TOKEN in environment
+- [ ] BLOCKED: Cannot update nexus_tasks — no SUPABASE_KEY in environment
+
 ## Session 64: Issue #206 — GHA-084702 utcc-build.yml failure (stale)
 **Date:** 2026-04-02
 **Issue:** breverdbidder/cli-anything-biddeed#206
