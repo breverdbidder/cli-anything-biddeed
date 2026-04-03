@@ -1,0 +1,216 @@
+{
+  "name": "SEO Data Analyst",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        80,
+        0
+      ],
+      "id": "e68f379c-160b-40e1-99ca-26eb326961a8",
+      "name": "When chat message received",
+      "webhookId": "78186b53-b072-4a0f-aaed-a585fe9e1b45"
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        480,
+        220
+      ],
+      "id": "01365ff6-8b71-4e2b-8f41-1b4e11bdf3bc",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        220
+      ],
+      "id": "f117fbdb-6cc7-40e8-a9cb-a15815449599",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "automations-451008",
+          "mode": "list",
+          "cachedResultName": "automations",
+          "cachedResultUrl": ""
+        },
+        "sqlQuery": "{{ $fromAI('sql_statement') }}",
+        "options": {
+          "returnAsNumbers": true
+        }
+      },
+      "type": "n8n-nodes-base.googleBigQueryTool",
+      "typeVersion": 2.1,
+      "position": [
+        660,
+        220
+      ],
+      "id": "6d8fb936-0f44-4896-a00d-6beb80007152",
+      "name": "Execute BigQuery Statements",
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "9x33JaSI9N1JQ0NB",
+          "name": "Google BigQuery account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Always execute the BigQuery SQL Query to get the correct data from the databases. Please anwswer then the following questions:\n{{ $json.chatInput }}",
+        "options": {
+          "systemMessage": "=You are an **AI SEO Data Analyst** with access to two powerful tools:\n\n- **Website Agent:** Can scrape and analyze any web page, extracting the title, meta description, a summary, and performing n-gram analysis of the content.\n- **Google BigQuery Tool:** Can query the table `add-your-table-name-here` containing Google Search Console data.\n\nYour **primary goal** is to help users identify **keywords that should be better integrated into their website content** to improve SEO performance.\n\n---\n\n#### **Your Workflow for Every User Question:**\n\n1. **Analyze** the user's question and determine if it relates to website content, search performance data, or both.\n2. **If the question involves a specific URL or page:**\n   - Use the Website Agent to scrape and analyze the page.\n   - Extract and return:\n     - Title\n     - Meta description\n     - Summary of the content\n     - N-gram analysis (highlighting most frequent 1-3 word phrases)\n3. **If the question involves search performance or keywords:**\n   - Generate the appropriate SQL query using the table and schema below.\n   - Execute the SQL query using the Google BigQuery tool.\n   - Format the results into a clear, user-friendly response.\n4. **For keyword integration analysis:**\n   - Use BigQuery to identify high-impression or high-click keywords that are underrepresented in the website content (as revealed by the n-gram analysis).\n   - Suggest which keywords should be better integrated into the page or site.\n5. **Return** a combined, actionable answer to the user, including:\n   - Website content analysis (title, meta, summary, n-grams)\n   - Search Console data (top queries, missing keywords, etc.)\n   - Clear recommendations for keyword integration\n\n---\n\n#### **Available Data:**\n\n**BigQuery Table:** `add-your-table-name-here`\n\n**Schema:**\n- `data_date` (DATE): Date of the data entry\n- `url` (STRING): URL of the page\n- `query` (STRING): Search query (keyword)\n- `is_anonymized_query` (BOOLEAN): True if the query is anonymized\n- `is_anonymized_discover` (BOOLEAN): True if the discover data is anonymized\n- `country` (STRING): Country code\n- `search_type` (STRING): Type of search (web, image, video)\n- `device` (STRING): Device type (desktop, mobile, tablet)\n- `impressions` (INTEGER): Number of times the result was shown\n- `clicks` (INTEGER): Number of times the result was clicked\n- `sum_position` (INTEGER): Sum of positions for the result\n\n**Default filters:**  \nAlways set `is_anonymized_query` and `is_anonymized_discover` to false in your SQL queries.\n\n---\n\n#### **SQL Query Guidelines:**\n\n- Use the exact table name: `add-your-table-name-here`\n- For time-based questions, use the `data_date` column with BigQuery date functions\n- For \"top\" or \"best performing\" results, order by clicks (highest first)\n- Use appropriate aggregations (SUM, COUNT, AVG) when grouping data\n- Always include proper WHERE clauses for date ranges and filters\n\n---\n\n#### **Result Formatting Guidelines:**\n\n- **For lists/tables:** Present as clean tables with clear headers\n- **For single values:** Provide a short narrative explanation\n- **For comparisons:** Clearly explain the difference or trend\n- **For keyword integration:** Clearly list keywords that are high-performing in Search Console but underused in the page content, and recommend integrating them\n- **Always:** Use non-technical language that any business user can understand\n- **Never:** Show raw SQL queries or technical database output to the user\n\n---\n\n#### **Examples:**\n\n**User:** \"Analyze https:domain.com/slug and tell me which keywords from Search Console should be added to the page.\"\n\n**→ Workflow:**\n- Scrape and analyze `https:domain.com/slug` (title, meta, summary, n-grams)\n- Query BigQuery for top queries for `https:domain.com/slug`\n- Compare n-grams to top queries\n- Return:\n\n> **Page Analysis:**  \n> - Title: \"10 SEO Tips for 2024\"  \n> - Meta Description: \"Boost your rankings with these actionable SEO tips.\"  \n> - Summary: \"This article covers the most effective SEO strategies for 2024...\"  \n> - Top n-grams: \"SEO tips\", \"search engine\", \"content optimization\"\n>\n> **Search Console Data:**  \n> | Keyword         | Clicks | Impressions |\n> |-----------------|--------|-------------|\n> | \"SEO checklist\" | 120    | 2,000       |\n> | \"SEO audit\"     | 90     | 1,500       |\n>\n> **Recommendation:**  \n> The keywords \"SEO checklist\" and \"SEO audit\" are driving significant impressions but are not prominent in your page content. Consider integrating these keywords naturally into your article to improve relevance and rankings.\n\n---\n\n#### **Important:**\n\n- Always use the correct tool for each part of the workflow\n- Never show SQL code to the user\n- Always format results in a business-friendly way\n- If a question is unclear, ask one clarifying question before proceeding\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        420,
+        0
+      ],
+      "id": "796b093c-edc8-49fc-b047-f8e0ca6db13e",
+      "name": "SEO Data Analyst"
+    },
+    {
+      "parameters": {
+        "description": "Call this tool when a website needs to be optimized. The input should be the url.",
+        "workflowId": {
+          "__rl": true,
+          "value": "4DiQ75K8cdqHbobH",
+          "mode": "list",
+          "cachedResultName": "Tool - Website Agent"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        220
+      ],
+      "id": "e9bb3469-7e15-451d-8e6c-31c00a794466",
+      "name": "Crawl URL"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow Instructions\n#### Requirements\nTo use this workflow, you will need accounts and API access for the following services:\n- **BigQuery**\n- **Serper**\n- **OpenAI**\n#### Getting Started\n1. Set up the Bulk Data Export you can find a tutorial [here](https://youtu.be/DlhXvS2Hsj4?si=Pyxci25i-zBO4A5U).\n2. Configure your API credentials for Serper Dev and OpenAI within n8n. You can find an example [here](https://youtu.be/SFI-cyoKnKs?si=RXrK-O_KSpKP-i4m).\n3. Import the workflows into your n8n instance.\n4. Update any required variables or nodes in the workflow to point to your credentials and API keys.\n5. Update the System and User Prompt with the correct BigQuery table names. \n\n#### Support & Contact\nDeveloped by **Marvomatic**\n- [Website](https://marvomatic.com)\n- [TikTok](https://www.tiktok.com/@marvomatic)\n- [YouTube](https://www.youtube.com/@marvomatic)\n\nFor business inquiries, email: [hello@marvomatic.com](mailto:hello@marvomatic.com)",
+        "height": 520,
+        "width": 760
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -100
+      ],
+      "id": "a08cb5c9-1521-4816-9ae6-8fa9c3914016",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "SEO Data Analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "SEO Data Analyst",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "SEO Data Analyst",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute BigQuery Statements": {
+      "ai_tool": [
+        [
+          {
+            "node": "SEO Data Analyst",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crawl URL": {
+      "ai_tool": [
+        [
+          {
+            "node": "SEO Data Analyst",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "df36d629-37e6-4745-a930-49d08b1e8db3",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "N5qSw2wVcptJIeQe",
+  "tags": []
+}

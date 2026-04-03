@@ -1,0 +1,1211 @@
+{
+  "name": "SERP Analysis Template",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Keyword Research Form",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Focus Keyword",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "de"
+                  },
+                  {
+                    "option": "us"
+                  },
+                  {}
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -880,
+        940
+      ],
+      "id": "b93168f8-109d-4014-9ec8-661086b9c4ad",
+      "name": "On form submission",
+      "webhookId": "92522c0f-d6a1-4d0d-aff7-eb5db34ee8e0"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json['Focus Keyword'] }}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $json.Country }}"
+            },
+            {
+              "name": "device",
+              "value": "DESKTOP"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -660,
+        1040
+      ],
+      "id": "67331a54-782c-4e11-a3c8-5441d65ded74",
+      "name": "get_desktop_serp_results"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json['Focus Keyword'] }}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $json.Country }}"
+            },
+            {
+              "name": "device",
+              "value": "mobile"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -660,
+        820
+      ],
+      "id": "990a8da4-2021-4663-8416-09dbfafbe98c",
+      "name": "get_mobile_serp_results"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fcf16964-061d-4c9e-82c6-954e769e899c",
+              "name": "organic_results",
+              "value": "={{ $json.organic_results }}",
+              "type": "array"
+            },
+            {
+              "id": "44fba0e5-686c-4475-89dd-66f711bf910c",
+              "name": "search_parameters.device",
+              "value": "={{ $json.search_parameters.device }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        820
+      ],
+      "id": "f9875911-5b24-4584-b161-a5d0a4978fb1",
+      "name": "get_organic_results_by_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e76a9070-4782-4a54-84b6-bce1eb50023d",
+              "name": "organic_results",
+              "value": "={{ $json.organic_results }}",
+              "type": "array"
+            },
+            {
+              "id": "64fffe61-bb13-47e6-9555-c8adb9c3762d",
+              "name": "search_parameters.device",
+              "value": "={{ $json.search_parameters.device }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -460,
+        1040
+      ],
+      "id": "97f9f45d-c6a7-47fd-9377-ab0261f673b5",
+      "name": "get_organic_results_by_desktop"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_questions",
+              "value": "={{ $json.related_questions }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        640
+      ],
+      "id": "228b96fa-9d26-474c-8105-af5d565beb34",
+      "name": "get_faq_by_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_questions",
+              "value": "={{ $json.related_questions }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -460,
+        1260
+      ],
+      "id": "40066e50-cfe3-4fff-8afb-8661d75a0592",
+      "name": "get_faq_by_desktop"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        820
+      ],
+      "id": "ee22525b-fb1d-492e-8c6c-65665c705ca7",
+      "name": "top_3_by_mobile"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1040
+      ],
+      "id": "18964edb-4e1c-46f5-9a84-eefcc5ab2119",
+      "name": "top_3_by_desktop"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        40,
+        780
+      ],
+      "id": "f07e0e80-7ab1-4631-8d12-0eabb82dbc4d",
+      "name": "get_urls_to_crawl"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        40,
+        1080
+      ],
+      "id": "21ae683d-b280-4250-9fd9-53cf4fceaacd",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crawl4ai:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "urls",
+              "value": "={{ $json.link }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        1100
+      ],
+      "id": "8f051515-5b35-49b7-bb09-7da492daf249",
+      "name": "get_page_content"
+    },
+    {
+      "parameters": {
+        "url": "=http://crawl4ai:11235/task/{{ $json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        1100
+      ],
+      "id": "07f77190-2241-41aa-b731-4049dd1274c4",
+      "name": "get_status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "100015ac-f73c-406d-acd5-49a41d60111a",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        1100
+      ],
+      "id": "c0e6afbf-12a1-4d25-b335-dc0111fe1480",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4eec2c04-b519-4c06-a911-bb7780b776b5",
+              "name": "result.metadata.title",
+              "value": "={{ $('get_status').item.json.result.metadata.title }}",
+              "type": "string"
+            },
+            {
+              "id": "0eac8d67-34d9-4809-92fc-69f47381e104",
+              "name": "result.metadata.description",
+              "value": "={{ $('get_status').item.json.result.metadata.description }}",
+              "type": "string"
+            },
+            {
+              "id": "58b74b11-74f8-42e3-b68f-a2aa4c380578",
+              "name": "result.metadata['og:url']",
+              "value": "={{ $('get_status').item.json.result.metadata['og:url'] }}",
+              "type": "string"
+            },
+            {
+              "id": "f57680c0-48ed-492f-a1d9-508a0c996198",
+              "name": "result.cleaned_html",
+              "value": "={{ $('get_status').item.json.result.cleaned_html }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1160,
+        1040
+      ],
+      "id": "c097144a-cc69-4061-a720-a1f94d91ab3b",
+      "name": "get_metadata"
+    },
+    {
+      "parameters": {
+        "html": "={{ $json.result.cleaned_html }}",
+        "destinationKey": "content",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.markdown",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        1200
+      ],
+      "id": "52102ba3-90b5-4ff7-b368-469c0c79baff",
+      "name": "get_content_as_markdown"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        540,
+        1100
+      ],
+      "id": "0e696748-e2cb-4767-b532-83eb429f2906",
+      "name": "wait_5_sec_0",
+      "webhookId": "28064a82-1e4e-41f5-bdd9-7cf011034260"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic_results",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        200,
+        780
+      ],
+      "id": "5380bee4-e5ed-4022-9771-6858fe1af7ea",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "link",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        520,
+        780
+      ],
+      "id": "ef611ef3-164c-4fed-81d2-e724af8438a2",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a SEO-specialist and your task is to analyze the articles from our competitors. The ultimate goal is to write an article that is better than the competitors article. Apart from that, you are familiar with markdown and you are able to extract only relevant content.",
+              "role": "system"
+            },
+            {
+              "content": "=Your task is to analyze the following <article> =  {{ $json.content }} and provide me the following information:\n- Short Summary\n- Potential Focus Keyword\n- Relevant long-tail keywords\n- N-Gram-Analysis\n"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1620,
+        1200
+      ],
+      "id": "97b7b8c9-855c-4d83-a06f-3ff07f6213b6",
+      "name": "OpenAI"
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        360,
+        780
+      ],
+      "id": "f55ec09b-332d-416e-aad5-e824dea44efd",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "content": "# Get SERPs by Keyword and Country",
+        "height": 840,
+        "width": 840
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        580
+      ],
+      "id": "2bf16ade-d73d-463b-9d72-8084e92b90ec",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Prepare SERPs for Crawling and Analysis",
+        "height": 400,
+        "width": 820,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        580
+      ],
+      "id": "5767bdeb-11b2-45aa-9edb-56aaf4665dd2",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Crawl Pages with Crawl4ai",
+        "height": 420,
+        "width": 2240,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        1000
+      ],
+      "id": "c5414411-56e7-4307-ab8c-a1f2abf852e9",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# Save Results to Google Sheets",
+        "height": 920,
+        "width": 1020
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3060,
+        -360
+      ],
+      "id": "04fe31ac-9da9-4814-a493-a90473942ed9",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "### Google Sheets\n\nCreate a sheet called \"SERPs\" with the following columns:\n- position\n- title\n- link\n- snippet\n- short_summary\n- potential_focus_keyword\n- relevant_long_tail_keywords\n- unigrams\n- bigrams\n- trigrams",
+        "width": 400
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        1020
+      ],
+      "id": "4d2a7420-a20e-4c62-a0cd-8563c72ef2cc",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "### Limit\n\nSet a limit when testing the workflow to save computing costs and token usage.",
+        "height": 120,
+        "width": 220
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        360,
+        640
+      ],
+      "id": "5b6f6a69-fe05-4a8a-82a0-73bb799e2276",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        920,
+        680
+      ],
+      "id": "e73f5aac-00c8-4e5c-b6b1-d05cd18d452f",
+      "name": "merge_faq"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "related_questions",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1140,
+        680
+      ],
+      "id": "f024e1c0-1b30-457e-8a76-e216ddab21ac",
+      "name": "get_questions"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "question",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        680
+      ],
+      "id": "ffa44fad-d363-40db-b94d-8fbd16edab19",
+      "name": "remove_duplicates_in_questions"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1580,
+        680
+      ],
+      "id": "4a3183c1-a045-4d8a-aae6-9fde63d5500e",
+      "name": "loop_over_questions"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1h9qtlFg5vYVWAvY6iUliFzHQaOAyDQ4kboutM6Zlj6w",
+          "mode": "list",
+          "cachedResultName": "Keyword Research",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1h9qtlFg5vYVWAvY6iUliFzHQaOAyDQ4kboutM6Zlj6w/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 738525081,
+          "mode": "list",
+          "cachedResultName": "FAQs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1h9qtlFg5vYVWAvY6iUliFzHQaOAyDQ4kboutM6Zlj6w/edit#gid=738525081"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "question": "={{ $json.question }}",
+            "title": "={{ $json.title }}",
+            "link": "={{ $json.link }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1900,
+        780
+      ],
+      "id": "7527a6f0-1908-4a91-a1a2-704ba5602c36",
+      "name": "insert_faqs"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1h9qtlFg5vYVWAvY6iUliFzHQaOAyDQ4kboutM6Zlj6w",
+          "mode": "list",
+          "cachedResultName": "Keyword Research",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1h9qtlFg5vYVWAvY6iUliFzHQaOAyDQ4kboutM6Zlj6w/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "SERPs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1h9qtlFg5vYVWAvY6iUliFzHQaOAyDQ4kboutM6Zlj6w/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "short_summary": "={{ $json.message.content.short_summary ?  $json.message.content.short_summary: \"\" }}",
+            "potential_focus_keyword": "={{ $json.message.content.potential_focus_keyword ?  $json.message.content.potential_focus_keyword: \"\" }}",
+            "unigrams": "={{ $json.message.content.n_gram_analysis.unigrams ?  $json.message.content.n_gram_analysis.unigrams: \"\" }}",
+            "bigrams": "={{ $json.message.content.n_gram_analysis.bigrams ?  $json.message.content.n_gram_analysis.bigrams: \"\" }}",
+            "trigrams": "={{ $json.message.content.n_gram_analysis.trigrams ?  $json.message.content.n_gram_analysis.trigrams: \"\" }}",
+            "relevant_long_tail_keywords": "={{ $json.message.content.relevant_long_tail_keywords ?  $json.message.content.relevant_long_tail_keywords: \"\" }}",
+            "title": "={{ $('Loop Over Items').item.json.title }}",
+            "link": "={{ $('Loop Over Items').item.json.link }}",
+            "snippet": "={{ $('Loop Over Items').item.json.snippet }}",
+            "position": "={{ $('Loop Over Items').item.json.position }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "position",
+              "displayName": "position",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "short_summary",
+              "displayName": "short_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "potential_focus_keyword",
+              "displayName": "potential_focus_keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_long_tail_keywords",
+              "displayName": "relevant_long_tail_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unigrams",
+              "displayName": "unigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bigrams",
+              "displayName": "bigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "trigrams",
+              "displayName": "trigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1960,
+        1200
+      ],
+      "id": "77f6f438-83ad-4e99-aec0-52e006fd3f49",
+      "name": "insert_serp_analysis"
+    },
+    {
+      "parameters": {
+        "content": "# GET FAQs",
+        "height": 400,
+        "width": 1400,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        780,
+        580
+      ],
+      "id": "7bdc4d1c-9987-401b-8a23-0e44a052c541",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "### Google Sheets\n\nCreate a sheet called \"FAQs\" with the following columns:\n- question\n- title\n- link",
+        "width": 260
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1880,
+        600
+      ],
+      "id": "f0770b44-c147-4f04-9623-802beb9f7dcb",
+      "name": "Sticky Note7"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "get_desktop_serp_results",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_mobile_serp_results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_mobile_serp_results": {
+      "main": [
+        [
+          {
+            "node": "get_organic_results_by_mobile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_faq_by_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_desktop_serp_results": {
+      "main": [
+        [
+          {
+            "node": "get_organic_results_by_desktop",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_faq_by_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_faq_by_mobile": {
+      "main": [
+        [
+          {
+            "node": "merge_faq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_organic_results_by_mobile": {
+      "main": [
+        [
+          {
+            "node": "top_3_by_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_organic_results_by_desktop": {
+      "main": [
+        [
+          {
+            "node": "top_3_by_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_faq_by_desktop": {
+      "main": [
+        [
+          {
+            "node": "merge_faq",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "top_3_by_mobile": {
+      "main": [
+        [
+          {
+            "node": "get_urls_to_crawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "top_3_by_desktop": {
+      "main": [
+        [
+          {
+            "node": "get_urls_to_crawl",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "get_urls_to_crawl": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get_page_content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_page_content": {
+      "main": [
+        [
+          {
+            "node": "wait_5_sec_0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_status": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "get_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "wait_5_sec_0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_metadata": {
+      "main": [
+        [
+          {
+            "node": "get_content_as_markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wait_5_sec_0": {
+      "main": [
+        [
+          {
+            "node": "get_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_content_as_markdown": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "insert_serp_analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_faq": {
+      "main": [
+        [
+          {
+            "node": "get_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_questions": {
+      "main": [
+        [
+          {
+            "node": "remove_duplicates_in_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "remove_duplicates_in_questions": {
+      "main": [
+        [
+          {
+            "node": "loop_over_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "loop_over_questions": {
+      "main": [
+        [],
+        [
+          {
+            "node": "insert_faqs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_faqs": {
+      "main": [
+        [
+          {
+            "node": "loop_over_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_serp_analysis": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b43516de-b4c7-4038-b4f6-83294815796d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "9lW9vKY54sMpIvZC",
+  "tags": [
+    {
+      "createdAt": "2025-03-02T12:05:53.836Z",
+      "updatedAt": "2025-03-02T12:05:53.836Z",
+      "id": "utwtHTzeqUdktrxJ",
+      "name": "SEO"
+    }
+  ]
+}

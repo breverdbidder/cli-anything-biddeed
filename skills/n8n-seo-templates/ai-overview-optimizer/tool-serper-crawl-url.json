@@ -1,0 +1,144 @@
+{
+  "name": "Tool - Serper Crawl URL",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7320f474-4ba6-47b7-9ce7-82529cbb12ff",
+              "name": "title",
+              "value": "={{ $json.metadata.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a047ca1d-04e0-493b-9d88-eddc4ec4478c",
+              "name": "description",
+              "value": "={{ $json.metadata.description }}",
+              "type": "string"
+            },
+            {
+              "id": "607f18e4-364c-4594-8821-3800b28d3c9b",
+              "name": "markdown",
+              "value": "={{ $json.markdown }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        0
+      ],
+      "id": "635191a6-85dc-439d-8616-ceabb5294a71",
+      "name": "Get Metadata"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://scrape.serper.dev",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.url }}"
+            },
+            {
+              "name": "includeMarkdown",
+              "value": "true"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        64,
+        0
+      ],
+      "id": "b53e65c6-0b22-4b89-b718-32143058205e",
+      "name": "Serper",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9PtnIrGtPxKAKD1J",
+          "name": "Serper Demo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "url"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        0
+      ],
+      "id": "59fec696-d611-4a2d-b35b-ea3a7e7e7957",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Metadata": {
+      "main": [
+        []
+      ]
+    },
+    "Serper": {
+      "main": [
+        [
+          {
+            "node": "Get Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Serper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "ae02df80-65d7-4c6e-b6dc-0aa012fe0f47",
+  "meta": {
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "RkFq0paD5YLLof2K",
+  "tags": []
+}

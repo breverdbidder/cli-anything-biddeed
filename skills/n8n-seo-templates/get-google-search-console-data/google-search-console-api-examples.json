@@ -1,0 +1,803 @@
+{
+  "name": "Product - Google Search Console API Examples",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1000,
+        200
+      ],
+      "id": "5d1adc86-fe51-412e-8aea-cbaf4e9cf708",
+      "name": "When clicking ‘Test workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"inspectionUrl\": \"https://your-domain.com/slug/\",\n  \"siteUrl\": \"https://your-domain.com/\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        340
+      ],
+      "id": "561fd96f-17af-45d5-90ac-a8f14e833d35",
+      "name": "Inspect URL",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Inspect URLs",
+        "height": 240,
+        "width": 260
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        260
+      ],
+      "id": "48d24e88-5869-4d91-b3a4-97ecad871d4c",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"device\"],\n  \"rowLimit\": 5000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        380,
+        340
+      ],
+      "id": "007c4c43-20d1-486f-b817-b5e0de051191",
+      "name": "Get Device Performance",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows;\n\n// Map each row to a cleaner format with calculations\nconst deviceData = rows.map(row => {\n  return {\n    device: row.keys[0],\n    clicks: row.clicks,\n    impressions: row.impressions,\n    ctr: row.ctr,\n    position: row.position,\n    ctrFormatted: `${(row.ctr * 100).toFixed(2)}%`,\n    positionRounded: Math.round(row.position * 10) / 10\n  };\n});\n\n// Calculate totals for percentage analysis\nconst totals = deviceData.reduce((acc, item) => {\n  acc.totalClicks += item.clicks;\n  acc.totalImpressions += item.impressions;\n  return acc;\n}, { totalClicks: 0, totalImpressions: 0 });\n\n// Add percentage calculations\nreturn deviceData.map(item => {\n  const clickShare = ((item.clicks / totals.totalClicks) * 100).toFixed(2);\n  const impressionShare = ((item.impressions / totals.totalImpressions) * 100).toFixed(2);\n  \n  return {\n    ...item,\n    clickShare: `${clickShare}%`,\n    impressionShare: `${impressionShare}%`\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        340
+      ],
+      "id": "2d7ae797-9838-43f7-a084-f2eb7f103a2c",
+      "name": "Parse Device Performance"
+    },
+    {
+      "parameters": {
+        "content": "## Performance by Devices",
+        "height": 240,
+        "width": 440
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        320,
+        260
+      ],
+      "id": "3cddb3c0-7b87-46de-ad7c-48ff58f7c903",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"page\"],\n  \"rowLimit\": 5000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        340
+      ],
+      "id": "bb70e67a-46aa-4b14-8ae8-c8adf3eb19da",
+      "name": "Get Top Performing Pages",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows;\n\n// Map and calculate metrics for each page\nconst pageData = rows.map(row => {\n  return {\n    page: row.keys[0],\n    clicks: row.clicks,\n    impressions: row.impressions,\n    ctr: row.ctr,\n    position: row.position,\n    ctrFormatted: `${(row.ctr * 100).toFixed(2)}%`,\n    positionRounded: Math.round(row.position * 10) / 10\n  };\n});\n\n// Calculate totals for percentage analysis\nconst totals = pageData.reduce((acc, item) => {\n  acc.totalClicks += item.clicks;\n  acc.totalImpressions += item.impressions;\n  return acc;\n}, { totalClicks: 0, totalImpressions: 0 });\n\n// Sort by clicks (top performers first)\nconst sortedPages = pageData.sort((a, b) => b.clicks - a.clicks);\n\n// Add comprehensive SEO metrics\nreturn sortedPages.map((item, index) => {\n  const clickShare = ((item.clicks / totals.totalClicks) * 100).toFixed(2);\n  const impressionShare = ((item.impressions / totals.totalImpressions) * 100).toFixed(2);\n  \n  // SEO Performance Categories\n  let performanceCategory = 'Monitor';\n  if (item.ctr > 0.05 && item.position < 10) performanceCategory = 'Star Performer';\n  else if (item.ctr > 0.03 && item.position < 15) performanceCategory = 'Good Performer';\n  else if (item.impressions > 1000 && item.ctr < 0.02) performanceCategory = 'CTR Opportunity';\n  else if (item.position > 10 && item.position < 20 && item.impressions > 500) performanceCategory = 'Ranking Opportunity';\n  \n  // Precise Action Items based on data patterns\n  let actionItem = 'Monitor performance';\n  \n  if (item.impressions > 5000 && item.ctr < 0.015) {\n    actionItem = 'Rewrite title tag - very low CTR with high visibility';\n  } else if (item.impressions > 2000 && item.ctr < 0.025 && item.position < 10) {\n    actionItem = 'Optimize meta description - good position, poor CTR';\n  } else if (item.position >= 11 && item.position <= 20 && item.impressions > 1000) {\n    actionItem = 'Content optimization - close to page 1, good search volume';\n  } else if (item.position >= 4 && item.position <= 10 && item.ctr < 0.05) {\n    actionItem = 'A/B test titles - page 1 position with below-average CTR';\n  } else if (item.position > 20 && item.impressions > 500) {\n    actionItem = 'Content audit - poor ranking despite search interest';\n  } else if (item.clicks < 10 && item.impressions > 1000) {\n    actionItem = 'Title/snippet mismatch - high visibility, no clicks';\n  } else if (item.position <= 3 && item.ctr > 0.15) {\n    actionItem = 'Maintain excellence - top performer';\n  }\n  \n  return {\n    rank: index + 1,\n    page: item.page,\n    clicks: item.clicks,\n    impressions: item.impressions,\n    ctr: item.ctrFormatted,\n    position: item.positionRounded,\n    clickShare: `${clickShare}%`,\n    impressionShare: `${impressionShare}%`,\n    performanceCategory: performanceCategory,\n    actionItem: actionItem\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        100,
+        340
+      ],
+      "id": "f3df4333-d507-4c22-8965-04ef308a1223",
+      "name": "Parse Top Performing Pages"
+    },
+    {
+      "parameters": {
+        "content": "## Top Performing Pages",
+        "height": 240,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        260
+      ],
+      "id": "5ce2ec33-a1ac-4d41-a302-7d24521436b5",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"page\", \"query\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        -200
+      ],
+      "id": "6af3fbd7-6057-4290-bdd5-fb4deec856b5",
+      "name": "Get Keyword Analysis by Pages",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows;\n\n// Group keywords by page\nconst pageKeywords = {};\n\nrows.forEach(row => {\n  const page = row.keys[0];\n  const query = row.keys[1];\n  \n  if (!pageKeywords[page]) {\n    pageKeywords[page] = {\n      page: page,\n      totalClicks: 0,\n      totalImpressions: 0,\n      keywords: []\n    };\n  }\n  \n  // Add keyword data\n  pageKeywords[page].keywords.push({\n    query: query,\n    clicks: row.clicks,\n    impressions: row.impressions,\n    ctr: row.ctr,\n    position: row.position,\n    ctrFormatted: `${(row.ctr * 100).toFixed(2)}%`,\n    positionRounded: Math.round(row.position * 10) / 10\n  });\n  \n  // Update page totals\n  pageKeywords[page].totalClicks += row.clicks;\n  pageKeywords[page].totalImpressions += row.impressions;\n});\n\n// Process each page's keyword data\nconst result = [];\n\nObject.values(pageKeywords).forEach(pageData => {\n  // Sort keywords by clicks (most valuable first)\n  pageData.keywords.sort((a, b) => b.clicks - a.clicks);\n  \n  // Calculate keyword performance metrics\n  const processedKeywords = pageData.keywords.map((keyword, index) => {\n    const clickShare = ((keyword.clicks / pageData.totalClicks) * 100).toFixed(2);\n    const impressionShare = ((keyword.impressions / pageData.totalImpressions) * 100).toFixed(2);\n    \n    // Keyword categorization\n    let keywordType = 'Long-tail';\n    if (keyword.query.split(' ').length <= 2) keywordType = 'Short-tail';\n    else if (keyword.query.split(' ').length === 3) keywordType = 'Medium-tail';\n    \n    // Performance assessment\n    let keywordStatus = 'Monitor';\n    if (keyword.position <= 3 && keyword.clicks > 10) keywordStatus = 'Top Performer';\n    else if (keyword.position <= 10 && keyword.ctr > 0.05) keywordStatus = 'Strong Performer';\n    else if (keyword.position > 10 && keyword.position <= 20 && keyword.impressions > 100) keywordStatus = 'Opportunity';\n    else if (keyword.impressions > 500 && keyword.ctr < 0.02) keywordStatus = 'CTR Issue';\n    \n    // Specific action items per keyword\n    let keywordAction = 'Monitor performance';\n    if (keyword.position > 10 && keyword.position <= 20 && keyword.impressions > 200) {\n      keywordAction = 'Optimize content for this keyword - close to page 1';\n    } else if (keyword.impressions > 1000 && keyword.ctr < 0.015) {\n      keywordAction = 'Improve title/meta - high visibility, low CTR';\n    } else if (keyword.position <= 5 && keyword.ctr < 0.08) {\n      keywordAction = 'Enhance snippet appeal - good position, poor CTR';\n    } else if (keyword.clicks > 50) {\n      keywordAction = 'Maintain and expand - money keyword';\n    }\n    \n    return {\n      keywordRank: index + 1,\n      query: keyword.query,\n      clicks: keyword.clicks,\n      impressions: keyword.impressions,\n      ctr: keyword.ctrFormatted,\n      position: keyword.positionRounded,\n      clickShare: `${clickShare}%`,\n      impressionShare: `${impressionShare}%`,\n      keywordType: keywordType,\n      keywordStatus: keywordStatus,\n      keywordAction: keywordAction\n    };\n  });\n  \n  // Page summary with top keywords\n  const topKeywords = processedKeywords.slice(0, 5).map(k => k.query).join(', ');\n  const avgPosition = (pageData.keywords.reduce((sum, k) => sum + k.position, 0) / pageData.keywords.length).toFixed(1);\n  const avgCTR = ((pageData.totalClicks / pageData.totalImpressions) * 100).toFixed(2);\n  \n  result.push({\n    page: pageData.page,\n    totalClicks: pageData.totalClicks,\n    totalImpressions: pageData.totalImpressions,\n    avgPosition: parseFloat(avgPosition),\n    avgCTR: `${avgCTR}%`,\n    keywordCount: pageData.keywords.length,\n    topKeywords: topKeywords,\n    keywords: processedKeywords\n  });\n});\n\n// Sort pages by total clicks\nreturn result.sort((a, b) => b.totalClicks - a.totalClicks);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        -200
+      ],
+      "id": "64b2aa1f-5f13-4023-9d9d-782e43cfd89c",
+      "name": "Parse Keyword Analysis by Pages"
+    },
+    {
+      "parameters": {
+        "content": "## Keyword Analysis by Pages",
+        "height": 240,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        60,
+        -260
+      ],
+      "id": "a478ea9a-839f-454d-a37e-021edb955f76",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"query\", \"page\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        580
+      ],
+      "id": "a8364bf9-3255-4d11-b665-80d7e696cb0f",
+      "name": "Get Keyword Cannibalization Detection",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Keyword Cannibalization Analysis\n",
+        "height": 240,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        600,
+        520
+      ],
+      "id": "b4b249a7-a314-4e50-bb34-d1abd5bc9018",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all paginated responses\nconst allResponses = $input.all();\nconst combinedRows = [];\n\nallResponses.forEach(response => {\n  if (response.json.rows && response.json.rows.length > 0) {\n    combinedRows.push(...response.json.rows);\n  }\n});\n\n// Group by query to find cannibalization\nconst queryGroups = {};\n\ncombinedRows.forEach(row => {\n  const query = row.keys[0];\n  const page = row.keys[1];\n  \n  if (!queryGroups[query]) {\n    queryGroups[query] = {\n      query: query,\n      pages: [],\n      totalClicks: 0,\n      totalImpressions: 0,\n      pageCount: 0\n    };\n  }\n  \n  queryGroups[query].pages.push({\n    page: page,\n    clicks: row.clicks,\n    impressions: row.impressions,\n    ctr: row.ctr,\n    position: row.position,\n    ctrFormatted: `${(row.ctr * 100).toFixed(2)}%`,\n    positionRounded: Math.round(row.position * 10) / 10\n  });\n  \n  queryGroups[query].totalClicks += row.clicks;\n  queryGroups[query].totalImpressions += row.impressions;\n  queryGroups[query].pageCount += 1;\n});\n\n// Identify cannibalization cases\nconst cannibalizationIssues = [];\nconst healthyKeywords = [];\n\nObject.values(queryGroups).forEach(queryData => {\n  // Sort pages by performance for this query\n  queryData.pages.sort((a, b) => b.clicks - a.clicks);\n  \n  if (queryData.pageCount > 1) {\n    // Multiple pages competing for same keyword\n    const topPage = queryData.pages[0];\n    const competingPages = queryData.pages.slice(1);\n    \n    // Calculate cannibalization severity\n    const topPageClicks = topPage.clicks;\n    const competingClicks = competingPages.reduce((sum, page) => sum + page.clicks, 0);\n    const clicksDistribution = competingClicks > 0 ? (competingClicks / queryData.totalClicks * 100).toFixed(1) : 0;\n    \n    // Determine severity level\n    let severity = 'Low';\n    let issue = 'Minor cannibalization';\n    let recommendation = 'Monitor performance';\n    \n    if (queryData.pageCount >= 5) {\n      severity = 'Critical';\n      issue = 'Severe cannibalization - too many competing pages';\n      recommendation = 'Consolidate content or implement canonical tags';\n    } else if (queryData.pageCount >= 3 && parseFloat(clicksDistribution) > 30) {\n      severity = 'High';\n      issue = 'Significant traffic split across multiple pages';\n      recommendation = 'Merge similar content or redirect weaker pages';\n    } else if (queryData.pageCount === 2 && parseFloat(clicksDistribution) > 40) {\n      severity = 'Medium';\n      issue = 'Two pages splitting traffic significantly';\n      recommendation = 'Optimize page targeting or consolidate';\n    }\n    \n    // Check for position confusion (pages flip-flopping)\n    const positionSpread = Math.max(...queryData.pages.map(p => p.position)) - \n                          Math.min(...queryData.pages.map(p => p.position));\n    \n    if (positionSpread > 20) {\n      severity = severity === 'Low' ? 'Medium' : severity;\n      issue += ' - wide position spread indicates confusion';\n    }\n    \n    // Calculate potential impact\n    const bestPosition = Math.min(...queryData.pages.map(p => p.position));\n    const worstPosition = Math.max(...queryData.pages.map(p => p.position));\n    \n    cannibalizationIssues.push({\n      query: queryData.query,\n      severity: severity,\n      issue: issue,\n      recommendation: recommendation,\n      pageCount: queryData.pageCount,\n      totalClicks: queryData.totalClicks,\n      totalImpressions: queryData.totalImpressions,\n      clicksDistribution: `${clicksDistribution}%`,\n      bestPosition: Math.round(bestPosition * 10) / 10,\n      worstPosition: Math.round(worstPosition * 10) / 10,\n      positionSpread: Math.round(positionSpread * 10) / 10,\n      topPerformer: {\n        page: topPage.page,\n        clicks: topPage.clicks,\n        position: topPage.positionRounded,\n        ctr: topPage.ctrFormatted\n      },\n      competingPages: competingPages.map(page => ({\n        page: page.page,\n        clicks: page.clicks,\n        position: page.positionRounded,\n        ctr: page.ctrFormatted,\n        clickShare: `${((page.clicks / queryData.totalClicks) * 100).toFixed(1)}%`\n      }))\n    });\n  } else {\n    // Single page for keyword - healthy\n    const page = queryData.pages[0];\n    if (queryData.totalClicks > 10) { // Only include meaningful keywords\n      healthyKeywords.push({\n        query: queryData.query,\n        page: page.page,\n        clicks: page.clicks,\n        impressions: page.impressions,\n        position: page.positionRounded,\n        ctr: page.ctrFormatted,\n        status: 'Healthy - Single page targeting'\n      });\n    }\n  }\n});\n\n// Sort by severity and impact\ncannibalizationIssues.sort((a, b) => {\n  const severityOrder = { 'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1 };\n  if (severityOrder[a.severity] !== severityOrder[b.severity]) {\n    return severityOrder[b.severity] - severityOrder[a.severity];\n  }\n  return b.totalClicks - a.totalClicks; // Then by traffic impact\n});\n\n// Summary statistics\nconst summary = {\n  totalKeywords: Object.keys(queryGroups).length,\n  cannibalizationIssues: cannibalizationIssues.length,\n  healthyKeywords: healthyKeywords.length,\n  criticalIssues: cannibalizationIssues.filter(issue => issue.severity === 'Critical').length,\n  highIssues: cannibalizationIssues.filter(issue => issue.severity === 'High').length,\n  mediumIssues: cannibalizationIssues.filter(issue => issue.severity === 'Medium').length,\n  lowIssues: cannibalizationIssues.filter(issue => issue.severity === 'Low').length,\n  cannibalizationRate: `${((cannibalizationIssues.length / Object.keys(queryGroups).length) * 100).toFixed(1)}%`\n};\n\nreturn {\n  summary: summary,\n  cannibalizationIssues: cannibalizationIssues,\n  healthyKeywords: healthyKeywords.slice(0, 50) // Top 50 healthy keywords\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        580
+      ],
+      "id": "a73552d8-afc0-421e-befc-3f0fff6c7513",
+      "name": "Parse Keyword Cannibalization Detection"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"query\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        600
+      ],
+      "id": "dbfd4cd0-40c7-4902-b8af-e36dd196e87c",
+      "name": "Get Content Gap Analysis",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows;\n\n// Analyze queries for content gaps\nconst contentGaps = rows\n  .filter(row => {\n    // Filter criteria for content gaps:\n    // 1. High impressions (people are searching)\n    // 2. Poor position (we're not ranking well)\n    // 3. Low clicks (not getting traffic despite visibility)\n    return row.impressions > 100 && \n           row.position > 20 && \n           row.clicks < 10;\n  })\n  .map(row => {\n    const query = row.keys[0];\n    const searchVolume = row.impressions;\n    const currentPosition = Math.round(row.position * 10) / 10;\n    const missedClicks = Math.round(searchVolume * 0.05); // Potential clicks at decent position\n    \n    // Categorize gap severity\n    let gapSeverity = 'Low';\n    let opportunity = 'Minor opportunity';\n    let recommendation = 'Monitor and optimize existing content';\n    \n    if (searchVolume > 5000 && currentPosition > 50) {\n      gapSeverity = 'Critical';\n      opportunity = 'High-volume keyword with very poor ranking';\n      recommendation = 'Create dedicated content or major content overhaul';\n    } else if (searchVolume > 1000 && currentPosition > 30) {\n      gapSeverity = 'High';\n      opportunity = 'Good search volume with poor visibility';\n      recommendation = 'Optimize existing content or create new targeted page';\n    } else if (searchVolume > 500 && currentPosition > 25) {\n      gapSeverity = 'Medium';\n      opportunity = 'Decent search volume, needs content improvement';\n      recommendation = 'Enhance existing content with better keyword targeting';\n    }\n    \n    // Analyze query intent and type\n    const queryWords = query.toLowerCase().split(' ');\n    let queryIntent = 'Informational';\n    let queryType = 'Long-tail';\n    \n    // Intent detection\n    if (queryWords.some(word => ['buy', 'purchase', 'price', 'cost', 'cheap'].includes(word))) {\n      queryIntent = 'Commercial';\n    } else if (queryWords.some(word => ['how', 'what', 'why', 'when', 'where'].includes(word))) {\n      queryIntent = 'Informational';\n    } else if (queryWords.some(word => ['best', 'top', 'review', 'compare'].includes(word))) {\n      queryIntent = 'Commercial Investigation';\n    } else if (queryWords.length <= 2) {\n      queryIntent = 'Navigational';\n    }\n    \n    // Query type\n    if (queryWords.length <= 2) queryType = 'Short-tail';\n    else if (queryWords.length === 3) queryType = 'Medium-tail';\n    \n    return {\n      query: query,\n      currentPosition: currentPosition,\n      impressions: searchVolume,\n      clicks: row.clicks,\n      ctr: `${(row.ctr * 100).toFixed(2)}%`,\n      gapSeverity: gapSeverity,\n      opportunity: opportunity,\n      recommendation: recommendation,\n      missedClicksPotential: missedClicks,\n      queryIntent: queryIntent,\n      queryType: queryType,\n      competitorAdvantage: currentPosition > 30 ? 'High' : currentPosition > 20 ? 'Medium' : 'Low'\n    };\n  })\n  .sort((a, b) => {\n    // Sort by severity first, then by missed potential\n    const severityOrder = { 'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1 };\n    if (severityOrder[a.gapSeverity] !== severityOrder[b.gapSeverity]) {\n      return severityOrder[b.gapSeverity] - severityOrder[a.gapSeverity];\n    }\n    return b.missedClicksPotential - a.missedClicksPotential;\n  });\n\n// Summary statistics\nconst gapSummary = {\n  totalGaps: contentGaps.length,\n  criticalGaps: contentGaps.filter(gap => gap.gapSeverity === 'Critical').length,\n  highGaps: contentGaps.filter(gap => gap.gapSeverity === 'High').length,\n  mediumGaps: contentGaps.filter(gap => gap.gapSeverity === 'Medium').length,\n  totalMissedPotential: contentGaps.reduce((sum, gap) => sum + gap.missedClicksPotential, 0),\n  topOpportunityQueries: contentGaps.slice(0, 10).map(gap => gap.query)\n};\n\nreturn {\n  summary: gapSummary,\n  contentGaps: contentGaps\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        600
+      ],
+      "id": "7d371aba-2f68-4a0e-a8b6-70a27582fe57",
+      "name": "Parse Content Gap Analysis"
+    },
+    {
+      "parameters": {
+        "content": "## Content Gap Analysis\n",
+        "height": 240,
+        "width": 500
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        520
+      ],
+      "id": "133bf6a3-9dd5-4559-ad42-69ac1053f771",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-01-26\",\n  \"endDate\": \"2025-02-26\",\n  \"dimensions\": [\"query\", \"page\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        580
+      ],
+      "id": "d195381f-2a0d-4c81-92c2-164a4cc91031",
+      "name": "Get Keyword Opportunities Analysis",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows;\n\n// Process emerging keywords with their specific pages\nconst emergingKeywords = rows\n  .filter(row => {\n    // Filter criteria for emerging opportunities:\n    // 1. Recently started ranking (position 10-50)\n    // 2. Decent search volume\n    // 3. Improving performance indicators\n    return row.position >= 10 && \n           row.position <= 50 && \n           row.impressions > 50 &&\n           row.clicks >= 0;\n  })\n  .map(row => {\n    const query = row.keys[0];\n    const page = row.keys[1];\n    const currentPosition = Math.round(row.position * 10) / 10;\n    const impressions = row.impressions;\n    const clicks = row.clicks;\n    \n    // Calculate opportunity potential\n    let opportunityLevel = 'Monitor';\n    let potentialImpact = 'Low';\n    let pageOptimization = 'Basic monitoring';\n    let specificActions = [];\n    \n    if (currentPosition <= 20 && impressions > 500) {\n      opportunityLevel = 'High Priority';\n      potentialImpact = 'High';\n      pageOptimization = 'Immediate content optimization required';\n      specificActions = [\n        'Optimize title tag to include target keyword',\n        'Enhance meta description for better CTR',\n        'Add keyword to H1 and H2 headers',\n        'Increase content depth and relevance',\n        'Build internal links to this page'\n      ];\n    } else if (currentPosition <= 30 && impressions > 200) {\n      opportunityLevel = 'Medium Priority';\n      potentialImpact = 'Medium';\n      pageOptimization = 'Content optimization and technical improvements';\n      specificActions = [\n        'Review and optimize existing content',\n        'Add related keywords and semantic terms',\n        'Improve internal linking structure',\n        'Check page loading speed',\n        'Enhance user experience signals'\n      ];\n    } else if (currentPosition <= 50 && impressions > 100) {\n      opportunityLevel = 'Low Priority';\n      potentialImpact = 'Low';\n      pageOptimization = 'Basic content improvements';\n      specificActions = [\n        'Add keyword mentions naturally in content',\n        'Improve content structure and readability',\n        'Monitor performance trends',\n        'Consider content expansion'\n      ];\n    }\n    \n    // Analyze query characteristics\n    const queryWords = query.toLowerCase().split(' ');\n    let queryIntent = 'Informational';\n    let competitionLevel = 'Medium';\n    \n    // Intent detection\n    if (queryWords.some(word => ['buy', 'purchase', 'price', 'cost'].includes(word))) {\n      queryIntent = 'Commercial';\n      competitionLevel = 'High';\n    } else if (queryWords.some(word => ['how', 'what', 'guide', 'tutorial'].includes(word))) {\n      queryIntent = 'Informational';\n      competitionLevel = 'Medium';\n    } else if (queryWords.some(word => ['best', 'top', 'review', 'vs'].includes(word))) {\n      queryIntent = 'Commercial Investigation';\n      competitionLevel = 'High';\n    }\n    \n    // Page-specific analysis using string manipulation\n    const pagePath = page.split('://')[1] ? page.split('://')[1].split('/').slice(1).join('/') : page;\n    const pageType = pagePath.includes('blog/') ? 'Blog Post' :\n                    pagePath.includes('product/') ? 'Product Page' :\n                    pagePath.includes('category/') ? 'Category Page' :\n                    pagePath === '' || pagePath === '/' ? 'Homepage' : 'Content Page';\n    \n    // Content-keyword alignment check\n    const queryInUrl = queryWords.some(word => \n      pagePath.toLowerCase().includes(word.toLowerCase())\n    );\n    \n    let contentAlignment = 'Good';\n    if (!queryInUrl && queryWords.length <= 3) {\n      contentAlignment = 'Poor - URL doesn\\'t match target keyword';\n      specificActions.unshift('Consider URL optimization or content realignment');\n    } else if (!queryInUrl) {\n      contentAlignment = 'Fair - Could improve keyword-URL alignment';\n    }\n    \n    return {\n      query: query,\n      page: page,\n      pageType: pageType,\n      currentPosition: currentPosition,\n      impressions: impressions,\n      clicks: clicks,\n      ctr: `${(row.ctr * 100).toFixed(2)}%`,\n      opportunityLevel: opportunityLevel,\n      potentialImpact: potentialImpact,\n      pageOptimization: pageOptimization,\n      specificActions: specificActions,\n      queryIntent: queryIntent,\n      competitionLevel: competitionLevel,\n      contentAlignment: contentAlignment,\n      queryType: queryWords.length <= 2 ? 'Short-tail' : \n                 queryWords.length === 3 ? 'Medium-tail' : 'Long-tail',\n      priorityScore: (impressions / 100) + (51 - currentPosition) // Custom scoring\n    };\n  })\n  .sort((a, b) => {\n    // Sort by opportunity level, then by priority score\n    const priorityOrder = { 'High Priority': 3, 'Medium Priority': 2, 'Low Priority': 1, 'Monitor': 0 };\n    if (priorityOrder[a.opportunityLevel] !== priorityOrder[b.opportunityLevel]) {\n      return priorityOrder[b.opportunityLevel] - priorityOrder[a.opportunityLevel];\n    }\n    return b.priorityScore - a.priorityScore;\n  });\n\n// Group by page for easier optimization planning\nconst pageOptimizationPlan = {};\nemergingKeywords.forEach(keyword => {\n  if (!pageOptimizationPlan[keyword.page]) {\n    pageOptimizationPlan[keyword.page] = {\n      page: keyword.page,\n      pageType: keyword.pageType,\n      keywordOpportunities: [],\n      totalImpressions: 0,\n      highPriorityKeywords: 0,\n      overallPriority: 'Low'\n    };\n  }\n  \n  pageOptimizationPlan[keyword.page].keywordOpportunities.push({\n    query: keyword.query,\n    currentPosition: keyword.currentPosition,\n    impressions: keyword.impressions,\n    opportunityLevel: keyword.opportunityLevel,\n    specificActions: keyword.specificActions\n  });\n  \n  pageOptimizationPlan[keyword.page].totalImpressions += keyword.impressions;\n  \n  if (keyword.opportunityLevel === 'High Priority') {\n    pageOptimizationPlan[keyword.page].highPriorityKeywords += 1;\n    pageOptimizationPlan[keyword.page].overallPriority = 'High';\n  } else if (keyword.opportunityLevel === 'Medium Priority' && \n             pageOptimizationPlan[keyword.page].overallPriority !== 'High') {\n    pageOptimizationPlan[keyword.page].overallPriority = 'Medium';\n  }\n});\n\n// Convert to array and sort by priority\nconst pageOptimizationArray = Object.values(pageOptimizationPlan)\n  .sort((a, b) => {\n    const priorityOrder = { 'High': 3, 'Medium': 2, 'Low': 1 };\n    if (priorityOrder[a.overallPriority] !== priorityOrder[b.overallPriority]) {\n      return priorityOrder[b.overallPriority] - priorityOrder[a.overallPriority];\n    }\n    return b.totalImpressions - a.totalImpressions;\n  });\n\n// Summary statistics\nconst opportunitySummary = {\n  totalOpportunities: emergingKeywords.length,\n  totalPagesToOptimize: Object.keys(pageOptimizationPlan).length,\n  highPriorityPages: pageOptimizationArray.filter(page => page.overallPriority === 'High').length,\n  mediumPriorityPages: pageOptimizationArray.filter(page => page.overallPriority === 'Medium').length,\n  quickWins: emergingKeywords.filter(kw => kw.currentPosition <= 20).length,\n  commercialOpportunities: emergingKeywords.filter(kw => kw.queryIntent === 'Commercial').length\n};\n\nreturn {\n  summary: opportunitySummary,\n  emergingKeywords: emergingKeywords,\n  pageOptimizationPlan: pageOptimizationArray\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        580
+      ],
+      "id": "01f911b8-4170-474f-aa7a-42e59999d4de",
+      "name": "Parse Keyword Opportunities Analysis"
+    },
+    {
+      "parameters": {
+        "content": "## Keyword Opportunities Analysis\n",
+        "height": 240,
+        "width": 520
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        60,
+        520
+      ],
+      "id": "08a48dc8-d7a8-44c4-9650-7e92174c0cec",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Keywords Ranking 4-10\n",
+        "height": 240,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        560,
+        0
+      ],
+      "id": "60ac93e8-ff43-49a5-9808-2467e8a79de4",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-01-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"query\", \"date\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        60
+      ],
+      "id": "9f959a20-6552-42c3-a789-9c3ec20e3f90",
+      "name": "Get Query Performance Drop Detection",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows || [];\n\n// Define comparison periods (adjust dates as needed)\nconst currentPeriodStart = \"2025-03-01\";\nconst currentPeriodEnd = \"2025-03-26\";\nconst previousPeriodStart = \"2025-02-01\"; \nconst previousPeriodEnd = \"2025-02-28\";\n\n// Group data by query and period\nconst queryData = {};\n\nrows.forEach(row => {\n  const query = row.keys[0];\n  const date = row.keys[1];\n  \n  if (!queryData[query]) {\n    queryData[query] = {\n      current: { clicks: 0, impressions: 0, positions: [], dates: 0 },\n      previous: { clicks: 0, impressions: 0, positions: [], dates: 0 }\n    };\n  }\n  \n  // Determine which period this data belongs to\n  if (date >= currentPeriodStart && date <= currentPeriodEnd) {\n    queryData[query].current.clicks += parseInt(row.clicks);\n    queryData[query].current.impressions += parseInt(row.impressions);\n    queryData[query].current.positions.push(parseFloat(row.position));\n    queryData[query].current.dates++;\n  } else if (date >= previousPeriodStart && date <= previousPeriodEnd) {\n    queryData[query].previous.clicks += parseInt(row.clicks);\n    queryData[query].previous.impressions += parseInt(row.impressions);\n    queryData[query].previous.positions.push(parseFloat(row.position));\n    queryData[query].previous.dates++;\n  }\n});\n\n// Calculate averages and detect drops with dynamic thresholds\nreturn Object.entries(queryData)\n  .filter(([query, data]) => {\n    // Only include queries with data in both periods and minimum volume\n    return data.current.dates > 0 && \n           data.previous.dates > 0 && \n           data.previous.impressions >= 100; // Higher minimum threshold\n  })\n  .map(([query, data]) => {\n    // Calculate average positions\n    const currentAvgPosition = data.current.positions.length > 0 \n      ? data.current.positions.reduce((a, b) => a + b, 0) / data.current.positions.length \n      : 0;\n    const previousAvgPosition = data.previous.positions.length > 0 \n      ? data.previous.positions.reduce((a, b) => a + b, 0) / data.previous.positions.length \n      : 0;\n    \n    // Calculate CTRs\n    const currentCTR = data.current.impressions > 0 \n      ? (data.current.clicks / data.current.impressions) * 100 \n      : 0;\n    const previousCTR = data.previous.impressions > 0 \n      ? (data.previous.clicks / data.previous.impressions) * 100 \n      : 0;\n    \n    // Calculate percentage changes\n    const clicksChange = data.previous.clicks > 0 \n      ? ((data.current.clicks - data.previous.clicks) / data.previous.clicks) * 100 \n      : 0;\n    const impressionsChange = data.previous.impressions > 0 \n      ? ((data.current.impressions - data.previous.impressions) / data.previous.impressions) * 100 \n      : 0;\n    const positionChange = previousAvgPosition > 0 \n      ? currentAvgPosition - previousAvgPosition \n      : 0;\n    \n    // Calculate absolute changes for dynamic thresholds\n    const absoluteClicksChange = data.current.clicks - data.previous.clicks;\n    const absoluteImpressionsChange = data.current.impressions - data.previous.impressions;\n    \n    return {\n      query: query,\n      // Previous period data\n      previousClicks: data.previous.clicks,\n      previousImpressions: data.previous.impressions,\n      previousPosition: Math.round(previousAvgPosition * 10) / 10,\n      previousCTR: Math.round(previousCTR * 10) / 10,\n      // Current period data  \n      currentClicks: data.current.clicks,\n      currentImpressions: data.current.impressions,\n      currentPosition: Math.round(currentAvgPosition * 10) / 10,\n      currentCTR: Math.round(currentCTR * 10) / 10,\n      // Changes\n      clicksChange: Math.round(clicksChange * 10) / 10,\n      impressionsChange: Math.round(impressionsChange * 10) / 10,\n      positionChange: Math.round(positionChange * 10) / 10,\n      ctrChange: Math.round((currentCTR - previousCTR) * 10) / 10,\n      // Absolute changes for filtering\n      absoluteClicksChange: absoluteClicksChange,\n      absoluteImpressionsChange: absoluteImpressionsChange\n    };\n  })\n  .filter(row => {\n    // Dynamic thresholds based on volume\n    const previousClicks = row.previousClicks;\n    const previousImpressions = row.previousImpressions;\n    \n    // Define volume-based thresholds\n    let clicksThreshold, impressionsThreshold, positionThreshold;\n    \n    if (previousClicks >= 100) {\n      // High volume: stricter percentage, lower absolute threshold\n      clicksThreshold = row.clicksChange <= -15 && row.absoluteClicksChange <= -10;\n    } else if (previousClicks >= 20) {\n      // Medium volume: moderate thresholds\n      clicksThreshold = row.clicksChange <= -25 && row.absoluteClicksChange <= -5;\n    } else if (previousClicks >= 5) {\n      // Low volume: focus on absolute change\n      clicksThreshold = row.absoluteClicksChange <= -3;\n    } else {\n      // Very low volume: ignore percentage, focus on meaningful absolute drops\n      clicksThreshold = row.absoluteClicksChange <= -2 && previousClicks >= 3;\n    }\n    \n    // Similar logic for impressions\n    if (previousImpressions >= 1000) {\n      impressionsThreshold = row.impressionsChange <= -15 && row.absoluteImpressionsChange <= -100;\n    } else if (previousImpressions >= 500) {\n      impressionsThreshold = row.impressionsChange <= -20 && row.absoluteImpressionsChange <= -50;\n    } else {\n      impressionsThreshold = row.impressionsChange <= -25 && row.absoluteImpressionsChange <= -25;\n    }\n    \n    // Position threshold (always meaningful if 1.5+ positions drop)\n    positionThreshold = row.positionChange >= 1.5;\n    \n    return clicksThreshold || impressionsThreshold || positionThreshold;\n  })\n  .sort((a, b) => {\n    // Sort by impact score: combine absolute change with percentage for prioritization\n    const impactA = Math.abs(a.absoluteClicksChange) * (Math.abs(a.clicksChange) / 100);\n    const impactB = Math.abs(b.absoluteClicksChange) * (Math.abs(b.clicksChange) / 100);\n    return impactB - impactA;\n  });"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        60
+      ],
+      "id": "c65886ee-10ca-429d-91d5-8b21d0683f0c",
+      "name": "Parse Query Performance Drop Detection"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows || [];\n\n// Group by query+page and get the most recent position for each\nconst latestPositions = {};\n\nrows.forEach(row => {\n  const query = row.keys[0];\n  const page = row.keys[1];\n  const date = row.keys[2]; // Date dimension\n  const key = `${query}|${page}`;\n  \n  // Keep only the most recent date for each query+page combination\n  if (!latestPositions[key] || date > latestPositions[key].date) {\n    latestPositions[key] = {\n      query,\n      page,\n      date,\n      position: parseFloat(row.position),\n      clicks: parseInt(row.clicks),\n      impressions: parseInt(row.impressions),\n      ctr: parseFloat(row.ctr)\n    };\n  }\n});\n\n// Convert to array, filter for positions 4-10\nreturn Object.values(latestPositions)\n  .filter(row => {\n    const position = row.position;\n    return position >= 4 && position <= 10 && row.impressions >= 10;\n  })\n  .map(row => {\n    return {\n      query: row.query,\n      page: row.page,\n      lastDate: row.date,\n      currentPosition: Math.round(row.position * 10) / 10,\n      clicks: row.clicks,\n      impressions: row.impressions,\n      ctr: Math.round(row.ctr * 1000) / 10 // Convert to percentage with 1 decimal\n    };\n  })\n  .sort((a, b) => b.impressions - a.impressions); // Sort by highest impressions first"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        60
+      ],
+      "id": "5f3c8059-1ff8-40c8-977c-1e4f69831ff0",
+      "name": "Parse Keywords Ranking 4-10"
+    },
+    {
+      "parameters": {
+        "content": "## Query Performance Drop Detection\n",
+        "height": 240,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        60,
+        0
+      ],
+      "id": "771a833e-0e32-4c1b-895d-334e9f169196",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "## Get Queries by Period\n",
+        "height": 240,
+        "width": 500
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        0
+      ],
+      "id": "54faee61-66d5-49e2-96a7-0c20c44e1e6b",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"query\"],\n  \"dimensionFilterGroups\": [{\n    \"filters\": [{\n      \"dimension\": \"page\",\n      \"operator\": \"equals\",\n      \"expression\": \"https://your-domain.com/slug/\"\n    }]\n  }],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        80
+      ],
+      "id": "c7081520-a1b8-45a5-983c-9bfc6e42e056",
+      "name": " Get Queries by Period",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows || $input.item.json;\n\n// Map each row to a cleaner format\nreturn rows.map(row => {\n  return {\n    query: row.keys[0],\n    clicks: row.clicks,\n    impressions: row.impressions,\n    ctr: row.ctr,\n    position: row.position\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        80
+      ],
+      "id": "7eddae09-b55b-40f3-a867-c13aebb75fe6",
+      "name": "Parse Queries by Period"
+    },
+    {
+      "parameters": {
+        "content": "## Get Queries by Day\n\n",
+        "height": 240,
+        "width": 500
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -260
+      ],
+      "id": "59b2d2bb-8564-4e6b-b6ea-117a38aa3fef",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"query\", \"date\"],\n  \"dimensionFilterGroups\": [{\n    \"filters\": [{\n      \"dimension\": \"page\",\n      \"operator\": \"equals\",\n      \"expression\": \"https://your-domain.com/slug/\"\n    }]\n  }],\n  \"rowLimit\": 10000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        -180
+      ],
+      "id": "7db5f524-23c1-4fe8-891c-5c5f5d17d419",
+      "name": "Get Queries by Day",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows || $input.item.json;\n\n// Map each row to a cleaner format with query, date and metrics\nreturn rows.map(row => {\n  return {\n    query: row.keys[0],\n    date: row.keys[1],\n    clicks: row.clicks,\n    impressions: row.impressions,\n    ctr: row.ctr,\n    position: row.position\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        -180
+      ],
+      "id": "7c5c7b57-e11a-4ef2-9128-41bf0fbae6d3",
+      "name": "Parse Queries by Day"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-02-26\",\n  \"endDate\": \"2025-03-26\",\n  \"dimensions\": [\"query\", \"page\", \"date\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        60
+      ],
+      "id": "178f7e22-8596-4540-b092-23a62894f0fb",
+      "name": "Get Keywords Ranking 4-10",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Brand Visibility Analysis",
+        "height": 240,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        780,
+        260
+      ],
+      "id": "0ef4efc8-3283-4748-9feb-0257d5419e4e",
+      "name": "Sticky Note11"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain:your-domain.com/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startDate\": \"2025-05-01\",\n  \"endDate\": \"2025-06-17\",\n  \"dimensions\": [\"query\"],\n  \"rowLimit\": 25000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        320
+      ],
+      "id": "43cf54bf-3c44-4872-ad40-aaf6de887348",
+      "name": "Get Brand Visibility Analysis",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "R0UFaLH10cOpcIL4",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.item.json.rows || [];\n\n// Define brand terms for regex (adjust to your brand)\nconst brandTerms = ['midjourney'];\n\n// Create regex pattern that matches any brand term (case insensitive)\nconst brandRegex = new RegExp(brandTerms.join('|'), 'i');\n\n// Initialize data structures\nlet brandData = {\n  clicks: 0,\n  impressions: 0,\n  positionSum: 0,\n  queries: []\n};\n\nlet nonBrandData = {\n  clicks: 0,\n  impressions: 0,\n  positionSum: 0,\n  queries: []\n};\n\n// Process each row\nrows.forEach(row => {\n  const query = row.keys[0];\n  const clicks = parseInt(row.clicks);\n  const impressions = parseInt(row.impressions);\n  const position = parseFloat(row.position);\n  const ctr = parseFloat(row.ctr);\n  \n  const queryData = {\n    query: query,\n    clicks: clicks,\n    impressions: impressions,\n    position: Math.round(position * 10) / 10,\n    ctr: Math.round(ctr * 1000) / 10\n  };\n  \n  // Check if query matches brand regex\n  const brandMatch = query.match(brandRegex);\n  \n  if (brandMatch) {\n    // Brand query - add match details\n    queryData.matchedBrandTerm = brandMatch[0];\n    queryData.matchIndex = brandMatch.index;\n    \n    brandData.clicks += clicks;\n    brandData.impressions += impressions;\n    brandData.positionSum += (position * impressions);\n    brandData.queries.push(queryData);\n  } else {\n    // Non-brand query\n    nonBrandData.clicks += clicks;\n    nonBrandData.impressions += impressions;\n    nonBrandData.positionSum += (position * impressions);\n    nonBrandData.queries.push(queryData);\n  }\n});\n\n// Calculate averages\nconst brandAvgPosition = brandData.impressions > 0 \n  ? Math.round((brandData.positionSum / brandData.impressions) * 10) / 10 \n  : 0;\n\nconst nonBrandAvgPosition = nonBrandData.impressions > 0 \n  ? Math.round((nonBrandData.positionSum / nonBrandData.impressions) * 10) / 10 \n  : 0;\n\nconst brandCTR = brandData.impressions > 0 \n  ? Math.round((brandData.clicks / brandData.impressions) * 1000) / 10 \n  : 0;\n\nconst nonBrandCTR = nonBrandData.impressions > 0 \n  ? Math.round((nonBrandData.clicks / nonBrandData.impressions) * 1000) / 10 \n  : 0;\n\n// Calculate totals for percentages\nconst totalClicks = brandData.clicks + nonBrandData.clicks;\nconst totalImpressions = brandData.impressions + nonBrandData.impressions;\n\n// Sort queries by performance\nbrandData.queries.sort((a, b) => b.clicks - a.clicks);\nnonBrandData.queries.sort((a, b) => b.clicks - a.clicks);\n\n// Analyze brand query patterns\nconst brandQueryAnalysis = {\n  totalBrandQueries: brandData.queries.length,\n  uniqueBrandTermsFound: [...new Set(brandData.queries.map(q => q.matchedBrandTerm.toLowerCase()))],\n  topBrandQueries: brandData.queries.slice(0, 10),\n  brandQueriesWithHighImpressions: brandData.queries.filter(q => q.impressions >= 100),\n  brandQueriesWithLowCTR: brandData.queries.filter(q => q.ctr < 50 && q.impressions >= 10) // Brand queries should have high CTR\n};\n\n// Check for brand visibility issues\nconst brandVisibilityIssues = {\n  lowRankingBrandQueries: brandData.queries.filter(q => q.position > 3 && q.impressions >= 10),\n  brandQueriesNotRanking1: brandData.queries.filter(q => q.position > 1 && q.impressions >= 50)\n};\n\n// Return detailed analysis\nreturn [{\n  // Summary metrics\n  summary: {\n    brandClicks: brandData.clicks,\n    brandImpressions: brandData.impressions,\n    brandAvgPosition: brandAvgPosition,\n    brandCTR: brandCTR,\n    brandClickShare: totalClicks > 0 ? Math.round((brandData.clicks / totalClicks) * 100) : 0,\n    \n    nonBrandClicks: nonBrandData.clicks,\n    nonBrandImpressions: nonBrandData.impressions,\n    nonBrandAvgPosition: nonBrandAvgPosition,\n    nonBrandCTR: nonBrandCTR,\n    nonBrandClickShare: totalClicks > 0 ? Math.round((nonBrandData.clicks / totalClicks) * 100) : 0,\n    \n    // Key insights\n    positionGap: Math.round((nonBrandAvgPosition - brandAvgPosition) * 10) / 10,\n    ctrGap: Math.round((brandCTR - nonBrandCTR) * 10) / 10,\n    diversificationRatio: brandData.clicks > 0 ? Math.round((nonBrandData.clicks / brandData.clicks) * 100) / 100 : 0\n  },\n  \n  // Brand analysis details\n  brandAnalysis: {\n    totalBrandQueries: brandQueryAnalysis.totalBrandQueries,\n    uniqueBrandTermsFound: brandQueryAnalysis.uniqueBrandTermsFound,\n    brandQueriesWithHighVolume: brandQueryAnalysis.brandQueriesWithHighImpressions.length,\n    brandQueriesWithLowCTR: brandQueryAnalysis.brandQueriesWithLowCTR.length\n  },\n  \n  // Brand visibility issues\n  brandIssues: {\n    lowRankingBrandQueries: brandVisibilityIssues.lowRankingBrandQueries.length,\n    brandQueriesNotPosition1: brandVisibilityIssues.brandQueriesNotRanking1.length,\n    issueQueries: brandVisibilityIssues.lowRankingBrandQueries.slice(0, 5) // Top 5 problem queries\n  },\n  \n  // Top performing queries\n  topBrandQueries: brandQueryAnalysis.topBrandQueries.slice(0, 5),\n  topNonBrandQueries: nonBrandData.queries.slice(0, 5),\n  \n  // Regex match details\n  regexMatchDetails: {\n    brandTermsUsed: brandTerms,\n    regexPattern: brandRegex.source,\n    totalMatches: brandData.queries.length,\n    sampleMatches: brandData.queries.slice(0, 3).map(q => ({\n      query: q.query,\n      matchedTerm: q.matchedBrandTerm,\n      matchPosition: q.matchIndex\n    }))\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        320
+      ],
+      "id": "baab32cd-0b52-4b7e-8464-bc4a2b77fed3",
+      "name": "Parse Brand Visibility"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        []
+      ]
+    },
+    "Get Device Performance": {
+      "main": [
+        [
+          {
+            "node": "Parse Device Performance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Top Performing Pages": {
+      "main": [
+        [
+          {
+            "node": "Parse Top Performing Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Keyword Analysis by Pages": {
+      "main": [
+        [
+          {
+            "node": "Parse Keyword Analysis by Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Keyword Cannibalization Detection": {
+      "main": [
+        [
+          {
+            "node": "Parse Keyword Cannibalization Detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Content Gap Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Content Gap Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Keyword Opportunities Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Keyword Opportunities Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Query Performance Drop Detection": {
+      "main": [
+        [
+          {
+            "node": "Parse Query Performance Drop Detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    " Get Queries by Period": {
+      "main": [
+        [
+          {
+            "node": "Parse Queries by Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Queries by Period": {
+      "main": [
+        []
+      ]
+    },
+    "Get Queries by Day": {
+      "main": [
+        [
+          {
+            "node": "Parse Queries by Day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Keywords Ranking 4-10": {
+      "main": [
+        [
+          {
+            "node": "Parse Keywords Ranking 4-10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Brand Visibility Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Brand Visibility",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f1dc51ba-dc7f-4ef0-99f4-7b51272e58c4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "kydAlmMqrzOoYp0y",
+  "tags": [
+    {
+      "createdAt": "2025-03-02T12:05:53.836Z",
+      "updatedAt": "2025-03-02T12:05:53.836Z",
+      "id": "utwtHTzeqUdktrxJ",
+      "name": "SEO"
+    }
+  ]
+}

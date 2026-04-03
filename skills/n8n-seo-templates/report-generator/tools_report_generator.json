@@ -1,0 +1,242 @@
+{
+  "name": "Tools - Report Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "base64",
+        "options": {
+          "fileName": "={{$('Start').item.json.filename + \".html\"}}",
+          "mimeType": "={{ $json.mimetype }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        -80
+      ],
+      "id": "6041b412-c030-4e83-86ab-3e8b68988398",
+      "name": "convert_to_html_file"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      base64: Buffer.from($input.all()[0].json.html).toString('base64'),\n      mimetype: \"text/html\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -80
+      ],
+      "id": "04d67343-1344-48ca-a599-918e5b7688d9",
+      "name": "convert_to_base64"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -80,
+        120
+      ],
+      "id": "fb451a32-3a49-4247-91f7-2f52db48d040",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Convert the following JSON data to HTML format:\n\n{{ JSON.stringify($json.content) }}\n# TRANSFORMATION REQUIREMENTS\n\n**Structure Conversion:**\n- Transform each JSON key into a semantic HTML section with appropriate heading level\n- Maintain logical hierarchy: top-level keys become h2, nested keys become h3, etc.\n- Preserve the original data organization and relationships\n\n**Content Formatting:**\n- Text strings → <p> paragraphs (split on line breaks if needed)\n- Arrays → <ul> unordered lists with <li> items\n- Objects → Nested <section> elements with subheadings\n- URLs → Proper <a> tags with href attributes\n- Important terms → <strong> tags for emphasis\n\n**HTML Requirements:**\n- Wrap everything in <article aria-label=\"Report Content\">\n- Include <header> with <h1> for the main title\n- Use <section aria-labelledby=\"id\"> for each major section\n- Generate unique kebab-case IDs for all headings\n- Ensure proper heading hierarchy (h1 → h2 → h3, no skipping)\n\n**Output Specifications:**\n- Return ONLY the article content (no DOCTYPE, html, head, body tags)\n- No CSS styling or class attributes\n- Valid HTML5 that can be directly inserted into a template\n- Proper HTML entity encoding for special characters\n\nGenerate the complete HTML article content now.\n",
+        "options": {
+          "systemMessage": "=You are a specialized JSON-to-HTML converter that transforms structured data into semantic HTML article content. Your output must be consistent, valid, and directly insertable into web templates.\n\n# PRIMARY FUNCTION\nTransform JSON data into clean HTML wrapped in an <article> tag with proper semantic structure, accessibility features, and consistent formatting.\n\n# STRICT OUTPUT REQUIREMENTS\n- Output ONLY content between <article> and </article> tags\n- NO DOCTYPE, html, head, body, or any wrapper tags\n- NO CSS styles or class attributes\n- NO JavaScript or script tags\n- Must be valid HTML5 that passes validation\n\n# JSON INTERPRETATION RULES\n1. **Object Keys** → Section headings (h2, h3, h4 based on nesting depth)\n2. **String Values** → Paragraph content in <p> tags\n3. **Arrays** → Unordered lists (<ul><li>) unless context suggests ordered lists\n4. **Nested Objects** → Subsections with appropriate heading hierarchy\n5. **URLs** → Convert to proper <a> tags with href and descriptive text\n6. **Empty/Null Values** → Skip entirely, do not create empty sections\n\n# HTML STRUCTURE HIERARCHY\n```\n<article aria-label=\"Report Content\">\n  <header>\n    <h1>[Main Title]</h1>\n  </header>\n  \n  <section aria-labelledby=\"id-1\">\n    <h2 id=\"id-1\">[Section Title]</h2>\n    <section aria-labelledby=\"id-1-1\">\n      <h3 id=\"id-1-1\">[Subsection Title]</h3>\n      <p>[Content]</p>\n      <ul>\n        <li>[List item]</li>\n      </ul>\n    </section>\n  </section>\n</article>\n```\n\n# MANDATORY FORMATTING RULES\n1. **IDs**: Generate kebab-case IDs for all headings (h1-h6)\n2. **ARIA**: Include aria-labelledby for all sections referencing heading IDs\n3. **Text Processing**: \n   - Escape HTML entities (&amp;, &lt;, &gt;, &quot;)\n   - Convert line breaks to separate <p> tags\n   - Wrap standalone text in <p> tags\n4. **Links**: Auto-detect URLs and wrap in <a href=\"url\" title=\"descriptive-title\">text</a>\n5. **Emphasis**: Use <strong> for important terms, <em> for emphasis\n\n# ERROR HANDLING\n- If JSON is malformed: Output error message in <p> tag within article\n- If empty JSON: Output <article><p>No content available</p></article>\n- Skip any keys with null/undefined values\n- Handle special characters properly with HTML entities\n\n# CONSISTENCY REQUIREMENTS\n- Always start with <article aria-label=\"Report Content\">\n- Always include <header> with <h1> for main title\n- Use consistent ID naming: section-1, section-2, subsection-1-1, etc.\n- Maintain proper heading hierarchy (don't skip levels)\n- End with closing </article> tag\n\nProcess the JSON systematically and output only the HTML article content.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        -80
+      ],
+      "id": "4f39c987-d009-4f6f-9a2e-d93a6a23e0f2",
+      "name": "Formatter",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "654e6696-7705-4021-87df-1edf19bbe439",
+              "name": "html",
+              "value": "={{ $json.html }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        -80
+      ],
+      "id": "d61c1ee0-6d2e-491f-86da-99901e029d0d",
+      "name": "get_html_output",
+      "notes": ".replace('html', '').replaceAll(\"```\", '').replaceAll(\"\\n\", \"\") "
+    },
+    {
+      "parameters": {
+        "html": "<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n  <title>{{ $('Start').item.json.title }}</title>\n  <style>\n    * {\n      box-sizing: border-box;\n      margin: 0;\n      padding: 0;\n    }\n\n    body {\n      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;\n      line-height: 1.7;\n      color: #1a1a1a;\n      background-color: #fafafa;\n      font-size: 16px;\n      font-weight: 400;\n    }\n\n    article {\n      max-width: 800px;\n      margin: 40px auto;\n      background: #ffffff;\n      border: 1px solid #e5e5e5;\n      border-radius: 8px;\n      overflow: hidden;\n    }\n\n    header {\n      background: #ffffff;\n      border-bottom: 1px solid #e5e5e5;\n      padding: 48px 40px 32px 40px;\n      text-align: center;\n    }\n\n    h1 {\n      font-size: 32px;\n      font-weight: 600;\n      color: #0a0a0a;\n      letter-spacing: -0.02em;\n      margin: 0;\n    }\n\n    h2 {\n      font-size: 20px;\n      font-weight: 600;\n      color: #0a0a0a;\n      margin: 48px 0 16px 0;\n      padding: 0 40px;\n      letter-spacing: -0.01em;\n    }\n\n    h2:first-of-type {\n      margin-top: 32px;\n    }\n\n    h3 {\n      font-size: 16px;\n      font-weight: 600;\n      color: #333333;\n      margin: 32px 0 12px 0;\n      padding: 0 40px;\n    }\n\n    section {\n      margin-bottom: 0;\n    }\n\n    section > section {\n      margin: 24px 0;\n      padding: 0 40px;\n    }\n\n    p {\n      margin: 12px 0;\n      padding: 0 40px;\n      color: #4a4a4a;\n      line-height: 1.6;\n    }\n\n    ul {\n      margin: 16px 0;\n      padding: 0 40px 0 64px;\n      list-style: none;\n    }\n\n    li {\n      margin: 8px 0;\n      color: #4a4a4a;\n      line-height: 1.6;\n      position: relative;\n    }\n\n    li::before {\n      content: \"•\";\n      color: #999999;\n      position: absolute;\n      left: -16px;\n      font-weight: 600;\n    }\n\n    a {\n      color: #0066cc;\n      text-decoration: none;\n      font-weight: 500;\n    }\n\n    a:hover {\n      color: #0052a3;\n      text-decoration: underline;\n    }\n\n    strong {\n      color: #1a1a1a;\n      font-weight: 600;\n    }\n\n\n    /* Last section styling */\n    section:last-child {\n      padding-bottom: 40px;\n    }\n\n    /* Responsive design */\n    @media (max-width: 768px) {\n      body {\n        font-size: 15px;\n      }\n      \n      article {\n        margin: 20px;\n        border-radius: 6px;\n      }\n      \n      header {\n        padding: 32px 24px 24px 24px;\n      }\n      \n      h1 {\n        font-size: 28px;\n      }\n      \n      h2 {\n        font-size: 18px;\n        padding: 0 24px;\n        margin: 32px 0 12px 0;\n      }\n      \n      h3 {\n        font-size: 15px;\n        padding: 0 24px;\n        margin: 24px 0 8px 0;\n      }\n      \n      p {\n        padding: 0 24px;\n      }\n      \n      ul {\n        padding: 0 24px 0 48px;\n      }\n      \n      section > section {\n        padding: 0 24px;\n      }\n      \n      section:not(:last-child) {\n        padding-bottom: 24px;\n      }\n      \n      section:last-child {\n        padding-bottom: 32px;\n      }\n    }\n\n    @media (max-width: 480px) {\n      article {\n        margin: 16px;\n      }\n      \n      header {\n        padding: 24px 20px 20px 20px;\n      }\n      \n      h1 {\n        font-size: 24px;\n      }\n      \n      h2, h3, p {\n        padding-left: 20px;\n        padding-right: 20px;\n      }\n      \n      ul {\n        padding: 0 20px 0 40px;\n      }\n      \n      section > section {\n        padding: 0 20px;\n      }\n    }\n  </style>\n</head>\n<body>\n{{ $json.output }}\n</body>\n</html>"
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        340,
+        -80
+      ],
+      "id": "f21c55b8-273e-4cd8-a386-0e03126daac0",
+      "name": "generate_html_report"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "filename"
+            },
+            {
+              "name": "title"
+            },
+            {
+              "name": "content",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -340,
+        -80
+      ],
+      "id": "8e77f839-6bc5-456f-87bc-580631ba08c5",
+      "name": "Start"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow Instructions\n#### Requirements\nTo use this workflow, you will need an OpenAI API Key.\n\n### Demo\nYou can find a a tutorial [here](https://www.youtube.com/@Marvomatic).\n\n\n### Support & Contact\nDeveloped by **Marvomatic**\n- [Website](https://marvomatic.com)\n- [TikTok](https://www.tiktok.com/@marvomatic)\n- [YouTube](https://www.youtube.com/@marvomatic)\n\n\nFor business inquiries, email: [hello@marvomatic.com](mailto:hello@marvomatic.com)",
+        "height": 380,
+        "width": 760
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        100
+      ],
+      "id": "56463b9f-9c6b-4137-8a49-e0c905238872",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "convert_to_html_file": {
+      "main": [
+        []
+      ]
+    },
+    "convert_to_base64": {
+      "main": [
+        [
+          {
+            "node": "convert_to_html_file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Formatter",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatter": {
+      "main": [
+        [
+          {
+            "node": "generate_html_report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_html_output": {
+      "main": [
+        [
+          {
+            "node": "convert_to_base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generate_html_report": {
+      "main": [
+        [
+          {
+            "node": "get_html_output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "556b940d-a96f-40d9-b72d-d69b5482d56f",
+  "meta": {
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "lr4FCy9jvt89twbt",
+  "tags": []
+}

@@ -1,0 +1,920 @@
+{
+  "name": "Mailing List Analysis",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        0
+      ],
+      "id": "37c270cd-3e5d-4ef6-8763-29d71cc8131c",
+      "name": "When clicking ‘Test workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.mailerLite",
+      "typeVersion": 2,
+      "position": [
+        160,
+        0
+      ],
+      "id": "92f3c50f-1189-4d9f-a40b-09aed968c940",
+      "name": "Get All Subscribers",
+      "credentials": {
+        "mailerLiteApi": {
+          "id": "",
+          "name": "MailerLite account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bdcb77d5-0ca8-4fde-a9f2-c2ec41b7bf2a",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "active",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        380,
+        0
+      ],
+      "id": "be6e055a-570e-4b45-b460-147a235f7f51",
+      "name": "Filter Active Subscribers"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "email"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        600,
+        0
+      ],
+      "id": "f7ff85f8-6a5d-4429-aeff-e13683783ae0",
+      "name": "Get Email Addresses"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "27d75a75-71ff-4fa2-8a17-c0e0b16a046c",
+              "leftValue": "={{ $json.isCustomDomain }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        80
+      ],
+      "id": "6e86a425-38a9-414c-88d8-fea3010f3b4f",
+      "name": "Get Common Provider Emails"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bacc9bba-0bf0-4dda-bc4f-a4345d30e5ac",
+              "leftValue": "={{ $json.isCustomDomain }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        -120
+      ],
+      "id": "d2e00312-16a2-4948-90ab-a33c7a23f74f",
+      "name": "Get Business Mails"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 305542890,
+          "mode": "list",
+          "cachedResultName": "",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "isCustomDomain",
+              "displayName": "isCustomDomain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "domainInformation",
+              "displayName": "domainInformation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "personInformation",
+              "displayName": "personInformation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1580,
+        160
+      ],
+      "id": "29e3f607-3b5d-4909-9bc5-d6b19bfd612e",
+      "name": "Save Non Business Mails",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=http://crawl4ai:11235/task/{{ $json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2460,
+        -140
+      ],
+      "id": "8b3dc3ee-7b95-4ab0-b9dc-3a343dbc7db9",
+      "name": "Get Crawl Status",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MKoLytfiKC3rb7GP",
+          "name": "crawl4ai"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5d2415b6-a502-477a-a448-3542ed58d5ad",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2680,
+        -80
+      ],
+      "id": "b1e3d759-e474-4f63-8042-ea78ca538768",
+      "name": "Is Completed"
+    },
+    {
+      "parameters": {
+        "url": "={{\"http://\" + $json.email.split(\"@\").filter(Boolean).pop() }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1800,
+        -80
+      ],
+      "id": "6ac470dc-733d-49f4-992b-02ca44a4e92e",
+      "name": "Ping Website",
+      "alwaysOutputData": false,
+      "notesInFlow": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "71985a5b-f7ec-4bbe-a390-7b329b90bc29",
+              "name": "result.metadata.title",
+              "value": "={{ $json.result.metadata.title }}",
+              "type": "string"
+            },
+            {
+              "id": "b0ae3939-c83c-4a4e-8b1f-676bbc1131c3",
+              "name": "result.metadata.description",
+              "value": "={{ $json.result.metadata.description }}",
+              "type": "string"
+            },
+            {
+              "id": "38bb1e85-53ca-48b8-bedd-eaf037ac893c",
+              "name": "result.metadata[\"og:locale\"]",
+              "value": "={{ $json.result.metadata[\"og:locale\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "25d5c681-6459-4de4-a4fe-e7898406c6df",
+              "name": "result.markdown",
+              "value": "={{ $json.result.markdown }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2900,
+        -80
+      ],
+      "id": "547a8b55-9b7b-4154-bc43-65add729074f",
+      "name": "Get Metadata"
+    },
+    {
+      "parameters": {
+        "content": "## Get Subscribers",
+        "height": 540,
+        "width": 980
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -220
+      ],
+      "id": "1e3f0129-3864-4e8f-b74a-379b2e3af477",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Divide Subscribers",
+        "height": 540,
+        "width": 620,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        840,
+        -220
+      ],
+      "id": "fddd8c77-3f5d-4e03-8c8c-5365721e88a7",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Crawl Subscriber Information",
+        "height": 540,
+        "width": 1640,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        -220
+      ],
+      "id": "f3c5c27a-4185-414a-8169-e169e6ef2cca",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Analyze & Save Data",
+        "height": 540,
+        "width": 600,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3140,
+        -220
+      ],
+      "id": "dd170de2-c65c-4e46-89d5-12585fd39d57",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// this could be improved by loading a list with more known providers\n// You could also use the mails mentioned here as a filter: https://gist.github.com/ammarshah/f5c2624d767f91a7cbdc4e54db8dd0bf\nconst commonDomains = [\n  'gmail',\n  'yahoo',\n  'outlook',\n  'hotmail',\n  'aol',\n  'icloud',\n  'protonmail',\n  'mail',\n  'zoho',\n  'yandex',\n  'live',\n  'msn',\n  'gmx'\n];\n\nconst result = [];\n\nfor (const item of $input.all()) {\n  for (const email of item.json.email) {\n    const domain = email.split('@')[1].toLowerCase();\n    // Extract the base domain (remove the TLD)\n    const baseDomain = domain.split('.')[0];\n    result.push({\n      email: email,\n      isCustomDomain: !commonDomains.includes(baseDomain)\n    });\n  }\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        0
+      ],
+      "id": "401e9f00-9f2c-4a4d-8835-50a5fc779947",
+      "name": "Check Domain"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crawl4ai:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"urls\": \"{{\"https://\" +  $('Loop Over Emails').item.json.email.split(\"@\").filter(Boolean).pop()}}\",\n  \"priority\": 10\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2040,
+        -60
+      ],
+      "id": "91b3698e-bee0-43d1-8cd5-db088f9cc1fe",
+      "name": "Crawl Website",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MKoLytfiKC3rb7GP",
+          "name": "crawl4ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "I"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are an expert in website analysis and content categorization. Your task is to analyze the provided website data, including the title, meta description, og:locale, and content, to determine the following:\n\n1. What the website is about (its purpose or main focus).\n2. The niche or industry the website belongs to.\n3. The services or offerings provided by the website.\n\nYour response must always follow this JSON structure:\n\n\"website_analysis\": \n{\n  \"about\": \"[Provide a concise summary of what the website is about.]\",\n  \"niche\": \"[Identify the niche or industry the website belongs to.]\",\n  \"services\": [\n    \"[List the services or offerings provided by the website in bullet points.]\"\n  ]\n}\n\nUse the information provided to make accurate and concise inferences. If any information is missing or unclear, make reasonable assumptions based on the context.",
+              "role": "system"
+            },
+            {
+              "content": "=Here is the data extracted from a website. Analyze it and provide the following details:\n1. What the website is about.\n2. The niche or industry it belongs to.\n3. The services or offerings provided.\n\n### Website Data:\n- **Title:** {{ $json.result.metadata.title }}\n- **Meta Description:** {{ $json.result.metadata.description }}\n- **og:locale:** {{ $json.result.metadata[\"og:locale\"] }}\n- **Content:** {{ $json.result.markdown }}\n\nPlease analyze this data and provide your response in a structured format. "
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        3180,
+        -80
+      ],
+      "id": "134b0d97-5f1b-4c72-b430-908c6ed52505",
+      "name": "Analyze Website",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1218456268,
+          "mode": "list",
+          "cachedResultName": "",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "services": "={{ $json.message.content.website_analysis.services }}",
+            "about": "={{ $json.message.content.website_analysis.about }}",
+            "isCustomDomain": "={{ $('Loop Over Emails').item.json.isCustomDomain }}",
+            "email": "={{ $('Loop Over Emails').item.json.email }}",
+            "niche": "={{ $json.message.content.website_analysis.niche }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "isCustomDomain",
+              "displayName": "isCustomDomain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "about",
+              "displayName": "about",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "niche",
+              "displayName": "niche",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "services",
+              "displayName": "services",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3560,
+        -60
+      ],
+      "id": "a1c7cc7c-0b0a-4386-954f-52899c74f778",
+      "name": "Save Subscriber Information",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1580,
+        -40
+      ],
+      "id": "0441498f-a3cf-4e1f-ade7-93e63b4e8517",
+      "name": "Loop Over Emails"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1218456268,
+          "mode": "list",
+          "cachedResultName": "",
+          "cachedResultUrl": ""
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        160,
+        -180
+      ],
+      "id": "e9fc527b-e16c-44c2-b6fa-64ce93c2b887",
+      "name": "Get Analyzed Subscribers",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "email",
+              "field2": "email"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.compareDatasets",
+      "typeVersion": 2.3,
+      "position": [
+        1240,
+        -200
+      ],
+      "id": "4f181484-a220-4d29-8d09-45a10daed04e",
+      "name": "Get Emails to Analyze"
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        -80
+      ],
+      "id": "fde02556-495b-40b9-8fb8-79a9b2545a96",
+      "name": "Sleep",
+      "webhookId": "f63502d1-6006-423a-bbeb-345991818635"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get All Subscribers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Analyzed Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Filter Active Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Active Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Get Email Addresses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email Addresses": {
+      "main": [
+        [
+          {
+            "node": "Check Domain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Business Mails": {
+      "main": [
+        [
+          {
+            "node": "Get Emails to Analyze",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Common Provider Emails": {
+      "main": [
+        [
+          {
+            "node": "Save Non Business Mails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Crawl Status": {
+      "main": [
+        [
+          {
+            "node": "Is Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Completed": {
+      "main": [
+        [
+          {
+            "node": "Get Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sleep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ping Website": {
+      "main": [
+        [
+          {
+            "node": "Crawl Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Metadata": {
+      "main": [
+        [
+          {
+            "node": "Analyze Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Domain": {
+      "main": [
+        [
+          {
+            "node": "Get Business Mails",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Common Provider Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crawl Website": {
+      "main": [
+        [
+          {
+            "node": "Sleep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Website": {
+      "main": [
+        [
+          {
+            "node": "Save Subscriber Information",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Subscriber Information": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Emails": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Ping Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Analyzed Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Get Emails to Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Emails to Analyze": {
+      "main": [
+        [],
+        [],
+        [],
+        [
+          {
+            "node": "Loop Over Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sleep": {
+      "main": [
+        [
+          {
+            "node": "Get Crawl Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "86acd2d0-4e0e-43c0-8de1-5bdda8e79daf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "sBeN4ryu7Vg1eLMc",
+  "tags": []
+}

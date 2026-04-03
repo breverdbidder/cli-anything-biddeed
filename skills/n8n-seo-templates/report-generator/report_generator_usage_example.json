@@ -1,0 +1,302 @@
+{
+  "name": "Report Examples Demo",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        100
+      ],
+      "id": "0b4e2c14-3b21-4463-b1a8-44a8f6fd20ed",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"title\": \"SEO Report July\",\n  \"filename\": \"seo_report\",\n  \"content\": {\n    \"website\": \"example-store.com\",\n    \"analysis_date\": \"2025-07-31\",\n    \"overall_score\": 78,\n    \"critical_issues\": [\n      \"Missing meta descriptions on 15 pages\",\n      \"Slow page load times (average 4.2 seconds)\",\n      \"Broken internal links found\"\n    ],\n    \"technical_seo\": {\n      \"page_speed\": {\n        \"desktop_score\": 65,\n        \"mobile_score\": 42,\n        \"recommendations\": [\n          \"Optimize images (reduce file sizes by 60%)\",\n          \"Enable browser caching\",\n          \"Minify CSS and JavaScript files\"\n        ]\n      },\n      \"crawlability\": {\n        \"status\": \"Good\",\n        \"sitemap_url\": \"https://example-store.com/sitemap.xml\",\n        \"robots_txt\": \"Present and properly configured\",\n        \"issues\": []\n      }\n    },\n    \"content_analysis\": {\n      \"keyword_optimization\": {\n        \"primary_keywords\": [\"organic skincare\", \"natural beauty products\", \"eco-friendly cosmetics\"],\n        \"keyword_density\": \"2.3%\",\n        \"missing_keywords\": [\"sustainable beauty\", \"cruelty-free products\"]\n      },\n      \"content_quality\": {\n        \"readability_score\": 82,\n        \"average_word_count\": 450,\n        \"duplicate_content\": \"3 pages with similar content detected\"\n      }\n    },\n    \"recommendations\": {\n      \"high_priority\": [\n        \"Add meta descriptions to all product pages\",\n        \"Implement image compression to improve load times\",\n        \"Fix 12 broken internal links in navigation\"\n      ],\n      \"medium_priority\": [\n        \"Optimize title tags for better CTR\",\n        \"Add schema markup for products\",\n        \"Improve mobile responsiveness\"\n      ],\n      \"low_priority\": [\n        \"Add social media meta tags\",\n        \"Consider implementing breadcrumb navigation\"\n      ]\n    },\n    \"next_review_date\": \"2025-10-31\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        100
+      ],
+      "id": "4238e624-1664-4d45-95ec-b5dadfda7ea3",
+      "name": "Mock SEO Report"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"title\": \"Mediterranean Recipe\",\n  \"filename\": \"recipe\",\n  \"content\": {\n    \"dish_name\": \"Mediterranean Herb-Crusted Salmon with Roasted Vegetables\",\n    \"cuisine_type\": \"Mediterranean\",\n    \"difficulty_level\": \"Intermediate\",\n    \"prep_time\": \"25 minutes\",\n    \"cook_time\": \"35 minutes\",\n    \"serves\": 4,\n    \"ingredients\": {\n      \"main_protein\": [\n        \"4 salmon fillets (6 oz each)\",\n        \"2 tablespoons olive oil\",\n        \"1 teaspoon sea salt\",\n        \"1/2 teaspoon black pepper\"\n      ],\n      \"herb_crust\": [\n        \"1/2 cup fresh breadcrumbs\",\n        \"2 tablespoons fresh parsley, chopped\",\n        \"1 tablespoon fresh dill, chopped\",\n        \"1 tablespoon fresh oregano, chopped\",\n        \"2 cloves garlic, minced\",\n        \"2 tablespoons lemon zest\"\n      ],\n      \"roasted_vegetables\": [\n        \"2 medium zucchini, sliced\",\n        \"1 red bell pepper, cut into strips\",\n        \"1 yellow bell pepper, cut into strips\",\n        \"1 red onion, sliced\",\n        \"12 cherry tomatoes, halved\",\n        \"3 tablespoons olive oil\",\n        \"1 teaspoon dried thyme\"\n      ]\n    },\n    \"cooking_instructions\": {\n      \"preparation\": {\n        \"step_1\": \"Preheat oven to 425°F (220°C)\",\n        \"step_2\": \"Line two baking sheets with parchment paper\",\n        \"step_3\": \"Pat salmon fillets dry and season with salt and pepper\"\n      },\n      \"herb_crust_preparation\": {\n        \"mixing\": \"Combine breadcrumbs, herbs, garlic, and lemon zest in a bowl\",\n        \"binding\": \"Add 1 tablespoon olive oil to create a paste-like consistency\",\n        \"application\": \"Press herb mixture firmly onto top of each salmon fillet\"\n      },\n      \"vegetable_preparation\": {\n        \"cutting\": \"Cut all vegetables into uniform pieces for even cooking\",\n        \"seasoning\": \"Toss vegetables with olive oil, thyme, salt, and pepper\",\n        \"arrangement\": \"Spread vegetables in single layer on prepared baking sheet\"\n      },\n      \"cooking_process\": {\n        \"vegetables_first\": \"Roast vegetables for 15 minutes before adding salmon\",\n        \"salmon_cooking\": \"Place herb-crusted salmon on second baking sheet\",\n        \"final_cooking\": \"Cook both salmon and vegetables for additional 12-15 minutes\",\n        \"doneness_check\": \"Salmon should flake easily and reach internal temperature of 145°F\"\n      }\n    },\n    \"nutritional_information\": {\n      \"per_serving\": {\n        \"calories\": 485,\n        \"protein\": \"38g\",\n        \"carbohydrates\": \"18g\",\n        \"fat\": \"28g\",\n        \"fiber\": \"5g\",\n        \"sodium\": \"420mg\"\n      },\n      \"health_benefits\": [\n        \"Rich in omega-3 fatty acids for heart health\",\n        \"High protein content supports muscle maintenance\",\n        \"Antioxidants from colorful vegetables boost immune system\",\n        \"Mediterranean herbs provide anti-inflammatory compounds\"\n      ]\n    },\n    \"serving_suggestions\": {\n      \"accompaniments\": [\n        \"Lemon wedges for extra citrus flavor\",\n        \"Tzatziki sauce or Greek yogurt\",\n        \"Warm pita bread or crusty sourdough\",\n        \"Mixed green salad with olive oil dressing\"\n      ],\n      \"wine_pairings\": [\n        \"Sauvignon Blanc - crisp and herbaceous\",\n        \"Pinot Grigio - light and fresh\",\n        \"Rosé - complements the Mediterranean flavors\"\n      ]\n    },\n    \"storage_and_leftovers\": {\n      \"refrigeration\": {\n        \"duration\": \"Store leftovers for up to 3 days in refrigerator\",\n        \"container\": \"Use airtight containers to maintain freshness\",\n        \"reheating\": \"Reheat gently in 350°F oven for 8-10 minutes\"\n      },\n      \"meal_prep_tips\": [\n        \"Prepare herb crust mixture up to 2 days ahead\",\n        \"Cut vegetables the night before and store in refrigerator\",\n        \"Cook extra vegetables for easy weekday sides\"\n      ]\n    },\n    \"chef_notes\": {\n      \"substitutions\": {\n        \"fish_alternatives\": [\"Cod fillets\", \"Halibut steaks\", \"Sea bass\"],\n        \"herb_variations\": [\"Basil and thyme\", \"Rosemary and sage\", \"Cilantro and mint\"],\n        \"vegetable_swaps\": [\"Asparagus\", \"Brussels sprouts\", \"Eggplant\"]\n      },\n      \"pro_tips\": [\n        \"Don't overcrowd vegetables on baking sheet for proper roasting\",\n        \"Let salmon rest at room temperature for 15 minutes before cooking\",\n        \"Use a meat thermometer for perfectly cooked salmon every time\"\n      ]\n    },\n    \"recipe_source\": \"Chef Maria's Mediterranean Kitchen\",\n    \"recipe_url\": \"https://mediterranean-kitchen.com/herb-crusted-salmon\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        -100
+      ],
+      "id": "50ab8c9b-368d-4357-b250-486b228cbba8",
+      "name": "Mock Recipe"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"title\": \"SEO Report July\",\n  \"filename\": \"project\",\n  \"content\": {\n    \"project_name\": \"TaskFlow Pro - Project Management API\",\n    \"version\": \"2.4.1\",\n    \"release_date\": \"2025-07-15\",\n    \"overview\": \"A comprehensive REST API for managing projects, tasks, and team collaboration with real-time updates and advanced reporting capabilities.\",\n    \"system_requirements\": {\n      \"minimum_requirements\": {\n        \"operating_system\": [\"Windows 10\", \"macOS 12.0\", \"Ubuntu 20.04 LTS\"],\n        \"memory\": \"8GB RAM minimum\",\n        \"storage\": \"2GB available disk space\",\n        \"network\": \"Stable internet connection required\"\n      },\n      \"recommended_requirements\": {\n        \"operating_system\": [\"Windows 11\", \"macOS 13.0\", \"Ubuntu 22.04 LTS\"],\n        \"memory\": \"16GB RAM or higher\",\n        \"storage\": \"5GB available disk space\",\n        \"processor\": \"Multi-core processor (4+ cores recommended)\"\n      }\n    },\n    \"installation_guide\": {\n      \"prerequisites\": {\n        \"software_dependencies\": [\n          \"Node.js version 18.0 or higher\",\n          \"PostgreSQL 14.0 or higher\",\n          \"Redis 6.2 or higher\",\n          \"Docker (optional but recommended)\"\n        ],\n        \"environment_setup\": {\n          \"development\": \"Set NODE_ENV=development in your environment variables\",\n          \"production\": \"Configure SSL certificates and set NODE_ENV=production\",\n          \"database\": \"Create a new PostgreSQL database named 'taskflow_db'\"\n        }\n      },\n      \"installation_steps\": {\n        \"step_1\": {\n          \"title\": \"Clone the Repository\",\n          \"command\": \"git clone https://github.com/taskflow/taskflow-api.git\",\n          \"description\": \"Download the latest version from our GitHub repository\"\n        },\n        \"step_2\": {\n          \"title\": \"Install Dependencies\",\n          \"command\": \"npm install --production\",\n          \"description\": \"Install all required Node.js packages and dependencies\"\n        },\n        \"step_3\": {\n          \"title\": \"Configure Environment\",\n          \"files\": [\".env.example\", \".env.production\"],\n          \"description\": \"Copy .env.example to .env and configure your database credentials\"\n        },\n        \"step_4\": {\n          \"title\": \"Database Migration\",\n          \"command\": \"npm run migrate:latest\",\n          \"description\": \"Set up database tables and initial schema\"\n        },\n        \"step_5\": {\n          \"title\": \"Start the Application\",\n          \"command\": \"npm start\",\n          \"description\": \"Launch the API server on default port 3000\"\n        }\n      }\n    },\n    \"api_endpoints\": {\n      \"authentication\": {\n        \"login\": {\n          \"method\": \"POST\",\n          \"endpoint\": \"/api/v2/auth/login\",\n          \"description\": \"Authenticate user and receive JWT token\",\n          \"required_fields\": [\"email\", \"password\"],\n          \"response_format\": \"JSON with access_token and user_info\"\n        },\n        \"register\": {\n          \"method\": \"POST\",\n          \"endpoint\": \"/api/v2/auth/register\",\n          \"description\": \"Create new user account\",\n          \"required_fields\": [\"email\", \"password\", \"first_name\", \"last_name\"],\n          \"optional_fields\": [\"company\", \"phone\"]\n        }\n      },\n      \"project_management\": {\n        \"create_project\": {\n          \"method\": \"POST\",\n          \"endpoint\": \"/api/v2/projects\",\n          \"description\": \"Create a new project with initial settings\",\n          \"required_fields\": [\"name\", \"description\", \"start_date\"],\n          \"optional_fields\": [\"end_date\", \"budget\", \"team_members\"]\n        },\n        \"list_projects\": {\n          \"method\": \"GET\",\n          \"endpoint\": \"/api/v2/projects\",\n          \"description\": \"Retrieve all projects for authenticated user\",\n          \"query_parameters\": [\"status\", \"sort_by\", \"limit\", \"offset\"],\n          \"filters\": [\"active\", \"completed\", \"archived\", \"on_hold\"]\n        },\n        \"update_project\": {\n          \"method\": \"PUT\",\n          \"endpoint\": \"/api/v2/projects/{project_id}\",\n          \"description\": \"Update existing project details\",\n          \"updatable_fields\": [\"name\", \"description\", \"status\", \"budget\", \"end_date\"]\n        }\n      },\n      \"task_management\": {\n        \"create_task\": {\n          \"method\": \"POST\",\n          \"endpoint\": \"/api/v2/projects/{project_id}/tasks\",\n          \"description\": \"Add new task to specified project\",\n          \"required_fields\": [\"title\", \"description\", \"priority\"],\n          \"priority_levels\": [\"low\", \"medium\", \"high\", \"urgent\"]\n        },\n        \"assign_task\": {\n          \"method\": \"PATCH\",\n          \"endpoint\": \"/api/v2/tasks/{task_id}/assign\",\n          \"description\": \"Assign task to team member\",\n          \"required_fields\": [\"assignee_id\", \"due_date\"],\n          \"notification\": \"Automatic email notification sent to assignee\"\n        }\n      }\n    },\n    \"configuration_options\": {\n      \"database_settings\": {\n        \"connection_pool\": {\n          \"min_connections\": 5,\n          \"max_connections\": 20,\n          \"idle_timeout\": \"30 seconds\"\n        },\n        \"backup_settings\": {\n          \"automatic_backup\": true,\n          \"backup_frequency\": \"Daily at 2:00 AM UTC\",\n          \"retention_period\": \"30 days\",\n          \"backup_location\": \"AWS S3 bucket or local storage\"\n        }\n      },\n      \"security_configuration\": {\n        \"jwt_settings\": {\n          \"token_expiry\": \"24 hours\",\n          \"refresh_token_expiry\": \"7 days\",\n          \"algorithm\": \"HS256\"\n        },\n        \"rate_limiting\": {\n          \"requests_per_minute\": 100,\n          \"burst_limit\": 200,\n          \"blocked_duration\": \"15 minutes\"\n        },\n        \"cors_settings\": {\n          \"allowed_origins\": [\"https://app.taskflow.com\", \"https://admin.taskflow.com\"],\n          \"allowed_methods\": [\"GET\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\"],\n          \"credentials\": true\n        }\n      }\n    },\n    \"troubleshooting\": {\n      \"common_issues\": {\n        \"database_connection_failed\": {\n          \"symptoms\": [\"Connection timeout errors\", \"Unable to connect to database\"],\n          \"solutions\": [\n            \"Verify database credentials in .env file\",\n            \"Check if PostgreSQL service is running\",\n            \"Ensure database exists and user has proper permissions\",\n            \"Test connection using psql command line tool\"\n          ]\n        },\n        \"authentication_errors\": {\n          \"symptoms\": [\"401 Unauthorized responses\", \"Invalid token errors\"],\n          \"solutions\": [\n            \"Check JWT secret key configuration\",\n            \"Verify token hasn't expired\",\n            \"Ensure proper Authorization header format\",\n            \"Clear browser cache and cookies\"\n          ]\n        },\n        \"performance_issues\": {\n          \"symptoms\": [\"Slow API responses\", \"High memory usage\", \"Timeout errors\"],\n          \"solutions\": [\n            \"Enable database query optimization\",\n            \"Implement Redis caching for frequent queries\",\n            \"Monitor and optimize database indexes\",\n            \"Scale horizontally with load balancer\"\n          ]\n        }\n      }\n    },\n    \"support_resources\": {\n      \"documentation_links\": [\n        \"https://docs.taskflow.com/api-reference\",\n        \"https://docs.taskflow.com/getting-started\",\n        \"https://docs.taskflow.com/best-practices\"\n      ],\n      \"community_support\": [\n        \"GitHub Issues: https://github.com/taskflow/taskflow-api/issues\",\n        \"Discord Community: https://discord.gg/taskflow\",\n        \"Stack Overflow tag: taskflow-api\"\n      ],\n      \"contact_information\": {\n        \"technical_support\": \"support@taskflow.com\",\n        \"sales_inquiries\": \"sales@taskflow.com\",\n        \"business_hours\": \"Monday-Friday, 9:00 AM - 6:00 PM EST\"\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        280
+      ],
+      "id": "6ba13623-d42a-4785-9537-8022521f9397",
+      "name": "Mock Project Data"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lr4FCy9jvt89twbt",
+          "mode": "list",
+          "cachedResultName": "Tools - Report Generator"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $json.title }}",
+            "filename": "={{ $json.filename }}",
+            "content": "={{ $json.content }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "filename",
+              "displayName": "filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        420,
+        -100
+      ],
+      "id": "0181fe75-a134-43f5-aa3d-8b33c4a08bc8",
+      "name": "Generate Report 1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lr4FCy9jvt89twbt",
+          "mode": "list",
+          "cachedResultName": "Tools - Report Generator"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $json.title }}",
+            "filename": "={{ $json.filename }}",
+            "content": "={{ $json.content }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "filename",
+              "displayName": "filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        420,
+        100
+      ],
+      "id": "2437b60c-a6a1-4d5f-9cb9-d1f25da5f808",
+      "name": "Generate Report 2"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lr4FCy9jvt89twbt",
+          "mode": "list",
+          "cachedResultName": "Tools - Report Generator"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $json.title }}",
+            "filename": "={{ $json.filename }}",
+            "content": "={{ $json.content }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "filename",
+              "displayName": "filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        420,
+        280
+      ],
+      "id": "a4f69396-d7b2-4d4e-99ca-1194d1ff97df",
+      "name": "Generate Report 3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Mock SEO Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mock Recipe",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mock Project Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock SEO Report": {
+      "main": [
+        [
+          {
+            "node": "Generate Report 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Recipe": {
+      "main": [
+        [
+          {
+            "node": "Generate Report 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Project Data": {
+      "main": [
+        [
+          {
+            "node": "Generate Report 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6108b1b3-101f-48a6-b19a-e334acc08afb",
+  "meta": {
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "hxQH8WTuPlGTfMm5",
+  "tags": []
+}

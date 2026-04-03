@@ -1,0 +1,2694 @@
+{
+  "name": "Product - SERP Analysis (SerpAPI + Crawl4AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Keyword Research Form",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Focus Keyword",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "de"
+                  },
+                  {
+                    "option": "us"
+                  },
+                  {}
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -880,
+        940
+      ],
+      "id": "ab9130ad-2ebe-457b-a442-277e406dfd0b",
+      "name": "On form submission",
+      "webhookId": "9180df6f-cf6d-4d11-941e-db5659923b24"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json['Focus Keyword'] }}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $json.Country }}"
+            },
+            {
+              "name": "device",
+              "value": "DESKTOP"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -660,
+        1040
+      ],
+      "id": "d14ba2d7-7120-4ad5-9f2a-0e6b1b5f5998",
+      "name": "get_desktop_serp_results",
+      "credentials": {
+        "serpApi": {
+          "id": "ip84lDL75JMRWLKs",
+          "name": "SerpAPI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json['Focus Keyword'] }}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $json.Country }}"
+            },
+            {
+              "name": "device",
+              "value": "mobile"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -660,
+        820
+      ],
+      "id": "996db5a2-32eb-4cba-b708-cc7057875030",
+      "name": "get_mobile_serp_results",
+      "credentials": {
+        "serpApi": {
+          "id": "ip84lDL75JMRWLKs",
+          "name": "SerpAPI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# Get SERPs by Keyword and Country",
+        "height": 1440,
+        "width": 840
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        360
+      ],
+      "id": "612a8dc7-1b74-4960-972f-e22982e34e3c",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        20,
+        860
+      ],
+      "id": "29a3e353-d867-4811-b451-e1dfb620c6c6",
+      "name": "merge_faq"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "related_questions",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        260,
+        860
+      ],
+      "id": "8a78895b-95b1-402d-8398-93f8ac2ef62b",
+      "name": "get_questions"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "question",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        480,
+        860
+      ],
+      "id": "5030363b-0373-48a8-b9ef-f1400240bc32",
+      "name": "remove_duplicates_in_questions"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SERP Analysis (SerpApi + Crawl4AI)",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 954676522,
+          "mode": "list",
+          "cachedResultName": "FAQs",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "question": "={{ $json.question }}",
+            "title": "={{ $json.title }}",
+            "link": "={{ $json.link }}",
+            "snippet": "={{ $json.snippet}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        860
+      ],
+      "id": "e454c712-dfe5-4188-9592-4fbd80c2c1bd",
+      "name": "insert_faqs",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_questions",
+              "value": "={{ $json.related_questions }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        640
+      ],
+      "id": "0bf66d60-a0dc-41d8-92da-d28dc0994e56",
+      "name": "get_faqs_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fcf16964-061d-4c9e-82c6-954e769e899c",
+              "name": "organic_results",
+              "value": "={{ $json.organic_results }}",
+              "type": "array"
+            },
+            {
+              "id": "44fba0e5-686c-4475-89dd-66f711bf910c",
+              "name": "search_parameters.device",
+              "value": "={{ $json.search_parameters.device }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        820
+      ],
+      "id": "599b9649-517f-4c97-a09c-f49bd6b4a2c8",
+      "name": "get_serp_results_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e76a9070-4782-4a54-84b6-bce1eb50023d",
+              "name": "organic_results",
+              "value": "={{ $json.organic_results }}",
+              "type": "array"
+            },
+            {
+              "id": "64fffe61-bb13-47e6-9555-c8adb9c3762d",
+              "name": "search_parameters.device",
+              "value": "={{ $json.search_parameters.device }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -460,
+        1040
+      ],
+      "id": "27a98c0c-9cc6-4baa-a449-6c092790cbe5",
+      "name": "get_serp_results_desktop"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_questions",
+              "value": "={{ $json.related_questions }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -460,
+        1260
+      ],
+      "id": "bc8b3e76-66c3-414c-8acf-d7954957c107",
+      "name": "get_faqs_desktop"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_searches",
+              "value": "={{ $json.related_searches }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        400
+      ],
+      "id": "f64a255d-2cd5-444d-a8a2-27150c04a728",
+      "name": "get_related_searches_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_searches",
+              "value": "={{ $json.related_searches }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -460,
+        1500
+      ],
+      "id": "c8fae186-62ae-4882-b9f2-c2a3a7a3c708",
+      "name": "get_related_searches_desktop"
+    },
+    {
+      "parameters": {
+        "content": "# Insert Related Searches\n",
+        "height": 380,
+        "width": 960,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        360
+      ],
+      "id": "b37c6854-03b2-423b-ab79-ad86d6a32e08",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Insert FAQs",
+        "height": 380,
+        "width": 960,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        760
+      ],
+      "id": "66a7e0bd-6726-4189-bc44-b7e45659ea7e",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        0,
+        480
+      ],
+      "id": "766c389d-3a1b-48dd-8f1f-2324278b9168",
+      "name": "merge_faq1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SERP Analysis (SerpApi + Crawl4AI)",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1692925487,
+          "mode": "list",
+          "cachedResultName": "Related Searches",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "query": "={{ $json.name }}"
+          },
+          "matchingColumns": [
+            "query"
+          ],
+          "schema": [
+            {
+              "id": "query",
+              "displayName": "query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        480
+      ],
+      "id": "ce1a7673-704d-4131-9435-8f494224c9f5",
+      "name": "insert_related_searches",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "name",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        520,
+        480
+      ],
+      "id": "df2c5afa-5d04-475f-9e93-d9fd70f5ab6c",
+      "name": "remove_duplicates_in_questions1"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow Instructions\n#### Requirements\nTo use this workflow, you will need accounts and API access for the following services:\n- **Google Sheets**\n- **SerpApi**\n- **Crawl4AI**\n- **OpenAI**\n#### Google Spreadsheet Setup\nCreate a Google Spreadsheet with **three sheets** named exactly as follows:\n1. **SERP Analysis**  \n   Columns (in order):  \n   `position`, `title`, `link`, `snippet`, `short_summary`, `potential_focus_keyword`, `relevant_long_tail_keywords`, `unigrams`, `bigrams`, `trigrams`\n2. **FAQs**  \n   Columns (in order):  \n   `question`, `title`, `link`, `snippet`\n3. **Related Searches**  \n   Columns (in order):  \n   `query`\n> **Tip:** Make sure the sheet names and column headers match exactly, including capitalization and spacing, to ensure the workflow functions correctly.\n#### Getting Started\n1. **Set up your Google Spreadsheet** as described above.\n2. **Configure your API credentials** for SerpApi, Crawl4AI, and OpenAI within n8n.\n3. **Import the workflow** into your n8n instance.\n4. **Update any required variables or nodes** in the workflow to point to your specific spreadsheet and API keys.\n5. **Run the workflow** and monitor the results in your Google Sheets.\n#### Support & Contact\nDeveloped by **Marvomatic**\n- [Website](https://marvomatic.com)\n- [TikTok](https://www.tiktok.com/@marvomatic)\n- [YouTube](https://www.youtube.com/@marvomatic)\n\nFor business inquiries, email: [hello@marvomatic.com](mailto:hello@marvomatic.com)",
+        "height": 780,
+        "width": 1180
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        940,
+        360
+      ],
+      "id": "03f13c66-ead3-4718-91b6-30ac8a79444d",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "# SERP Analysis\n",
+        "height": 640,
+        "width": 2180,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        1160
+      ],
+      "id": "01a82bfd-f020-4a05-b4b3-3a971283c558",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1280
+      ],
+      "id": "84c45bc1-fe19-4618-b101-ab0e5c047269",
+      "name": "top_3_by_mobile"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1480
+      ],
+      "id": "10bbd663-ba8c-41f7-93eb-588d42167518",
+      "name": "top_3_by_desktop"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        220,
+        1280
+      ],
+      "id": "15d22f8f-7f73-4d50-9bd7-05ee5b113ba6",
+      "name": "get_urls_to_crawl"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic_results",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        440,
+        1280
+      ],
+      "id": "61b4ff33-c12f-4dcf-9208-01e82c42a0bf",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "link",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1280
+      ],
+      "id": "172bfff0-b196-43bc-9f5b-0e9a664b4a83",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        860,
+        1280
+      ],
+      "id": "11354eb9-a23c-4569-bf30-0796e3fdcd46",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "link, snippet, position, title",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        1280
+      ],
+      "id": "54ffe9d9-cd5a-4c2e-bb84-2f2459c9c1d1",
+      "name": "get_links"
+    },
+    {
+      "parameters": {
+        "url": "=http://crawl4ai:11235/task/{{ $json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        1500
+      ],
+      "id": "5e699d2c-9d6f-437d-838f-6641cdd3348d",
+      "name": "get_status",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MKoLytfiKC3rb7GP",
+          "name": "crawl4ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4eec2c04-b519-4c06-a911-bb7780b776b5",
+              "name": "result.metadata.title",
+              "value": "={{ $('get_status').item.json.result.metadata.title }}",
+              "type": "string"
+            },
+            {
+              "id": "0eac8d67-34d9-4809-92fc-69f47381e104",
+              "name": "result.metadata.description",
+              "value": "={{ $('get_status').item.json.result.metadata.description }}",
+              "type": "string"
+            },
+            {
+              "id": "58b74b11-74f8-42e3-b68f-a2aa4c380578",
+              "name": "result.metadata['og:url']",
+              "value": "={{ $('get_status').item.json.result.metadata['og:url'] }}",
+              "type": "string"
+            },
+            {
+              "id": "f57680c0-48ed-492f-a1d9-508a0c996198",
+              "name": "result.cleaned_html",
+              "value": "={{ $('get_status').item.json.result.cleaned_html }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1200,
+        1500
+      ],
+      "id": "767e4147-b212-4833-a9de-89acce01b1fa",
+      "name": "get_metadata"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SERP Analysis (SerpApi + Crawl4AI)",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "SERPs",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "short_summary": "={{ $json.message.content.short_summary ?  $json.message.content.short_summary: \"\" }}",
+            "potential_focus_keyword": "={{ $json.message.content.potential_focus_keyword ?  $json.message.content.potential_focus_keyword: \"\" }}",
+            "unigrams": "={{ $json.message.content.n_gram_analysis.unigrams ?  $json.message.content.n_gram_analysis.unigrams: \"\" }}",
+            "bigrams": "={{ $json.message.content.n_gram_analysis.bigrams ?  $json.message.content.n_gram_analysis.bigrams: \"\" }}",
+            "trigrams": "={{ $json.message.content.n_gram_analysis.trigrams ?  $json.message.content.n_gram_analysis.trigrams: \"\" }}",
+            "relevant_long_tail_keywords": "={{ $json.message.content.relevant_long_tail_keywords ?  $json.message.content.relevant_long_tail_keywords: \"\" }}",
+            "title": "={{ $('Loop Over Items').item.json.title }}",
+            "link": "={{ $('Loop Over Items').item.json.link }}",
+            "snippet": "={{ $('Loop Over Items').item.json.snippet }}",
+            "position": "={{ $('Loop Over Items').item.json.position }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "position",
+              "displayName": "position",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "short_summary",
+              "displayName": "short_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "potential_focus_keyword",
+              "displayName": "potential_focus_keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_long_tail_keywords",
+              "displayName": "relevant_long_tail_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unigrams",
+              "displayName": "unigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bigrams",
+              "displayName": "bigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "trigrams",
+              "displayName": "trigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1860,
+        1500
+      ],
+      "id": "0263981c-763c-4eba-ad3d-cd89f1c2d615",
+      "name": "insert_serp_analysis",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crawl4ai:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "urls",
+              "value": "={{ $json.link }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        360,
+        1500
+      ],
+      "id": "ba772328-aa75-4f32-b170-10686a298b2e",
+      "name": "get_page_content",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MKoLytfiKC3rb7GP",
+          "name": "crawl4ai"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        580,
+        1500
+      ],
+      "id": "a0847995-63bc-4d45-ad6e-a72d58b80ac6",
+      "name": "sleep",
+      "webhookId": "39bf1438-2316-4e3e-bb9d-0dd5d29b3509"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "100015ac-f73c-406d-acd5-49a41d60111a",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        980,
+        1500
+      ],
+      "id": "cae29db7-2e8b-4497-90f7-d47ad206e069",
+      "name": "check_status"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1520,
+        1280
+      ],
+      "id": "e8fcf388-c73a-4409-8386-0412992825aa",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "related_searches",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        180,
+        480
+      ],
+      "id": "f61060db-010d-49b7-a5fd-4db1fecc86e6",
+      "name": "get_related_searches"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "items",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        360,
+        480
+      ],
+      "id": "820b964d-a28a-430f-a276-e41a2719083f",
+      "name": "get_names"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a SEO-specialist and your task is to analyze the articles from our competitors. The ultimate goal is to write an article that is better than the competitors article. Apart from that, you are familiar with markdown and you are able to extract only relevant content.",
+              "role": "system"
+            },
+            {
+              "content": "=Your task is to analyze the following <article> =  {{ $json.content }} and provide me the following information:\n- Short Summary\n- Potential Focus Keyword\n- Relevant long-tail keywords\n- N-Gram-Analysis\n"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1540,
+        1500
+      ],
+      "id": "45770e8f-b9ff-4a5a-ab70-c22033e2225b",
+      "name": "Analyze Content",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "On form submission": [
+      {
+        "json": {
+          "Focus Keyword": "mit ki musik erstellen",
+          "Country": "de",
+          "submittedAt": "2025-04-29T15:56:44.169-04:00",
+          "formMode": "test"
+        }
+      }
+    ],
+    "get_desktop_serp_results": [
+      {
+        "json": {
+          "search_metadata": {
+            "id": "68112b375f6d02daaeef0fa9",
+            "status": "Success",
+            "json_endpoint": "https://serpapi.com/searches/9a6f2cac55259302/68112b375f6d02daaeef0fa9.json",
+            "created_at": "2025-04-29 19:40:39 UTC",
+            "processed_at": "2025-04-29 19:40:39 UTC",
+            "google_url": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&sourceid=chrome&ie=UTF-8",
+            "raw_html_file": "https://serpapi.com/searches/9a6f2cac55259302/68112b375f6d02daaeef0fa9.html",
+            "total_time_taken": 0.96
+          },
+          "search_parameters": {
+            "engine": "google",
+            "q": "mit ki musik erstellen",
+            "google_domain": "google.com",
+            "gl": "de",
+            "device": "desktop"
+          },
+          "search_information": {
+            "query_displayed": "mit ki musik erstellen",
+            "total_results": 19900000,
+            "time_taken_displayed": 0.31,
+            "organic_results_state": "Results for exact spelling"
+          },
+          "knowledge_graph": {
+            "entity_type": "related_questions"
+          },
+          "inline_videos": [
+            {
+              "position": 1,
+              "title": "So produzierst du mit KI deine eigene Musik – Einfach & schnell!",
+              "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE",
+              "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a69fc27d1343f25444b045fecf9651c4be6432e6eefc277c84f.jpeg",
+              "channel": "KI-Wissen für Einsteiger und Experten",
+              "duration": "6:48",
+              "platform": "YouTube",
+              "key_moments": [
+                {
+                  "time": "00:00",
+                  "title": "Vorstellung der Plattform Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=0",
+                  "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a69fc27d1343f25444be945e2ea50204cf1a1d7e1ad6c5f7d60a5cd99a7e7e2265b.jpeg"
+                },
+                {
+                  "time": "01:13",
+                  "title": "Eigenen Song erstellen in Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=73",
+                  "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a69fc27d1343f25444be945e2ea50204cf1751330a80b04e723b39fc46b127044ec.jpeg"
+                },
+                {
+                  "time": "03:10",
+                  "title": "Eigener Jingle anhören Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=190",
+                  "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a69fc27d1343f25444be945e2ea50204cf1fc64c205503eae877fda03f8db30b1f3.jpeg"
+                },
+                {
+                  "time": "04:15",
+                  "title": "Einstellungen Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=255",
+                  "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a69fc27d1343f25444be945e2ea50204cf1f52a407c085baf694629a08a7f8ea87a.jpeg"
+                }
+              ]
+            },
+            {
+              "position": 2,
+              "title": "KI Musik erstellen - Wahnsinnig gute Musik mit Suno Ai erstellen",
+              "link": "https://www.youtube.com/watch?v=B3NvostkdS0",
+              "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a69f3b7a7e2f2121a40469059d8c6315ea34a5f3ed3738c3f6b.jpeg",
+              "channel": "Alexandra Sackmann",
+              "duration": "6:54",
+              "platform": "YouTube"
+            },
+            {
+              "position": 3,
+              "title": "Gesang mit Künstlicher Intelligenz erstellen: Die besten KI ...",
+              "link": "https://www.youtube.com/watch?v=e1y527O9ZhU",
+              "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a695657d57d8e62ea7e551068dc079eefbc7e7f9e4233c60d0b.jpeg",
+              "channel": "Thomas Foster - Sound & Vision",
+              "duration": "18:21",
+              "platform": "YouTube"
+            },
+            {
+              "position": 4,
+              "title": "Was kann KI? Wir erstellen einen Song",
+              "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s",
+              "thumbnail": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/ede98074ac104a6935cfd800d094f16c21b3b125400b6e0af552d353879dedc5.jpeg",
+              "channel": "Medienzentrum Darmstadt-Dieburg",
+              "duration": "25:10",
+              "platform": "YouTube",
+              "key_moments": [
+                {
+                  "time": "00:00",
+                  "title": "Intro/ Begrüßung",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=0",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTzqrRANCuaTj59_XGz04KZfBJpx570RUxlo4s-vsp5XA&s"
+                },
+                {
+                  "time": "01:22",
+                  "title": "Vorstellung SUNO",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=82",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQrw8m9IKTE1xTVYBcUQ877VnTydkVRxKRP-Vxq-ixZow&s"
+                },
+                {
+                  "time": "02:40",
+                  "title": "Song Reaction",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=160",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRvP5RkzkrjOxuzs-R-EsCKka1O7j9nmKcdF2zW3U99Hg&s"
+                },
+                {
+                  "time": "06:14",
+                  "title": "Lied Analyse",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=374",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTJxv48nvPPeLSyZC34ACQdZ6KenIJssx3O_Q-ZfMj0pQ&s"
+                },
+                {
+                  "time": "10:20",
+                  "title": "Urheberrecht",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=620",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRAQW_HWjy-Pqu_SQlLrmry6yi8UsiagcVjYLeCrHKPkA&s"
+                },
+                {
+                  "time": "12:06",
+                  "title": "Aufnahme Teil 1",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=726",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRurE3tOMbnrspjd5GLom5CoHcbTs-tG2X72kw7slEwMw&s"
+                },
+                {
+                  "time": "14:02",
+                  "title": "KI und seine Folgen",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=842",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQzCZXDL1pjy4Q_cdA6h0MHZxCRI8xmOofFWo-5Jm7DnQ&s"
+                },
+                {
+                  "time": "15:10",
+                  "title": "GEMA Studie",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=910",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSqsrMiJMkGeVFMqkKn_Es1ULc3IrfmKMxmUEqo6rAFrQ&s"
+                },
+                {
+                  "time": "17:07",
+                  "title": "Aufnahme Teil 2",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1027",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR3HDEa2XI4Ljx7sv5-1_B8PwmW9IB0KvmFbAw4SrEKKA&s"
+                },
+                {
+                  "time": "18:21",
+                  "title": "Chancen mit KI",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1101",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQIhqbw1IPnI8-UjjQaJ82RBEirROEkhfpdlpMCQ-CFCw&s"
+                },
+                {
+                  "time": "21:04",
+                  "title": "Unser Fazit?",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1264",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR42si_OApAbbkuQCvZQl6xFZT7uqYSFvQ3-_251OnaLQ&s"
+                },
+                {
+                  "time": "21:59",
+                  "title": "Unterrichtsmethoden",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1319",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSZUYX7wFQJGlavrCL5htiwxS650EHU5HIGUC-9VN5Jng&s"
+                },
+                {
+                  "time": "22:57",
+                  "title": "Ergebnis der Aufnahme",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1377",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRE8J2c8v0VrCFXU9dxPpyW667eLjrrf-pmMRr1-L_-HQ&s"
+                },
+                {
+                  "time": "24:41",
+                  "title": "Verabschiedung",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1481",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQbEON3hFJAyfYYEV25_azu4qj87SEHI5UMNmiIxyyLyA&s"
+                }
+              ]
+            }
+          ],
+          "short_videos": [
+            {
+              "position": 1,
+              "title": "Mit #KI Musik generieren? So geht's! #SunoAI #Musik ...",
+              "source": "YouTube",
+              "profile_name": "KI-Campus",
+              "extensions": [
+                "KI-Campus"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b7cb7f90fd8d908fa73db7f99e1ce279478449319e0a77560.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcQQqBZ51Orv3tnKnG78X7XlHOsfRHfWmfJjqg",
+              "date": "15.01.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSqRvAo32urTPAGNdr8YYohMinGRRgen9mgXm4ZhUdz2lqscQ&s",
+              "link": "https://www.youtube.com/watch?v=L8CoDolwfFs"
+            },
+            {
+              "position": 2,
+              "title": "Künstliche Intelligenz nutzen um KI Songs zu erstellen ...",
+              "source": "YouTube",
+              "profile_name": "eBakery",
+              "extensions": [
+                "eBakery"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b4ed7d10c71c81739a0fc978dc4784d4232b67271a07dca7c.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcTmUXSFrM4keI1KW6fh4QmszhzXCLnW-05A2A",
+              "date": "17.07.2024",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRha1ARWmc8KMCi7iNFF0fHZXOHYrSgIS1z2B7JYQqcicMglg&s",
+              "link": "https://www.youtube.com/watch?v=IRdRXZiPz8E"
+            },
+            {
+              "position": 3,
+              "title": "🚀 Workshop heute: KI in der Musikproduktion!",
+              "source": "YouTube",
+              "profile_name": "Thomas Foster Musikproduktion",
+              "extensions": [
+                "Thomas Foster Musikproduktion"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b5549359e0e059108d26dd3f5be3fd17b4b901fffce2b8774.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcRkQ6JEfjho-acq7FuSUysz4MW4SS_yh6OqKw",
+              "date": "09.04.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSKteNPaVx9Pra4i9AD0OUnLDHl2vWwwPbHEha1yiuXpg_m1w&s",
+              "link": "https://www.youtube.com/watch?v=nD2m6Z7OeOQ"
+            },
+            {
+              "position": 4,
+              "title": "Song mit KI erstellen: So funktioniert's! von jps_mp3 auf TikTok. Auf TikTok wiedergeben. . vor 2 Wochen",
+              "source": "TikTok",
+              "profile_name": "jps_mp3",
+              "extensions": [
+                "jps_mp3"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b94f89ef886d3721ed1fae739cfcbbeb98839c9bb3b39367f.png",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTTjM5WC3BYkuhGxXzg72rp04PNFADskLGMVw1CQ6V1utlfYQ&s",
+              "link": "https://www.tiktok.com/@jps_mp3/video/7492871368460012822"
+            },
+            {
+              "position": 5,
+              "title": "So machst du ein Musikvideo mit KI – ohne Budget, ohne ...",
+              "source": "YouTube",
+              "profile_name": "Thomas Foster - Sound & Vision",
+              "extensions": [
+                "Thomas Foster - Sound & Vision"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b0b59b46a83d39cb4d7a3304daa5b3e5da781f9e5630c0d3d.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcRCbLhHJDfCefIG9AW2TUL6dUi3BXE49_bMtQ",
+              "date": "16.04.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQKwru4cg-RzIcjSis3FVDbyhseZbA4D3AJV6X8X-hjSWdFjQ&s",
+              "link": "https://www.youtube.com/watch?v=YTHdInCfaS8"
+            },
+            {
+              "position": 6,
+              "title": "KI-Tutorial: Eigene Songs erstellen #KI #ai ...",
+              "source": "YouTube",
+              "profile_name": "KI in 60 sec",
+              "extensions": [
+                "KI in 60 sec"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b675cf8d566802006756cb3be8393c855bc1da375d1a73426.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcTGAMnOPgORP3RvK9BbKRTxIqek9bLh8sM4QQ",
+              "date": "04.04.2024",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSWFp5Z00z-UOmo3QHWqe3hEeCD0GcHWxoIqijlxPnJYPSAZw&s",
+              "link": "https://www.youtube.com/shorts/pzfbwM8N1cc"
+            },
+            {
+              "position": 7,
+              "title": "✅KI Vocals erstellen für Gesang und Chöre #ki #vocals",
+              "source": "YouTube",
+              "profile_name": "Meinkezz Majestik TV",
+              "extensions": [
+                "Meinkezz Majestik TV"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b6d2d3c44110f89acf915d8782e57fa35190f481eb06422a2.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcRnMrrmY6Wv-2tXij2bK-ubq2qd6lQ1_zuRJg",
+              "date": "04.03.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS0sNacwI21RPS3awx7ab0xuMPffLMJnL4EGH7Ji--2V46FUw&s",
+              "link": "https://www.youtube.com/watch?v=AAlomD8Hk30"
+            },
+            {
+              "position": 8,
+              "title": "🔥 Logic Pro kann das jetzt mit KI! 🎶 Gesang, Drums & Bass ...",
+              "source": "YouTube",
+              "profile_name": "Thomas Foster - Sound & Vision",
+              "extensions": [
+                "Thomas Foster - Sound & Vision"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73bddead8f67df38cca08ec4438672d02ebac7a6d99def1486f.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcTdRnD3A_6K2_6peQHUNRtDZQhLYvVccXlUkg",
+              "date": "24.03.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQnuHItrl9bUXacY6kHHibhjdspkA0r2NWqWUKmNyF9t_m-Lg&s",
+              "link": "https://www.youtube.com/watch?v=cV72IBdSSNE"
+            },
+            {
+              "position": 9,
+              "title": "Die Zukunft der Musik: KI ersetzt Konservenmusik?",
+              "source": "YouTube",
+              "profile_name": "Bernd Kiltz - Gitarrenvideos",
+              "extensions": [
+                "Bernd Kiltz - Gitarrenvideos"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/f501433c3a88a73b72e5ad34f5535ec6325baa8f1faa9bed9939bd890d6fe4ef.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcQ3GGsx3CjofurlPrCPNQfqMj-H7ad-1knriA",
+              "date": "07.04.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS3GNslsSMrODoAMXRY5-VhdkdGT3fdq7DHx0dFqCmMXNuWKg&s",
+              "link": "https://www.youtube.com/watch?v=SmT1YItEfVI"
+            }
+          ],
+          "related_questions": [
+            {
+              "question": "Kann man mit KI-Musik machen?",
+              "snippet": "Es ist super einfach, KI-Musik mit AI-Music-Generator-Apps wie dem in Canva integrierten Soundraw zu erstellen. Wenn du KI-Songs produzierst, solltest du diese Tipps beachten: Wähle die richtige Stimmung, das richtige Genre, Thema und die richtige Länge für deinen Musik-Track.",
+              "title": "Gratis AI Music Generator: Erstelle Musik mit KI - Canva",
+              "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/#:~:text=Es%20ist%20super%20einfach%2C%20KI,L%C3%A4nge%20f%C3%BCr%20deinen%20Musik%2DTrack.",
+              "displayed_link": "https://www.canva.com › Startseite › Video-Editor",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJLU11c2lrIG1hY2hlbj8iLCJsayI6ImM1T1N5VTdNeTFQSVRRVGl6QktGN0V5RjNOTGl6R3lnUUhKR2FoNEEiLCJicyI6ImMxM1BzUXJDTUJBR1lGMHpPWlpxNVFRVkIzWG9DeFJjaW9pTERzNDFQZXpSTklFbWxnNC1pb3R2NFF2NUhsNkxvSFlJaE10XzMtWEVSZ1M3Ukdzb0VqN2tZTGRkN2EtV2NpN0lESFhrdlc3aDJCX2x2NW1jb1BqSmlJT1l4M1IyZ0JhUU5MS3hoSlFRUGhEVnFLRUJJdTg1Q21mLWhDeTRERXNFOWhMaWUtSkF0bmJkd25MUlkzTjlZcUtkU3pLRDNGaUhXcG5QaUQwcTA0ekFrc3RLTlItOXl6RHdoMFgzNGR2SjVxeXpLeHlOdmxpSVVhVlFZY21OdXFFZVZUajNwOTJkYlp1OV9HVUhfVGMiLCJpZCI6ImZjX09Dc1JhTlh2Ql9fVHA4NFB2WjN0OEFzXzMifQ==",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJLU11c2lrIG1hY2hlbj8iLCJsayI6ImM1T1N5VTdNeTFQSVRRVGl6QktGN0V5RjNOTGl6R3lnUUhKR2FoNEEiLCJicyI6ImMxM1BzUXJDTUJBR1lGMHpPWlpxNVFRVkIzWG9DeFJjaW9pTERzNDFQZXpSTklFbWxnNC1pb3R2NFF2NUhsNkxvSFlJaE10XzMtWEVSZ1M3Ukdzb0VqN2tZTGRkN2EtV2NpN0lESFhrdlc3aDJCX2x2NW1jb1BqSmlJT1l4M1IyZ0JhUU5MS3hoSlFRUGhEVnFLRUJJdTg1Q21mLWhDeTRERXNFOWhMaWUtSkF0bmJkd25MUlkzTjlZcUtkU3pLRDNGaUhXcG5QaUQwcTA0ekFrc3RLTlItOXl6RHdoMFgzNGR2SjVxeXpLeHlOdmxpSVVhVlFZY21OdXFFZVZUajNwOTJkYlp1OV9HVUhfVGMiLCJpZCI6ImZjX09Dc1JhTlh2Ql9fVHA4NFB2WjN0OEFzXzMifQ%3D%3D"
+            },
+            {
+              "question": "Gibt es eine KI, die Musik mixen kann?",
+              "snippet": "Ja, KI kann Musik mischen . Tools wie RoEx und LANDR nutzen KI, um Tracks zu analysieren und Pegel, EQ und Effekte automatisch anzupassen.",
+              "title": "Ich habe die 4 besten KI-Mixing- und Mastering-Tools im Jahr 2025 getestet",
+              "date": "10.02.2025",
+              "link": "https://translate.google.com/translate?u=https://www.aimusicpreneur.com/ai-tools-news/the-4-best-ai-mixing-and-mastering-tools/&hl=de&sl=en&tl=de&client=rq#:~:text=Yes%2C%20AI%20can%20mix%20music,%2C%20EQ%2C%20and%20effects%20automatically.",
+              "displayed_link": "https://www.aimusicpreneur.com › ai-tools-news › the-4-...",
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97fbe81b8b1fb792a7f6e38b1d4cd18b0a4e818dcc5799a74a.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiR2lidCBlcyBlaW5lIEtJLCBkaWUgTXVzaWsgbWl4ZW4ga2Fubj8iLCJsayI6ImM1TlN6Q3hXS01sSUxVcFZTTXhUU013RXNoTkxGSktCN056TUNvWGMwdUxNWkEwR0FBIiwiYnMiOiJjMTNQc1FyQ01CQUdZRjB6T1pacTVRUVZCM1hvQ3hSY2lvaUxEczQxUGV6Uk5JRW1sZzQtaW90djRRdjVIbDZMb0hZSWhNdF8zLVhFUmdTN1JHc29FajdrWUxkZDdhLVdjaTdJREhYa3ZXN2gyQl9sdjVtY29QakppSU9ZeDNSMmdCYVFOTEt4aEpRUVBoRFZxS0VCSXU4NUNtZi1oQ3k0REVzRTloTGllLUpBdG5iZHduTFJZM045WXFLZFN6S0QzRmlIV3BuUGlEMHEwNHpBa3N0S05SLTl5ekR3aDBYMzRkdko1cXl6S3h5TnZsaUlVYVZRWWNtTnVxRWVWVGozcDkyZGJadTlfR1VIX1RjIiwiaWQiOiJmY19PQ3NSYU5YdkJfX1RwODRQdlozdDhBc18zIn0=",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiR2lidCBlcyBlaW5lIEtJLCBkaWUgTXVzaWsgbWl4ZW4ga2Fubj8iLCJsayI6ImM1TlN6Q3hXS01sSUxVcFZTTXhUU013RXNoTkxGSktCN056TUNvWGMwdUxNWkEwR0FBIiwiYnMiOiJjMTNQc1FyQ01CQUdZRjB6T1pacTVRUVZCM1hvQ3hSY2lvaUxEczQxUGV6Uk5JRW1sZzQtaW90djRRdjVIbDZMb0hZSWhNdF8zLVhFUmdTN1JHc29FajdrWUxkZDdhLVdjaTdJREhYa3ZXN2gyQl9sdjVtY29QakppSU9ZeDNSMmdCYVFOTEt4aEpRUVBoRFZxS0VCSXU4NUNtZi1oQ3k0REVzRTloTGllLUpBdG5iZHduTFJZM045WXFLZFN6S0QzRmlIV3BuUGlEMHEwNHpBa3N0S05SLTl5ekR3aDBYMzRkdko1cXl6S3h5TnZsaUlVYVZRWWNtTnVxRWVWVGozcDkyZGJadTlfR1VIX1RjIiwiaWQiOiJmY19PQ3NSYU5YdkJfX1RwODRQdlozdDhBc18zIn0%3D"
+            },
+            {
+              "question": "Wie kann ich kostenlos eine Melodie erstellen?",
+              "snippet": null,
+              "title": "Die 9 besten kostenlosen Musikprogramme",
+              "link": "https://imusician.pro/de/ressourcen/blog/die-besten-kostenlosen-musikprogramme",
+              "list": [
+                "Tracktion Waveform Free. ... ",
+                "Garageband. ... ",
+                "Ohm Studio. ... ",
+                "Audacity. ... ",
+                "Pro Tools First. ... ",
+                "Cubase LE. ... ",
+                "Cakewalk by BandLab. ... ",
+                "PreSonus Studio One 5 Prime."
+              ],
+              "displayed_link": "https://imusician.pro › ressourcen › blog › die-besten-ko...",
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97fbe81b8b1fb792a71ebe2c0f889646b6dfd36a3e2fec4422.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiV2llIGthbm4gaWNoIGtvc3RlbmxvcyBlaW5lIE1lbG9kaWUgZXJzdGVsbGVuPyIsImxrIjoiR2h0dFpXeHZaR2xsSUdWeWMzUmxiR3hsYmlCcmIzTjBaVzVzYjNNIiwiYnMiOiJjMTNQc1FyQ01CQUdZRjB6T1pacTVRUVZCM1hvQ3hSY2lvaUxEczQxUGV6Uk5JRW1sZzQtaW90djRRdjVIbDZMb0hZSWhNdF8zLVhFUmdTN1JHc29FajdrWUxkZDdhLVdjaTdJREhYa3ZXN2gyQl9sdjVtY29QakppSU9ZeDNSMmdCYVFOTEt4aEpRUVBoRFZxS0VCSXU4NUNtZi1oQ3k0REVzRTloTGllLUpBdG5iZHduTFJZM045WXFLZFN6S0QzRmlIV3BuUGlEMHEwNHpBa3N0S05SLTl5ekR3aDBYMzRkdko1cXl6S3h5TnZsaUlVYVZRWWNtTnVxRWVWVGozcDkyZGJadTlfR1VIX1RjIiwiaWQiOiJmY19PQ3NSYU5YdkJfX1RwODRQdlozdDhBc18zIn0=",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiV2llIGthbm4gaWNoIGtvc3RlbmxvcyBlaW5lIE1lbG9kaWUgZXJzdGVsbGVuPyIsImxrIjoiR2h0dFpXeHZaR2xsSUdWeWMzUmxiR3hsYmlCcmIzTjBaVzVzYjNNIiwiYnMiOiJjMTNQc1FyQ01CQUdZRjB6T1pacTVRUVZCM1hvQ3hSY2lvaUxEczQxUGV6Uk5JRW1sZzQtaW90djRRdjVIbDZMb0hZSWhNdF8zLVhFUmdTN1JHc29FajdrWUxkZDdhLVdjaTdJREhYa3ZXN2gyQl9sdjVtY29QakppSU9ZeDNSMmdCYVFOTEt4aEpRUVBoRFZxS0VCSXU4NUNtZi1oQ3k0REVzRTloTGllLUpBdG5iZHduTFJZM045WXFLZFN6S0QzRmlIV3BuUGlEMHEwNHpBa3N0S05SLTl5ekR3aDBYMzRkdko1cXl6S3h5TnZsaUlVYVZRWWNtTnVxRWVWVGozcDkyZGJadTlfR1VIX1RjIiwiaWQiOiJmY19PQ3NSYU5YdkJfX1RwODRQdlozdDhBc18zIn0%3D"
+            },
+            {
+              "question": "Kann man mit KI Songs Geld verdienen?",
+              "snippet": "So kannst du mit KI-Musik Geld verdienen Erstelle professionell klingende Songs mit KI-Tools und veröffentliche sie auf Plattformen wie Spotify, YouTube oder SoundCloud, um durch Streams oder Direktverkäufe Einnahmen zu erzielen.",
+              "title": "So kannst du KI-Musik erstellen und Geld verdienen! - Gründer.de",
+              "date": "15.01.2025",
+              "link": "https://www.gruender.de/kuenstliche-intelligenz/ki-musik-erstellen/#:~:text=So%20kannst%20du%20mit%20KI%2DMusik%20Geld%20verdienen,-KI%2DMusik%20er%C3%B6ffnet&text=Erstelle%20professionell%20klingende%20Songs%20mit,oder%20Direktverk%C3%A4ufe%20Einnahmen%20zu%20erzielen.",
+              "displayed_link": "https://www.gruender.de › kuenstliche-intelligenz › ki-m...",
+              "source_logo": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97fbe81b8b1fb792a77647be1e0083b33b5c47b943ad569aea.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJIFNvbmdzIEdlbGQgdmVyZGllbmVuPyIsImxrIjoiR2lScllXNXVJRzFoYmlCdGFYUWdhMmtnYzI5dVozTWdaMlZzWkNCMlpYSmthV1Z1Wlc0IiwiYnMiOiJjMTNQc1FyQ01CQUdZRjB6T1pacTVRUVZCM1hvQ3hSY2lvaUxEczQxUGV6Uk5JRW1sZzQtaW90djRRdjVIbDZMb0hZSWhNdF8zLVhFUmdTN1JHc29FajdrWUxkZDdhLVdjaTdJREhYa3ZXN2gyQl9sdjVtY29QakppSU9ZeDNSMmdCYVFOTEt4aEpRUVBoRFZxS0VCSXU4NUNtZi1oQ3k0REVzRTloTGllLUpBdG5iZHduTFJZM045WXFLZFN6S0QzRmlIV3BuUGlEMHEwNHpBa3N0S05SLTl5ekR3aDBYMzRkdko1cXl6S3h5TnZsaUlVYVZRWWNtTnVxRWVWVGozcDkyZGJadTlfR1VIX1RjIiwiaWQiOiJmY19PQ3NSYU5YdkJfX1RwODRQdlozdDhBc18zIn0=",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobE0xUjBkWEZ4YkdGT016RnVhelJmYVdNMllXZEtObUZJT0VzMlQzaFJZVEJWYXpKSlFXMXZVMUIxWjB0eE5FZzBia1F0U1ZWSllqbG9hSFJZVTJaUk1YRTBUVFJTU1hGaWRVZGlZbEZZTmxwaGVWaDRORFZMYkdGaWR4SVhUME56VW1GT1dIWkNYMTlVY0RnMFVIWmFNM1E0UVhNYUlrRkRSRmhNTkc1NGR6bFlXRFJuVDFGc2VuTjNNMEV5ZFdwQmVGUXhWRFJOWWtFIiwiZmN2IjoiMyIsImVpIjoiT0NzUmFOWHZCX19UcDg0UHZaM3Q4QXMiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJIFNvbmdzIEdlbGQgdmVyZGllbmVuPyIsImxrIjoiR2lScllXNXVJRzFoYmlCdGFYUWdhMmtnYzI5dVozTWdaMlZzWkNCMlpYSmthV1Z1Wlc0IiwiYnMiOiJjMTNQc1FyQ01CQUdZRjB6T1pacTVRUVZCM1hvQ3hSY2lvaUxEczQxUGV6Uk5JRW1sZzQtaW90djRRdjVIbDZMb0hZSWhNdF8zLVhFUmdTN1JHc29FajdrWUxkZDdhLVdjaTdJREhYa3ZXN2gyQl9sdjVtY29QakppSU9ZeDNSMmdCYVFOTEt4aEpRUVBoRFZxS0VCSXU4NUNtZi1oQ3k0REVzRTloTGllLUpBdG5iZHduTFJZM045WXFLZFN6S0QzRmlIV3BuUGlEMHEwNHpBa3N0S05SLTl5ekR3aDBYMzRkdko1cXl6S3h5TnZsaUlVYVZRWWNtTnVxRWVWVGozcDkyZGJadTlfR1VIX1RjIiwiaWQiOiJmY19PQ3NSYU5YdkJfX1RwODRQdlozdDhBc18zIn0%3D"
+            }
+          ],
+          "organic_results": [
+            {
+              "position": 1,
+              "title": "Mit KI-Music erstellen",
+              "link": "https://www.loudly.com/ki-musik-erstellen",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.loudly.com/ki-musik-erstellen&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECAkQAQ",
+              "displayed_link": "https://www.loudly.com › ki-musik-erstellen",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b929e6404ec987ceeca7d468df2558b2d093.png",
+              "date": "13.12.2023",
+              "snippet": "Nutze die KI von Loudly, für deine Musikerstellung. Einfach das Genre wählen und innerhalb von Sekunden das gewünschte Ergebnis erhalten.",
+              "snippet_highlighted_words": [
+                "Nutze die KI von Loudly, für deine Musikerstellung"
+              ],
+              "source": "Loudly"
+            },
+            {
+              "position": 2,
+              "title": "Die 15 besten KI-Song-Generatoren - Mindforce",
+              "link": "https://mind-force.de/marketing/ki-song-generatoren/",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://mind-force.de/marketing/ki-song-generatoren/&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECBwQAQ",
+              "displayed_link": "https://mind-force.de › Marketing",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b929ef4443cc2de96a5459654a36db3cc66e.png",
+              "date": "21.03.2025",
+              "snippet": "KI-Song-Generatoren können selbstständig Musik generieren. ... Mit dem AI Song Generator lassen sich Songs mit Text und Melodie per KI erstellen.",
+              "snippet_highlighted_words": [
+                "KI-Song-Generatoren können selbstständig Musik generieren"
+              ],
+              "source": "mind-force.de"
+            },
+            {
+              "position": 3,
+              "title": "Gratis AI Music Generator: Erstelle Musik mit KI",
+              "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.canva.com/de_de/funktionen/ai-music-generator/&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECB8QAQ",
+              "displayed_link": "https://www.canva.com › Startseite › Video-Editor",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b92991fad948e884bc4fe6074b761b59344d.png",
+              "snippet": "Kreiere einzigartige Soundtracks mit dem AI Music Generator von Canva. Erstelle ganz einfach Songs, auch ohne komponieren zu können.",
+              "snippet_highlighted_words": [
+                "Kreiere einzigartige Soundtracks mit dem AI Music Generator von Canva"
+              ],
+              "source": "Canva"
+            },
+            {
+              "position": 4,
+              "title": "Suno – KI-Musik – Apps bei Google Play",
+              "link": "https://play.google.com/store/apps/details?id=com.suno.android&hl=de",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://play.google.com/store/apps/details%3Fid%3Dcom.suno.android%26hl%3Dde&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECDkQAQ",
+              "displayed_link": "https://play.google.com › store › apps › details",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b929ae9db98e274cc028eabba3c542cebe8d.png",
+              "snippet": "Mit Suno kannst du jeden erdenklichen Song selbst produzieren. Suno ist ein KI-Musikstudio im Taschenformat. ... Starte mit 10 kostenlosen Songs (50 Gratis- ...",
+              "snippet_highlighted_words": [
+                "Mit Suno kannst du jeden erdenklichen Song selbst produzieren"
+              ],
+              "rich_snippet": {
+                "top": {
+                  "detected_extensions": {
+                    "rating": 4.8,
+                    "reviews": 308499
+                  },
+                  "extensions": [
+                    "4,8(308.499)",
+                    "Kostenlos",
+                    "Android",
+                    "Unterhaltung Rezensionen werden von der Google Suche nicht überprüft"
+                  ]
+                }
+              },
+              "source": "Google Play"
+            },
+            {
+              "position": 5,
+              "title": "KI Musik erstellen: Musik mit KI generieren",
+              "link": "https://makebestmusic.com/de/app/create-music-new",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://makebestmusic.com/de/app/create-music-new&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECDYQAQ",
+              "displayed_link": "https://makebestmusic.com › app › create-music-new",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b929ff82dc05659cc1daf0a8ae091d7ac181.png",
+              "snippet": "Verwenden Sie den KI-Musikgenerator, um mit einem Klick hochwertige instrumentale Musik oder Popmusik zu erzeugen.",
+              "snippet_highlighted_words": [
+                "Verwenden Sie den KI-Musikgenerator"
+              ],
+              "source": "MakeBestMusic"
+            },
+            {
+              "position": 6,
+              "title": "KI Musik- & Song-Generator Online (Kostenlos ...",
+              "link": "https://aisonggenerator.io/de",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://aisonggenerator.io/de&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECD0QAQ",
+              "displayed_link": "https://aisonggenerator.io › ...",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b92900ab442288aa38610aaae4b08ad8ac43.png",
+              "snippet": "KI Musik - Song Generator. Mit unserer modernen KI Song Generator-Technologie kannst du jede gewünschte Musik oder jeden Song erstellen. 100% Lizenzfrei.",
+              "snippet_highlighted_words": [
+                "KI Musik - Song Generator"
+              ],
+              "source": "AI Song Generator"
+            },
+            {
+              "position": 7,
+              "title": "Suno- KI-Musik im App Store",
+              "link": "https://apps.apple.com/de/app/suno-ki-musik/id6480136315",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://apps.apple.com/de/app/suno-ki-musik/id6480136315&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECDgQAQ",
+              "displayed_link": "https://apps.apple.com › app › suno-ki-musik",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b9291ff4e8bd0c8c3262c88d24d698513826.png",
+              "snippet": "Mit Suno kannst du jeden erdenklichen Song selbst produzieren. Suno ist ein KI-Musikstudio im Taschenformat. Entdecke folgende Funktionen: • Erstelle Songs ...",
+              "snippet_highlighted_words": [
+                "Mit Suno kannst du jeden erdenklichen Song selbst produzieren"
+              ],
+              "rich_snippet": {
+                "top": {
+                  "detected_extensions": {
+                    "rating": 4.9,
+                    "reviews": 10118
+                  },
+                  "extensions": [
+                    "4,9(10.118)",
+                    "Kostenlos",
+                    "iOS Rezensionen werden von der Google Suche nicht überprüft"
+                  ]
+                }
+              },
+              "source": "Apple"
+            },
+            {
+              "position": 8,
+              "title": "Künstliche Intelligenz produziert neue Lieder per Mausklick",
+              "link": "https://www.zdf.de/nachrichten/wissen/musik-kuenstliche-intelligenz-ki-suno-ai-100.html",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.zdf.de/nachrichten/wissen/musik-kuenstliche-intelligenz-ki-suno-ai-100.html&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74QFnoECDcQAQ",
+              "displayed_link": "https://www.zdf.de › Startseite › Wissen",
+              "favicon": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/1801d18172b57c8890c7bdc37e43b929f532ff36f174df6090e8e4ecd104707e.png",
+              "date": "29.03.2024",
+              "snippet": "Die KI kann heute einen kompletten Song erstellen, der sich anhört, als hätte jemand ihn geschrieben, der Musik studiert hat und seit 20 Jahren ...",
+              "snippet_highlighted_words": [
+                "Die KI kann heute einen kompletten Song erstellen"
+              ],
+              "source": "ZDF"
+            }
+          ],
+          "top_stories_link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&udm=7&q=mit+ki+musik+erstellen&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8ccDKAJ6BAgaEAQ",
+          "top_stories_serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen",
+          "related_searches": [
+            {
+              "block_position": 1,
+              "items": [
+                {
+                  "name": "Suno AI",
+                  "image": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97c09d30b250ee5f6e2e94ff35478490a83e7399137caa44257626c75465a730e5.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Suno+AI&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCwuSy-2SMtI-cXIsIGF4RULPxeqOEKk0jg-I724Mg0hkp2RnFZlUGmEEEk2jbfMNkhDUlOSl2xqYmFihqSr0DQ9o8jYFElNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrOzBpXn5Co6et9gkGcL8wj8nzjjM9m5fVVpxgiKX5qzoRwfuWa1bxCHhmJeSWpSqUFyanFGSmqeQCKQV8hKTM1ZwMAIAc6ZWWgwBAAA&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Qs9oBKAB6BAhREAk",
+                  "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=Suno+AI&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCwuSy-2SMtI-cXIsIGF4RULPxeqOEKk0jg-I724Mg0hkp2RnFZlUGmEEEk2jbfMNkhDUlOSl2xqYmFihqSr0DQ9o8jYFElNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrOzBpXn5Co6et9gkGcL8wj8nzjjM9m5fVVpxgiKX5qzoRwfuWa1bxCHhmJeSWpSqUFyanFGSmqeQCKQV8hKTM1ZwMAIAc6ZWWgwBAAA"
+                },
+                {
+                  "name": "Udio",
+                  "image": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97c09d30b250ee5f6e2e94ff35478490a8a72ef82bca9f334c7220e9483e8c989c.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=UDIO&stick=H4sIAAAAAAAAAOMwVOLVT9c3NKw0js9IL65M-8XIsIGF4RULPxdEvLgsvdgiLSMFIQJTiRDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWllAXT_9bbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAebGKuEJAQAA&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Qs9oBKAB6BAhREA4",
+                  "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=UDIO&stick=H4sIAAAAAAAAAOMwVOLVT9c3NKw0js9IL65M-8XIsIGF4RULPxdEvLgsvdgiLSMFIQJTiRDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWllAXT_9bbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAebGKuEJAQAA"
+                },
+                {
+                  "name": "ChatGPT",
+                  "image": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97c09d30b250ee5f6e2e94ff35478490a8200abd98b34297d88f2816e39110dfd5.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ChatGPT&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMzOSE6rMqg0-sXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhCB6UWIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWdueMxBL3gJBbbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAdQ3BB4MAQAA&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Qs9oBKAB6BAhREBM",
+                  "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=ChatGPT&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMzOSE6rMqg0-sXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhCB6UWIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWdueMxBL3gJBbbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAdQ3BB4MAQAA"
+                },
+                {
+                  "name": "AIVA",
+                  "image": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97c09d30b250ee5f6e2e94ff35478490a81ff6bfe06374623c24e2e1446e408b93.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=AIVA&stick=H4sIAAAAAAAAAOMwVOLVT9c3NEw2jbfMNkhL-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIwExDiJTkJZuaWJiYIekqNE3PKDI2RVJTbGJZYGCY_oqFh4tLP1ffIMPSpNIYSUtJcopFWXqeJUIkLzk3Ly8juXIRK4ujZ5jjLTZJhjC_8M-JMw6zvdtXlVacoMilOSv60YF7VusWcUg45qWkFqUqFJcmZ5Sk5ikkAmmFvMTkjBUcjAALkEv2CQEAAA&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Qs9oBKAB6BAhREBg",
+                  "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=AIVA&stick=H4sIAAAAAAAAAOMwVOLVT9c3NEw2jbfMNkhL-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIwExDiJTkJZuaWJiYIekqNE3PKDI2RVJTbGJZYGCY_oqFh4tLP1ffIMPSpNIYSUtJcopFWXqeJUIkLzk3Ly8juXIRK4ujZ5jjLTZJhjC_8M-JMw6zvdtXlVacoMilOSv60YF7VusWcUg45qWkFqUqFJcmZ5Sk5ikkAmmFvMTkjBUcjAALkEv2CQEAAA"
+                },
+                {
+                  "name": "Riffusion",
+                  "image": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97c09d30b250ee5f6e2e94ff35478490a86cc20f3312d5a81ba352a942566488a7.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Riffusion&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCzJSzY1sTAx-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpgZmPpKvQND2jyNgUSU2xiWWBgWH6KxYeLi79XH2DDEuTSmMkLSXJKRZl6XmWCJG85Ny8vIzkykWsnEGZaWmlxZn5ebfYJBnC_MI_J844zPZuX1VacYIil-as6EcH7lmtW8Qh4ZiXklqUqlBcmpxRkpqnkAikFfISkzNWcDACAFLKlGcOAQAA&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Qs9oBKAB6BAhREB0",
+                  "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=Riffusion&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCzJSzY1sTAx-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpgZmPpKvQND2jyNgUSU2xiWWBgWH6KxYeLi79XH2DDEuTSmMkLSXJKRZl6XmWCJG85Ny8vIzkykWsnEGZaWmlxZn5ebfYJBnC_MI_J844zPZuX1VacYIil-as6EcH7lmtW8Qh4ZiXklqUqlBcmpxRkpqnkAikFfISkzNWcDACAFLKlGcOAQAA"
+                },
+                {
+                  "name": "Claude",
+                  "image": "https://serpapi.com/searches/68112b375f6d02daaeef0fa9/images/999191974d302e97c09d30b250ee5f6e2e94ff35478490a850ca45b896705ff2ac665074cf6bf331.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Claude&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMwuNE3PKDI2_cXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0gW1EUlNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrGzOOYmlKam32CQZwvzCPyfOOMz2bl9VWnGCIpfmrOhHB-5ZrVvEIeGYl5JalKpQXJqcUZKap5AIpBXyEpMzVnAwAgDEzliACwEAAA&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Qs9oBKAB6BAhRECI",
+                  "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=Claude&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMwuNE3PKDI2_cXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0gW1EUlNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrGzOOYmlKam32CQZwvzCPyfOOMz2bl9VWnGCIpfmrOhHB-5ZrVvEIeGYl5JalKpQXJqcUZKap5AIpBXyEpMzVnAwAgDEzliACwEAAA"
+                }
+              ]
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song erstellen kostenlos",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+erstellen+kostenlos&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhaEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=KI+Song+erstellen+kostenlos"
+            },
+            {
+              "block_position": 1,
+              "query": "ki-song erstellen kostenlos deutsch",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+erstellen+kostenlos+deutsch&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhbEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=ki-song+erstellen+kostenlos+deutsch"
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song erstellen kostenlos App",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+erstellen+kostenlos+App&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhXEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=KI+Song+erstellen+kostenlos+App"
+            },
+            {
+              "block_position": 1,
+              "query": "ki-song erstellen mit text",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+erstellen+mit+text&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhWEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=ki-song+erstellen+mit+text"
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song erstellen kostenlos Suno",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+erstellen+kostenlos+Suno&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhYEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=KI+Song+erstellen+kostenlos+Suno"
+            },
+            {
+              "block_position": 1,
+              "query": "ki-song generator mit text kostenlos",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+generator+mit+text+kostenlos&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhUEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=ki-song+generator+mit+text+kostenlos"
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song Generator Deutsch",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+Generator+Deutsch&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhTEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=KI+Song+Generator+Deutsch"
+            },
+            {
+              "block_position": 1,
+              "query": "ki-song erstellen kostenlos ohne anmeldung",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+erstellen+kostenlos+ohne+anmeldung&sa=X&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q1QJ6BAhZEAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=ki-song+erstellen+kostenlos+ohne+anmeldung"
+            }
+          ],
+          "pagination": {
+            "current": 1,
+            "next": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=10&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8NMDegQIMxAW",
+            "other_pages": {
+              "2": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=10&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAE",
+              "3": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=20&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAG",
+              "4": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=30&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAI",
+              "5": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=40&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAK",
+              "6": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=50&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAM",
+              "7": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=60&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAO",
+              "8": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=70&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAQ",
+              "9": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=80&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAS",
+              "10": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&ei=OCsRaNXvB__Tp84PvZ3t8As&start=90&sa=N&sstk=Af40H4XFPRBcJjQjIvC-a3h2Hegg6pDWaYd3txgWoG6EhPoyDgaq72ipR2LvTLm4w2sMY8U82b9nNmDm-H18ufm2NLSluqOv5uLHJg&ved=2ahUKEwjV6-TN__2MAxX_6ckDHb1OG74Q8tMDegQIMxAU"
+            }
+          },
+          "serpapi_pagination": {
+            "current": 1,
+            "next_link": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=10",
+            "next": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=10",
+            "other_pages": {
+              "2": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=10",
+              "3": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=20",
+              "4": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=30",
+              "5": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=40",
+              "6": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=50",
+              "7": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=60",
+              "8": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=70",
+              "9": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=80",
+              "10": "https://serpapi.com/search.json?device=desktop&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=90"
+            }
+          }
+        }
+      }
+    ],
+    "get_mobile_serp_results": [
+      {
+        "json": {
+          "search_metadata": {
+            "id": "68112b3535d3b44e49b5dfb5",
+            "status": "Success",
+            "json_endpoint": "https://serpapi.com/searches/0a410b13821bc461/68112b3535d3b44e49b5dfb5.json",
+            "created_at": "2025-04-29 19:40:37 UTC",
+            "processed_at": "2025-04-29 19:40:37 UTC",
+            "google_url": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&sourceid=chrome-mobile&ie=UTF-8",
+            "raw_html_file": "https://serpapi.com/searches/0a410b13821bc461/68112b3535d3b44e49b5dfb5.html",
+            "total_time_taken": 1.58
+          },
+          "search_parameters": {
+            "engine": "google",
+            "q": "mit ki musik erstellen",
+            "google_domain": "google.com",
+            "gl": "de",
+            "device": "mobile"
+          },
+          "search_information": {
+            "query_displayed": "mit ki musik erstellen"
+          },
+          "knowledge_graph": {
+            "entity_type": "webanswers"
+          },
+          "inline_videos": [
+            {
+              "position": 1,
+              "title": "So produzierst du mit KI deine eigene Musik – Einfach & schnell!",
+              "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE",
+              "thumbnail": "https://i.ytimg.com/vi/F5-NRSn1RAE/mqdefault.jpg?sqp=-oaymwEFCIcBEEw&rs=AMzJL3lPzIZBBijJEG62_301Ov-UxlVN4Q",
+              "duration": "6:48",
+              "key_moments": [
+                {
+                  "time": "00:00",
+                  "title": "Vorstellung der Plattform Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=0",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSOtt9h0kV3S13IH9XMCmrEuz-6Z35oTxij004QWQAU-Q&s"
+                },
+                {
+                  "time": "01:13",
+                  "title": "Eigenen Song erstellen in Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=73",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcShrlWOFXQKCAOs28IlRiF4okkG0Wj3Cek33dQ1U5CvsQ&s"
+                },
+                {
+                  "time": "03:10",
+                  "title": "Eigener Jingle anhören Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=190",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSslChcstGssqA3zaPmea51jW3sogdSEJfivE4bqc5h1g&s"
+                },
+                {
+                  "time": "04:15",
+                  "title": "Einstellungen Udio",
+                  "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE&t=255",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ86E1bBQ4_Ezw_vgjksGF2R-ZOCg9v9gBbQ5YAfzbG3w&s"
+                }
+              ]
+            },
+            {
+              "position": 2,
+              "title": "KI Musik erstellen - Wahnsinnig gute Musik mit Suno Ai erstellen",
+              "link": "https://www.youtube.com/watch?v=B3NvostkdS0",
+              "thumbnail": "https://i.ytimg.com/vi/B3NvostkdS0/mqdefault.jpg?sqp=-oaymwEFCIcBEEw&rs=AMzJL3kwU_sPn1LGDLh-FepEix1k125HEw",
+              "duration": "6:54"
+            },
+            {
+              "position": 3,
+              "title": "Was kann KI? Wir erstellen einen Song",
+              "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s",
+              "thumbnail": "https://i.ytimg.com/vi/q8sUZdgOM4s/mqdefault.jpg?sqp=-oaymwEFCIcBEEw&rs=AMzJL3npmda-u2anO86wI4Ln9F2VxH3csw",
+              "duration": "25:10",
+              "key_moments": [
+                {
+                  "time": "00:00",
+                  "title": "Intro/ Begrüßung",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=0",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQY37YF5aEgbghx9EyjbBR01nct-5B8bb-1Nehe0gjigw&s"
+                },
+                {
+                  "time": "01:22",
+                  "title": "Vorstellung SUNO",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=82",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTJmX1Kqpgs6F8vfY2e0xex5kgObVebpmiPqzoYd3sE1Q&s"
+                },
+                {
+                  "time": "02:40",
+                  "title": "Song Reaction",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=160",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSFwsw81w7JFr8S6_Oljbh18Zud5RQCstmz1ZpFmv7dng&s"
+                },
+                {
+                  "time": "06:14",
+                  "title": "Lied Analyse",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=374",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQnNw0lyvcOZq8q_2MXX3cdKfFA_FqJdf4dCr4bjHb_Qg&s"
+                },
+                {
+                  "time": "10:20",
+                  "title": "Urheberrecht",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=620",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTf7E0F9yd1dzo7dpkG-yTyeeHv-jp4s_auNl-3m5wFPA&s"
+                },
+                {
+                  "time": "12:06",
+                  "title": "Aufnahme Teil 1",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=726",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTbIvcmFQl2Y30NqbGrjl88NogMdny0z7Mr3WJc2WUn0g&s"
+                },
+                {
+                  "time": "14:02",
+                  "title": "KI und seine Folgen",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=842",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSvDWAQ7IStFf9AV4wZPvKwpPnGI0CNoLg75FLNvSqmaw&s"
+                },
+                {
+                  "time": "15:10",
+                  "title": "GEMA Studie",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=910",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHgSO2sK6N6BBFkMxAxdp8_FOw9ZKJbfznZphSDZyApw&s"
+                },
+                {
+                  "time": "17:07",
+                  "title": "Aufnahme Teil 2",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1027",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ9LUFFdBErrs1yqwAi2jTa8pMbA1I-1srxpKmr4JNiag&s"
+                },
+                {
+                  "time": "18:21",
+                  "title": "Chancen mit KI",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1101",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRiHzyZeYr3lpfPm1SVlaiwXHmBgVsEUxpmvOq_UkYhKQ&s"
+                },
+                {
+                  "time": "21:04",
+                  "title": "Unser Fazit?",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1264",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRNN74p6ZyvCjzNncT6cz6ot8L_ZgsnBCIE2Z7o93F0ew&s"
+                },
+                {
+                  "time": "21:59",
+                  "title": "Unterrichtsmethoden",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1319",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTAwXDPVMQxmmztK_5Z90vqz265nhMApJu3hJod0SY4TA&s"
+                },
+                {
+                  "time": "22:57",
+                  "title": "Ergebnis der Aufnahme",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1377",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQAOPHpEoqqWgmozMhLTslT1n47aP74paXIknWLF9uHEg&s"
+                },
+                {
+                  "time": "24:41",
+                  "title": "Verabschiedung",
+                  "link": "https://www.youtube.com/watch?v=q8sUZdgOM4s&t=1481",
+                  "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ2vn5g-_6YX9cLXVhumDnG-gNv6JCg7KRSOzoKUnrigQ&s"
+                }
+              ]
+            },
+            {
+              "position": 4,
+              "title": "Gesang mit Künstlicher Intelligenz erstellen: Die besten KI Tools für AI ...",
+              "link": "https://www.youtube.com/watch?v=e1y527O9ZhU",
+              "thumbnail": "https://i.ytimg.com/vi/e1y527O9ZhU/mqdefault.jpg?sqp=-oaymwEFCIcBEEw&rs=AMzJL3mvN2vf9ppFtTJahgo1rNMSgc46Bw",
+              "duration": "18:21"
+            }
+          ],
+          "short_videos": [
+            {
+              "position": 1,
+              "title": "Mit #KI Musik generieren? So geht's! #SunoAI #Musik #Papaplatte ...",
+              "source": "YouTube",
+              "profile_name": "KI-Campus",
+              "extensions": [
+                "KI-Campus"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/eb8edcdeb826c042d5c54b197ee76a0437ebdd9f308a75d6a3db2923347ead2f.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcQQqBZ51Orv3tnKnG78X7XlHOsfRHfWmfJjqg",
+              "date": "15.01.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYVCl6eJXzlqmhMu86snFaJ9_j3DkRJR3YpMFf9hErv7Rt8Q&s",
+              "link": "https://www.youtube.com/watch?v=L8CoDolwfFs"
+            },
+            {
+              "position": 2,
+              "title": "Künstliche Intelligenz nutzen um KI Songs zu erstellen #aimusic #ai",
+              "source": "YouTube",
+              "profile_name": "eBakery",
+              "extensions": [
+                "eBakery"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/eb8edcdeb826c04232901e9b6a544e0ffd46c89017456db0b6a2d52dc86f8933.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcTmUXSFrM4keI1KW6fh4QmszhzXCLnW-05A2A",
+              "date": "17.07.2024",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTIGfLTHnrD_XOG80YIZs3AVYsA69Grn8miZNn-LTQG5ExH0A&s",
+              "link": "https://www.youtube.com/watch?v=IRdRXZiPz8E"
+            },
+            {
+              "position": 3,
+              "title": "🚀 Workshop heute: KI in der Musikproduktion!",
+              "source": "YouTube",
+              "profile_name": "Thomas Foster Musikproduktion",
+              "extensions": [
+                "Thomas Foster Musikproduktion"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/eb8edcdeb826c0425adaa4226fbf81788017c1d7b76320728c2fb9e57c023850.png",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcRkQ6JEfjho-acq7FuSUysz4MW4SS_yh6OqKw",
+              "date": "09.04.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRL0YjrSm9meX4xXSdookCUVUQI7BNEPXZw3e-0VejSQc6DhA&s",
+              "link": "https://www.youtube.com/watch?v=nD2m6Z7OeOQ"
+            },
+            {
+              "position": 4,
+              "title": "Song mit KI erstellen: So funktioniert's! von jps_mp3 auf TikTok. Auf TikTok wiedergeben.",
+              "source": "TikTok",
+              "profile_name": "jps_mp3",
+              "extensions": [
+                "jps_mp3"
+              ],
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/eb8edcdeb826c042a7e981c624216e2b284ade9b6430c8f9a5b45ede9835ae55.png",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR80H46uAQe2rh1Qzc_XiFrH47QaP2EgBhVLx1fKjfqsFyEGg&s",
+              "link": "https://www.tiktok.com/@jps_mp3/video/7492871368460012822"
+            },
+            {
+              "position": 5,
+              "title": "So machst du ein Musikvideo mit KI – ohne Budget, ohne Team, in ...",
+              "source": "YouTube",
+              "profile_name": "Thomas Foster - Sound & Vision",
+              "extensions": [
+                "Thomas Foster - Sound & Vision"
+              ],
+              "source_logo": "https://encrypted-tbn2.gstatic.com/favicon-tbn?q=tbn%3AANd9GcSCxBIWene48_K-t10xkc7X0UmDgksKRmoTCJtAuta3PfnC9Jj2HwAjJlGIU9AjcYjWRpoeZ05LlF2X-iSfFNjVFv6qwQpud2s",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcRCbLhHJDfCefIG9AW2TUL6dUi3BXE49_bMtQ",
+              "date": "16.04.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR3P4mHSSDR9FE6bdq9dt2fxFrK0kA6TpIEKFJNhHPOUFoFgQ&s",
+              "link": "https://www.youtube.com/watch?v=YTHdInCfaS8"
+            },
+            {
+              "position": 6,
+              "title": "KI-Tutorial: Eigene Songs erstellen #KI #ai #künstlicheintelligenz",
+              "source": "YouTube",
+              "profile_name": "KI in 60 sec",
+              "extensions": [
+                "KI in 60 sec"
+              ],
+              "source_logo": "https://encrypted-tbn1.gstatic.com/favicon-tbn?q=tbn%3AANd9GcQg1LLtOd5Hwt02ACMO_UPBo3N49NsULfJVXRD05KSNMsKENyyollYshjaFcP9mJmlxu8eM_7jl4ngyFUIc9AZwbz1XGAnF",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcTGAMnOPgORP3RvK9BbKRTxIqek9bLh8sM4QQ",
+              "date": "04.04.2024",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTTsh2Ytp9OKG5qxu5pHqQga7-Y-yJQfK6ve-smf-Qg3ZtYEQ&s",
+              "link": "https://m.youtube.com/shorts/pzfbwM8N1cc"
+            },
+            {
+              "position": 7,
+              "title": "🔥AI Music Creation: Composing Tracks in 60 Seconds! #shorts #simplilearn",
+              "source": "YouTube",
+              "profile_name": "Simplilearn",
+              "extensions": [
+                "Simplilearn"
+              ],
+              "source_logo": "https://encrypted-tbn2.gstatic.com/favicon-tbn?q=tbn%3AANd9GcSCxBIWene48_K-t10xkc7X0UmDgksKRmoTCJtAuta3PfnC9Jj2HwAjJlGIU9AjcYjWRpoeZ05LlF2X-iSfFNjVFv6qwQpud2s",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcSGMMF5pphquiA_6D2nqGwWVZOmRp4NMASTqw",
+              "date": "21.03.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQtsCXlaY5bQ1VaYYtV9tZTDCmCFsFtvt4sIhu6KhLwrMegng&s",
+              "link": "https://www.youtube.com/watch?v=BoTirHe1g38"
+            },
+            {
+              "position": 8,
+              "title": "✅KI Vocals erstellen für Gesang und Chöre #ki #vocals",
+              "source": "YouTube",
+              "profile_name": "Meinkezz Majestik TV",
+              "extensions": [
+                "Meinkezz Majestik TV"
+              ],
+              "source_logo": "https://encrypted-tbn2.gstatic.com/favicon-tbn?q=tbn%3AANd9GcSCxBIWene48_K-t10xkc7X0UmDgksKRmoTCJtAuta3PfnC9Jj2HwAjJlGIU9AjcYjWRpoeZ05LlF2X-iSfFNjVFv6qwQpud2s",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcRnMrrmY6Wv-2tXij2bK-ubq2qd6lQ1_zuRJg",
+              "date": "04.03.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRjmOkd7ZQduLI4c6rvFx_6B2WNTL4GOGjRIs7G8FaKiPFt2Q&s",
+              "link": "https://www.youtube.com/watch?v=AAlomD8Hk30"
+            },
+            {
+              "position": 9,
+              "title": "🔥 Logic Pro kann das jetzt mit KI! 🎶 Gesang, Drums & Bass automatisch ...",
+              "source": "YouTube",
+              "profile_name": "Thomas Foster - Sound & Vision",
+              "extensions": [
+                "Thomas Foster - Sound & Vision"
+              ],
+              "source_logo": "https://encrypted-tbn2.gstatic.com/favicon-tbn?q=tbn%3AANd9GcSCxBIWene48_K-t10xkc7X0UmDgksKRmoTCJtAuta3PfnC9Jj2HwAjJlGIU9AjcYjWRpoeZ05LlF2X-iSfFNjVFv6qwQpud2s",
+              "clip": "https://encrypted-vtbn0.gstatic.com/video?q=tbn:ANd9GcTdRnD3A_6K2_6peQHUNRtDZQhLYvVccXlUkg",
+              "date": "24.03.2025",
+              "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRk1-X8Nt_xvpuXBcC1u8-cpJm_aqGTdCysiNz4PTKsK1Z-Mw&s",
+              "link": "https://www.youtube.com/watch?v=cV72IBdSSNE"
+            }
+          ],
+          "related_questions": [
+            {
+              "question": "Kann man mit KI-Musik machen?",
+              "snippet": "Die KI für Musik ist ideal für Künstler, die etwas außergewöhnliches suchen. Ob du Content Creator, Filmemacher, DJ, Musikproduzent oder einfach jemand bist, der einen beeindruckenden Song mit KI-Musik erstellen möchte, eine KI für Musik ist dein bester Verbündeter.",
+              "title": "MIT KI-Musik erstellen - Loudly",
+              "link": "https://www.loudly.com/ki-musik-erstellen#:~:text=Die%20KI%20f%C3%BCr%20Musik%20ist,Musik%20ist%20dein%20bester%20Verb%C3%BCndeter.",
+              "displayed_link": "https://www.loudly.com",
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff1e34d6e291494aaa0ca06fa3948f827d30baaa44fc28cb48.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJLU11c2lrIG1hY2hlbj8iLCJsayI6ImM1T1N5VTdNeTFQSVRRVGl6QktGN0V5RjNOTGl6R3lnUUhKR2FoNEEiLCJicyI6ImMxM1BzUTZDTUJBR1lGMDdPUklVY3laaUhOU0J3WlU0RVdOY2RIREdlb0VMcFNTMEVoN0d4YmZ3OFR3SWljalFwTG4tOTExUEhJUjNpcldHUE9aREZrN0g3ZmxwS09PQ1RGR0h6ajZZdTdPc0g4a0k4bDVFWE1RcW9yc0ZOSUNra1lrTlBBaWhjNmhHRFEwUU9wOVo0THNMTW1CVExCSFlpNG52c1FYWjJuVUx5X1dJemQyTmlYWXV5UlN5d2xqVXF1aEduRkVWelFnc3VheFU4OC1YRER4M21nOGZmcDFzLW9OVjRWcm94RUNFNmdFVmx0eW9HLXBkQlN0M09kelp0Tm5rTHpzWmZ3RSIsImlkIjoiZmNfTmlzUmFQcURESnpqMnJvUHc1alc2UTBfMSJ9",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJLU11c2lrIG1hY2hlbj8iLCJsayI6ImM1T1N5VTdNeTFQSVRRVGl6QktGN0V5RjNOTGl6R3lnUUhKR2FoNEEiLCJicyI6ImMxM1BzUTZDTUJBR1lGMDdPUklVY3laaUhOU0J3WlU0RVdOY2RIREdlb0VMcFNTMEVoN0d4YmZ3OFR3SWljalFwTG4tOTExUEhJUjNpcldHUE9aREZrN0g3ZmxwS09PQ1RGR0h6ajZZdTdPc0g4a0k4bDVFWE1RcW9yc0ZOSUNra1lrTlBBaWhjNmhHRFEwUU9wOVo0THNMTW1CVExCSFlpNG52c1FYWjJuVUx5X1dJemQyTmlYWXV5UlN5d2xqVXF1aEduRkVWelFnc3VheFU4OC1YRER4M21nOGZmcDFzLW9OVjRWcm94RUNFNmdFVmx0eW9HLXBkQlN0M09kelp0Tm5rTHpzWmZ3RSIsImlkIjoiZmNfTmlzUmFQcURESnpqMnJvUHc1alc2UTBfMSJ9"
+            },
+            {
+              "question": "Gibt es eine KI, die Musik mixen kann?",
+              "snippet": "Ja, KI kann Musik mischen . Tools wie RoEx und LANDR nutzen KI, um Tracks zu analysieren und Pegel, EQ und Effekte automatisch anzupassen.",
+              "title": "Ich habe die 4 besten KI-Mixing- und Mastering-Tools im Jahr 2025 getestet",
+              "date": "10.02.2025",
+              "link": "https://translate.google.com/translate?u=https://www.aimusicpreneur.com/ai-tools-news/the-4-best-ai-mixing-and-mastering-tools/&hl=de&sl=en&tl=de&client=rq#:~:text=Yes%2C%20AI%20can%20mix%20music,%2C%20EQ%2C%20and%20effects%20automatically.",
+              "displayed_link": "https://www.aimusicpreneur.com",
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff1e34d6e291494aaaceab37e245ba40ec316d5be48aacf927.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiR2lidCBlcyBlaW5lIEtJLCBkaWUgTXVzaWsgbWl4ZW4ga2Fubj8iLCJsayI6ImM1TlN6Q3hXS01sSUxVcFZTTXhUU013RXNoTkxGSktCN056TUNvWGMwdUxNWkEwR0FBIiwiYnMiOiJjMTNQc1E2Q01CQUdZRjA3T1JJVWN5WmlITlNCd1pVNEVXTmNkSERHZW9FTHBTUzBFaDdHeGJmdzhUd0lpY2pRcExuLTkxMVBISVIzaXJXR1BPWkRGazdIN2ZscEtPT0NURkdIemo2WXU3T3NIOGtJOGw1RVhNUXFvcnNGTklDa2tZa05QQWloYzZoR0RRMFFPcDlaNExzTE1tQlRMQkhZaTRudnNRWFoyblVMeV9XSXpkMk5pWFl1eVJTeXdsalVxdWhHbkZFVnpRZ3N1YXhVODgtWEREeDNtZzhmZnAxcy1vTlY0VnJveEVDRTZnRVZsdHlvRy1wZEJTdDNPZHpadE5ua0x6c1pmd0UiLCJpZCI6ImZjX05pc1JhUHFEREp6ajJyb1B3NWpXNlEwXzEifQ==",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiR2lidCBlcyBlaW5lIEtJLCBkaWUgTXVzaWsgbWl4ZW4ga2Fubj8iLCJsayI6ImM1TlN6Q3hXS01sSUxVcFZTTXhUU013RXNoTkxGSktCN056TUNvWGMwdUxNWkEwR0FBIiwiYnMiOiJjMTNQc1E2Q01CQUdZRjA3T1JJVWN5WmlITlNCd1pVNEVXTmNkSERHZW9FTHBTUzBFaDdHeGJmdzhUd0lpY2pRcExuLTkxMVBISVIzaXJXR1BPWkRGazdIN2ZscEtPT0NURkdIemo2WXU3T3NIOGtJOGw1RVhNUXFvcnNGTklDa2tZa05QQWloYzZoR0RRMFFPcDlaNExzTE1tQlRMQkhZaTRudnNRWFoyblVMeV9XSXpkMk5pWFl1eVJTeXdsalVxdWhHbkZFVnpRZ3N1YXhVODgtWEREeDNtZzhmZnAxcy1vTlY0VnJveEVDRTZnRVZsdHlvRy1wZEJTdDNPZHpadE5ua0x6c1pmd0UiLCJpZCI6ImZjX05pc1JhUHFEREp6ajJyb1B3NWpXNlEwXzEifQ%3D%3D"
+            },
+            {
+              "question": "Wie kann ich kostenlos eine Melodie erstellen?",
+              "snippet": null,
+              "title": "Die 9 besten kostenlosen Musikprogramme",
+              "link": "https://imusician.pro/de/ressourcen/blog/die-besten-kostenlosen-musikprogramme",
+              "list": [
+                "Tracktion Waveform Free. ... ",
+                "Garageband. ... ",
+                "Ohm Studio. ... ",
+                "Audacity. ... ",
+                "Pro Tools First. ... ",
+                "Cubase LE. ... ",
+                "Cakewalk by BandLab. ... ",
+                "PreSonus Studio One 5 Prime."
+              ],
+              "displayed_link": "https://imusician.pro",
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff1e34d6e291494aaaee119d586cff9a1c3656d70151d97c29.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiV2llIGthbm4gaWNoIGtvc3RlbmxvcyBlaW5lIE1lbG9kaWUgZXJzdGVsbGVuPyIsImxrIjoiR2h0dFpXeHZaR2xsSUdWeWMzUmxiR3hsYmlCcmIzTjBaVzVzYjNNIiwiYnMiOiJjMTNQc1E2Q01CQUdZRjA3T1JJVWN5WmlITlNCd1pVNEVXTmNkSERHZW9FTHBTUzBFaDdHeGJmdzhUd0lpY2pRcExuLTkxMVBISVIzaXJXR1BPWkRGazdIN2ZscEtPT0NURkdIemo2WXU3T3NIOGtJOGw1RVhNUXFvcnNGTklDa2tZa05QQWloYzZoR0RRMFFPcDlaNExzTE1tQlRMQkhZaTRudnNRWFoyblVMeV9XSXpkMk5pWFl1eVJTeXdsalVxdWhHbkZFVnpRZ3N1YXhVODgtWEREeDNtZzhmZnAxcy1vTlY0VnJveEVDRTZnRVZsdHlvRy1wZEJTdDNPZHpadE5ua0x6c1pmd0UiLCJpZCI6ImZjX05pc1JhUHFEREp6ajJyb1B3NWpXNlEwXzEifQ==",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiV2llIGthbm4gaWNoIGtvc3RlbmxvcyBlaW5lIE1lbG9kaWUgZXJzdGVsbGVuPyIsImxrIjoiR2h0dFpXeHZaR2xsSUdWeWMzUmxiR3hsYmlCcmIzTjBaVzVzYjNNIiwiYnMiOiJjMTNQc1E2Q01CQUdZRjA3T1JJVWN5WmlITlNCd1pVNEVXTmNkSERHZW9FTHBTUzBFaDdHeGJmdzhUd0lpY2pRcExuLTkxMVBISVIzaXJXR1BPWkRGazdIN2ZscEtPT0NURkdIemo2WXU3T3NIOGtJOGw1RVhNUXFvcnNGTklDa2tZa05QQWloYzZoR0RRMFFPcDlaNExzTE1tQlRMQkhZaTRudnNRWFoyblVMeV9XSXpkMk5pWFl1eVJTeXdsalVxdWhHbkZFVnpRZ3N1YXhVODgtWEREeDNtZzhmZnAxcy1vTlY0VnJveEVDRTZnRVZsdHlvRy1wZEJTdDNPZHpadE5ua0x6c1pmd0UiLCJpZCI6ImZjX05pc1JhUHFEREp6ajJyb1B3NWpXNlEwXzEifQ%3D%3D"
+            },
+            {
+              "question": "Kann man mit KI Songs Geld verdienen?",
+              "snippet": "So kannst du mit KI-Musik Geld verdienen Erstelle professionell klingende Songs mit KI-Tools und veröffentliche sie auf Plattformen wie Spotify, YouTube oder SoundCloud, um durch Streams oder Direktverkäufe Einnahmen zu erzielen.",
+              "title": "So kannst du KI-Musik erstellen und Geld verdienen! - Gründer.de",
+              "date": "15.01.2025",
+              "link": "https://www.gruender.de/kuenstliche-intelligenz/ki-musik-erstellen/#:~:text=So%20kannst%20du%20mit%20KI%2DMusik%20Geld%20verdienen,-KI%2DMusik%20er%C3%B6ffnet&text=Erstelle%20professionell%20klingende%20Songs%20mit,oder%20Direktverk%C3%A4ufe%20Einnahmen%20zu%20erzielen.",
+              "displayed_link": "https://www.gruender.de",
+              "source_logo": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff1e34d6e291494aaa6bf3ba6d90400e8f4c72961edacaf1da.png",
+              "next_page_token": "eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJIFNvbmdzIEdlbGQgdmVyZGllbmVuPyIsImxrIjoiR2lScllXNXVJRzFoYmlCdGFYUWdhMmtnYzI5dVozTWdaMlZzWkNCMlpYSmthV1Z1Wlc0IiwiYnMiOiJjMTNQc1E2Q01CQUdZRjA3T1JJVWN5WmlITlNCd1pVNEVXTmNkSERHZW9FTHBTUzBFaDdHeGJmdzhUd0lpY2pRcExuLTkxMVBISVIzaXJXR1BPWkRGazdIN2ZscEtPT0NURkdIemo2WXU3T3NIOGtJOGw1RVhNUXFvcnNGTklDa2tZa05QQWloYzZoR0RRMFFPcDlaNExzTE1tQlRMQkhZaTRudnNRWFoyblVMeV9XSXpkMk5pWFl1eVJTeXdsalVxdWhHbkZFVnpRZ3N1YXhVODgtWEREeDNtZzhmZnAxcy1vTlY0VnJveEVDRTZnRVZsdHlvRy1wZEJTdDNPZHpadE5ua0x6c1pmd0UiLCJpZCI6ImZjX05pc1JhUHFEREp6ajJyb1B3NWpXNlEwXzEifQ==",
+              "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_related_questions&google_domain=google.com&next_page_token=eyJvbnMiOiIxMDA0MSIsImZjIjoiRXFFQkNtSkJRUzFMVkdobWJFRTViVGR0V0dsS1JHSlJWM0ZzTFdOclNWWkxXVUZJYWxCM04wZEhTWEZtTTFnNFdtVndMWFY2T0hGWFowRjVYMHhCYjFKR1RrbG5OSE0yTUVWcmJFSkxOamR1ZGpGbWNrc3Rha1Z0Y2xOTE1tZ3RjbTFoWDJVMVp4SVhUbWx6VW1GUWNVUkVTbnBxTW5KdlVIYzFhbGMyVVRBYUlrRkRSRmhNTkcxRVJWQXdZVTFYUzJ4cVNrdElVV1l5V25semNIRkhhbEZpY25jIiwiZmN2IjoiMyIsImVpIjoiTmlzUmFQcURESnpqMnJvUHc1alc2UTAiLCJxYyI6IkNoWnRhWFFnYTJrZ2JYVnphV3NnWlhKemRHVnNiR1Z1RUFWOWNyNzlQZyIsInF1ZXN0aW9uIjoiS2FubiBtYW4gbWl0IEtJIFNvbmdzIEdlbGQgdmVyZGllbmVuPyIsImxrIjoiR2lScllXNXVJRzFoYmlCdGFYUWdhMmtnYzI5dVozTWdaMlZzWkNCMlpYSmthV1Z1Wlc0IiwiYnMiOiJjMTNQc1E2Q01CQUdZRjA3T1JJVWN5WmlITlNCd1pVNEVXTmNkSERHZW9FTHBTUzBFaDdHeGJmdzhUd0lpY2pRcExuLTkxMVBISVIzaXJXR1BPWkRGazdIN2ZscEtPT0NURkdIemo2WXU3T3NIOGtJOGw1RVhNUXFvcnNGTklDa2tZa05QQWloYzZoR0RRMFFPcDlaNExzTE1tQlRMQkhZaTRudnNRWFoyblVMeV9XSXpkMk5pWFl1eVJTeXdsalVxdWhHbkZFVnpRZ3N1YXhVODgtWEREeDNtZzhmZnAxcy1vTlY0VnJveEVDRTZnRVZsdHlvRy1wZEJTdDNPZHpadE5ua0x6c1pmd0UiLCJpZCI6ImZjX05pc1JhUHFEREp6ajJyb1B3NWpXNlEwXzEifQ%3D%3D"
+            }
+          ],
+          "answer_box": {
+            "type": "organic_result",
+            "title": "Gratis AI Music Generator: Erstelle Musik mit KI - Canva",
+            "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/",
+            "displayed_link": "https://www.canva.com",
+            "snippet": "So verwendest du den AI Music Generator von Canva",
+            "snippet_highlighted_words": [
+              "So verwendest du den AI Music Generator von Canva",
+              "Music"
+            ],
+            "list": [
+              "Starte Canva. Öffne Canva im Web-Browser oder in der App. ... ",
+              "Greife auf den AI Music Generator zu. ... ",
+              "Erstelle die KI-Song-Liste. ... ",
+              "Passe deinen KI-Song an. ... ",
+              "Lade deinen Soundtrack herunter oder teile ihn online."
+            ],
+            "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/638a394bd2ed039b005e884786b84f8fd8cabeb1db3397b3.png"
+          },
+          "organic_results": [
+            {
+              "position": 1,
+              "title": "Mit KI-Music erstellen",
+              "link": "https://www.loudly.com/ki-musik-erstellen",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.loudly.com/ki-musik-erstellen&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QFnoECFAQAQ&usg=AOvVaw3DjUV-NhCFfXNG-U3Q29gO",
+              "displayed_link": "https://www.loudly.com",
+              "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/1bcee8c0d502d14b084ae7f8b2f38d059cd62add3d7109e3297e7f88c1189ddb.png",
+              "date": "13.12.2023",
+              "snippet": "Nutze die KI von Loudly, für deine Musikerstellung. Einfach das Genre wählen und innerhalb von Sekunden das gewünschte Ergebnis erhalten.",
+              "source": "Loudly"
+            },
+            {
+              "position": 2,
+              "title": "Die 15 besten KI-Song-Generatoren - Mindforce",
+              "link": "https://mind-force.de/marketing/ki-song-generatoren/",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://mind-force.de/marketing/ki-song-generatoren/&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QFnoECEQQAQ&usg=AOvVaw09SoxAUB-lRXMB8uZbQOhY",
+              "displayed_link": "https://mind-force.de",
+              "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/1bcee8c0d502d14b084ae7f8b2f38d05df34c2e7aff158bc0a9618d8f7379435.png",
+              "date": "21.03.2025",
+              "snippet": "KI-Song-Generatoren können selbstständig Musik generieren. ... Mit dem AI Song Generator lassen sich Songs mit Text und Melodie per KI erstellen.",
+              "source": "mind-force.de"
+            },
+            {
+              "position": 3,
+              "title": "KI Musik erstellen: Musik mit KI generieren",
+              "link": "https://makebestmusic.com/de/app/create-music-new",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://makebestmusic.com/de/app/create-music-new&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QFnoECEUQAQ&usg=AOvVaw1rNRCO1UOGdYLbnPk7Ldg1",
+              "displayed_link": "https://makebestmusic.com",
+              "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/1bcee8c0d502d14b084ae7f8b2f38d05b5e325ffbf73286af336eb50fec34ece.png",
+              "snippet": "Verwenden Sie den KI-Musikgenerator, um mit einem Klick hochwertige instrumentale Musik oder Popmusik zu erzeugen.",
+              "source": "MakeBestMusic"
+            },
+            {
+              "position": 4,
+              "title": "KI Musik- & Song-Generator Online (Kostenlos, Leistungsstark)",
+              "link": "https://aisonggenerator.io/de",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://aisonggenerator.io/de&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QFnoECEIQAQ&usg=AOvVaw1ZNOQOUoTNP7NCdRI2KKXq",
+              "displayed_link": "https://aisonggenerator.io",
+              "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/1bcee8c0d502d14b084ae7f8b2f38d0506f67e733fa6d9ef25b22635040e77f0.png",
+              "snippet": "KI Musik - Song Generator. Mit unserer modernen KI Song Generator-Technologie kannst du jede gewünschte Musik oder jeden Song erstellen. 100% Lizenzfrei.",
+              "source": "AI Song Generator"
+            },
+            {
+              "position": 5,
+              "title": "Künstliche Intelligenz produziert neue Lieder per Mausklick - ZDFheute",
+              "link": "https://www.zdf.de/nachrichten/wissen/musik-kuenstliche-intelligenz-ki-suno-ai-100.html",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.zdf.de/nachrichten/wissen/musik-kuenstliche-intelligenz-ki-suno-ai-100.html&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QFnoECEMQAQ&usg=AOvVaw22l3LP-eVW1owswKoxuGi8",
+              "displayed_link": "https://www.zdf.de",
+              "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/1bcee8c0d502d14b084ae7f8b2f38d0539a3d1a562944c524fc0757e09304e49.png",
+              "date": "29.03.2024",
+              "snippet": "KI-Modelle wie Suno AI können laut Foster die Arbeit von Musikproduzenten nicht ersetzen, aber Inspiration liefern oder beim Komponieren helfen.",
+              "source": "ZDF"
+            },
+            {
+              "position": 6,
+              "title": "Die 10 besten KI-Musikgeneratoren (April 2025)",
+              "link": "https://www.unite.ai/de/best-ai-music-generators/",
+              "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.unite.ai/de/best-ai-music-generators/&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QFnoECEYQAQ&usg=AOvVaw1fR4fuCWcsbfFUnu4ID1SD",
+              "displayed_link": "https://www.unite.ai",
+              "favicon": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/1bcee8c0d502d14b084ae7f8b2f38d05db1355d778f785cde1bd73957f1f1b1c.png",
+              "date": "13.04.2025",
+              "snippet": "FlexClip AI Music Generator bietet eine nahtlose Möglichkeit, KI-generierte Songs zu erstellen, ohne dass musikalisches Fachwissen erforderlich ...",
+              "source": "Unite.AI"
+            }
+          ],
+          "filters": [
+            {
+              "name": "App",
+              "parameters": {
+                "uds": "ABqPDvztZD_Nu18FR6tNPw2cK_RR9k1vcX8nQENlB_ST8PB-eemXJFQOc2B-8lxILBOt0CrsZKvmsqOqIIYW6nxS-R8Eq9QC-q36-z0Y5UVLVeitQGF4eJU3nvCKB17Z8E9yQJRQnWZuw3Ol79ZslGwKa5tBee2oTdjdUSnFQIzBz8VB4ghwPngk_l5BICqSlX25py_uEzf7-K_AuMB4jhFIGM824lAK6w",
+                "q": "Ki app musik erstellen"
+              },
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Ki+app+musik+erstellen&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RR9k1vcX8nQENlB_ST8PB-eemXJFQOc2B-8lxILBOt0CrsZKvmsqOqIIYW6nxS-R8Eq9QC-q36-z0Y5UVLVeitQGF4eJU3nvCKB17Z8E9yQJRQnWZuw3Ol79ZslGwKa5tBee2oTdjdUSnFQIzBz8VB4ghwPngk_l5BICqSlX25py_uEzf7-K_AuMB4jhFIGM824lAK6w&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QxKsJegQIDRAB&ictx=0",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Ki+app+musik+erstellen&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RR9k1vcX8nQENlB_ST8PB-eemXJFQOc2B-8lxILBOt0CrsZKvmsqOqIIYW6nxS-R8Eq9QC-q36-z0Y5UVLVeitQGF4eJU3nvCKB17Z8E9yQJRQnWZuw3Ol79ZslGwKa5tBee2oTdjdUSnFQIzBz8VB4ghwPngk_l5BICqSlX25py_uEzf7-K_AuMB4jhFIGM824lAK6w"
+            },
+            {
+              "name": "Gesang",
+              "parameters": {
+                "uds": "ABqPDvztZD_Nu18FR6tNPw2cK_RR-U7ulYFJvOEfk2azzLH_P01AIxlAciLtCRlwB6YtbHg1IvCfWIRH6N22dX_VLPd05SAMrV2VXOH7kSIlRcmLhaI4mrZODiciVOcWWWUTw17w7HYmnVfrf-W8MjGxe6G0inZoclwyAa0Tha9JUFR93HMlZoX3RhhyuiwdRru65TrKZOYxLKAxGeSyn6VHhbS8gzVBJA",
+                "q": "ki musik erstellen mit gesang"
+              },
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki+musik+erstellen+mit+gesang&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RR-U7ulYFJvOEfk2azzLH_P01AIxlAciLtCRlwB6YtbHg1IvCfWIRH6N22dX_VLPd05SAMrV2VXOH7kSIlRcmLhaI4mrZODiciVOcWWWUTw17w7HYmnVfrf-W8MjGxe6G0inZoclwyAa0Tha9JUFR93HMlZoX3RhhyuiwdRru65TrKZOYxLKAxGeSyn6VHhbS8gzVBJA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QxKsJegQIEBAB&ictx=0",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ki+musik+erstellen+mit+gesang&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RR-U7ulYFJvOEfk2azzLH_P01AIxlAciLtCRlwB6YtbHg1IvCfWIRH6N22dX_VLPd05SAMrV2VXOH7kSIlRcmLhaI4mrZODiciVOcWWWUTw17w7HYmnVfrf-W8MjGxe6G0inZoclwyAa0Tha9JUFR93HMlZoX3RhhyuiwdRru65TrKZOYxLKAxGeSyn6VHhbS8gzVBJA"
+            },
+            {
+              "name": "Suno",
+              "parameters": {
+                "uds": "ABqPDvztZD_Nu18FR6tNPw2cK_RR0XZ2aQnFevpyaU-zqppoerHdLKPpUXCkdfjqILKIs1g2Vv8ZuOUdVNrMYZ98IJzWv5LhnQY-eiuCWn-xUFOca8HJYHS8Esode4G95ZtcA2DBHhgwxsjR29T8PMK3UfDHsco3MYZ9b-_YfGKwTy9jE800Irftq3WV0ZK7_2I3OwObwdEb3m0wul2wGQjsiAS_DU54BQ",
+                "q": "Ki musik erstellen Suno"
+              },
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Ki+musik+erstellen+Suno&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RR0XZ2aQnFevpyaU-zqppoerHdLKPpUXCkdfjqILKIs1g2Vv8ZuOUdVNrMYZ98IJzWv5LhnQY-eiuCWn-xUFOca8HJYHS8Esode4G95ZtcA2DBHhgwxsjR29T8PMK3UfDHsco3MYZ9b-_YfGKwTy9jE800Irftq3WV0ZK7_2I3OwObwdEb3m0wul2wGQjsiAS_DU54BQ&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QxKsJegQIDxAB&ictx=0",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Ki+musik+erstellen+Suno&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RR0XZ2aQnFevpyaU-zqppoerHdLKPpUXCkdfjqILKIs1g2Vv8ZuOUdVNrMYZ98IJzWv5LhnQY-eiuCWn-xUFOca8HJYHS8Esode4G95ZtcA2DBHhgwxsjR29T8PMK3UfDHsco3MYZ9b-_YfGKwTy9jE800Irftq3WV0ZK7_2I3OwObwdEb3m0wul2wGQjsiAS_DU54BQ"
+            },
+            {
+              "name": "Text",
+              "parameters": {
+                "uds": "ABqPDvztZD_Nu18FR6tNPw2cK_RRE0hdwbQg6OOqzlkhQXnwA6s1NZpoJ1nwGbV4st_E26AvY4mK5--R_kimwtkn2F4d6Up-3atsDmDZcSyqE38dIonQHsYsWIQpTeSd20Xsu-EMplhrdO1NgDMK6G872A4njzXwzojtd792qHGxgcNAowjB96JaN6vIhX0ifVrigGANnlmykeN5zj8FZ9EC_ASF5T6_bpeiN3mfXSvN5Fa097L1uaE",
+                "q": "KI-Musik erstellen mit Text"
+              },
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI-Musik+erstellen+mit+Text&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RRE0hdwbQg6OOqzlkhQXnwA6s1NZpoJ1nwGbV4st_E26AvY4mK5--R_kimwtkn2F4d6Up-3atsDmDZcSyqE38dIonQHsYsWIQpTeSd20Xsu-EMplhrdO1NgDMK6G872A4njzXwzojtd792qHGxgcNAowjB96JaN6vIhX0ifVrigGANnlmykeN5zj8FZ9EC_ASF5T6_bpeiN3mfXSvN5Fa097L1uaE&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QxKsJegQIEhAB&ictx=0",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=KI-Musik+erstellen+mit+Text&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RRE0hdwbQg6OOqzlkhQXnwA6s1NZpoJ1nwGbV4st_E26AvY4mK5--R_kimwtkn2F4d6Up-3atsDmDZcSyqE38dIonQHsYsWIQpTeSd20Xsu-EMplhrdO1NgDMK6G872A4njzXwzojtd792qHGxgcNAowjB96JaN6vIhX0ifVrigGANnlmykeN5zj8FZ9EC_ASF5T6_bpeiN3mfXSvN5Fa097L1uaE"
+            },
+            {
+              "name": "Anmeldung",
+              "parameters": {
+                "uds": "ABqPDvztZD_Nu18FR6tNPw2cK_RRA1uYqulNJXOLRk3AYweT-c0OuPWLg_1uqABgOJmwl3koR_VFsO77mSy6uJfkEoscBU4YgILBJaS0_Acd1sUtzrMTeEx1t5LgJ8gSbTtPV_O25gAnS1Wo8LdtNJdH-dBePRk0bnlAYmqy2UTxKVoqqEWrrluVGZgsdE1WPoUmfVNYaNeimVGOFQ-rxiofAxUShesa2kapsDINonxRS-Bvu22o9HU",
+                "q": "ki musik erstellen ohne anmeldung"
+              },
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki+musik+erstellen+ohne+anmeldung&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RRA1uYqulNJXOLRk3AYweT-c0OuPWLg_1uqABgOJmwl3koR_VFsO77mSy6uJfkEoscBU4YgILBJaS0_Acd1sUtzrMTeEx1t5LgJ8gSbTtPV_O25gAnS1Wo8LdtNJdH-dBePRk0bnlAYmqy2UTxKVoqqEWrrluVGZgsdE1WPoUmfVNYaNeimVGOFQ-rxiofAxUShesa2kapsDINonxRS-Bvu22o9HU&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QxKsJegQIERAB&ictx=0",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ki+musik+erstellen+ohne+anmeldung&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RRA1uYqulNJXOLRk3AYweT-c0OuPWLg_1uqABgOJmwl3koR_VFsO77mSy6uJfkEoscBU4YgILBJaS0_Acd1sUtzrMTeEx1t5LgJ8gSbTtPV_O25gAnS1Wo8LdtNJdH-dBePRk0bnlAYmqy2UTxKVoqqEWrrluVGZgsdE1WPoUmfVNYaNeimVGOFQ-rxiofAxUShesa2kapsDINonxRS-Bvu22o9HU"
+            },
+            {
+              "name": "Canva",
+              "parameters": {
+                "uds": "ABqPDvztZD_Nu18FR6tNPw2cK_RRQBNMTCiWiJVtIo1dBFbGz5nQtBLTLEqU9sRTFZVKZcUreuEbaisQboV2JIdC1H01ltUNXjePbTxrvaQQ7ROa9SauoePZ0ex9U2VS2CJQO8xBB4qwrNUK0CceSOaOp415O9eArh7OLGnnEhLHuxt5JsrgdxNoPO2_i6OcrmjYur52SOeVFPWru5SYIBKEeWRdMr2fRw",
+                "q": "canva ki musik erstellen"
+              },
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=canva+ki+musik+erstellen&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RRQBNMTCiWiJVtIo1dBFbGz5nQtBLTLEqU9sRTFZVKZcUreuEbaisQboV2JIdC1H01ltUNXjePbTxrvaQQ7ROa9SauoePZ0ex9U2VS2CJQO8xBB4qwrNUK0CceSOaOp415O9eArh7OLGnnEhLHuxt5JsrgdxNoPO2_i6OcrmjYur52SOeVFPWru5SYIBKEeWRdMr2fRw&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0QxKsJegQIFBAB&ictx=0",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=canva+ki+musik+erstellen&uds=ABqPDvztZD_Nu18FR6tNPw2cK_RRQBNMTCiWiJVtIo1dBFbGz5nQtBLTLEqU9sRTFZVKZcUreuEbaisQboV2JIdC1H01ltUNXjePbTxrvaQQ7ROa9SauoePZ0ex9U2VS2CJQO8xBB4qwrNUK0CceSOaOp415O9eArh7OLGnnEhLHuxt5JsrgdxNoPO2_i6OcrmjYur52SOeVFPWru5SYIBKEeWRdMr2fRw"
+            }
+          ],
+          "top_stories_link": "https://www.google.com/search?q=mit+ki+musik+erstellen&sca_esv=cf65d87ff3121f3e&gl=de&udm=39&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q3egMegQIOxAO",
+          "top_stories_serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen",
+          "related_searches": [
+            {
+              "block_position": 1,
+              "items": [
+                {
+                  "name": "Suno AI",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a891470018884d03192a2b31e6ae658955663a.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Suno+AI&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCwuSy-2SMtI-cXIsIGF4RULPxeqOEKk0jg-I724Mg0hkp2RnFZlUGmEEEk2jbfMNkhDUlOSl2xqYmFihqSr0DQ9o8jYFElNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrOzBpXn5Co6et9gkGcL8wj8nzjjM9m5fVVpxgiKX5qzoRwfuWa1bxCHhmJeSWpSqUFyanFGSmqeQCKQV8hKTM1ZwMAIAc6ZWWgwBAAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAJ",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Suno+AI&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCwuSy-2SMtI-cXIsIGF4RULPxeqOEKk0jg-I724Mg0hkp2RnFZlUGmEEEk2jbfMNkhDUlOSl2xqYmFihqSr0DQ9o8jYFElNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrOzBpXn5Co6et9gkGcL8wj8nzjjM9m5fVVpxgiKX5qzoRwfuWa1bxCHhmJeSWpSqUFyanFGSmqeQCKQV8hKTM1ZwMAIAc6ZWWgwBAAA"
+                },
+                {
+                  "name": "Udio",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a89147ff721c8fcdbad0b06cd983b6136020b7.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=UDIO&stick=H4sIAAAAAAAAAOMwVOLVT9c3NKw0js9IL65M-8XIsIGF4RULPxdEvLgsvdgiLSMFIQJTiRDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWllAXT_9bbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAebGKuEJAQAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAO",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=UDIO&stick=H4sIAAAAAAAAAOMwVOLVT9c3NKw0js9IL65M-8XIsIGF4RULPxdEvLgsvdgiLSMFIQJTiRDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWllAXT_9bbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAebGKuEJAQAA"
+                },
+                {
+                  "name": "ChatGPT",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a89147c23d58f0708529de373e4f6c91fd908a.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ChatGPT&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMzOSE6rMqg0-sXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhCB6UWIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWdueMxBL3gJBbbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAdQ3BB4MAQAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAT",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ChatGPT&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMzOSE6rMqg0-sXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhCB6UWIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpKbYxLLAwDD9FQsPF5d-rr5BhqVJpTGSlpLkFIuy9DxLhEhecm5eXkZy5SJWdueMxBL3gJBbbJIMYX7hnxNnHGZ7t68qrThBkUtzVvSjA_es1i3ikHDMS0ktSlUoLk3OKEnNU0gE0gp5ickZKzgYAdQ3BB4MAQAA"
+                },
+                {
+                  "name": "AIVA",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a8914719bc8b4df3fa1462e52f02616d9485fe.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=AIVA&stick=H4sIAAAAAAAAAOMwVOLVT9c3NEw2jbfMNkhL-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIwExDiJTkJZuaWJiYIekqNE3PKDI2RVJTbGJZYGCY_oqFh4tLP1ffIMPSpNIYSUtJcopFWXqeJUIkLzk3Ly8juXIRK4ujZ5jjLTZJhjC_8M-JMw6zvdtXlVacoMilOSv60YF7VusWcUg45qWkFqUqFJcmZ5Sk5ikkAmmFvMTkjBUcjAALkEv2CQEAAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAY",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=AIVA&stick=H4sIAAAAAAAAAOMwVOLVT9c3NEw2jbfMNkhL-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIwExDiJTkJZuaWJiYIekqNE3PKDI2RVJTbGJZYGCY_oqFh4tLP1ffIMPSpNIYSUtJcopFWXqeJUIkLzk3Ly8juXIRK4ujZ5jjLTZJhjC_8M-JMw6zvdtXlVacoMilOSv60YF7VusWcUg45qWkFqUqFJcmZ5Sk5ikkAmmFvMTkjBUcjAALkEv2CQEAAA"
+                },
+                {
+                  "name": "Riffusion",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a89147113691339320bfe6f1209fb6a129c2c2.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Riffusion&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCzJSzY1sTAx-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpgZmPpKvQND2jyNgUSU2xiWWBgWH6KxYeLi79XH2DDEuTSmMkLSXJKRZl6XmWCJG85Ny8vIzkykWsnEGZaWmlxZn5ebfYJBnC_MI_J844zPZuX1VacYIil-as6EcH7lmtW8Qh4ZiXklqUqlBcmpxRkpqnkAikFfISkzNWcDACAFLKlGcOAQAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAd",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Riffusion&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCzJSzY1sTAx-8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpgZmPpKvQND2jyNgUSU2xiWWBgWH6KxYeLi79XH2DDEuTSmMkLSXJKRZl6XmWCJG85Ny8vIzkykWsnEGZaWmlxZn5ebfYJBnC_MI_J844zPZuX1VacYIil-as6EcH7lmtW8Qh4ZiXklqUqlBcmpxRkpqnkAikFfISkzNWcDACAFLKlGcOAQAA"
+                },
+                {
+                  "name": "Claude",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a891474df0c5a03e2c10f9b7c9d6125398b9e4.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Claude&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMwuNE3PKDI2_cXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0gW1EUlNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrGzOOYmlKam32CQZwvzCPyfOOMz2bl9VWnGCIpfmrOhHB-5ZrVvEIeGYl5JalKpQXJqcUZKap5AIpBXyEpMzVnAwAgDEzliACwEAAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAi",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Claude&stick=H4sIAAAAAAAAAOMwVOLVT9c3NMwuNE3PKDI2_cXIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0gW1EUlNsYllgYFh-isWHi4u_Vx9gwxLk0pjJC0lySkWZel5lgiRvOTcvLyM5MpFrGzOOYmlKam32CQZwvzCPyfOOMz2bl9VWnGCIpfmrOhHB-5ZrVvEIeGYl5JalKpQXJqcUZKap5AIpBXyEpMzVnAwAgDEzliACwEAAA"
+                },
+                {
+                  "name": "Google Gemini",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a8914703407a8aa67df2c1bbab136584ebb87f.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Google+Gemini&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCwpNrEsMDBM_8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpAbqhlcsPFxc-rn6BhmWJpXGSFpKklMsytLzLBEiecm5eXkZyZWLWHnd8_PTc1IV3FNzM_Myb7FJMoT5hX9OnHGY7d2-qrTiBEUuzVnRjw7cs1q3iEPCMS8ltShVobg0OaMkNU8hEUgr5CUmZ6zgYAQAw0AdTRIBAAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAn",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Google+Gemini&stick=H4sIAAAAAAAAAOMwVOLVT9c3NCwpNrEsMDBM_8XIsIGF4RULPxdEvLgsvdgiLSMFIVJpHJ-RXlyZhhDJzkhOqzKoNEKIJJvGW2YbpCGpKclLNjWxMDFD0lVomp5RZGyKpAbqhlcsPFxc-rn6BhmWJpXGSFpKklMsytLzLBEiecm5eXkZyZWLWHnd8_PTc1IV3FNzM_Myb7FJMoT5hX9OnHGY7d2-qrTiBEUuzVnRjw7cs1q3iEPCMS8ltShVobg0OaMkNU8hEUgr5CUmZ6zgYAQAw0AdTRIBAAA"
+                },
+                {
+                  "name": "Mobile App",
+                  "image": "https://serpapi.com/searches/68112b3535d3b44e49b5dfb5/images/0fad6a82a2386bff577124c1b7f746a6dbc54b6d15a891474a7680a5ca5110e1d590d0bba9856941.gif",
+                  "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Mobile+App&stick=H4sIAAAAAAAAAOMwVOLSz9U3yLA0qTQ2-8XIsIGF4RULPxevfrq-oWFxWXqxRVpGCkKk0jg-I724Mg0hkp2RnFZlUGmEEEk2jbfMNkhDUlOSl2xqYmFihqSr0DQ9o8jYFElNsYllgYFh-isWHi4kJyEpSE6xKEvPs0SI5CXn5uVlJFcuYuXyzU_KzElVcCwouMUmyRDmF_45ccZhtnf7qtKKExS5NGdFPzpwz2rdIg4Jx7yU1KJUheLS5IyS1DyFRCCtkJeYnLGCgxEAhfR9CwwBAAA&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Qs9oBKAB6BQiFARAs",
+                  "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Mobile+App&stick=H4sIAAAAAAAAAOMwVOLSz9U3yLA0qTQ2-8XIsIGF4RULPxevfrq-oWFxWXqxRVpGCkKk0jg-I724Mg0hkp2RnFZlUGmEEEk2jbfMNkhDUlOSl2xqYmFihqSr0DQ9o8jYFElNsYllgYFh-isWHi4kJyEpSE6xKEvPs0SI5CXn5uVlJFcuYuXyzU_KzElVcCwouMUmyRDmF_45ccZhtnf7qtKKExS5NGdFPzpwz2rdIg4Jx7yU1KJUheLS5IyS1DyFRCCtkJeYnLGCgxEAhfR9CwwBAAA"
+                }
+              ]
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song erstellen kostenlos",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+erstellen+kostenlos&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiJARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=KI+Song+erstellen+kostenlos"
+            },
+            {
+              "block_position": 1,
+              "query": "ki-song erstellen kostenlos deutsch",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+erstellen+kostenlos+deutsch&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiIARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ki-song+erstellen+kostenlos+deutsch"
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song erstellen kostenlos App",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+erstellen+kostenlos+App&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiHARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=KI+Song+erstellen+kostenlos+App"
+            },
+            {
+              "block_position": 1,
+              "query": "ki-song erstellen mit text",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+erstellen+mit+text&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiGARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ki-song+erstellen+mit+text"
+            },
+            {
+              "block_position": 1,
+              "query": "KI Song erstellen kostenlos Suno",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+erstellen+kostenlos+Suno&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiKARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=KI+Song+erstellen+kostenlos+Suno"
+            },
+            {
+              "block_position": 2,
+              "query": "ki-song generator mit text kostenlos",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+generator+mit+text+kostenlos&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiAARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ki-song+generator+mit+text+kostenlos"
+            },
+            {
+              "block_position": 2,
+              "query": "KI Song Generator Deutsch",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Song+Generator+Deutsch&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BQiBARAB",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=KI+Song+Generator+Deutsch"
+            },
+            {
+              "block_position": 2,
+              "query": "ki-song erstellen kostenlos ohne anmeldung",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=ki-song+erstellen+kostenlos+ohne+anmeldung&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BAh_EAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=ki-song+erstellen+kostenlos+ohne+anmeldung"
+            },
+            {
+              "block_position": 2,
+              "query": "Musik KI kostenlos",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Musik+KI+kostenlos&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BAh-EAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Musik+KI+kostenlos"
+            },
+            {
+              "block_position": 2,
+              "query": "KI Lieder erstellen Suno",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=KI+Lieder+erstellen+Suno&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BAh8EAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=KI+Lieder+erstellen+Suno"
+            },
+            {
+              "block_position": 2,
+              "query": "Suno Song erstellen",
+              "link": "https://www.google.com/search?sca_esv=cf65d87ff3121f3e&gl=de&q=Suno+Song+erstellen&sa=X&ved=2ahUKEwj69u7M__2MAxWcsVYBHUOMNd0Q1QJ6BAh6EAE",
+              "serpapi_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=Suno+Song+erstellen"
+            }
+          ],
+          "pagination": {
+            "current": 1,
+            "next": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&start=10&sourceid=chrome-mobile&ie=UTF-8",
+            "other_pages": {
+              "2": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&start=10&sourceid=chrome-mobile&ie=UTF-8",
+              "3": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&start=20&sourceid=chrome-mobile&ie=UTF-8",
+              "4": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&start=30&sourceid=chrome-mobile&ie=UTF-8",
+              "5": "https://www.google.com/search?q=mit+ki+musik+erstellen&oq=mit+ki+musik+erstellen&gl=de&start=40&sourceid=chrome-mobile&ie=UTF-8"
+            }
+          },
+          "serpapi_pagination": {
+            "current": 1,
+            "next_link": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=10",
+            "next": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=10",
+            "other_pages": {
+              "2": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=10",
+              "3": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=20",
+              "4": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=30",
+              "5": "https://serpapi.com/search.json?device=mobile&engine=google&gl=de&google_domain=google.com&q=mit+ki+musik+erstellen&start=40"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "get_desktop_serp_results",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_mobile_serp_results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_mobile_serp_results": {
+      "main": [
+        [
+          {
+            "node": "get_serp_results_mobile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_faqs_mobile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_related_searches_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_desktop_serp_results": {
+      "main": [
+        [
+          {
+            "node": "get_serp_results_desktop",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_faqs_desktop",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_related_searches_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_faq": {
+      "main": [
+        [
+          {
+            "node": "get_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_questions": {
+      "main": [
+        [
+          {
+            "node": "remove_duplicates_in_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "remove_duplicates_in_questions": {
+      "main": [
+        [
+          {
+            "node": "insert_faqs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_faqs": {
+      "main": [
+        []
+      ]
+    },
+    "get_faqs_mobile": {
+      "main": [
+        [
+          {
+            "node": "merge_faq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_serp_results_mobile": {
+      "main": [
+        [
+          {
+            "node": "top_3_by_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_serp_results_desktop": {
+      "main": [
+        [
+          {
+            "node": "top_3_by_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_faqs_desktop": {
+      "main": [
+        [
+          {
+            "node": "merge_faq",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge_faq1": {
+      "main": [
+        [
+          {
+            "node": "get_related_searches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "remove_duplicates_in_questions1": {
+      "main": [
+        [
+          {
+            "node": "insert_related_searches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_related_searches_mobile": {
+      "main": [
+        [
+          {
+            "node": "merge_faq1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_related_searches_desktop": {
+      "main": [
+        [
+          {
+            "node": "merge_faq1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "top_3_by_mobile": {
+      "main": [
+        [
+          {
+            "node": "get_urls_to_crawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "top_3_by_desktop": {
+      "main": [
+        [
+          {
+            "node": "get_urls_to_crawl",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "get_urls_to_crawl": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "get_links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_links": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_status": {
+      "main": [
+        [
+          {
+            "node": "check_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_metadata": {
+      "main": [
+        [
+          {
+            "node": "Analyze Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_serp_analysis": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_page_content": {
+      "main": [
+        [
+          {
+            "node": "sleep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sleep": {
+      "main": [
+        [
+          {
+            "node": "get_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_status": {
+      "main": [
+        [
+          {
+            "node": "get_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "sleep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get_page_content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_related_searches": {
+      "main": [
+        [
+          {
+            "node": "get_names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_names": {
+      "main": [
+        [
+          {
+            "node": "remove_duplicates_in_questions1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Content": {
+      "main": [
+        [
+          {
+            "node": "insert_serp_analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "4a18c727-9d7c-48bb-a6d0-dfec50c6d9e4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "YnqGjhW0HTJq0eBY",
+  "tags": [
+    {
+      "createdAt": "2025-03-02T12:05:53.836Z",
+      "updatedAt": "2025-03-02T12:05:53.836Z",
+      "id": "utwtHTzeqUdktrxJ",
+      "name": "SEO"
+    },
+    {
+      "createdAt": "2025-03-29T14:05:42.024Z",
+      "updatedAt": "2025-03-29T14:05:42.024Z",
+      "id": "FTx17qhhXpcrm35X",
+      "name": "Template"
+    }
+  ]
+}

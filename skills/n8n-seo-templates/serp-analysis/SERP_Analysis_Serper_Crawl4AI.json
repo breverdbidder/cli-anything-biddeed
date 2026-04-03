@@ -1,0 +1,1763 @@
+{
+  "name": "Product - SERP Analysis (Serper & Crawl4AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Keyword Research Form",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Focus Keyword",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "de"
+                  },
+                  {
+                    "option": "us"
+                  },
+                  {}
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -1340,
+        1080
+      ],
+      "id": "d841d3e0-650d-49e7-abba-d5f4186d2312",
+      "name": "On form submission",
+      "webhookId": "d361eaea-6612-4e11-8f2b-45bdaf5326d6"
+    },
+    {
+      "parameters": {
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json['Focus Keyword']}}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $json.Country }}"
+            },
+            {
+              "name": "device",
+              "value": "mobile"
+            },
+            {
+              "name": "exclude",
+              "value": "[\"video\", \"image\", \"news\", \"places\"]"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1120,
+        980
+      ],
+      "id": "dbc11a68-1aa6-4462-b5e9-aa1ceaf9be49",
+      "name": "get_mobile_serp_results",
+      "credentials": {
+        "serpApi": {
+          "id": "ip84lDL75JMRWLKs",
+          "name": "SerpAPI Account"
+        },
+        "httpHeaderAuth": {
+          "id": "D3H3rAArrbUYZPOM",
+          "name": "Serper"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -400,
+        900
+      ],
+      "id": "2d1692b9-0dcf-4074-a4ec-fa7a77780972",
+      "name": "merge_faq"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "related_questions",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        900
+      ],
+      "id": "8d530a29-6caf-4641-9c25-bcd8e85f8a5d",
+      "name": "get_questions"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "question",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        40,
+        900
+      ],
+      "id": "e4fd59d3-6bd5-45f4-9c86-45c9bb55d49b",
+      "name": "remove_duplicates_in_questions"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SERP Analysis (SerpApi + Crawl4AI)",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 954676522,
+          "mode": "list",
+          "cachedResultName": "FAQs",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "question": "={{ $json.question }}",
+            "snippet": "={{ $json.snippet }}",
+            "title": "={{ $json.title }}",
+            "link": "={{ $json.link }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        260,
+        900
+      ],
+      "id": "225cc152-7a2d-4d44-b36c-345b7af2a301",
+      "name": "insert_faqs",
+      "alwaysOutputData": false,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json['Focus Keyword']}}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $json.Country }}"
+            },
+            {
+              "name": "device",
+              "value": "desktop"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1120,
+        1180
+      ],
+      "id": "809d7e4c-af19-4b6a-932e-e4bb0984c957",
+      "name": "get_desktop_serp_results",
+      "credentials": {
+        "serpApi": {
+          "id": "ip84lDL75JMRWLKs",
+          "name": "SerpAPI Account"
+        },
+        "httpHeaderAuth": {
+          "id": "D3H3rAArrbUYZPOM",
+          "name": "Serper"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -420,
+        500
+      ],
+      "id": "cdfd558a-1e56-445b-bdd7-ec0ff35404a4",
+      "name": "merge_faq1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "related_searches",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        500
+      ],
+      "id": "ed5f875b-c8da-4f6d-adbe-d0fb2f65a967",
+      "name": "get_queries"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SERP Analysis (SerpApi + Crawl4AI)",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 227535755,
+          "mode": "list",
+          "cachedResultName": "Related Searches",
+          "cachedResultUrl": "=227535755"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "query": "={{ $json.query }}"
+          },
+          "matchingColumns": [
+            "query"
+          ],
+          "schema": [
+            {
+              "id": "query",
+              "displayName": "query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        500
+      ],
+      "id": "44fae620-9f03-4ded-a39e-f1ce2690303c",
+      "name": "insert_related_searches",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_questions",
+              "value": "={{ $json.peopleAlsoAsk }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        900
+      ],
+      "id": "212145e4-0a93-4708-a1b6-334dc44ad2db",
+      "name": "get_faq_mobile",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fcf16964-061d-4c9e-82c6-954e769e899c",
+              "name": "organic_results",
+              "value": "={{ $json.organic }}",
+              "type": "array"
+            },
+            {
+              "id": "44fba0e5-686c-4475-89dd-66f711bf910c",
+              "name": "search_parameters.device",
+              "value": "={{ $json.searchParameters.device }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        1160
+      ],
+      "id": "571d4620-6efb-4a48-9b13-2e80861270ff",
+      "name": "get_organic_results_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e76a9070-4782-4a54-84b6-bce1eb50023d",
+              "name": "organic_results",
+              "value": "={{ $json.organic }}",
+              "type": "array"
+            },
+            {
+              "id": "64fffe61-bb13-47e6-9555-c8adb9c3762d",
+              "name": "search_parameters.device",
+              "value": "={{ $json.searchParameters.device }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        1360
+      ],
+      "id": "f9288caa-9cb0-4718-aced-30be2e52cd03",
+      "name": "get_organic_results_desktop"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_questions",
+              "value": "={{ $json.peopleAlsoAsk }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        1560
+      ],
+      "id": "2c2e754e-dee2-4ad5-bda4-dac77155e3cd",
+      "name": "get_faq_desktop"
+    },
+    {
+      "parameters": {
+        "content": "# Insert Related Searches\n",
+        "height": 380,
+        "width": 960,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        400
+      ],
+      "id": "487516d9-6f8d-45ca-85f8-fc1e0b233bb0",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Insert FAQs",
+        "height": 380,
+        "width": 960,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        800
+      ],
+      "id": "90104868-cd44-4c3f-8c6f-3cbaac7515e5",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Get Data",
+        "height": 1560,
+        "width": 900
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1400,
+        400
+      ],
+      "id": "58d1d60d-b220-4cf1-9dbd-9947365c1322",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "# SERP Analysis\n",
+        "height": 760,
+        "width": 2180,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        1200
+      ],
+      "id": "06106d0c-d558-4429-bb6e-ebd1aeeea4a0",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow Instructions\n#### Requirements\nTo use this workflow, you will need accounts and API access for the following services:\n- **Google Sheets**\n- **Serper Dev**\n- **Crawl4AI**\n- **OpenAI**\n#### Google Spreadsheet Setup\nCreate a Google Spreadsheet with **three sheets** named exactly as follows:\n1. **SERP Analysis**  \n   Columns (in order):  \n   `position`, `title`, `link`, `snippet`, `short_summary`, `potential_focus_keyword`, `relevant_long_tail_keywords`, `unigrams`, `bigrams`, `trigrams`\n2. **FAQs**  \n   Columns (in order):  \n   `question`, `title`, `link`, `snippet`\n3. **Related Searches**  \n   Columns (in order):  \n   `query`\n> **Tip:** Make sure the sheet names and column headers match exactly, including capitalization and spacing, to ensure the workflow functions correctly.\n#### Getting Started\n1. **Set up your Google Spreadsheet** as described above.\n2. **Configure your API credentials** for Serper Dev, Crawl4AI, and OpenAI within n8n.\n3. **Import the workflow** into your n8n instance.\n4. **Update any required variables or nodes** in the workflow to point to your specific spreadsheet and API keys.\n5. **Run the workflow** and monitor the results in your Google Sheets.\n#### Support & Contact\nDeveloped by **Marvomatic**\n- [Website](https://marvomatic.com)\n- [TikTok](https://www.tiktok.com/@marvomatic)\n- [YouTube](https://www.youtube.com/@marvomatic)\n\nFor business inquiries, email: [hello@marvomatic.com](mailto:hello@marvomatic.com)",
+        "height": 780,
+        "width": 1180
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        540,
+        400
+      ],
+      "id": "a76581fa-63b9-4714-bb0f-d6e5b97a78d3",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create an array to hold the cleaned items\nconst cleanedArray = [];\n\n// Loop through all input items\nfor (const item of $input.all()) {\n  // Create a copy of the item's JSON\n  const cleanedItem = {...item.json};\n  \n  // Filter organic results to remove any with youtube.com in the link\n  if (cleanedItem.organic) {\n    cleanedItem.organic = cleanedItem.organic.filter(result => \n      !result.link.includes('youtube.com')\n    );\n    \n    // Also filter any sitelinks that might contain youtube.com\n    for (const result of cleanedItem.organic) {\n      if (result.sitelinks) {\n        result.sitelinks = result.sitelinks.filter(sitelink => \n          !sitelink.link.includes('youtube.com')\n        );\n      }\n    }\n  }\n  \n  // Filter related searches if needed\n  if (cleanedItem.relatedSearches) {\n    cleanedItem.relatedSearches = cleanedItem.relatedSearches.filter(search => \n      !search.query.includes('youtube.com')\n    );\n  }\n  \n  // Add the cleaned item to our array\n  cleanedArray.push(cleanedItem);\n}\n\n// Return the cleaned array\nreturn cleanedArray;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -920,
+        980
+      ],
+      "id": "8e1d466a-e70e-48bf-bd4c-0ffb4df58ff9",
+      "name": "clean_results_mobile"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create an array to hold the cleaned items\nconst cleanedArray = [];\n\n// Loop through all input items\nfor (const item of $input.all()) {\n  // Create a copy of the item's JSON\n  const cleanedItem = {...item.json};\n  \n  // Filter organic results to remove any with youtube.com in the link\n  if (cleanedItem.organic) {\n    cleanedItem.organic = cleanedItem.organic.filter(result => \n      !result.link.includes('youtube.com')\n    );\n    \n    // Also filter any sitelinks that might contain youtube.com\n    for (const result of cleanedItem.organic) {\n      if (result.sitelinks) {\n        result.sitelinks = result.sitelinks.filter(sitelink => \n          !sitelink.link.includes('youtube.com')\n        );\n      }\n    }\n  }\n  \n  // Filter related searches if needed\n  if (cleanedItem.relatedSearches) {\n    cleanedItem.relatedSearches = cleanedItem.relatedSearches.filter(search => \n      !search.query.includes('youtube.com')\n    );\n  }\n  \n  // Add the cleaned item to our array\n  cleanedArray.push(cleanedItem);\n}\n\n// Return the cleaned array\nreturn cleanedArray;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -920,
+        1180
+      ],
+      "id": "03811174-be3a-4054-8d20-0d99772cd0b6",
+      "name": "clean_results_desktop"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_searches",
+              "value": "={{ $json.relatedSearches }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        500
+      ],
+      "id": "f7f8f3b7-c1b7-452d-b772-594f78c406b2",
+      "name": "get_related_searches_mobile"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e112e59-ad43-4321-9de0-d1d502f98266",
+              "name": "related_searches",
+              "value": "={{ $json.relatedSearches }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        1760
+      ],
+      "id": "cebaf5a7-d4ff-4d55-ad5e-1e04e4410094",
+      "name": "get_related_searches_desktop"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "query",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        20,
+        500
+      ],
+      "id": "e5777b16-ec07-41f0-9d9e-bd11fe94d37f",
+      "name": "remove_duplicates_in_questions1"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        1360
+      ],
+      "id": "5f44a0af-2db9-4683-ab5b-2d936a1c2775",
+      "name": "top_3_by_mobile"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        1560
+      ],
+      "id": "5696379e-fc4c-40a2-a6d1-e64ae9f27827",
+      "name": "top_3_by_desktop"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -180,
+        1360
+      ],
+      "id": "da9d9a1e-1a18-4b2c-b949-5ba7e6245dff",
+      "name": "get_urls_to_crawl"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic_results",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        40,
+        1360
+      ],
+      "id": "72b8390f-4cca-435c-b620-bdaf492516a0",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "link",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        260,
+        1360
+      ],
+      "id": "3739f1f7-498d-42b1-b8de-074eb853c2e9",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        500,
+        1360
+      ],
+      "id": "83e25836-0066-4f4b-b685-bb29b117ce6a",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "link, snippet, position, title",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        700,
+        1360
+      ],
+      "id": "6b38f0ef-79df-4db9-9781-7e6824e8f0e1",
+      "name": "get_links"
+    },
+    {
+      "parameters": {
+        "url": "=http://crawl4ai:11235/task/{{ $json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        380,
+        1580
+      ],
+      "id": "2e2f9ba0-d6f6-4dfe-8d50-0b6c4050e5a6",
+      "name": "get_status",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MKoLytfiKC3rb7GP",
+          "name": "crawl4ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4eec2c04-b519-4c06-a911-bb7780b776b5",
+              "name": "result.metadata.title",
+              "value": "={{ $('get_status').item.json.result.metadata.title }}",
+              "type": "string"
+            },
+            {
+              "id": "0eac8d67-34d9-4809-92fc-69f47381e104",
+              "name": "result.metadata.description",
+              "value": "={{ $('get_status').item.json.result.metadata.description }}",
+              "type": "string"
+            },
+            {
+              "id": "58b74b11-74f8-42e3-b68f-a2aa4c380578",
+              "name": "result.metadata['og:url']",
+              "value": "={{ $('get_status').item.json.result.metadata['og:url'] }}",
+              "type": "string"
+            },
+            {
+              "id": "f57680c0-48ed-492f-a1d9-508a0c996198",
+              "name": "result.cleaned_html",
+              "value": "={{ $('get_status').item.json.result.cleaned_html }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        1580
+      ],
+      "id": "77a31dfd-94d9-4805-9600-de73e6995b36",
+      "name": "get_metadata"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SERP Analysis (Serper + Crawl4AI)",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "SERPs",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "short_summary": "={{ $json.message.content.short_summary ?  $json.message.content.short_summary: \"\" }}",
+            "potential_focus_keyword": "={{ $json.message.content.potential_focus_keyword ?  $json.message.content.potential_focus_keyword: \"\" }}",
+            "unigrams": "={{ $json.message.content.n_gram_analysis.unigrams ?  $json.message.content.n_gram_analysis.unigrams: \"\" }}",
+            "bigrams": "={{ $json.message.content.n_gram_analysis.bigrams ?  $json.message.content.n_gram_analysis.bigrams: \"\" }}",
+            "trigrams": "={{ $json.message.content.n_gram_analysis.trigrams ?  $json.message.content.n_gram_analysis.trigrams: \"\" }}",
+            "relevant_long_tail_keywords": "={{ $json.message.content.relevant_long_tail_keywords ?  $json.message.content.relevant_long_tail_keywords: \"\" }}",
+            "title": "={{ $('Loop Over Items').item.json.title }}",
+            "link": "={{ $('Loop Over Items').item.json.link }}",
+            "snippet": "={{ $('Loop Over Items').item.json.snippet }}",
+            "position": "={{ $('Loop Over Items').item.json.position }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "position",
+              "displayName": "position",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "short_summary",
+              "displayName": "short_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "potential_focus_keyword",
+              "displayName": "potential_focus_keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_long_tail_keywords",
+              "displayName": "relevant_long_tail_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unigrams",
+              "displayName": "unigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bigrams",
+              "displayName": "bigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "trigrams",
+              "displayName": "trigrams",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1460,
+        1580
+      ],
+      "id": "8a1d7086-25ef-4aba-89cb-6b5a0c33d62e",
+      "name": "insert_serp_analysis",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "oYP1Bc15GY7emvD3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crawl4ai:11235/crawl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "urls",
+              "value": "={{ $json.link }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -40,
+        1580
+      ],
+      "id": "d80a9011-dda9-4629-ba68-d2d8ccb9dfd4",
+      "name": "get_page_content",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "MKoLytfiKC3rb7GP",
+          "name": "crawl4ai"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        1580
+      ],
+      "id": "c1f79552-9de1-4668-8ce2-5d305c2da8e0",
+      "name": "sleep",
+      "webhookId": "39bf1438-2316-4e3e-bb9d-0dd5d29b3509"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "100015ac-f73c-406d-acd5-49a41d60111a",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        580,
+        1580
+      ],
+      "id": "65201719-59c2-4c79-ab24-bf0dd6839588",
+      "name": "check_status"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        1360
+      ],
+      "id": "54697f10-4eed-42dc-97ad-cd67edaccab1",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a SEO-specialist and your task is to analyze the articles from our competitors. The ultimate goal is to write an article that is better than the competitors article. Apart from that, you are familiar with markdown and you are able to extract only relevant content.",
+              "role": "system"
+            },
+            {
+              "content": "=Your task is to analyze the following <article> =  {{ $json.content }} and provide me the following information:\n- Short Summary\n- Potential Focus Keyword\n- Relevant long-tail keywords\n- N-Gram-Analysis\n"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1140,
+        1580
+      ],
+      "id": "f49c11dd-33ea-43a3-8462-fe0598482351",
+      "name": "Analyze Content",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "On form submission": [
+      {
+        "json": {
+          "Focus Keyword": "mit ki musik erstellen",
+          "Country": "de",
+          "submittedAt": "2025-04-29T16:49:04.255-04:00",
+          "formMode": "test"
+        }
+      }
+    ],
+    "get_mobile_serp_results": [
+      {
+        "json": {
+          "searchParameters": {
+            "q": "mit ki musik erstellen",
+            "gl": "de",
+            "type": "search",
+            "device": "mobile",
+            "engine": "google"
+          },
+          "organic": [
+            {
+              "title": "MIT KI-Musik erstellen - Loudly",
+              "link": "https://www.loudly.com/ki-musik-erstellen",
+              "snippet": "Nutze die KI von Loudly, für deine Musikerstellung. Einfach das Genre wählen und innerhalb von Sekunden das gewünschte Ergebnis erhalten.",
+              "date": "13 Dec 2023",
+              "position": 1
+            },
+            {
+              "title": "Die 15 besten KI-Song-Generatoren - Mindforce",
+              "link": "https://mind-force.de/marketing/ki-song-generatoren/",
+              "snippet": "KI-Song-Generatoren können selbstständig Musik generieren. ... Mit dem AI Song Generator lassen sich Songs mit Text und Melodie per KI erstellen.",
+              "date": "21 Mar 2025",
+              "position": 2
+            },
+            {
+              "title": "Gratis AI Music Generator: Erstelle Musik mit KI - Canva",
+              "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/",
+              "snippet": "Kreiere einzigartige Soundtracks mit dem AI Music Generator von Canva. Erstelle ganz einfach Songs, auch ohne komponieren zu können.",
+              "position": 3
+            },
+            {
+              "title": "So produzierst du mit KI deine eigene Musik – Einfach & schnell!",
+              "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE",
+              "snippet": "In diesem Video lernst du, wie einfach es ist, mithilfe von künstlicher Intelligenz hochwertige Musik zu erstellen.",
+              "date": "18 Oct 2024",
+              "position": 4
+            },
+            {
+              "title": "KI Musik- & Song-Generator Online (Kostenlos, Leistungsstark)",
+              "link": "https://aisonggenerator.io/de",
+              "snippet": "KI Musik - Song Generator. Mit unserer modernen KI Song Generator-Technologie kannst du jede gewünschte Musik oder jeden Song erstellen. 100% Lizenzfrei.",
+              "position": 5
+            },
+            {
+              "title": "Suno – KI-Musik – Apps bei Google Play",
+              "link": "https://play.google.com/store/apps/details?id=com.suno.android&hl=de",
+              "snippet": "Mit Suno kannst du jeden erdenklichen Song selbst produzieren. Suno ist ein KI-Musikstudio im Taschenformat. ... Starte mit 10 kostenlosen Songs (50 Gratis- ...",
+              "rating": 4.8,
+              "ratingCount": 308499,
+              "position": 6
+            },
+            {
+              "title": "Die 10 besten KI-Musikgeneratoren (April 2025) - Unite.AI",
+              "link": "https://www.unite.ai/de/Beste-KI-Musikgeneratoren/",
+              "snippet": "FlexClip AI Music Generator bietet eine nahtlose Möglichkeit, KI-generierte Songs zu erstellen, ohne dass musikalisches Fachwissen erforderlich ...",
+              "date": "13 Apr 2025",
+              "position": 7
+            },
+            {
+              "title": "Suno- KI-Musik im App Store",
+              "link": "https://apps.apple.com/de/app/suno-ki-musik/id6480136315",
+              "snippet": "Mit Suno kannst du jeden erdenklichen Song selbst produzieren. Suno ist ein KI-Musikstudio im Taschenformat. Entdecke folgende Funktionen: • Erstelle Songs ...",
+              "rating": 4.9,
+              "ratingCount": 10151,
+              "position": 8
+            },
+            {
+              "title": "#1 KI Song Generator - KI Song erstellen kostenlos online - Vidnoz AI",
+              "link": "https://de.vidnoz.com/ki-music-generator.html",
+              "snippet": "Mit KI Song Generator erstellen Sie eigene KI Songs & Musik aus Text oder Songtext online kostenlos ohne Anmeldung.",
+              "position": 9
+            },
+            {
+              "title": "Künstliche Intelligenz produziert neue Lieder per Mausklick",
+              "link": "https://www.zdf.de/nachrichten/wissen/musik-kuenstliche-intelligenz-ki-suno-ai-100.html",
+              "snippet": "Die KI kann heute einen kompletten Song erstellen, der sich anhört, als hätte jemand ihn geschrieben, der Musik studiert hat und seit 20 Jahren ...",
+              "date": "29 Mar 2024",
+              "position": 10
+            }
+          ],
+          "peopleAlsoAsk": [
+            {
+              "question": "Kann man mit KI-Musik machen?",
+              "snippet": "Es ist super einfach, KI-Musik mit AI-Music-Generator-Apps wie dem in Canva integrierten Soundraw zu erstellen. Wenn du KI-Songs produzierst, solltest du diese Tipps beachten: Wähle die richtige Stimmung, das richtige Genre, Thema und die richtige Länge für deinen Musik-Track.",
+              "title": "Gratis AI Music Generator: Erstelle Musik mit KI - Canva",
+              "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/"
+            },
+            {
+              "question": "Wie kann ich kostenlos eine Melodie erstellen?",
+              "snippet": "DIE 9 BESTEN KOSTENLOSEN MUSIKPROGRAMME\n1\nTracktion Waveform Free. ...\n2\nGarageband. ...\n3\nOhm Studio. ...\n4\nAudacity. ...\n5\nPro Tools First. ...\n6\nCubase LE. ...\n7\nCakewalk by BandLab. ...\n8\nPreSonus Studio One 5 Prime.",
+              "title": "Die 9 besten kostenlosen Musikprogramme - iMusician",
+              "link": "https://imusician.pro/de/ressourcen/blog/die-besten-kostenlosen-musikprogramme"
+            },
+            {
+              "question": "Gibt es eine KI, die Musik mixen kann?",
+              "snippet": "Ja, KI kann Musik mischen . Tools wie RoEx und LANDR nutzen KI, um Tracks zu analysieren und Pegel, EQ und Effekte automatisch anzupassen.",
+              "title": "Ich habe die 4 besten KI-Mixing- und Mastering-Tools im Jahr 2025 getestet",
+              "link": "https://translate.google.com/translate?u=https://www.aimusicpreneur.com/ai-tools-news/the-4-best-ai-mixing-and-mastering-tools/&hl=de&sl=en&tl=de&client=rq"
+            },
+            {
+              "question": "Kann man mit KI Songs Geld verdienen?",
+              "snippet": "So kannst du mit KI-Musik Geld verdienen Erstelle professionell klingende Songs mit KI-Tools und veröffentliche sie auf Plattformen wie Spotify, YouTube oder SoundCloud, um durch Streams oder Direktverkäufe Einnahmen zu erzielen.",
+              "title": "So kannst du KI-Musik erstellen und Geld verdienen! - Gründer.de",
+              "link": "https://www.gruender.de/kuenstliche-intelligenz/ki-musik-erstellen/"
+            }
+          ],
+          "relatedSearches": [
+            {
+              "query": "AIVA"
+            },
+            {
+              "query": "Musik mit KI erstellen kostenlos"
+            },
+            {
+              "query": "Mit ki musik erstellen free"
+            },
+            {
+              "query": "ki-song erstellen mit text"
+            },
+            {
+              "query": "Mit ki musik erstellen songs"
+            },
+            {
+              "query": "Ki song erstellen kostenlos suno"
+            },
+            {
+              "query": "KI-Song Generator Deutsch"
+            },
+            {
+              "query": "Musik KI kostenlos"
+            },
+            {
+              "query": "KI-Musik Suno"
+            }
+          ],
+          "credits": 1
+        }
+      }
+    ],
+    "get_desktop_serp_results": [
+      {
+        "json": {
+          "searchParameters": {
+            "q": "mit ki musik erstellen",
+            "gl": "de",
+            "type": "search",
+            "device": "desktop",
+            "engine": "google"
+          },
+          "organic": [
+            {
+              "title": "MIT KI-Musik erstellen - Loudly",
+              "link": "https://www.loudly.com/ki-musik-erstellen",
+              "snippet": "Nutze die KI von Loudly, für deine Musikerstellung. Einfach das Genre wählen und innerhalb von Sekunden das gewünschte Ergebnis erhalten.",
+              "date": "13 Dec 2023",
+              "position": 1
+            },
+            {
+              "title": "Die 15 besten KI-Song-Generatoren - Mindforce",
+              "link": "https://mind-force.de/marketing/ki-song-generatoren/",
+              "snippet": "KI-Song-Generatoren können selbstständig Musik generieren. ... Mit dem AI Song Generator lassen sich Songs mit Text und Melodie per KI erstellen.",
+              "date": "21 Mar 2025",
+              "position": 2
+            },
+            {
+              "title": "Gratis AI Music Generator: Erstelle Musik mit KI - Canva",
+              "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/",
+              "snippet": "Kreiere einzigartige Soundtracks mit dem AI Music Generator von Canva. Erstelle ganz einfach Songs, auch ohne komponieren zu können.",
+              "position": 3
+            },
+            {
+              "title": "So produzierst du mit KI deine eigene Musik – Einfach & schnell!",
+              "link": "https://www.youtube.com/watch?v=F5-NRSn1RAE",
+              "snippet": "In diesem Video lernst du, wie einfach es ist, mithilfe von künstlicher Intelligenz hochwertige Musik zu erstellen.",
+              "date": "18 Oct 2024",
+              "position": 4
+            },
+            {
+              "title": "KI Musik- & Song-Generator Online (Kostenlos, Leistungsstark)",
+              "link": "https://aisonggenerator.io/de",
+              "snippet": "KI Musik - Song Generator. Mit unserer modernen KI Song Generator-Technologie kannst du jede gewünschte Musik oder jeden Song erstellen. 100% Lizenzfrei.",
+              "position": 5
+            },
+            {
+              "title": "Suno – KI-Musik – Apps bei Google Play",
+              "link": "https://play.google.com/store/apps/details?id=com.suno.android&hl=de",
+              "snippet": "Mit Suno kannst du jeden erdenklichen Song selbst produzieren. Suno ist ein KI-Musikstudio im Taschenformat. ... Starte mit 10 kostenlosen Songs (50 Gratis- ...",
+              "rating": 4.8,
+              "ratingCount": 308499,
+              "position": 6
+            },
+            {
+              "title": "Die 10 besten KI-Musikgeneratoren (April 2025) - Unite.AI",
+              "link": "https://www.unite.ai/de/Beste-KI-Musikgeneratoren/",
+              "snippet": "FlexClip AI Music Generator bietet eine nahtlose Möglichkeit, KI-generierte Songs zu erstellen, ohne dass musikalisches Fachwissen erforderlich ...",
+              "date": "13 Apr 2025",
+              "position": 7
+            },
+            {
+              "title": "Suno- KI-Musik im App Store",
+              "link": "https://apps.apple.com/de/app/suno-ki-musik/id6480136315",
+              "snippet": "Mit Suno kannst du jeden erdenklichen Song selbst produzieren. Suno ist ein KI-Musikstudio im Taschenformat. Entdecke folgende Funktionen: • Erstelle Songs ...",
+              "rating": 4.9,
+              "ratingCount": 10151,
+              "position": 8
+            },
+            {
+              "title": "#1 KI Song Generator - KI Song erstellen kostenlos online - Vidnoz AI",
+              "link": "https://de.vidnoz.com/ki-music-generator.html",
+              "snippet": "Mit KI Song Generator erstellen Sie eigene KI Songs & Musik aus Text oder Songtext online kostenlos ohne Anmeldung.",
+              "position": 9
+            },
+            {
+              "title": "Künstliche Intelligenz produziert neue Lieder per Mausklick",
+              "link": "https://www.zdf.de/nachrichten/wissen/musik-kuenstliche-intelligenz-ki-suno-ai-100.html",
+              "snippet": "Die KI kann heute einen kompletten Song erstellen, der sich anhört, als hätte jemand ihn geschrieben, der Musik studiert hat und seit 20 Jahren ...",
+              "date": "29 Mar 2024",
+              "position": 10
+            }
+          ],
+          "peopleAlsoAsk": [
+            {
+              "question": "Kann man mit KI-Musik machen?",
+              "snippet": "Es ist super einfach, KI-Musik mit AI-Music-Generator-Apps wie dem in Canva integrierten Soundraw zu erstellen. Wenn du KI-Songs produzierst, solltest du diese Tipps beachten: Wähle die richtige Stimmung, das richtige Genre, Thema und die richtige Länge für deinen Musik-Track.",
+              "title": "Gratis AI Music Generator: Erstelle Musik mit KI - Canva",
+              "link": "https://www.canva.com/de_de/funktionen/ai-music-generator/"
+            },
+            {
+              "question": "Wie kann ich kostenlos eine Melodie erstellen?",
+              "snippet": "DIE 9 BESTEN KOSTENLOSEN MUSIKPROGRAMME\n1\nTracktion Waveform Free. ...\n2\nGarageband. ...\n3\nOhm Studio. ...\n4\nAudacity. ...\n5\nPro Tools First. ...\n6\nCubase LE. ...\n7\nCakewalk by BandLab. ...\n8\nPreSonus Studio One 5 Prime.",
+              "title": "Die 9 besten kostenlosen Musikprogramme - iMusician",
+              "link": "https://imusician.pro/de/ressourcen/blog/die-besten-kostenlosen-musikprogramme"
+            },
+            {
+              "question": "Gibt es eine KI, die Musik mixen kann?",
+              "snippet": "Ja, KI kann Musik mischen . Tools wie RoEx und LANDR nutzen KI, um Tracks zu analysieren und Pegel, EQ und Effekte automatisch anzupassen.",
+              "title": "Ich habe die 4 besten KI-Mixing- und Mastering-Tools im Jahr 2025 getestet",
+              "link": "https://translate.google.com/translate?u=https://www.aimusicpreneur.com/ai-tools-news/the-4-best-ai-mixing-and-mastering-tools/&hl=de&sl=en&tl=de&client=rq"
+            },
+            {
+              "question": "Kann man mit KI Songs Geld verdienen?",
+              "snippet": "So kannst du mit KI-Musik Geld verdienen Erstelle professionell klingende Songs mit KI-Tools und veröffentliche sie auf Plattformen wie Spotify, YouTube oder SoundCloud, um durch Streams oder Direktverkäufe Einnahmen zu erzielen.",
+              "title": "So kannst du KI-Musik erstellen und Geld verdienen! - Gründer.de",
+              "link": "https://www.gruender.de/kuenstliche-intelligenz/ki-musik-erstellen/"
+            }
+          ],
+          "relatedSearches": [
+            {
+              "query": "AIVA"
+            },
+            {
+              "query": "Musik mit KI erstellen kostenlos"
+            },
+            {
+              "query": "Mit ki musik erstellen free"
+            },
+            {
+              "query": "ki-song erstellen mit text"
+            },
+            {
+              "query": "Mit ki musik erstellen songs"
+            },
+            {
+              "query": "Ki song erstellen kostenlos suno"
+            },
+            {
+              "query": "KI-Song Generator Deutsch"
+            },
+            {
+              "query": "Musik KI kostenlos"
+            },
+            {
+              "query": "KI-Musik Suno"
+            }
+          ],
+          "credits": 1
+        }
+      }
+    ]
+  },
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "get_mobile_serp_results",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_desktop_serp_results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_mobile_serp_results": {
+      "main": [
+        [
+          {
+            "node": "clean_results_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_faq": {
+      "main": [
+        [
+          {
+            "node": "get_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_questions": {
+      "main": [
+        [
+          {
+            "node": "remove_duplicates_in_questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "remove_duplicates_in_questions": {
+      "main": [
+        [
+          {
+            "node": "insert_faqs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_desktop_serp_results": {
+      "main": [
+        [
+          {
+            "node": "clean_results_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_faq1": {
+      "main": [
+        [
+          {
+            "node": "get_queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_queries": {
+      "main": [
+        [
+          {
+            "node": "remove_duplicates_in_questions1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_faq_mobile": {
+      "main": [
+        [
+          {
+            "node": "merge_faq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_organic_results_mobile": {
+      "main": [
+        [
+          {
+            "node": "top_3_by_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_organic_results_desktop": {
+      "main": [
+        [
+          {
+            "node": "top_3_by_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_faq_desktop": {
+      "main": [
+        [
+          {
+            "node": "merge_faq",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "clean_results_mobile": {
+      "main": [
+        [
+          {
+            "node": "get_related_searches_mobile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_organic_results_mobile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_faq_mobile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "clean_results_desktop": {
+      "main": [
+        [
+          {
+            "node": "get_organic_results_desktop",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_faq_desktop",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_related_searches_desktop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_related_searches_mobile": {
+      "main": [
+        [
+          {
+            "node": "merge_faq1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_related_searches_desktop": {
+      "main": [
+        [
+          {
+            "node": "merge_faq1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "remove_duplicates_in_questions1": {
+      "main": [
+        [
+          {
+            "node": "insert_related_searches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "top_3_by_mobile": {
+      "main": [
+        [
+          {
+            "node": "get_urls_to_crawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "top_3_by_desktop": {
+      "main": [
+        [
+          {
+            "node": "get_urls_to_crawl",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "get_urls_to_crawl": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "get_links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_links": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_status": {
+      "main": [
+        [
+          {
+            "node": "check_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_metadata": {
+      "main": [
+        [
+          {
+            "node": "Analyze Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_serp_analysis": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_page_content": {
+      "main": [
+        [
+          {
+            "node": "sleep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sleep": {
+      "main": [
+        [
+          {
+            "node": "get_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_status": {
+      "main": [
+        [
+          {
+            "node": "get_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "sleep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get_page_content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Content": {
+      "main": [
+        [
+          {
+            "node": "insert_serp_analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0359ea11-47b9-4805-a228-06c4a5489c3a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "3lBbvTOrzMpMGgIH",
+  "tags": [
+    {
+      "createdAt": "2025-03-02T12:05:53.836Z",
+      "updatedAt": "2025-03-02T12:05:53.836Z",
+      "id": "utwtHTzeqUdktrxJ",
+      "name": "SEO"
+    },
+    {
+      "createdAt": "2025-03-29T14:05:42.024Z",
+      "updatedAt": "2025-03-29T14:05:42.024Z",
+      "id": "FTx17qhhXpcrm35X",
+      "name": "Template"
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "name": "Tool - Website Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.query }}",
+        "options": {
+          "systemMessage": "=### System Prompt for n8n AI Agent: Website Analyzer\n\nYou are an AI Agent designed to analyze web pages.  \nWhen the user says something similiar to, \"analyze the following page\" and provides a URL, follow these steps:\n\n1. **Scrape the web page at the provided URL using the available Tool.**\n2. **Extract and return the following information:**\n   - **Title:** The main title of the page.\n   - **Description:** The meta description or a brief summary if no meta description is available.\n   - **Summary:** A concise summary of the main content of the page.\n   - **N-gram Analysis:**  \n     - **Guidelines for N-gram Analysis:**\n       - Only analyze the main textual content of the page (ignore navigation, ads, and boilerplate).\n       - Remove all common stop words (such as \"the\", \"and\", \"is\", etc.) from the analysis.\n       - Normalize text by converting to lowercase and removing punctuation.\n       - For each n-gram type, list the top 10 most frequent items.\n       - Present results as lists, ordered by frequency (most frequent first).\n       - For bigrams and trigrams, do not include n-grams that contain only stop words.\n       - If the page has very little text, return as many n-grams as possible and note the limitation.\n\n     - **Unigram:** List of the most frequent single words (excluding stop words).\n     - **Bigram:** List of the most frequent two-word combinations (excluding those with only stop words).\n     - **Trigram:** List of the most frequent three-word combinations (excluding those with only stop words).\n\n**Output your results in a clear, structured format.**  \nIf any information is missing or cannot be found, state this explicitly.\n\n---\n\n#### Example Output\n\n**Title:** [Page Title]  \n**Description:** [Meta Description or brief summary]  \n**Summary:** [Concise summary of main content]  \n**N-gram Analysis:**  \n- **Unigram:** [word1, word2, ...]  \n- **Bigram:** [word1 word2, word2 word3, ...]  \n- **Trigram:** [word1 word2 word3, word2 word3 word4, ...]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "3c621351-ad1f-4652-a2c8-0fe0db3a094a",
+      "name": "Scrape Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        200
+      ],
+      "id": "e01072a7-f096-4ea2-b238-da6362e9fd3d",
+      "name": "GPT-4.1-mini",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4d03f030-1eef-4c0c-8055-2f0f11096f0b",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "description": "Call this tool to scrape websites by providing a URL and return the prepared data.",
+        "workflowId": {
+          "__rl": true,
+          "value": "RkFq0paD5YLLof2K",
+          "mode": "list",
+          "cachedResultName": "Tool - Serper Crawl URL"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        420,
+        220
+      ],
+      "id": "af549453-a56e-4ca6-bffe-a1b074234d07",
+      "name": "Call Serper"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "GPT-4.1-mini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Scrape Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Scrape Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Serper": {
+      "ai_tool": [
+        [
+          {
+            "node": "Scrape Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "4d9d630a-3d6f-4a6b-83ea-8607cec1d98b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "4DiQ75K8cdqHbobH",
+  "tags": []
+}

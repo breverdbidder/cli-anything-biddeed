@@ -1,0 +1,1018 @@
+{
+  "name": "Rank Tracker Postgres Template",
+  "nodes": [
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "automations-451008",
+          "mode": "list",
+          "cachedResultName": "automations",
+          "cachedResultUrl": "https://console.cloud.google.com/bigquery?project=automations-451008"
+        },
+        "sqlQuery": "WITH daily_metrics AS (\n  SELECT \n    data_date as date,\n    query as keyword,\n    url,\n    device,\n    SUM(clicks) as clicks,\n    SUM(impressions) as impressions,\n    ROUND(AVG(sum_position / impressions), 1) as position,\n    ROUND(SUM(clicks) / SUM(impressions) * 100, 2) as ctr\n  FROM `{{ $('Loop Over Items').all()[0].json.searchdata_url_impression }}`\n  WHERE\n    data_date > '{{ $json.data_date }}'\n    AND NOT is_anonymized_query\n    AND lower(query) IN (\n   {{ $('merge_query_params').all()[1].json.keywordString }}\n    )\n  -- remove following line if you want to exclude toc rankings\n  AND url NOT LIKE '%#%'\n  GROUP BY date, keyword, url, device\n)\n\nSELECT \n  date,\n  keyword,\n  device,\n  url,\n  clicks,\n  impressions,\n  position,\n  ctr\nFROM daily_metrics\nORDER BY date ASC, keyword, position ASC",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        820
+      ],
+      "id": "889ee8e9-7476-4a87-b791-4718c05664f4",
+      "name": "Get Ranking Keywords by URL",
+      "alwaysOutputData": false,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"domains\": [\n    {\n      \"domain\": \"domain\",\n      \"searchdata_url_impression\": \"searchdata_url_impression\",\n      \"searchdata_site_impression\": \"searchdata_site_impression\"\n    },\n\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -60,
+        440
+      ],
+      "id": "3f315b4a-6f55-4870-bc56-e032b4516fca",
+      "name": "Domains"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "domains",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        160,
+        440
+      ],
+      "id": "a16cff0d-b2f5-431d-b2a2-82aaba6564c7",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -500,
+        860
+      ],
+      "id": "5984e986-17d6-4ac8-ab02-3f9f2860ba7b",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1a376642-1bb3-43a3-802f-6844d3b9c2a7",
+              "leftValue": "={{ $('get_date_of_last_run').all()[0].json.isEmpty()}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -100,
+        800
+      ],
+      "id": "670742c9-0640-4489-92f0-81a1d1a85e2d",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        900
+      ],
+      "id": "c9de6b4c-7be7-4421-b924-224adcbc7f38",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "32ae47a9-f7f5-41fc-b403-468094ba3f41",
+              "leftValue": "={{ $('get_date_of_last_run_1').all()[0].json.isEmpty()}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        920
+      ],
+      "id": "b6171a4a-5059-4744-bc09-248c30b3a1b6",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "automations-451008",
+          "mode": "list",
+          "cachedResultName": "automations",
+          "cachedResultUrl": "https://console.cloud.google.com/bigquery?project=automations-451008"
+        },
+        "sqlQuery": "WITH filtered_queries AS (\n  SELECT \n    data_date,\n    device,\n    query,\n    url,\n    SUM(clicks) as clicks,\n    SUM(impressions) as impressions,\n    SUM(sum_position) as sum_position,\n    SUM(sum_position)/SUM(impressions) + 1 as avg_position,\n    MAX(CASE \n      WHEN is_tpf_faq THEN 'FAQ'\n      WHEN is_tpf_howto THEN 'HowTo'\n      WHEN is_review_snippet THEN 'Review'\n      ELSE 'Normal'\n    END) as result_type\n  FROM `{{ $('Loop Over Items1').all()[0].json.searchdata_url_impression }}`\n  WHERE SAFE_DIVIDE(sum_position, impressions) <= 50\n  AND is_anonymized_query = False\n  AND impressions >= 5\n  AND data_date > '{{ $json.data_date }}'\n  GROUP BY data_date, device, query, url\n)\n\nSELECT \n  data_date,\n  query,\n  url,\n  device,\n  result_type,\n  impressions as total_impressions,\n  clicks as total_clicks,\n  avg_position,\n  SAFE_DIVIDE(clicks, impressions) * 100 as ctr_percentage,\n  CASE \n    WHEN avg_position <= 3 THEN 'Top 3'\n    WHEN avg_position <= 10 THEN 'Top 10'\n    WHEN avg_position <= 20 THEN 'Top 20'\n    ELSE 'Above 20'\n  END as position_bucket\nFROM filtered_queries\nORDER BY \n  data_date DESC,\n  url",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        2040,
+        920
+      ],
+      "id": "0bf4672c-43d7-46d9-8ed5-7632f68823ee",
+      "name": "Get Keyword Opportunities",
+      "alwaysOutputData": false,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT data_date FROM rank_tracking_by_keywords WHERE domain = '{{ $json.domain }}' ORDER BY data_date DESC LIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -280,
+        800
+      ],
+      "id": "715b6742-1bfa-4149-b9de-b87f279b1c9f",
+      "name": "get_date_of_last_run",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT keyword from tracked_keywords WHERE domain = '{{ $json.domain }}'",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -280,
+        960
+      ],
+      "id": "4a3dad81-fef3-42a3-88b6-217219981f24",
+      "name": "get_keywords_to_track"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        340,
+        820
+      ],
+      "id": "68d1a031-b956-4298-a8b4-7531111641d5",
+      "name": "merge_query_params"
+    },
+    {
+      "parameters": {
+        "jsCode": "function getKeywordsString(inputArray) {\n    return inputArray.map(item => `'${item.json.keyword}'`).join(', ');\n}\n\nreturn [{\n    json: {\n        keywordString: getKeywordsString($input.all())\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        100,
+        1040
+      ],
+      "id": "fb85991b-1d6b-4b84-b795-3018b2c6ed2f",
+      "name": "concat_keywords"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  data_date: $input.first().json.data_date.split('T')[0]\n}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        100,
+        640
+      ],
+      "id": "511965b1-d6e7-4744-bdda-a36b2aee5d9e",
+      "name": "get_date"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT data_date FROM top_ranking_keywords WHERE domain = '{{ $json.domain }}' ORDER BY data_date DESC LIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1340,
+        920
+      ],
+      "id": "4dd56d48-af92-40f1-8797-ed7a78b39cb7",
+      "name": "get_date_of_last_run_1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1880,
+        920
+      ],
+      "id": "ef6d77f2-eaec-4ab6-9dd0-7b565d3488ff",
+      "name": "merge_query_params_1"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  data_date: $input.first().json.data_date.split('T')[0]\n}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        840
+      ],
+      "id": "4d5c6f59-642a-46c3-acab-13ab42a4a992",
+      "name": "get_date_1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "rank_tracking_by_keywords",
+          "mode": "list",
+          "cachedResultName": "rank_tracking_by_keywords"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "data_date": "={{ $json.date }}",
+            "clicks": "={{ $json.clicks }}",
+            "impressions": "={{ $json.impressions }}",
+            "position": "={{ $json.position }}",
+            "ctr": "={{ $json.ctr }}",
+            "url": "={{ $json.url }}",
+            "keyword": "={{ $json.keyword }}",
+            "device": "={{ $json.device }}",
+            "domain": "={{ $('Loop Over Items').item.json.domain }}"
+          },
+          "matchingColumns": [
+            "data_date",
+            "url",
+            "keyword"
+          ],
+          "schema": [
+            {
+              "id": "data_date",
+              "displayName": "data_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "device",
+              "displayName": "device",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "keyword",
+              "displayName": "keyword",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "clicks",
+              "displayName": "clicks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "impressions",
+              "displayName": "impressions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "position",
+              "displayName": "position",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "ctr",
+              "displayName": "ctr",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "domain",
+              "displayName": "domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        820,
+        1000
+      ],
+      "id": "dccf25e5-5971-424e-843d-e95b5816bde8",
+      "name": "insert_keywords_ranking_by_tracked_keywords"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "top_ranking_keywords",
+          "mode": "list",
+          "cachedResultName": "top_ranking_keywords"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "total_impressions": "={{ $json.total_impressions }}",
+            "total_clicks": "={{ $json.total_clicks }}",
+            "avg_position": "={{ $json.avg_position }}",
+            "ctr_percentage": "={{ $json.ctr_percentage }}",
+            "data_date": "={{ $json.data_date }}",
+            "query": "={{ $json.query }}",
+            "url": "={{ $json.url }}",
+            "device": "={{ $json.device }}",
+            "result_type": "={{ $json.result_type }}",
+            "position_bucket": "={{ $json.position_bucket }}",
+            "domain": "={{ $('Loop Over Items1').item.json.domain }}"
+          },
+          "matchingColumns": [
+            "data_date",
+            "query",
+            "url"
+          ],
+          "schema": [
+            {
+              "id": "data_date",
+              "displayName": "data_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "query",
+              "displayName": "query",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "device",
+              "displayName": "device",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "result_type",
+              "displayName": "result_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "total_impressions",
+              "displayName": "total_impressions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "total_clicks",
+              "displayName": "total_clicks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "avg_position",
+              "displayName": "avg_position",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "ctr_percentage",
+              "displayName": "ctr_percentage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "position_bucket",
+              "displayName": "position_bucket",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "domain",
+              "displayName": "domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2220,
+        1000
+      ],
+      "id": "1a2001af-41c7-4a2c-af00-6a0fefbb823d",
+      "name": "insert_top_keywords"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e3ce8bf6-cbee-4949-a338-aeb1523b646a",
+              "name": "=data_date",
+              "value": "={{ $now.minus({ days: 28 }).format('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        100,
+        840
+      ],
+      "id": "fdcc21a2-4d74-40e3-960d-0bc531f13696",
+      "name": "today_minus_28_d",
+      "notes": "In case the pipeline has not been triggered before, then the tracking sheet is empty. If true, we will take as a starting point of today minus 7 days. "
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e3ce8bf6-cbee-4949-a338-aeb1523b646a",
+              "name": "=data_date",
+              "value": "={{ $now.minus({ days: 28 }).format('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1700,
+        1000
+      ],
+      "id": "54c2a5a1-6cf3-455a-9c66-cfe794eca549",
+      "name": "today_minus_28_d_1",
+      "notes": "In case the pipeline has not been triggered before, then the tracking sheet is empty. If true, we will take as a starting point of today minus 7 days. "
+    },
+    {
+      "parameters": {
+        "content": "Add all your domains and BigQuery tables here",
+        "height": 220,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        340
+      ],
+      "id": "f27d387f-70d5-476f-8e40-b3d6c5288b0e",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "### Automation Description\nThis automation serves two main purposes:\n1. It monitors keyword rankings for all keywords in your rank tracking table\n2. It displays keywords where you already have favorable Google rankings in a separate table\n\nThe ability clearly shows whether you rank in the top 3, top 10, or top 20 for specific keywords and URLs. Additionally, it displays rankings for both mobile and desktop devices.\n\n### Required Tables\nTo use this automation, you need to create the following tables:\n\n#### 1. Top Ranking Keywords\nThis table is used to identify keyword opportunities. It helps you quickly find keywords where you already rank in the top 3, 10, or 20 positions. This information is particularly valuable for creating content that matches these search queries.\n\n```sql\nCREATE TABLE IF NOT EXISTS public.top_ranking_keywords\n(\n    data_date date NOT NULL,\n    query text COLLATE pg_catalog.\"default\" NOT NULL,\n    url text COLLATE pg_catalog.\"default\" NOT NULL,\n    device text COLLATE pg_catalog.\"default\",\n    result_type text COLLATE pg_catalog.\"default\",\n    total_impressions integer,\n    total_clicks integer,\n    avg_position double precision,\n    ctr_percentage double precision,\n    position_bucket text COLLATE pg_catalog.\"default\",\n    domain text COLLATE pg_catalog.\"default\",\n    CONSTRAINT ranking_primary_key PRIMARY KEY (data_date, query, url)\n)\n```\n\n#### 2. Tracked Keywords\nAdd the keywords you want to monitor rankings for in this table.\n\n```sql\nCREATE TABLE IF NOT EXISTS public.tracked_keywords\n(\n    domain text COLLATE pg_catalog.\"default\" NOT NULL,\n    keyword text COLLATE pg_catalog.\"default\" NOT NULL,\n    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,\n    CONSTRAINT tracked_keywords_primary_key PRIMARY KEY (domain, keyword)\n)\n```\n\n#### 3. Rank Tracking by Keywords\nThis table exclusively tracks the rankings of keywords listed in the tracked_keywords table.\n\n```sql\nCREATE TABLE IF NOT EXISTS public.rank_tracking_by_keywords\n(\n    data_date date NOT NULL,\n    url text COLLATE pg_catalog.\"default\" NOT NULL,\n    device text COLLATE pg_catalog.\"default\",\n    keyword text COLLATE pg_catalog.\"default\" NOT NULL,\n    clicks integer,\n    impressions integer,\n    \"position\" double precision,\n    ctr double precision,\n    domain text COLLATE pg_catalog.\"default\",\n    CONSTRAINT tracked_keyword_primary_key PRIMARY KEY (data_date, url, keyword)\n)\n```",
+        "height": 1200,
+        "width": 3040
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        -900
+      ],
+      "id": "f5cc8957-a906-4a49-b3cb-7dcee72d2503",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -340,
+        440
+      ],
+      "id": "92021b58-21a9-41e0-b852-a1dfcc6284f9",
+      "name": "Start"
+    },
+    {
+      "parameters": {
+        "content": "Adjust this for the first run if needed",
+        "height": 220,
+        "width": 180
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        60,
+        780
+      ],
+      "id": "f1b923ef-1f4e-4356-8bbb-8e5036ba36d0",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "Adjust the query if needed",
+        "height": 260,
+        "width": 180
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2020,
+        840
+      ],
+      "id": "a770b4bf-d8a0-483f-8a89-3e7cce337218",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# Get Tracked Keywords Ranking",
+        "height": 620,
+        "width": 1640,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        600
+      ],
+      "id": "5871284a-0aa7-4d9d-a5cf-c579871ee29c",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "# Start here",
+        "height": 260,
+        "width": 1640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        320
+      ],
+      "id": "1d8f8fd3-663a-4644-885c-30377ccb12fb",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "# Get Keyword Opportunities",
+        "height": 620,
+        "width": 1640,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        600
+      ],
+      "id": "37a05e6f-e591-4dde-a772-1046a5ffde91",
+      "name": "Sticky Note6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Ranking Keywords by URL": {
+      "main": [
+        [
+          {
+            "node": "insert_keywords_ranking_by_tracked_keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Domains": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get_date_of_last_run",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_keywords_to_track",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "get_date",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "today_minus_28_d",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get_date_of_last_run_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "get_date_1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "today_minus_28_d_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Keyword Opportunities": {
+      "main": [
+        [
+          {
+            "node": "insert_top_keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_date_of_last_run": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_keywords_to_track": {
+      "main": [
+        [
+          {
+            "node": "concat_keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_query_params": {
+      "main": [
+        [
+          {
+            "node": "Get Ranking Keywords by URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "concat_keywords": {
+      "main": [
+        [
+          {
+            "node": "merge_query_params",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "get_date": {
+      "main": [
+        [
+          {
+            "node": "merge_query_params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_date_of_last_run_1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_query_params_1": {
+      "main": [
+        [
+          {
+            "node": "Get Keyword Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_date_1": {
+      "main": [
+        [
+          {
+            "node": "merge_query_params_1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_keywords_ranking_by_tracked_keywords": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_top_keywords": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "today_minus_28_d": {
+      "main": [
+        [
+          {
+            "node": "merge_query_params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "today_minus_28_d_1": {
+      "main": [
+        [
+          {
+            "node": "merge_query_params_1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "ea6dd1b7-3fde-41b5-aec0-ca8eff050b93",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "x6AMYWZDoDaT5pD0",
+  "tags": [
+    {
+      "createdAt": "2025-03-02T12:05:53.836Z",
+      "updatedAt": "2025-03-02T12:05:53.836Z",
+      "id": "utwtHTzeqUdktrxJ",
+      "name": "SEO"
+    },
+    {
+      "createdAt": "2025-03-08T08:04:57.610Z",
+      "updatedAt": "2025-03-08T08:04:57.610Z",
+      "id": "TMDokL1KXbN5A2PH",
+      "name": "Templates"
+    }
+  ]
+}

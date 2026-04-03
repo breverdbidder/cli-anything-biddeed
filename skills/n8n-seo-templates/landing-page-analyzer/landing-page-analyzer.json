@@ -1,0 +1,439 @@
+{
+  "name": "Landing Page Analyzer",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Landing Page Analyzer",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "URL",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -304,
+        -112
+      ],
+      "id": "bc0c4d73-ee5d-4dd0-8d0a-e0bfb62d020f",
+      "name": "On form submission",
+      "webhookId": "750d8a3a-997e-49ae-bd76-010ee665cde9"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Get Meta Data').item.json.page.screenshot }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1168,
+        -112
+      ],
+      "id": "013c4177-ab7b-4ae5-a5db-90ba050a074d",
+      "name": "Download Image"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v2/scrape",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $json.URL }}\",\n  \"onlyMainContent\": false,\n  \"parsers\": [\n    \"pdf\"\n  ],\n  \"formats\": [\n    \"markdown\",\n    {\n      \"type\": \"screenshot\",\n      \"fullPage\": true\n    }\n  ]\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -80,
+        -112
+      ],
+      "id": "3c0939d8-89a4-4598-a106-4a3322112260",
+      "name": "Crawl Site",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "r3zPXXitwsV4wBHf",
+          "name": "Firecrawl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"hero_headline\": \"Are Hidden Bottlenecks Killing Your Sales Growth?\",\n  \"hero_subheading\": \"This free 3-minute assessment pinpoints the exact leaks in your sales process.\",\n  \"value_proposition_summary\": \"We measure and improve your lead quality, follow-up speed, and closing techniques.\",\n  \"credibility_statement\": \"Created by John Doe, a sales expert with 20 years of experience who has helped scale 50+ companies.\",\n  \"cta_text\": \"Find My Sales Bottlenecks\",\n  \"cta_microcopy\": \"100% Free & Instant Results\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        544,
+        48
+      ],
+      "id": "d422c0e8-7206-4d71-acaf-1cc540767cb8",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-pro",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-pro"
+        },
+        "text": "=Act as a Senior Process Engineer and world-class CRO expert, synthesizing the advice of leading conversion specialists. Your task is to conduct a comprehensive audit of a landing page using a pre-analyzed content brief and a full-page image.\n\n**[Content Brief (Data Analyst)]**\n{{ JSON.stringify($json.output, null,2) }}\n\n**[Visual Evidence]**\n[The full landing page image is provided as input]\n\n**[Expert CRO Principles & Examples for Analysis]**\nYour analysis MUST be guided by the following unified principles. Use these examples to inform your rationale.\n\n1.  **Radical Clarity:** Can a user understand the offer and benefit in under 5 seconds?\n    *   **Bad Example:** A headline like \"It's About Time.\" (Clever, but unclear what it offers).\n    *   **Good Example:** A headline like \"Generate and publish your site with AI in seconds.\" (States what you get, how, and the benefit of speed).\n\n2.  **Singular Focus & CTA:** Is there ONE primary goal and a distraction-free path to it?\n    *   **Bad Example:** A landing page with a full navigation menu (Home, About, Blog, etc.), social media links, and multiple competing CTAs.\n    *   **Good Example:** A page where the only clickable element above the fold is the primary CTA button.\n\n3.  **Cognitive Load:** Does the design prioritize function over form?\n    *   **Bad Example:** A page with an auto-playing background video, multiple elements animating on scroll, and flashy graphics that distract from the main message.\n    *   **Good Example:** A page with a clean layout, generous white space, and static images that directly support the copy.\n\n4.  **Multi-Faceted Trust:** Does the page build credibility and overcome skepticism?\n    *   **Bad Example:** A vague statement like \"Trusted by customers worldwide.\"\n    *   **Good Example:** Displaying logos of well-known clients, showing a specific testimonial with a name and photo (`\"This saved us 10 hours a week.\" - J. Doe, CEO`), or showing sheer numbers (`45,000+ projects launched`).\n\n5.  **Visual Hierarchy & CTA Isolation:** Does the design guide the eye to the most important element?\n    *   **Bad Example:** A light grey CTA button on a white background, or a page where the company logo is the largest visual element.\n    *   **Good Example:** A bright orange CTA button on a dark grey page, where orange is a unique color used ONLY for that button.\n\n6.  **Audience-Specific Complexity:** Is the level of detail appropriate for the audience and offer?\n    *   **Bad Example:** A 2,000-word landing page for a simple $5 mobile game.\n    *   **Good Example:** A detailed, multi-section landing page with downloadable case studies for a $50,000 enterprise software decision.\n\n**[Your Task]**\nSynthesize the content brief and the visual evidence to generate a final, structured JSON report. For each part, you MUST reference the expert principles above in your rationale. Follow the structure in the example below.\n\n**[Example of a Perfect JSON Output Structure]**\n{\n  \"part_1_headline_analysis\": {\n    \"obversation\": \"Based on the 'Radical Clarity' principle, the headline 'Secure Your Financial Future' is weak. It's a common cliché that lacks a specific, tangible benefit and fails to address a direct pain point for the target audience.\",\n    \"recommendation\": \"Change the headline to speak directly to a core frustration. Example: 'Stop Worrying About Retirement - Get a Clear Financial Plan in 30 Days.'\"\n  },\n  \"part_2_design_and_cognitive_load\": {\n    \"obversation\": \"The page has a clean layout which is good for 'Cognitive Load'. However, the main hero image is a generic stock photo of a happy couple, which hurts trust and authenticity. The design lacks a strong 'Visual Hierarchy' as the logo is visually larger than the headline.\",\n    \"recommendation\": \"Replace the stock photo with a professional, authentic photo of the financial advisor. Decrease the logo size by 30% and increase the headline font size to make it the dominant element.\"\n  },\n  \"part_3_offer_and_trust\": {\n    \"obversation\": \"The page fails on the 'Multi-Faceted Trust' principle. There are no client testimonials, logos, or specific credentials mentioned, making the offer feel less credible and increasing user skepticism.\",\n    \"recommendation\": \"Add a trust-building section directly below the hero. Include logos of publications the advisor has been featured in (e.g., 'As seen in Forbes') and a specific client testimonial with a name and photo.\"\n  },\n  \"part_4_conversion_path_and_cta\": {\n    \"obversation\": \"The conversion path is weak. The CTA button text 'Learn More' is vague. Based on the 'CTA Isolation' principle, its blue color does not stand out against the blue background, making it difficult to see.\",\n    \"recommendation\": \"Change the CTA text to a specific, value-oriented action like 'Book My Free Financial Review'. Change the button color to a high-contrast green that is not used elsewhere on the page.\"\n  },\n  \"part_5_summary_and_prioritized_action_plan\": {\n    \"obversation\": \"The landing page's core offer is likely valuable, but its conversion potential is severely limited by a generic headline, a lack of trust signals, and a weak, low-visibility CTA. It fails to establish credibility and clarity in the critical first 5 seconds.\",\n    \"top_3_recommendations\": [\n      \"1. Overhaul the Headline: Immediately replace the vague headline with a benefit-driven one that addresses a specific user pain point.\",\n      \"2. Redesign the CTA: Change the button text to a clear action and use a unique, high-contrast color to make it the visual anchor of the page.\",\n      \"3. Inject Social Proof: Add a testimonial and 'as seen in' logos directly below the hero section to build instant credibility.\"\n    ]\n  }\n}",
+        "imageUrls": "={{ $('Get Meta Data').item.json.page.screenshot }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -112
+      ],
+      "id": "c9a2449b-9ded-4e93-adc9-15a8856a13c0",
+      "name": "Analyze an image",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "8XvIBe7gJ8Olurpj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// This code transforms the raw JSON string from a previous LLM node \n// into a styled, easy-to-read HTML email report.\n\n// --- Main Function to Generate HTML ---\nfunction generateEmailHtml(rawText) {\n  let analysisData;\n  try {\n    // Clean the string by removing the markdown code fences\n    const cleanJsonString = rawText.replace(/^```json\\n/, '').replace(/\\n```$/, '');\n    \n    // Parse the clean string into a JavaScript object\n    analysisData = JSON.parse(cleanJsonString);\n  } catch (error)\n  {\n    console.error(\"Error parsing JSON data:\", error);\n    // Return an error HTML if parsing fails\n    return `<h1>Error: Could not parse analysis data.</h1><p>${error.message}</p>`;\n  }\n\n  // Helper function to create a styled report section\n  const createSection = (title, obversation, recommendation) => {\n    return `\n      <div style=\"margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #eeeeee;\">\n        <h3 style=\"font-size: 19px; color: #2c3e50; margin-top: 0; margin-bottom: 15px;\">${title}</h3>\n        <p style=\"margin-top: 0; margin-bottom: 12px; color: #555555; line-height: 1.6;\">\n          <strong style=\"color: #34495e; font-weight: 600;\">Observation:</strong> ${obversation}\n        </p>\n        <div style=\"background-color: #f8f9fa; border-left: 3px solid #1abc9c; padding: 12px 15px; margin-top: 10px; border-radius: 4px;\">\n          <p style=\"margin: 0; color: #555555; line-height: 1.6;\">\n            <strong style=\"color: #16a085; font-weight: 600;\">Recommendation:</strong> ${recommendation}\n          </p>\n        </div>\n      </div>\n    `;\n  };\n\n  // Construct the Full HTML Email using the parsed data\n  const html = `\n    <!DOCTYPE html>\n    <html lang=\"en\">\n    <head>\n      <meta charset=\"UTF-8\">\n      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n      <title>Landing Page Audit</title>\n    </head>\n    <body style=\"margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f4;\">\n      <table width=\"100%\" border=\"0\" cellspacing=\"0\" cellpadding=\"0\" style=\"background-color: #f4f4f4;\">\n        <tr>\n          <td align=\"center\" style=\"padding: 20px 0;\">\n            <table width=\"600\" border=\"0\" cellspacing=\"0\" cellpadding=\"0\" style=\"background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);\">\n              <tr>\n                <td align=\"center\" style=\"padding: 30px 30px 20px 30px; border-bottom: 2px solid #3498db;\">\n                  <h1 style=\"margin: 0; color: #3498db; font-size: 26px;\">Comprehensive Landing Page Audit</h1>\n                  <p style=\"margin: 5px 0 0; color: #666666; font-size: 16px;\">Analysis & Recommendations</p>\n                </td>\n              </tr>\n              <tr>\n                <td style=\"padding: 25px 30px 15px 30px;\">\n                  <p style=\"margin: 0; color: #555555; font-size: 16px; line-height: 1.6;\">\n                    Landing page analysis has been finished. The analyzed image is attached, you can find our observation and recommendations below.\n                  </p>\n                </td>\n              </tr>\n              <tr>\n                <td style=\"padding: 20px 30px 30px 30px;\">\n                  ${createSection(\n                    '1. Headline & Hook Analysis',\n                    analysisData.part_1_headline_analysis.obversation, // <-- FIXED\n                    analysisData.part_1_headline_analysis.recommendation\n                  )}\n                  \n                  ${createSection(\n                    '2. Design & Cognitive Load Analysis',\n                    analysisData.part_2_design_and_cognitive_load.obversation, // <-- FIXED\n                    analysisData.part_2_design_and_cognitive_load.recommendation\n                  )}\n\n                  ${createSection(\n                    '3. Offer & Trust Analysis',\n                    analysisData.part_3_offer_and_trust.obversation, // <-- FIXED\n                    analysisData.part_3_offer_and_trust.recommendation\n                  )}\n\n                  ${createSection(\n                    '4. Conversion Path & CTA Analysis',\n                    analysisData.part_4_conversion_path_and_cta.obversation, // <-- FIXED\n                    analysisData.part_4_conversion_path_and_cta.recommendation\n                  )}\n\n                  <!-- Final Summary Section -->\n                  <div style=\"margin-bottom: 0;\">\n                    <h3 style=\"font-size: 19px; color: #2c3e50; margin-top: 0; margin-bottom: 15px;\">5. Overall Summary & Prioritized Action Plan</h3>\n                    <p style=\"margin-top: 0; margin-bottom: 12px; color: #555555; line-height: 1.6;\">\n                      <strong style=\"color: #34495e; font-weight: 600;\">Executive Summary:</strong> ${analysisData.part_5_summary_and_prioritized_action_plan.obversation} \n                    </p>\n                    <div style=\"background-color: #f8f9fa; border-left: 3px solid #3498db; padding: 15px 15px 15px 20px; margin-top: 10px; border-radius: 4px;\">\n                      <p style=\"margin-top: 0; margin-bottom: 10px; color: #2980b9; font-weight: 600;\">\n                        Top 3 Recommendations:\n                      </p>\n                      <ol style=\"margin: 0; padding-left: 20px; color: #555555; line-height: 1.6;\">\n                        ${analysisData.part_5_summary_and_prioritized_action_plan.top_3_recommendations.map(rec => `<li style=\"margin-bottom: 10px; padding-left: 5px;\">${rec.substring(rec.indexOf('.') + 1).trim()}</li>`).join('')}\n                      </ol>\n                    </div>\n                  </div>\n                </td>\n              </tr>\n              <tr>\n                <td align=\"center\" style=\"padding: 20px 30px; background-color: #f8f9fa; border-top: 1px solid #eeeeee; border-radius: 0 0 8px 8px;\">\n                  <p style=\"margin: 0; color: #999999; font-size: 12px;\">This is an automated analysis report.</p>\n                </td>\n              </tr>\n            </table>\n          </td>\n        </tr>\n      </table>\n    </body>\n    </html>\n  `;\n\n  return html;\n}\n\n// --- n8n Execution Logic ---\ntry {\n  // Access the raw text from the input of the n8n node\n  const rawInputText = $input.first().json.content.parts[0].text;\n  \n  // Generate the complete HTML string\n  const finalHtml = generateEmailHtml(rawInputText);\n  \n  // Return the HTML in a structured way for the next node\n  return {\n    json: {\n      emailHtml: finalHtml\n    }\n  };\n} catch (error) {\n  // Return an error object if the input path is invalid\n  return {\n    json: {\n      error: \"Failed to access input data. Please check the input path.\",\n      details: error.message\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        -112
+      ],
+      "id": "084f376c-9e4e-4cfd-8ea3-d735d17de1f5",
+      "name": "Generate HTML"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Act as a marketing copy analyst. Your task is to read the provided landing page text and extract the key marketing components into a structured JSON format.\n\n**[Provided Text]**\n- Page Title: \"{{$json.page.title }}\"\n- Meta Description: \"{{ $json.page.description }}\"\n- Main Content: \"{{ $json.page.content }}\"\n\n**[Your Task]**\nAnalyze the Main Content and identify the following elements. If an element is not found, return an empty string \"\".\n1.  `hero_headline`: The main headline at the top of the page.\n2.  `hero_subheading`: The subheading directly under the main headline.\n3.  `value_proposition_summary`: A summary of the section explaining the benefits of the assessment.\n4.  `credibility_statement`: A summary of the section building trust (e.g., creator's bio, research mentioned).\n5.  `cta_text`: The text on the primary call-to-action button.\n6.  `cta_microcopy`: Any supporting text immediately near the CTA button (e.g., \"Takes 3 minutes\").\n\nReturn ONLY the JSON object.",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        368,
+        -112
+      ],
+      "id": "730e6024-127c-48d3-aa06-9155e6b2731d",
+      "name": "Analyze Page Content"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8137accd-97ed-463c-8eca-e2585f44d355",
+              "name": "page.title",
+              "value": "={{ $json.data.metadata.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a4ca9b7c-f122-4a51-b7cc-c83c24fdfa2a",
+              "name": "page.content",
+              "value": "={{ $json.data.markdown }}",
+              "type": "string"
+            },
+            {
+              "id": "87d98606-c982-4b6d-a949-ebbf29fda5a3",
+              "name": "page.language",
+              "value": "={{ $json.data.metadata.language }}",
+              "type": "string"
+            },
+            {
+              "id": "9f400108-6985-441b-a2b2-738e9260a4af",
+              "name": "page.description",
+              "value": "={{ $json.data.metadata.description }}",
+              "type": "string"
+            },
+            {
+              "id": "526774ae-2347-407a-bb87-f92e4bd28fed",
+              "name": "page.screenshot",
+              "value": "={{ $json.data.screenshot }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        144,
+        -112
+      ],
+      "id": "52937fbf-8341-4c51-99fa-157970c79c60",
+      "name": "Get Meta Data"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('On form submission').item.json.Email }}",
+        "subject": "=Landing Page Analysis For  {{ $('On form submission').item.json.URL }}",
+        "message": "={{ $('Generate HTML').item.json.emailHtml }}",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "=data"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1392,
+        -112
+      ],
+      "id": "7b162a7f-7d5c-4a52-8daf-e326d1b7e5be",
+      "name": "Send Report",
+      "webhookId": "a318cd20-bf1a-4e8d-b329-8669758c50f8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "S5zG40aAsfQKXkT0",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        352,
+        64
+      ],
+      "id": "05fea720-79bc-4e49-b5c7-c247b0a914f5",
+      "name": "gpt-4.1-mini",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# Workflow created by [Marvomatic](https://marvomatic.com/)\n- [AI SEO Society (Free)](https://www.skool.com/ai-automation-community)\n- [AI SEO Society](https://www.skool.com/the-ai-seo-society-free-7625)\n- [Contact](https://marvomatic.com/contact/)",
+        "height": 144,
+        "width": 1936,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -336
+      ],
+      "id": "693fe15a-14cb-4a71-a383-adc431eeaa0e",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Scrape URL",
+        "height": 352,
+        "width": 448,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -176
+      ],
+      "id": "0940e7b7-c580-4ccc-acc1-6be2c7a5a235",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Analyze Content & Screenshot",
+        "height": 352,
+        "width": 560,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        312,
+        -176
+      ],
+      "id": "9e69a40d-8c8d-40ee-ab86-4e077b9d6bf6",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Generate & Send Email",
+        "height": 352,
+        "width": 688,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -176
+      ],
+      "id": "730b6ccb-f703-46ab-bcad-cfaccbb4f5ef",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Get Data",
+        "height": 352,
+        "width": 176
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -176
+      ],
+      "id": "175a0ec7-6921-464a-bd01-300ffd0ff016",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Crawl Site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image": {
+      "main": [
+        [
+          {
+            "node": "Send Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crawl Site": {
+      "main": [
+        [
+          {
+            "node": "Get Meta Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Analyze Page Content",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze an image": {
+      "main": [
+        [
+          {
+            "node": "Generate HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate HTML": {
+      "main": [
+        [
+          {
+            "node": "Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Page Content": {
+      "main": [
+        [
+          {
+            "node": "Analyze an image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Meta Data": {
+      "main": [
+        [
+          {
+            "node": "Analyze Page Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gpt-4.1-mini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze Page Content",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7d5eb14a-7480-4435-b0dc-22ac157845be",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "VpoGZ7jDRWBJJQU0",
+  "tags": []
+}

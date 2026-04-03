@@ -1,0 +1,380 @@
+{
+  "name": "Analyze AI Overview",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "gl"
+            },
+            {
+              "name": "q"
+            },
+            {
+              "name": "location"
+            },
+            {
+              "name": "hl"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -624,
+        320
+      ],
+      "id": "1fadcfb7-077e-43f2-810c-27be1c0f6575",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "gl",
+              "value": "={{ $json.gl }}"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $json.location }}"
+            },
+            {
+              "name": "hl",
+              "value": "={{ $json.hl }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        320
+      ],
+      "id": "a66d8866-4e88-4216-8de2-d78bda030c61",
+      "name": "GET SERP Results",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "serpApi": {
+          "id": "ip84lDL75JMRWLKs",
+          "name": "SerpAPI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d8cbb599-3ec7-446b-be55-9f48e21b4d11",
+              "name": "=serpapi_link",
+              "value": "={{ $json.ai_overview.serpapi_link }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -176,
+        224
+      ],
+      "id": "57e716b3-86a8-4099-857c-9cdc62d1fbb6",
+      "name": "Extract AI Overview Link"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "15ccf2c6-185c-4166-9efb-b899eab4944e",
+              "leftValue": "={{ $json.serpapi_link }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        48,
+        224
+      ],
+      "id": "eb887e5d-9c54-4177-b7c2-c1edf0a5a33a",
+      "name": "Is Extra Request Required"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.serpapi_link }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serpApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        176
+      ],
+      "id": "cc6d4f00-748f-4e53-ac7e-55b838f8511c",
+      "name": "GET AI Overview",
+      "credentials": {
+        "serpApi": {
+          "id": "ip84lDL75JMRWLKs",
+          "name": "SerpAPI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6dc1587a-9266-43ac-8b0f-c31ce0a1dd2f",
+              "name": "ai_overview",
+              "value": "={{ $json.ai_overview }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        496,
+        176
+      ],
+      "id": "2fa31f44-37ed-44df-a515-ef058b6c8094",
+      "name": "Get AI Overview Content"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        688,
+        320
+      ],
+      "id": "4834b8ff-94ee-4e9a-b000-776204e00194",
+      "name": "Merge Results"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8d52f2cf-85e3-4c78-aa61-e3a05db8b718",
+              "name": "ai_overview",
+              "value": "={{ $json.ai_overview }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        864,
+        320
+      ],
+      "id": "a74e565d-e3da-48b7-9279-8f23a7fde281",
+      "name": "Get AI Overview"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputData = items[0].json;\n\n// 1. Top-Level Validation: Check for errors or missing overview data first.\nif (inputData?.ai_overview?.error || !inputData?.ai_overview?.text_blocks) {\n  return [{\n    json: {\n      categories: [],\n      mentionedEntities: [],\n      dominantSources: [],\n      aiOverview: inputData.ai_overview || {}, // Return the object even if it just contains an error\n      parsingError: inputData?.ai_overview?.error || \"No text_blocks found in the AI Overview.\"\n    }\n  }];\n}\n\nconst aiOverview = inputData.ai_overview;\nconst allReferences = aiOverview.references || [];\n\n// 2. Initialize Data Containers\nconst categories = new Set();\nconst mentionedEntities = new Set();\nconst referenceCounts = {};\n\n// --- Recursive Parsing Engine ---\n\n/**\n * Recursively processes an array of text_blocks to extract data.\n * This function can call itself to handle deeply nested structures.\n * @param {Array} blocks - An array of text_block objects.\n */\nfunction parseTextBlocks(blocks) {\n  if (!blocks || !Array.isArray(blocks)) {\n    return;\n  }\n\n  for (let i = 0; i < blocks.length; i++) {\n    const block = blocks[i];\n    if (!block) continue;\n\n    // A. Aggregate all reference indexes found at any level\n    if (block.reference_indexes) {\n      block.reference_indexes.forEach(index => {\n        referenceCounts[index] = (referenceCounts[index] || 0) + 1;\n      });\n    }\n\n    // B. Process Blocks by Type\n    switch (block.type) {\n      case 'heading':\n        if (block.snippet) categories.add(block.snippet.trim());\n        break;\n\n      case 'expandable':\n        if (block.title) categories.add(block.title.trim());\n        parseTextBlocks(block.text_blocks);\n        break;\n\n      case 'paragraph':\n        const nextBlock = blocks[i + 1];\n        if (nextBlock && ['list', 'table', 'comparison'].includes(nextBlock.type)) {\n          if (block.snippet) categories.add(block.snippet.trim());\n        }\n        break;\n\n      case 'list':\n        if (block.list) {\n          block.list.forEach(item => {\n            let entityName = '';\n            if (item.title) {\n              entityName = item.title.replace(':', '').trim();\n            } else if (item.snippet) {\n              entityName = item.snippet.split(/[:.]/)[0].trim();\n            }\n            if (entityName) mentionedEntities.add(entityName);\n\n            if (item.reference_indexes) {\n              item.reference_indexes.forEach(index => {\n                referenceCounts[index] = (referenceCounts[index] || 0) + 1;\n              });\n            }\n            \n            if (item.text_blocks) {\n              parseTextBlocks(item.text_blocks);\n            }\n          });\n        }\n        break;\n\n      case 'comparison':\n        if (block.product_labels) {\n          block.product_labels.forEach(label => mentionedEntities.add(label.trim()));\n        }\n        break;\n        \n      case 'table':\n        if (block.table?.rows?.length > 0) {\n            const firstHeader = block.table.headers?.[0];\n            if (firstHeader) {\n                for (const row of block.table.rows) {\n                    if (row[firstHeader]) {\n                        mentionedEntities.add(row[firstHeader].trim());\n                    }\n                }\n            }\n        }\n        break;\n    }\n  }\n}\n\n// 3. Initial Call to the Recursive Parser\nparseTextBlocks(aiOverview.text_blocks);\n\n// 4. Process and Sort Source Authority\nconst dominantSources = Object.entries(referenceCounts)\n  .map(([index, citations]) => {\n    const refDetails = allReferences.find(ref => ref.index == index);\n    return {\n      source: refDetails?.source || 'Unknown',\n      title: refDetails?.title || 'Unknown',\n      link: refDetails?.link || 'Unknown',\n      citations: citations,\n      index: parseInt(index)\n    };\n  })\n  .sort((a, b) => b.citations - a.citations);\n\n// --- NEW: Clean and Prepare the Original AI Overview ---\n// Create a deep copy to avoid modifying the original input object.\nconst cleanedOverview = JSON.parse(JSON.stringify(aiOverview));\n\n// Remove token-consuming fields that are not needed by the agent for its analysis.\ndelete cleanedOverview.page_token;\ndelete cleanedOverview.serpapi_link;\n\n// 5. Assemble and Return the Final, Comprehensive Data Object\nconst preparedData = {\n  categories: Array.from(categories),\n  mentionedEntities: Array.from(mentionedEntities),\n  dominantSources: dominantSources,\n  aiOverview: cleanedOverview // The cleaned, original overview is now included.\n};\n\nreturn [{\n  json: preparedData\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        320
+      ],
+      "id": "86f97f90-7e95-4f50-a1a9-9aa0b2517f9e",
+      "name": "Analyze AI Overview",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3637b044-e944-49d1-a983-d2103c499100",
+              "name": "message",
+              "value": "={{ $json.error }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1264,
+        416
+      ],
+      "id": "f8aa096d-2ee4-4588-994d-d87bef412bc3",
+      "name": "Return Error Message"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "GET SERP Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET SERP Results": {
+      "main": [
+        [
+          {
+            "node": "Extract AI Overview Link",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Extract AI Overview Link": {
+      "main": [
+        [
+          {
+            "node": "Is Extra Request Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Extra Request Required": {
+      "main": [
+        [
+          {
+            "node": "GET AI Overview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET AI Overview": {
+      "main": [
+        [
+          {
+            "node": "Get AI Overview Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get AI Overview Content": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Get AI Overview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get AI Overview": {
+      "main": [
+        [
+          {
+            "node": "Analyze AI Overview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze AI Overview": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Return Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0e1cf286-be3b-4818-aee8-93589437147b",
+  "meta": {
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "4ViOjawp2E5PbJsu",
+  "tags": []
+}

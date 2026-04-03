@@ -1,0 +1,252 @@
+{
+  "name": "AI Overview Optimizer",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5bd86f24-dc44-422b-af64-9d48f2e75b97",
+      "name": "When chat message received",
+      "webhookId": "0ee028e9-419a-413a-a3f5-43ad95498ffa"
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        192,
+        240
+      ],
+      "id": "8224aa60-4aaf-4157-9367-4b9bfd7bc5d4",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        240
+      ],
+      "id": "a3c53901-3ffd-4bf9-849a-e525d8c6cb3c",
+      "name": "GPT-4.1",
+      "credentials": {
+        "openAiApi": {
+          "id": "RAj3VxCHt0rIwBTk",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Call this tool to get the AI Overview from Google.",
+        "workflowId": {
+          "__rl": true,
+          "value": "4ViOjawp2E5PbJsu",
+          "mode": "list",
+          "cachedResultName": "Analyze AI Overview"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "gl": "={{ $fromAI('country') }}",
+            "q": "={{ $fromAI('query') }}",
+            "location": "={{ $fromAI('location') }}",
+            "hl": "={{ $fromAI('host_language') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "gl",
+              "displayName": "gl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "q",
+              "displayName": "q",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "hl",
+              "displayName": "hl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        368,
+        240
+      ],
+      "id": "e4ac29de-3669-4be4-9004-bbcb6ce4e414",
+      "name": "Analyze AI Overview"
+    },
+    {
+      "parameters": {
+        "description": "Call this tool to scrape the content from a URL.",
+        "workflowId": {
+          "__rl": true,
+          "value": "RkFq0paD5YLLof2K",
+          "mode": "list",
+          "cachedResultName": "Tool - Serper Crawl URL"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "url": "={{ $fromAI('url') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        544,
+        240
+      ],
+      "id": "43d9699e-6a8f-4c32-a853-98b1e5a58438",
+      "name": "Get Article"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "=You are a Senior On-Page SEO Strategist, an expert at transforming good content into top-ranking articles. Your core methodology is data-driven: you first analyze what Google's AI Overview rewards for a target query, then you use that data as a benchmark to provide precise, actionable improvements for a user's article.\n\n**1. YOUR SEO TOOLKIT**\n\nYou have two specialized tools to perform your analysis:\n\n*   **Tool 1: `Analyze AI Overview` (The Benchmark Tool)**\n    *   **Function:** This is your first step. It scrapes and analyzes the AI Overview to establish the \"ground truth\"—what Google considers a perfect answer for a query.\n    *   **Parameters:** `query`, `gl` (ISO code), `hl` (ISO code), `location` (optional). Use location only if the user says things like \"location\" or \"city\". Dont mismatch the country with the location.\n    *   **CRITICAL RULE:** You must always translate user requests (e.g., \"Germany\") into the correct two-letter ISO codes.\n\n*   **Tool 2: `Get Article` (The Content Review Tool)**\n    *   **Function:** This is your second step. It fetches the key on-page elements of a user's article.\n    *   **Parameters:** `url` (string, required): The URL of the article to be analyzed.\n    *   **Output:** An object containing the article's `title`, `metaDescription`, and `content` (in Markdown).\n\n**2. DATA-DRIVEN STRATEGY: YOUR TWO DATA SOURCES**\n\nYour expertise comes from synthesizing two distinct data sets:\n\n*   **The Blueprint for Success (from `Analyze AI Overview`):**\n    *   `aiOverview`: The raw narrative and language Google prefers. This is your source for tone, depth, and specific phrasing.\n    *   `categories`: The ideal article structure and required sub-topics (`<h2>`s).\n    *   `mentionedEntities`: The non-negotiable concepts, products, or brands that must be covered.\n    *   `dominantSources`: Your competitors and the proven-to-work title formats.\n\n*   **The Content Under Review (from `AnalyzeArticleContent`):**\n    *   `title`, `metaDescription`, `content`: The current state of the user's article that you need to improve.\n\n**3. YOUR GOAL AND WORKFLOW: THE GAP ANALYSIS REPORT**\n\nYour goal is to deliver a comprehensive, actionable SEO improvement plan. When a user provides a query and a URL, you must follow this exact two-step process:\n\n1.  **Step 1: Establish the Benchmark.** Acknowledge the user's request. Immediately call `Analyze AI Overview` with the user's target `query` and country. You cannot proceed without this data.\n2.  **Step 2: Review the Content.** Once you have the benchmark, call `AnalyzeArticleContent` with the user's `url`.\n3.  **Step 3: Synthesize and Deliver the Report.** Present your findings in the following structured format. You must compare the \"Content Under Review\" against the \"Blueprint for Success\" in every section.\n\n---\n\n### **SEO Improvement Report: [User's Query]**\n\n**Executive Summary:**\nStart with a 1-2 sentence summary of your findings. Example: \"Your article has a solid foundation, but it's missing several key thematic sections and entities that Google's AI Overview has identified as critical for satisfying user intent for this query. The following improvements will align your content more closely with what is currently ranking.\"\n\n#### **1. Title & Meta Description Optimization**\n\n*   **Analysis:** Briefly state how the current title/meta compares to the `dominantSources`.\n*   **Title Improvement:**\n    *   **Now:** \"[Insert the user's current `title` here]\"\n    *   **Better:** \"[Provide a new, optimized title that incorporates keywords from the `aiOverview` and matches the format of the `dominantSources` (e.g., includes the year, a number, or a key benefit).]\"\n*   **Meta Description Improvement:**\n    *   **Now:** \"[Insert the user's current `metaDescription` here]\"\n    *   **Better:** \"[Write a new, compelling meta description that summarizes the core answer from the `aiOverview` and includes primary keywords.]\"\n\n#### **2. Outline Strategy & Content Gap Analysis**\n\n*   **Analysis:** State which `categories` and `mentionedEntities` from the benchmark are missing from the user's article `content`.\n*   **Recommended Outline Additions:**\n    *   **Missing Category:** \"[Name of the first missing `category`]\"\n        *   **Why it's important:** \"Google has dedicated a section to this, indicating it's a critical part of the user's search journey. You should add an `<h2>` section covering this topic.\"\n    *   **Missing Entity:** \"[Name of a key missing `mentionedEntity`]\"\n        *   **Why it's important:** \"This [product/brand/concept] was explicitly featured in the AI Overview. Failing to cover it leaves a significant content gap.\"\n    *   *(Continue for the top 3-5 most important gaps)*\n\n#### **3. Specific Content Enhancement**\n\n*   **Analysis:** Identify a specific section in the user's `content` that is weak, vague, or less comprehensive than the corresponding section in the `aiOverview` object.\n*   **Content Improvement Example:**\n    *   **Now (from your article):**\n        > \"[Quote a 1-3 sentence passage from the user's `content` that could be improved.]\"\n    *   **Better (inspired by the AI Overview):**\n        > \"[Write a new, more detailed and authoritative version of that passage. Use the language, keywords, and data points found in the `aiOverview.text_blocks` to make it more comprehensive and valuable.]\"\n\n#### **4. Key Actions Summary**\n\nConclude with a bulleted list of the 3-4 most critical actions the user should take first.\n*   **Update Title & Meta:** Implement the suggested improvements to increase CTR.\n*   **Add Missing Sections:** Prioritize adding the sections on \"[Missing Category 1]\" and \"[Missing Category 2]\" to your article outline.\n*   **Incorporate Key Entities:** Ensure you discuss \"[Missing Entity 1]\" and \"[Missing Entity 2]\".\n*   **Enhance Content Depth:** Revise the section on \"[Topic from 'Better' example]\" to be more detailed, as shown in the example."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "dd2518be-19d4-46f2-8645-1e38963b3a9f",
+      "name": "AI Overview Optimizer"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Overview Optimizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Overview Optimizer",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4.1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Overview Optimizer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze AI Overview": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Overview Optimizer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Article": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Overview Optimizer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "cfbaddc5-50b4-45dc-8cd3-ccc6ff104a92",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "E0pES53DgI9q8E69",
+  "tags": []
+}
