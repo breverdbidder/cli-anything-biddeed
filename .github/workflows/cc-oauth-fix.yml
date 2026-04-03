@@ -1,12 +1,12 @@
-name: CC OAuth Fix — Diagnose + Repair
+name: CC OAuth Fix V2
 on:
   workflow_dispatch:
 jobs:
-  fix-oauth:
+  fix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Diagnose and fix CC OAuth on Hetzner
+      - name: Fix OAuth and test
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
@@ -18,65 +18,42 @@ jobs:
           chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
 
-          echo "=== 1. Check existing credentials on Hetzner ==="
-          $SSH "cat /root/.claude/.credentials.json 2>/dev/null | python3 -c \"
+          echo "=== Step 1: Decode B64 and inspect ==="
+          echo "$CLAUDE_OAUTH_B64" | base64 -d 2>/dev/null | python3 -c "
           import json,sys
+          raw = sys.stdin.read()
+          print(f'Raw length: {len(raw)}')
           try:
-            d=json.load(sys.stdin)
+            d = json.loads(raw)
             for k in d:
-              v = str(d[k])
-              print(f'{k}: {v[:20]}...' if len(v)>20 else f'{k}: {v}')
-          except: print('No valid credentials found')
-          \" || echo 'No credentials file'"
+              val = d[k]
+              if isinstance(val, dict):
+                for k2 in val:
+                  v2 = str(val[k2])
+                  print(f'  {k}.{k2}: {v2[:30]}... (len={len(v2)})')
+              else:
+                print(f'  {k}: {str(val)[:30]}...')
+          except Exception as e:
+            print(f'Not JSON: {e}')
+            print(f'First 50 chars: {raw[:50]}')
+          "
 
           echo ""
-          echo "=== 2. Check Claude Code version and auth status ==="
-          $SSH "claude --version 2>&1; echo '---'; claude auth status 2>&1 || echo 'auth status not available'"
+          echo "=== Step 2: Write B64 creds to Hetzner ==="
+          CREDS=$(echo "$CLAUDE_OAUTH_B64" | base64 -d 2>/dev/null)
+          $SSH "mkdir -p /root/.claude && cat > /root/.claude/.credentials.json << 'CREDEOF'
+          $CREDS
+          CREDEOF
+          echo 'Written. Size:' && wc -c /root/.claude/.credentials.json"
 
           echo ""
-          echo "=== 3. Try B64 credential ==="
-          if [ -n "$CLAUDE_OAUTH_B64" ]; then
-            $SSH "mkdir -p /root/.claude && echo '$CLAUDE_OAUTH_B64' | base64 -d > /root/.claude/.credentials.json 2>/dev/null && echo 'B64 credential written' && cat /root/.claude/.credentials.json | python3 -c \"
-            import json,sys
-            try:
-              d=json.load(sys.stdin)
-              for k in d:
-                v = str(d[k])
-                print(f'{k}: {v[:30]}...' if len(v)>30 else f'{k}: {v}')
-            except Exception as e: print(f'Parse error: {e}')
-            \"" 
-            echo "Testing CC with B64 creds..."
-            $SSH "claude -p 'echo hello' --allowedTools 'Bash(*)' 2>&1 | head -5" || echo "B64 auth failed"
-          else
-            echo "CLAUDE_OAUTH_B64 is empty"
-          fi
+          echo "=== Step 3: Test auth status ==="
+          $SSH "claude auth status 2>&1 || true"
 
           echo ""
-          echo "=== 4. Try direct OAuth token ==="
-          if [ -n "$CLAUDE_CODE_OAUTH" ]; then
-            $SSH "mkdir -p /root/.claude && echo '{"claudeAiOauth":{"accessToken":"'$CLAUDE_CODE_OAUTH'"}}' > /root/.claude/.credentials.json && echo 'Direct OAuth written'"
-            echo "Testing CC with direct OAuth..."
-            $SSH "claude -p 'echo hello' --allowedTools 'Bash(*)' 2>&1 | head -5" || echo "Direct OAuth failed"
-          else
-            echo "CLAUDE_CODE_OAUTH_TOKEN is empty"
-          fi
+          echo "=== Step 4: Test CC with simple command ==="
+          $SSH "timeout 30 claude -p 'Run: echo OAUTH_WORKS' --allowedTools 'Bash(*)' 2>&1 | tail -10" || echo "CC test failed"
 
           echo ""
-          echo "=== 5. Check for refresh token ==="
-          $SSH "cat /root/.claude/.credentials.json 2>/dev/null | python3 -c \"
-          import json,sys
-          try:
-            d=json.load(sys.stdin)
-            has_refresh = False
-            def check(obj, path=''):
-              global has_refresh
-              if isinstance(obj, dict):
-                for k,v in obj.items():
-                  if 'refresh' in k.lower():
-                    has_refresh = True
-                    print(f'FOUND refresh token at {path}.{k}: {str(v)[:20]}...')
-                  check(v, f'{path}.{k}')
-            check(d)
-            if not has_refresh: print('NO refresh token found in credentials')
-          except Exception as e: print(f'Error: {e}')
-          \""
+          echo "=== Step 5: If failed, try headless login URL ==="
+          $SSH "claude auth status 2>&1 | grep -q 'true' || (echo 'NEED_RELOGIN' && claude auth login --non-interactive 2>&1 | head -5 || claude /login 2>&1 | head -5 || true)"
