@@ -3,36 +3,33 @@ on:
   workflow_dispatch:
     inputs:
       migration_file:
-        description: 'Migration SQL file path'
+        description: 'SQL file'
         required: true
-        default: 'migrations/20260403_ssot_zw_parcels.sql'
+        default: 'migrations/20260403_data_lake_v1.sql'
 
 jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install PostgreSQL client
+      - name: Install psql
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-
       - name: Run migration
         env:
           PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           echo "🚀 Running: ${{ github.event.inputs.migration_file }}"
-          CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
           echo "Testing direct IPv4 connection..."
-          psql "$CONN" -c "SELECT 'connected' AS status, now();"
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT 'connected' AS status, now();"
           echo "✅ Connected — executing migration..."
-          psql "$CONN" -f "${{ github.event.inputs.migration_file }}" -v ON_ERROR_STOP=1
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -f "${{ github.event.inputs.migration_file }}" \
+            -v ON_ERROR_STOP=1
           echo "✅ Migration complete"
-
       - name: Verify
         env:
           PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
-          psql "$CONN" -c "SELECT schemaname, tablename FROM pg_tables WHERE tablename = 'zw_parcels';"
-          psql "$CONN" -c "SELECT count(*) as index_count FROM pg_indexes WHERE tablename = 'zw_parcels';"
-          psql "$CONN" -c "SELECT routine_name FROM information_schema.routines WHERE routine_name LIKE 'zw_%';"
+          psql "$CONN" -c "SELECT 'fl_parcels' as tbl, count(*)::text FROM fl_parcels UNION ALL SELECT 'dor_land_use_codes', count(*)::text FROM dor_land_use_codes UNION ALL SELECT 'zoning_codes', count(*)::text FROM zoning_codes UNION ALL SELECT 'flood_zones', count(*)::text FROM flood_zones;"
