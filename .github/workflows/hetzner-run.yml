@@ -22,11 +22,13 @@ jobs:
           mkdir -p ~/.ssh
           echo "$HETZNER_SSH_KEY" > ~/.ssh/key
           chmod 600 ~/.ssh/key
+          set +e
           OUTPUT=$(ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP} "$CMD" 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$OUTPUT"
+          SAFE_OUTPUT=$(echo "$OUTPUT" | tail -30 | sed 's/`//g' | sed "s/'//g")
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT}" -d "parse_mode=Markdown" \
-            --data-urlencode "text=🖥️ *Hetzner*
-          \`\`\`
-          $(echo "$OUTPUT" | tail -20)
-          \`\`\`" > /dev/null
+            -d "chat_id=${TELEGRAM_CHAT}" \
+            --data-urlencode "text=Hetzner: ${SAFE_OUTPUT}" > /dev/null 2>&1 || true
+          exit $EXIT_CODE
