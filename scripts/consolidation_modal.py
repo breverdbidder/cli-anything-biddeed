@@ -35,15 +35,27 @@ def consolidate_county(co_no: int) -> dict:
     
     county_name = DOR_COUNTIES.get(co_no, f"UNKNOWN_{co_no}")
     
-    conn = psycopg2.connect(
-        host="db.mocerqjnksmhcjzxrewo.supabase.co",
-        port=5432,
-        user="postgres",
-        password=os.environ["SUPABASE_DB_PASSWORD"],
-        database="postgres",
-        sslmode="require",
-        connect_timeout=30
-    )
+    # Try pooler first (IPv4 native), fallback to direct
+    try:
+        conn = psycopg2.connect(
+            host="aws-0-us-east-1.pooler.supabase.com",
+            port=6543,
+            user="postgres.mocerqjnksmhcjzxrewo",
+            password=os.environ["SUPABASE_DB_PASSWORD"],
+            database="postgres",
+            sslmode="require",
+            connect_timeout=30
+        )
+    except Exception:
+        conn = psycopg2.connect(
+            host="db.mocerqjnksmhcjzxrewo.supabase.co",
+            port=5432,
+            user="postgres",
+            password=os.environ["SUPABASE_DB_PASSWORD"],
+            database="postgres",
+            sslmode="require",
+            connect_timeout=30
+        )
     conn.autocommit = True
     cur = conn.cursor()
     
