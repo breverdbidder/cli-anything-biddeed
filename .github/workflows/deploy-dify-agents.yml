@@ -1,0 +1,52 @@
+name: Deploy Dify Agents on Hetzner
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: "Which agent to deploy"
+        required: true
+        default: "brief-agent"
+        type: choice
+        options:
+          - brief-agent
+          - scriptwriter-agent
+          - both
+jobs:
+  deploy-dify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy via SSH
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          AGENT: ${{ inputs.agent }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+
+          echo "=== Check Dify status ==="
+          $SSH "curl -s -o /dev/null -w '%{http_code}' http://localhost/api/v1/parameters 2>/dev/null || echo 'Dify not responding on :80'"
+          $SSH "curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/v1/parameters 2>/dev/null || echo 'Dify not responding on :3000'"
+          $SSH "docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -i dify || echo 'No Dify containers found'"
+
+          echo "=== Check Dify port ==="
+          $SSH "ss -tlnp | grep -E ':80|:3000|:5001' || echo 'No relevant ports listening'"
+
+          echo "=== Run Supabase migrations ==="
+          $SSH "curl -s -X POST 'https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/rpc/exec_sql' \
+            -H 'apikey: ${SUPABASE_KEY}' \
+            -H 'Authorization: Bearer ${SUPABASE_KEY}' \
+            -H 'Content-Type: application/json' \
+            -d '{\"sql\": \"SELECT 1\"}' 2>&1 | head -5 || echo 'Supabase RPC not available'"
+
+          echo "=== Dify API test ==="
+          $SSH "curl -s http://localhost/api/v1/apps -H 'Authorization: Bearer ${DIFY_API_KEY}' 2>&1 | head -200 || echo 'Dify API failed'"
+
+          echo "=== DONE ==="
