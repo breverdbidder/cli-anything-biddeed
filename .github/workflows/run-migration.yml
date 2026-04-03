@@ -1,222 +1,44 @@
-name: "Run Supabase Migration"
+name: Run Supabase Migration
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      migration_file:
+        description: 'Migration SQL file path'
+        required: true
+        default: 'migrations/20260403_data_lake_v1.sql'
+
 jobs:
   migrate:
-    name: "🗃️ Create Tables"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: "Execute SQL migration"
+      
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+      
+      - name: Run migration
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          # Read the migration file
-          SQL=$(cat migrations/001_create_all_agent_tables.sql)
-          
-          # Execute each statement via Supabase REST SQL
-          # Split by semicolons and run each
-          echo "$SQL" | while IFS=';' read -r stmt; do
-            stmt=$(echo "$stmt" | xargs)
-            [ -z "$stmt" ] && continue
-            echo "→ $(echo "$stmt" | head -c 60)..."
-            
-            RESP=$(curl -s -w "\n%{http_code}" -X POST \
-              "${{ secrets.SUPABASE_URL }}/rest/v1/rpc/" \
-              -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
-              -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d "{}" 2>&1 || true)
-          done
-          
-          # Alternative: use psql-like approach via Supabase Management API
-          # Or just create tables via REST by inserting and letting auto-create work
-          
-          # Actually, the most reliable way: POST each CREATE TABLE as raw SQL
-          # Supabase exposes pg via the SQL endpoint if enabled
-          
-          # Try the /rest/v1/rpc/exec_sql approach first
-          echo "=== Trying exec_sql RPC ==="
-          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/rpc/exec_sql" \
-            -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": \"SELECT 1 as test\"}" || echo "exec_sql not available"
-          
-          echo ""
-          echo "=== Trying direct table creation via postgrest ==="
-          # Create tables one at a time using Supabase Management API
-          # URL format: https://api.supabase.com/v1/projects/{ref}/database/query
-          
-          PROJECT_REF="mocerqjnksmhcjzxrewo"
-          
-          # Use the Supabase CLI approach - run psql via Hetzner
-          echo "=== Running via Hetzner psql ==="
-          
-      - name: "Run migration via Hetzner SSH"
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HETZNER_IP }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 3m
-          script: |
-            cd /opt/biddeed/cli-anything-biddeed
-            git pull origin main --ff-only 2>&1 | tail -3
-            
-            # Install psql if needed
-            command -v psql >/dev/null || apt-get install -y -qq postgresql-client 2>/dev/null
-            
-            # Get the Supabase connection string
-            # Format: postgresql://postgres.[ref]:[password]@aws-0-us-east-1.pooler.supabase.com:6543/postgres
-            # We can construct it from the service key
-            
-            # Alternative: use Python + httpx to create tables via Supabase REST
-            python3 << 'PYEOF'
-            import httpx, json, os
-
-            SUPABASE_URL = "${{ secrets.SUPABASE_URL }}"
-            SUPABASE_KEY = "${{ secrets.SUPABASE_SERVICE_KEY }}"
-            
-            if not SUPABASE_URL or not SUPABASE_KEY:
-                print("❌ Supabase credentials not set")
-                exit(1)
-            
-            headers = {
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "application/json",
-                "Prefer": "return=minimal",
-            }
-            
-            # Test connection
-            r = httpx.get(f"{SUPABASE_URL}/rest/v1/", headers=headers, timeout=10)
-            print(f"Connection test: {r.status_code}")
-            
-            # Try creating tables by inserting a dummy row (auto-schema won't work)
-            # We need actual SQL execution
-            
-            # Try the /pg/query endpoint (available on some Supabase plans)
-            sql = open("migrations/001_create_all_agent_tables.sql").read()
-            
-            # Split into individual statements
-            statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
-            
-            for stmt in statements:
-                if not stmt:
-                    continue
-                label = stmt[:50].replace('\n', ' ')
-                
-                # Try exec_sql RPC
-                r = httpx.post(
-                    f"{SUPABASE_URL}/rest/v1/rpc/exec_sql",
-                    headers=headers,
-                    json={"query": stmt},
-                    timeout=15,
-                )
-                
-                if r.status_code == 200:
-                    print(f"  ✅ {label}...")
-                elif r.status_code == 404:
-                    # exec_sql not created yet - need to create it first
-                    print(f"  ⚠️ exec_sql RPC not found - creating it...")
-                    create_fn = """
-                    CREATE OR REPLACE FUNCTION exec_sql(query text)
-                    RETURNS void AS $$
-                    BEGIN EXECUTE query; END;
-                    $$ LANGUAGE plpgsql SECURITY DEFINER;
-                    """
-                    # Can't create the function without SQL access - chicken/egg
-                    print(f"  ❌ Need exec_sql function. Creating tables via REST workaround...")
-                    break
-                else:
-                    print(f"  ❌ {r.status_code}: {r.text[:100]}")
-            
-            # If exec_sql failed, try the Supabase Management API
-            print("\n=== Trying Supabase Management API ===")
-            mgmt_key = "${{ secrets.SUPABASE_MGMT_KEY }}" if "${{ secrets.SUPABASE_MGMT_KEY }}" != "" else None
-            
-            if not mgmt_key:
-                print("⚠️ No SUPABASE_MGMT_KEY - trying with service key on management API")
-                mgmt_key = SUPABASE_KEY
-            
-            # The management API endpoint for running SQL
-            project_ref = "mocerqjnksmhcjzxrewo"
-            mgmt_url = f"https://api.supabase.com/v1/projects/{project_ref}/database/query"
-            
-            r = httpx.post(
-                mgmt_url,
-                headers={
-                    "Authorization": f"Bearer {mgmt_key}",
-                    "Content-Type": "application/json",
-                },
-                json={"query": sql},
-                timeout=30,
-            )
-            print(f"Management API: {r.status_code}")
-            if r.status_code == 200 or r.status_code == 201:
-                print("✅ All tables created!")
-            else:
-                print(f"Response: {r.text[:200]}")
-                
-                # Last resort: use the Supabase Management PAT from memory
-                # sbp_cbf04a175a130c466eddbe40a3f49b79aaec6214
-                mgmt_pat = "sbp_cbf04a175a130c466eddbe40a3f49b79aaec6214"
-                r2 = httpx.post(
-                    mgmt_url,
-                    headers={
-                        "Authorization": f"Bearer {mgmt_pat}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"query": sql},
-                    timeout=30,
-                )
-                print(f"Management PAT: {r2.status_code}")
-                if r2.status_code in (200, 201):
-                    print("✅ All tables created via Management PAT!")
-                else:
-                    print(f"Response: {r2.text[:200]}")
-            PYEOF
-
-      - name: "Verify tables"
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HETZNER_IP }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 2m
-          script: |
-            python3 << 'PYEOF'
-            import httpx
-            
-            URL = "${{ secrets.SUPABASE_URL }}"
-            KEY = "${{ secrets.SUPABASE_SERVICE_KEY }}"
-            headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
-            
-            tables = ["property_profiles", "rehab_projects", "rehab_spend_log", 
-                       "market_trends", "rehab_site_reports", "rehab_site_photos"]
-            
-            for t in tables:
-                r = httpx.get(f"{URL}/rest/v1/{t}?limit=0", headers=headers, timeout=10)
-                status = "✅" if r.status_code == 200 else "❌"
-                print(f"  {status} {t}: {r.status_code}")
-            PYEOF
-
-      - name: "Telegram"
-        if: always()
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HETZNER_IP }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 1m
-          script: |
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "text=$( [ '${{ job.status }}' = 'success' ] && echo '✅' || echo '❌' ) Supabase migration: ${{ job.status }}"
-
-      - name: Summary
-        if: always()
-        run: echo "## 🗃️ Migration — ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 Running migration: ${{ github.event.inputs.migration_file }}"
+          psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${PGPASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
+            -f "${{ github.event.inputs.migration_file }}" \
+            -v ON_ERROR_STOP=1
+          echo "✅ Migration complete"
+      
+      - name: Verify tables
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "📊 Verification:"
+          psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${PGPASSWORD}@aws-0-us-east-1.pooler.supabase.com:5432/postgres" -c "
+            SELECT 'fl_parcels' as tbl, count(*) FROM fl_parcels
+            UNION ALL SELECT 'fl_parcels w/ luse_desc', count(*) FROM fl_parcels WHERE luse_desc IS NOT NULL
+            UNION ALL SELECT 'flood_zones', count(*) FROM flood_zones
+            UNION ALL SELECT 'soils', count(*) FROM soils
+            UNION ALL SELECT 'wetlands', count(*) FROM wetlands
+            UNION ALL SELECT 'future_land_use', count(*) FROM future_land_use
+            UNION ALL SELECT 'zoning_codes', count(*) FROM zoning_codes
+            UNION ALL SELECT 'dor_land_use_codes', count(*) FROM dor_land_use_codes
+            UNION ALL SELECT 'parcel_sales_history', count(*) FROM parcel_sales_history
+          "
