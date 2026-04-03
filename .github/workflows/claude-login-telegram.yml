@@ -9,8 +9,8 @@ jobs:
       - name: Login Claude on Hetzner
         uses: appleboy/ssh-action@v1.2.0
         env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
           PAT: ${{ secrets.GH_PAT }}
         with:
           host: ${{ secrets.HETZNER_IP }}
