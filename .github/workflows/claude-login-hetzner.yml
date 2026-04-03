@@ -16,8 +16,8 @@ jobs:
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
-          TG_BOT="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          TG_CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+          TG_BOT="${{ secrets.BIDDEED_BOT_TOKEN }}"
+          TG_CHAT="${{ secrets.BIDDEED_BOT_CHAT_ID }}"
 
           # Check auth first
           CHECK=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "claude auth status 2>&1" || true)
