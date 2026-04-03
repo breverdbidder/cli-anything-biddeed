@@ -1,0 +1,152 @@
+name: LinkedIn Session Capture
+on:
+  workflow_dispatch:
+    inputs:
+      pin:
+        description: 'LinkedIn verification PIN (leave empty for step 1 — triggers PIN email)'
+        required: false
+        default: ''
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install deps
+        run: |
+          pip install playwright pynacl requests
+          playwright install chromium
+      
+      - name: LinkedIn login + capture li_at
+        env:
+          LI_EMAIL: ${{ secrets.LINKEDIN_EMAIL }}
+          LI_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD }}
+          LI_PIN: ${{ inputs.pin }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          TELEGRAM_BOT: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+        run: |
+          python3 << 'PYEOF'
+          import asyncio, os, json, base64, requests
+          from playwright.async_api import async_playwright
+
+          EMAIL = os.environ["LI_EMAIL"]
+          PASSWORD = os.environ["LI_PASSWORD"]
+          PIN = os.environ.get("LI_PIN", "").strip()
+          PAT = os.environ.get("GH_PAT", "")
+          BOT = os.environ.get("TELEGRAM_BOT", "")
+          CHAT = os.environ.get("TELEGRAM_CHAT", "")
+
+          def telegram(msg):
+              if BOT and CHAT:
+                  requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage",
+                      data={"chat_id": CHAT, "text": msg, "parse_mode": "Markdown"})
+
+          async def run():
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True,
+                      args=["--no-sandbox", "--disable-setuid-sandbox"])
+                  context = await browser.new_context()
+                  page = await context.new_page()
+
+                  # Check for saved state from step 1
+                  state_path = "linkedin_state.json"
+                  if PIN and os.path.exists(state_path):
+                      context2 = await browser.new_context(storage_state=state_path)
+                      page = await context2.new_page()
+
+                  # Step 1: Login
+                  print("Navigating to LinkedIn login...")
+                  await page.goto("https://www.linkedin.com/login", timeout=60000)
+                  await page.wait_for_timeout(3000)
+                  await page.fill("#username", EMAIL)
+                  await page.fill("#password", PASSWORD)
+                  await page.click('button[type="submit"]')
+                  await page.wait_for_timeout(8000)
+
+                  url = page.url
+                  print(f"URL after login: {url}")
+
+                  # If challenge and we have PIN
+                  if ("checkpoint" in url or "challenge" in url) and PIN:
+                      print(f"Submitting PIN: {PIN}")
+                      try:
+                          await page.fill('input[name="pin"]', PIN)
+                          await page.click('button[type="submit"]')
+                          await page.wait_for_timeout(8000)
+                          url = page.url
+                          print(f"URL after PIN: {url}")
+                      except Exception as e:
+                          print(f"PIN submit error: {e}")
+
+                  # If challenge and NO PIN — save state, notify
+                  elif "checkpoint" in url or "challenge" in url:
+                      await context.storage_state(path=state_path)
+                      print("Challenge detected. PIN sent to email.")
+                      telegram("🔐 *LinkedIn Session Capture*\nPIN sent to Everestcapital8@gmail.com\n\nRe-run workflow with the PIN:\n`gh workflow run linkedin-session.yml -f pin=XXXXXX`")
+                      # Upload state as artifact
+                      return
+
+                  # Check for li_at cookie
+                  cookies = await context.cookies()
+                  li_at = next((c["value"] for c in cookies if c["name"] == "li_at"), None)
+
+                  if not li_at and "feed" in url:
+                      # Sometimes need to navigate to feed
+                      await page.goto("https://www.linkedin.com/feed/", timeout=30000)
+                      await page.wait_for_timeout(3000)
+                      cookies = await context.cookies()
+                      li_at = next((c["value"] for c in cookies if c["name"] == "li_at"), None)
+
+                  if li_at:
+                      print(f"li_at captured! ({len(li_at)} chars)")
+                      
+                      # Store as GitHub secret
+                      if PAT:
+                          from nacl import encoding, public
+                          headers = {"Authorization": f"token {PAT}"}
+                          r = requests.get(f"https://api.github.com/repos/{os.environ.get('GITHUB_REPOSITORY','breverdbidder/cli-anything-biddeed')}/actions/secrets/public-key", headers=headers)
+                          pub_data = r.json()
+                          pk = public.PublicKey(pub_data["key"].encode(), encoding.Base64Encoder())
+                          encrypted = base64.b64encode(public.SealedBox(pk).encrypt(li_at.encode())).decode()
+                          r = requests.put(
+                              f"https://api.github.com/repos/{os.environ.get('GITHUB_REPOSITORY','breverdbidder/cli-anything-biddeed')}/actions/secrets/LINKEDIN_LI_AT",
+                              headers={**headers, "Content-Type": "application/json"},
+                              json={"encrypted_value": encrypted, "key_id": pub_data["key_id"]})
+                          print(f"Stored as LINKEDIN_LI_AT secret: {r.status_code}")
+                      
+                      # Save session JSON
+                      session = json.dumps({"cookies": [{"name": c["name"], "value": c["value"], "domain": c["domain"]} for c in cookies]})
+                      if PAT:
+                          encrypted = base64.b64encode(public.SealedBox(pk).encrypt(session.encode())).decode()
+                          r = requests.put(
+                              f"https://api.github.com/repos/{os.environ.get('GITHUB_REPOSITORY','breverdbidder/cli-anything-biddeed')}/actions/secrets/LINKEDIN_SESSION_JSON",
+                              headers={**headers, "Content-Type": "application/json"},
+                              json={"encrypted_value": encrypted, "key_id": pub_data["key_id"]})
+                          print(f"Stored as LINKEDIN_SESSION_JSON secret: {r.status_code}")
+
+                      telegram(f"✅ *LinkedIn Session Captured*\nli_at: `{li_at[:20]}...`\nStored as GitHub secret.")
+                  else:
+                      print("No li_at cookie found")
+                      telegram("❌ *LinkedIn Session Failed*\nNo li_at cookie captured. Check workflow logs.")
+                      await page.screenshot(path="linkedin_debug.png")
+
+                  await browser.close()
+
+          asyncio.run(run())
+          PYEOF
+      
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkedin-debug
+          path: |
+            linkedin_debug.png
+            linkedin_state.json
+          retention-days: 1
