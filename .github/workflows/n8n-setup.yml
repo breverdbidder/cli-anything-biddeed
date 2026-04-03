@@ -10,7 +10,6 @@ on:
         options:
           - install
           - status
-          - import-templates
 
 jobs:
   n8n:
@@ -18,7 +17,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: n8n on Hetzner
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
@@ -31,125 +30,75 @@ jobs:
           echo "$HETZNER_SSH_KEY" > ~/.ssh/key
           chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HETZNER_IP}"
-          SCP="scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-          
-          tg() {
+
+          if [ "$ACTION" = "status" ]; then
+            $SSH "docker ps --filter name=n8n && curl -s http://localhost:5678/healthz || echo 'n8n not running'"
+            exit 0
+          fi
+
+          echo "=== Installing n8n on Hetzner ==="
+
+          # Check if already running
+          RUNNING=$($SSH "docker ps --format '{{.Names}}' | grep -c n8n || true" 2>/dev/null)
+          if [ "$RUNNING" -gt "0" ]; then
+            echo "n8n already running!"
+            $SSH "docker ps --filter name=n8n --format '{{.Names}} | {{.Status}} | {{.Ports}}'"
+          else
+            # Create compose file on Hetzner
+            $SSH "mkdir -p /opt/n8n/data /opt/n8n/templates"
+            
+            $SSH 'cat > /opt/n8n/docker-compose.yml << EOF
+version: "3.8"
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=ariel
+      - N8N_BASIC_AUTH_PASSWORD=Everest18n8n
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=America/New_York
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - /opt/n8n/data:/home/node/.n8n
+      - /opt/n8n/templates:/home/node/templates
+EOF'
+            
+            # Pull and start
+            $SSH "cd /opt/n8n && docker compose pull && docker compose up -d"
+            
+            # Wait for health
+            sleep 15
+            $SSH "curl -s http://localhost:5678/healthz && echo ' — n8n HEALTHY' || echo 'n8n starting...'"
+            $SSH "docker ps --filter name=n8n --format '{{.Names}} | {{.Status}} | {{.Ports}}'"
+          fi
+
+          # External health check
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://${HETZNER_IP}:5678/healthz" --max-time 10 || echo "000")
+          echo "External check: HTTP $STATUS"
+
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT}/sendMessage" \
               -d "chat_id=${TELEGRAM_CHAT}" -d "parse_mode=Markdown" \
-              --data-urlencode "text=$1" > /dev/null
-          }
-          
-          if [ "$ACTION" = "install" ]; then
-            echo "=== Installing n8n on Hetzner ==="
-            
-            $SSH << 'REMOTE'
-            # Check if n8n already running
-            if docker ps --format '{{.Names}}' | grep -q n8n; then
-              echo "n8n already running!"
-              docker ps --filter name=n8n --format "{{.Names}} | {{.Status}} | {{.Ports}}"
-              exit 0
-            fi
-            
-            # Create n8n directory
-            mkdir -p /opt/n8n/data
-            
-            # Docker compose for n8n
-            cat > /opt/n8n/docker-compose.yml << 'COMPOSE'
-            version: '3.8'
-            services:
-              n8n:
-                image: n8nio/n8n:latest
-                container_name: n8n
-                restart: always
-                ports:
-                  - "5678:5678"
-                environment:
-                  - N8N_BASIC_AUTH_ACTIVE=true
-                  - N8N_BASIC_AUTH_USER=ariel
-                  - N8N_BASIC_AUTH_PASSWORD=Everest18n8n
-                  - N8N_HOST=0.0.0.0
-                  - N8N_PORT=5678
-                  - N8N_PROTOCOL=http
-                  - GENERIC_TIMEZONE=America/New_York
-                  - N8N_SECURE_COOKIE=false
-                  - N8N_RUNNERS_ENABLED=true
-                volumes:
-                  - /opt/n8n/data:/home/node/.n8n
-                  - /opt/n8n/templates:/home/node/templates
-            COMPOSE
-            
-            # Start n8n
-            cd /opt/n8n && docker compose pull && docker compose up -d
-            
-            # Wait for startup
-            sleep 10
-            
-            # Check health
-            for i in $(seq 1 6); do
-              if curl -s http://localhost:5678/healthz | grep -q "ok"; then
-                echo "n8n is LIVE on port 5678"
-                break
-              fi
-              sleep 5
-            done
-            
-            docker ps --filter name=n8n --format "{{.Names}} | {{.Status}} | {{.Ports}}"
-            REMOTE
-            
-            # Verify from outside
-            N8N_URL="http://${HETZNER_IP}:5678"
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${N8N_URL}/healthz" --max-time 5)
-            echo "External health check: HTTP $STATUS"
-            
-            if [ "$STATUS" = "200" ]; then
-              tg "✅ *n8n LIVE on Hetzner*
-              
+              --data-urlencode "text=✅ *n8n LIVE on Hetzner*
+
           URL: http://${HETZNER_IP}:5678
           User: ariel
           Pass: Everest18n8n
-          
-          Next: Import SEO workflow templates"
-            else
-              tg "⚠️ *n8n installed but not reachable externally*
-          Port 5678 may need firewall rule.
-          Check: ssh root@hetzner → docker ps"
-            fi
-          
-          elif [ "$ACTION" = "status" ]; then
-            echo "=== n8n Status ==="
-            $SSH "docker ps --filter name=n8n --format '{{.Names}} | {{.Status}} | {{.Ports}}' && curl -s http://localhost:5678/healthz"
-          
-          elif [ "$ACTION" = "import-templates" ]; then
-            echo "=== Importing n8n workflow templates ==="
-            
-            # Copy templates to Hetzner
-            $SCP -r skills/n8n-seo-templates/ root@${HETZNER_IP}:/opt/n8n/templates/
-            
-            # Import via n8n API
-            $SSH << 'REMOTE2'
-            cd /opt/n8n/templates
-            N8N="http://localhost:5678/api/v1"
-            AUTH="ariel:Everest18n8n"
-            
-            imported=0
-            failed=0
-            for f in $(find . -name "*.json" -type f); do
-              name=$(basename "$f" .json)
-              result=$(curl -s -u "$AUTH" -X POST "$N8N/workflows" \
-                -H "Content-Type: application/json" \
-                -d @"$f" 2>/dev/null)
-              
-              if echo "$result" | grep -q '"id"'; then
-                echo "✅ Imported: $name"
-                imported=$((imported + 1))
-              else
-                echo "⚠️ Skip: $name (may need manual adjustment)"
-                failed=$((failed + 1))
-              fi
-            done
-            echo "Done: $imported imported, $failed skipped"
-            REMOTE2
-            
-            tg "📦 *n8n Templates Imported*
-          SEO workflow templates loaded from Marvomatic/n8n-templates"
+
+          3 skill repos deployed:
+          • skills/n8n-claude (7 skills)
+          • skills/n8n-generator (545 nodes)
+          • skills/n8n-seo-templates (21 workflows)" > /dev/null
+          else
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT}" \
+              --data-urlencode "text=⚠️ n8n installed but port 5678 not reachable externally (HTTP $STATUS). May need: ufw allow 5678" > /dev/null
           fi
