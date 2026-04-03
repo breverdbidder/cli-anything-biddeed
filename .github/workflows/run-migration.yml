@@ -14,50 +14,41 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Install PostgreSQL client
-        run: sudo apt-get install -y postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
       
       - name: Run migration
         env:
           PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           echo "🚀 Running migration: ${{ github.event.inputs.migration_file }}"
+          CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
           
-          # Try transaction mode (port 6543) first
-          echo "Attempting port 6543 (transaction mode)..."
-          if psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${PGPASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
-            -c "SELECT 1;" 2>/dev/null; then
-            echo "✅ Connected via port 6543"
-            psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${PGPASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
-              -f "${{ github.event.inputs.migration_file }}" \
-              -v ON_ERROR_STOP=1
-          else
-            echo "Port 6543 failed, trying direct connection (port 5432)..."
-            if psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
-              -c "SELECT 1;" 2>/dev/null; then
-              echo "✅ Connected via direct"
-              psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
-                -f "${{ github.event.inputs.migration_file }}" \
-                -v ON_ERROR_STOP=1
-            else
-              echo "❌ All connection methods failed"
-              echo "Tried: pooler:6543, direct:5432"
-              echo "Check SUPABASE_DB_PASSWORD secret"
-              exit 1
-            fi
-          fi
+          echo "Testing direct connection..."
+          psql "$CONN" -c "SELECT 'connected' AS status, current_database(), version();" || {
+            echo "❌ Direct connection failed. Trying pooler..."
+            CONN="postgresql://postgres.mocerqjnksmhcjzxrewo:${PGPASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
+            psql "$CONN" -c "SELECT 'connected' AS status;" || { echo "❌ All connections failed"; exit 1; }
+          }
+          
+          echo "✅ Connected — executing migration..."
+          psql "$CONN" -f "${{ github.event.inputs.migration_file }}" -v ON_ERROR_STOP=1
           echo "✅ Migration complete"
       
       - name: Verify tables
         env:
           PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          CONN="postgresql://postgres.mocerqjnksmhcjzxrewo:${PGPASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
+          CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
           echo "📊 Verification:"
           psql "$CONN" -c "
-            SELECT 'fl_parcels' as tbl, count(*) FROM fl_parcels
-            UNION ALL SELECT 'fl_parcels w/ luse_desc', count(*) FROM fl_parcels WHERE luse_desc IS NOT NULL
-            UNION ALL SELECT 'flood_zones', count(*) FROM flood_zones
-            UNION ALL SELECT 'soils', count(*) FROM soils
-            UNION ALL SELECT 'zoning_codes', count(*) FROM zoning_codes
-            UNION ALL SELECT 'dor_land_use_codes', count(*) FROM dor_land_use_codes
-          " 2>/dev/null || echo "Verify step skipped (connection issue)"
+            SELECT 'fl_parcels total' as metric, count(*)::text as val FROM fl_parcels
+            UNION ALL SELECT 'fl_parcels w/ luse_desc', count(*)::text FROM fl_parcels WHERE luse_desc IS NOT NULL
+            UNION ALL SELECT 'flood_zones', count(*)::text FROM flood_zones
+            UNION ALL SELECT 'soils', count(*)::text FROM soils
+            UNION ALL SELECT 'wetlands', count(*)::text FROM wetlands
+            UNION ALL SELECT 'future_land_use', count(*)::text FROM future_land_use
+            UNION ALL SELECT 'zoning_codes', count(*)::text FROM zoning_codes
+            UNION ALL SELECT 'dor_land_use_codes', count(*)::text FROM dor_land_use_codes
+            UNION ALL SELECT 'parcel_sales_history', count(*)::text FROM parcel_sales_history
+            UNION ALL SELECT 'competitive_intel', count(*)::text FROM competitive_intel
+          "
