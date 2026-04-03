@@ -5,66 +5,34 @@ on:
       migration_file:
         description: 'Migration SQL file path'
         required: true
-        default: 'migrations/20260403_data_lake_v1.sql'
+        default: 'migrations/20260403_ssot_zw_parcels.sql'
 
 jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Run migration via Hetzner
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Run migration
         env:
-          HETZNER_IP: ${{ secrets.HETZNER_IP }}
-          HETZNER_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
-          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          echo "🚀 Running migration via Hetzner SSH tunnel"
-          
-          # Install sshpass for non-interactive SSH
-          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass postgresql-client
-          
-          # Copy migration file to Hetzner
-          sshpass -p "$HETZNER_PASSWORD" scp -o StrictHostKeyChecking=no \
-            "${{ github.event.inputs.migration_file }}" \
-            root@${HETZNER_IP}:/tmp/migration.sql
-          
-          # Execute migration from Hetzner (has full IPv4+IPv6 network)
-          sshpass -p "$HETZNER_PASSWORD" ssh -o StrictHostKeyChecking=no root@${HETZNER_IP} << REMOTE
-            apt-get install -y -qq postgresql-client 2>/dev/null || true
-            
-            export PGPASSWORD="${DB_PASSWORD}"
-            
-            echo "Testing connection from Hetzner..."
-            
-            # Try direct first (Hetzner supports IPv6)
-            if psql "postgresql://postgres:${DB_PASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
-              -c "SELECT 'connected via direct' AS status;" 2>/dev/null; then
-              CONN="postgresql://postgres:${DB_PASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
-            elif psql "postgresql://postgres.mocerqjnksmhcjzxrewo:${DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require" \
-              -c "SELECT 'connected via pooler' AS status;" 2>/dev/null; then
-              CONN="postgresql://postgres.mocerqjnksmhcjzxrewo:${DB_PASSWORD}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
-            else
-              echo "❌ All connections failed from Hetzner"
-              exit 1
-            fi
-            
-            echo "✅ Connected — running migration..."
-            psql "\$CONN" -f /tmp/migration.sql -v ON_ERROR_STOP=1
-            echo "✅ Migration complete!"
-            
-            echo ""
-            echo "📊 Verification:"
-            psql "\$CONN" -c "
-              SELECT 'fl_parcels total' as metric, count(*)::text as val FROM fl_parcels
-              UNION ALL SELECT 'fl_parcels w/ luse_desc', count(*)::text FROM fl_parcels WHERE luse_desc IS NOT NULL
-              UNION ALL SELECT 'dor_land_use_codes', count(*)::text FROM dor_land_use_codes
-              UNION ALL SELECT 'flood_zones', count(*)::text FROM flood_zones
-              UNION ALL SELECT 'zoning_codes', count(*)::text FROM zoning_codes
-              UNION ALL SELECT 'parcel_sales_history', count(*)::text FROM parcel_sales_history
-            "
-            
-            rm /tmp/migration.sql
-          REMOTE
-          
-          echo "🎉 SUMMIT DATA-001 deployed!"
+          echo "🚀 Running: ${{ github.event.inputs.migration_file }}"
+          CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
+          echo "Testing direct IPv4 connection..."
+          psql "$CONN" -c "SELECT 'connected' AS status, now();"
+          echo "✅ Connected — executing migration..."
+          psql "$CONN" -f "${{ github.event.inputs.migration_file }}" -v ON_ERROR_STOP=1
+          echo "✅ Migration complete"
+
+      - name: Verify
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
+          psql "$CONN" -c "SELECT schemaname, tablename FROM pg_tables WHERE tablename = 'zw_parcels';"
+          psql "$CONN" -c "SELECT count(*) as index_count FROM pg_indexes WHERE tablename = 'zw_parcels';"
+          psql "$CONN" -c "SELECT routine_name FROM information_schema.routines WHERE routine_name LIKE 'zw_%';"
