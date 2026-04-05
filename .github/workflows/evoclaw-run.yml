@@ -137,8 +137,11 @@ jobs:
           echo "=== Config ==="
           cat trial_config.yaml
 
+          # Ensure python symlink exists
+          which python || ln -sf $(which python3) /usr/local/bin/python
+
           # Launch and EXIT — no polling
-          nohup python scripts/run_all.py --config trial_config.yaml \
+          nohup python3 scripts/run_all.py --config trial_config.yaml \
             > /opt/evoclaw/evoclaw_${REPO}.log 2>&1 &
 
           echo \$! > /opt/evoclaw/evoclaw.pid
