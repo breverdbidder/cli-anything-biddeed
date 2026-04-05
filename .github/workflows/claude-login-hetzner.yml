@@ -1,74 +1,60 @@
-name: "Claude Login on Hetzner"
+name: Claude Login on Hetzner
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+
 jobs:
   login:
-    name: "Claude Login"
+    name: Claude Login
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: "Login and send URL to Telegram"
+      - name: Login and send URL to Telegram
         env:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           TG_BOT: ${{ secrets.BIDDEED_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
         run: |
+          pip install requests -q
           mkdir -p ~/.ssh
           echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
           SSH="ssh -i ~/.ssh/hetzner -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@87.99.129.125"
-          tg() { curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" -d "chat_id=${TG_CHAT}" -d "disable_web_page_preview=true" -d "text=$1" > /dev/null; }
 
-          # Check if already logged in
           CHECK=$($SSH "claude auth status 2>&1" || true)
           if echo "$CHECK" | grep -q '"loggedIn": true'; then
-            tg "✅ Claude Code already logged in on Hetzner!"
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" -d "chat_id=${TG_CHAT}" -d "text=Already logged in"
             exit 0
           fi
 
-          # Clear stale credentials
           $SSH "rm -f /root/.claude/.credentials.json 2>/dev/null" || true
-
-          # Run login — capture full output
           $SSH "BROWSER=echo DISPLAY= TERM=dumb timeout 30 claude auth login > /tmp/cc_login.txt 2>&1" || true
 
-          # Extract FULL URL using Python (handles + and all special chars)
-          AUTH_URL=$($SSH "python3 -c "
-import re
-with open('/tmp/cc_login.txt') as f:
-    t = f.read()
-m = re.search(r'(https://claude\.ai/oauth/authorize\S+)', t)
-print(m.group(1) if m else '')
-"" | tr -d '\r\n')
+          AUTH_URL=$($SSH "python3 -c \"import re; t=open('/tmp/cc_login.txt').read(); m=re.search(r'(https://claude\\.ai/oauth/authorize\\S+)',t); print(m.group(1) if m else '')\"" | tr -d '\r\n')
 
+          echo "URL length: ${#AUTH_URL}"
           if [ -z "$AUTH_URL" ]; then
-            RAW=$($SSH "cat /tmp/cc_login.txt 2>/dev/null" | head -10)
-            tg "❌ No URL found. Output: $RAW"
+            RAW=$($SSH "cat /tmp/cc_login.txt 2>/dev/null | head -5")
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" -d "chat_id=${TG_CHAT}" -d "text=No URL found: $RAW"
             exit 1
           fi
 
-          echo "URL length: ${#AUTH_URL}"
+          python3 -c "
+import requests, sys
+url = sys.argv[1]
+bot = sys.argv[2]
+chat = sys.argv[3]
+msg = f'TAP TO LOG IN CLAUDE ON HETZNER:\n\n{url}\n\nYou have 3 min.'
+requests.post(f'https://api.telegram.org/bot{bot}/sendMessage', json={'chat_id': chat, 'text': msg, 'disable_web_page_preview': True})
+print(f'Sent ({len(url)} chars)')
+" "$AUTH_URL" "$TG_BOT" "$TG_CHAT"
 
-          # Send to Telegram — write URL to temp file to avoid shell escaping issues
-          python3 << PYEND
-import requests
-url = """$AUTH_URL"""
-msg = f"🔑 TAP TO LOG IN CLAUDE ON HETZNER\n\n{url}\n\nTap link above. You have 3 min."
-requests.post(
-    f"https://api.telegram.org/bot${TG_BOT}/sendMessage",
-    json={"chat_id": "${TG_CHAT}", "text": msg, "disable_web_page_preview": True}
-)
-print(f"Sent to Telegram ({len(url)} chars)")
-PYEND
-
-          # Poll for 3 min
           for i in $(seq 1 12); do
             sleep 15
             STATUS=$($SSH "claude auth status 2>&1" || true)
             if echo "$STATUS" | grep -q '"loggedIn": true'; then
-              tg "✅ LOGGED IN! Claude Code authenticated with Max plan on Hetzner. All SUMMITs now autonomous."
+              curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" -d "chat_id=${TG_CHAT}" -d "text=LOGGED IN! Claude Code on Hetzner authenticated with Max plan."
               exit 0
             fi
             echo "Poll $i/12..."
           done
-          tg "⏰ Timed out. Re-run workflow for fresh link."
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" -d "chat_id=${TG_CHAT}" -d "text=Timed out. Re-run for fresh link."
