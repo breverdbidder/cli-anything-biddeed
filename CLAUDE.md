@@ -105,7 +105,37 @@ observance: Orthodox (Shabbat Fri sunset–Sat havdalah, kosher, holidays)
 plugins:
   context7: { purpose: live API docs, install: "/plugin → context7", cost: $0 }
   claude-2x-statusline: { purpose: context monitor, install: "git clone https://github.com/Nadav-Fux/claude-2x-statusline.git ~/.claude/cc-2x-statusline && bash ~/.claude/cc-2x-statusline/install.sh <<< '3'", tier: Full, repoeval: 86, replaces: cc-status-line }
+  supabase-cli: { purpose: autonomous migrations, install: "npm i -g supabase && supabase link --project-ref mocerqjnksmhcjzxrewo", project: mocerqjnksmhcjzxrewo, zero_hitl: true }
   cctop: { purpose: sessions dashboard, install: "curl -fsSL https://raw.githubusercontent.com/DeanLa/cctop/main/install.sh | bash", fork: breverdbidder/cctop }
+```
+
+
+### Supabase CLI — Autonomous Operations (Apr 4, 2026)
+```yaml
+supabase_cli:
+  auth: SUPABASE_ACCESS_TOKEN (sbp_ token)
+  project: mocerqjnksmhcjzxrewo
+  autonomous_ops:
+    - supabase db push          # Apply migrations — NO HITL
+    - supabase db diff           # Generate migration from schema changes — NO HITL  
+    - supabase migration new     # Create new migration file — NO HITL
+    - supabase db reset          # BLOCKED — requires Ariel approval (production data)
+    - supabase functions deploy  # Edge functions — NO HITL
+  migration_workflow:
+    1: "supabase migration new <name>"
+    2: "Write SQL in supabase/migrations/<timestamp>_<name>.sql"
+    3: "supabase db push"
+    4: "Verify via REST API or psql"
+    5: "Commit migration file to repo"
+  never_ask_ariel:
+    - CREATE TABLE / ALTER TABLE (non-destructive)
+    - CREATE INDEX / CREATE FUNCTION
+    - INSERT/UPDATE to non-critical tables
+    - RLS policies
+  always_ask_ariel:
+    - DROP TABLE / TRUNCATE on production tables
+    - Schema changes to billing/payment tables
+    - supabase db reset
 ```
 
 ### Context Window Rules
