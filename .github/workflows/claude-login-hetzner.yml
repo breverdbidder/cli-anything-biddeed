@@ -1,107 +1,74 @@
 name: "Claude Login on Hetzner"
-
 on:
   workflow_dispatch: {}
-
 jobs:
   login:
-    name: "\U0001F511 Claude Login"
+    name: "Claude Login"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: "Login and send URL to Telegram"
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          TG_BOT: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
-          ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
-          TG_BOT="${{ secrets.BIDDEED_BOT_TOKEN }}"
-          TG_CHAT="${{ secrets.BIDDEED_BOT_CHAT_ID }}"
+          SSH="ssh -i ~/.ssh/hetzner -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@87.99.129.125"
+          tg() { curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" -d "chat_id=${TG_CHAT}" -d "disable_web_page_preview=true" -d "text=$1" > /dev/null; }
 
-          # Check auth first
-          CHECK=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "claude auth status 2>&1" || true)
+          # Check if already logged in
+          CHECK=$($SSH "claude auth status 2>&1" || true)
           if echo "$CHECK" | grep -q '"loggedIn": true'; then
-            ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "systemctl restart agentremote-executor" || true
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-              -d "chat_id=${TG_CHAT}" -d "text=✅ Already logged in!"
+            tg "✅ Claude Code already logged in on Hetzner!"
             exit 0
           fi
 
-          # Try multiple approaches to get the login URL
-          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "
-            rm -f /tmp/claude_url.txt
+          # Clear stale credentials
+          $SSH "rm -f /root/.claude/.credentials.json 2>/dev/null" || true
 
-            # Approach 1: BROWSER=echo forces URL to stdout
-            echo '=== Approach 1: BROWSER=echo ==='
-            BROWSER=echo DISPLAY= timeout 15 claude login 2>&1 | tee /tmp/cl_approach1.log || true
+          # Run login — capture full output
+          $SSH "BROWSER=echo DISPLAY= TERM=dumb timeout 30 claude auth login > /tmp/cc_login.txt 2>&1" || true
 
-            # Approach 2: claude auth login
-            echo '=== Approach 2: claude auth login ==='
-            BROWSER=echo DISPLAY= timeout 15 claude auth login 2>&1 | tee /tmp/cl_approach2.log || true
-
-            # Approach 3: Just pipe to file 
-            echo '=== Approach 3: raw ==='
-            TERM=dumb BROWSER=echo DISPLAY= timeout 15 claude login 2>&1 | strings | tee /tmp/cl_approach3.log || true
-
-            # Extract URL from any approach
-            for f in /tmp/cl_approach1.log /tmp/cl_approach2.log /tmp/cl_approach3.log; do
-              URL=\$(cat \$f 2>/dev/null | strings | grep -oP 'https://[a-zA-Z0-9./?=&_:%-]+' | grep -i 'anthropic\|claude\|oauth\|login\|console' | head -1)
-              if [ -n \"\$URL\" ]; then
-                echo \"\$URL\" > /tmp/claude_url.txt
-                echo \"FOUND in \$f: \$URL\"
-                break
-              fi
-            done
-
-            # Also check if any URL at all
-            if [ ! -s /tmp/claude_url.txt ]; then
-              for f in /tmp/cl_approach1.log /tmp/cl_approach2.log /tmp/cl_approach3.log; do
-                URL=\$(cat \$f 2>/dev/null | strings | grep -oP 'https://[^\s]+' | head -1)
-                if [ -n \"\$URL\" ]; then
-                  echo \"\$URL\" > /tmp/claude_url.txt
-                  echo \"FOUND (any URL) in \$f: \$URL\"
-                  break
-                fi
-              done
-            fi
-
-            echo '=== All logs ==='
-            for f in /tmp/cl_approach1.log /tmp/cl_approach2.log /tmp/cl_approach3.log; do
-              echo \"--- \$f ---\"
-              cat \$f 2>/dev/null | strings | head -10
-            done
-          " 2>&1 | tee /tmp/hetzner_login_output.txt
-
-          # Extract URL
-          AUTH_URL=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "cat /tmp/claude_url.txt 2>/dev/null" | tr -d '\r\n' || true)
-          echo "Final URL: '$AUTH_URL'"
+          # Extract FULL URL using Python (handles + and all special chars)
+          AUTH_URL=$($SSH "python3 -c "
+import re
+with open('/tmp/cc_login.txt') as f:
+    t = f.read()
+m = re.search(r'(https://claude\.ai/oauth/authorize\S+)', t)
+print(m.group(1) if m else '')
+"" | tr -d '\r\n')
 
           if [ -z "$AUTH_URL" ]; then
-            # Send raw output for debugging
-            DEBUG=$(cat /tmp/hetzner_login_output.txt | tail -30 | head -20)
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-              -d "chat_id=${TG_CHAT}" -d "text=❌ No login URL found. Raw output: ${DEBUG:0:500}"
+            RAW=$($SSH "cat /tmp/cc_login.txt 2>/dev/null" | head -10)
+            tg "❌ No URL found. Output: $RAW"
             exit 1
           fi
 
-          # Send URL
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-            -d "chat_id=${TG_CHAT}" \
-            -d "parse_mode=HTML" \
-            -d "disable_web_page_preview=true" \
-            -d "text=🔑 <b>TAP TO LOG IN CLAUDE ON HETZNER</b>%0A%0A${AUTH_URL}%0A%0ABot auto-upgrades to Claude Max after you approve."
+          echo "URL length: ${#AUTH_URL}"
 
-          # Poll
+          # Send to Telegram — write URL to temp file to avoid shell escaping issues
+          python3 << PYEND
+import requests
+url = """$AUTH_URL"""
+msg = f"🔑 TAP TO LOG IN CLAUDE ON HETZNER\n\n{url}\n\nTap link above. You have 3 min."
+requests.post(
+    f"https://api.telegram.org/bot${TG_BOT}/sendMessage",
+    json={"chat_id": "${TG_CHAT}", "text": msg, "disable_web_page_preview": True}
+)
+print(f"Sent to Telegram ({len(url)} chars)")
+PYEND
+
+          # Poll for 3 min
           for i in $(seq 1 12); do
             sleep 15
-            STATUS=$(ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "claude auth status 2>&1" || true)
+            STATUS=$($SSH "claude auth status 2>&1" || true)
             if echo "$STATUS" | grep -q '"loggedIn": true'; then
-              ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@87.99.129.125 "systemctl restart agentremote-executor" || true
-              curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-                -d "chat_id=${TG_CHAT}" -d "text=✅ LOGGED IN! AgentRemote upgraded to Claude Max."
+              tg "✅ LOGGED IN! Claude Code authenticated with Max plan on Hetzner. All SUMMITs now autonomous."
               exit 0
             fi
+            echo "Poll $i/12..."
           done
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-            -d "chat_id=${TG_CHAT}" -d "text=⏰ Timed out. Re-run for fresh link."
+          tg "⏰ Timed out. Re-run workflow for fresh link."
