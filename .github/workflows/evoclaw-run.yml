@@ -1,4 +1,4 @@
-name: "EvoClaw Benchmark Run"
+name: "EvoClaw Benchmark"
 
 on:
   workflow_dispatch:
@@ -8,11 +8,12 @@ on:
         required: true
         type: choice
         options:
-          - setup_only
-          - run_single_repo
-          - check_status
+          - setup
+          - launch
+          - status
+          - results
       repo:
-        description: 'Repo to evaluate (for run_single_repo)'
+        description: 'Repo to evaluate'
         required: false
         type: choice
         default: ripgrep
@@ -35,136 +36,94 @@ on:
 
 jobs:
   evoclaw:
-    name: "🧪 EvoClaw: ${{ github.event.inputs.action }}"
+    name: "🧪 ${{ github.event.inputs.action }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 480
+    timeout-minutes: 30  # Max 30 min — no more hour-long polling
 
     steps:
-      - name: Setup SSH
+      - name: SSH setup
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
           ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
           cat > ~/.ssh/config << EOF
-          Host hetzner
+          Host hz
             HostName ${{ secrets.HETZNER_IP }}
             User root
             IdentityFile ~/.ssh/hetzner
             StrictHostKeyChecking no
-            ServerAliveInterval 60
-            ServerAliveCountMax 10
           EOF
 
-      - name: Check server is alive
+      # ========================================
+      # SETUP: Clone repo, download data, pull images (~15 min)
+      # ========================================
+      - name: "Setup EvoClaw on Hetzner"
+        if: github.event.inputs.action == 'setup'
         run: |
-          ssh hetzner "uptime && df -h / && docker --version && echo '✅ Server ready'"
-
-      - name: "Setup EvoClaw (clone + data + images)"
-        if: github.event.inputs.action == 'setup_only' || github.event.inputs.action == 'run_single_repo'
-        run: |
-          ssh hetzner << 'SETUP'
+          ssh hz << 'EOF'
           set -euo pipefail
-          
-          echo "=== Step 1: Clone EvoClaw ==="
-          if [ -d /opt/evoclaw/EvoClaw ]; then
-            echo "EvoClaw already cloned, pulling latest..."
-            cd /opt/evoclaw/EvoClaw && git pull
-          else
-            mkdir -p /opt/evoclaw
-            cd /opt/evoclaw
-            git clone https://github.com/EvoClaw-Bench/EvoClaw.git
-          fi
-          
-          echo "=== Step 2: Install Python deps ==="
-          cd /opt/evoclaw/EvoClaw
-          pip install -e . 2>/dev/null || pip install -e . --break-system-packages
-          
-          echo "=== Step 3: Clone HuggingFace dataset ==="
-          if [ -d /opt/evoclaw/EvoClaw-data ]; then
-            echo "Dataset already exists, skipping..."
-          else
-            cd /opt/evoclaw
-            which git-lfs || (apt-get update && apt-get install -y git-lfs)
+          mkdir -p /opt/evoclaw && cd /opt/evoclaw
+
+          # Clone EvoClaw
+          [ -d EvoClaw ] && (cd EvoClaw && git pull) || git clone https://github.com/EvoClaw-Bench/EvoClaw.git
+          cd EvoClaw && pip install -e . --break-system-packages 2>/dev/null || pip install -e .
+
+          # HuggingFace dataset
+          cd /opt/evoclaw
+          if [ ! -d EvoClaw-data ]; then
+            which git-lfs || (apt-get update -qq && apt-get install -y -qq git-lfs)
             git lfs install
             git clone https://huggingface.co/datasets/hyd2apse/EvoClaw-data
-          fi
-          
-          echo "=== Step 4: Install Claude Code CLI ==="
-          export PATH="/root/.local/bin:$PATH"
-          if which claude; then
-            echo "Claude Code already installed: $(claude --version)"
           else
-            curl -fsSL https://claude.ai/install.sh | bash
-            echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
-            claude --version
+            echo "Dataset exists"
           fi
-          
-          echo "=== Setup complete ==="
-          ls -la /opt/evoclaw/
-          SETUP
 
-      - name: "Pull Docker images for ${{ github.event.inputs.repo }}"
-        if: github.event.inputs.action == 'run_single_repo'
-        run: |
-          REPO="${{ github.event.inputs.repo }}"
-          ssh hetzner << PULLEOF
-          set -euo pipefail
-          cd /opt/evoclaw/EvoClaw
-          echo "Pulling images for: $REPO"
-          ./scripts/pull_images.sh --repo $REPO
-          echo "✅ Images pulled for $REPO"
-          docker images | grep -i "$REPO" | head -20
-          PULLEOF
-
-      - name: "Setup Claude Code MAX auth (zero API cost)"
-        if: github.event.inputs.action == 'run_single_repo'
-        run: |
-          # =====================================================
-          # CRITICAL: MAX ONLY - NEVER USE API KEY
-          # Claude Code authenticates via OAuth credentials file
-          # This uses the Max subscription = $0 per token
-          # =====================================================
-          
-          # Write OAuth credentials from secret
-          if [ -z "${{ secrets.CLAUDE_OAUTH_B64 }}" ]; then
-            echo "❌ FATAL: CLAUDE_OAUTH_B64 secret is empty!"
-            echo ""
-            echo "To fix: SSH to Hetzner, run 'claude login', then:"
-            echo "  base64 -w 0 ~/.claude/.credentials.json"
-            echo "Copy that output into CLAUDE_OAUTH_B64 secret."
-            exit 1
-          fi
-          
-          echo "${{ secrets.CLAUDE_OAUTH_B64 }}" | base64 -d | \
-            ssh hetzner "mkdir -p /root/.claude && cat > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json"
-          
-          # Verify auth works - MUST succeed before we proceed
-          ssh hetzner << 'VERIFY'
+          # Claude Code CLI
           export PATH="/root/.local/bin:$PATH"
-          
-          if [ ! -f /root/.claude/.credentials.json ]; then
-            echo "❌ FATAL: credentials.json not found"
-            exit 1
-          fi
-          
-          echo "✅ Claude Code credentials installed (Max subscription)"
-          echo "⚠️  NO API KEY USED - $0 token cost"
-          
-          # Verify Claude Code can authenticate
-          # (claude --version doesn't need auth, but confirms binary works)
+          which claude || (curl -fsSL https://claude.ai/install.sh | bash)
+          echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
           claude --version
-          VERIFY
 
-      - name: "Create trial config (NO API KEY)"
-        if: github.event.inputs.action == 'run_single_repo'
+          echo "✅ Setup complete"
+          EOF
+
+      # ========================================
+      # LAUNCH: Pull images, write config, start run, EXIT (~10 min)
+      # No polling. Fire and forget. $0 GHA waste.
+      # ========================================
+      - name: "Launch evaluation"
+        if: github.event.inputs.action == 'launch'
         run: |
           REPO="${{ github.event.inputs.repo }}"
           MODEL="${{ github.event.inputs.model }}"
-          TRIAL="everest_evoclaw_$(date +%Y%m%d)"
-          
-          ssh hetzner << CONFIGEOF
-          cat > /opt/evoclaw/EvoClaw/trial_config.yaml << YAML
+          TRIAL="everest_${REPO}_$(date +%Y%m%d_%H%M)"
+
+          # Write OAuth credentials (MAX ONLY — zero API cost)
+          if [ -z "${{ secrets.CLAUDE_OAUTH_B64 }}" ]; then
+            echo "❌ CLAUDE_OAUTH_B64 is empty. SSH to Hetzner, run 'claude login',"
+            echo "   then: base64 -w 0 ~/.claude/.credentials.json"
+            echo "   Paste into CLAUDE_OAUTH_B64 secret."
+            exit 1
+          fi
+          echo "${{ secrets.CLAUDE_OAUTH_B64 }}" | base64 -d | \
+            ssh hz "mkdir -p /root/.claude && cat > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json"
+
+          ssh hz << LAUNCHEOF
+          set -euo pipefail
+          export PATH="/root/.local/bin:\$PATH"
+
+          # SAFETY: Kill any API key env vars
+          unset ANTHROPIC_API_KEY UNIFIED_API_KEY OPENAI_API_KEY 2>/dev/null || true
+
+          cd /opt/evoclaw/EvoClaw
+
+          # Pull Docker images for this repo
+          echo "Pulling images for: ${REPO}..."
+          ./scripts/pull_images.sh --repo ${REPO}
+
+          # Write trial config
+          cat > trial_config.yaml << YAML
           data_root: /opt/evoclaw/EvoClaw-data
           trial_name: ${TRIAL}
           agent: claude-code
@@ -174,117 +133,91 @@ jobs:
             - ${REPO}
           max_parallel: 1
           YAML
-          
-          echo "=== Trial Config ==="
-          cat /opt/evoclaw/EvoClaw/trial_config.yaml
-          CONFIGEOF
 
-      - name: "Run EvoClaw evaluation (MAX - \$0 cost)"
-        if: github.event.inputs.action == 'run_single_repo'
-        run: |
-          # =====================================================
-          # CRITICAL: DO NOT SET UNIFIED_API_KEY
-          # Claude Code uses ~/.claude/.credentials.json (Max)
-          # Setting an API key would bypass Max and charge tokens
-          # =====================================================
-          ssh hetzner << 'RUNEOF'
-          set -euo pipefail
-          cd /opt/evoclaw/EvoClaw
-          export PATH="/root/.local/bin:$PATH"
-          
-          # SAFETY: Ensure NO API key env vars leak into the run
-          unset ANTHROPIC_API_KEY 2>/dev/null || true
-          unset UNIFIED_API_KEY 2>/dev/null || true
-          unset OPENAI_API_KEY 2>/dev/null || true
-          
-          echo "=== EvoClaw Evaluation ==="
-          echo "Auth: Claude Max (OAuth credentials)"
-          echo "Cost: $0 (subscription)"
-          echo "Start: $(date)"
-          echo ""
-          
-          # Run with nohup so it survives SSH disconnect
+          echo "=== Config ==="
+          cat trial_config.yaml
+
+          # Launch and EXIT — no polling
           nohup python scripts/run_all.py --config trial_config.yaml \
-            > /opt/evoclaw/evoclaw_run.log 2>&1 &
-          
-          BGPID=$!
-          echo "$BGPID" > /opt/evoclaw/evoclaw.pid
-          echo "Background PID: $BGPID"
-          
-          # Monitor for up to 7 hours
-          TIMEOUT=25200
-          ELAPSED=0
-          INTERVAL=120
-          
-          while [ $ELAPSED -lt $TIMEOUT ]; do
-            if ! kill -0 $BGPID 2>/dev/null; then
-              echo "=== Process completed ==="
-              tail -50 /opt/evoclaw/evoclaw_run.log
-              break
-            fi
-            
-            echo "[$(date)] Running (${ELAPSED}s elapsed)..."
-            tail -5 /opt/evoclaw/evoclaw_run.log 2>/dev/null || true
-            ./scripts/monitor.sh 2>/dev/null | tail -10 || true
-            
-            sleep $INTERVAL
-            ELAPSED=$((ELAPSED + INTERVAL))
-          done
-          
-          if kill -0 $BGPID 2>/dev/null; then
-            echo "⚠️  GHA timeout approaching, process continues on Hetzner"
-            echo "Check: ssh root@hetzner 'tail -f /opt/evoclaw/evoclaw_run.log'"
-          fi
-          RUNEOF
+            > /opt/evoclaw/evoclaw_${REPO}.log 2>&1 &
 
+          echo \$! > /opt/evoclaw/evoclaw.pid
+          echo ""
+          echo "✅ LAUNCHED (PID: \$(cat /opt/evoclaw/evoclaw.pid))"
+          echo "📊 Model: ${MODEL}"
+          echo "📦 Repo: ${REPO}"
+          echo "💰 Cost: \$0 (Claude Max)"
+          echo "⏱️  ETA: ~5 hours"
+          echo ""
+          echo "Check progress: trigger 'status' action"
+          LAUNCHEOF
+
+      # ========================================
+      # STATUS: Quick check, ~1 min
+      # ========================================
       - name: "Check status"
-        if: github.event.inputs.action == 'check_status'
+        if: github.event.inputs.action == 'status'
         run: |
-          ssh hetzner << 'STATUSEOF'
-          echo "=== EvoClaw Process ==="
+          ssh hz << 'EOF'
+          echo "=== Process ==="
           if [ -f /opt/evoclaw/evoclaw.pid ]; then
             PID=$(cat /opt/evoclaw/evoclaw.pid)
-            if kill -0 $PID 2>/dev/null; then
-              echo "✅ Running (PID: $PID)"
-              ps aux | grep $PID | grep -v grep
-            else
-              echo "⏹️ Process finished"
-            fi
+            kill -0 $PID 2>/dev/null && echo "✅ Running (PID: $PID)" || echo "⏹️ Finished"
           else
-            echo "No PID file found"
+            echo "No run found"
           fi
-          
+
           echo ""
-          echo "=== Latest Log (last 40 lines) ==="
-          tail -40 /opt/evoclaw/evoclaw_run.log 2>/dev/null || echo "No log file"
-          
+          echo "=== Log (last 30 lines) ==="
+          ls -t /opt/evoclaw/evoclaw_*.log 2>/dev/null | head -1 | xargs tail -30 2>/dev/null || echo "No log"
+
           echo ""
           echo "=== Monitor ==="
-          cd /opt/evoclaw/EvoClaw 2>/dev/null && ./scripts/monitor.sh 2>/dev/null || echo "Monitor not available"
-          
-          echo ""
-          echo "=== Docker Containers ==="
-          docker ps --format "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}" 2>/dev/null | head -10
-          
-          echo ""
-          echo "=== Disk ==="
-          df -h /
-          STATUSEOF
+          cd /opt/evoclaw/EvoClaw && ./scripts/monitor.sh 2>/dev/null | head -20 || true
 
-      - name: "Send results to Telegram"
-        if: always() && github.event.inputs.action == 'run_single_repo'
+          echo ""
+          echo "=== Docker ==="
+          docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null | head -10
+
+          echo ""
+          df -h /
+          EOF
+
+      # ========================================
+      # RESULTS: Collect final results + send Telegram
+      # ========================================
+      - name: "Collect results"
+        if: github.event.inputs.action == 'results'
         run: |
-          RESULT=$(ssh hetzner "tail -40 /opt/evoclaw/evoclaw_run.log 2>/dev/null" || echo "Could not fetch results")
-          
+          RESULT=$(ssh hz << 'EOF'
+          echo "=== EvoClaw Results ==="
+          cd /opt/evoclaw/EvoClaw
+
+          # Find latest trial
+          LATEST=$(ls -td /opt/evoclaw/EvoClaw-data/*/trials/everest_* 2>/dev/null | head -1)
+          if [ -n "$LATEST" ]; then
+            echo "Trial: $LATEST"
+            cat "$LATEST/summary.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -60
+            echo ""
+            cat "$LATEST/summary_filtered.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -60
+          else
+            echo "No completed trials found"
+          fi
+
+          echo ""
+          echo "=== Full Monitor ==="
+          ./scripts/monitor.sh --detail 2>/dev/null || true
+          EOF
+          )
+
+          echo "$RESULT"
+
+          # Telegram notification
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.BIDDEED_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.BIDDEED_BOT_CHAT_ID }}" \
             -d "parse_mode=Markdown" \
-            -d "text=🧪 *EvoClaw Benchmark*
-          
-          Repo: \`${{ github.event.inputs.repo }}\`
-          Model: \`${{ github.event.inputs.model }}\`
-          Auth: Claude Max (\$0 cost)
-          
+            -d "text=🧪 *EvoClaw Results*
+
           \`\`\`
           ${RESULT:0:3000}
           \`\`\`" || true
