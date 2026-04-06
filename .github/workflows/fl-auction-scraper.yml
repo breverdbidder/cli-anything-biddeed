@@ -1,4 +1,4 @@
-name: "SUMMIT #138: FL Auction Scraper V2"
+name: "FL Auction Scraper — Daily"
 
 on:
   schedule:
