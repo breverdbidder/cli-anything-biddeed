@@ -11,10 +11,6 @@ on:
         options:
           - ZoneWiseDemo
           - ZoneWiseHook
-  push:
-    branches: [main]
-    paths:
-      - "zonewise-video/src/**"
 
 jobs:
   render:
