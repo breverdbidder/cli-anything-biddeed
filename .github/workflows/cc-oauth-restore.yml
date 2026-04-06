@@ -1,0 +1,36 @@
+name: CC OAuth Restore — Find and Recover Credentials
+on:
+  workflow_dispatch: {}
+jobs:
+  restore-oauth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Search Hetzner for OAuth credentials
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+
+          echo "=== Search for ANY claude credential files ==="
+          $SSH "find / -name 'credentials.json' -path '*claude*' 2>/dev/null;                  find / -name '.credentials.json' -path '*claude*' 2>/dev/null;                  find / -name 'auth.json' -path '*claude*' 2>/dev/null;                  find / -name 'settings.json' -path '*claude*' 2>/dev/null;                  find /root -name '*.json' -path '*claude*' 2>/dev/null;                  find /root -name '*.json' -path '*.claude*' 2>/dev/null;                  find /home -name '*.json' -path '*claude*' 2>/dev/null"
+
+          echo ""
+          echo "=== Check .claude directory structure ==="
+          $SSH "ls -la /root/.claude/ 2>/dev/null || echo 'No /root/.claude/';                  ls -la /root/.claude* 2>/dev/null;                  ls -la /root/.config/claude/ 2>/dev/null || echo 'No .config/claude'"
+
+          echo ""
+          echo "=== Check CC version and auth status ==="
+          $SSH "claude --version 2>/dev/null || echo 'claude not found';                  claude auth status 2>/dev/null || echo 'auth status not available';                  cat /root/.claude/config.json 2>/dev/null || echo 'No config.json'"
+
+          echo ""
+          echo "=== Check for backup credentials ==="
+          $SSH "find /root -name '*.bak' -path '*claude*' 2>/dev/null;                  find /root/summit-* -name '*.json' -path '*claude*' 2>/dev/null;                  find /tmp -name '*claude*' 2>/dev/null"
+
+          echo ""
+          echo "=== Check if CC can auto-login with existing session ==="
+          $SSH "claude -p 'echo hello' --allowedTools 'Bash(*)' 2>&1 | head -20" || echo "CC test failed"
