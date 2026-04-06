@@ -22,7 +22,7 @@ FIELDS = ",".join([
     "ALT_KEY","SPEC_FEAT_","DISTR_CD","CENSUS_BK",
     "JV_HMSTD","AV_HMSTD"
 ])
-WHERE = "PARCELNO LIKE '05%'"
+WHERE = "CO_NO=15"
 BATCH = 2000
 
 def tg(msg):
@@ -60,7 +60,7 @@ def map_to_zw(rec):
         sale_date = f"{sale_yr}-{sale_mo:02d}-01"
     
     return {
-        "co_no": 5,
+        "co_no": 15,
         "county": "BREVARD",
         "pin": pid,
         "pin_clean": pin_clean,
