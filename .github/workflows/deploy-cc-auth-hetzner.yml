@@ -10,47 +10,30 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get install -y -qq sshpass
 
-      - name: Deploy credentials to Hetzner
+      - name: Deploy credentials
         env:
-          HETZNER_IP: ${{ secrets.HETZNER_IP }}
-          CC_CREDS: ${{ secrets.CLAUDE_CODE_CREDENTIALS }}
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+          HOST: ${{ secrets.HETZNER_IP }}
           CC_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CC_CREDS: ${{ secrets.CLAUDE_CODE_CREDENTIALS }}
         run: |
-          # Write password to file to avoid shell expansion of $
-          echo -n '${{ secrets.HETZNER_PASSWORD }}' > /tmp/hp
-          export SSHPASS=$(cat /tmp/hp)
-          SSH_CMD="sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-
-          # Test connection first
-          echo "Testing SSH connection..."
-          $SSH_CMD root@${HETZNER_IP} "echo 'SSH OK' && hostname" || {
-            echo "SSH failed. Trying with different auth methods..."
-            # Try without sshpass in case key auth works
-            ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP} "echo 'Key auth OK'" 2>&1 || true
-            echo "❌ All SSH methods failed"
-            exit 1
-          }
-
-          echo "SSH connected. Deploying credentials..."
-
-          # Write credentials
-          $SSH_CMD root@${HETZNER_IP} "mkdir -p ~/.claude && chmod 700 ~/.claude"
+          SSH="sshpass -e ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${HOST}"
           
-          # Use base64 to avoid any shell escaping issues
-          echo "${CC_CREDS}" | base64 -w0 > /tmp/creds_b64
-          CREDS_B64=$(cat /tmp/creds_b64)
-          $SSH_CMD root@${HETZNER_IP} "echo '${CREDS_B64}' | base64 -d > ~/.claude/.credentials.json && chmod 600 ~/.claude/.credentials.json"
-
-          # Onboarding bypass
-          $SSH_CMD root@${HETZNER_IP} 'cat > ~/.claude.json << EOF2
-          {"hasCompletedOnboarding":true,"oauthAccount":{}}
-          EOF2'
-
-          # Env vars
-          $SSH_CMD root@${HETZNER_IP} "grep -q CLAUDE_CODE_OAUTH_TOKEN ~/.bashrc 2>/dev/null || echo 'export CLAUDE_CODE_OAUTH_TOKEN=\"${CC_TOKEN}\"' >> ~/.bashrc"
-
-          # Verify
-          $SSH_CMD root@${HETZNER_IP} "echo '=== VERIFY ===' && python3 -c \"import json; d=json.load(open('/root/.claude/.credentials.json')); print(f'Token: {d[chr(99)+chr(108)+chr(97)+chr(117)+chr(100)+chr(101)+chr(65)+chr(105)+chr(79)+chr(97)+chr(117)+chr(116)+chr(104)][chr(97)+chr(99)+chr(99)+chr(101)+chr(115)+chr(115)+chr(84)+chr(111)+chr(107)+chr(101)+chr(110)][:20]}...'); print(f'Sub: {d[chr(99)+chr(108)+chr(97)+chr(117)+chr(100)+chr(101)+chr(65)+chr(105)+chr(79)+chr(97)+chr(117)+chr(116)+chr(104)][chr(115)+chr(117)+chr(98)+chr(115)+chr(99)+chr(114)+chr(105)+chr(112)+chr(116)+chr(105)+chr(111)+chr(110)+chr(84)+chr(121)+chr(112)+chr(101)]}')\"" || echo "Verify step failed but credentials may be deployed"
-
+          echo "=== Testing SSH ==="
+          $SSH "echo SSH_OK && hostname" || { echo "SSH failed"; exit 1; }
+          
+          echo "=== Writing credentials ==="
+          $SSH "mkdir -p /root/.claude && chmod 700 /root/.claude"
+          echo "$CC_CREDS" | $SSH "cat > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json"
+          
+          echo "=== Writing config ==="
+          $SSH 'echo "{\"hasCompletedOnboarding\":true,\"oauthAccount\":{}}" > /root/.claude.json'
+          
+          echo "=== Setting env var ==="
+          $SSH "grep -q CLAUDE_CODE_OAUTH_TOKEN /root/.bashrc 2>/dev/null || echo \"export CLAUDE_CODE_OAUTH_TOKEN=\\\"${CC_TOKEN}\\\"\" >> /root/.bashrc"
+          
+          echo "=== Verifying ==="
+          $SSH "cat /root/.claude/.credentials.json | head -c 80 && echo '...'"
+          $SSH "claude --version 2>/dev/null || echo 'CC not installed yet'"
+          
           echo "✅ CC credentials deployed to Hetzner"
-          rm -f /tmp/hp /tmp/creds_b64
