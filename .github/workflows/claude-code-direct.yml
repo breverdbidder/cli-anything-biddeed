@@ -5,7 +5,7 @@ on:
       issues:
         description: 'Comma-separated issue numbers'
         required: true
-        default: '171,172'
+        default: '379'
 jobs:
   run-claude-code:
     runs-on: ubuntu-latest
@@ -19,7 +19,6 @@ jobs:
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           ISSUE: ${{ matrix.issue }}
@@ -30,20 +29,12 @@ jobs:
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o BatchMode=yes root@${HETZNER_IP}"
 
           echo "=== Setup workspace ==="
-          $SSH "mkdir -p /root/summit-${ISSUE} && cd /root/summit-${ISSUE} && \
-            (test -d cli-anything-biddeed/.git && cd cli-anything-biddeed && git pull || \
-            git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git) && \
-            cd cli-anything-biddeed && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
+          $SSH "mkdir -p /root/summit-${ISSUE} && cd /root/summit-${ISSUE} &&             (test -d zonewise-web/.git && cd zonewise-web && git pull ||             git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/zonewise-web.git) &&             cd zonewise-web && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
 
-          echo "=== Clear stale OAuth + set API key ==="
-          $SSH "rm -f /root/.claude/.credentials.json 2>/dev/null; echo 'Stale OAuth cleared'"
+          echo "=== Verify OAuth is alive (DO NOT delete credentials) ==="
+          $SSH "test -f /root/.claude/credentials.json && echo 'OAuth credentials found' || test -f /root/.claude/.credentials.json && echo 'OAuth credentials found' || echo 'WARNING: No OAuth credentials'"
 
-          echo "=== Run Claude Code on SUMMIT #${ISSUE} ==="
-          $SSH "cd /root/summit-${ISSUE}/cli-anything-biddeed && \
-            export ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY}' && \
-            export SUPABASE_ACCESS_TOKEN='${SUPABASE_ACCESS_TOKEN}' && \
-            claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE} using: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} | jq .body. Then execute ALL tasks. Follow CLAUDE.md. Commit and push. Comment on the issue when done.' \
-            --allowedTools 'Bash(*)' 'Read' 'Write' 'Edit' \
-            2>&1 | tail -200" || echo "Claude Code exited"
+          echo "=== Run Claude Code on SUMMIT #${ISSUE} (using Max plan OAuth) ==="
+          $SSH "cd /root/summit-${ISSUE}/zonewise-web &&             export SUPABASE_ACCESS_TOKEN='${SUPABASE_ACCESS_TOKEN}' &&             export GH_PAT='${GH_PAT}' &&             claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE} using: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} | jq .body. Also read all comments: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments | jq .[].body. Then execute ALL tasks. Follow CLAUDE.md. Wire fl_parcels (9.4M rows) to the frontend. Commit and push frequently. Comment on the issue when done.'             --allowedTools 'Bash(*)' 'Read' 'Write' 'Edit'             2>&1 | tail -500" || echo "Claude Code session ended"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
