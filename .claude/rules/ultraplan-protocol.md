@@ -44,6 +44,15 @@ Use standard `claude -p` headless for:
 - If Remote Control is active, it disconnects when ultraplan starts
 - Works best with committed + pushed code (uses git remote snapshot)
 
+## Native Status (verified 2026-04-07, CC 2.1.92)
+
+- `/ultraplan` is a **native CC built-in** — no custom runner needed
+- Custom `summit-ultraplan.yml` + `ultraplan-runner.py` retired (SUMMIT #392)
+- Native implementation: 28 references in cli.js, full lifecycle phases
+  (`plan_ready`, `needs_input`, `running`), CCR session URL tracking
+- To dispatch ultraplan via GHA: use standard SUMMIT dispatch workflow
+  with an interactive CC session, NOT the retired custom runner
+
 ## Post-Ultraplan
 
 1. PR arrives from CCR execution
