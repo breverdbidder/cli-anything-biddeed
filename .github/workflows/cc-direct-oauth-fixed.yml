@@ -35,6 +35,7 @@ jobs:
             cd cli-anything-biddeed && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
 
           echo "=== Write OAuth credentials via base64 (avoids # shell issue) ==="
+          echo "DEBUG: CLAUDE_OAUTH_B64 length=$(echo -n "$CLAUDE_OAUTH_B64" | wc -c), first 4 chars=$(echo -n "$CLAUDE_OAUTH_B64" | head -c 4 | od -An -c | tr -d " "), last 4=$(echo -n "$CLAUDE_OAUTH_B64" | tail -c 4 | od -An -c | tr -d " ")"
           # FIXED Apr 7 2026: write FULL credentials.json from CLAUDE_OAUTH_B64 (was building truncated JSON from accessToken only)
           $SSH "mkdir -p /root/.claude && echo \"${CLAUDE_OAUTH_B64}\" | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json && echo Wrote credentials: && wc -c /root/.claude/.credentials.json"
 
