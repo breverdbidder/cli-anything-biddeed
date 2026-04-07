@@ -1,6 +1,6 @@
 {
   "permissions": {
-    "allow": ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)", "mcp__*"],
+    "allow": ["Bash(*)", "Write(*)", "Edit(*)", "Read(*)"],
     "deny": []
   }
 }
