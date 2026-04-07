@@ -422,6 +422,11 @@ def main():
         if not defendant:
             continue
 
+        # Skip defendants whose name IS a known city (no useful data)
+        last_name = extract_last_name(defendant)
+        if is_city_name(last_name) or len(last_name) < 4:
+            continue
+
         case_number = a.get("case_number", "")
         auction_date = a.get("auction_date")
         plaintiff = a.get("plaintiff")
