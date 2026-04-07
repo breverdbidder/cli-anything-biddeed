@@ -1,0 +1,84 @@
+name: Full OAuth Recovery + Dispatch All
+on:
+  workflow_dispatch:
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discover good credential source
+        id: source
+        env:
+          B64_NEW: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          CRED_OLD: ${{ secrets.CLAUDE_CODE_CREDENTIALS }}
+          TOKEN_OLD: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "B64_NEW length: $(echo -n "$B64_NEW" | wc -c)"
+          echo "CRED_OLD length: $(echo -n "$CRED_OLD" | wc -c)"
+          echo "TOKEN_OLD length: $(echo -n "$TOKEN_OLD" | wc -c)"
+          # Try B64_NEW first (b64 of credentials.json)
+          if [ "$(echo -n "$B64_NEW" | wc -c)" -gt 100 ]; then
+            echo "$B64_NEW" | base64 -d > /tmp/creds.json 2>/dev/null && python3 -c "import json,sys;d=json.load(open('/tmp/creds.json'));print('B64_NEW valid, keys:',list(d.get('claudeAiOauth',{}).keys()))" && echo "USE=B64_NEW" >> $GITHUB_OUTPUT && exit 0
+          fi
+          # Try CRED_OLD (could be raw JSON or b64)
+          if [ "$(echo -n "$CRED_OLD" | wc -c)" -gt 100 ]; then
+            # try as raw json
+            echo "$CRED_OLD" > /tmp/c1.json
+            if python3 -c "import json;d=json.load(open('/tmp/c1.json'));print('CRED_OLD raw json valid, keys:',list(d.get('claudeAiOauth',{}).keys()))" 2>/dev/null; then
+              cp /tmp/c1.json /tmp/creds.json
+              echo "USE=CRED_OLD_RAW" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            # try as b64
+            echo "$CRED_OLD" | base64 -d > /tmp/c2.json 2>/dev/null
+            if python3 -c "import json;d=json.load(open('/tmp/c2.json'));print('CRED_OLD b64 valid, keys:',list(d.get('claudeAiOauth',{}).keys()))" 2>/dev/null; then
+              cp /tmp/c2.json /tmp/creds.json
+              echo "USE=CRED_OLD_B64" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          # Try TOKEN_OLD as raw access token, build minimal struct (last resort, may not work)
+          if [ "$(echo -n "$TOKEN_OLD" | wc -c)" -gt 50 ]; then
+            python3 -c "import json,os; json.dump({'claudeAiOauth':{'accessToken':os.environ['TOKEN_OLD']}}, open('/tmp/creds.json','w'))"
+            echo "USE=TOKEN_OLD_WRAPPED" >> $GITHUB_OUTPUT
+            echo "WARNING: only access token available, no refresh"
+            exit 0
+          fi
+          echo "FAIL: no usable credential source found"
+          exit 1
+      - name: Restore Hetzner credentials and verify
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=15 root@${HETZNER_IP}"
+          # Backup what's currently there
+          $SSH "cp /root/.claude/.credentials.json /root/.claude/.credentials.json.bak.$(date +%s) 2>/dev/null; wc -c /root/.claude/.credentials.json 2>/dev/null || echo 'no existing creds'"
+          # Push new credentials
+          B64_FULL=$(base64 -w0 /tmp/creds.json)
+          $SSH "mkdir -p /root/.claude && echo '$B64_FULL' | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json && wc -c /root/.claude/.credentials.json"
+          # Test
+          $SSH "claude -p 'respond with OK only' 2>&1 | head -3 || echo AUTH_TEST_FAILED"
+      - name: Cross-rotate secret to all repos
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          B64_FULL=$(base64 -w0 /tmp/creds.json)
+          for repo in cli-anything-biddeed zonewise-web everest-nexus; do
+            echo "$B64_FULL" | gh secret set CLAUDE_OAUTH_B64 -R breverdbidder/$repo --body - && echo "✓ $repo" || echo "✗ $repo"
+          done
+          # Verify
+          for repo in cli-anything-biddeed zonewise-web everest-nexus; do
+            gh secret list -R breverdbidder/$repo 2>&1 | grep CLAUDE_OAUTH_B64
+          done
+      - name: Dispatch all 13 SUMMITs
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          for n in 119 120 121 274 371 372 373 374 375 376 377 378 387; do
+            gh workflow run cc-direct-oauth-fixed.yml -R breverdbidder/cli-anything-biddeed -f issues=$n 2>&1 | head -1
+            sleep 2
+          done
+          echo "All 13 dispatched"
