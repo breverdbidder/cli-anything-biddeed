@@ -114,6 +114,11 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
             -H "Prefer: count=exact" 2>&1 | grep -i "content-range"
 
+      - name: "Apply dashboard views"
+        run: |
+          SUPABASE_DB_PASSWORD="${{ secrets.SUPABASE_DB_PASSWORD }}" \
+          node migrations/run_migration.js migrations/20260407_trajectory_dashboard_views.sql 2>&1 || echo "Views may already exist"
+
       - name: "Run reward V2 scoring on backfill"
         run: |
           pip3 install supabase -q 2>&1 | tail -2

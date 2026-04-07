@@ -72,6 +72,7 @@ print(f"Upcoming Brevard auctions: {len(auctions)}")
 
 scored = {"BID": [], "REVIEW": [], "SKIP": [], "UNKNOWN": []}
 updates = []
+traj_count = 0
 
 for a in auctions:
     jv = a.get("market_value") or 0
@@ -115,6 +116,32 @@ for a in auctions:
         "luse_code": luse
     })
     
+    # Record trajectory for RL reward engine (#119)
+    if result["max_bid"] is not None and SUPABASE_KEY:
+        traj_record = {
+            "case_number": a.get("case_number", ""),
+            "auction_date": str(a.get("auction_date", today)),
+            "auction_type": "foreclosure",
+            "zip_code": (a.get("property_address") or "").split()[-1][:5] if a.get("property_address") else "unknown",
+            "property_type": "residential" if str(luse).zfill(3)[:2] == "00" else "commercial",
+            "county": "Brevard",
+            "arv_estimate": jv,
+            "repair_estimate": min(25000, jv * 0.15) if jv > 0 else None,
+            "judgment_amount": ob,
+            "max_bid_calculated": result["max_bid"],
+            "bid_judgment_ratio": result["bid_ratio"],
+            "recommendation": rec,
+            "model_version": "xgboost_v1",
+            "formula_version": "shapira_v1",
+        }
+        try:
+            tr = requests.post(f"{BASE}/prediction_trajectories", headers={**H, "Prefer": "return=minimal"},
+                json=traj_record, timeout=10)
+            if tr.status_code in [200, 201, 204]:
+                traj_count += 1
+        except Exception as e:
+            pass  # non-blocking — don't fail scoring on trajectory insert
+
     # Prepare update for multi_county_auctions
     if result["max_bid"] is not None:
         updates.append({
@@ -136,6 +163,7 @@ for u in updates:
             updated += 1
 
 print(f"\nUpdated {updated} auctions with market data")
+print(f"Recorded {traj_count} prediction trajectories (RL engine #119)")
 print(f"\nResults: 🟢 BID={len(scored['BID'])} | 🟡 REVIEW={len(scored['REVIEW'])} | 🔴 SKIP={len(scored['SKIP'])} | ❓ UNKNOWN={len(scored['UNKNOWN'])}")
 
 # ── TELEGRAM REPORT ──
