@@ -19,7 +19,7 @@ jobs:
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          CLAUDE_CODE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
           GH_PAT: ${{ secrets.GH_PAT }}
           ISSUE: ${{ matrix.issue }}
         run: |
@@ -35,8 +35,8 @@ jobs:
             cd cli-anything-biddeed && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
 
           echo "=== Write OAuth credentials via base64 (avoids # shell issue) ==="
-          CREDS_B64=$(echo -n "{\"claudeAiOauth\":{\"accessToken\":\"${CLAUDE_CODE_OAUTH}\"}}" | base64 -w0)
-          $SSH "mkdir -p /root/.claude && echo '${CREDS_B64}' | base64 -d > /root/.claude/.credentials.json && echo 'Wrote credentials:' && wc -c /root/.claude/.credentials.json && cat /root/.claude/.credentials.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f\"Token length: {len(d.get(\"claudeAiOauth\",{}).get(\"accessToken\",\"\"))}\"  )' 2>/dev/null || echo 'Parse check failed'"
+          # FIXED Apr 7 2026: write FULL credentials.json from CLAUDE_OAUTH_B64 (was building truncated JSON from accessToken only)
+          $SSH "mkdir -p /root/.claude && echo \"${CLAUDE_OAUTH_B64}\" | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json && echo Wrote credentials: && wc -c /root/.claude/.credentials.json"
 
           echo "=== Verify Claude Code auth ==="
           $SSH "claude --version 2>&1 && claude -p 'say hello' --allowedTools 'Bash(*)' 2>&1 | head -5 || echo 'Auth test failed'"
