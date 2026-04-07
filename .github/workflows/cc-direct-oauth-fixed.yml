@@ -19,7 +19,6 @@ jobs:
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
           GH_PAT: ${{ secrets.GH_PAT }}
           ISSUE: ${{ matrix.issue }}
         run: |
@@ -34,18 +33,18 @@ jobs:
             git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git) && \
             cd cli-anything-biddeed && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
 
-          echo "=== Write OAuth credentials via base64 (avoids # shell issue) ==="
-          echo "DEBUG: CLAUDE_OAUTH_B64 length=$(echo -n "$CLAUDE_OAUTH_B64" | wc -c), first 4 chars=$(echo -n "$CLAUDE_OAUTH_B64" | head -c 4 | od -An -c | tr -d " "), last 4=$(echo -n "$CLAUDE_OAUTH_B64" | tail -c 4 | od -An -c | tr -d " ")"
-          # FIXED Apr 7 2026: write FULL credentials.json from CLAUDE_OAUTH_B64 (was building truncated JSON from accessToken only)
-          $SSH "mkdir -p /root/.claude && echo \"${CLAUDE_OAUTH_B64}\" | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json && echo Wrote credentials: && wc -c /root/.claude/.credentials.json"
+          # Apr 7 2026 PERMANENT FIX: Hetzner /root/.claude/.credentials.json is source of truth.
+          # Workflow no longer overwrites credentials. Operator runs `claude /login` once on Hetzner;
+          # credentials persist across runs. Previous version wrote a truncated JSON every run,
+          # which was the actual root cause of the multi-day "OAuth keeps breaking" issue.
 
           echo "=== Verify Claude Code auth ==="
-          $SSH "claude --version 2>&1 && claude -p 'say hello' --allowedTools 'Bash(*)' 2>&1 | head -5 || echo 'Auth test failed'"
+          $SSH "claude --version 2>&1 && claude -p 'say hello' --allowedTools 'Bash(*)' 2>&1 | head -5 || echo 'Auth test failed - run claude /login on Hetzner'"
 
           echo "=== Run Claude Code on SUMMIT #${ISSUE} ==="
           $SSH "cd /root/summit-${ISSUE}/cli-anything-biddeed && \
             export GH_PAT='${GH_PAT}' && \
-            claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE} using: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} | jq .body. Then execute ALL tasks. Follow CLAUDE.md. Commit and push. Comment on the issue when done.' \
+            claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE}. Then execute ALL tasks. Follow CLAUDE.md. Commit and push. Comment on the issue when done.' \
             --allowedTools 'Bash(*)' 'Read' 'Write' 'Edit' \
             2>&1 | tail -500" || echo "Claude Code exited"
 
