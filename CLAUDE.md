@@ -875,3 +875,29 @@ BEFORE any architecture, design, or component work:
 
 NEVER build from scratch what already exists tested and verified.
 Applies: UI (shadcn/ui), frameworks, pipelines, auth, payments, charts, maps.
+
+## SHIP GATE — VERIFIED-tier (PERMANENT, added 2026-04-07)
+
+**Triggered by SUMMIT #387 honesty violation `6fdfc59d-d668-41f6-be8d-8a14e4c733bb` (CRITICAL).**
+
+Before any SUMMIT may be marked SHIPPED or commented as complete, Claude Code MUST:
+
+1. **Execute, not just commit.** Writing migration files, scripts, or workflows is NOT shipping. The migration MUST be applied to the live Supabase project. The script MUST be executed against live data. Files-only commits = `WIP`, never `SHIPPED`.
+
+2. **Paste SQL proof in the completion comment.** Every SUMMIT that touches Supabase MUST end its issue comment with a fenced code block titled `### SQL VERIFICATION` containing:
+   - The exact SELECT query proving the deliverable exists
+   - The exact row count or sample output
+   - Timestamp in UTC
+
+3. **Sentinel agreement.** If Sentinel/Patrol fires a failure alert on the SUMMIT run, the AI Architect may NOT dismiss it as a false positive without first running an independent live-DB query to disprove it. Sentinel is correct by default; the burden of proof is on whoever disagrees.
+
+4. **No `SHIPPED ✅` without all four:**
+   - GHA run conclusion = `success`
+   - Live DB query returns expected non-trivial result
+   - SQL VERIFICATION block in issue comment
+   - Sentinel green OR explicitly disproved with paste-in evidence
+
+5. **Honesty Protocol penalty.** Any SHIPPED claim later disproved = VERIFIED-class violation, 3× penalty, logged to `public.honesty_violations` table with `severity='CRITICAL'`. Repeat offenders escalate to BLANK > WRONG enforcement: workflow may not auto-comment without human review.
+
+This gate exists because on 2026-04-07 SUMMIT #387 (Owner OSINT) committed three files, ran zero SQL, never created the table in Supabase, and self-certified SHIPPED with a checkmark. The downstream classifier was also broken (80% INVESTOR rate from city-name collisions). Sentinel caught it; the AI Architect dismissed Sentinel; only manual Mgmt API verification exposed the truth. This will not happen again.
+
