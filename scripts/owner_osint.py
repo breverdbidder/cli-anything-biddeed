@@ -67,6 +67,57 @@ def extract_last_name(name):
     return parts[-1] if parts else ""
 
 
+def extract_first_name(name):
+    """Extract first name from defendant for fuzzy matching."""
+    normalized = normalize_name(name)
+    if not normalized:
+        return ""
+    if "," in normalized:
+        after_comma = normalized.split(",", 1)[1].strip()
+        parts = after_comma.split()
+        return parts[0] if parts else ""
+    parts = normalized.split()
+    return parts[0] if len(parts) >= 2 else ""
+
+
+# Known cities/places in Brevard County FL that collide with last names
+BREVARD_CITIES = {
+    "MELBOURNE", "PALM BAY", "TITUSVILLE", "COCOA", "VIERA",
+    "MERRITT ISLAND", "SATELLITE BEACH", "ROCKLEDGE", "CAPE CANAVERAL",
+    "INDIAN HARBOUR BEACH", "PALM", "MERRITT", "SATELLITE", "CAPE",
+    "INDIAN", "HARBOUR", "INDIALANTIC", "GRANT", "MIMS", "SCOTTSMOOR",
+    "SHARPES", "SUNTREE", "WEST MELBOURNE",
+}
+
+# Common FL cities that could collide
+FL_CITIES = BREVARD_CITIES | {
+    "ORLANDO", "JACKSONVILLE", "TAMPA", "MIAMI", "NAPLES",
+    "KISSIMMEE", "DAYTONA", "CLEARWATER", "LAKELAND", "GAINESVILLE",
+    "TALLAHASSEE", "PENSACOLA", "SARASOTA", "FORT LAUDERDALE",
+    "OCALA", "DELTONA", "SANFORD", "APOPKA", "OCOEE",
+}
+
+
+def is_city_name(last_name):
+    """Check if extracted last name matches a known FL city/place."""
+    return last_name.upper() in FL_CITIES
+
+
+def levenshtein(s1, s2):
+    """Simple Levenshtein distance for short strings."""
+    if len(s1) < len(s2):
+        return levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
+        prev = curr
+    return prev[-1]
+
+
 def classify_by_name(defendant):
     """Pre-classify based on defendant name patterns before DB lookup."""
     if not defendant:
@@ -78,8 +129,79 @@ def classify_by_name(defendant):
     return None
 
 
-def classify_owner(defendant, parcels):
-    """Classify defendant based on matched zw_parcels data."""
+def compute_confidence(defendant, parcels, page_cap_hit):
+    """Compute confidence score 0.0-1.0 for the classification.
+
+    Factors:
+    - Name length (longer = more specific = higher confidence)
+    - First-name match strength (Levenshtein distance)
+    - Page-cap hit (if we hit 500 cap, confidence drops)
+    - Owner-state agreement across parcels
+    """
+    if not parcels:
+        return 0.0
+
+    score = 0.0
+    last_name = extract_last_name(defendant)
+    first_name = extract_first_name(defendant)
+
+    # Factor 1: Last name length (0-0.25)
+    # >= 6 chars = full credit, 4-5 = partial, < 4 = minimal
+    if len(last_name) >= 6:
+        score += 0.25
+    elif len(last_name) >= 4:
+        score += 0.15
+    else:
+        score += 0.05
+
+    # Factor 2: First-name match in parcels (0-0.35)
+    if first_name and len(first_name) >= 2:
+        best_dist = 999
+        for p in parcels:
+            owner = (p.get("owner_name") or "").upper()
+            # Extract first name from owner_name
+            if "," in owner:
+                after = owner.split(",", 1)[1].strip().split()[0] if "," in owner else ""
+            else:
+                parts = owner.split()
+                after = parts[0] if len(parts) >= 2 else ""
+            if after:
+                dist = levenshtein(first_name, after)
+                best_dist = min(best_dist, dist)
+        if best_dist <= 0:
+            score += 0.35
+        elif best_dist <= 1:
+            score += 0.25
+        elif best_dist <= 2:
+            score += 0.15
+        else:
+            score += 0.0  # No first-name match
+    else:
+        score += 0.0  # No first name to match
+
+    # Factor 3: Page-cap NOT hit (0-0.2)
+    if not page_cap_hit:
+        score += 0.2
+    else:
+        score += 0.05  # Some credit — we still have data
+
+    # Factor 4: Owner-state consistency (0-0.2)
+    states = [p.get("owner_state") for p in parcels if p.get("owner_state")]
+    if states:
+        most_common = max(set(states), key=states.count)
+        agreement = states.count(most_common) / len(states)
+        score += 0.2 * agreement
+    else:
+        score += 0.1  # Neutral
+
+    return round(min(score, 1.0), 3)
+
+
+def classify_owner(defendant, parcels, confidence_score):
+    """Classify defendant based on matched zw_parcels data.
+
+    INVESTOR requires >= 3 parcels AND confidence_score >= 0.7.
+    """
     # Name-based classification takes priority for ESTATE and CORPORATE
     name_class = classify_by_name(defendant)
     if name_class == "ESTATE":
@@ -87,7 +209,6 @@ def classify_owner(defendant, parcels):
 
     count = len(parcels)
     if count == 0:
-        # Still check name patterns even with no parcel match
         if name_class == "CORPORATE":
             return "CORPORATE"
         return "UNKNOWN"
@@ -96,49 +217,87 @@ def classify_owner(defendant, parcels):
     if name_class == "CORPORATE":
         return "CORPORATE"
 
-    # Multi-property = investor
-    if count >= 2:
+    # INVESTOR: >= 3 parcels AND confidence >= 0.7
+    if count >= 3 and confidence_score >= 0.7:
         return "INVESTOR"
 
-    # Single property — check if homestead residential
-    p = parcels[0]
-    luse = str(p.get("luse_code") or "").zfill(4)
-    is_residential = luse[:2] == "00"
-    if is_residential:
-        return "DISTRESSED_HOMEOWNER"
+    # Single property with high confidence — check if homestead residential
+    if count == 1:
+        p = parcels[0]
+        luse = str(p.get("luse_code") or "").zfill(4)
+        is_residential = luse[:2] == "00"
+        if is_residential:
+            return "DISTRESSED_HOMEOWNER"
 
     return "UNKNOWN"
 
 
+PAGE_SIZE = 200
+MAX_PARCELS = 500
+
+
+def _paginated_query(params):
+    """Paginate PostgREST queries using Range header until exhausted, cap at MAX_PARCELS."""
+    all_results = []
+    offset = 0
+    while offset < MAX_PARCELS:
+        end = offset + PAGE_SIZE - 1
+        hdrs = {**H, "Range": f"{offset}-{end}", "Prefer": "count=exact"}
+        r = requests.get(f"{BASE}/zw_parcels", headers=hdrs, params=params, timeout=15)
+        if r.status_code not in (200, 206):
+            break
+        batch = r.json() if isinstance(r.json(), list) else []
+        if not batch:
+            break
+        all_results.extend(batch)
+        if len(batch) < PAGE_SIZE:
+            break  # Last page
+        offset += PAGE_SIZE
+    return all_results[:MAX_PARCELS]
+
+
 def lookup_parcels(defendant, county, co_no):
-    """Query zw_parcels for all parcels owned by this defendant name."""
+    """Query zw_parcels for all parcels owned by this defendant name.
+
+    Returns (parcels, page_cap_hit) tuple.
+    Rejects defendants whose last name is a known FL city (< 4 chars or city match).
+    """
     normalized = normalize_name(defendant)
     if not normalized:
-        return []
+        return [], False
+
+    last_name = extract_last_name(defendant)
+
+    # Reject if last name too short (< 4 chars) — too many collisions
+    if len(last_name) < 4:
+        return [], False
+
+    # Reject if last name is a known city/place
+    if is_city_name(last_name):
+        return [], False
+
+    select_cols = ("pin,site_addr,site_city,val_market,luse_code,luse_desc,"
+                   "owner_name,owner_state,owner_zip,sale_date,sale_price,"
+                   "sqft_heated,year_built,zoning_code,acres_deed")
 
     # Try exact match first (most reliable)
     params = {
-        "select": "pin,site_addr,site_city,val_market,luse_code,luse_desc,"
-                  "owner_name,owner_state,owner_zip,sale_date,sale_price,"
-                  "sqft_heated,year_built,zoning_code,acres_deed",
+        "select": select_cols,
         "owner_name": f"ilike.{normalized}",
         "co_no": f"eq.{co_no}",
-        "limit": "50"
     }
-    r = requests.get(f"{BASE}/zw_parcels", headers=H, params=params, timeout=15)
-    results = r.json() if r.status_code == 200 and isinstance(r.json(), list) else []
+    results = _paginated_query(params)
 
     # If no exact match, try last-name match
     if not results:
-        last_name = extract_last_name(defendant)
-        if last_name and len(last_name) >= 3:
+        if last_name and len(last_name) >= 4:
             params["owner_name"] = f"ilike.{last_name}%"
-            r2 = requests.get(f"{BASE}/zw_parcels", headers=H, params=params, timeout=15)
-            candidates = r2.json() if r2.status_code == 200 and isinstance(r2.json(), list) else []
+            candidates = _paginated_query(params)
             # Filter: last name must match beginning of owner_name
             results = [p for p in candidates if (p.get("owner_name") or "").upper().startswith(last_name)]
 
-    return results
+    page_cap_hit = len(results) >= MAX_PARCELS
+    return results, page_cap_hit
 
 
 def build_portfolio(parcels):
@@ -269,8 +428,9 @@ def main():
         judgment = a.get("judgment_amount")
 
         # Lookup parcels owned by defendant
-        parcels = lookup_parcels(defendant, county, co_no)
-        classification = classify_owner(defendant, parcels)
+        parcels, page_cap_hit = lookup_parcels(defendant, county, co_no)
+        confidence = compute_confidence(defendant, parcels, page_cap_hit)
+        classification = classify_owner(defendant, parcels, confidence)
         portfolio = build_portfolio(parcels)
 
         # Build compact parcel summaries for JSONB storage
@@ -306,6 +466,7 @@ def main():
             "auction_date": auction_date,
             "judgment_amount": judgment,
             "plaintiff": plaintiff,
+            "confidence_score": confidence,
         }
         intel_records.append(record)
         results[classification].append({"defendant": defendant, "case": case_number, "parcels": len(parcels),

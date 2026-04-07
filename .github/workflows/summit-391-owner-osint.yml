@@ -1,0 +1,94 @@
+name: "Summit #391: Owner OSINT Fix — migrate + classify"
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate-and-classify:
+    name: "Migrate + Classify Brevard limit=50"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install requests
+
+      - name: "Apply migration: add confidence_score column"
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          # Use Supabase Management API to run SQL
+          curl -s -X POST "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "ALTER TABLE auction_owner_intel ADD COLUMN IF NOT EXISTS confidence_score NUMERIC(4,3); CREATE INDEX IF NOT EXISTS idx_aoi_confidence ON auction_owner_intel(confidence_score);"}'
+
+      - name: "Clear old OSINT results for clean re-run"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          curl -s -X DELETE "$SUPABASE_URL/rest/v1/auction_owner_intel?county=eq.brevard" \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            -H "Prefer: return=minimal"
+
+      - name: "Run Owner OSINT — Brevard limit=50"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/owner_osint.py --county brevard --limit 50
+
+      - name: "Acceptance Gate — SQL Verification"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          H="apikey: $SUPABASE_SERVICE_KEY"
+          A="Authorization: Bearer $SUPABASE_SERVICE_KEY"
+          BASE="$SUPABASE_URL/rest/v1"
+
+          echo "=== GATE 1: confidence_score NOT NULL count ==="
+          GATE1=$(curl -s "$BASE/auction_owner_intel?county=eq.brevard&confidence_score=not.is.null&select=id" \
+            -H "$H" -H "$A" -H "Prefer: count=exact" -I 2>&1 | grep -i content-range | sed 's/.*\///')
+          echo "Count with confidence_score: $GATE1"
+
+          echo ""
+          echo "=== GATE 2: INVESTOR with confidence >= 0.7 count ==="
+          GATE2=$(curl -s "$BASE/auction_owner_intel?county=eq.brevard&classification=eq.INVESTOR&confidence_score=gte.0.7&select=id" \
+            -H "$H" -H "$A" -H "Prefer: count=exact" -I 2>&1 | grep -i content-range | sed 's/.*\///')
+          echo "INVESTOR+high-confidence count: $GATE2"
+
+          echo ""
+          echo "=== GATE 3: No city-name defendants ==="
+          for CITY in MELBOURNE "PALM BAY" TITUSVILLE COCOA VIERA "MERRITT ISLAND" "SATELLITE BEACH" ROCKLEDGE "CAPE CANAVERAL" "INDIAN HARBOUR BEACH"; do
+            HIT=$(curl -s "$BASE/auction_owner_intel?county=eq.brevard&defendant=ilike.${CITY}&select=id" \
+              -H "$H" -H "$A" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+            if [ "$HIT" != "0" ]; then
+              echo "FAIL: Found city defendant: $CITY ($HIT rows)"
+              exit 1
+            fi
+          done
+          echo "PASS: No city-name defendants found"
+
+          echo ""
+          echo "=== GATE 4: match_count=50 should be <= 2 ==="
+          GATE4=$(curl -s "$BASE/auction_owner_intel?county=eq.brevard&match_count=eq.50&select=id" \
+            -H "$H" -H "$A" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+          echo "Rows with match_count=50: $GATE4"
+
+          echo ""
+          echo "=== FULL RESULTS DUMP ==="
+          curl -s "$BASE/auction_owner_intel?county=eq.brevard&select=defendant,classification,match_count,confidence_score,total_portfolio_value&order=confidence_score.desc.nullslast" \
+            -H "$H" -H "$A" | python3 -c "
+          import sys, json
+          rows = json.load(sys.stdin)
+          print(f'Total rows: {len(rows)}')
+          for r in rows:
+              print(f\"  {r['defendant'][:40]:<40} {r['classification']:<22} parcels={r['match_count']:<4} conf={r.get('confidence_score','N/A'):<6} val=\${r['total_portfolio_value']:,}\")
+          "
