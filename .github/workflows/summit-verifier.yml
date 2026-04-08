@@ -1,95 +1,70 @@
-name: SUMMIT Verifier — 30min Loop
+name: SUMMIT Spec Fulfillment Verifier
 
 on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'SUMMIT issue number to verify'
+        required: true
+  repository_dispatch:
+    types: [verify-summit]
   schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch: {}
+    - cron: '0 * * * *'  # Hourly patrol
 
 jobs:
-  verify-and-dispatch:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      BIDDEED_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+      BIDDEED_BOT_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
     steps:
-      - name: Verify and dispatch
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          SB_URL: https://mocerqjnksmhcjzxrewo.supabase.co
-          SB_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TG_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
-          TG_CHAT: "740118343"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Determine issue number
+        id: issue
         run: |
-          pip install requests -q
-          python3 - << 'SCRIPT'
-          import requests, os, time, json
-          from datetime import datetime, timezone
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+            echo "mode=single" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "number=${{ github.event.client_payload.issue_number }}" >> "$GITHUB_OUTPUT"
+            echo "mode=single" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=patrol" >> "$GITHUB_OUTPUT"
+          fi
 
-          GH = os.environ.get("GH_TOKEN","")
-          SB_URL = os.environ.get("SB_URL","")
-          SB_KEY = os.environ.get("SB_KEY","")
-          TG_TOKEN = os.environ.get("TG_TOKEN","")
-          TG_CHAT = os.environ.get("TG_CHAT","740118343")
-          REPO = "breverdbidder/cli-anything-biddeed"
-          MAX_PARALLEL = 3
+      - name: Run verifier (single issue)
+        if: steps.issue.outputs.mode == 'single'
+        run: |
+          python scripts/spec_fulfillment_verifier.py \
+            --issue ${{ steps.issue.outputs.number }}
 
-          gh_h = {"Authorization": "token " + GH, "Accept": "application/vnd.github.v3+json"}
-          sb_h = {"apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json", "Prefer": "return=minimal"}
-          now = datetime.now(timezone.utc).isoformat()
+      - name: Run verifier (hourly patrol)
+        if: steps.issue.outputs.mode == 'patrol'
+        run: |
+          echo "=== Hourly patrol: scanning recently-closed SUMMIT issues ==="
+          ISSUES=$(gh issue list --repo breverdbidder/cli-anything-biddeed \
+            --label summit --state closed \
+            --json number,closedAt \
+            --jq '[.[] | select(.closedAt > (now - 86400 | strftime("%Y-%m-%dT%H:%M:%SZ"))) | .number] | .[]' 2>/dev/null || true)
 
-          def tg(msg):
-              if TG_TOKEN:
-                  try: requests.post("https://api.telegram.org/bot" + TG_TOKEN + "/sendMessage", json={"chat_id": TG_CHAT, "text": msg[:4000], "parse_mode": "Markdown"}, timeout=10)
-                  except: pass
+          if [ -z "$ISSUES" ]; then
+            echo "No recently-closed SUMMIT issues found"
+            exit 0
+          fi
 
-          # Count active SUMMIT runs
-          r = requests.get("https://api.github.com/repos/" + REPO + "/actions/workflows/summit-task.yml/runs?per_page=10", headers=gh_h, timeout=15)
-          runs = r.json().get("workflow_runs", [])
-          active = [x for x in runs if x["status"] in ("in_progress", "queued")]
-          slots = MAX_PARALLEL - len(active)
-          print("Active: " + str(len(active)) + " Slots: " + str(slots))
-
-          if slots <= 0:
-              tg("SUMMIT Verifier: " + str(len(active)) + " runs active, waiting.")
-              exit(0)
-
-          # Get pending tasks
-          if SB_KEY:
-              r = requests.get(SB_URL + "/rest/v1/nexus_tasks?select=task_id,description,priority,status,project&status=neq.done&status=neq.success&status=neq.failed&status=neq.cancelled&owner=eq.claude_code&order=priority.asc,created_at.asc&limit=10",
-                  headers={"apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY}, timeout=10)
-              pending = [t for t in r.json() if not t["task_id"].startswith("GHA-")] if r.status_code == 200 else []
-          else:
-              pending = []
-
-          # Get open SUMMIT issues to avoid dupes
-          r = requests.get("https://api.github.com/repos/" + REPO + "/issues?labels=summit&state=open&per_page=30", headers=gh_h, timeout=15)
-          open_titles = " ".join([i.get("title","").lower() for i in r.json()]) if r.status_code == 200 else ""
-
-          dispatched = []
-          for task in pending[:slots]:
-              tid = task["task_id"].lower()
-              if tid in open_titles:
-                  print("Skip " + task["task_id"] + ": already has open issue")
-                  continue
-
-              body = "## AUTO-DISPATCHED by SUMMIT Verifier\n**Task:** " + task["task_id"] + "\n**Priority:** " + task["priority"] + "\n**Project:** " + task["project"] + "\n\n## MISSION\n" + task["description"] + "\n\n## RULES\nRead CLAUDE.md. Execute autonomously. Verify with curl/DB proof. Honesty Protocol enforced."
-              r = requests.post("https://api.github.com/repos/" + REPO + "/issues", headers=gh_h, json={
-                  "title": task["priority"] + ": " + task["task_id"] + " - " + task["description"][:80],
-                  "labels": ["summit"],
-                  "body": body
-              })
-              if r.status_code == 201:
-                  inum = r.json()["number"]
-                  d = requests.post("https://api.github.com/repos/" + REPO + "/actions/workflows/summit-task.yml/dispatches",
-                      headers=gh_h, json={"ref": "main", "inputs": {"issue_number": str(inum), "timeout_minutes": "90"}})
-                  dispatched.append("#" + str(inum) + " " + task["task_id"])
-                  print("Dispatched " + task["task_id"] + " -> #" + str(inum))
-                  # Update nexus
-                  requests.patch(SB_URL + "/rest/v1/nexus_tasks?task_id=eq." + task["task_id"],
-                      headers=sb_h, json={"status": "dispatched", "result_summary": "SUMMIT Issue #" + str(inum), "updated_at": now})
-                  time.sleep(3)
-
-          ts = datetime.now(timezone.utc).strftime("%H:%M UTC")
-          msg = "SUMMIT Verifier " + ts + "\nActive: " + str(len(active)) + " | Slots: " + str(slots)
-          if dispatched: msg += "\nDispatched: " + ", ".join(dispatched)
-          msg += "\nQueue: " + str(len(pending)) + " tasks"
-          tg(msg)
-          print("Done. Dispatched: " + str(len(dispatched)))
-          SCRIPT
+          for ISSUE in $ISSUES; do
+            echo "--- Verifying SUMMIT #${ISSUE} ---"
+            python scripts/spec_fulfillment_verifier.py --issue "$ISSUE" || true
+          done
