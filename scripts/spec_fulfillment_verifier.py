@@ -136,12 +136,18 @@ def extract_checklist(body: str) -> list[str]:
 
 
 def find_cc_report(comments: list[dict]) -> dict | None:
-    """Find the CC final report comment (last substantive bot/CC comment)."""
+    """Find the CC final report comment (last substantive bot/CC comment).
+
+    Excludes verification matrix comments posted by this verifier.
+    """
     candidates = []
     for c in comments:
         body = c.get("body", "")
         user = c.get("user", {}).get("login", "")
-        # Match CC reports — typically from breverdbidder or containing SUMMIT markers
+        # Skip our own verification comments
+        if "Spec Fulfillment Verification" in body:
+            continue
+        # Match CC reports — from breverdbidder or containing SUMMIT/completion markers
         if user == "breverdbidder" or "SUMMIT" in body or "VERIFIED" in body or "DELIVERED" in body:
             candidates.append(c)
     return candidates[-1] if candidates else None
