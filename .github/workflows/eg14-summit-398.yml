@@ -237,7 +237,8 @@ jobs:
             // POINT 4: Accessibility (axe on chromium) — wait longer for hydration so we don't hit error boundary
             try {
               const browser = await chromium.launch();
-              const page = await browser.newPage();
+              const context = await browser.newContext();
+              const page = await context.newPage();
               const pageErrs = [];
               page.on('pageerror', e => pageErrs.push(e.message));
               await page.goto(URL, { waitUntil: 'networkidle', timeout: 45000 });
@@ -254,7 +255,7 @@ jobs:
                     `violations=${axeResults.violations.length} critical/serious=${critical}`);
               }
               await browser.close();
-            } catch (e) { log(4, 'Accessibility', 'FAIL', '', e.message); }
+            } catch (e) { log(4, 'Accessibility', 'FAIL', `axe-error: ${(e.message||'').slice(0,200)}`, ''); }
 
             // POINT 2: Lighthouse — real run via lighthouse + chrome-launcher
             try {
