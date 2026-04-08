@@ -248,8 +248,10 @@ def verify_checklist_item(item: str, cc_report_body: str, issue_body: str) -> tu
     # --- File committed checks ---
     file_patterns = re.findall(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z]{1,5})`", item)
     for fp in file_patterns:
-        # Normalize path — strip leading ./ or /
-        fp_clean = fp.lstrip("./")
+        # Normalize path — strip leading / but preserve .github etc
+        fp_clean = fp.lstrip("/")
+        if fp_clean.startswith("./"):
+            fp_clean = fp_clean[2:]
         if verify_file_in_repo(fp_clean):
             # File exists — if that's the main claim, it's delivered
             if "committed" in item_lower or "commit" in item_lower:
@@ -359,7 +361,9 @@ def verify_checklist_item(item: str, cc_report_body: str, issue_body: str) -> tu
     if "ast-valid" in item_lower or "ast valid" in item_lower:
         file_patterns = re.findall(r"`([a-zA-Z0-9_./-]+\.py)`", item)
         for fp in file_patterns:
-            fp_clean = fp.lstrip("./")
+            fp_clean = fp.lstrip("/")
+            if fp_clean.startswith("./"):
+                fp_clean = fp_clean[2:]
             if verify_file_in_repo(fp_clean):
                 return DELIVERED, f"File {fp_clean} exists (AST validity requires local check)"
         return DISPATCHED_ONLY, "Cannot verify AST validity remotely"
@@ -369,7 +373,9 @@ def verify_checklist_item(item: str, cc_report_body: str, issue_body: str) -> tu
         # Check if the file exists
         file_patterns = re.findall(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z]{1,5})`", item)
         for fp in file_patterns:
-            fp_clean = fp.lstrip("./")
+            fp_clean = fp.lstrip("/")
+            if fp_clean.startswith("./"):
+                fp_clean = fp_clean[2:]
             if verify_file_in_repo(fp_clean):
                 return DELIVERED, f"File {fp_clean} exists in repo"
             else:
