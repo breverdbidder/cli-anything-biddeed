@@ -1,0 +1,20 @@
+name: G3D Tiles Probe v2
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          echo "=== Map Tiles root ==="
+          HTTP=$(curl -s -o /tmp/m.json -w "%{http_code}" "https://tile.googleapis.com/v1/3dtiles/root.json?key=$KEY")
+          echo "MAP_HTTP: $HTTP"
+          head -c 600 /tmp/m.json; echo
+          echo "=== Gemini models ==="
+          HTTP2=$(curl -s -o /tmp/g.json -w "%{http_code}" "https://generativelanguage.googleapis.com/v1beta/models?key=$KEY")
+          echo "GEM_HTTP: $HTTP2"
+          head -c 300 /tmp/g.json; echo
+          if [ "$HTTP" = "200" ]; then echo "RESULT_MAP: OK"; else echo "RESULT_MAP: FAIL_$HTTP"; fi
+          if [ "$HTTP2" = "200" ]; then echo "RESULT_GEM: OK"; else echo "RESULT_GEM: FAIL_$HTTP2"; fi
