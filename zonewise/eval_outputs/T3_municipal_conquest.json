@@ -1,0 +1,17 @@
+{
+  "municipality": "Palm Bay",
+  "gis_source": "https://gis.palmbayflorida.org/arcgis/rest/services/Zoning/MapServer/0",
+  "zone_source": "municipal_gis",
+  "matched_parcels": 78432,
+  "total_parcels": 80215,
+  "match_rate": 0.978,
+  "zone_code": "RS-1",
+  "zone_description": "Single Family Residential",
+  "records": [
+    {
+      "parcel_id": "28-37-22-00-00001.0-0001.0",
+      "zone_code": "RS-1",
+      "zone_description": "Single Family Residential"
+    }
+  ]
+}
