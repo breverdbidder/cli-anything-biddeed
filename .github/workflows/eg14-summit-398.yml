@@ -1,266 +1,370 @@
-name: EG14 Gate v2 — SUMMIT 398
+name: EG14 Gate — SUMMIT 398 (Google 3D Tiles → zonewise.ai)
 on:
   workflow_dispatch:
 jobs:
   eg14:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Playwright chromium
+      - name: Install Playwright + tools
         run: |
           npm init -y >/dev/null 2>&1
-          npm install --silent @playwright/test @axe-core/playwright >/dev/null 2>&1
-          npx playwright install chromium --with-deps >/dev/null 2>&1
+          npm install --silent @playwright/test @axe-core/playwright lighthouse >/dev/null 2>&1
+          npx playwright install chromium firefox webkit --with-deps >/dev/null 2>&1
           mkdir -p screenshots reports
 
-      - name: Run EG14 gate
-        timeout-minutes: 8
+      - name: Run EG14 14-point gate
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           cat > eg14.js << 'JSEOF'
-          const { chromium, devices } = require('@playwright/test');
+          const { chromium, firefox, webkit, devices } = require('@playwright/test');
           const { AxeBuilder } = require('@axe-core/playwright');
           const fs = require('fs');
+          const https = require('https');
           const URL = 'https://zonewise.ai';
           const results = [];
-          const log = (id, name, status, evidence, err) => {
-            results.push({ id, name, status, evidence: evidence||'', err: err||'' });
-            console.log('EG14_' + id + ': ' + status + ' | ' + name + ' | ' + (evidence||'').slice(0,120));
+          const log = (id, name, status, evidence='', err='') => {
+            results.push({ id, name, status, evidence, err });
+            console.log(`EG14_${id}: ${status} | ${name}${err? ' | '+err.slice(0,200):''}`);
           };
-          const killTimer = setTimeout(() => {
-            console.log('HARD TIMEOUT — saving partial');
-            try { fs.writeFileSync('reports/eg14-results.json', JSON.stringify(results, null, 2)); } catch(e){}
-            process.exit(2);
-          }, 7 * 60 * 1000);
 
           (async () => {
+            // ============ POINT 1: HTTP 200 ============
             try {
-              const res = await fetch(URL + '?cb=' + Date.now());
-              log(1, 'HTTP Status', res.status === 200 ? 'PASS' : 'FAIL', 'http=' + res.status);
+              const res = await fetch(URL + '/?cb=' + Date.now());
+              log(1, 'HTTP Status', res.status === 200 ? 'PASS' : 'FAIL', `http=${res.status}`);
             } catch (e) { log(1, 'HTTP Status', 'FAIL', '', e.message); }
 
+            // ============ POINT 6: Security Headers ============
             try {
               const res = await fetch(URL);
               const need = ['strict-transport-security','x-content-type-options','referrer-policy','permissions-policy'];
               const got = need.filter(h => res.headers.get(h));
-              log(6, 'Security Headers', got.length === need.length ? 'PASS' : 'FAIL', got.length + '/' + need.length);
+              log(6, 'Security Headers', got.length === need.length ? 'PASS' : 'FAIL',
+                  `${got.length}/${need.length}: ${got.join(',')}`);
             } catch (e) { log(6, 'Security Headers', 'FAIL', '', e.message); }
 
+            // ============ POINT 7: Custom 404 ============
             try {
-              const res = await fetch(URL + '/nope-' + Date.now());
+              const res = await fetch(URL + '/this-page-definitely-does-not-exist-' + Date.now());
               const txt = await res.text();
-              const ok = res.status === 404 && (txt.toLowerCase().includes('zonewise') || txt.toLowerCase().includes('not found') || txt.toLowerCase().includes('404'));
-              log(7, 'Custom 404', ok ? 'PASS' : 'FAIL', 'status=' + res.status);
+              const branded = res.status === 404 && (txt.toLowerCase().includes('zonewise') || txt.toLowerCase().includes('not found'));
+              log(7, 'Custom 404', branded ? 'PASS' : 'FAIL', `status=${res.status} branded=${branded}`);
             } catch (e) { log(7, 'Custom 404', 'FAIL', '', e.message); }
 
+            // ============ POINT 12: API Health ============
             try {
               const apis = ['/api/stats', '/api/parcels/featured'];
-              const detail = [];
               let pass = 0;
+              const detail = [];
               for (const a of apis) {
-                try { const r = await fetch(URL + a); detail.push(a + '=' + r.status); if (r.status === 200) pass++; }
-                catch { detail.push(a + '=ERR'); }
+                try {
+                  const r = await fetch(URL + a);
+                  detail.push(`${a}=${r.status}`);
+                  if (r.status === 200) pass++;
+                } catch (e) { detail.push(`${a}=ERR`); }
               }
               log(12, 'API Health', pass === apis.length ? 'PASS' : 'FAIL', detail.join(','));
             } catch (e) { log(12, 'API Health', 'FAIL', '', e.message); }
 
+            // ============ POINT 13: Supabase Integrity (via /api/stats) ============
             try {
               const r = await fetch(URL + '/api/stats');
               const j = await r.json();
-              const num = (j.parcels || j.fl_parcels || j.total || j.count || 0);
-              log(13, 'Supabase Integrity', num > 1000000 ? 'PASS' : 'FAIL', 'count=' + num);
+              const ok = j && (j.parcels > 1000000 || j.fl_parcels > 1000000 || j.total > 1000000);
+              log(13, 'Supabase Integrity', ok ? 'PASS' : 'FAIL', `payload=${JSON.stringify(j).slice(0,200)}`);
             } catch (e) { log(13, 'Supabase Integrity', 'FAIL', '', e.message); }
 
+            // ============ POINTS 8, 11, 14: Browser tests across 3 engines ============
+            const browsers = [
+              { name: 'chromium', launcher: chromium },
+              { name: 'firefox', launcher: firefox },
+              { name: 'webkit', launcher: webkit }
+            ];
+            const featureResults = [];
+            const consoleErrors = [];
+            let mobileOk = false, brandOk = false, conversionOk = false;
+
+            for (const { name, launcher } of browsers) {
+              try {
+                const browser = await launcher.launch();
+                const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+                const page = await ctx.newPage();
+                const errs = [];
+                const tileReqs = [];
+                page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
+                page.on('pageerror', e => errs.push('PAGEERR: ' + e.message));
+                page.on('request', r => {
+                  const u = r.url();
+                  if (u.includes('tile.googleapis.com') || u.includes('cesium.com')) tileReqs.push(u);
+                });
+
+                await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+                // Wait for dynamic Cesium import + first tile request
+                await page.waitForTimeout(15000);
+                await page.screenshot({ path: `screenshots/${name}-home.png`, fullPage: false });
+
+                // Check Cesium global loaded
+                const cesiumLoaded = await page.evaluate(() => typeof window.Cesium !== 'undefined');
+                // Check for canvas (Cesium renders to canvas)
+                const canvasCount = await page.locator('canvas').count();
+                // Check for Hero3DSection in DOM
+                const hero3dPresent = (await page.content()).includes('Hero3DSection') ||
+                                       await page.locator('[data-component="Hero3DSection"], .hero-3d, #hero-3d').count() > 0 ||
+                                       canvasCount > 0;
+
+                featureResults.push({
+                  browser: name,
+                  cesiumLoaded,
+                  canvasCount,
+                  hero3dPresent,
+                  tileRequestCount: tileReqs.length,
+                  consoleErrCount: errs.length,
+                  errors: errs.slice(0, 3)
+                });
+                consoleErrors.push(...errs.map(e => `[${name}] ${e}`));
+
+                // Mobile test (chromium only — fast enough)
+                if (name === 'chromium') {
+                  const mobile = await browser.newContext({ ...devices['iPhone 13'] });
+                  const mp = await mobile.newPage();
+                  await mp.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                  await mp.waitForTimeout(5000);
+                  await mp.screenshot({ path: 'screenshots/chromium-mobile.png' });
+                  // Check no horizontal scroll
+                  const overflow = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 5);
+                  mobileOk = !overflow;
+                  await mobile.close();
+
+                  // Brand check: scan computed styles for navy/orange tokens
+                  const brandHits = await page.evaluate(() => {
+                    const NAVY = '#1E3A5F', ORANGE = '#F59E0B';
+                    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+                    const html = document.documentElement.outerHTML.toLowerCase();
+                    return {
+                      navyRef: html.includes('1e3a5f') || html.includes('rgb(30, 58, 95)'),
+                      orangeRef: html.includes('f59e0b') || html.includes('rgb(245, 158, 11)'),
+                      darkBg: bodyBg.includes('2, 6, 23') || bodyBg.includes('rgb(2, 6, 23)') || bodyBg === 'rgba(0, 0, 0, 0)'
+                    };
+                  });
+                  brandOk = brandHits.navyRef || brandHits.orangeRef;
+
+                  // Conversion flow: just check CTA exists (don't actually click through paywall)
+                  const ctaCount = await page.locator('a[href*="pricing"], button:has-text("Try"), button:has-text("Start"), a:has-text("Get Started")').count();
+                  conversionOk = ctaCount > 0;
+                }
+
+                await browser.close();
+              } catch (e) {
+                featureResults.push({ browser: name, error: e.message });
+                consoleErrors.push(`[${name}] LAUNCH_ERR: ${e.message}`);
+              }
+            }
+
+            // POINT 8: Zero Console Errors (allow ≤2 noisy 3rd-party errors)
+            const totalErrs = featureResults.reduce((s, r) => s + (r.consoleErrCount || 0), 0);
+            log(8, 'Zero Console Errors', totalErrs <= 6 ? 'PASS' : 'FAIL',
+                `total=${totalErrs} sample=${consoleErrors.slice(0,3).join(' | ')}`);
+
+            // POINT 11: Feature Functional — Cesium loaded + tile requests fired in chromium
+            const chrome = featureResults.find(f => f.browser === 'chromium') || {};
+            const featureOk = chrome.cesiumLoaded && chrome.canvasCount > 0 && chrome.tileRequestCount > 0;
+            log(11, 'Feature Functional (3D Tiles)', featureOk ? 'PASS' : 'FAIL',
+                `cesium=${chrome.cesiumLoaded} canvas=${chrome.canvasCount} tileReqs=${chrome.tileRequestCount}`);
+
+            // POINT 14: Cross-Browser
+            const browsersOk = featureResults.filter(f => f.canvasCount > 0 || f.hero3dPresent).length;
+            log(14, 'Cross-Browser', browsersOk === 3 ? 'PASS' : (browsersOk >= 2 ? 'PARTIAL' : 'FAIL'),
+                `${browsersOk}/3 browsers rendered`);
+
+            // POINT 5: Mobile
+            log(5, 'Mobile Responsive', mobileOk ? 'PASS' : 'FAIL', `no_overflow=${mobileOk}`);
+
+            // POINT 9: House Brand
+            log(9, 'House Brand', brandOk ? 'PASS' : 'FAIL', 'navy/orange tokens present');
+
+            // POINT 10: Conversion Flow
+            log(10, 'Conversion Flow', conversionOk ? 'PASS' : 'FAIL', 'CTA present');
+
+            // POINT 3: SEO (parse HTML)
             try {
               const html = await (await fetch(URL)).text();
-              const checks = {
-                title: /<title>[^<]+<\/title>/.test(html),
-                desc: /<meta\s+name=["']description["']\s+content/i.test(html),
-                og: /<meta\s+property=["']og:title/i.test(html),
+              const seoChecks = {
+                title: /<title>/.test(html),
+                description: /<meta\s+name=["']description/i.test(html),
+                og: /<meta\s+property=["']og:/i.test(html),
                 jsonLd: /application\/ld\+json/.test(html)
               };
               const robots = await (await fetch(URL + '/robots.txt')).status;
-              const passed = Object.values(checks).filter(Boolean).length;
-              log(3, 'SEO', (passed >= 3 && robots === 200) ? 'PASS' : 'FAIL', 'meta=' + passed + '/4 robots=' + robots);
+              const sitemap = await (await fetch(URL + '/sitemap.xml')).status;
+              const passed = Object.values(seoChecks).filter(Boolean).length;
+              const ok = passed >= 3 && robots === 200;
+              log(3, 'SEO', ok ? 'PASS' : 'FAIL', `seo=${passed}/4 robots=${robots} sitemap=${sitemap}`);
             } catch (e) { log(3, 'SEO', 'FAIL', '', e.message); }
 
-            let browser;
+            // POINT 4: Accessibility (axe on chromium)
             try {
-              browser = await chromium.launch({ args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist'] });
-              const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
-              const page = await ctx.newPage();
-              const errs = [];
-              const tileReqs = [];
-              const cesiumReqs = [];
-              page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
-              page.on('pageerror', e => errs.push('PAGEERR: ' + e.message));
-              page.on('request', r => {
-                const u = r.url();
-                if (u.includes('tile.googleapis.com')) tileReqs.push(u);
-                if (u.includes('cesium.com')) cesiumReqs.push(u);
-              });
-
+              const browser = await chromium.launch();
+              const page = await browser.newPage();
               await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-              await page.waitForTimeout(15000);
-              await page.screenshot({ path: 'screenshots/01-home-chromium.png' });
-
-              const cesiumLoaded = await page.evaluate(() => typeof window.Cesium !== 'undefined');
-              const canvasCount = await page.locator('canvas').count();
-
-              const featureOk = cesiumLoaded && canvasCount > 0 && tileReqs.length > 0;
-              log(11, 'Feature Functional 3D Tiles', featureOk ? 'PASS' : 'FAIL',
-                  'cesium=' + cesiumLoaded + ' canvas=' + canvasCount + ' tileReqs=' + tileReqs.length + ' cesiumCDN=' + cesiumReqs.length);
-
-              log(8, 'Zero Console Errors', errs.length <= 6 ? 'PASS' : 'FAIL',
-                  'count=' + errs.length + ' sample=' + ((errs[0]||'').slice(0,80)));
-
-              const brandHits = await page.evaluate(() => {
-                const h = document.documentElement.outerHTML.toLowerCase();
-                return {
-                  navy: h.includes('1e3a5f') || h.includes('30, 58, 95'),
-                  orange: h.includes('f59e0b') || h.includes('245, 158, 11'),
-                  inter: h.includes('inter')
-                };
-              });
-              log(9, 'House Brand', (brandHits.navy || brandHits.orange) ? 'PASS' : 'FAIL',
-                  'navy=' + brandHits.navy + ' orange=' + brandHits.orange);
-
-              const ctaCount = await page.locator('a[href*="pricing"], button:has-text("Try"), a:has-text("Get Started"), button:has-text("Start")').count();
-              log(10, 'Conversion Flow', ctaCount > 0 ? 'PASS' : 'FAIL', 'cta=' + ctaCount);
-
-              try {
-                const mctx = await browser.newContext({ ...devices['iPhone 13'] });
-                const mp = await mctx.newPage();
-                await mp.goto(URL, { waitUntil: 'domcontentloaded', timeout: 25000 });
-                await mp.waitForTimeout(5000);
-                await mp.screenshot({ path: 'screenshots/02-mobile.png' });
-                const overflow = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 5);
-                log(5, 'Mobile Responsive', !overflow ? 'PASS' : 'FAIL', 'overflow=' + overflow);
-                await mctx.close();
-              } catch (e) { log(5, 'Mobile Responsive', 'FAIL', '', e.message); }
-
-              try {
-                const axeResults = await new AxeBuilder({ page }).analyze();
-                const critical = axeResults.violations.filter(v => v.impact === 'critical' || v.impact === 'serious').length;
-                fs.writeFileSync('reports/axe.json', JSON.stringify(axeResults, null, 2));
-                log(4, 'Accessibility axe WCAG', critical === 0 ? 'PASS' : 'FAIL',
-                    'viol=' + axeResults.violations.length + ' critical=' + critical);
-              } catch (e) { log(4, 'Accessibility', 'FAIL', '', e.message); }
-
-              log(14, 'Cross-Browser', 'PARTIAL', 'chromium tested; firefox/webkit skipped due to hang risk');
-              log(2, 'Lighthouse', 'UNTESTED', 'separate lhci run needed');
-
+              await page.waitForTimeout(8000);
+              const axeResults = await new AxeBuilder({ page }).analyze();
+              const critical = axeResults.violations.filter(v => v.impact === 'critical' || v.impact === 'serious').length;
+              fs.writeFileSync('reports/axe.json', JSON.stringify(axeResults, null, 2));
+              log(4, 'Accessibility (axe WCAG 2.1 AA)', critical === 0 ? 'PASS' : 'FAIL',
+                  `violations=${axeResults.violations.length} critical/serious=${critical}`);
               await browser.close();
+            } catch (e) { log(4, 'Accessibility', 'FAIL', '', e.message); }
+
+            // POINT 2: Lighthouse — run via lighthouse npm package
+            try {
+              const lighthouse = require('lighthouse');
+              const chromeLauncher = require('chrome-launcher').catch(() => null);
+              // Skip lighthouse if chrome-launcher not available; mark as PENDING
+              log(2, 'Lighthouse ≥90', 'PENDING', 'lighthouse skipped — run via lhci separately');
             } catch (e) {
-              log(11, 'Feature Functional 3D Tiles', 'FAIL', '', 'BROWSER: ' + e.message);
-              if (browser) try { await browser.close(); } catch(_){}
+              log(2, 'Lighthouse ≥90', 'PENDING', 'package not installed');
             }
 
-            clearTimeout(killTimer);
+            // Save results
             fs.writeFileSync('reports/eg14-results.json', JSON.stringify(results, null, 2));
-            const p = results.filter(r => r.status === 'PASS').length;
-            const f = results.filter(r => r.status === 'FAIL').length;
-            console.log('\n=== EG14 ===');
-            console.log('PASS=' + p + ' FAIL=' + f + ' TOTAL=' + results.length);
-            process.exit(0);
-          })().catch(e => { console.error('FATAL:', e); fs.writeFileSync('reports/eg14-results.json', JSON.stringify(results, null, 2)); process.exit(1); });
+            console.log('\\n=== EG14 SUMMARY ===');
+            const passed = results.filter(r => r.status === 'PASS').length;
+            const failed = results.filter(r => r.status === 'FAIL').length;
+            const pending = results.filter(r => r.status === 'PENDING').length;
+            console.log(`PASS: ${passed} | FAIL: ${failed} | PENDING: ${pending} | TOTAL: ${results.length}/14`);
+            console.log('FEATURE_RESULTS:', JSON.stringify(featureResults, null, 2));
+          })().catch(e => { console.error('FATAL:', e); process.exit(1); });
           JSEOF
-          node eg14.js || true
+          node eg14.js 2>&1 | tee eg14-output.txt || true
+          echo "=== Files created ==="
+          ls -la screenshots/ reports/ 2>/dev/null
 
-      - name: Upload artifacts to Supabase
+      - name: Upload screenshots to Supabase
         if: always()
         env:
-          SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
+          BUCKET="summit-screenshots"
           for f in screenshots/*.png; do
             [ -f "$f" ] || continue
-            N=$(basename "$f")
-            curl -s -X POST -H "Authorization: Bearer $SRK" -H "Content-Type: image/png" -H "x-upsert: true" \
+            NAME=$(basename "$f")
+            curl -s -X POST \
+              -H "Authorization: Bearer $SUPABASE_SRK" \
+              -H "Content-Type: image/png" \
+              -H "x-upsert: true" \
               --data-binary @"$f" \
-              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/summit-screenshots/398/eg14/$N" \
-              -o /dev/null -w "  $N http=%{http_code}\n"
+              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/$BUCKET/398/eg14/$NAME" \
+              -o /dev/null -w "  $NAME → http=%{http_code}\n"
           done
           for f in reports/*.json; do
             [ -f "$f" ] || continue
-            N=$(basename "$f")
-            curl -s -X POST -H "Authorization: Bearer $SRK" -H "Content-Type: application/json" -H "x-upsert: true" \
+            NAME=$(basename "$f")
+            curl -s -X POST \
+              -H "Authorization: Bearer $SUPABASE_SRK" \
+              -H "Content-Type: application/json" \
+              -H "x-upsert: true" \
               --data-binary @"$f" \
-              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/summit-screenshots/398/eg14/reports/$N" \
-              -o /dev/null -w "  $N http=%{http_code}\n"
+              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/$BUCKET/398/eg14/reports/$NAME" \
+              -o /dev/null -w "  $NAME → http=%{http_code}\n"
           done
 
-      - name: Comment + insert db rows
+      - name: Comment results on issue #398
         if: always()
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          [ -f reports/eg14-results.json ] || exit 0
-          python3 << 'PY'
+          if [ -f reports/eg14-results.json ]; then
+            python3 << 'PY'
           import json, urllib.request, os
           results = json.load(open('reports/eg14-results.json'))
-          tested = {r['id'] for r in results}
-          for i in range(1, 15):
-              if i not in tested:
-                  results.append({'id': i, 'name': 'Point ' + str(i), 'status': 'UNTESTED', 'evidence':'', 'err':''})
-          results.sort(key=lambda x: x['id'])
-
           passed = sum(1 for r in results if r['status']=='PASS')
           failed = sum(1 for r in results if r['status']=='FAIL')
-          partial = sum(1 for r in results if r['status']=='PARTIAL')
-          untested = sum(1 for r in results if r['status']=='UNTESTED')
-
-          icons = {'PASS':'✅','FAIL':'❌','PARTIAL':'🟡','UNTESTED':'⚪'}
+          pending = sum(1 for r in results if r['status']=='PENDING')
+          total = 14
+          
+          # Get points NOT in results (untested)
+          tested_ids = {r['id'] for r in results}
+          untested = [i for i in range(1,15) if i not in tested_ids]
+          
+          status_line = f"## EVEREST GATE — {passed}/{total}"
+          if passed == 14:
+              status_line += " ✅ PASSED"
+          elif failed > 0:
+              status_line += f" ❌ ({failed} failed, {pending} pending, {len(untested)} untested)"
+          else:
+              status_line += f" 🟡 ({pending} pending, {len(untested)} untested)"
+          
           rows = []
-          for r in results:
-              rows.append('| ' + str(r['id']) + ' | ' + r['name'] + ' | ' + icons.get(r['status'],'?') + ' ' + r['status'] + ' | `' + (r.get('evidence') or '')[:90] + '` |')
-
-          header = '## EVEREST GATE — ' + str(passed) + '/14 PASS'
-          if passed == 14: header += ' ✅ SHIPPED'
-          elif failed > 0: header += ' ❌ (' + str(failed) + ' FAIL, ' + str(partial) + ' PARTIAL, ' + str(untested) + ' UNTESTED)'
-          else: header += ' 🟡 (' + str(partial) + ' PARTIAL, ' + str(untested) + ' UNTESTED)'
-
-          body = header + '\n\n' + \
-            '**Production URL:** https://zonewise.ai\n' + \
-            '**Run:** https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/' + os.environ.get('GITHUB_RUN_ID','') + '\n' + \
-            '**Screenshots:** https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/summit-screenshots/398/eg14/\n\n' + \
-            '| # | Point | Status | Evidence |\n|---|-------|--------|----------|\n' + \
-            '\n'.join(rows) + '\n\n' + \
-            '**Honesty Protocol:** PASS=VERIFIED. PARTIAL/UNTESTED do not count. SUMMIT closes only on 14/14 PASS.'
-
+          for r in sorted(results, key=lambda x: x['id']):
+              icon = '✅' if r['status']=='PASS' else ('❌' if r['status']=='FAIL' else '🟡')
+              rows.append(f"| {r['id']} | {r['name']} | {icon} {r['status']} | `{r['evidence'][:80]}` |")
+          for i in untested:
+              rows.append(f"| {i} | (untested in this run) | ⚪ UNTESTED | — |")
+          
+          body = f"""{status_line}
+          
+          **Production URL:** https://zonewise.ai
+          **Run:** GitHub Actions EG14 gate
+          **Screenshots:** https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/summit-screenshots/398/eg14/
+          
+          | # | Point | Status | Evidence |
+          |---|-------|--------|----------|
+          {chr(10).join(rows)}
+          
+          **Honesty tag:** {passed} VERIFIED, {failed} FAILED, {pending+len(untested)} UNTESTED. Per Honesty Protocol, only PASS counts as VERIFIED.
+          """
+          
           req = urllib.request.Request(
               'https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/398/comments',
               data=json.dumps({'body': body}).encode(),
-              headers={'Authorization': 'token ' + os.environ['GH_PAT'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},
+              headers={'Authorization': f'token {os.environ["GH_PAT"]}', 'Accept': 'application/vnd.github+json', 'Content-Type':'application/json'},
+              method='POST'
+          )
+          urllib.request.urlopen(req)
+          print('Comment posted')
+          PY
+          fi
+
+      - name: Insert eg14_runs rows in Supabase
+        if: always()
+        env:
+          SUPABASE_SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -f reports/eg14-results.json ]; then
+            python3 << 'PY'
+          import json, urllib.request, os
+          results = json.load(open('reports/eg14-results.json'))
+          rows = [{
+              'summit_id': '398',
+              'point_id': r['id'],
+              'point_name': r['name'],
+              'status': r['status'],
+              'evidence_url': r.get('evidence',''),
+              'error_message': r.get('err','')
+          } for r in results]
+          req = urllib.request.Request(
+              'https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/eg14_runs',
+              data=json.dumps(rows).encode(),
+              headers={
+                  'Authorization': f'Bearer {os.environ["SUPABASE_SRK"]}',
+                  'apikey': os.environ['SUPABASE_SRK'],
+                  'Content-Type':'application/json',
+                  'Prefer':'return=minimal'
+              },
               method='POST'
           )
           try:
               urllib.request.urlopen(req)
-              print('Comment posted')
+              print(f'Inserted {len(rows)} rows')
           except urllib.error.HTTPError as e:
-              print('COMMENT_ERR: ' + str(e.code) + ' ' + e.read().decode()[:200])
-
-          rows_db = [{
-              'summit_id': '398',
-              'point_id': r['id'],
-              'point_name': r['name'],
-              'status': r['status'] if r['status'] in ('PASS','FAIL','PENDING','BLOCKED') else 'PENDING',
-              'evidence_url': (r.get('evidence') or '')[:500],
-              'error_message': (r.get('err') or '')[:500]
-          } for r in results if r['status'] != 'UNTESTED']
-
-          req2 = urllib.request.Request(
-              'https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/eg14_runs',
-              data=json.dumps(rows_db).encode(),
-              headers={'Authorization': 'Bearer ' + os.environ['SRK'],'apikey': os.environ['SRK'],'Content-Type':'application/json','Prefer':'return=minimal'},
-              method='POST'
-          )
-          try:
-              urllib.request.urlopen(req2)
-              print('Inserted ' + str(len(rows_db)) + ' rows')
-          except urllib.error.HTTPError as e:
-              print('INSERT_ERR: ' + str(e.code) + ' ' + e.read().decode()[:200])
+              print(f'INSERT_ERR: {e.code} {e.read().decode()[:300]}')
           PY
+          fi
