@@ -1,0 +1,48 @@
+name: EG14 Vercel Env Probe + Set
+on:
+  workflow_dispatch:
+jobs:
+  probe-set:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check + set NEXT_PUBLIC_GOOGLE_API_KEY in Vercel prod
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          PROJECT="prj_EaXgEO6WDoSpCeLhuCemtbPr6e8E"
+          echo "=== Listing Vercel env vars ==="
+          curl -s "https://api.vercel.com/v9/projects/$PROJECT/env?decrypt=true"             -H "Authorization: Bearer $VERCEL_TOKEN" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          envs=d.get('envs',[])
+          for e in envs:
+              if 'GOOGLE' in e.get('key','').upper() or 'CESIUM' in e.get('key','').upper():
+                  print(f"  {e['key']} | targets={e.get('target',[])} | val_prefix={(e.get('value','') or '')[:10]}...")
+          has_npub = any(e['key']=='NEXT_PUBLIC_GOOGLE_API_KEY' and 'production' in e.get('target',[]) for e in envs)
+          has_npub_val = next((e['value'] for e in envs if e['key']=='NEXT_PUBLIC_GOOGLE_API_KEY' and 'production' in e.get('target',[])), '')
+          print(f"NPUB_PROD_PRESENT: {has_npub}")
+          print(f"NPUB_PROD_MATCHES_SECRET: {has_npub_val == '${GOOGLE_API_KEY}'}")
+          " 2>&1
+          # Set or update if needed
+          curl -s -X POST "https://api.vercel.com/v10/projects/$PROJECT/env?upsert=true"             -H "Authorization: Bearer $VERCEL_TOKEN"             -H "Content-Type: application/json"             -d "{"key":"NEXT_PUBLIC_GOOGLE_API_KEY","value":"$GOOGLE_API_KEY","type":"plain","target":["production","preview","development"]}"             | python3 -c "import json,sys; d=json.load(sys.stdin); print('UPSERT:', d.get('error',{}).get('message','OK') if 'error' in d else 'OK')"
+          echo "=== Verify after upsert ==="
+          curl -s "https://api.vercel.com/v9/projects/$PROJECT/env?decrypt=true"             -H "Authorization: Bearer $VERCEL_TOKEN" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          for e in d.get('envs',[]):
+              if e['key']=='NEXT_PUBLIC_GOOGLE_API_KEY':
+                  print(f"  {e['key']} | targets={e.get('target',[])} | val={e.get('value','')[:15]}...")
+          "
+      - name: Trigger production redeploy if env was just set
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          PROJECT="prj_EaXgEO6WDoSpCeLhuCemtbPr6e8E"
+          echo "=== Latest prod deployment ==="
+          curl -s "https://api.vercel.com/v6/deployments?projectId=$PROJECT&target=production&limit=1"             -H "Authorization: Bearer $VERCEL_TOKEN" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          for dep in d.get('deployments',[])[:1]:
+              print(f"  url={dep.get('url')} state={dep.get('state')} created={dep.get('created')}")
+          "
