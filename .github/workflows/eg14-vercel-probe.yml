@@ -1,48 +1,25 @@
-name: EG14 Vercel Env Probe + Set
+name: EG14 Deploy Status
 on:
   workflow_dispatch:
 jobs:
-  probe-set:
+  status:
     runs-on: ubuntu-latest
     steps:
-      - name: Run probe
-        env:
+      - env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
-          cat > /tmp/probe.py <<'PYE'
+          cat > /tmp/q.py <<'PY'
           import os, json, urllib.request
-          TOKEN=os.environ['VERCEL_TOKEN']
-          KEY=os.environ['GOOGLE_API_KEY']
-          PROJECT='prj_EaXgEO6WDoSpCeLhuCemtbPr6e8E'
-          H={'Authorization':f'Bearer {TOKEN}','Content-Type':'application/json'}
-          # Upsert BOTH keys (server + public)
-          for k in ['GOOGLE_API_KEY','NEXT_PUBLIC_GOOGLE_API_KEY']:
-              body={'key':k,'value':KEY,'type':'plain','target':['production','preview','development']}
-              try:
-                  r=urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v10/projects/{PROJECT}/env?upsert=true',data=json.dumps(body).encode(),headers=H,method='POST'))
-                  print(f'UPSERT {k}: OK')
-              except urllib.error.HTTPError as e:
-                  print(f'UPSERT {k}: ERR {e.code} {e.read().decode()[:200]}')
-          # Verify
-          envs=json.loads(urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v9/projects/{PROJECT}/env?decrypt=true',headers=H)).read()).get('envs',[])
-          for e in envs:
-              if e['key'] in ['GOOGLE_API_KEY','NEXT_PUBLIC_GOOGLE_API_KEY']:
-                  v=e.get('value','') or ''
-                  print(f"VERIFY {e['key']}: starts_with_AIza={v.startswith('AIzaSy')} val_prefix={v[:12]}")
-          # Trigger new prod deployment via Vercel API (redeploy from main)
-          # Get latest prod deploy first
-          deps=json.loads(urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v6/deployments?projectId={PROJECT}&target=production&limit=1',headers=H)).read()).get('deployments',[])
-          if deps:
-              latest=deps[0]
-              print(f"OLD_DEPLOY: {latest.get('uid')} state={latest.get('state')}")
-              # Redeploy: POST /v13/deployments with deploymentId
-              body={'name':'zonewise-web','project':PROJECT,'target':'production','deploymentId':latest.get('uid')}
-              try:
-                  r=urllib.request.urlopen(urllib.request.Request('https://api.vercel.com/v13/deployments',data=json.dumps(body).encode(),headers=H,method='POST'))
-                  d=json.loads(r.read())
-                  print(f"NEW_DEPLOY: id={d.get('id')} url={d.get('url')} state={d.get('readyState')}")
-              except urllib.error.HTTPError as e:
-                  print(f"REDEPLOY_ERR: {e.code} {e.read().decode()[:300]}")
-          PYE
-          python3 /tmp/probe.py
+          T=os.environ['VERCEL_TOKEN']
+          P='prj_EaXgEO6WDoSpCeLhuCemtbPr6e8E'
+          H={'Authorization':f'Bearer {T}'}
+          # Latest 5 prod deploys
+          deps=json.loads(urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v6/deployments?projectId={P}&target=production&limit=5',headers=H)).read())
+          for d in deps.get('deployments',[]):
+              print(f"DEP: {d.get('uid')} state={d.get('state')} url={d.get('url')} created={d.get('created')}")
+          # Aliases on zonewise.ai
+          al=json.loads(urllib.request.urlopen(urllib.request.Request('https://api.vercel.com/v4/aliases?domain=zonewise.ai&limit=5',headers=H)).read())
+          for a in al.get('aliases',[]):
+              print(f"ALIAS: {a.get('alias')} → deployment={a.get('deploymentId')} created={a.get('created')}")
+          PY
+          python3 /tmp/q.py
