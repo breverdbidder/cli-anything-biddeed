@@ -248,6 +248,8 @@ def main():
     parser = argparse.ArgumentParser(description="FL Auction Scraper V2")
     parser.add_argument("--county", help="Single county slug (default: all)")
     parser.add_argument("--dry-run", action="store_true", help="Parse only, no DB writes")
+    parser.add_argument("--sale-type", default="both", choices=["fc", "td", "both"],
+                        help="Sale type filter (currently informational — script hardcodes fc until multi-source lands)")
     args = parser.parse_args()
 
     if not SUPABASE_KEY and not args.dry_run:
