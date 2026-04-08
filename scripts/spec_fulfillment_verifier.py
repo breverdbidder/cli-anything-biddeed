@@ -105,14 +105,33 @@ def fetch_comments(issue_number: int) -> list[dict]:
 
 
 def extract_checklist(body: str) -> list[str]:
-    """Extract acceptance checklist items from issue body."""
+    """Extract acceptance checklist items from issue body.
+
+    Supports:
+    - [ ] checkbox items (Acceptance Checklist)
+    - Numbered steps (## Steps section): 1. Step text
+    """
     items = []
+    in_steps_section = False
     for line in body.split("\n"):
-        line = line.strip()
+        stripped = line.strip()
         # Match - [ ] or - [x] patterns
-        m = re.match(r"^-\s*\[[ xX]?\]\s*(.+)$", line)
+        m = re.match(r"^-\s*\[[ xX]?\]\s*(.+)$", stripped)
         if m:
             items.append(m.group(1).strip())
+            continue
+        # Track sections
+        if re.match(r"^##\s+Steps", stripped, re.IGNORECASE):
+            in_steps_section = True
+            continue
+        if re.match(r"^##\s+", stripped) and in_steps_section:
+            in_steps_section = False
+            continue
+        # Match numbered steps (1. Step text)
+        if in_steps_section:
+            m2 = re.match(r"^\d+\.\s+(.+)$", stripped)
+            if m2:
+                items.append(m2.group(1).strip())
     return items
 
 
@@ -434,10 +453,13 @@ def run_verification(issue_number: int, dry_run: bool = False) -> dict:
         print(f"      Evidence: {evidence}")
 
     # 5. Overall verdict
+    has_not_delivered = any(r["verdict"] == NOT_DELIVERED for r in results)
     if passed == len(checklist):
         overall = "DELIVERED"
-    elif failed > 0 and any(r["verdict"] == NOT_DELIVERED for r in results):
+    elif passed == 0 and has_not_delivered:
         overall = "FAILED"
+    elif has_not_delivered or failed > 0:
+        overall = "PARTIAL"
     else:
         overall = "PARTIAL"
 
