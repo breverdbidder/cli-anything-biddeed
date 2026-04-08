@@ -1,0 +1,20 @@
+name: tile-probe
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test tile API
+        env:
+          KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          echo "Raw HTTP test"
+          H1=$(curl -s -o /tmp/r1.json -w "%{http_code}" "https://tile.googleapis.com/v1/3dtiles/root.json?key=$KEY")
+          echo "no-referer HTTP $H1"
+          head -c 400 /tmp/r1.json || true
+          echo ""
+          H2=$(curl -s -o /tmp/r2.json -w "%{http_code}" -H "Referer: https://zonewise.ai/" "https://tile.googleapis.com/v1/3dtiles/root.json?key=$KEY")
+          echo "with-referer HTTP $H2"
+          head -c 400 /tmp/r2.json || true
