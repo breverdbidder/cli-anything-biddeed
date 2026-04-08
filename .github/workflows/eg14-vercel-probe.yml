@@ -10,20 +10,22 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install Playwright
+      - name: Install playwright in clean dir
         run: |
-          npm init -y
+          mkdir -p /tmp/pw && cd /tmp/pw
+          npm init -y > /dev/null
           npm pkg set type=module
-          npm install --silent playwright
+          npm install --silent playwright@1.48.0
           npx playwright install --with-deps chromium 2>&1 | tail -3
       - name: Run reality check
         env:
           URL: ${{ inputs.url }}
-        run: node scripts/eg14-reality.mjs
+        run: |
+          cp scripts/eg14-reality.mjs /tmp/pw/reality.mjs
+          cd /tmp/pw && node reality.mjs
       - name: Upload screenshot to Supabase
         if: always()
         env:
@@ -38,4 +40,6 @@ jobs:
               "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/summit-screenshots/398/eg14/reality-${TS}.png" \
               -w "\nUPLOAD:%{http_code}\n"
             echo "URL: https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/summit-screenshots/398/eg14/reality-${TS}.png"
+          else
+            echo "NO_SCREENSHOT"
           fi
