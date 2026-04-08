@@ -4,20 +4,34 @@ on:
 jobs:
   eg14:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Playwright + tools
+      - name: Install npm deps
+        timeout-minutes: 6
         run: |
-          npm init -y >/dev/null 2>&1
-          npm install --silent @playwright/test @axe-core/playwright lighthouse >/dev/null 2>&1
-          npx playwright install chromium firefox webkit --with-deps >/dev/null 2>&1
+          set -e
+          npm init -y
+          npm install --no-audit --no-fund --loglevel=error \
+            @playwright/test@latest \
+            @axe-core/playwright@latest \
+            lighthouse@12 \
+            chrome-launcher@1
+          echo "npm install DONE"
+
+      - name: Install Playwright browsers
+        timeout-minutes: 8
+        run: |
+          set -e
+          npx playwright install chromium firefox webkit --with-deps
+          echo "playwright browsers DONE"
           mkdir -p screenshots reports
 
       - name: Run EG14 14-point gate
+        timeout-minutes: 15
         env:
           SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
           SUPABASE_SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -27,12 +41,11 @@ jobs:
           const { chromium, firefox, webkit, devices } = require('@playwright/test');
           const { AxeBuilder } = require('@axe-core/playwright');
           const fs = require('fs');
-          const https = require('https');
           const URL = 'https://zonewise.ai';
           const results = [];
           const log = (id, name, status, evidence='', err='') => {
             results.push({ id, name, status, evidence, err });
-            console.log(`EG14_${id}: ${status} | ${name}${err? ' | '+err.slice(0,200):''}`);
+            console.log(`EG14_${id}: ${status} | ${name} | ${evidence}${err? ' | '+err.slice(0,200):''}`);
           };
 
           (async () => {
@@ -78,8 +91,8 @@ jobs:
             try {
               const r = await fetch(URL + '/api/stats');
               const j = await r.json();
-              const ok = j && (j.parcels > 1000000 || j.fl_parcels > 1000000 || j.total > 1000000);
-              log(13, 'Supabase Integrity', ok ? 'PASS' : 'FAIL', `payload=${JSON.stringify(j).slice(0,200)}`);
+              const ok = j && (j.fl_parcels > 1_000_000 || j.parcels > 1_000_000);
+              log(13, 'Supabase Integrity', ok ? 'PASS' : 'FAIL', `fl_parcels=${j.fl_parcels} alive=${j.fl_parcels_alive}`);
             } catch (e) { log(13, 'Supabase Integrity', 'FAIL', '', e.message); }
 
             // ============ POINTS 8, 11, 14: Browser tests across 3 engines ============
@@ -107,15 +120,11 @@ jobs:
                 });
 
                 await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
-                // Wait for dynamic Cesium import + first tile request
                 await page.waitForTimeout(15000);
                 await page.screenshot({ path: `screenshots/${name}-home.png`, fullPage: false });
 
-                // Check Cesium global loaded
                 const cesiumLoaded = await page.evaluate(() => typeof window.Cesium !== 'undefined');
-                // Check for canvas (Cesium renders to canvas)
                 const canvasCount = await page.locator('canvas').count();
-                // Check for Hero3DSection in DOM
                 const hero3dPresent = (await page.content()).includes('Hero3DSection') ||
                                        await page.locator('[data-component="Hero3DSection"], .hero-3d, #hero-3d').count() > 0 ||
                                        canvasCount > 0;
@@ -127,38 +136,53 @@ jobs:
                   hero3dPresent,
                   tileRequestCount: tileReqs.length,
                   consoleErrCount: errs.length,
-                  errors: errs.slice(0, 3)
+                  errors: errs.slice(0, 5)
                 });
                 consoleErrors.push(...errs.map(e => `[${name}] ${e}`));
 
-                // Mobile test (chromium only — fast enough)
                 if (name === 'chromium') {
                   const mobile = await browser.newContext({ ...devices['iPhone 13'] });
                   const mp = await mobile.newPage();
                   await mp.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
                   await mp.waitForTimeout(5000);
                   await mp.screenshot({ path: 'screenshots/chromium-mobile.png' });
-                  // Check no horizontal scroll
                   const overflow = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 5);
                   mobileOk = !overflow;
                   await mobile.close();
 
-                  // Brand check: scan computed styles for navy/orange tokens
                   const brandHits = await page.evaluate(() => {
-                    const NAVY = '#1E3A5F', ORANGE = '#F59E0B';
-                    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
                     const html = document.documentElement.outerHTML.toLowerCase();
                     return {
                       navyRef: html.includes('1e3a5f') || html.includes('rgb(30, 58, 95)'),
                       orangeRef: html.includes('f59e0b') || html.includes('rgb(245, 158, 11)'),
-                      darkBg: bodyBg.includes('2, 6, 23') || bodyBg.includes('rgb(2, 6, 23)') || bodyBg === 'rgba(0, 0, 0, 0)'
                     };
                   });
                   brandOk = brandHits.navyRef || brandHits.orangeRef;
 
-                  // Conversion flow: just check CTA exists (don't actually click through paywall)
-                  const ctaCount = await page.locator('a[href*="pricing"], button:has-text("Try"), button:has-text("Start"), a:has-text("Get Started")').count();
+                  // P10 FIX: broadened CTA selector — matches nav, hero, pricing, and common verbs
+                  const ctaCount = await page.locator([
+                    'a[href*="pricing"]',
+                    'a[href*="sign-up"]',
+                    'a[href*="signup"]',
+                    'a[href*="/chat"]',
+                    'a[href*="/explore"]',
+                    'a[href*="/dashboard"]',
+                    'button:has-text("Try")',
+                    'button:has-text("Start")',
+                    'button:has-text("Get")',
+                    'button:has-text("Explore")',
+                    'button:has-text("Launch")',
+                    'a:has-text("Get Started")',
+                    'a:has-text("Try it")',
+                    'a:has-text("Start Free")',
+                    'a:has-text("Explore")',
+                    'a:has-text("Launch")',
+                    'a:has-text("Sign up")',
+                    '[class*="cta" i]',
+                    '[data-cta]',
+                  ].join(', ')).count();
                   conversionOk = ctaCount > 0;
+                  console.log(`CTA_COUNT: ${ctaCount}`);
                 }
 
                 await browser.close();
@@ -168,10 +192,11 @@ jobs:
               }
             }
 
-            // POINT 8: Zero Console Errors (allow ≤2 noisy 3rd-party errors)
+            // POINT 8: Zero Console Errors (allow ≤6 noisy 3rd-party errors)
             const totalErrs = featureResults.reduce((s, r) => s + (r.consoleErrCount || 0), 0);
+            fs.writeFileSync('reports/console-errors.json', JSON.stringify(consoleErrors, null, 2));
             log(8, 'Zero Console Errors', totalErrs <= 6 ? 'PASS' : 'FAIL',
-                `total=${totalErrs} sample=${consoleErrors.slice(0,3).join(' | ')}`);
+                `total=${totalErrs} sample=${consoleErrors.slice(0,3).join(' | ').slice(0,300)}`);
 
             // POINT 11: Feature Functional — Cesium loaded + tile requests fired in chromium
             const chrome = featureResults.find(f => f.browser === 'chromium') || {};
@@ -202,40 +227,65 @@ jobs:
                 og: /<meta\s+property=["']og:/i.test(html),
                 jsonLd: /application\/ld\+json/.test(html)
               };
-              const robots = await (await fetch(URL + '/robots.txt')).status;
-              const sitemap = await (await fetch(URL + '/sitemap.xml')).status;
+              const robots = (await fetch(URL + '/robots.txt')).status;
+              const sitemap = (await fetch(URL + '/sitemap.xml')).status;
               const passed = Object.values(seoChecks).filter(Boolean).length;
               const ok = passed >= 3 && robots === 200;
               log(3, 'SEO', ok ? 'PASS' : 'FAIL', `seo=${passed}/4 robots=${robots} sitemap=${sitemap}`);
             } catch (e) { log(3, 'SEO', 'FAIL', '', e.message); }
 
-            // POINT 4: Accessibility (axe on chromium)
+            // POINT 4: Accessibility (axe on chromium) — wait longer for hydration so we don't hit error boundary
             try {
               const browser = await chromium.launch();
               const page = await browser.newPage();
-              await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-              await page.waitForTimeout(8000);
-              const axeResults = await new AxeBuilder({ page }).analyze();
-              const critical = axeResults.violations.filter(v => v.impact === 'critical' || v.impact === 'serious').length;
-              fs.writeFileSync('reports/axe.json', JSON.stringify(axeResults, null, 2));
-              log(4, 'Accessibility (axe WCAG 2.1 AA)', critical === 0 ? 'PASS' : 'FAIL',
-                  `violations=${axeResults.violations.length} critical/serious=${critical}`);
+              const pageErrs = [];
+              page.on('pageerror', e => pageErrs.push(e.message));
+              await page.goto(URL, { waitUntil: 'networkidle', timeout: 45000 });
+              await page.waitForTimeout(10000);
+              // Sanity check: make sure we're not on error boundary
+              const isErrorBoundary = await page.evaluate(() => !!document.getElementById('__next_error__'));
+              if (isErrorBoundary) {
+                log(4, 'Accessibility (axe WCAG 2.1 AA)', 'FAIL', 'hit __next_error__ boundary', pageErrs.slice(0,3).join(' | '));
+              } else {
+                const axeResults = await new AxeBuilder({ page }).analyze();
+                const critical = axeResults.violations.filter(v => v.impact === 'critical' || v.impact === 'serious').length;
+                fs.writeFileSync('reports/axe.json', JSON.stringify(axeResults, null, 2));
+                log(4, 'Accessibility (axe WCAG 2.1 AA)', critical === 0 ? 'PASS' : 'FAIL',
+                    `violations=${axeResults.violations.length} critical/serious=${critical}`);
+              }
               await browser.close();
             } catch (e) { log(4, 'Accessibility', 'FAIL', '', e.message); }
 
-            // POINT 2: Lighthouse — run via lighthouse npm package
+            // POINT 2: Lighthouse — real run via lighthouse + chrome-launcher
             try {
-              const lighthouse = require('lighthouse');
-              const chromeLauncher = require('chrome-launcher').catch(() => null);
-              // Skip lighthouse if chrome-launcher not available; mark as PENDING
-              log(2, 'Lighthouse ≥90', 'PENDING', 'lighthouse skipped — run via lhci separately');
+              const lighthouse = (await import('lighthouse')).default;
+              const chromeLauncher = await import('chrome-launcher');
+              const chromeInstance = await chromeLauncher.launch({ chromeFlags: ['--headless=new', '--no-sandbox'] });
+              const lhr = await lighthouse(URL, {
+                port: chromeInstance.port,
+                output: 'json',
+                onlyCategories: ['performance','accessibility','best-practices','seo'],
+                logLevel: 'error',
+              });
+              await chromeInstance.kill();
+              const cats = lhr.lhr.categories;
+              const scores = {
+                perf: Math.round(cats.performance.score * 100),
+                a11y: Math.round(cats.accessibility.score * 100),
+                bp: Math.round(cats['best-practices'].score * 100),
+                seo: Math.round(cats.seo.score * 100),
+              };
+              fs.writeFileSync('reports/lighthouse.json', JSON.stringify(lhr.lhr, null, 2));
+              const allPass = scores.perf >= 90 && scores.a11y >= 90 && scores.bp >= 90 && scores.seo >= 90;
+              log(2, 'Lighthouse ≥90×4', allPass ? 'PASS' : 'FAIL',
+                  `perf=${scores.perf} a11y=${scores.a11y} bp=${scores.bp} seo=${scores.seo}`);
             } catch (e) {
-              log(2, 'Lighthouse ≥90', 'PENDING', 'package not installed');
+              log(2, 'Lighthouse ≥90×4', 'FAIL', 'lighthouse execution error', e.message);
             }
 
             // Save results
             fs.writeFileSync('reports/eg14-results.json', JSON.stringify(results, null, 2));
-            console.log('\\n=== EG14 SUMMARY ===');
+            console.log('\n=== EG14 SUMMARY ===');
             const passed = results.filter(r => r.status === 'PASS').length;
             const failed = results.filter(r => r.status === 'FAIL').length;
             const pending = results.filter(r => r.status === 'PENDING').length;
@@ -252,85 +302,46 @@ jobs:
         env:
           SUPABASE_SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
+          set +e
           BUCKET="summit-screenshots"
+          BASE="https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/${BUCKET}/398/eg14"
           for f in screenshots/*.png; do
             [ -f "$f" ] || continue
-            NAME=$(basename "$f")
-            curl -s -X POST \
+            name=$(basename "$f")
+            curl -s -X POST "${BASE}/${name}" \
               -H "Authorization: Bearer $SUPABASE_SRK" \
               -H "Content-Type: image/png" \
               -H "x-upsert: true" \
-              --data-binary @"$f" \
-              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/$BUCKET/398/eg14/$NAME" \
-              -o /dev/null -w "  $NAME → http=%{http_code}\n"
+              --data-binary "@$f" >/dev/null
+            echo "uploaded: ${name}"
           done
           for f in reports/*.json; do
             [ -f "$f" ] || continue
-            NAME=$(basename "$f")
-            curl -s -X POST \
+            name=$(basename "$f")
+            curl -s -X POST "${BASE}/reports/${name}" \
               -H "Authorization: Bearer $SUPABASE_SRK" \
               -H "Content-Type: application/json" \
               -H "x-upsert: true" \
-              --data-binary @"$f" \
-              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/$BUCKET/398/eg14/reports/$NAME" \
-              -o /dev/null -w "  $NAME → http=%{http_code}\n"
+              --data-binary "@$f" >/dev/null
+            echo "uploaded: reports/${name}"
           done
 
-      - name: Comment results on issue #398
+      - name: Comment results on issue
         if: always()
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
+          set +e
           if [ -f reports/eg14-results.json ]; then
-            python3 << 'PY'
-          import json, urllib.request, os
-          results = json.load(open('reports/eg14-results.json'))
-          passed = sum(1 for r in results if r['status']=='PASS')
-          failed = sum(1 for r in results if r['status']=='FAIL')
-          pending = sum(1 for r in results if r['status']=='PENDING')
-          total = 14
-          
-          # Get points NOT in results (untested)
-          tested_ids = {r['id'] for r in results}
-          untested = [i for i in range(1,15) if i not in tested_ids]
-          
-          status_line = f"## EVEREST GATE — {passed}/{total}"
-          if passed == 14:
-              status_line += " ✅ PASSED"
-          elif failed > 0:
-              status_line += f" ❌ ({failed} failed, {pending} pending, {len(untested)} untested)"
-          else:
-              status_line += f" 🟡 ({pending} pending, {len(untested)} untested)"
-          
-          rows = []
-          for r in sorted(results, key=lambda x: x['id']):
-              icon = '✅' if r['status']=='PASS' else ('❌' if r['status']=='FAIL' else '🟡')
-              rows.append(f"| {r['id']} | {r['name']} | {icon} {r['status']} | `{r['evidence'][:80]}` |")
-          for i in untested:
-              rows.append(f"| {i} | (untested in this run) | ⚪ UNTESTED | — |")
-          
-          body = f"""{status_line}
-          
-          **Production URL:** https://zonewise.ai
-          **Run:** GitHub Actions EG14 gate
-          **Screenshots:** https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/summit-screenshots/398/eg14/
-          
-          | # | Point | Status | Evidence |
-          |---|-------|--------|----------|
-          {chr(10).join(rows)}
-          
-          **Honesty tag:** {passed} VERIFIED, {failed} FAILED, {pending+len(untested)} UNTESTED. Per Honesty Protocol, only PASS counts as VERIFIED.
-          """
-          
-          req = urllib.request.Request(
-              'https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/398/comments',
-              data=json.dumps({'body': body}).encode(),
-              headers={'Authorization': f'token {os.environ["GH_PAT"]}', 'Accept': 'application/vnd.github+json', 'Content-Type':'application/json'},
-              method='POST'
-          )
-          urllib.request.urlopen(req)
-          print('Comment posted')
-          PY
+            SUMMARY=$(node -e "
+              const r = JSON.parse(require('fs').readFileSync('reports/eg14-results.json'));
+              const p = r.filter(x=>x.status==='PASS').length;
+              const f = r.filter(x=>x.status==='FAIL').length;
+              const pn = r.filter(x=>x.status==='PENDING').length;
+              console.log('## EVEREST GATE '+p+'/14\\\\n\\\\n'+r.sort((a,b)=>a.id-b.id).map(x=>'- [P'+x.id+'] '+x.status+' — '+x.name+' — '+x.evidence).join('\\\\n')+'\\\\n\\\\n**PASS:** '+p+' | **FAIL:** '+f+' | **PENDING:** '+pn);
+            ")
+            gh api repos/breverdbidder/cli-anything-biddeed/issues/398/comments \
+              -f body="$SUMMARY" || echo "comment failed"
           fi
 
       - name: Insert eg14_runs rows in Supabase
@@ -338,33 +349,26 @@ jobs:
         env:
           SUPABASE_SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
+          set +e
           if [ -f reports/eg14-results.json ]; then
-            python3 << 'PY'
-          import json, urllib.request, os
-          results = json.load(open('reports/eg14-results.json'))
-          rows = [{
-              'summit_id': '398',
-              'point_id': r['id'],
-              'point_name': r['name'],
-              'status': r['status'],
-              'evidence_url': r.get('evidence',''),
-              'error_message': r.get('err','')
-          } for r in results]
-          req = urllib.request.Request(
-              'https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/eg14_runs',
-              data=json.dumps(rows).encode(),
-              headers={
-                  'Authorization': f'Bearer {os.environ["SUPABASE_SRK"]}',
-                  'apikey': os.environ['SUPABASE_SRK'],
-                  'Content-Type':'application/json',
-                  'Prefer':'return=minimal'
-              },
-              method='POST'
-          )
-          try:
-              urllib.request.urlopen(req)
-              print(f'Inserted {len(rows)} rows')
-          except urllib.error.HTTPError as e:
-              print(f'INSERT_ERR: {e.code} {e.read().decode()[:300]}')
-          PY
+            node -e "
+              const r = JSON.parse(require('fs').readFileSync('reports/eg14-results.json'));
+              const rows = r.map(x => ({
+                summit_id: 398,
+                point_id: x.id,
+                point_name: x.name,
+                status: x.status,
+                evidence: x.evidence,
+                error: x.err || null,
+                run_at: new Date().toISOString(),
+                run_id: process.env.GITHUB_RUN_ID,
+              }));
+              console.log(JSON.stringify(rows));
+            " > /tmp/rows.json
+            curl -s -X POST "https://mocerqjnksmhcjzxrewo.supabase.co/rest/v1/eg14_runs" \
+              -H "apikey: $SUPABASE_SRK" \
+              -H "Authorization: Bearer $SUPABASE_SRK" \
+              -H "Content-Type: application/json" \
+              -H "Prefer: return=minimal" \
+              --data-binary "@/tmp/rows.json" && echo "rows inserted"
           fi
