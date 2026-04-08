@@ -16,34 +16,33 @@ jobs:
           KEY=os.environ['GOOGLE_API_KEY']
           PROJECT='prj_EaXgEO6WDoSpCeLhuCemtbPr6e8E'
           H={'Authorization':f'Bearer {TOKEN}','Content-Type':'application/json'}
-          # List
-          req=urllib.request.Request(f'https://api.vercel.com/v9/projects/{PROJECT}/env?decrypt=true',headers=H)
-          envs=json.loads(urllib.request.urlopen(req).read()).get('envs',[])
-          for e in envs:
-              k=e.get('key','').upper()
-              if 'GOOGLE' in k or 'CESIUM' in k or 'MAPBOX' in k:
-                  print(f"BEFORE: {e['key']} targets={e.get('target',[])} val={(e.get('value') or '')[:12]}...")
-          has=any(e['key']=='NEXT_PUBLIC_GOOGLE_API_KEY' and 'production' in e.get('target',[]) for e in envs)
-          val=next((e['value'] for e in envs if e['key']=='NEXT_PUBLIC_GOOGLE_API_KEY' and 'production' in e.get('target',[])),'')
-          print(f'NPUB_PRESENT_BEFORE: {has}')
-          print(f'NPUB_MATCHES: {val==KEY}')
-          # Upsert
-          body={'key':'NEXT_PUBLIC_GOOGLE_API_KEY','value':KEY,'type':'plain','target':['production','preview','development']}
-          req2=urllib.request.Request(f'https://api.vercel.com/v10/projects/{PROJECT}/env?upsert=true',data=json.dumps(body).encode(),headers=H,method='POST')
-          try:
-              r=json.loads(urllib.request.urlopen(req2).read())
-              print(f"UPSERT: OK created={r.get('created') is not None}")
-          except urllib.error.HTTPError as e:
-              print(f"UPSERT_ERR: {e.code} {e.read().decode()[:200]}")
+          # Upsert BOTH keys (server + public)
+          for k in ['GOOGLE_API_KEY','NEXT_PUBLIC_GOOGLE_API_KEY']:
+              body={'key':k,'value':KEY,'type':'plain','target':['production','preview','development']}
+              try:
+                  r=urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v10/projects/{PROJECT}/env?upsert=true',data=json.dumps(body).encode(),headers=H,method='POST'))
+                  print(f'UPSERT {k}: OK')
+              except urllib.error.HTTPError as e:
+                  print(f'UPSERT {k}: ERR {e.code} {e.read().decode()[:200]}')
           # Verify
-          envs2=json.loads(urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v9/projects/{PROJECT}/env?decrypt=true',headers=H)).read()).get('envs',[])
-          for e in envs2:
-              if e['key']=='NEXT_PUBLIC_GOOGLE_API_KEY':
-                  print(f"AFTER: targets={e.get('target',[])} val={(e.get('value') or '')[:12]}...")
-          # Latest deploy
-          req3=urllib.request.Request(f'https://api.vercel.com/v6/deployments?projectId={PROJECT}&target=production&limit=1',headers=H)
-          deps=json.loads(urllib.request.urlopen(req3).read()).get('deployments',[])
-          for d in deps[:1]:
-              print(f"LATEST_DEPLOY: url={d.get('url')} state={d.get('state')} created={d.get('created')}")
+          envs=json.loads(urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v9/projects/{PROJECT}/env?decrypt=true',headers=H)).read()).get('envs',[])
+          for e in envs:
+              if e['key'] in ['GOOGLE_API_KEY','NEXT_PUBLIC_GOOGLE_API_KEY']:
+                  v=e.get('value','') or ''
+                  print(f"VERIFY {e['key']}: starts_with_AIza={v.startswith('AIzaSy')} val_prefix={v[:12]}")
+          # Trigger new prod deployment via Vercel API (redeploy from main)
+          # Get latest prod deploy first
+          deps=json.loads(urllib.request.urlopen(urllib.request.Request(f'https://api.vercel.com/v6/deployments?projectId={PROJECT}&target=production&limit=1',headers=H)).read()).get('deployments',[])
+          if deps:
+              latest=deps[0]
+              print(f"OLD_DEPLOY: {latest.get('uid')} state={latest.get('state')}")
+              # Redeploy: POST /v13/deployments with deploymentId
+              body={'name':'zonewise-web','project':PROJECT,'target':'production','deploymentId':latest.get('uid')}
+              try:
+                  r=urllib.request.urlopen(urllib.request.Request('https://api.vercel.com/v13/deployments',data=json.dumps(body).encode(),headers=H,method='POST'))
+                  d=json.loads(r.read())
+                  print(f"NEW_DEPLOY: id={d.get('id')} url={d.get('url')} state={d.get('readyState')}")
+              except urllib.error.HTTPError as e:
+                  print(f"REDEPLOY_ERR: {e.code} {e.read().decode()[:300]}")
           PYE
           python3 /tmp/probe.py
