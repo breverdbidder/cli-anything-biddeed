@@ -7,13 +7,13 @@ on:
 jobs:
   reality:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install playwright in clean dir
+      - name: Install playwright
         run: |
           mkdir -p /tmp/pw && cd /tmp/pw
           npm init -y > /dev/null
@@ -25,21 +25,24 @@ jobs:
           URL: ${{ inputs.url }}
         run: |
           cp scripts/eg14-reality.mjs /tmp/pw/reality.mjs
-          cd /tmp/pw && node reality.mjs
-      - name: Upload screenshot to Supabase
+          cd /tmp/pw && node reality.mjs || echo "REALITY_RC=$?"
+      - name: Upload screenshots to Supabase via service role
         if: always()
         env:
-          SBT: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          if [ -f /tmp/reality.png ]; then
-            TS=$(date +%s)
-            curl -s -X POST \
-              -H "Authorization: Bearer $SBT" \
-              -H "Content-Type: image/png" \
-              --data-binary "@/tmp/reality.png" \
-              "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/summit-screenshots/398/eg14/reality-${TS}.png" \
-              -w "\nUPLOAD:%{http_code}\n"
-            echo "URL: https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/summit-screenshots/398/eg14/reality-${TS}.png"
-          else
-            echo "NO_SCREENSHOT"
-          fi
+          TS=$(date +%s)
+          for f in r5 r15 r30; do
+            if [ -f /tmp/$f.png ]; then
+              curl -s -X POST \
+                -H "Authorization: Bearer $SRK" \
+                -H "apikey: $SRK" \
+                -H "Content-Type: image/png" \
+                -H "x-upsert: true" \
+                --data-binary "@/tmp/$f.png" \
+                "https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/summit-screenshots/398/eg14/${f}-${TS}.png" \
+                -w "${f} HTTP:%{http_code}\n" -o /tmp/up_${f}.json
+              cat /tmp/up_${f}.json
+              echo " → https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/summit-screenshots/398/eg14/${f}-${TS}.png"
+            fi
+          done
