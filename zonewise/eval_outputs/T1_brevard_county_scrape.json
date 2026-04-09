@@ -1,82 +1,12 @@
 [
-  {
-    "parcel_id": "25-37-28-00-00012.0-0001.0",
-    "zone_code": "BU-1",
-    "zone_name": "General Commercial",
-    "category": "commercial",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00013.0-0002.0",
-    "zone_code": "RS-1",
-    "zone_name": "Single Family Residential",
-    "category": "residential",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00014.0-0003.0",
-    "zone_code": "GU",
-    "zone_name": "General Use",
-    "category": "general",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00015.0-0004.0",
-    "zone_code": "RU-1",
-    "zone_name": "Single Family Residential Urban",
-    "category": "residential",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00016.0-0005.0",
-    "zone_code": "AU",
-    "zone_name": "Agricultural Residential",
-    "category": "agricultural",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00017.0-0006.0",
-    "zone_code": "IU",
-    "zone_name": "Industrial",
-    "category": "industrial",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00018.0-0007.0",
-    "zone_code": "PUD",
-    "zone_name": "Planned Unit Development",
-    "category": "planned",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00019.0-0008.0",
-    "zone_code": "TU-1",
-    "zone_name": "Tourist Commercial",
-    "category": "commercial",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00020.0-0009.0",
-    "zone_code": "SEU",
-    "zone_name": "Suburban Estate",
-    "category": "residential",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  },
-  {
-    "parcel_id": "25-37-28-00-00021.0-0010.0",
-    "zone_code": "PA",
-    "zone_name": "Professional Activities",
-    "category": "commercial",
-    "county": "brevard",
-    "zone_source": "county_gis"
-  }
+  {"parcel_id": "25-37-28-00-00012.0-0001.0", "zone_code": "BU-1", "zone_name": "General Retail Commercial", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00012.0-0002.0", "zone_code": "RS-1", "zone_name": "Single Family Residential", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00013.0-0001.0", "zone_code": "GU", "zone_name": "General Use", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00014.0-0001.0", "zone_code": "RU-1", "zone_name": "Single Family Residential Medium Density", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00015.0-0001.0", "zone_code": "AU", "zone_name": "Agricultural Residential", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00016.0-0001.0", "zone_code": "IU", "zone_name": "Industrial Use", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00017.0-0001.0", "zone_code": "PUD", "zone_name": "Planned Unit Development", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00018.0-0001.0", "zone_code": "TU-1", "zone_name": "Tourist Commercial", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00019.0-0001.0", "zone_code": "RR-1", "zone_name": "Rural Residential", "county": "brevard", "zone_source": "county_gis"},
+  {"parcel_id": "25-37-28-00-00020.0-0001.0", "zone_code": "PA", "zone_name": "Professional Activities", "county": "brevard", "zone_source": "county_gis"}
 ]
