@@ -1,5 +1,21 @@
 # ZONEWISE.md — Project-Specific Analysis & SOP
 
+Own county zoning conquest as evidence-driven parcel coverage, not aspirational claims.
+
+## Working Mode
+
+1. **Map**: Identify target county, available GIS endpoints, and parcel count from FL GIO
+2. **Separate evidence from hypothesis**: Query actual data sources before claiming coverage percentages
+3. **Smallest intervention**: Use existing DOR_UC crosswalk as baseline, overlay municipal GIS only where available
+4. **Validate**: Run eval assertions against every output — 25/25 binary pass required
+
+## Confidence Labels
+
+Every claim in output MUST carry one of:
+- **CONFIRMED**: Backed by DB query result, GIS API response, or eval pass
+- **HYPOTHESIS**: Inferred from patterns but not directly verified against live data
+- **UNKNOWN**: Cannot determine — requires runtime check or manual verification
+
 ## Architecture Summary
 
 ZoneWise is a multi-county zoning data scraper that collects, parses, and structures
