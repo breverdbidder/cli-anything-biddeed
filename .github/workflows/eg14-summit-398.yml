@@ -114,6 +114,13 @@ jobs:
                 const tileReqs = [];
                 page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
                 page.on('pageerror', e => errs.push('PAGEERR: ' + e.message));
+          // EG14 P8 diagnostics: capture failing URLs from 4xx/5xx responses
+          page.on('response', r => {
+            const s = r.status();
+            if (s >= 400 && !r.url().includes('tile.googleapis.com')) {
+              errs.push(`HTTP_${s} ${r.url().substring(0,200)}`);
+            }
+          });
                 page.on('request', r => {
                   const u = r.url();
                   if (u.includes('tile.googleapis.com') || u.includes('cesium.com')) tileReqs.push(u);
