@@ -163,6 +163,15 @@ gate_4: "Error states MUST return structured JSON with exit_code != 0"
 gate_5: "Match rate for spatial joins MUST be >= 95% or flag as degraded"
 ```
 
+## Return Contract
+
+Every ZoneWise operation MUST return results in this structure:
+1. **Scope**: County/municipality targeted, number of parcels expected
+2. **Finding + Evidence**: Actual data retrieved with source attribution (zone_source field)
+3. **Intervention**: What was written/updated (table, row count, upsert result)
+4. **Validated**: Eval assertion results — 25/25 binary pass/fail
+5. **Residual**: Unmatched parcels, degraded match rates, or known gaps to address next
+
 ## Guard Rails
 
 ```yaml
