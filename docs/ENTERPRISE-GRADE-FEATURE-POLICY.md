@@ -105,3 +105,74 @@ The alternative — "ship moat, fix quality later" — produces exactly the oppo
 | Date | Change | Author |
 |---|---|---|
 | 2026-04-09 | Initial policy locked as standing rule | Ariel Shapira |
+
+
+---
+
+## Battle Card Refresh Discipline
+
+**Locked:** 2026-04-09 (addendum)
+**Applies to:** all SUMMITs that close gaps identified in `zonewise-web/data/competitors/*.ts`
+
+### The Rule
+
+When a SUMMIT closes a gap listed in any competitor battle card, the card MUST be refreshed in the same SUMMIT commit, **before** the EG14 14/14 gate. The refresh happens in the same branch as the feature so the live card reflects the new reality the moment EG14 passes.
+
+### What "refresh" means concretely
+
+Six required edits to `data/competitors/{slug}.ts`:
+
+1. **Remove the closed code from `gap_kpi_codes`** — the array should shrink by exactly the number of gaps closed
+2. **Add matching codes to `parity_kpi_codes` OR `advantage_kpi_codes`** — parity if the competitor already has it, advantage if we shipped something they don't have
+3. **Update the three integer counters numerically:**
+   - `zonewise_wins` = `advantage_kpi_codes.length`
+   - `competitor_wins` = `gap_kpi_codes.length`
+   - `ties` = `parity_kpi_codes.length`
+   The three counts must match the array lengths. Mismatches are a Honesty Protocol violation.
+4. **Append a dated source citation** to the `sources` array with format:
+   ```typescript
+   {
+     label: 'SUMMIT #{number} — {one-line description of what shipped}',
+     url: 'https://github.com/breverdbidder/zonewise-web/commit/{commit-sha}',
+     date: 'YYYY-MM-DD',
+   }
+   ```
+5. **Update `their_strengths`** — remove any bullet that described a capability we now have (it is no longer a strength relative to ZoneWise)
+6. **Update `our_edge`** — add a new bullet reflecting the shipped capability if it materially changes our positioning
+7. **Update `verdict_line`** — only if the closure materially changes the positioning story. Leave unchanged for incremental closures.
+
+### Why this is a discipline, not a checklist
+
+Competitor battle cards are **living scoreboards**. They drive:
+- Marketing copy and landing page positioning
+- Sales conversations ("we match PropZone on X, beat them on Y")
+- Product roadmap prioritization (visible gaps attract build pressure)
+- Honest competitive intelligence for the team
+
+Stale battle cards — where the card still lists "water setback" as a gap after we've shipped it — are **lying about our moat**. That is a direct Honesty Protocol violation (VERIFIED claims must match reality). Customers, investors, and internal team members read these cards and make decisions based on them. Stale data corrupts every downstream decision.
+
+### Enforcement
+
+Every SUMMIT issue body MUST include:
+
+- A deliverable titled **"Battle card refresh"** as the penultimate deliverable (immediately before the EG14 gate)
+- Explicit acceptance criteria referencing the numeric counters and the removed/added codes
+- Verification via `curl https://zonewise.ai/competitors/{slug}` + DOM grep for the updated counts
+
+SUMMITs that ship features without refreshing the relevant battle card are marked INCOMPLETE regardless of whether the feature itself works. The missing refresh is a ghost-success pattern and triggers the 3× Honesty Protocol penalty.
+
+### Example — PropZone sprint arithmetic
+
+| SUMMIT | Starting | Action | Ending |
+|---|---|---|---|
+| Pre-#402 (b1aff5d1) | 40W / 4L / 26T | — | 40W / 4L / 26T |
+| #402 OSINT | 40W / 4L / 26T | +10 advantage (OWN-001..010) | 50W / 4L / 26T |
+| #403 Property card | 50W / 4L / 26T | -3 gap, +3 parity (ZON-019, 020, 021) | 50W / 1L / 29T |
+| #404 Mapbox tiles | 50W / 1L / 29T | +1 parity (ZON-022) | 50W / 1L / 30T |
+| #405 Water setback | 50W / 1L / 30T | -1 gap, +1 parity (ZON-023) | **50W / 0L / 31T** |
+
+Each row reflects a battle card commit in the same SUMMIT as the feature ship. No SUMMIT is marked complete until both the feature AND the card update are live AND EG14 returns 14/14.
+
+### Applies to all 11 competitors
+
+This rule is not PropZone-specific. As the 10 remaining battle cards (Algoma, Zoneomics, MapWise, PropertyOnion, Forma+Zoneomics, TestFit, Reventure, Foreclosure.com, AI Topia, CoreLogic/ATTOM) are built and as their gaps are closed in future sprints, the same refresh discipline applies identically.
