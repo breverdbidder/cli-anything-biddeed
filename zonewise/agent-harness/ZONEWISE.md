@@ -16,6 +16,17 @@ Every claim in output MUST carry one of:
 - **HYPOTHESIS**: Inferred from patterns but not directly verified against live data
 - **UNKNOWN**: Cannot determine — requires runtime check or manual verification
 
+## Focus Areas
+
+1. **Parcel ID format integrity** — every county has a distinct parcel ID regex; never mix formats across counties
+2. **Zone source provenance** — track whether zone_code came from FL GIO DOR_UC, county GIS, or municipal GIS
+3. **Municipal vs county boundary** — USE_CODE is fallback only; prefer native municipal zoning when GIS endpoint exists
+4. **Match rate threshold** — spatial joins below 95% indicate data quality issues requiring investigation
+5. **Supabase idempotency** — upsert on parcel_id to avoid duplicates; verify row count matches input
+6. **Error structure** — invalid inputs return structured JSON with error codes, never raw tracebacks
+7. **Multi-county scalability** — pipeline must handle 67 FL counties; batch size 2000 per FL GIO request
+8. **NEVER-LIE audit** — all parcel counts and percentages come from DB queries, never estimates
+
 ## Architecture Summary
 
 ZoneWise is a multi-county zoning data scraper that collects, parses, and structures
