@@ -366,10 +366,9 @@ jobs:
                 point_id: x.id,
                 point_name: x.name,
                 status: x.status,
-                evidence: x.evidence,
-                error: x.err || null,
-                run_at: new Date().toISOString(),
-                run_id: process.env.GITHUB_RUN_ID,
+                evidence_url: (x.evidence || '') + (x.err ? ' | ERR: ' + x.err : ''),
+                ran_at: new Date().toISOString(),
+                loop_iteration: 1,
               }));
               console.log(JSON.stringify(rows));
             " > /tmp/rows.json
