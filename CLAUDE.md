@@ -901,3 +901,10 @@ Before any SUMMIT may be marked SHIPPED or commented as complete, Claude Code MU
 
 This gate exists because on 2026-04-07 SUMMIT #387 (Owner OSINT) committed three files, ran zero SQL, never created the table in Supabase, and self-certified SHIPPED with a checkmark. The downstream classifier was also broken (80% INVESTOR rate from city-name collisions). Sentinel caught it; the AI Architect dismissed Sentinel; only manual Mgmt API verification exposed the truth. This will not happen again.
 
+
+
+## Design System
+- Read DESIGN.md before any UI work
+- Navy #1E3A5F (surfaces), Amber #F59E0B (accent/CTA), Void #020617 (background)
+- Inter (UI text) + JetBrains Mono (financial data)
+- No pill buttons, no light mode, no gradients on buttons
