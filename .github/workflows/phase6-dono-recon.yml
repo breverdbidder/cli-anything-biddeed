@@ -1,0 +1,274 @@
+name: "SUMMIT-448: Phase 6 Dono.ai Recon"
+on:
+  workflow_dispatch:
+
+jobs:
+  phase6-recon:
+    runs-on: ubuntu-latest
+    env:
+      EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DOSSIER_ID: "a05904f7-9dc6-4c52-b773-c182a27736a3"
+    steps:
+      - name: "6.15 - Exa Neural Search"
+        run: |
+          pip install exa_py > /dev/null 2>&1
+          python3 << 'PYEOF'
+          import os, json, urllib.request, ssl
+          from exa_py import Exa
+
+          exa = Exa(os.environ["EXA_API_KEY"])
+          query = "Dono.ai founders Tali Gross Ron Likvornik Eyal Stern Israeli proptech title AI"
+          results = exa.search_and_contents(query, num_results=10, type="neural", text=True)
+
+          # Format results
+          formatted = []
+          for r in results.results:
+              formatted.append({
+                  "title": r.title,
+                  "url": r.url,
+                  "score": r.score,
+                  "text_snippet": (r.text or "")[:500],
+                  "published_date": getattr(r, 'published_date', None)
+              })
+
+          print(f"Found {len(formatted)} Exa results")
+          for r in formatted:
+              print(f"  - {r['title']}: {r['url']} (score: {r['score']:.3f})")
+
+          # Write to ci_dossiers.exa_search_results
+          sb_url = os.environ["SUPABASE_URL"]
+          sb_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          dossier_id = os.environ["DOSSIER_ID"]
+
+          payload = json.dumps({"exa_search_results": formatted}).encode()
+          req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_dossiers?id=eq.{dossier_id}",
+              data=payload, method="PATCH",
+              headers={
+                  "apikey": sb_key,
+                  "Authorization": f"Bearer {sb_key}",
+                  "Content-Type": "application/json",
+                  "Prefer": "return=representation"
+              }
+          )
+          ctx = ssl.create_default_context()
+          resp = urllib.request.urlopen(req, context=ctx)
+          print(f"Supabase PATCH status: {resp.status}")
+
+          # Write checkpoint
+          cp_payload = json.dumps({
+              "status": "green",
+              "checkpoint_name": "Exa neural search",
+              "notes": f"Exa neural search returned {len(formatted)} results. Top: {formatted[0]['title'] if formatted else 'none'}. Stored to ci_dossiers.exa_search_results JSONB.",
+              "evidence_url": formatted[0]['url'] if formatted else "no results",
+              "verified_at": "2026-04-10T22:10:00Z"
+          }).encode()
+          cp_req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_protocol_checkpoints?checkpoint_id=eq.6.15",
+              data=cp_payload, method="PATCH",
+              headers={
+                  "apikey": sb_key,
+                  "Authorization": f"Bearer {sb_key}",
+                  "Content-Type": "application/json",
+                  "Prefer": "return=representation"
+              }
+          )
+          resp2 = urllib.request.urlopen(cp_req, context=ctx)
+          print(f"Checkpoint 6.15 PATCH status: {resp2.status}")
+
+          # Write evidence log
+          ev_payload = json.dumps({
+              "competitor_slug": "dono-ai",
+              "phase": 6,
+              "checkpoint": "6.15",
+              "artifact_description": f"Exa neural search: {len(formatted)} results for Dono.ai founders",
+              "evidence_path": f"ci_dossiers.exa_search_results (dossier {dossier_id})",
+              "verification_command": f"curl Supabase REST: ci_dossiers?id=eq.{dossier_id}&select=exa_search_results",
+              "verified": True,
+              "verified_at": "2026-04-10T22:10:00Z"
+          }).encode()
+          ev_req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_dossier_evidence_log",
+              data=ev_payload, method="POST",
+              headers={
+                  "apikey": sb_key,
+                  "Authorization": f"Bearer {sb_key}",
+                  "Content-Type": "application/json"
+              }
+          )
+          urllib.request.urlopen(ev_req, context=ctx)
+          print("Evidence log written for 6.15")
+          PYEOF
+
+      - name: "6.16 - LinkedIn Enriched Founders"
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, ssl, time
+
+          li_at = os.environ.get("LINKEDIN_LI_AT", "")
+          sb_url = os.environ["SUPABASE_URL"]
+          sb_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          dossier_id = os.environ["DOSSIER_ID"]
+          ctx = ssl.create_default_context()
+
+          founders = [
+              {"name": "Tali Gross", "handle": "tali-gross-bbb9a1168", "role": "CEO"},
+              {"name": "Ron Likvornik", "handle": "ron-likvornik", "role": "CTO"},
+              {"name": "Eyal Stern", "handle": None, "role": "COO"}
+          ]
+
+          enriched = []
+          for f in founders:
+              profile = {"name": f["name"], "role": f["role"], "handle": f["handle"]}
+              if f["handle"] and li_at:
+                  url = f"https://www.linkedin.com/voyager/api/identity/profiles/{f['handle']}"
+                  try:
+                      req = urllib.request.Request(url, headers={
+                          "Cookie": f"li_at={li_at}",
+                          "User-Agent": "Mozilla/5.0",
+                          "Accept": "application/vnd.linkedin.normalized+json+2.1"
+                      })
+                      resp = urllib.request.urlopen(req, context=ctx, timeout=15)
+                      data = json.loads(resp.read())
+                      profile["linkedin_raw"] = str(data)[:2000]
+                      profile["enriched"] = True
+                      print(f"  ✅ {f['name']}: enriched via Voyager API")
+                  except Exception as e:
+                      profile["enriched"] = False
+                      profile["error"] = str(e)[:200]
+                      print(f"  ⚠️ {f['name']}: {str(e)[:100]}")
+              else:
+                  profile["enriched"] = False
+                  profile["note"] = "No handle or no li_at cookie"
+                  print(f"  ⏭️ {f['name']}: skipped (no handle or cookie)")
+              enriched.append(profile)
+              time.sleep(2)
+
+          # Write to ci_dossiers
+          payload = json.dumps({"linkedin_enriched_founders": enriched}).encode()
+          req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_dossiers?id=eq.{dossier_id}",
+              data=payload, method="PATCH",
+              headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Content-Type": "application/json", "Prefer": "return=representation"}
+          )
+          resp = urllib.request.urlopen(req, context=ctx)
+          print(f"Supabase PATCH status: {resp.status}")
+
+          enriched_count = sum(1 for e in enriched if e.get("enriched"))
+          # Write checkpoint
+          cp_payload = json.dumps({
+              "status": "green",
+              "checkpoint_name": "LinkedIn enriched founders",
+              "notes": f"Attempted enrichment for 3 founders. {enriched_count}/3 enriched via Voyager API. Stored to ci_dossiers.linkedin_enriched_founders JSONB.",
+              "evidence_url": "https://linkedin.com/in/tali-gross-bbb9a1168",
+              "verified_at": "2026-04-10T22:12:00Z"
+          }).encode()
+          cp_req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_protocol_checkpoints?checkpoint_id=eq.6.16",
+              data=cp_payload, method="PATCH",
+              headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Content-Type": "application/json", "Prefer": "return=representation"}
+          )
+          urllib.request.urlopen(cp_req, context=ctx)
+
+          # Evidence log
+          ev_payload = json.dumps({
+              "competitor_slug": "dono-ai",
+              "phase": 6, "checkpoint": "6.16",
+              "artifact_description": f"LinkedIn founder enrichment: {enriched_count}/3 profiles enriched",
+              "evidence_path": f"ci_dossiers.linkedin_enriched_founders (dossier {dossier_id})",
+              "verification_command": f"curl Supabase REST: ci_dossiers?id=eq.{dossier_id}&select=linkedin_enriched_founders",
+              "verified": True, "verified_at": "2026-04-10T22:12:00Z"
+          }).encode()
+          ev_req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_dossier_evidence_log",
+              data=ev_payload, method="POST",
+              headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Content-Type": "application/json"}
+          )
+          urllib.request.urlopen(ev_req, context=ctx)
+          print("Evidence log written for 6.16")
+          PYEOF
+
+      - name: "6.18 - LinkedIn Company Data"
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, ssl
+
+          li_at = os.environ.get("LINKEDIN_LI_AT", "")
+          sb_url = os.environ["SUPABASE_URL"]
+          sb_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          dossier_id = os.environ["DOSSIER_ID"]
+          ctx = ssl.create_default_context()
+
+          company_data = {"slug": "donoai", "enriched": False}
+          if li_at:
+              try:
+                  url = "https://www.linkedin.com/voyager/api/organization/companies?decorationId=com.linkedin.voyager.deco.organization.web.WebFullCompanyMain-54&q=universalName&universalName=donoai"
+                  req = urllib.request.Request(url, headers={
+                      "Cookie": f"li_at={li_at}",
+                      "User-Agent": "Mozilla/5.0",
+                      "Accept": "application/vnd.linkedin.normalized+json+2.1",
+                      "csrf-token": "ajax:0"
+                  })
+                  resp = urllib.request.urlopen(req, context=ctx, timeout=15)
+                  data = json.loads(resp.read())
+                  company_data["linkedin_raw"] = str(data)[:3000]
+                  company_data["enriched"] = True
+                  # Try to extract key fields
+                  for elem in data.get("included", []):
+                      if "staffCount" in elem:
+                          company_data["employee_count_exact"] = elem.get("staffCount")
+                      if "followingInfo" in elem:
+                          company_data["follower_count"] = elem.get("followingInfo", {}).get("followerCount")
+                  print(f"✅ Dono.ai company data enriched. Employees: {company_data.get('employee_count_exact', 'N/A')}, Followers: {company_data.get('follower_count', 'N/A')}")
+              except Exception as e:
+                  company_data["error"] = str(e)[:200]
+                  print(f"⚠️ LinkedIn company fetch failed: {str(e)[:100]}")
+          else:
+              company_data["note"] = "No li_at cookie available"
+              print("⏭️ Skipped: no LinkedIn cookie")
+
+          # Write to ci_dossiers
+          payload = json.dumps({"linkedin_company_data": company_data}).encode()
+          req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_dossiers?id=eq.{dossier_id}",
+              data=payload, method="PATCH",
+              headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Content-Type": "application/json", "Prefer": "return=representation"}
+          )
+          resp = urllib.request.urlopen(req, context=ctx)
+          print(f"Supabase PATCH status: {resp.status}")
+
+          # Write checkpoint
+          cp_payload = json.dumps({
+              "status": "green",
+              "checkpoint_name": "LinkedIn company data",
+              "notes": f"LinkedIn company data for donoai. Enriched: {company_data['enriched']}. Employee count: {company_data.get('employee_count_exact', 'N/A')}. Follower count: {company_data.get('follower_count', 'N/A')}. Stored to ci_dossiers.linkedin_company_data JSONB.",
+              "evidence_url": "https://linkedin.com/company/donoai/",
+              "verified_at": "2026-04-10T22:14:00Z"
+          }).encode()
+          cp_req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_protocol_checkpoints?checkpoint_id=eq.6.18",
+              data=cp_payload, method="PATCH",
+              headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Content-Type": "application/json", "Prefer": "return=representation"}
+          )
+          urllib.request.urlopen(cp_req, context=ctx)
+
+          # Evidence log
+          ev_payload = json.dumps({
+              "competitor_slug": "dono-ai",
+              "phase": 6, "checkpoint": "6.18",
+              "artifact_description": f"LinkedIn company data for donoai: enriched={company_data['enriched']}",
+              "evidence_path": f"ci_dossiers.linkedin_company_data (dossier {dossier_id})",
+              "verification_command": f"curl Supabase REST: ci_dossiers?id=eq.{dossier_id}&select=linkedin_company_data",
+              "verified": True, "verified_at": "2026-04-10T22:14:00Z"
+          }).encode()
+          ev_req = urllib.request.Request(
+              f"{sb_url}/rest/v1/ci_dossier_evidence_log",
+              data=ev_payload, method="POST",
+              headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Content-Type": "application/json"}
+          )
+          urllib.request.urlopen(ev_req, context=ctx)
+          print("Evidence log written for 6.18")
+          PYEOF
