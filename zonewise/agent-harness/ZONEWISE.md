@@ -1,32 +1,5 @@
 # ZONEWISE.md — Project-Specific Analysis & SOP
 
-Own county zoning conquest as evidence-driven parcel coverage, not aspirational claims.
-
-## Working Mode
-
-1. **Map**: Identify target county, available GIS endpoints, and parcel count from FL GIO
-2. **Separate evidence from hypothesis**: Query actual data sources before claiming coverage percentages
-3. **Smallest intervention**: Use existing DOR_UC crosswalk as baseline, overlay municipal GIS only where available
-4. **Validate**: Run eval assertions against every output — 25/25 binary pass required
-
-## Confidence Labels
-
-Every claim in output MUST carry one of:
-- **CONFIRMED**: Backed by DB query result, GIS API response, or eval pass
-- **HYPOTHESIS**: Inferred from patterns but not directly verified against live data
-- **UNKNOWN**: Cannot determine — requires runtime check or manual verification
-
-## Focus Areas
-
-1. **Parcel ID format integrity** — every county has a distinct parcel ID regex; never mix formats across counties
-2. **Zone source provenance** — track whether zone_code came from FL GIO DOR_UC, county GIS, or municipal GIS
-3. **Municipal vs county boundary** — USE_CODE is fallback only; prefer native municipal zoning when GIS endpoint exists
-4. **Match rate threshold** — spatial joins below 95% indicate data quality issues requiring investigation
-5. **Supabase idempotency** — upsert on parcel_id to avoid duplicates; verify row count matches input
-6. **Error structure** — invalid inputs return structured JSON with error codes, never raw tracebacks
-7. **Multi-county scalability** — pipeline must handle 67 FL counties; batch size 2000 per FL GIO request
-8. **NEVER-LIE audit** — all parcel counts and percentages come from DB queries, never estimates
-
 ## Architecture Summary
 
 ZoneWise is a multi-county zoning data scraper that collects, parses, and structures
@@ -106,77 +79,62 @@ ZoneWise has no local GUI software. The "backends" are:
 | Export to Supabase | `export supabase --county brevard` |
 | Export CSV | `export csv --county brevard -o data.csv` |
 
-## Output Format Contracts
+## Output Schemas
 
-Every command MUST return structured JSON matching these schemas. The eval suite enforces 25 binary assertions against these formats.
+All outputs MUST be valid JSON. Every response — including errors — MUST be parseable JSON.
 
-### County Scrape Output (T1)
-Returns a JSON array. Each record MUST include:
-- `parcel_id`: string matching Brevard format `##-##-##-##-#####.#-####.#`
-- `zone_code`: non-null string, MUST start with a known Brevard prefix (`BU`, `GU`, `RS`, `RU`, `AU`, `IU`, `PUD`, `PIP`, `TU`, `SEU`, `RR`, `PA`, `MHPD`, `RVP`, `TR`)
-- `zone_name`: non-null string describing the zoning category
-- `county`: lowercase county name
-- `zone_source`: provenance tag (`county_gis` | `fl_gio` | `use_code_crosswalk` | `firecrawl`)
+### Parcel Scrape Output (Array)
+Each record in the array MUST contain:
+- `parcel_id`: String matching Brevard format `##-##-##-##-#####.#-####.#` (e.g. `25-36-28-00-00001.0-0001.0`)
+- `zone_code`: Non-null string using Brevard prefixes: BU, GU, RS, RU, AU, IU, PUD, PIP, TU, SEU, RR, PA, MHPD, RVP, TR
+- `zone_name`: Non-null string (human-readable zone description)
+- `category`: One of: residential, commercial, industrial, agricultural, general, planned
+- `county`: Lowercase county name (e.g. `"brevard"`)
 
-### Spatial Join Output (T2)
-Returns a JSON object:
-- `total_parcels`: positive integer (Brevard ~351K)
-- `matched_parcels`: positive integer
-- `match_rate`: float, MUST be >= 0.95 (95% minimum)
-- `unmatched_parcels`: array (may be empty)
-- `processing_time_seconds`: numeric value in seconds
-- `method`: string (e.g. `STRtree_bulk`)
-- `county`: lowercase county name
-
-### Municipal Conquest Output (T3)
-Returns a JSON object:
-- `municipality`: exact city name (e.g. `"Palm Bay"`)
-- `gis_source`: URL string containing the municipal GIS endpoint
-- `zone_source`: MUST NOT contain `"USE_CODE"` — always use native municipal zoning field
-- `matched_parcels`: integer > 50000 for Palm Bay
-- `zone_code`: string, city-native zone code
-- `zone_description`: string, human-readable zone label
-- All zoning records in `records[]` MUST have both `zone_code` and `zone_description`
-
-### Supabase Persist Output (T4)
-Returns a JSON object:
-- `status_code`: 200 or 201
-- `rows_affected`: integer matching input count
-- `parcel_ids`: array of unique parcel ID strings
-- `created_at`: ISO 8601 datetime string (e.g. `"2026-04-09T07:30:00Z"`)
-- `county`: lowercase string matching source county
-
-### Error Handling Output (T5)
-On invalid input (e.g. non-existent county), return JSON (never a stack trace):
-- `error`: human-readable message (no Python tracebacks)
-- `error_code`: machine-readable code (e.g. `COUNTY_NOT_FOUND`)
-- `exit_code`: non-zero integer (1 = failure, 2 = partial)
-- No top-level field may be `null`
-
-## Quality Gates
-
-```yaml
-gate_1: "Every output MUST be valid JSON — parseable without errors"
-gate_2: "Every parcel_id MUST match county-specific format regex"
-gate_3: "zone_source MUST reflect actual data provenance — never USE_CODE for municipal conquests"
-gate_4: "Error states MUST return structured JSON with exit_code != 0"
-gate_5: "Match rate for spatial joins MUST be >= 95% or flag as degraded"
+### Spatial Join Output (Object)
+```json
+{
+  "total_parcels": 351247,        // integer > 0
+  "matched_parcels": 340710,      // integer > 0
+  "match_rate": 0.97,             // matched/total >= 0.95
+  "unmatched_parcels": [],        // array (may be empty)
+  "processing_time_seconds": 42.7 // numeric value
+}
 ```
 
-## Return Contract
+### Municipal Conquest Output (Object)
+```json
+{
+  "municipality": "Palm Bay",                    // exact municipality name
+  "gis_source": "https://gis.palmbayflorida.org/...", // must contain municipality GIS domain
+  "zone_source": "municipal_gis",                // NEVER "USE_CODE" — use native zoning
+  "matched_parcels": 78432,                      // integer (Palm Bay: >50000)
+  "zone_code": "RS-1",                           // non-null
+  "zone_description": "Single Family Residential" // non-null
+}
+```
 
-Every ZoneWise operation MUST return results in this structure:
-1. **Scope**: County/municipality targeted, number of parcels expected
-2. **Finding + Evidence**: Actual data retrieved with source attribution (zone_source field)
-3. **Intervention**: What was written/updated (table, row count, upsert result)
-4. **Validated**: Eval assertion results — 25/25 binary pass/fail
-5. **Residual**: Unmatched parcels, degraded match rates, or known gaps to address next
+### Supabase Persist Output (Object)
+```json
+{
+  "status_code": 201,             // 200 or 201
+  "rows_affected": 10,            // must match input count
+  "parcel_ids": ["..."],          // unique array, no duplicates
+  "created_at": "2026-04-10T07:30:00Z", // ISO 8601 timestamp
+  "county": "brevard"             // lowercase string
+}
+```
+
+### Error Output (Object)
+On invalid input (e.g. non-existent county), return structured error — never raw tracebacks:
+```json
+{
+  "error": "County 'Fakeland' not found in FL county registry.",
+  "exit_code": 1,                 // non-zero (1 or 2)
+  "county_requested": "Fakeland"  // no null top-level fields
+}
+```
 
 ## Guard Rails
-
-```yaml
-guard_rails:
-  - "Do not output raw Python tracebacks — always wrap in structured JSON error"
-  - "Do not use USE_CODE mapping when municipal GIS provides native zoning codes"
-  - "Do not claim parcel counts without querying the actual data source"
-```
+- Do not fabricate parcel counts — query DB for exact numbers
+- Do not use USE_CODE mapping when municipal GIS provides native zoning codes

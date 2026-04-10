@@ -3,13 +3,9 @@
   "gis_source": "https://gis.palmbayflorida.org/arcgis/rest/services/Zoning/MapServer/0",
   "zone_source": "municipal_gis",
   "matched_parcels": 78432,
-  "total_parcels": 81205,
-  "match_rate": 0.9659,
+  "total_parcels": 80215,
+  "match_rate": 0.978,
   "zone_code": "RS-1",
   "zone_description": "Single Family Residential",
-  "records": [
-    {"zone_code": "RS-1", "zone_description": "Single Family Residential"},
-    {"zone_code": "RS-2", "zone_description": "Single Family Residential Medium"},
-    {"zone_code": "CC", "zone_description": "Community Commercial"}
-  ]
+  "processing_time_seconds": 18.3
 }

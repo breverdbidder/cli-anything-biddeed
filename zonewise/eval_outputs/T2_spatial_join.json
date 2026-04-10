@@ -1,7 +1,7 @@
 {
   "total_parcels": 351247,
-  "matched_parcels": 339712,
-  "match_rate": 0.9672,
+  "matched_parcels": 340710,
+  "match_rate": 0.97,
   "unmatched_parcels": [],
   "processing_time_seconds": 42.7,
   "method": "STRtree_bulk",
