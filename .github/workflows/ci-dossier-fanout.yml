@@ -74,7 +74,7 @@ jobs:
         with:
           host: 87.99.129.125
           username: root
-          password: ${{ secrets.HETZNER_PASS }}
+          password: ${{ secrets.HETZNER_PASSWORD }}
           command_timeout: 30m
           script: |
             cd /root/cli-anything-biddeed
@@ -82,11 +82,16 @@ jobs:
 
       - name: EG14 Gate
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
+          # Poll ci_dossier_eg14_runs via PostgREST (no psql dependency)
           for i in $(seq 1 30); do
-            VERDICT=$(psql "$SUPABASE_DB_URL" -tc \
-              "SELECT verdict FROM ci_dossier_eg14_runs WHERE competitor_slug='${{ matrix.competitor }}' ORDER BY run_number DESC LIMIT 1;" 2>/dev/null | xargs)
+            RESP=$(curl -sS \
+              "$SUPABASE_URL/rest/v1/ci_dossier_eg14_runs?competitor_slug=eq.${{ matrix.competitor }}&order=run_number.desc&limit=1&select=verdict" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+            VERDICT=$(echo "$RESP" | jq -r '.[0].verdict // "pending"')
             echo "Attempt $i: verdict=$VERDICT"
             if [[ "$VERDICT" == "pass" ]]; then
               echo "EG14 PASSED for ${{ matrix.competitor }}"
@@ -110,14 +115,21 @@ jobs:
 
       - name: Aggregate results
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           echo "=== CI Dossier Fan-Out Summary ==="
-          TOTAL=11
-          PASSED=$(psql "$SUPABASE_DB_URL" -tc \
-            "SELECT COUNT(DISTINCT competitor_slug) FROM ci_dossier_eg14_runs WHERE verdict='pass';" 2>/dev/null | xargs)
-          FAILED=$(psql "$SUPABASE_DB_URL" -tc \
-            "SELECT COUNT(DISTINCT competitor_slug) FROM ci_dossier_eg14_runs WHERE verdict='fail';" 2>/dev/null | xargs)
+          TOTAL=12
+          PASS_RESP=$(curl -sS \
+            "$SUPABASE_URL/rest/v1/ci_dossier_eg14_runs?verdict=eq.pass&select=competitor_slug" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+          FAIL_RESP=$(curl -sS \
+            "$SUPABASE_URL/rest/v1/ci_dossier_eg14_runs?verdict=eq.fail&select=competitor_slug" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+          PASSED=$(echo "$PASS_RESP" | jq '[.[].competitor_slug] | unique | length')
+          FAILED=$(echo "$FAIL_RESP" | jq '[.[].competitor_slug] | unique | length')
           echo "Passed: ${PASSED:-0}/$TOTAL"
           echo "Failed: ${FAILED:-0}/$TOTAL"
           echo "Pending: $(( TOTAL - ${PASSED:-0} - ${FAILED:-0} ))/$TOTAL"
