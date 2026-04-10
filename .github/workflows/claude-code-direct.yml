@@ -3,11 +3,22 @@ on:
   workflow_dispatch:
     inputs:
       issues:
-        description: 'Comma-separated issue numbers'
+        description: 'Comma-separated issue numbers (REQUIRED, no default — empty = hard fail)'
         required: true
-        default: '379'
+        type: string
 jobs:
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject empty or missing issues input
+        run: |
+          if [ -z "${{ inputs.issues }}" ]; then
+            echo "::error::Empty 'issues' input. Dispatch rejected."
+            exit 1
+          fi
+          echo "::notice::SUMMIT dispatch received issues input: ${{ inputs.issues }}"
   run-claude-code:
+    needs: validate-input
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -15,6 +26,51 @@ jobs:
         issue: ${{ fromJson(format('[{0}]', inputs.issues)) }}
       fail-fast: false
     steps:
+      - name: Validate issue input
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          ISSUE: ${{ matrix.issue }}
+          ALLOW_PLACEHOLDER: ${{ vars.ALLOW_PLACEHOLDER }}
+        run: |
+          set -e
+          # Guard against empty/whitespace
+          if [ -z "${ISSUE// /}" ]; then
+            echo "::error::Empty issue number passed to workflow. Dispatch must supply non-empty 'issues' input."
+            exit 1
+          fi
+          # Guard against non-numeric
+          if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
+            echo "::error::Issue number '$ISSUE' is not a positive integer."
+            exit 1
+          fi
+          # Guard against dead placeholder #379 (unless explicitly allowed by override)
+          if [ "$ISSUE" = "379" ] && [ "${ALLOW_PLACEHOLDER:-0}" != "1" ]; then
+            echo "::error::Refusing to run against dead placeholder issue #379. If intentional, set vars.ALLOW_PLACEHOLDER=1."
+            exit 1
+          fi
+          # Verify issue exists and is open
+          STATUS=$(curl -s -o /tmp/iss.json -w "%{http_code}" -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE")
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Issue #$ISSUE does not exist (HTTP $STATUS)."
+            exit 1
+          fi
+          STATE=$(python3 -c "import json; print(json.load(open('/tmp/iss.json'))['state'])")
+          if [ "$STATE" != "open" ]; then
+            echo "::error::Issue #$ISSUE is not open (state=$STATE). Refusing to run."
+            exit 1
+          fi
+          # Verify it has the 'summit' label
+          HAS_SUMMIT=$(python3 -c "import json; d=json.load(open('/tmp/iss.json')); print('yes' if any(l['name']=='summit' for l in d.get('labels',[])) else 'no')")
+          if [ "$HAS_SUMMIT" != "yes" ]; then
+            echo "::warning::Issue #$ISSUE does not have 'summit' label. Proceeding anyway but flagging."
+          fi
+          echo "✅ Issue #$ISSUE validated: open, summit-labeled, ready."
+
+      - name: Announce dispatch target
+        run: |
+          echo "::notice::SUMMIT dispatching against issue(s): ${{ inputs.issues }} → matrix element ${{ matrix.issue }}"
+
       - name: Run Claude Code on Hetzner for issue ${{ matrix.issue }}
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
