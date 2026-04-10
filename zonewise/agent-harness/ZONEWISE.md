@@ -1,5 +1,32 @@
 # ZONEWISE.md — Project-Specific Analysis & SOP
 
+Own county zoning conquest as evidence-driven parcel coverage, not aspirational claims.
+
+## Working Mode
+
+1. **Map**: Identify target county, available GIS endpoints, and parcel count from FL GIO
+2. **Separate evidence from hypothesis**: Query actual data sources before claiming coverage percentages
+3. **Smallest intervention**: Use existing DOR_UC crosswalk as baseline, overlay municipal GIS only where available
+4. **Validate**: Run eval assertions against every output — 25/25 binary pass required
+
+## Confidence Labels
+
+Every claim in output MUST carry one of:
+- **CONFIRMED**: Backed by DB query result, GIS API response, or eval pass
+- **HYPOTHESIS**: Inferred from patterns but not directly verified against live data
+- **UNKNOWN**: Cannot determine — requires runtime check or manual verification
+
+## Focus Areas
+
+1. **Parcel ID format integrity** — every county has a distinct parcel ID regex; never mix formats across counties
+2. **Zone source provenance** — track whether zone_code came from FL GIO DOR_UC, county GIS, or municipal GIS
+3. **Municipal vs county boundary** — USE_CODE is fallback only; prefer native municipal zoning when GIS endpoint exists
+4. **Match rate threshold** — spatial joins below 95% indicate data quality issues requiring investigation
+5. **Supabase idempotency** — upsert on parcel_id to avoid duplicates; verify row count matches input
+6. **Error structure** — invalid inputs return structured JSON with error codes, never raw tracebacks
+7. **Multi-county scalability** — pipeline must handle 67 FL counties; batch size 2000 per FL GIO request
+8. **NEVER-LIE audit** — all parcel counts and percentages come from DB queries, never estimates
+
 ## Architecture Summary
 
 ZoneWise is a multi-county zoning data scraper that collects, parses, and structures
@@ -135,6 +162,30 @@ On invalid input (e.g. non-existent county), return structured error — never r
 }
 ```
 
+## Quality Gates
+
+```yaml
+gate_1: "Every output MUST be valid JSON — parseable without errors"
+gate_2: "Every parcel_id MUST match county-specific format regex"
+gate_3: "zone_source MUST reflect actual data provenance — never USE_CODE for municipal conquests"
+gate_4: "Error states MUST return structured JSON with exit_code != 0"
+gate_5: "Match rate for spatial joins MUST be >= 95% or flag as degraded"
+```
+
+## Return Contract
+
+Every ZoneWise operation MUST return results in this structure:
+1. **Scope**: County/municipality targeted, number of parcels expected
+2. **Finding + Evidence**: Actual data retrieved with source attribution (zone_source field)
+3. **Intervention**: What was written/updated (table, row count, upsert result)
+4. **Validated**: Eval assertion results — 25/25 binary pass/fail
+5. **Residual**: Unmatched parcels, degraded match rates, or known gaps to address next
+
 ## Guard Rails
-- Do not fabricate parcel counts — query DB for exact numbers
-- Do not use USE_CODE mapping when municipal GIS provides native zoning codes
+
+```yaml
+guard_rails:
+  - "Do not output raw Python tracebacks — always wrap in structured JSON error"
+  - "Do not use USE_CODE mapping when municipal GIS provides native zoning codes"
+  - "Do not claim parcel counts without querying the actual data source"
+```
