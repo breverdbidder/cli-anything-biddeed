@@ -1,0 +1,31 @@
+# Autodesk Forma — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: autodesk-forma
+display_name: Autodesk Forma
+domain: forma.autodesk.com
+category: site-planning-enterprise
+threat_level: medium
+
+pre_recon_assumption: |
+  Enterprise site planning platform (formerly Spacemaker).
+  Cloud-based generative design for urban development.
+  Indirect competitor — enterprise-grade site feasibility
+  with zoning constraint inputs. Large company, slow to move
+  into foreclosure/auction niche.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap including documentation
+  - Capture pricing/enterprise model
+  - Extract feature list — focus on zoning-related capabilities
+  - Screenshot key UX flows
+  - Discover API endpoints and integration capabilities
+  - Assess zoning data sources they consume
+
+chatbot_interrogation_script:
+  - "How do you handle US zoning codes?"
+  - "What data sources do you use for site constraints?"
+  - "Do you support Florida municipalities?"
+
+extra_recon_depth: false

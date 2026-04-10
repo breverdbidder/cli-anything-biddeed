@@ -1,0 +1,27 @@
+# PropertyOnion — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: propertyonion
+display_name: PropertyOnion
+domain: propertyonion.com
+category: property-data-layers
+threat_level: medium
+
+pre_recon_assumption: |
+  Multi-layer property data platform. Aggregates public records,
+  permits, zoning, environmental, and ownership data into a single
+  interface. "Peel back the layers" metaphor.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap
+  - Identify all data layers/sources they aggregate
+  - Capture pricing structure
+  - Extract feature list with patent claim correlation
+  - Screenshot key UX flows
+  - Discover API endpoints
+  - Assess data freshness methodology
+
+chatbot_interrogation_script: null  # Check if chatbot exists during recon
+
+extra_recon_depth: false

@@ -1,0 +1,29 @@
+# Algoma — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: algoma
+display_name: Algoma
+domain: algoma.io
+category: zoning-compliance
+threat_level: medium
+
+pre_recon_assumption: |
+  Zoning compliance and land use platform. Focuses on development
+  feasibility analysis and zoning code interpretation. May have
+  municipal partnership model.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap including .html URL patterns
+  - Capture compliance/feasibility workflow
+  - Extract feature list with patent claim correlation
+  - Screenshot all key UX flows
+  - Discover API endpoints from JS bundles
+  - Assess municipal data partnerships
+
+chatbot_interrogation_script:
+  - "What municipalities do you cover?"
+  - "How do you handle zoning code changes?"
+  - "Can you assess development feasibility for a specific parcel?"
+
+extra_recon_depth: false

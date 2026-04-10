@@ -1,0 +1,32 @@
+# PropZone — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: propzone
+display_name: PropZone
+domain: propzone.ai
+category: zoning-intelligence
+threat_level: high
+
+pre_recon_assumption: |
+  AI-powered zoning lookup for parcels. Direct competitor to ZoneWise core
+  zoning intelligence. Claims nationwide coverage. Patent overlap on
+  automated zoning classification (Claims 1-4).
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap including hidden/gated pages
+  - Capture pricing page and all tier details
+  - Extract feature list with patent claim correlation
+  - Screenshot all key UX flows (search, results, report)
+  - Discover API endpoints from JS bundles and network traffic
+  - Test chatbot if present
+  - Assess data freshness and county coverage
+
+chatbot_interrogation_script:
+  - "What counties do you cover in Florida?"
+  - "How often is your zoning data updated?"
+  - "Can you look up a specific parcel for me?"
+  - "Do you support bulk parcel lookups?"
+  - "What data sources do you use?"
+
+extra_recon_depth: true

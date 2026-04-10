@@ -1,0 +1,32 @@
+# Gridics — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: gridics
+display_name: Gridics
+domain: gridics.com
+category: zoning-analytics
+threat_level: high
+
+pre_recon_assumption: |
+  Zoning analytics and development potential platform. Strong in
+  South Florida market. Parcel-level zoning intelligence with
+  development scenario modeling. Likely closest pure competitor
+  to ZoneWise core product.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap
+  - Deep-dive development scenario modeling features
+  - Capture pricing tiers and enterprise offering
+  - Extract feature list — focus on zoning analytics overlap
+  - Screenshot all key UX flows (parcel search, zoning report, dev scenarios)
+  - Discover API endpoints
+  - Assess South Florida coverage depth
+
+chatbot_interrogation_script:
+  - "What areas do you cover?"
+  - "How do you calculate development potential?"
+  - "What zoning codes do you support?"
+  - "Do you offer an API?"
+
+extra_recon_depth: true

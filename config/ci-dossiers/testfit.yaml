@@ -1,0 +1,28 @@
+# TestFit — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: testfit
+display_name: TestFit
+domain: testfit.io
+category: site-planning
+threat_level: medium
+
+pre_recon_assumption: |
+  AI-powered site planning and building configuration tool.
+  Generative design for real estate development. Acquired by
+  Autodesk. Focus on multifamily/commercial site feasibility.
+  Indirect competitor — overlaps on development feasibility
+  but not core zoning intelligence.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap
+  - Capture generative design workflow
+  - Extract feature list — focus on zoning input requirements
+  - Screenshot key UX flows (site config, feasibility output)
+  - Discover API endpoints
+  - Assess integration with Autodesk ecosystem
+
+chatbot_interrogation_script: null
+
+extra_recon_depth: false

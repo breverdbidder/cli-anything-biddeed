@@ -1,0 +1,125 @@
+name: CI Dossier Fan-Out
+
+on:
+  workflow_dispatch:
+    inputs:
+      competitors:
+        description: 'Comma-separated competitor slugs (or "all" for full 11)'
+        default: 'all'
+        required: true
+      skip_upgrade_check:
+        description: 'Skip Firecrawl plan verification'
+        default: 'false'
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      competitors: ${{ steps.parse.outputs.competitors }}
+    steps:
+      - name: Verify Firecrawl plan
+        if: inputs.skip_upgrade_check != 'true'
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          PLAN=$(curl -sS -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
+            https://api.firecrawl.dev/v2/team/credit-usage | jq -r '.plan')
+          if [[ "$PLAN" != "standard" && "$PLAN" != "growth" && "$PLAN" != "enterprise" ]]; then
+            echo "::error::Firecrawl plan insufficient: $PLAN. Need Standard+"
+            exit 1
+          fi
+          echo "Firecrawl plan: $PLAN ✓"
+
+      - id: parse
+        run: |
+          if [[ "${{ inputs.competitors }}" == "all" ]]; then
+            echo 'competitors=["propzone","dono-ai","propertyonion","algoma","gridics","zoneomics","testfit","autodesk-forma","reonomy","realtymole-attom","ai-topia"]' >> $GITHUB_OUTPUT
+          else
+            # Convert comma-separated to JSON array
+            IFS=',' read -ra SLUGS <<< "${{ inputs.competitors }}"
+            JSON="["
+            for i in "${!SLUGS[@]}"; do
+              SLUG=$(echo "${SLUGS[$i]}" | xargs)
+              if [ $i -gt 0 ]; then JSON+=","; fi
+              JSON+="\"$SLUG\""
+            done
+            JSON+="]"
+            echo "competitors=$JSON" >> $GITHUB_OUTPUT
+          fi
+
+  dossier:
+    needs: precheck
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        competitor: ${{ fromJson(needs.precheck.outputs.competitors) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SSH to Hetzner and run recon
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 87.99.129.125
+          username: root
+          password: ${{ secrets.HETZNER_PASS }}
+          command_timeout: 30m
+          script: |
+            cd /root/cli-anything-biddeed
+            ./scripts/ci-dossier-recon.sh ${{ matrix.competitor }}
+
+      - name: EG14 Gate
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          for i in $(seq 1 30); do
+            VERDICT=$(psql "$SUPABASE_DB_URL" -tc \
+              "SELECT verdict FROM ci_dossier_eg14_runs WHERE competitor_slug='${{ matrix.competitor }}' ORDER BY run_number DESC LIMIT 1;" 2>/dev/null | xargs)
+            echo "Attempt $i: verdict=$VERDICT"
+            if [[ "$VERDICT" == "pass" ]]; then
+              echo "EG14 PASSED for ${{ matrix.competitor }}"
+              exit 0
+            fi
+            if [[ "$VERDICT" == "fail" || "$VERDICT" == "timeout" ]]; then
+              echo "::error::EG14 FAILED for ${{ matrix.competitor }}: $VERDICT"
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "::error::EG14 timed out for ${{ matrix.competitor }}"
+          exit 1
+
+  aggregate:
+    needs: dossier
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Aggregate results
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          echo "=== CI Dossier Fan-Out Summary ==="
+          TOTAL=11
+          PASSED=$(psql "$SUPABASE_DB_URL" -tc \
+            "SELECT COUNT(DISTINCT competitor_slug) FROM ci_dossier_eg14_runs WHERE verdict='pass';" 2>/dev/null | xargs)
+          FAILED=$(psql "$SUPABASE_DB_URL" -tc \
+            "SELECT COUNT(DISTINCT competitor_slug) FROM ci_dossier_eg14_runs WHERE verdict='fail';" 2>/dev/null | xargs)
+          echo "Passed: ${PASSED:-0}/$TOTAL"
+          echo "Failed: ${FAILED:-0}/$TOTAL"
+          echo "Pending: $(( TOTAL - ${PASSED:-0} - ${FAILED:-0} ))/$TOTAL"
+
+      - name: Report to Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="🔍 CI Dossier Fan-Out Complete%0A"
+          MSG+="Run: ${{ github.run_id }}%0A"
+          MSG+="Status: ${{ needs.dossier.result }}"
+          curl -s -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" || true

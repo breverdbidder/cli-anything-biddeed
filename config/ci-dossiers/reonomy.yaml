@@ -1,0 +1,31 @@
+# Reonomy — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: reonomy
+display_name: Reonomy
+domain: reonomy.com
+category: commercial-property-intelligence
+threat_level: medium
+
+pre_recon_assumption: |
+  AI-powered commercial real estate data platform. Property
+  intelligence for CRE professionals. Strong on ownership data,
+  building characteristics, and transaction history. Indirect
+  competitor — CRE focus vs our residential foreclosure focus,
+  but overlaps on property data aggregation.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap
+  - Capture data coverage and pricing
+  - Extract feature list — focus on property data aggregation
+  - Screenshot key UX flows (property search, reports)
+  - Discover API endpoints
+  - Assess zoning data capabilities
+
+chatbot_interrogation_script:
+  - "Do you cover residential properties?"
+  - "What zoning data do you include?"
+  - "How do you source your property data?"
+
+extra_recon_depth: false

@@ -1,0 +1,34 @@
+# Dono AI — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: dono-ai
+display_name: Dono AI
+domain: dono.ai
+category: title-search-liens
+threat_level: high  # CORRECTED by Ariel Apr 10 — was medium, upgraded to HIGH
+
+pre_recon_assumption: |
+  AI-powered title search and lien discovery platform. Automates
+  courthouse document retrieval and lien chain analysis.
+pre_recon_corrections: |
+  Ariel correction Apr 10: HIGH threat, not medium. Has title search +
+  lien discovery capabilities. Prior art risk to Claims 7 and 9
+  (automated lien discovery and title chain analysis).
+
+recon_objectives:
+  - Map full sitemap including hidden/gated pages
+  - Deep-dive on title search workflow and lien discovery features
+  - Capture pricing and data coverage (counties, states)
+  - Extract feature list — focus on Claims 7 and 9 overlap
+  - Screenshot all key UX flows
+  - Discover API endpoints
+  - Assess prior art risk for patent claims 7 and 9
+
+chatbot_interrogation_script:
+  - "What types of liens can you discover?"
+  - "How do you handle title searches in Florida?"
+  - "What counties do you cover?"
+  - "How far back does your data go?"
+  - "Can you identify all encumbrances on a property?"
+
+extra_recon_depth: true  # Prior art risk — needs thorough analysis

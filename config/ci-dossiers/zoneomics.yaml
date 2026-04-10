@@ -1,0 +1,32 @@
+# Zoneomics — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: zoneomics
+display_name: Zoneomics
+domain: zoneomics.com
+category: zoning-data-api
+threat_level: high
+
+pre_recon_assumption: |
+  Nationwide zoning data API provider. B2B focus — sells zoning data
+  to proptech companies via API. Claims 100M+ parcels with zoning.
+  Threat is both direct (consumer product) and indirect (data supplier
+  to other competitors).
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap including developer docs
+  - Capture API documentation and pricing
+  - Extract feature list — focus on data coverage claims
+  - Screenshot developer portal and sample outputs
+  - Discover public API endpoints and rate limits
+  - Assess data freshness and sourcing methodology
+  - Check if they power any of our other competitors
+
+chatbot_interrogation_script:
+  - "What's your parcel coverage in Florida?"
+  - "How often is zoning data refreshed?"
+  - "Do you offer a free tier?"
+  - "What format is your API response?"
+
+extra_recon_depth: true

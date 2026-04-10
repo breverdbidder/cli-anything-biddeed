@@ -1,0 +1,28 @@
+# RealtyMole / ATTOM — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: realtymole-attom
+display_name: RealtyMole (ATTOM)
+domain: realtymole.com
+category: property-data-api
+threat_level: low
+
+pre_recon_assumption: |
+  Property data API provider (part of ATTOM Data Solutions).
+  Rental estimates, property records, owner contact info.
+  B2B API focus. Indirect competitor — data layer supplier,
+  not a direct zoning intelligence product. ATTOM is the
+  800lb gorilla of property data APIs.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap including API docs
+  - Capture API pricing and coverage
+  - Extract feature list — focus on any zoning/land use endpoints
+  - Screenshot developer portal
+  - Discover public API endpoints
+  - Assess as potential data source vs competitor
+
+chatbot_interrogation_script: null
+
+extra_recon_depth: false

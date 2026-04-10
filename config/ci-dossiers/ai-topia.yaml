@@ -1,0 +1,27 @@
+# AI-Topia — CI Dossier Config
+# SUMMIT #424
+
+competitor_slug: ai-topia
+display_name: AI-Topia
+domain: ai-topia.com
+category: ai-real-estate
+threat_level: low
+
+pre_recon_assumption: |
+  AI-powered real estate analysis platform. Newer entrant.
+  Broad AI/ML approach to property analysis. May overlap
+  on zoning intelligence as a feature within broader platform.
+  Low threat due to early stage and broad focus.
+pre_recon_corrections: null  # "rest are correct" — Ariel Apr 10
+
+recon_objectives:
+  - Map full sitemap
+  - Capture product positioning and feature set
+  - Extract feature list — identify any zoning-specific capabilities
+  - Screenshot key pages
+  - Discover API endpoints
+  - Assess technology stack and data sources
+
+chatbot_interrogation_script: null
+
+extra_recon_depth: false
