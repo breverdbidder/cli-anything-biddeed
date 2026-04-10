@@ -22,13 +22,24 @@ jobs:
         env:
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
-          PLAN=$(curl -sS -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
-            https://api.firecrawl.dev/v2/team/credit-usage | jq -r '.plan')
-          if [[ "$PLAN" != "standard" && "$PLAN" != "growth" && "$PLAN" != "enterprise" ]]; then
-            echo "::error::Firecrawl plan insufficient: $PLAN. Need Standard+"
+          # Endpoint returns: {success, data: {remainingCredits, planCredits, ...}}
+          # .plan does NOT exist at root — use planCredits to infer tier
+          RESP=$(curl -sS -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
+            https://api.firecrawl.dev/v2/team/credit-usage)
+          PLAN_CREDITS=$(echo "$RESP" | jq -r '.data.planCredits // 0')
+          REMAINING=$(echo "$RESP" | jq -r '.data.remainingCredits // 0')
+          echo "planCredits=$PLAN_CREDITS remainingCredits=$REMAINING"
+          # Standard Monthly=100500, Growth=500000+, Enterprise=unlimited
+          if [[ "$PLAN_CREDITS" -lt 100000 ]]; then
+            echo "::error::Firecrawl plan insufficient: planCredits=$PLAN_CREDITS (need >=100000 for Standard+)"
             exit 1
           fi
-          echo "Firecrawl plan: $PLAN ✓"
+          # Also verify we have enough remaining credits for the recon (475 per competitor * 11 = 5225)
+          if [[ "$REMAINING" -lt 5225 ]]; then
+            echo "::error::Firecrawl remaining credits too low: $REMAINING (need >=5225)"
+            exit 1
+          fi
+          echo "Firecrawl plan: Standard+ ($PLAN_CREDITS plan, $REMAINING remaining) ✓"
 
       - id: parse
         run: |
