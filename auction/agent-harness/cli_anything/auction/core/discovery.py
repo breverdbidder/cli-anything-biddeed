@@ -27,7 +27,7 @@ SAMPLE_CASES = [
      "judgment": 98000, "plaintiff": "HOA Sunset Palms", "auction_date": "2026-03-15"},
 ]
 
-REALFORECLOSE_URL = "https://www.realforeclose.com/index.cfm"
+REALFORECLOSE_URL = "https://brevard.realforeclose.com/index.cfm"
 RF_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

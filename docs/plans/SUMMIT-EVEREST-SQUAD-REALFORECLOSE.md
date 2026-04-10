@@ -39,7 +39,7 @@ RealForeclose DAYLIST (public, no auth)
     │
     ▼
 ┌─────────────────────────────┐
-│ 1. SCOUT: Discovery         │ GET www.realforeclose.com/index.cfm
+│ 1. SCOUT: Discovery         │ GET brevard.realforeclose.com/index.cfm
 │    ?zession=day_list        │   ?county=brevard&sale_type=fc
 │    Parse HTML table         │   &sale_date=MM/DD/YYYY
 │    Extract: case_number,    │
@@ -84,7 +84,7 @@ RealForeclose DAYLIST (public, no auth)
 
 ```python
 # Key endpoint (NO AUTH REQUIRED — public results page):
-# https://www.realforeclose.com/index.cfm?zession=day_list&county=brevard&sale_type=fc&sale_date=04/14/2024
+# https://brevard.realforeclose.com/index.cfm?zession=day_list&county=brevard&sale_type=fc&sale_date=04/14/2024
 
 # Existing working code to port FROM:
 # brevard-bidder-scraper/src/scrapers/historical_results_scraper.py
@@ -190,7 +190,7 @@ def estimate_arv(case_data: dict) -> float:
 
 ```yaml
 realforeclose_daylist:
-  url: "https://www.realforeclose.com/index.cfm"
+  url: "https://brevard.realforeclose.com/index.cfm"
   params:
     zession: day_list
     county: brevard
