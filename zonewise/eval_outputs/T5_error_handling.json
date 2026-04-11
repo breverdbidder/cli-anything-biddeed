@@ -1,0 +1,6 @@
+{
+  "error": "County 'Fakeland' not found in FL county registry. Valid counties: Brevard, Orange, Duval, Miami-Dade, etc.",
+  "exit_code": 1,
+  "county_requested": "Fakeland",
+  "suggestion": "Use 'county list --state FL' to see available counties"
+}

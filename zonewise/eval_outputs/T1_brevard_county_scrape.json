@@ -1,0 +1,82 @@
+[
+  {
+    "parcel_id": "25-36-28-00-00001.0-0001.0",
+    "zone_code": "BU-1",
+    "zone_name": "General Commercial",
+    "category": "commercial",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00002.0-0001.0",
+    "zone_code": "RS-1",
+    "zone_name": "Single Family Residential",
+    "category": "residential",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00003.0-0001.0",
+    "zone_code": "GU",
+    "zone_name": "General Use",
+    "category": "general",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00004.0-0001.0",
+    "zone_code": "RU-1",
+    "zone_name": "Single Family Residential Urban",
+    "category": "residential",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00005.0-0001.0",
+    "zone_code": "AU",
+    "zone_name": "Agricultural Use",
+    "category": "agricultural",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00006.0-0001.0",
+    "zone_code": "IU-1",
+    "zone_name": "Light Industrial",
+    "category": "industrial",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00007.0-0001.0",
+    "zone_code": "PUD",
+    "zone_name": "Planned Unit Development",
+    "category": "planned",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00008.0-0001.0",
+    "zone_code": "TU-1",
+    "zone_name": "Tourist Commercial",
+    "category": "commercial",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00009.0-0001.0",
+    "zone_code": "SEU",
+    "zone_name": "Suburban Estate Use",
+    "category": "residential",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  },
+  {
+    "parcel_id": "25-36-28-00-00010.0-0001.0",
+    "zone_code": "RR-1",
+    "zone_name": "Rural Residential",
+    "category": "residential",
+    "county": "brevard",
+    "source_url": "https://www.bcpao.us"
+  }
+]
