@@ -224,6 +224,26 @@ On invalid input (e.g. non-existent county), return structured error — never r
 }
 ```
 
+## Error Codes
+
+| exit_code | Meaning | Example |
+|-----------|---------|---------|
+| 0 | Success | All parcels scraped and persisted |
+| 1 | Fatal error | Invalid county, network failure, auth error |
+| 2 | Partial success | Some parcels failed, others succeeded |
+
+Error responses MUST always include:
+- `error`: Human-readable message (no tracebacks)
+- `exit_code`: Integer (1 or 2)
+- No null values in any top-level field
+
+## Batch Processing
+
+FL GIO API limit: 2000 features per request. For full county ingestion:
+- Use `resultOffset` pagination: 0, 2000, 4000, ...
+- Continue until `exceededTransferLimit` is false
+- Estimated times: Brevard (~351K) = 45-90min, Orange (~400K) = 60-120min
+
 ## Quality Gates
 
 ```yaml
