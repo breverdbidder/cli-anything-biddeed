@@ -94,6 +94,16 @@ ZoneWise has no local GUI software. The "backends" are:
 }
 ```
 
+## County Parcel ID Formats
+
+Each county uses a specific parcel ID format. Validate before persisting:
+
+| County | Format | Regex | Example |
+|--------|--------|-------|---------|
+| Brevard | `##-##-##-##-#####.#-####.#` | `^\d{2}-\d{2}-\d{2}-\d{2}-\d{5}\.\d-\d{4}\.\d$` | `25-36-28-00-00001.0-0001.0` |
+| Orange | `##-##-##-####-##-###` | `^\d{2}-\d{2}-\d{2}-\d{4}-\d{2}-\d{3}$` | `09-23-28-0000-00-001` |
+| Duval | `######-####` | `^\d{6}-\d{4}$` | `123456-0001` |
+
 ## Command Map
 
 | Agent Action | CLI Command |
@@ -105,6 +115,8 @@ ZoneWise has no local GUI software. The "backends" are:
 | Batch parcel lookup | `parcel batch --input parcels.csv` |
 | Export to Supabase | `export supabase --county brevard` |
 | Export CSV | `export csv --county brevard -o data.csv` |
+| Spatial join | `spatial join --county brevard --method STRtree` |
+| Municipal conquest | `municipal conquest --city "Palm Bay" --gis-url <url>` |
 
 ## Output Schemas
 
