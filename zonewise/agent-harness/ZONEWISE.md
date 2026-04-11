@@ -57,6 +57,25 @@ operates as a data pipeline: scrape HTML → parse zoning codes → structure JS
    └────────────────────────────────────────┘
 ```
 
+## Supabase Schema Reference
+
+### zoning_assignments (primary table)
+| Column | Type | Constraint |
+|--------|------|-----------|
+| parcel_id | text | PRIMARY KEY |
+| zone_code | text | NOT NULL |
+| zone_name | text | |
+| zone_description | text | |
+| category | text | |
+| county | text | NOT NULL, lowercase |
+| co_no | integer | FL county number |
+| zone_source | text | fl_gio / county_gis / municipal_gis / use_code_crosswalk |
+| created_at | timestamptz | DEFAULT now() |
+| updated_at | timestamptz | DEFAULT now() |
+
+**Upsert strategy**: `ON CONFLICT (parcel_id) DO UPDATE SET zone_code, zone_name, zone_source, updated_at = now()`.
+This ensures idempotent writes — re-running a scrape overwrites with latest data, never duplicates.
+
 ## Backend Strategy: HTTP API Client
 
 ZoneWise has no local GUI software. The "backends" are:
@@ -252,6 +271,25 @@ gate_2: "Every parcel_id MUST match county-specific format regex"
 gate_3: "zone_source MUST reflect actual data provenance — never USE_CODE for municipal conquests"
 gate_4: "Error states MUST return structured JSON with exit_code != 0"
 gate_5: "Match rate for spatial joins MUST be >= 95% or flag as degraded"
+```
+
+## Data Flow
+
+```mermaid
+graph TD
+    A[FL GIO Cadastral API] -->|CO_NO filter| B[Raw Parcels + DOR_UC]
+    B -->|DOR_UC crosswalk| C[Baseline zone_code]
+    D[County GIS ArcGIS REST] -->|parcel_id match| E[Real zone_code]
+    F[Municipal GIS endpoint] -->|centroid query| G[City zone_code]
+    C --> H{Best Available Source}
+    E --> H
+    G --> H
+    H -->|zone_source tagged| I[Structured JSON]
+    I -->|validate parcel_id format| J{Format OK?}
+    J -->|yes| K[Supabase upsert]
+    J -->|no| L[Error: invalid parcel_id]
+    K -->|status 200/201| M[Return: rows_affected + parcel_ids]
+    K -->|error| N[Return: structured error JSON]
 ```
 
 ## Return Contract
