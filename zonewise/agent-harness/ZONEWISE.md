@@ -150,6 +150,24 @@ Valid zone_code prefixes for Brevard County (CO_NO=5):
 | Titusville | `gis.titusville.com` | TBD |
 | Rockledge | TBD | TBD |
 
+## DOR_UC Crosswalk (FL GIO Fallback)
+
+When no county/municipal GIS provides native zoning, use FL GIO's DOR Use Code as baseline:
+
+| DOR_UC Range | Category | Zone Fallback |
+|-------------|----------|---------------|
+| 00-09 | Residential | RS (default) |
+| 10-19 | Commercial | BU (default) |
+| 20-29 | Industrial | IU (default) |
+| 30-39 | Agricultural | AU (default) |
+| 40-49 | Institutional | GU (default) |
+| 50-69 | Government | GU (default) |
+| 70-79 | Miscellaneous | TR (default) |
+| 80-89 | Centrally Assessed | GU (default) |
+| 90-99 | Non-agricultural Acreage | RR (default) |
+
+**Priority**: Municipal GIS > County GIS > DOR_UC crosswalk. Always set `zone_source` to reflect actual provenance.
+
 ## Output Schemas
 
 All outputs MUST be valid JSON. Every response — including errors — MUST be parseable JSON.
