@@ -118,6 +118,38 @@ Each county uses a specific parcel ID format. Validate before persisting:
 | Spatial join | `spatial join --county brevard --method STRtree` |
 | Municipal conquest | `municipal conquest --city "Palm Bay" --gis-url <url>` |
 
+## Brevard Zone Code Registry
+
+Valid zone_code prefixes for Brevard County (CO_NO=5):
+
+| Prefix | Name | Category |
+|--------|------|----------|
+| AU | Agricultural Use | agricultural |
+| BU | Business Use | commercial |
+| GU | General Use | general |
+| IU | Industrial Use | industrial |
+| MHPD | Mobile Home Park District | residential |
+| PA | Professional Activities | commercial |
+| PIP | Planned Industrial Park | industrial |
+| PUD | Planned Unit Development | planned |
+| RR | Rural Residential | residential |
+| RS | Single Family Residential | residential |
+| RU | Residential Urban | residential |
+| RVP | Recreational Vehicle Park | commercial |
+| SEU | Suburban Estate Use | residential |
+| TR | Transitional | general |
+| TU | Tourist Use | commercial |
+
+## Municipal GIS Endpoints (Brevard)
+
+| Municipality | GIS URL | Zoning Layer |
+|-------------|---------|--------------|
+| Palm Bay | `gis.palmbayflorida.org` | `Zoning/MapServer/0` |
+| Melbourne | `gis.melbourneflorida.org` | `Zoning/MapServer/0` |
+| Cocoa | `maps.cocoafl.org` | TBD |
+| Titusville | `gis.titusville.com` | TBD |
+| Rockledge | TBD | TBD |
+
 ## Output Schemas
 
 All outputs MUST be valid JSON. Every response — including errors — MUST be parseable JSON.
