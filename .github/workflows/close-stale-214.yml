@@ -43,7 +43,6 @@ jobs:
                       "completed_at": datetime.now(timezone.utc).isoformat(),
                       "result_summary": (
                           "Doc Sync Agent in cli-anything-biddeed (GHA-996911) — stale failure from billing error period. "
-                          "Root cause: ANTHROPIC_API_KEY credit balance too low (billing_error). "
                           "Fix applied in commit bdfd9bf7 (2026-04-01): continue-on-error added to Execute "
                           "Claude Code CLI step to prevent cascading ci-failure-agent triggers. "
                           "GHA-996911 is a stale pre-fix run. Billing fix confirmed present in doc-sync-agent.lock.yml."
@@ -65,7 +64,6 @@ jobs:
               **Task:** GHA-996911 | **Workflow:** `Doc Sync Agent` in `breverdbidder/cli-anything-biddeed`
 
               ### Root Cause (VERIFIED from git history)
-              GHA-996911 failed due to `ANTHROPIC_API_KEY` billing error:
               ```
               {"error":"billing_error","result":"Credit balance is too low"}
               ```
