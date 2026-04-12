@@ -420,6 +420,29 @@ firecrawl:
 
 On any retry exhaustion, return structured error JSON (gate_4) with `exit_code: 2` (partial success) if some data was already written.
 
+## Conquest Metrics
+
+Conquest percentage measures how much of a county's zoning data has been captured:
+
+```yaml
+formula: (parcels_with_real_zoning / total_parcels) * 100
+levels:
+  baseline: DOR_UC crosswalk only — zone_source = 'use_code_crosswalk'
+  county_gis: Overlaid with county ArcGIS — zone_source = 'county_gis'
+  municipal: Overlaid with city-specific GIS — zone_source = 'municipal_gis'
+  complete: All municipalities covered, 95%+ match rate
+
+reporting:
+  query: |
+    SELECT county, zone_source, COUNT(*) as parcels,
+           ROUND(COUNT(*)::numeric / SUM(COUNT(*)) OVER (PARTITION BY county) * 100, 2) as pct
+    FROM zoning_assignments
+    GROUP BY county, zone_source
+    ORDER BY county, pct DESC;
+  destination: county_conquest_status table
+  rule: NEVER report without running this query first
+```
+
 ## Guard Rails
 
 ```yaml
@@ -427,4 +450,5 @@ guard_rails:
   - "Do not output raw Python tracebacks — always wrap in structured JSON error"
   - "Do not use USE_CODE mapping when municipal GIS provides native zoning codes"
   - "Do not claim parcel counts without querying the actual data source"
+  - "Do not report conquest percentages without running the exact DB query above"
 ```
