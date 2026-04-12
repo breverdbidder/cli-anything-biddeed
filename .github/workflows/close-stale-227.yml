@@ -75,7 +75,6 @@ jobs:
               - `dep-guardian-agent.lock.yml` exists and is intact in `main` ✅
               - `dep-guardian-agent.md` agent definition exists and is intact in `main` ✅
               - Workflow triggers: `schedule` (Monday 8AM UTC) + `workflow_dispatch` ✅
-              - Engine: `claude` (ANTHROPIC_API_KEY via secrets) ✅
 
               ### Why GHA-774712 is Stale
               - Failure dates to pre-2026-03-29 billing error window — classic stale-run signature
