@@ -74,7 +74,6 @@ jobs:
               ls -la /root/.claude* 2>/dev/null || echo "No .claude config found in /root"
               ls -la /home/*/.claude* 2>/dev/null || echo "No .claude config found in /home"
               cat /root/.claude/.credentials.json 2>/dev/null | head -5 || echo "No credentials file"
-              echo "ANTHROPIC_API_KEY set: ${ANTHROPIC_API_KEY:+YES}" || echo "ANTHROPIC_API_KEY: NOT SET"
 
               echo "--- Previous Build Log ---"
               if [ -f /tmp/librarian-build.log ]; then
