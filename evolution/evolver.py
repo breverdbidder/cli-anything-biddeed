@@ -36,6 +36,7 @@ _DEEPSEEK_MODEL = "deepseek-chat"
 _CLAUDE_MODEL = "claude-sonnet-4-6"
 
 _MAX_ENTRIES_PER_ROUND = 2   # Prevents hallucination flood (port from JiuwenClaw)
+_MAX_LINE_GROWTH_PCT = 20  # K3 surgical-changes: reject diffs exceeding this % of baseline
 
 # ── Prompt Template ───────────────────────────────────────────────────────────
 
@@ -160,6 +161,9 @@ class Evolver:
                 eval_score_before=eval_score_before,
             )
 
+
+        # K3 Surgical-changes guardrail (Karpathy discipline, adopted 2026-04-12)
+        entries = self._surgical_filter(entries, skill_md_content)
         return entries[:self.max_entries]
 
     # ── Private: RCA Filter ───────────────────────────────────────────────────
@@ -336,6 +340,33 @@ class Evolver:
             sentinel_context=sentinel_context,
             max_entries=self.max_entries,
         )
+
+    def _surgical_filter(
+        self,
+        entries: list[EvolutionEntry],
+        baseline_content: str,
+    ) -> list[EvolutionEntry]:
+        """
+        K3 surgical-changes guardrail — reject patch entries whose combined
+        content would grow the baseline SKILL.md by more than
+        _MAX_LINE_GROWTH_PCT. Adopted from forrestchang/andrej-karpathy-skills
+        (MIT, 2026-04-12). Closes AUTOLOOP V2 bloat failure mode flagged
+        independently by Dylan Cleppe and Karpathy.
+        """
+        if not entries:
+            return entries
+        baseline_lines = max(1, len(baseline_content.splitlines()))
+        max_added = max(1, (baseline_lines * _MAX_LINE_GROWTH_PCT) // 100)
+
+        kept: list[EvolutionEntry] = []
+        running_added = 0
+        for entry in entries:
+            entry_lines = len(entry.content.splitlines()) or 1
+            if running_added + entry_lines > max_added:
+                continue  # over budget, skip but keep evaluating
+            running_added += entry_lines
+            kept.append(entry)
+        return kept
 
     def _parse_entries(
         self,
