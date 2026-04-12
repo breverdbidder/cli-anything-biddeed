@@ -1,38 +1,37 @@
 name: Claude Agent Teams — Parallel Multi-Agent SUMMITs
 
-# This workflow dispatches multi-agent team work to Hetzner, distinct from
-# claude-code-direct.yml which runs a single non-interactive `claude -p` session.
+# Distinct from claude-code-direct.yml (single claude -p session).
+# This workflow dispatches Agent Teams spawns into the Hetzner everest-agents
+# tmux session and coordinates via the Supabase agent_team_* event bus.
 #
-# Architecture:
-# 1. Validates issue (must be open + have 'summit' + 'agent-teams' labels)
-# 2. SSHes to Hetzner
-# 3. Writes a spawn-prompt file referencing the issue body
-# 4. Uses `tmux send-keys` into the existing `everest-agents` tmux session to
-#    start Claude Code with CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 and feed it
-#    the spawn prompt (which asks it to create a team of 4 teammates)
-# 5. Polls ci_protocol_checkpoints in Supabase every 30s for progress
-# 6. After protocol completes, runs eg14-dossier-gate.py as the BLOCKING gate
-# 7. ONLY if EG14 gate passes: agent renders battle card
-# 8. Workflow posts final summary comment to issue
+# Flow:
+# 1. Validate issue has 'summit' + 'agent-teams' labels
+# 2. Create agent_team_runs row via SDK (status=queued)
+# 3. SSH to Hetzner, pull everest-vault + cli-anything-biddeed
+# 4. Source env file with all API secrets
+# 5. tmux send-keys to start claude with SDK-aware spawn prompt
+# 6. Poll agent_team_runs.status + agent_team_alerts every 20s
+# 7. On status=succeeded: confirm battle card rendered via EG14 gate
+# 8. On status=failed or blocking alert: post comment + exit 1
 
 on:
   workflow_dispatch:
     inputs:
       issue:
-        description: 'Issue number (required, must have summit + agent-teams labels)'
+        description: 'Issue number (must have summit + agent-teams labels)'
         required: true
         type: string
       competitor_slug:
-        description: 'Competitor slug for EG14 gate (e.g. algoma, mapwise)'
+        description: 'Competitor slug (e.g. algoma, mapwise)'
         required: true
         type: string
       max_wall_clock_minutes:
-        description: 'Max wall clock before workflow force-terminates (default 240 = 4h)'
+        description: 'Max wall clock (default 240 = 4h)'
         required: false
         type: string
         default: '240'
       skip_gate:
-        description: 'DANGER: skip EG14 gate (only for testing the workflow itself)'
+        description: 'DANGER: skip EG14 gate (testing only)'
         required: false
         type: boolean
         default: false
@@ -40,51 +39,53 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    outputs:
-      issue_body: ${{ steps.fetch.outputs.body }}
     steps:
-      - name: Validate inputs
+      - name: Validate inputs + labels
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           ISSUE: ${{ inputs.issue }}
           SLUG: ${{ inputs.competitor_slug }}
         run: |
           set -euo pipefail
-          if [ -z "${ISSUE// /}" ]; then
-            echo "::error::Empty issue number"; exit 1
-          fi
-          if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
-            echo "::error::Issue $ISSUE not numeric"; exit 1
-          fi
-          if [ -z "${SLUG// /}" ]; then
-            echo "::error::competitor_slug empty"; exit 1
-          fi
+          [ -n "${ISSUE// /}" ] || { echo "::error::empty issue"; exit 1; }
+          [[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "::error::issue not numeric"; exit 1; }
+          [ -n "${SLUG// /}" ] || { echo "::error::slug empty"; exit 1; }
 
-          STATUS=$(curl -s -o /tmp/iss.json -w "%{http_code}" \
+          curl -sS -o /tmp/iss.json -w "%{http_code}\n" \
             -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE")
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::Issue #$ISSUE HTTP $STATUS"; exit 1
-          fi
-          STATE=$(python3 -c "import json; print(json.load(open('/tmp/iss.json'))['state'])")
-          [ "$STATE" = "open" ] || { echo "::error::Issue #$ISSUE state=$STATE"; exit 1; }
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE" > /tmp/http_code
+          [ "$(cat /tmp/http_code)" = "200" ] || { echo "::error::issue HTTP $(cat /tmp/http_code)"; exit 1; }
 
-          HAS_SUMMIT=$(python3 -c "import json; d=json.load(open('/tmp/iss.json')); print('yes' if any(l['name']=='summit' for l in d.get('labels',[])) else 'no')")
-          HAS_AT=$(python3 -c "import json; d=json.load(open('/tmp/iss.json')); print('yes' if any(l['name']=='agent-teams' for l in d.get('labels',[])) else 'no')")
-          [ "$HAS_SUMMIT" = "yes" ] || { echo "::error::Missing 'summit' label"; exit 1; }
-          [ "$HAS_AT" = "yes" ] || { echo "::error::Missing 'agent-teams' label"; exit 1; }
-
-          echo "::notice::Issue #$ISSUE validated for Agent Teams dispatch"
+          python3 -c "
+          import json, sys
+          d = json.load(open('/tmp/iss.json'))
+          assert d['state'] == 'open', f'issue state={d[\"state\"]}'
+          labels = {l['name'] for l in d.get('labels', [])}
+          assert 'summit' in labels, 'missing summit label'
+          assert 'agent-teams' in labels, 'missing agent-teams label'
+          print(f'✅ issue validated')
+          "
 
   dispatch-team:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: ${{ fromJson(inputs.max_wall_clock_minutes) }}
     steps:
-      - name: Checkout scripts
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: SSH into Hetzner + spawn Agent Team in everest-agents tmux
+      - name: Create agent_team_runs row via SDK
+        id: create_run
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ISSUE: ${{ inputs.issue }}
+          SLUG: ${{ inputs.competitor_slug }}
+        run: |
+          RUN_ID=$(python3 scripts/agent_team_sdk.py create-run --issue "$ISSUE" --slug "$SLUG")
+          echo "run_id=$RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: SSH Hetzner + spawn Agent Team with SDK-aware prompt
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
@@ -103,6 +104,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ISSUE: ${{ inputs.issue }}
           SLUG: ${{ inputs.competitor_slug }}
+          RUN_ID: ${{ steps.create_run.outputs.run_id }}
           SKIP_GATE: ${{ inputs.skip_gate }}
         run: |
           set -euo pipefail
@@ -110,136 +112,15 @@ jobs:
           echo "$HETZNER_SSH_KEY" > ~/.ssh/key
           chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o BatchMode=yes root@${HETZNER_IP}"
+          SCP="scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-          echo "=== 1. Verify Hetzner + Agent Teams flag ==="
-          $SSH "claude --version && cat ~/.claude/settings.json | grep -o CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS || (echo 'ERROR: Agent Teams flag not set'; exit 1)"
-
-          echo "=== 2. Pull everest-vault bridge ==="
+          echo "=== 1. Verify Hetzner + pull repos ==="
+          $SSH "claude --version && grep CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS ~/.claude/settings.json"
           $SSH "cd /root/everest-vault && git pull origin main"
+          $SSH "cd /root && (test -d cli-anything-biddeed/.git && cd cli-anything-biddeed && git pull || git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git)"
 
-          echo "=== 3. Sync eg14-dossier-gate.py to Hetzner ==="
-          $SSH "cd /root && (test -d cli-anything-biddeed/.git && cd cli-anything-biddeed && git pull || git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git) && chmod +x cli-anything-biddeed/scripts/eg14-dossier-gate.py"
-
-          echo "=== 4. Write spawn prompt to a file on Hetzner ==="
-          # Fetch issue body for reference
-          curl -s -H "Authorization: token $GH_PAT" \
-            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE" > /tmp/issue.json
-          python3 -c "import json; print(json.load(open('/tmp/issue.json'))['body'])" > /tmp/issue_body.md
-
-          cat > /tmp/spawn_prompt.md <<SPAWN_EOF
-          # Agent Teams Spawn — SUMMIT #${ISSUE} — ${SLUG}
-
-          You are the LEAD of a 4-teammate Agent Team. Your job: execute the CI Dossier
-          Protocol v1.2 for competitor slug '${SLUG}' across all 195 checkpoints, then
-          run the REAL EG14 dossier gate, and ONLY if the gate passes (exit code 0)
-          render the v5 battle card.
-
-          ## Step 0 — Create the team
-
-          Use CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS (already enabled). Spawn 4 teammates:
-
-          1. **researcher** (Sonnet 4.6): Phases 1, 5, 6 — legal entity, HQ, founders,
-             patents, external OSINT. Writes findings to ci_dossiers structured columns
-             AND updates ci_protocol_checkpoints with VERIFIED/INFERRED/UNKNOWN notes.
-
-          2. **playwright** (Sonnet 4.6): Phases 2, 3, 8 — visual captures, network
-             forensics, product surface. Writes frontend_stack/analytics_stack/
-             tracking_pixels/hosting_stack to ci_dossiers. Stores screenshots to
-             /tmp/${SLUG}-captures/ and ci_dossier_urls rows.
-
-          3. **writer** (Sonnet 4.6): Phases 4, 7, 9, 10 — pricing, reviews,
-             regulatory, hiring. Writes pricing_tiers, review_intelligence,
-             regulatory_filings, current_jobs to ci_dossiers.
-
-          4. **qa** (Sonnet 4.6): Cross-checks researcher claims against Phase 2/3
-             captures. Flags contradictions (e.g. HQ in Phase 1 notes vs dossier
-             hq_primary field). Writes evidence rows to ci_dossier_evidence_log.
-             Runs the EG14 dossier gate locally.
-
-          You (lead, Opus 4.6): Synthesize, enforce sequencing, block advances if
-          phases have unresolved contradictions.
-
-          ## Step 1 — Read context
-
-          Before spawning, each teammate must read:
-          - /root/everest-vault/CLAUDE.md (Pattern B bridge)
-          - /root/everest-vault/600-Research/battle-cards/CI-DOSSIER-CHECKPOINT-PROTOCOL-v1.md
-          - /root/everest-vault/600-Research/battle-cards/CI-BATTLE-CARD-v5-TEMPLATE-SPEC.md
-          - /root/everest-vault/600-Research/battle-cards/dono-ai-v5-REFERENCE.html (reference card)
-          - The issue body at /tmp/issue_body.md
-
-          ## Step 2 — Execute Phases 0-11 in strict order
-
-          Hard rule: no phase N+1 until phase N is 100% resolved (all checkpoints
-          green OR explicitly skipped with structural reason). Teammates work in
-          parallel WITHIN a phase but the lead gates between phases.
-
-          For every checkpoint ticked green:
-          - Evidence stored (file path or Supabase row reference in notes)
-          - Honesty label applied (VERIFIED / INFERRED / UNKNOWN)
-          - Notes >= 50 characters with specific facts, not meta-claims
-
-          For every checkpoint skipped:
-          - Structural reason in notes (e.g. "Algoma is not title insurance, CATIC
-            blog N/A" or "Squarespace form validation not capturable without
-            interaction")
-          - Never skip for "ran out of time" or "tool missing" — escalate instead
-
-          ## Step 3 — DO NOT run Phase 12 yourself
-
-          Phase 12 (the REAL EG14 gate) is NOT 4 self-referential meta-checks.
-          Phase 12 is running this script:
-
-            export SUPABASE_URL='${SUPABASE_URL:-https://mocerqjnksmhcjzxrewo.supabase.co}'
-            export SUPABASE_SERVICE_ROLE_KEY='\$SUPABASE_SERVICE_ROLE_KEY'
-            python3 /root/cli-anything-biddeed/scripts/eg14-dossier-gate.py \\
-              --slug ${SLUG} \\
-              --write-to-supabase \\
-              --strict
-
-          If exit code != 0: STOP. Post a comment to issue #${ISSUE} with the JSON
-          output of the gate and fails list. Do NOT render a battle card. Leave the
-          issue open with label 'eg14-failed'. Ariel will decide next steps.
-
-          If exit code == 0: proceed to Step 4.
-
-          ## Step 4 — Render battle card (ONLY if EG14 passed)
-
-          Use dono-ai-v5-REFERENCE.html as the template. Replace content with
-          verified ${SLUG} data from ci_dossiers row. All 6 sections. House brand
-          (Navy #1E3A5F, Orange #F59E0B, Inter, bg #020617).
-
-          Save to /root/everest-vault/600-Research/battle-cards/${SLUG}-battle-card.html
-          Commit and push to main.
-
-          ## Step 5 — Post completion comment
-
-          Post to issue #${ISSUE}:
-          - EG14 score (must be 14/14 or 12+ soft-pass)
-          - Phase-by-phase status table
-          - Battle card link
-          - Specific decision points for Ariel review
-
-          Close issue with label 'ready-for-review' ONLY if EG14 passed strict.
-
-          ## DO NOT
-
-          - Do NOT render a battle card if EG14 gate fails
-          - Do NOT commit to zonewise-web (this is everest-vault staging only)
-          - Do NOT mark Phase 12 green via meta-checks; Phase 12 = running the gate script
-          - Do NOT fabricate data; if a field can't be verified, mark UNKNOWN
-
-          Cost budget: Max wall clock 4 hours. Max 1.5M tokens across team.
-          Model mix: you=Opus, teammates=Sonnet.
-          SPAWN_EOF
-
-          # Copy spawn prompt to Hetzner
-          scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/spawn_prompt.md root@${HETZNER_IP}:/root/spawn_prompt_${ISSUE}.md
-          scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/issue_body.md root@${HETZNER_IP}:/tmp/issue_body.md
-
-          echo "=== 5. Send the prompt into everest-agents tmux session ==="
-          # Export all env vars to a file on Hetzner that the tmux session will source
-          $SSH "cat > /root/.env-summit-${ISSUE} <<ENVEOF
+          echo "=== 2. Write env file on Hetzner (sourced by spawn) ==="
+          $SSH "cat > /root/.env-run-${RUN_ID} <<ENVEOF
           export SUPABASE_URL='${SUPABASE_URL}'
           export SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}'
           export SUPABASE_ANON_KEY='${SUPABASE_ANON_KEY}'
@@ -253,92 +134,209 @@ jobs:
           export TELEGRAM_BOT_TOKEN='${TELEGRAM_BOT_TOKEN}'
           export TELEGRAM_CHAT_ID='${TELEGRAM_CHAT_ID}'
           export GH_PAT='${GH_PAT}'
+          export RUN_ID='${RUN_ID}'
           export ISSUE='${ISSUE}'
           export SLUG='${SLUG}'
           ENVEOF"
 
-          # Make sure the tmux session exists
-          $SSH "tmux has-session -t everest-agents 2>/dev/null || tmux new-session -d -s everest-agents"
+          echo "=== 3. Build SDK-aware spawn prompt ==="
+          # The spawn prompt gives the lead complete instructions including how to use the SDK
+          cat > /tmp/spawn_prompt.md <<'SPAWN_EOF'
+          # Agent Teams Lead — SUMMIT ${ISSUE} — ${SLUG}
 
-          # Kill any running `claude` in the lead window, source env, start a fresh claude
+          You are the LEAD of a 4-teammate Agent Team. You coordinate a CI Dossier
+          Protocol v1.2 run for competitor slug '${SLUG}' across 195 checkpoints,
+          then a REAL EG14 dossier gate, then (only on pass) a v5 battle card.
+
+          ## Your coordination kit (MANDATORY)
+
+          There is a Python SDK you MUST use for ALL teammate communication and
+          progress tracking. Import it at the start of EVERY major action:
+
+              import sys
+              sys.path.insert(0, '/root/cli-anything-biddeed/scripts')
+              from agent_team_sdk import AgentBus
+
+              RUN_ID = '${RUN_ID}'
+              bus = AgentBus(RUN_ID, 'lead')
+
+          Every phase you start → `bus.event('phase_started', phase=N)`
+          Every checkpoint you green → `bus.event('checkpoint_green', phase=N, checkpoint_id='N.M', payload={...})`
+          Every finding from a teammate → that teammate calls `bus.event('finding', payload={...})`
+          Every peer question → `bus.send(to_agent, 'question', subject, body)`
+          Every conflict detected by qa → `bus.send('lead', 'conflict', subject, body, priority='high')`
+          Every blocker → `bus.alert('block', 'architect', title, body, recommended_action=X)`
+
+          If you produce work WITHOUT writing to the bus, the AI Architect has NO
+          visibility into your run. You are invisible. Write to the bus constantly.
+
+          ## Step 1 — Boot + team formation
+
+          1. `source /root/.env-run-${RUN_ID}` to load secrets
+          2. `cd /root/everest-vault && git pull`
+          3. Read these files completely before spawning teammates:
+             - /root/everest-vault/CLAUDE.md (Pattern B bridge)
+             - /root/everest-vault/600-Research/battle-cards/CI-DOSSIER-CHECKPOINT-PROTOCOL-v1.md
+             - /root/everest-vault/600-Research/battle-cards/CI-BATTLE-CARD-v5-TEMPLATE-SPEC.md
+             - /root/everest-vault/600-Research/battle-cards/dono-ai-v5-REFERENCE.html
+             - /root/cli-anything-biddeed/scripts/agent_team_sdk.py (your kit)
+             - /root/cli-anything-biddeed/scripts/eg14-dossier-gate.py (the real gate)
+             - The issue body at /root/issue_${ISSUE}_body.md
+          4. `bus.event('run_started', payload={'summit': ${ISSUE}, 'slug': '${SLUG}'})`
+          5. `bus.alert('info', 'architect', 'Agent Teams spawned', 'Lead booted, about to spawn 4 teammates', None)`
+          6. Enable Agent Teams mode and spawn 4 teammates:
+             - **researcher** (Sonnet 4.6): Phases 1, 5, 6 (legal, patents, external OSINT)
+             - **playwright** (Sonnet 4.6): Phases 2, 3, 8 (visual capture, network, product surface)
+             - **writer** (Sonnet 4.6): Phases 4, 7, 9, 10 (pricing, reviews, regulatory, hiring)
+             - **qa** (Sonnet 4.6): cross-check contradictions + Phase 12 gate + final battle card
+          7. Each teammate gets a copy of the SDK import preamble and their agent name.
+
+          ## Step 2 — Phase execution loop
+
+          For phase in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+            1. `bus.event('phase_started', phase=phase)`
+            2. `bus.send('all', 'assignment', f'Phase {phase} starting', 'work your checkpoints')`
+            3. Wait for teammates to complete their checkpoints
+            4. Check `bus.inbox()` every 60 seconds for conflicts/questions
+            5. If any message type='conflict': HALT, `bus.alert('block', 'architect', ...)`, wait for architect response via inbox from='architect'
+            6. After all teammates report phase complete (via `bus.event('phase_complete', phase=phase)`), verify checkpoints in ci_protocol_checkpoints
+            7. `bus.event('phase_gated', phase=phase)` and proceed
+
+          Teammates: when you hit a checkpoint, write to ci_protocol_checkpoints AND
+          to agent_team_events. The dossier data goes into ci_dossiers structured
+          columns — not just checkpoint notes. A future EG14 gate run will check both.
+
+          ## Step 3 — REAL EG14 gate (Phase 12 = running the script)
+
+          Phase 12 is NOT 4 self-referential meta-checks. It is:
+
+              source /root/.env-run-${RUN_ID}
+              python3 /root/cli-anything-biddeed/scripts/eg14-dossier-gate.py \\
+                --slug ${SLUG} \\
+                --write-to-supabase \\
+                --strict
+
+          qa runs this. On exit code 0 → pass. On non-zero:
+          - `bus.event('eg14_failed', payload={fails output})`
+          - `bus.alert('block', 'both', 'EG14 dossier gate FAIL', <fails JSON>, 'Architect to review gaps')`
+          - STOP. Do not render a card.
+
+          ## Step 4 — Battle card (ONLY if EG14 passed)
+
+          writer teammate:
+          1. Read ci_dossiers for ${SLUG}
+          2. Use dono-ai-v5-REFERENCE.html as template
+          3. Replace with verified data, all 6 sections
+          4. House brand: Navy #1E3A5F, Orange #F59E0B, Inter, bg #020617
+          5. Save to /root/everest-vault/600-Research/battle-cards/${SLUG}-battle-card.html
+          6. git add + commit + push
+          7. `bus.event('card_rendered', payload={'path': ..., 'commit': ...})`
+
+          ## Step 5 — Completion
+
+          1. `bus.event('run_completed', payload={'status': 'succeeded', 'card_path': ...})`
+          2. Update agent_team_runs row: status='succeeded', eg14_gate_passed=true
+          3. `bus.alert('info', 'both', 'Ready for Ariel review', 'Battle card rendered and gate passed', 'Open the card and APPROVE/EDIT/REJECT')`
+          4. Post completion comment to issue #${ISSUE} with summary
+
+          ## DO NOT
+
+          - Do NOT skip writing to the SDK bus
+          - Do NOT render a battle card if EG14 fails
+          - Do NOT modify zonewise-web production files
+          - Do NOT mark Phase 12 green via meta-checks
+          - Do NOT fabricate data (mark UNKNOWN instead)
+          - Do NOT kill the tmux session
+          SPAWN_EOF
+
+          # Substitute env vars into the prompt
+          envsubst < /tmp/spawn_prompt.md > /tmp/spawn_prompt_subst.md
+
+          # Upload prompt + issue body to Hetzner
+          $SCP /tmp/spawn_prompt_subst.md root@${HETZNER_IP}:/root/spawn_prompt_${RUN_ID}.md
+
+          # Fetch issue body
+          curl -sS -H "Authorization: token $GH_PAT" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['body'])" > /tmp/issue_body.md
+          $SCP /tmp/issue_body.md root@${HETZNER_IP}:/root/issue_${ISSUE}_body.md
+
+          echo "=== 4. Send spawn into everest-agents tmux ==="
+          $SSH "tmux has-session -t everest-agents 2>/dev/null || tmux new-session -d -s everest-agents"
           $SSH "tmux send-keys -t everest-agents:0 C-c" || true
           sleep 2
-          $SSH "tmux send-keys -t everest-agents:0 'source /root/.env-summit-${ISSUE} && cd /root && claude --dangerously-skip-permissions < /root/spawn_prompt_${ISSUE}.md' C-m"
+          $SSH "tmux send-keys -t everest-agents:0 'clear && source /root/.env-run-${RUN_ID} && cd /root && claude --dangerously-skip-permissions < /root/spawn_prompt_${RUN_ID}.md' C-m"
 
-          echo "=== 6. Poll checkpoint progress every 30s ==="
-          START_TS=$(date +%s)
-          MAX_SEC=$(( ${{ inputs.max_wall_clock_minutes }} * 60 ))
-          LAST_GREEN=0
-          STALL_COUNT=0
+          echo "=== 5. Poll run status + alerts every 20s ==="
+          START=$(date +%s)
+          MAX=$(( ${{ inputs.max_wall_clock_minutes }} * 60 ))
+          LAST_STATUS=""
 
           while true; do
-            NOW=$(date +%s)
-            ELAPSED=$(( NOW - START_TS ))
-            if [ $ELAPSED -gt $MAX_SEC ]; then
-              echo "::error::Timeout after ${ELAPSED}s (max $MAX_SEC)"
-              break
+            ELAPSED=$(( $(date +%s) - START ))
+            if [ $ELAPSED -gt $MAX ]; then
+              echo "::error::timeout after ${ELAPSED}s"
+              python3 scripts/agent_team_sdk.py alert --run-id "$RUN_ID" --agent system \
+                --severity critical --audience both \
+                --title "Agent Teams timeout" --body "Wall clock exceeded ${MAX}s" || true
+              exit 1
             fi
 
-            # Query checkpoint counts via Supabase REST
-            GREEN=$(curl -s -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            # Query run status
+            STATUS=$(curl -sS -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              "${SUPABASE_URL}/rest/v1/ci_protocol_checkpoints?status=eq.green&select=checkpoint_id" \
-              | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
-            SKIPPED=$(curl -s -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              "${SUPABASE_URL}/rest/v1/agent_team_runs?id=eq.${RUN_ID}&select=status,eg14_gate_passed" \
+              | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else 'missing')")
+
+            # Count events and alerts for visibility
+            EVENT_COUNT=$(curl -sS -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              "${SUPABASE_URL}/rest/v1/ci_protocol_checkpoints?status=eq.skipped&select=checkpoint_id" \
+              "${SUPABASE_URL}/rest/v1/agent_team_events?run_id=eq.${RUN_ID}&select=id" \
+              | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+            BLOCKING_ALERTS=$(curl -sS -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              "${SUPABASE_URL}/rest/v1/agent_team_alerts?run_id=eq.${RUN_ID}&severity=in.(block,critical)&acknowledged_at=is.null&select=id" \
               | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 
-            echo "[+${ELAPSED}s] checkpoints: ${GREEN} green / ${SKIPPED} skipped / $((195-GREEN-SKIPPED)) pending"
-
-            if [ "$GREEN" -eq "$LAST_GREEN" ]; then
-              STALL_COUNT=$((STALL_COUNT+1))
-            else
-              STALL_COUNT=0
-              LAST_GREEN=$GREEN
+            if [ "$STATUS" != "$LAST_STATUS" ]; then
+              echo "[+${ELAPSED}s] run=${STATUS} events=${EVENT_COUNT} blocking_alerts=${BLOCKING_ALERTS}"
+              LAST_STATUS="$STATUS"
             fi
 
-            # Check if we're done: all 195 resolved
-            TOTAL_RESOLVED=$((GREEN + SKIPPED))
-            if [ "$TOTAL_RESOLVED" -ge 195 ]; then
-              echo "::notice::All 195 checkpoints resolved (${GREEN} green / ${SKIPPED} skipped)"
-              break
-            fi
+            case "$STATUS" in
+              succeeded)
+                echo "::notice::run succeeded"
+                break
+                ;;
+              failed|cancelled)
+                echo "::error::run ended with status=$STATUS"
+                exit 1
+                ;;
+              blocked)
+                echo "::warning::run is BLOCKED waiting for architect response"
+                ;;
+            esac
 
-            # Stall detection: 20 * 30s = 10 min no progress
-            if [ $STALL_COUNT -gt 20 ]; then
-              echo "::warning::Stalled for 10 min at ${GREEN} green. Continuing poll anyway."
-              STALL_COUNT=0
-            fi
-
-            sleep 30
+            sleep 20
           done
 
-          echo "=== 7. Run EG14 gate (the real one) ==="
-          if [ "${SKIP_GATE}" = "true" ]; then
-            echo "::warning::--skip-gate set, EG14 not enforced"
-            GATE_RESULT=0
-          else
-            set +e
-            $SSH "SUPABASE_URL='${SUPABASE_URL}' SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}' python3 /root/cli-anything-biddeed/scripts/eg14-dossier-gate.py --slug ${SLUG} --write-to-supabase --strict"
-            GATE_RESULT=$?
-            set -e
-          fi
+          echo "=== 6. Post completion comment ==="
+          curl -sS -X POST \
+            -H "Authorization: token $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE/comments" \
+            -d "$(python3 -c "
+          import json
+          body = f'''## ✅ Agent Teams run complete
 
-          echo "=== 8. Post result to issue ==="
-          if [ $GATE_RESULT -eq 0 ]; then
-            curl -s -X POST \
-              -H "Authorization: token $GH_PAT" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE/comments" \
-              -d "{\"body\":\"## ✅ Agent Teams SUMMIT complete — EG14 14/14 PASS\n\nCompetitor: **${SLUG}**\nWall clock: ${ELAPSED}s\n\nBattle card at everest-vault/600-Research/battle-cards/${SLUG}-battle-card.html\n\nAwaiting Ariel review.\"}"
-            echo "::notice::EG14 PASS — issue $ISSUE posted"
-          else
-            curl -s -X POST \
-              -H "Authorization: token $GH_PAT" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE/comments" \
-              -d "{\"body\":\"## ❌ Agent Teams SUMMIT — EG14 gate FAILED\n\nCompetitor: **${SLUG}**\nGate exit code: ${GATE_RESULT}\n\nBattle card NOT rendered. Issue remains open for triage.\n\nRun \`python3 scripts/eg14-dossier-gate.py --slug ${SLUG} --json\` locally for fail detail.\"}"
-            echo "::error::EG14 FAIL — battle card blocked"
-            exit 1
-          fi
+          **Run ID:** \`${RUN_ID}\`
+          **Competitor:** \`${SLUG}\`
+          **Wall clock:** {${ELAPSED}}s
+          **Events logged:** {${EVENT_COUNT}}
+          **Blocking alerts:** {${BLOCKING_ALERTS}} (all acknowledged)
+
+          Query the run with:
+          \`python3 scripts/agent_team_sdk.py events --run-id ${RUN_ID}\`
+          '''
+          print(json.dumps({'body': body}))
+          ")"
