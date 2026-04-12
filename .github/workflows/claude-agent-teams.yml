@@ -115,7 +115,7 @@ jobs:
 
           echo "=== 1. Verify Hetzner + pull repos ==="
           $SSH "claude --version && grep CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS ~/.claude/settings.json"
-          $SSH "cd /root/everest-vault && git pull origin main"
+          $SSH "cd /root/everest-vault && git remote set-url origin https://x-access-token:${GH_PAT}@github.com/breverdbidder/everest-vault.git && git pull origin main"
           $SSH "cd /root && (test -d cli-anything-biddeed/.git && cd cli-anything-biddeed && git pull || git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git)"
 
           echo "=== 2. Write env file on Hetzner (sourced by spawn) ==="
