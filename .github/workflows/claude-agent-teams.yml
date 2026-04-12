@@ -189,16 +189,33 @@ jobs:
              - **qa** (Sonnet 4.6): cross-check contradictions + Phase 12 gate + final battle card
           7. Each teammate gets a copy of the SDK import preamble and their agent name.
 
-          ## Step 2 — Phase execution loop
+          ## Step 2 — Phase execution loop (HARD PHASE-BY-PHASE GATING)
 
-          For phase in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+          Read the issue body at /root/issue_${ISSUE}_body.md FIRST. It will tell you
+          which phase(s) you are authorized to run in THIS dispatch. Do NOT exceed
+          the authorized phase range.
+
+          DEFAULT AUTHORIZATION (if issue body does not specify a range): execute
+          EXACTLY ONE PHASE per dispatch, then STOP.
+
+          For each phase in the authorized range:
             1. `bus.event('phase_started', phase=phase)`
             2. `bus.send('all', 'assignment', f'Phase {phase} starting', 'work your checkpoints')`
             3. Wait for teammates to complete their checkpoints
             4. Check `bus.inbox()` every 60 seconds for conflicts/questions
             5. If any message type='conflict': HALT, `bus.alert('block', 'architect', ...)`, wait for architect response via inbox from='architect'
             6. After all teammates report phase complete (via `bus.event('phase_complete', phase=phase)`), verify checkpoints in ci_protocol_checkpoints
-            7. `bus.event('phase_gated', phase=phase)` and proceed
+            7. `bus.event('phase_gated', phase=phase)`
+            8. **HARD STOP RULE** — after finishing a phase, you MUST:
+               a. `bus.alert('info', 'architect', f'Phase {phase} complete — ready for Ariel review', summary_text, 'Review in ci_protocol_checkpoints + ci_dossiers, approve or reject')`
+               b. Update agent_team_runs row: status='awaiting_review', current_phase=phase
+               c. EXIT the claude session cleanly. Do NOT start the next phase.
+               d. The next phase requires a NEW workflow dispatch from the architect.
+            9. NEVER auto-advance to the next phase. NEVER loop through multiple phases
+               in a single dispatch UNLESS the issue body explicitly says "phases X-Y authorized".
+               Violating this rule is a SEVERE protocol failure — the architect had to
+               cancel run #24308143792 on 2026-04-12 because the lead ran Phases 3-7 without
+               approval after Phase 2. Do not repeat that mistake.
 
           Teammates: when you hit a checkpoint, write to ci_protocol_checkpoints AND
           to agent_team_events. The dossier data goes into ci_dossiers structured
