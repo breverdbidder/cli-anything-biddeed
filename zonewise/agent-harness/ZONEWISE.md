@@ -322,6 +322,22 @@ graph TD
     K -->|error| N[Return: structured error JSON]
 ```
 
+## Cost Tracking
+
+Every ZoneWise session MUST track API costs against the $10/session cap:
+
+| Operation | Service | Cost per Unit | Typical Usage |
+|-----------|---------|---------------|---------------|
+| FL GIO query | FL GIO | $0 (free, no auth) | 200+ requests per county |
+| County GIS query | ArcGIS REST | $0 (public endpoints) | 100+ requests per county |
+| Zoning ordinance scrape | Firecrawl | ~$0.50 per jurisdiction | 5-15 per county |
+| Zoning extraction | Gemini Flash | $0 (free tier) | 1 per jurisdiction |
+| Complex zoning parsing | Claude Sonnet | $0 (Max plan) | rare, edge cases |
+| Data persist | Supabase | $0 (included in plan) | unlimited upserts |
+
+**Budget per county**: ~$6.50 (Orange, 13 jurisdictions) / ~$3.00 (Duval, 6 jurisdictions)
+**Running total**: Log to session summary; STOP and confirm if approaching $10.
+
 ## County Onboarding Protocol
 
 Repeatable checklist for adding a new county to ZoneWise:
