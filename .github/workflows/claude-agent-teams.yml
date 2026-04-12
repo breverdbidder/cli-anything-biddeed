@@ -263,7 +263,7 @@ jobs:
           $SSH "tmux has-session -t everest-agents 2>/dev/null || tmux new-session -d -s everest-agents"
           $SSH "tmux send-keys -t everest-agents:0 C-c" || true
           sleep 2
-          $SSH "tmux send-keys -t everest-agents:0 'clear && source /root/.env-run-${RUN_ID} && cd /root && unset ANTHROPIC_API_KEY && claude --dangerously-skip-permissions < /root/spawn_prompt_${RUN_ID}.md' C-m"
+          $SSH "tmux send-keys -t everest-agents:0 'clear && source /root/.env-run-${RUN_ID} && cd /root && unset ANTHROPIC_API_KEY && IS_SANDBOX=1 claude -p \"\$(cat /root/spawn_prompt_${RUN_ID}.md)\" --dangerously-skip-permissions 2>&1 | tee /root/claude-run-${RUN_ID}.log' C-m"
 
           echo "=== 5. Poll run status + alerts every 20s ==="
           START=$(date +%s)
