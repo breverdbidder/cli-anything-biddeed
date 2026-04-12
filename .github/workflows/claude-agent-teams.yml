@@ -1,6 +1,6 @@
 name: Claude Agent Teams — Parallel Multi-Agent SUMMITs
 
-# Distinct from claude-code-direct.yml (single claude -p session).
+# Distinct from claude-code-direct.yml (single unset ANTHROPIC_API_KEY && claude -p session).
 # This workflow dispatches Agent Teams spawns into the Hetzner everest-agents
 # tmux session and coordinates via the Supabase agent_team_* event bus.
 #
@@ -98,7 +98,6 @@ jobs:
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -129,7 +128,6 @@ jobs:
           export EXA_API_KEY='${EXA_API_KEY}'
           export GEMINI_API_KEY='${GEMINI_API_KEY}'
           export GOOGLE_API_KEY='${GOOGLE_API_KEY}'
-          export ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY}'
           export SUPADATA_API_KEY='${SUPADATA_API_KEY}'
           export TELEGRAM_BOT_TOKEN='${TELEGRAM_BOT_TOKEN}'
           export TELEGRAM_CHAT_ID='${TELEGRAM_CHAT_ID}'
@@ -265,7 +263,7 @@ jobs:
           $SSH "tmux has-session -t everest-agents 2>/dev/null || tmux new-session -d -s everest-agents"
           $SSH "tmux send-keys -t everest-agents:0 C-c" || true
           sleep 2
-          $SSH "tmux send-keys -t everest-agents:0 'clear && source /root/.env-run-${RUN_ID} && cd /root && claude --dangerously-skip-permissions < /root/spawn_prompt_${RUN_ID}.md' C-m"
+          $SSH "tmux send-keys -t everest-agents:0 'clear && source /root/.env-run-${RUN_ID} && cd /root && unset ANTHROPIC_API_KEY && claude --dangerously-skip-permissions < /root/spawn_prompt_${RUN_ID}.md' C-m"
 
           echo "=== 5. Poll run status + alerts every 20s ==="
           START=$(date +%s)
