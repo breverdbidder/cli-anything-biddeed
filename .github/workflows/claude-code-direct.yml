@@ -114,13 +114,33 @@ jobs:
           echo "=== Verify Max OAuth alive ==="
           $SSH 'test -f /root/.claude/credentials.json || test -f /root/.claude/.credentials.json && echo "OAuth OK" || { echo "::error::No OAuth on Hetzner"; exit 1; }'
 
-          echo "=== Ensure non-root summit user exists with OAuth creds ==="
-          $SSH 'id summit >/dev/null 2>&1 || (useradd -m -s /bin/bash summit && echo "Created user summit"); mkdir -p /home/summit/.claude && cp -n /root/.claude/credentials.json /home/summit/.claude/credentials.json 2>/dev/null || cp -n /root/.claude/.credentials.json /home/summit/.claude/credentials.json 2>/dev/null || true; chown -R summit:summit /home/summit/.claude; chmod 600 /home/summit/.claude/credentials.json 2>/dev/null || true; mkdir -p /home/summit/summit-'"${ISSUE}"'/work && chown -R summit:summit /home/summit/summit-'"${ISSUE}"'; cp /root/summit-'"${ISSUE}"'-prompt.txt /home/summit/summit-'"${ISSUE}"'-prompt.txt && chown summit:summit /home/summit/summit-'"${ISSUE}"'-prompt.txt; which claude >/dev/null && echo "claude CLI: $(which claude)" || echo "::error::claude CLI not in PATH"'
+          echo "=== Write claude-runner.sh locally ==="
+          cat > /tmp/claude-runner.sh <<RUNNER
+#!/bin/bash
+set -e
+cd /home/summit/summit-${ISSUE}/work
+unset ANTHROPIC_API_KEY
+export GH_TOKEN="${GH_PAT}"
+export SUPABASE_URL="${SUPABASE_URL}"
+export SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
+export IS_SANDBOX=1
+PROMPT=\$(cat /home/summit/summit-${ISSUE}-prompt.txt)
+timeout 6000 claude -p "\$PROMPT" --dangerously-skip-permissions --max-turns 200 2>&1 | tee /home/summit/summit-${ISSUE}-output.log
+RUNNER
+          chmod +x /tmp/claude-runner.sh
 
-          echo "=== Run Claude Code as summit user (Max OAuth only) ==="
-          $SSH "sudo -u summit bash -lc 'cd /home/summit/summit-${ISSUE}/work && unset ANTHROPIC_API_KEY && export GH_TOKEN=${GH_PAT} && export SUPABASE_URL=${SUPABASE_URL} && export SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY} && export IS_SANDBOX=1 && timeout 6000 claude -p "\$(cat /home/summit/summit-${ISSUE}-prompt.txt)" --dangerously-skip-permissions --max-turns 200 2>&1 | tee /home/summit/summit-${ISSUE}-output.log'" || echo "::warning::claude -p exited non-zero"
+          echo "=== Ensure summit user + copy creds + upload runner ==="
+          $SSH "id summit >/dev/null 2>&1 || useradd -m -s /bin/bash summit"
+          $SSH "mkdir -p /home/summit/.claude && { cp -n /root/.claude/credentials.json /home/summit/.claude/credentials.json 2>/dev/null || cp -n /root/.claude/.credentials.json /home/summit/.claude/credentials.json 2>/dev/null || true; } && chown -R summit:summit /home/summit/.claude && chmod 600 /home/summit/.claude/credentials.json"
+          $SSH "mkdir -p /home/summit/summit-${ISSUE}/work && chown -R summit:summit /home/summit/summit-${ISSUE} && cp /root/summit-${ISSUE}-prompt.txt /home/summit/summit-${ISSUE}-prompt.txt && chown summit:summit /home/summit/summit-${ISSUE}-prompt.txt"
+          $SSH "which claude || echo NO_CLAUDE"
+          $SCP /tmp/claude-runner.sh root@${HETZNER_IP}:/home/summit/claude-runner.sh
+          $SSH "chown summit:summit /home/summit/claude-runner.sh && chmod +x /home/summit/claude-runner.sh"
 
-          # Copy log back to /root for tail capture
+          echo "=== Run Claude Code as summit user ==="
+          $SSH "sudo -u summit bash /home/summit/claude-runner.sh" || echo "::warning::claude runner exited non-zero"
+
+          echo "=== Copy output log back to /root ==="
           $SSH "cp /home/summit/summit-${ISSUE}-output.log /root/summit-${ISSUE}-output.log 2>/dev/null || true"
 
           echo "=== Capture output tail ==="
