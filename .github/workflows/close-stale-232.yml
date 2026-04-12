@@ -42,7 +42,6 @@ jobs:
                       "completed_at": datetime.now(timezone.utc).isoformat(),
                       "result_summary": (
                           "Issue Triage Agent in zonewise-web (GHA-708187) — stale billing failure. "
-                          "Root cause: ANTHROPIC_API_KEY had insufficient credits on 2026-03-30. "
                           "Billing has since been resolved. Issue Triage Agent workflow is intact. "
                           "GHA-708187 is a stale run — no further action required."
                       ),
@@ -65,7 +64,6 @@ jobs:
               ### Root Cause (VERIFIED)
               GHA-708187 failed on 2026-03-30 with error: **"Credit balance is too low"**
 
-              The `ANTHROPIC_API_KEY` configured for zonewise-web had insufficient credits at run time.
               This is a stale failure — billing has since been resolved.
 
               ### Evidence (VERIFIED)
