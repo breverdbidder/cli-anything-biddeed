@@ -57,7 +57,6 @@ jobs:
           NODE_BIN=$(dirname $(which node))
 
           echo "=== 5. Launch Claude Code ==="
-          su - claude -c "export PATH='${NODE_BIN}:/home/claude/.npm-global/bin:\$PATH' && export HOME=/home/claude && export ANTHROPIC_API_KEY='${ANTHROPIC_KEY}' && cd /home/claude/summit-zonewise && claude --version && timeout 6000 claude --dangerously-skip-permissions --model claude-sonnet-4-20250514 -p 'Read docs/ANIMATION_MAPBOX_MISSION.md and execute ALL 4 phases. Vite SPA in apps/viewer/. Custom code in zonewise/. Brand: Navy #1E3A5F, Orange #F59E0B, Slate-950 #020617. Git push after each phase using: git remote set-url origin https://${GH_PAT}@github.com/${REPO}.git then git push. Phase 1 first: framer-motion animations. START.' 2>&1 | tail -300"
 
           echo "=== 6. Final push ==="
           su - claude -c "cd /home/claude/summit-zonewise && git remote set-url origin https://${GH_PAT}@github.com/${REPO}.git && git add -A && git diff --cached --quiet || (git commit -m 'feat: animation + mapbox (summit)' && git push origin main) || true"
@@ -70,7 +69,6 @@ jobs:
           # SCP the script, then execute with args
           scp -i ~/.ssh/hetzner -o StrictHostKeyChecking=no /tmp/mission.sh root@${{ env.HETZNER_HOST }}:/tmp/mission.sh
           ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ServerAliveCountMax=20 root@${{ env.HETZNER_HOST }} \
-            "bash /tmp/mission.sh '${{ secrets.GH_PAT }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ env.REPO }}'"
 
       - name: Verify
         if: always()
