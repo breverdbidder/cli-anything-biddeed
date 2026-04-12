@@ -38,7 +38,11 @@ jobs:
             exit 1
           fi
           STATE=$(python3 -c "import json; print(json.load(open('/tmp/iss.json'))['state'])")
-          [ "$STATE" = "open" ] || { echo "::error::Issue not open"; exit 1; }
+          if [ "$STATE" != "open" ]; then
+            echo "::error::Issue not open"
+            exit 1
+          fi
+          echo "Issue #$ISSUE validated"
 
       - name: Dispatch Agent Teams spawn on Hetzner
         env:
@@ -63,48 +67,46 @@ jobs:
         run: |
           set -e
           mkdir -p ~/.ssh
-          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          printf '%s\n' "$HETZNER_SSH_KEY" > ~/.ssh/key
           chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o BatchMode=yes root@${HETZNER_IP}"
 
           echo "=== Verify Agent Teams flag ==="
-          $SSH "grep -q CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS ~/.claude/settings.json || (echo 'Agent Teams flag missing' && exit 1)"
+          $SSH "grep -q CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS /root/.claude/settings.json && echo flag-present || (echo 'Agent Teams flag missing' && exit 1)"
 
           echo "=== Verify tmux everest-agents session exists ==="
-          $SSH "tmux has-session -t everest-agents || tmux new-session -d -s everest-agents -n lead"
+          $SSH "tmux has-session -t everest-agents 2>/dev/null || tmux new-session -d -s everest-agents -n lead"
 
-          echo "=== Persist env to Hetzner for claude session ==="
-          $SSH "cat > /root/.summit-env << EOF
-export SUPABASE_URL='${SUPABASE_URL}'
-export SUPABASE_ANON_KEY='${SUPABASE_ANON_KEY}'
-export SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}'
-export SUPABASE_SERVICE_KEY='${SUPABASE_SERVICE_KEY}'
-export SUPABASE_ACCESS_TOKEN='${SUPABASE_ACCESS_TOKEN}'
-export FIRECRAWL_API_KEY='${FIRECRAWL_API_KEY}'
-export EXA_API_KEY='${EXA_API_KEY}'
-export GEMINI_API_KEY='${GEMINI_API_KEY}'
-export GOOGLE_API_KEY='${GOOGLE_API_KEY}'
-export ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY}'
-export SUPADATA_API_KEY='${SUPADATA_API_KEY}'
-export TELEGRAM_BOT_TOKEN='${TELEGRAM_BOT_TOKEN}'
-export TELEGRAM_CHAT_ID='${TELEGRAM_CHAT_ID}'
-export MAPBOX_TOKEN='${MAPBOX_TOKEN}'
-export GH_PAT='${GH_PAT}'
-EOF
-chmod 600 /root/.summit-env"
+          echo "=== Write env file to Hetzner using printf (safe for YAML) ==="
+          $SSH "printf 'export SUPABASE_URL=%s\n' '${SUPABASE_URL}' > /root/.summit-env"
+          $SSH "printf 'export SUPABASE_ANON_KEY=%s\n' '${SUPABASE_ANON_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export SUPABASE_SERVICE_ROLE_KEY=%s\n' '${SUPABASE_SERVICE_ROLE_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export SUPABASE_SERVICE_KEY=%s\n' '${SUPABASE_SERVICE_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export SUPABASE_ACCESS_TOKEN=%s\n' '${SUPABASE_ACCESS_TOKEN}' >> /root/.summit-env"
+          $SSH "printf 'export FIRECRAWL_API_KEY=%s\n' '${FIRECRAWL_API_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export EXA_API_KEY=%s\n' '${EXA_API_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export GEMINI_API_KEY=%s\n' '${GEMINI_API_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export GOOGLE_API_KEY=%s\n' '${GOOGLE_API_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export ANTHROPIC_API_KEY=%s\n' '${ANTHROPIC_API_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export SUPADATA_API_KEY=%s\n' '${SUPADATA_API_KEY}' >> /root/.summit-env"
+          $SSH "printf 'export TELEGRAM_BOT_TOKEN=%s\n' '${TELEGRAM_BOT_TOKEN}' >> /root/.summit-env"
+          $SSH "printf 'export TELEGRAM_CHAT_ID=%s\n' '${TELEGRAM_CHAT_ID}' >> /root/.summit-env"
+          $SSH "printf 'export MAPBOX_TOKEN=%s\n' '${MAPBOX_TOKEN}' >> /root/.summit-env"
+          $SSH "printf 'export GH_PAT=%s\n' '${GH_PAT}' >> /root/.summit-env"
+          $SSH "chmod 600 /root/.summit-env && wc -l /root/.summit-env"
 
-          echo "=== Pull vault for CLAUDE.md bridge + EG14 gate script ==="
-          $SSH "cd /root/everest-vault && git pull origin main && cd /root && (test -d cli-anything-biddeed && cd cli-anything-biddeed && git pull) || git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git"
+          echo "=== Pull vault + cli-anything-biddeed for CLAUDE.md bridge and EG14 gate ==="
+          $SSH "cd /root/everest-vault && git pull origin main"
+          $SSH "cd /root && if [ -d cli-anything-biddeed ]; then cd cli-anything-biddeed && git pull; else git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/cli-anything-biddeed.git; fi"
 
-          echo "=== Spawn Agent Teams lead for issue ${ISSUE} ==="
-          # Build the spawn instruction
-          SPAWN_PROMPT='Read GitHub issue #'${ISSUE}' at https://github.com/breverdbidder/cli-anything-biddeed/issues/'${ISSUE}'. Read /root/everest-vault/CLAUDE.md bridge section. Read /root/everest-vault/600-Research/battle-cards/CI-BATTLE-CARD-v5-TEMPLATE-SPEC.md and /root/everest-vault/600-Research/battle-cards/dono-ai-v5-REFERENCE.html as reference. Then create an agent team with 4 teammates: researcher (Phases 1/5/6), playwright (Phases 2/3/8), writer (Phase 4/9/10), qa (Phase 12 using /root/cli-anything-biddeed/scripts/ci-eg14-dossier-gate.py). STRICT SEQUENCING: complete all 195 checkpoints in ci_protocol_checkpoints table with evidence, then run ci-eg14-dossier-gate.py against the synthesized HTML, and ONLY commit the battle card to everest-vault/600-Research/battle-cards/ if verdict=pass. Teammates use Sonnet, you use Opus. Post completion comment on issue '${ISSUE}' with phase-by-phase status and gate verdict. Do NOT push to zonewise-web. Honesty Protocol mandatory: every claim labeled VERIFIED/INFERRED/UNKNOWN.'
+          echo "=== Send spawn command into tmux everest-agents:lead ==="
+          SPAWN="source /root/.summit-env && cd /root && claude --dangerously-skip-permissions"
+          $SSH "tmux send-keys -t everest-agents:lead '${SPAWN}' Enter"
+          sleep 8
 
-          # Send spawn command into tmux session using send-keys
-          $SSH "tmux send-keys -t everest-agents:lead 'source /root/.summit-env && cd /root && claude' Enter"
-          sleep 5
-          $SSH "tmux send-keys -t everest-agents:lead '${SPAWN_PROMPT}' Enter"
+          echo "=== Send Agent Teams creation prompt ==="
+          PROMPT="Read GitHub issue #${ISSUE} body and all comments: curl -s -H 'Authorization: token ${GH_PAT}' https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} and .../${ISSUE}/comments. Read /root/everest-vault/CLAUDE.md Agent Teams Multi-Session Bridge section. Read /root/everest-vault/600-Research/battle-cards/CI-BATTLE-CARD-v5-TEMPLATE-SPEC.md. Then create an agent team with 4 teammates using CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS. Teammates: researcher playwright writer qa (all Sonnet-4-6). You are lead (Opus-4-6). Execute the tasks in the issue body. The issue contains the full agent-team-composition spec. Follow strict sequencing: 195 checkpoints before any battle card, real EG14 gate via /root/cli-anything-biddeed/scripts/ci-eg14-dossier-gate.py before commit. Post completion comment on issue ${ISSUE}."
+          $SSH "tmux send-keys -t everest-agents:lead \"$PROMPT\" Enter"
 
-          echo "=== Agent Teams spawn dispatched. Poll via ci_protocol_checkpoints. ==="
-          echo "Lead agent now running in tmux everest-agents:lead on Hetzner."
-          echo "Completion reported to issue #${ISSUE} by lead agent when done."
+          echo "=== Dispatch complete. Agent Teams running in tmux everest-agents on Hetzner. ==="
+          echo "Lead will post completion comment on issue #${ISSUE}."
