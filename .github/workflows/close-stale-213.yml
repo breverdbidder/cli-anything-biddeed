@@ -43,7 +43,6 @@ jobs:
                       "completed_at": datetime.now(timezone.utc).isoformat(),
                       "result_summary": (
                           "Doc Sync Agent in zonewise-web (GHA-644860) — stale failure from billing error period. "
-                          "Root cause: ANTHROPIC_API_KEY credit balance too low (billing_error). "
                           "Fix applied in commit bdfd9bf7 (2026-04-01): continue-on-error added to Execute "
                           "Claude Code CLI step to prevent cascading ci-failure-agent triggers. "
                           "GHA-644860 predates the fix — stale pre-fix run."
@@ -65,7 +64,6 @@ jobs:
               **Task:** GHA-644860 | **Workflow:** `Doc Sync Agent` in `breverdbidder/zonewise-web`
 
               ### Root Cause (VERIFIED from git history)
-              GHA-644860 failed due to `ANTHROPIC_API_KEY` billing error:
               ```
               {"error":"billing_error","result":"Credit balance is too low"}
               ```
