@@ -26,6 +26,9 @@ jobs:
         issue: ${{ fromJson(format('[{0}]', inputs.issues)) }}
       fail-fast: false
     steps:
+      - name: Checkout repo (for scripts/claude-runner.sh)
+        uses: actions/checkout@v4
+
       - name: Validate issue input
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -34,7 +37,7 @@ jobs:
         run: |
           set -e
           if [ -z "${ISSUE// /}" ]; then
-            echo "::error::Empty issue number passed to workflow."
+            echo "::error::Empty issue number."
             exit 1
           fi
           if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
@@ -59,36 +62,15 @@ jobs:
 
       - name: Announce dispatch target
         run: |
-          echo "::notice::SUMMIT dispatching against issue(s): ${{ inputs.issues }} → matrix element ${{ matrix.issue }}"
+          echo "::notice::SUMMIT dispatching issue ${{ matrix.issue }}"
 
       - name: Run Claude Code on Hetzner for issue ${{ matrix.issue }}
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
-          LINKEDIN_SESSION_JSON: ${{ secrets.LINKEDIN_SESSION_JSON }}
-          STITCH_API_KEY: ${{ secrets.STITCH_API_KEY }}
-          FIGMA_API_TOKEN: ${{ secrets.FIGMA_API_TOKEN }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ISSUE: ${{ matrix.issue }}
         run: |
           set -e
@@ -105,49 +87,31 @@ jobs:
           curl -s -H "Authorization: token $GH_PAT" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments?per_page=100" | jq -r '.[] | "\n---COMMENT by " + .user.login + " @ " + .created_at + "---\n" + (.body // "")' >> /tmp/prompt.txt
           echo "Prompt bytes: $(wc -c < /tmp/prompt.txt)"
 
-          echo "=== Upload prompt to Hetzner ==="
+          echo "=== Upload prompt + runner script to Hetzner ==="
           $SCP /tmp/prompt.txt root@${HETZNER_IP}:/root/summit-${ISSUE}-prompt.txt
+          $SCP scripts/claude-runner.sh root@${HETZNER_IP}:/root/claude-runner.sh
 
-          echo "=== Setup workspace ==="
-          $SSH "mkdir -p /root/summit-${ISSUE}/work && cd /root/summit-${ISSUE}/work && git config --global user.email 'claude-code@biddeed.ai' && git config --global user.name 'Claude Code'"
-
-          echo "=== Verify Max OAuth alive ==="
-          $SSH 'test -f /root/.claude/credentials.json || test -f /root/.claude/.credentials.json && echo "OAuth OK" || { echo "::error::No OAuth on Hetzner"; exit 1; }'
-
-          echo "=== Write claude-runner.sh locally ==="
-          cat > /tmp/claude-runner.sh <<RUNNER
-#!/bin/bash
-set -e
-cd /home/summit/summit-${ISSUE}/work
-unset ANTHROPIC_API_KEY
-export GH_TOKEN="${GH_PAT}"
-export SUPABASE_URL="${SUPABASE_URL}"
-export SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
-export IS_SANDBOX=1
-PROMPT=\$(cat /home/summit/summit-${ISSUE}-prompt.txt)
-timeout 6000 claude -p "\$PROMPT" --dangerously-skip-permissions --max-turns 200 2>&1 | tee /home/summit/summit-${ISSUE}-output.log
-RUNNER
-          chmod +x /tmp/claude-runner.sh
-
-          echo "=== Ensure summit user + copy creds + upload runner ==="
+          echo "=== Setup summit user ==="
           $SSH "id summit >/dev/null 2>&1 || useradd -m -s /bin/bash summit"
           $SSH "mkdir -p /home/summit/.claude && { cp -n /root/.claude/credentials.json /home/summit/.claude/credentials.json 2>/dev/null || cp -n /root/.claude/.credentials.json /home/summit/.claude/credentials.json 2>/dev/null || true; } && chown -R summit:summit /home/summit/.claude && chmod 600 /home/summit/.claude/credentials.json"
-          $SSH "mkdir -p /home/summit/summit-${ISSUE}/work && chown -R summit:summit /home/summit/summit-${ISSUE} && cp /root/summit-${ISSUE}-prompt.txt /home/summit/summit-${ISSUE}-prompt.txt && chown summit:summit /home/summit/summit-${ISSUE}-prompt.txt"
-          $SSH "which claude || echo NO_CLAUDE"
-          $SCP /tmp/claude-runner.sh root@${HETZNER_IP}:/home/summit/claude-runner.sh
-          $SSH "chown summit:summit /home/summit/claude-runner.sh && chmod +x /home/summit/claude-runner.sh"
+          $SSH "mkdir -p /home/summit/summit-${ISSUE}/work && chown -R summit:summit /home/summit/summit-${ISSUE}"
+          $SSH "cp /root/summit-${ISSUE}-prompt.txt /home/summit/summit-${ISSUE}-prompt.txt && chown summit:summit /home/summit/summit-${ISSUE}-prompt.txt"
+          $SSH "cp /root/claude-runner.sh /home/summit/claude-runner.sh && chown summit:summit /home/summit/claude-runner.sh && chmod +x /home/summit/claude-runner.sh"
+          $SSH "which claude || echo NO_CLAUDE_CLI"
 
-          echo "=== Run Claude Code as summit user ==="
-          $SSH "sudo -u summit bash /home/summit/claude-runner.sh" || echo "::warning::claude runner exited non-zero"
+          echo "=== Verify Max OAuth ==="
+          $SSH "test -f /home/summit/.claude/credentials.json && echo 'OAuth OK for summit user' || { echo '::error::No OAuth creds for summit'; exit 1; }"
 
-          echo "=== Copy output log back to /root ==="
+          echo "=== Launch claude -p as summit user (non-blocking tail for first 100 min) ==="
+          $SSH "sudo -u summit bash /home/summit/claude-runner.sh ${ISSUE}" || echo "::warning::claude runner exited non-zero"
+
+          echo "=== Copy output log back for capture ==="
           $SSH "cp /home/summit/summit-${ISSUE}-output.log /root/summit-${ISSUE}-output.log 2>/dev/null || true"
-
-          echo "=== Capture output tail ==="
           $SSH "tail -c 8000 /root/summit-${ISSUE}-output.log" > /tmp/output_tail.txt 2>/dev/null || echo "(no output)" > /tmp/output_tail.txt
+          echo "Output tail bytes: $(wc -c < /tmp/output_tail.txt)"
 
           echo "=== Post results comment to issue ==="
-          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (Max OAuth)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
+          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (summit user, Max OAuth)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
           curl -s -X POST -H "Authorization: token $GH_PAT" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments" --data @/tmp/result_comment.json -o /dev/null -w "Comment POST: %{http_code}\n"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
