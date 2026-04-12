@@ -1,0 +1,58 @@
+name: Hetzner Diag — Agent Teams State
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: SSH diagnostic
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 87.99.129.125
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          command_timeout: 3m
+          script: |
+            set +e
+            echo "=== 1. tmux sessions ==="
+            tmux ls 2>&1 || echo "(no tmux sessions)"
+            echo ""
+            echo "=== 2. tmux everest-agents pane 0 tail (last 100 lines) ==="
+            tmux capture-pane -pt everest-agents:0 -S -100 2>&1 || echo "(session everest-agents not found)"
+            echo ""
+            echo "=== 3. claude processes ==="
+            ps aux | grep -E 'claude|node' | grep -v grep | head -20
+            echo ""
+            echo "=== 4. Recent spawn prompts ==="
+            ls -lt /root/spawn_prompt_*.md 2>&1 | head -5
+            echo ""
+            echo "=== 5. Recent env-run files ==="
+            ls -lt /root/.env-run-* 2>&1 | head -5
+            echo ""
+            echo "=== 6. Claude credentials check ==="
+            ls -la /root/.claude/.credentials.json 2>&1
+            echo ""
+            echo "=== 7. Claude version + auth ==="
+            timeout 10 claude --version 2>&1
+            echo ""
+            echo "=== 8. Is ANTHROPIC_API_KEY polluting env? ==="
+            printenv | grep -i anthropic || echo "(no ANTHROPIC_API_KEY in env — good)"
+            echo ""
+            echo "=== 9. agent_team_sdk import test ==="
+            cd /root/cli-anything-biddeed 2>&1 && python3 -c "
+            import sys; sys.path.insert(0, 'scripts')
+            try:
+                from agent_team_sdk import AgentBus
+                print('SDK import: OK')
+            except Exception as e:
+                print(f'SDK import: FAIL {e}')
+            " 2>&1
+            echo ""
+            echo "=== 10. Disk + memory ==="
+            df -h / 2>&1 | tail -2
+            free -h 2>&1 | head -2
+            echo ""
+            echo "=== DONE ==="
