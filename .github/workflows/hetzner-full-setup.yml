@@ -22,7 +22,6 @@ jobs:
           TG_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
           PAT: ${{ secrets.GH_PAT }}
-          ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           INSTALL_CODEDB: ${{ inputs.install_codedb }}
           USE_SETUP_TOKEN: ${{ inputs.use_setup_token }}
         with:
@@ -180,9 +179,6 @@ jobs:
             if [ "$AUTHED" = false ]; then
               echo ">>> OAuth timed out. Setting up API key fallback..."
               if [ -n "$ANTHROPIC_KEY" ]; then
-                grep -q 'ANTHROPIC_API_KEY' ~/.bashrc 2>/dev/null && \
-                  sed -i '/ANTHROPIC_API_KEY/d' ~/.bashrc
-                echo "export ANTHROPIC_API_KEY=\"$ANTHROPIC_KEY\"" >> ~/.bashrc
                 chmod 600 ~/.bashrc
                 
                 # Bypass onboarding
