@@ -85,7 +85,6 @@ jobs:
 
               ### Why GHA-996645 is Stale
               - This matches the pattern of Issues #213, #214, #207, #203 (all stale pre-fix failures)
-              - Failure was triggered during the `ANTHROPIC_API_KEY` billing error window (pre 2026-04-01)
               - No code defects found in `ship-paperclip-68.yml` or paperclip app files
               - Subsequent runs on a clean dispatch will succeed as the workflow logic is sound
 
