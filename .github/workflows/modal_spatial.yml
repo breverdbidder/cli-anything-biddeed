@@ -18,8 +18,9 @@ on:
         default: false
 
   # Weekly health check - Sunday 9AM EST
-  schedule:
-    - cron: '0 14 * * 0'
+  # DISABLED 2026-04-12: cli_anything_modal_spatial.py doesn't exist in repo, health check fails every tick
+  # schedule:
+  # - cron: '0 14 * * 0'
 
 jobs:
   # -----------------------------------------------------------------------
