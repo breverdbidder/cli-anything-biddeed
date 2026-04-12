@@ -273,6 +273,16 @@ gate_4: "Error states MUST return structured JSON with exit_code != 0"
 gate_5: "Match rate for spatial joins MUST be >= 95% or flag as degraded"
 ```
 
+### Gate → Assertion Mapping
+
+| Gate | Eval Assertions | Check Type |
+|------|----------------|------------|
+| gate_1 | T1_A1, T5_A5 | json_parseable |
+| gate_2 | T1_A2 | regex_match on parcel_id |
+| gate_3 | T3_A3 | field_not_contains USE_CODE |
+| gate_4 | T5_A1, T5_A2, T5_A4 | field_exists error, exit_code_nonzero |
+| gate_5 | T2_A3 | ratio_gte 0.95 |
+
 ## Data Flow
 
 ```mermaid
