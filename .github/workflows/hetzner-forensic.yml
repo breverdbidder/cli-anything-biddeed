@@ -1,0 +1,88 @@
+name: hetzner-forensic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 87.99.129.125 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Hetzner state probe
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+        run: |
+          set +e
+          SSH="ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@${HETZNER_IP}"
+
+          echo "=========================================="
+          echo "HETZNER FORENSIC PROBE - $(date -u)"
+          echo "=========================================="
+
+          echo ""
+          echo "=== A. hostname / uptime ==="
+          $SSH 'hostname && uptime && date -u'
+
+          echo ""
+          echo "=== B. /root/.claude state ==="
+          $SSH 'ls -la /root/.claude/ 2>&1'
+
+          echo ""
+          echo "=== C. credentials.json details (root) ==="
+          $SSH 'if [ -f /root/.claude/credentials.json ]; then stat /root/.claude/credentials.json; echo "---"; wc -c /root/.claude/credentials.json; echo "---"; head -c 80 /root/.claude/credentials.json; echo; fi'
+
+          echo ""
+          echo "=== D. summit user ==="
+          $SSH 'id summit 2>&1'
+
+          echo ""
+          echo "=== E. /home/summit/.claude state ==="
+          $SSH 'ls -la /home/summit/.claude/ 2>&1'
+
+          echo ""
+          echo "=== F. /home/summit/.claude/credentials.json details ==="
+          $SSH 'if [ -f /home/summit/.claude/credentials.json ]; then stat /home/summit/.claude/credentials.json; echo "---"; wc -c /home/summit/.claude/credentials.json; else echo "FILE MISSING"; fi'
+
+          echo ""
+          echo "=== G. File md5 comparison (are creds stale?) ==="
+          $SSH 'R=/root/.claude/credentials.json; S=/home/summit/.claude/credentials.json; [ -f "$R" ] && echo "root: $(md5sum $R | awk "{print \$1}")" || echo "root: MISSING"; [ -f "$S" ] && echo "summit: $(md5sum $S | awk "{print \$1}")" || echo "summit: MISSING"'
+
+          echo ""
+          echo "=== H. claude binary ==="
+          $SSH 'which claude; readlink -f $(which claude) 2>/dev/null; ls -la /usr/local/bin/claude 2>&1'
+
+          echo ""
+          echo "=== I. claude --version (root) ==="
+          $SSH 'unset ANTHROPIC_API_KEY; claude --version 2>&1 | head -5'
+
+          echo ""
+          echo "=== J. claude --version (summit) ==="
+          $SSH 'sudo -u summit bash -c "unset ANTHROPIC_API_KEY; claude --version" 2>&1 | head -5'
+
+          echo ""
+          echo "=== K. claude auth probe (root) - 15s timeout ==="
+          $SSH 'unset ANTHROPIC_API_KEY; timeout 15 claude -p "echo: PROBE_OK_ROOT" 2>&1 | head -10'
+
+          echo ""
+          echo "=== L. claude auth probe (summit) - 15s timeout ==="
+          $SSH 'sudo -u summit bash -c "unset ANTHROPIC_API_KEY; timeout 15 claude -p echo: PROBE_OK_SUMMIT" 2>&1 | head -10'
+
+          echo ""
+          echo "=== M. ANTHROPIC_API_KEY in root env ==="
+          $SSH 'if [ -n "$ANTHROPIC_API_KEY" ]; then echo "SET (len=${#ANTHROPIC_API_KEY})"; else echo "UNSET"; fi'
+          $SSH 'grep -l ANTHROPIC_API_KEY /root/.bashrc /root/.profile /etc/environment 2>/dev/null || echo "no shell files reference it"'
+
+          echo ""
+          echo "=== N. disk ==="
+          $SSH 'df -h / 2>&1 | tail -2'
+
+          echo ""
+          echo "=== END ==="
