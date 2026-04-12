@@ -362,6 +362,17 @@ Every ZoneWise operation MUST return results in this structure:
 4. **Validated**: Eval assertion results — 25/25 binary pass/fail
 5. **Residual**: Unmatched parcels, degraded match rates, or known gaps to address next
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Match rate < 95% | Parcel ID format mismatch between FL GIO and county GIS | Verify regex in County Parcel ID Formats table; check for zero-padding differences |
+| `exit_code: 2` partial success | Some ArcGIS queries timed out | Reduce batch_size to 250; increase timeout to 45s; retry failed parcels |
+| DOR_UC instead of real zoning | No county GIS endpoint found | Run `discover_arcgis.py` to probe ArcGIS REST; fallback is acceptable but tag `zone_source = 'use_code_crosswalk'` |
+| Supabase 409 conflict | Duplicate parcel_id with different zone_source | Expected behavior — upsert strategy overwrites; check `updated_at` timestamps |
+| Empty `unmatched_parcels` array but low count | FL GIO pagination missed records | Verify `exceededTransferLimit` was false on last page; re-run with explicit `resultOffset` |
+| Firecrawl 402 | Monthly quota exceeded ($83/mo plan) | Wait for billing cycle reset; use Gemini Flash extraction from cached markdown as fallback |
+
 ## Rate Limiting & Retry Strategy
 
 ```yaml
