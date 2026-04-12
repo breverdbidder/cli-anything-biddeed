@@ -55,7 +55,6 @@ jobs:
           ssh hz << LAUNCH
           set -euo pipefail
           export PATH="/root/.local/bin:/root/.npm-global/bin:\$PATH"
-          unset ANTHROPIC_API_KEY UNIFIED_API_KEY 2>/dev/null || true
           
           # Verify Claude Code auth (creds already on server)
           if [ ! -f /root/.claude/.credentials.json ]; then
