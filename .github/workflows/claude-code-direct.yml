@@ -33,39 +33,29 @@ jobs:
           ALLOW_PLACEHOLDER: ${{ vars.ALLOW_PLACEHOLDER }}
         run: |
           set -e
-          # Guard against empty/whitespace
           if [ -z "${ISSUE// /}" ]; then
-            echo "::error::Empty issue number passed to workflow. Dispatch must supply non-empty 'issues' input."
+            echo "::error::Empty issue number passed to workflow."
             exit 1
           fi
-          # Guard against non-numeric
           if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
             echo "::error::Issue number '$ISSUE' is not a positive integer."
             exit 1
           fi
-          # Guard against dead placeholder #379 (unless explicitly allowed by override)
           if [ "$ISSUE" = "379" ] && [ "${ALLOW_PLACEHOLDER:-0}" != "1" ]; then
-            echo "::error::Refusing to run against dead placeholder issue #379. If intentional, set vars.ALLOW_PLACEHOLDER=1."
+            echo "::error::Refusing to run against dead placeholder issue #379."
             exit 1
           fi
-          # Verify issue exists and is open
-          STATUS=$(curl -s -o /tmp/iss.json -w "%{http_code}" -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE")
+          STATUS=$(curl -s -o /tmp/iss.json -w "%{http_code}" -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/$ISSUE")
           if [ "$STATUS" != "200" ]; then
             echo "::error::Issue #$ISSUE does not exist (HTTP $STATUS)."
             exit 1
           fi
-          STATE=$(python3 -c "import json; print(json.load(open('/tmp/iss.json'))['state'])")
+          STATE=$(jq -r .state /tmp/iss.json)
           if [ "$STATE" != "open" ]; then
-            echo "::error::Issue #$ISSUE is not open (state=$STATE). Refusing to run."
+            echo "::error::Issue #$ISSUE is not open (state=$STATE)."
             exit 1
           fi
-          # Verify it has the 'summit' label
-          HAS_SUMMIT=$(python3 -c "import json; d=json.load(open('/tmp/iss.json')); print('yes' if any(l['name']=='summit' for l in d.get('labels',[])) else 'no')")
-          if [ "$HAS_SUMMIT" != "yes" ]; then
-            echo "::warning::Issue #$ISSUE does not have 'summit' label. Proceeding anyway but flagging."
-          fi
-          echo "✅ Issue #$ISSUE validated: open, summit-labeled, ready."
+          echo "✅ Issue #$ISSUE validated."
 
       - name: Announce dispatch target
         run: |
@@ -101,17 +91,37 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           ISSUE: ${{ matrix.issue }}
         run: |
+          set -e
           mkdir -p ~/.ssh
           echo "$HETZNER_SSH_KEY" > ~/.ssh/key
           chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o BatchMode=yes root@${HETZNER_IP}"
+          SCP="scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+          echo "=== Build prompt from issue body + all comments ==="
+          curl -s -H "Authorization: token $GH_PAT" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}" | jq -r '.body' > /tmp/prompt.txt
+          echo "" >> /tmp/prompt.txt
+          echo "---" >> /tmp/prompt.txt
+          curl -s -H "Authorization: token $GH_PAT" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments?per_page=100" | jq -r '.[] | "\n---COMMENT by " + .user.login + " @ " + .created_at + "---\n" + (.body // "")' >> /tmp/prompt.txt
+          echo "Prompt bytes: $(wc -c < /tmp/prompt.txt)"
+
+          echo "=== Upload prompt to Hetzner ==="
+          $SCP /tmp/prompt.txt root@${HETZNER_IP}:/root/summit-${ISSUE}-prompt.txt
 
           echo "=== Setup workspace ==="
-          $SSH "mkdir -p /root/summit-${ISSUE} && cd /root/summit-${ISSUE} &&             (test -d zonewise-web/.git && cd zonewise-web && git pull ||             git clone https://x-access-token:${GH_PAT}@github.com/breverdbidder/zonewise-web.git) &&             cd zonewise-web && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code'"
+          $SSH "mkdir -p /root/summit-${ISSUE}/work && cd /root/summit-${ISSUE}/work && git config --global user.email 'claude-code@biddeed.ai' && git config --global user.name 'Claude Code'"
 
-          echo "=== Verify OAuth is alive (DO NOT delete credentials) ==="
-          $SSH "test -f /root/.claude/credentials.json && echo 'OAuth credentials found' || test -f /root/.claude/.credentials.json && echo 'OAuth credentials found' || echo 'WARNING: No OAuth credentials'"
+          echo "=== Verify Max OAuth alive ==="
+          $SSH 'test -f /root/.claude/credentials.json || test -f /root/.claude/.credentials.json && echo "OAuth OK" || { echo "::error::No OAuth on Hetzner"; exit 1; }'
 
-          echo "=== Run Claude Code on SUMMIT #${ISSUE} (using Max plan OAuth) ==="
+          echo "=== Run Claude Code (Max OAuth only) ==="
+          $SSH "cd /root/summit-${ISSUE}/work && unset ANTHROPIC_API_KEY && export GH_TOKEN='${GH_PAT}' && export SUPABASE_URL='${SUPABASE_URL}' && export SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}' && timeout 6000 claude -p \"\$(cat /root/summit-${ISSUE}-prompt.txt)\" --dangerously-skip-permissions --max-turns 200 2>&1 | tee /root/summit-${ISSUE}-output.log" || echo "::warning::claude -p exited non-zero"
+
+          echo "=== Capture output tail ==="
+          $SSH "tail -c 8000 /root/summit-${ISSUE}-output.log" > /tmp/output_tail.txt 2>/dev/null || echo "(no output)" > /tmp/output_tail.txt
+
+          echo "=== Post results comment to issue ==="
+          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (Max OAuth)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
+          curl -s -X POST -H "Authorization: token $GH_PAT" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments" --data @/tmp/result_comment.json -o /dev/null -w "Comment POST: %{http_code}\n"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
