@@ -111,8 +111,9 @@ jobs:
 
           echo "=== Launch claude -p as summit user (non-blocking tail for first 100 min) ==="
           # CRITICAL: no || echo wrapper — exit codes must propagate honestly
+          # Pass GH_PAT + HETZNER_IP to summit's env via sudo env=VAR (one-shot, no disk persistence)
           set -e
-          $SSH "sudo -u summit bash /home/summit/claude-runner.sh ${ISSUE}"
+          $SSH "sudo -u summit env GH_PAT='${GH_PAT}' HETZNER_IP='${HETZNER_IP}' bash /home/summit/claude-runner.sh ${ISSUE}"
           RUNNER_EXIT=$?
           set +e
           # Ghost-success detector: if output contains "Not logged in", force failure
