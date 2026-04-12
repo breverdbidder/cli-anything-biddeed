@@ -169,6 +169,26 @@ Valid zone_code prefixes for Brevard County (CO_NO=5):
 | Titusville | `gis.titusville.com` | TBD |
 | Rockledge | TBD | TBD |
 
+## Municipal GIS Endpoints (Orange, CO_NO=48)
+
+| Municipality | GIS URL | Zoning Layer | Status |
+|-------------|---------|--------------|--------|
+| Orlando | `gis.orlando.gov` | TBD | DISCOVER |
+| Winter Park | TBD | TBD | DISCOVER |
+| Apopka | TBD | TBD | DISCOVER |
+| Ocoee | TBD | TBD | DISCOVER |
+| Unincorporated | `ocgis4.ocfl.net` | TBD | DISCOVER |
+
+## Municipal GIS Endpoints (Duval, CO_NO=16)
+
+| Municipality | GIS URL | Zoning Layer | Status |
+|-------------|---------|--------------|--------|
+| Jacksonville | `maps.coj.net` | LUZAP zoning lookup | DISCOVER |
+| Jacksonville Beach | TBD | TBD | DISCOVER |
+| Neptune Beach | TBD | TBD | DISCOVER |
+| Atlantic Beach | TBD | TBD | DISCOVER |
+| Baldwin | TBD | TBD | DISCOVER |
+
 ## DOR_UC Crosswalk (FL GIO Fallback)
 
 When no county/municipal GIS provides native zoning, use FL GIO's DOR Use Code as baseline:
