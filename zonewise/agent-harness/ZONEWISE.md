@@ -311,6 +311,37 @@ Every ZoneWise operation MUST return results in this structure:
 4. **Validated**: Eval assertion results — 25/25 binary pass/fail
 5. **Residual**: Unmatched parcels, degraded match rates, or known gaps to address next
 
+## Rate Limiting & Retry Strategy
+
+```yaml
+fl_gio:
+  max_concurrent: 3
+  batch_size: 2000
+  retry: 3 attempts, exponential backoff (1s, 2s, 4s)
+  timeout: 30s per request
+  rate_limit: none (public API, no auth)
+
+county_gis:
+  max_concurrent: 1
+  batch_size: 500
+  retry: 3 attempts, exponential backoff
+  timeout: 15s per request
+  rate_limit: varies by county — start conservative
+
+supabase:
+  max_concurrent: 5
+  batch_size: 1000 rows per upsert
+  retry: 2 attempts on 5xx, no retry on 4xx
+  timeout: 10s per request
+
+firecrawl:
+  max_concurrent: 2
+  cost_cap: $0.50 per jurisdiction page
+  retry: 1 attempt on timeout, no retry on 402 (quota)
+```
+
+On any retry exhaustion, return structured error JSON (gate_4) with `exit_code: 2` (partial success) if some data was already written.
+
 ## Guard Rails
 
 ```yaml
