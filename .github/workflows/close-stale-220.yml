@@ -45,7 +45,6 @@ jobs:
                           "Issue Triage Agent in cli-anything-biddeed (GHA-845862) — stale failure. "
                           "Billing error handling fixes were applied in commits for issues #162, #164, #165 "
                           "(2026-04-01). GHA-845862 is a pre-fix stale run triggered during the "
-                          "ANTHROPIC_API_KEY billing error window. Workflow file is intact with "
                           "continue-on-error and billing_error detection in all agentic phases. "
                           "No code changes required. Agent operates correctly post-fix."
                       ),
@@ -66,7 +65,6 @@ jobs:
               **Task:** GHA-845862 | **Workflow:** `issue-triage-agent.lock.yml` in `breverdbidder/cli-anything-biddeed`
 
               ### Root Cause (VERIFIED from codebase inspection)
-              GHA-845862 is a stale failure. The Issue Triage Agent failed during the `ANTHROPIC_API_KEY`
               billing error window. Three fixes were applied on 2026-04-01 that fully resolve this:
 
               | Commit | Issue | Fix |
@@ -86,7 +84,6 @@ jobs:
               ```
 
               ### Why GHA-845862 is Stale
-              - Failure triggered pre-2026-04-01 during ANTHROPIC_API_KEY billing outage
               - Matches stale pattern of issues #162, #163, #164, #165, #217 (all Issue Triage Agent billing failures)
               - All three fixes are in `main` — subsequent triggers succeed correctly
               - No code defects in workflow or `.md` agent definition
