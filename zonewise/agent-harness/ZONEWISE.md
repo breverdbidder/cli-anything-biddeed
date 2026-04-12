@@ -302,6 +302,37 @@ graph TD
     K -->|error| N[Return: structured error JSON]
 ```
 
+## County Onboarding Protocol
+
+Repeatable checklist for adding a new county to ZoneWise:
+
+```yaml
+step_1_discovery:
+  - Identify CO_NO from FL GIO county registry
+  - Query FL GIO for parcel count: `resultRecordCount=1&returnCountOnly=true`
+  - Discover county GIS endpoint: probe {domain}/arcgis/rest/services/
+  - Document parcel ID format (regex) in County Parcel ID Formats table
+
+step_2_baseline_ingestion:
+  - Run `python scripts/ingest_county.py --county {co_no} --full`
+  - Verify: SELECT COUNT(*) FROM zoning_assignments WHERE co_no = {co_no}
+  - Update fl_counties row with total_parcels and ingested_at
+
+step_3_gis_overlay:
+  - Find zoning layer in ArcGIS REST services catalog
+  - Query by parcel_id to get native zone codes
+  - Overwrite DOR_UC baseline with real codes, set zone_source = 'county_gis'
+
+step_4_jurisdictions:
+  - Seed municipalities into jurisdictions table
+  - For each: find Municode URL, scrape zoning chapter, extract districts
+
+step_5_verify:
+  - Run NEVER-LIE audit: exact parcel counts from DB
+  - Update county_conquest_status with verified percentages
+  - Report CONFIRMED counts, never estimates
+```
+
 ## Return Contract
 
 Every ZoneWise operation MUST return results in this structure:
