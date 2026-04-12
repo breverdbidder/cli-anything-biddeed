@@ -93,7 +93,7 @@ jobs:
 
           echo "=== Setup summit user ==="
           $SSH "id summit >/dev/null 2>&1 || useradd -m -s /bin/bash summit"
-          $SSH "mkdir -p /home/summit/.claude && { cp -n /root/.claude/credentials.json /home/summit/.claude/credentials.json 2>/dev/null || cp -n /root/.claude/.credentials.json /home/summit/.claude/credentials.json 2>/dev/null || true; } && chown -R summit:summit /home/summit/.claude && chmod 600 /home/summit/.claude/credentials.json"
+          $SSH "mkdir -p /home/summit/.claude && SRC=\$(ls /root/.claude/.credentials.json /root/.claude/credentials.json 2>/dev/null | head -1) && if [ -z \"\$SRC\" ]; then echo \"::error::no root credentials.json found\"; exit 1; fi && cp -f \"\$SRC\" /home/summit/.claude/.credentials.json && cp -f \"\$SRC\" /home/summit/.claude/credentials.json && chown -R summit:summit /home/summit/.claude && chmod 600 /home/summit/.claude/.credentials.json /home/summit/.claude/credentials.json"
           $SSH "mkdir -p /home/summit/summit-${ISSUE}/work && chown -R summit:summit /home/summit/summit-${ISSUE}"
           $SSH "cp /root/summit-${ISSUE}-prompt.txt /home/summit/summit-${ISSUE}-prompt.txt && chown summit:summit /home/summit/summit-${ISSUE}-prompt.txt"
           $SSH "cp /root/claude-runner.sh /home/summit/claude-runner.sh && chown summit:summit /home/summit/claude-runner.sh && chmod +x /home/summit/claude-runner.sh"
@@ -110,7 +110,20 @@ jobs:
           $SSH "test -f /home/summit/.claude/credentials.json && echo 'OAuth OK for summit user' || { echo '::error::No OAuth creds for summit'; exit 1; }"
 
           echo "=== Launch claude -p as summit user (non-blocking tail for first 100 min) ==="
-          $SSH "sudo -u summit bash /home/summit/claude-runner.sh ${ISSUE}" || echo "::warning::claude runner exited non-zero"
+          # CRITICAL: no || echo wrapper — exit codes must propagate honestly
+          set -e
+          $SSH "sudo -u summit bash /home/summit/claude-runner.sh ${ISSUE}"
+          RUNNER_EXIT=$?
+          set +e
+          # Ghost-success detector: if output contains "Not logged in", force failure
+          $SSH "grep -q 'Not logged in' /home/summit/summit-${ISSUE}-output.log 2>/dev/null" && {
+            echo "::error::GHOST SUCCESS DETECTED — claude CLI reports 'Not logged in'. Runner exit code was $RUNNER_EXIT but auth failed. Forcing failure."
+            exit 1
+          }
+          if [ "$RUNNER_EXIT" != "0" ]; then
+            echo "::error::claude runner exited with code $RUNNER_EXIT"
+            exit $RUNNER_EXIT
+          fi
 
           echo "=== Copy output log back for capture ==="
           $SSH "cp /home/summit/summit-${ISSUE}-output.log /root/summit-${ISSUE}-output.log 2>/dev/null || true"
