@@ -43,7 +43,6 @@ jobs:
                       "completed_at": datetime.now(timezone.utc).isoformat(),
                       "result_summary": (
                           "Issue Triage Agent GHA-573227 failure resolved — stale run queued before billing-resilience fixes. "
-                          "Root cause: ANTHROPIC_API_KEY billing error caused cascading job failures "
                           "before billing-resilience fixes were deployed. "
                           "Fix #162 (797d8d31): added continue-on-error to main agentic_execution + billing detection. "
                           "Fix #164 (d2414c10): added continue-on-error to detection_agentic_execution + billing check. "
@@ -69,7 +68,6 @@ jobs:
 
               ### Root Cause
               GHA-573227 was queued **before** the billing-resilience fix chain was deployed.
-              The Issue Triage Agent failed because `ANTHROPIC_API_KEY` had insufficient credit balance,
               causing cascading job failures and a non-zero exit that `task-lifecycle.yml` auto-queued as this issue.
 
               ### Fix Chain Already Applied (3 commits)
