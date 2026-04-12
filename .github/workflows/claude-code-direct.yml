@@ -99,6 +99,13 @@ jobs:
           $SSH "cp /root/claude-runner.sh /home/summit/claude-runner.sh && chown summit:summit /home/summit/claude-runner.sh && chmod +x /home/summit/claude-runner.sh"
           $SSH "which claude || echo NO_CLAUDE_CLI"
 
+          echo "=== Diagnose claude binary permissions + fix for summit user ==="
+          $SSH "ls -la \$(which claude) && file \$(which claude) && readlink -f \$(which claude)"
+          $SSH "CLAUDE_BIN=\$(readlink -f \$(which claude)) && chmod a+rx \$CLAUDE_BIN && dirname \$CLAUDE_BIN | xargs -I{} find {} -type f -exec chmod a+r {} \\; 2>/dev/null || true"
+          # If claude is in /root/ path, summit cannot traverse — reinstall globally accessible
+          $SSH "CLAUDE_REAL=\$(readlink -f \$(which claude 2>/dev/null) 2>/dev/null); if echo \"\$CLAUDE_REAL\" | grep -q '^/root/'; then echo 'claude in /root — installing to /opt/claude for summit access'; npm install -g --prefix=/opt/claude @anthropic-ai/claude-code 2>&1 | tail -5 || true; ln -sf /opt/claude/bin/claude /usr/local/bin/claude; fi"
+          $SSH "sudo -u summit which claude && sudo -u summit claude --version || echo 'summit still cannot run claude'"
+
           echo "=== Verify Max OAuth ==="
           $SSH "test -f /home/summit/.claude/credentials.json && echo 'OAuth OK for summit user' || { echo '::error::No OAuth creds for summit'; exit 1; }"
 
