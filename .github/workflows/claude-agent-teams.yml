@@ -1,4 +1,4 @@
-name: Claude Code Agent Teams — CI Dossier Sprint
+name: Claude Code Agent Teams - CI Dossier Sprint
 on:
   workflow_dispatch:
     inputs:
