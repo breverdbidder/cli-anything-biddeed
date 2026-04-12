@@ -77,6 +77,29 @@ jobs:
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          LINKEDIN_LI_AT: ${{ secrets.LINKEDIN_LI_AT }}
+          LINKEDIN_SESSION_JSON: ${{ secrets.LINKEDIN_SESSION_JSON }}
+          STITCH_API_KEY: ${{ secrets.STITCH_API_KEY }}
+          FIGMA_API_TOKEN: ${{ secrets.FIGMA_API_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           ISSUE: ${{ matrix.issue }}
         run: |
           mkdir -p ~/.ssh
@@ -91,6 +114,6 @@ jobs:
           $SSH "test -f /root/.claude/credentials.json && echo 'OAuth credentials found' || test -f /root/.claude/.credentials.json && echo 'OAuth credentials found' || echo 'WARNING: No OAuth credentials'"
 
           echo "=== Run Claude Code on SUMMIT #${ISSUE} (using Max plan OAuth) ==="
-          $SSH "cd /root/summit-${ISSUE}/zonewise-web &&             export SUPABASE_ACCESS_TOKEN='${SUPABASE_ACCESS_TOKEN}' &&             export GH_PAT='${GH_PAT}' &&             claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE} using: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} | jq .body. Also read all comments: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments | jq .[].body. Then execute ALL tasks. Follow CLAUDE.md. Commit and push frequently. Comment on the issue when done.'             --allowedTools 'Bash(*)' 'Read' 'Write' 'Edit'             2>&1 | tail -500" || echo "Claude Code session ended"
+          $SSH "cd /root/summit-${ISSUE}/zonewise-web &&             export SUPABASE_ACCESS_TOKEN='${SUPABASE_ACCESS_TOKEN}' &&             export SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}' &&             export SUPABASE_SERVICE_KEY='${SUPABASE_SERVICE_KEY}' &&             export SUPABASE_URL='${SUPABASE_URL}' &&             export SUPABASE_ANON_KEY='${SUPABASE_ANON_KEY}' &&             export FIRECRAWL_API_KEY='${FIRECRAWL_API_KEY}' &&             export EXA_API_KEY='${EXA_API_KEY}' &&             export GEMINI_API_KEY='${GEMINI_API_KEY}' &&             export GOOGLE_API_KEY='${GOOGLE_API_KEY}' &&             export ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY}' &&             export SUPADATA_API_KEY='${SUPADATA_API_KEY}' &&             export TELEGRAM_BOT_TOKEN='${TELEGRAM_BOT_TOKEN}' &&             export TELEGRAM_CHAT_ID='${TELEGRAM_CHAT_ID}' &&             export MAPBOX_TOKEN='${MAPBOX_TOKEN}' &&             export CF_ACCOUNT_ID='${CF_ACCOUNT_ID}' &&             export CF_API_TOKEN='${CF_API_TOKEN}' &&             export DIFY_API_KEY='${DIFY_API_KEY}' &&             export ELEVENLABS_API_KEY='${ELEVENLABS_API_KEY}' &&             export PEXELS_API_KEY='${PEXELS_API_KEY}' &&             export LINKEDIN_LI_AT='${LINKEDIN_LI_AT}' &&             export LINKEDIN_SESSION_JSON='${LINKEDIN_SESSION_JSON}' &&             export STITCH_API_KEY='${STITCH_API_KEY}' &&             export FIGMA_API_TOKEN='${FIGMA_API_TOKEN}' &&             export VERCEL_TOKEN='${VERCEL_TOKEN}' &&             export GH_PAT='${GH_PAT}' &&             claude -p 'Read GitHub issue #${ISSUE} at https://github.com/breverdbidder/cli-anything-biddeed/issues/${ISSUE} using: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE} | jq .body. Also read all comments: curl -s -H \"Authorization: token ${GH_PAT}\" https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments | jq .[].body. Then execute ALL tasks. Follow CLAUDE.md. Commit and push frequently. Comment on the issue when done.'             --allowedTools 'Bash(*)' 'Read' 'Write' 'Edit'             2>&1 | tail -500" || echo "Claude Code session ended"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
