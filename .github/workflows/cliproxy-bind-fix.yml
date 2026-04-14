@@ -1,0 +1,62 @@
+name: cliproxy bind fix — change host 127.0.0.1 to 0.0.0.0 inside container
+on:
+  workflow_dispatch: {}
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: SSH + bind fix + retest
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          set +e
+
+          echo "=== A: confirm theory — call cliproxy FROM INSIDE container (lo) ==="
+          $SSH 'docker exec biddeed-cliproxy sh -c "wget -qO- --timeout=5 http://127.0.0.1:8317/v1/models 2>&1 || curl -sS -m 5 http://127.0.0.1:8317/v1/models 2>&1 || echo NO_HTTP_TOOL"'
+
+          echo
+          echo "=== B: backup config + patch host binding ==="
+          $SSH 'docker exec biddeed-cliproxy sh -c "
+            cp /data/config.yaml /data/config.yaml.bak
+            grep \"^host:\" /data/config.yaml
+            sed -i \"s/^host: \\\"127.0.0.1\\\"/host: \\\"0.0.0.0\\\"/\" /data/config.yaml
+            grep \"^host:\" /data/config.yaml
+          "'
+
+          echo
+          echo "=== C: restart ==="
+          $SSH 'docker restart biddeed-cliproxy'
+          sleep 5
+          $SSH 'docker logs --tail 5 biddeed-cliproxy 2>&1 | grep -v "no space"'
+
+          echo
+          echo "=== D: read api key + smoke from host ==="
+          CP_KEY=$($SSH 'docker exec biddeed-cliproxy sh -c "grep -A1 \"^api-keys:\" /data/config.yaml | tail -1 | sed \"s/.*\\\"\\(.*\\)\\\".*/\\1/\""' | tr -d '\r\n')
+          echo "key (first 12): ${CP_KEY:0:12}... len=${#CP_KEY}"
+
+          # First check: is host port still listening?
+          $SSH 'ss -tlnp 2>/dev/null | grep 8317'
+
+          # Smoke test 1: gemini-flash via Anthropic format
+          echo
+          echo "=== E: Anthropic format → gemini-flash ==="
+          RESP=$($SSH "curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'x-api-key: ${CP_KEY}' \
+            -H 'anthropic-version: 2023-06-01' \
+            -d '{\"model\":\"gemini-flash\",\"max_tokens\":50,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with only the literal text CLIPROXY_BIND_FIX_OK and nothing else\"}]}' \
+            -m 30 http://127.0.0.1:8317/v1/messages 2>&1")
+          echo "len: ${#RESP}"
+          echo "$RESP" | head -c 1500
+          echo
+
+          echo
+          echo "=== F: claude -p via ANTHROPIC_BASE_URL=cliproxy ==="
+          $SSH "ANTHROPIC_BASE_URL=http://127.0.0.1:8317 ANTHROPIC_API_KEY=${CP_KEY} claude -p 'reply only with CLAUDE_VIA_CLIPROXY_OK and nothing else' --allowedTools Read 2>&1 | tail -10"
+
+          echo "=== END ==="
