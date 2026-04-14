@@ -1,0 +1,26 @@
+name: scrub cliproxy config backups
+on:
+  workflow_dispatch: {}
+jobs:
+  scrub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: SSH + shred backups
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          echo "=== A: list backups ==="
+          $SSH "ls -la /opt/cliproxy-gateway/config.yaml.bak* 2>&1"
+          echo
+          echo "=== B: shred all .bak files ==="
+          $SSH "for f in /opt/cliproxy-gateway/config.yaml.bak*; do shred -u \"\$f\" 2>/dev/null && echo \"shredded: \$f\" || echo \"rm: \$f\"; done"
+          echo
+          echo "=== C: verify gone ==="
+          $SSH "ls /opt/cliproxy-gateway/config.yaml* 2>&1"
