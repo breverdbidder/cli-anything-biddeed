@@ -1,0 +1,57 @@
+name: cliproxy health check (read-only, no changes)
+on:
+  workflow_dispatch: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: SSH + smoke current state
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          set +e
+          CFG=/opt/cliproxy-gateway/config.yaml
+          
+          echo "=== A: cliproxy container status ==="
+          $SSH 'docker ps --format "{{.Names}} {{.Status}}" | grep cliproxy'
+          
+          echo
+          echo "=== B: extract gateway key length only (zero leak) ==="
+          CP_KEY=$($SSH "grep -A1 '^api-keys:' $CFG | tail -1 | sed 's/.*\"\\(.*\\)\".*/\\1/'" | tr -d '\r\n')
+          echo "::add-mask::$CP_KEY"
+          echo "gateway key: len=${#CP_KEY} first4=${CP_KEY:0:4}"
+          
+          echo
+          echo "=== C: current gemini key length (no value, no grep -A) ==="
+          GK_LEN=$($SSH "python3 -c \"
+import re
+with open('$CFG') as f: c=f.read()
+m=re.search(r'gemini-api-key:\s*\n\s*-\s*api-key:\s*(\S+)', c)
+print(len(m.group(1)) if m else 0)
+\"")
+          echo "gemini key in config: len=$GK_LEN"
+          
+          echo
+          echo "=== D: smoke test — is the CURRENT gemini key in cliproxy still working? ==="
+          RESP=$($SSH "curl -sS -X POST -H 'Content-Type: application/json' -H 'x-api-key: ${CP_KEY}' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"gemini-flash\",\"max_tokens\":30,\"messages\":[{\"role\":\"user\",\"content\":\"Reply only with HEALTH_CHECK_OK\"}]}' -m 25 http://127.0.0.1:8317/v1/messages 2>&1")
+          RESP_SAFE=$(echo "$RESP" | sed "s|${CP_KEY}|<K>|g")
+          echo "response length: ${#RESP}"
+          if echo "$RESP_SAFE" | grep -q "HEALTH_CHECK_OK"; then
+            echo "✓ current cliproxy key WORKS — cliproxy is alive"
+          elif echo "$RESP_SAFE" | grep -qi "API_KEY_INVALID\|expired"; then
+            echo "✗ key EXPIRED — old Dify key was deleted from AI Studio, need new one"
+          elif echo "$RESP_SAFE" | grep -qi "PERMISSION_DENIED\|denied access"; then
+            echo "✗ PROJECT DENIED — same issue as the new key"
+          else
+            echo "unclear response:"
+            echo "$RESP_SAFE" | head -c 500
+          fi
+          
+          echo "=== END ==="
