@@ -1,0 +1,65 @@
+name: cliproxy restart + retest — fix log lock and verify Gemini routing
+on:
+  workflow_dispatch: {}
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: SSH + restart + retest
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          set +e
+
+          echo "=== A: read gateway api key from cliproxy config ==="
+          CP_KEY=$($SSH 'docker exec biddeed-cliproxy sh -c "grep -A1 \"^api-keys:\" /data/config.yaml | tail -1 | sed \"s/.*\\\"\\(.*\\)\\\".*/\\1/\"" 2>&1' | tr -d '\r\n')
+          echo "key extracted (first 12): ${CP_KEY:0:12}... (len=${#CP_KEY})"
+
+          echo
+          echo "=== B: clear log file inside container (truncate, not delete) ==="
+          $SSH 'docker exec biddeed-cliproxy sh -c "ls -la /data/logs/ 2>/dev/null; echo ---; df -h /data 2>/dev/null; echo ---; truncate -s 0 /data/logs/main.log 2>&1; ls -la /data/logs/ 2>/dev/null"'
+
+          echo
+          echo "=== C: restart cliproxy container ==="
+          $SSH 'docker restart biddeed-cliproxy 2>&1'
+          sleep 4
+          $SSH 'docker ps --format "{{.Names}} {{.Status}}" | grep cliproxy'
+
+          echo
+          echo "=== D: post-restart logs (first 30 lines after restart) ==="
+          $SSH 'docker logs --tail 30 biddeed-cliproxy 2>&1'
+
+          echo
+          echo "=== E: smoke test — Anthropic-format call to cliproxy ==="
+          RESP=$($SSH "curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'x-api-key: ${CP_KEY}' \
+            -H 'anthropic-version: 2023-06-01' \
+            -d '{\"model\":\"claude-sonnet\",\"max_tokens\":50,\"messages\":[{\"role\":\"user\",\"content\":\"Reply only with CLIPROXY_RESTART_OK\"}]}' \
+            -m 30 http://127.0.0.1:8317/v1/messages 2>&1")
+          echo "len: ${#RESP}"
+          echo "--- first 1500 chars ---"
+          echo "$RESP" | head -c 1500
+          echo
+
+          echo
+          echo "=== F: smoke test — try gemini alias too ==="
+          RESP2=$($SSH "curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'x-api-key: ${CP_KEY}' \
+            -H 'anthropic-version: 2023-06-01' \
+            -d '{\"model\":\"gemini-flash\",\"max_tokens\":50,\"messages\":[{\"role\":\"user\",\"content\":\"Reply only with GEMINI_VIA_PROXY_OK\"}]}' \
+            -m 30 http://127.0.0.1:8317/v1/messages 2>&1")
+          echo "len: ${#RESP2}"
+          echo "$RESP2" | head -c 1500
+
+          echo
+          echo "=== G: claude -p via cliproxy ==="
+          $SSH "ANTHROPIC_BASE_URL=http://127.0.0.1:8317 ANTHROPIC_API_KEY=${CP_KEY} claude -p 'reply only CLAUDE_VIA_CLIPROXY_OK' --allowedTools Read 2>&1 | tail -10"
+
+          echo "=== END ==="
