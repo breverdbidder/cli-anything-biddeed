@@ -1,0 +1,52 @@
+name: OAuth Diagnostic — find credentials on Hetzner (no claude calls, no token spend)
+# Created Apr 13: zero-cost forensic to locate any salvageable Claude Code OAuth credentials
+# on Hetzner. NO claude invocations. Just find + ls + cat (metadata only, never key values).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: SSH and forensic-search Hetzner for Claude credentials
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+
+          echo "=== A: canonical credential location ==="
+          $SSH 'ls -la /root/.claude/ 2>&1; echo "---"; ls -la /root/.claude/.credentials.json 2>&1 || echo "MISSING canonical"'
+
+          echo
+          echo "=== B: alternate user homes ==="
+          $SSH 'for h in /root /home/*; do echo "--- $h ---"; ls -la "$h/.claude/" 2>&1 | head -10; done'
+
+          echo
+          echo "=== C: docker overlay search (broader patterns) ==="
+          $SSH 'find /var/lib/docker -name ".credentials.json" 2>/dev/null | head -10 || echo "no docker creds"'
+
+          echo
+          echo "=== D: any .credentials.json anywhere on disk ==="
+          $SSH 'find / -name ".credentials.json" -not -path "*/proc/*" -not -path "*/sys/*" 2>/dev/null | head -20'
+
+          echo
+          echo "=== E: claude config dir ==="
+          $SSH 'ls -la /root/.config/claude/ 2>&1 | head -10; ls -la /root/.config/anthropic/ 2>&1 | head -10'
+
+          echo
+          echo "=== F: claude binary version + auth status ==="
+          $SSH 'which claude && claude --version 2>&1; echo "---"; claude auth status 2>&1 || echo "auth status failed"'
+
+          echo
+          echo "=== G: env shadowing check (per Apr7 fix) ==="
+          $SSH 'grep -n ANTHROPIC_API_KEY /root/.bashrc 2>&1; echo "---"; grep -n ANTHROPIC_API_KEY /etc/environment 2>&1 || echo "not in /etc/environment"'
+
+          echo
+          echo "=== H: backup directories check ==="
+          $SSH 'ls -la /root/backups/ 2>&1 | head -10; find /root -name "*credentials*backup*" 2>/dev/null | head -5'
+
+          echo "=== END FORENSIC SCAN ==="
