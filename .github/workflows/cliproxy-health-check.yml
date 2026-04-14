@@ -1,4 +1,4 @@
-name: cliproxy health check v2
+name: cliproxy health check v3
 on:
   workflow_dispatch: {}
 jobs:
@@ -22,26 +22,30 @@ jobs:
           $SSH 'docker ps --format "{{.Names}} {{.Status}}" | grep cliproxy'
 
           echo
-          echo "=== B: extract gateway key (masked) ==="
-          CP_KEY=$($SSH "awk '/^api-keys:/{getline; gsub(/.*\"/, \"\"); gsub(/\".*/, \"\"); print}' /opt/cliproxy-gateway/config.yaml" | tr -d '\r\n')
+          echo "=== B: extract gateway key via grep -oP ==="
+          # Gateway key format: biddeed-gw-<40+hex>
+          CP_KEY=$($SSH "grep -oP 'biddeed-gw-[a-f0-9]{20,}' /opt/cliproxy-gateway/config.yaml" | head -1 | tr -d '\r\n')
           echo "::add-mask::$CP_KEY"
+          if [ -z "$CP_KEY" ]; then
+            echo "::error::could not extract gateway key"
+            exit 1
+          fi
           echo "gateway key: len=${#CP_KEY}"
 
           echo
-          echo "=== C: smoke test current cliproxy state ==="
+          echo "=== C: smoke test cliproxy current state ==="
           RESP=$($SSH "curl -sS -X POST -H 'Content-Type: application/json' -H 'x-api-key: ${CP_KEY}' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"gemini-flash\",\"max_tokens\":30,\"messages\":[{\"role\":\"user\",\"content\":\"Reply only HEALTH_OK\"}]}' -m 25 http://127.0.0.1:8317/v1/messages 2>&1")
-          SAFE=$(echo "$RESP" | sed "s|${CP_KEY}|<K>|g")
           echo "len: ${#RESP}"
 
-          if echo "$SAFE" | grep -q "HEALTH_OK"; then
-            echo "::notice::CURRENT_STATUS=WORKING — cliproxy alive, Gemini key valid"
-          elif echo "$SAFE" | grep -qi "API_KEY_INVALID\|expired"; then
-            echo "::notice::CURRENT_STATUS=KEY_EXPIRED — need fresh key"
-          elif echo "$SAFE" | grep -qi "PERMISSION_DENIED\|denied access"; then
-            echo "::notice::CURRENT_STATUS=PROJECT_DENIED — project needs API access enabled"
+          if echo "$RESP" | grep -q "HEALTH_OK"; then
+            echo "::notice::CURRENT_STATUS=WORKING"
+          elif echo "$RESP" | grep -qi "API_KEY_INVALID\|expired"; then
+            echo "::notice::CURRENT_STATUS=KEY_EXPIRED"
+          elif echo "$RESP" | grep -qi "PERMISSION_DENIED\|denied access"; then
+            echo "::notice::CURRENT_STATUS=PROJECT_DENIED"
           else
             echo "::notice::CURRENT_STATUS=UNKNOWN"
           fi
           echo "response preview:"
-          echo "$SAFE" | head -c 500
+          echo "$RESP" | head -c 500
           echo "=== END ==="
