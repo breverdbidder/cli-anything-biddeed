@@ -17,7 +17,7 @@ cd "/home/summit/summit-${ISSUE}/work"
 if [ -n "$CLIPROXY_KEY" ]; then
   export ANTHROPIC_BASE_URL="http://127.0.0.1:8317"
   export ANTHROPIC_API_KEY="$CLIPROXY_KEY"
-  MODEL_FLAG="--model gemini-flash"
+  MODEL_FLAG="--model gemini-pro"
   echo "=== Using cliproxy → Gemini backend ==="
 else
   unset ANTHROPIC_API_KEY
