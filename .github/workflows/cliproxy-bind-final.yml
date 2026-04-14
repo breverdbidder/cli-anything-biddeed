@@ -1,0 +1,65 @@
+name: cliproxy bind FINAL — edit /opt/cliproxy-gateway/config.yaml on host
+on:
+  workflow_dispatch: {}
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: SSH + edit + restart + smoke
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          set +e
+
+          CFG=/opt/cliproxy-gateway/config.yaml
+
+          echo "=== A: backup current config ==="
+          $SSH "ls -la $CFG; cp $CFG ${CFG}.bak.\$(date +%s); ls -la ${CFG}*"
+
+          echo
+          echo "=== B: current host binding line ==="
+          $SSH "grep -n '^host:' $CFG"
+
+          echo
+          echo "=== C: patch host: 127.0.0.1 → 0.0.0.0 ==="
+          $SSH "sed -i 's/^host: \"127.0.0.1\"/host: \"0.0.0.0\"/' $CFG"
+          $SSH "grep -n '^host:' $CFG"
+
+          echo
+          echo "=== D: also stop/start container fully (restart picks up bind mount changes) ==="
+          $SSH 'docker stop biddeed-cliproxy 2>&1 | tail -3'
+          $SSH 'docker start biddeed-cliproxy 2>&1 | tail -3'
+          sleep 5
+          $SSH 'docker ps --format "{{.Names}} {{.Status}} {{.Ports}}" | grep cliproxy'
+
+          echo
+          echo "=== E: post-restart logs ==="
+          $SSH 'docker logs --tail 15 biddeed-cliproxy 2>&1 | grep -v "no space"'
+
+          echo
+          echo "=== F: confirm new bind via netstat from inside container ==="
+          $SSH 'docker exec biddeed-cliproxy sh -c "netstat -tlnp 2>/dev/null || ss -tlnp 2>/dev/null" | grep 8317'
+
+          echo
+          echo "=== G: smoke test from host (Anthropic format → gemini-flash) ==="
+          CP_KEY="biddeed-gw-77dc6c9df0e5088057c28d1f94d3fef791961fbb409da85f"
+          RESP=$($SSH "curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'x-api-key: ${CP_KEY}' \
+            -H 'anthropic-version: 2023-06-01' \
+            -d '{\"model\":\"gemini-flash\",\"max_tokens\":50,\"messages\":[{\"role\":\"user\",\"content\":\"Reply only with CLIPROXY_BIND_FIX_FINAL_OK\"}]}' \
+            -m 30 http://127.0.0.1:8317/v1/messages 2>&1")
+          echo "len: ${#RESP}"
+          echo "$RESP" | head -c 1500
+          echo
+
+          echo
+          echo "=== H: claude -p via cliproxy (the real test) ==="
+          $SSH "ANTHROPIC_BASE_URL=http://127.0.0.1:8317 ANTHROPIC_API_KEY=${CP_KEY} claude -p 'reply only with CLAUDE_VIA_CLIPROXY_OK and nothing else' --allowedTools Read 2>&1 | tail -10"
+
+          echo "=== END ==="
