@@ -106,14 +106,18 @@ jobs:
           $SSH "CLAUDE_REAL=\$(readlink -f \$(which claude 2>/dev/null) 2>/dev/null); if echo \"\$CLAUDE_REAL\" | grep -q '^/root/'; then echo 'claude in /root — installing to /opt/claude for summit access'; npm install -g --prefix=/opt/claude @anthropic-ai/claude-code 2>&1 | tail -5 || true; ln -sf /opt/claude/bin/claude /usr/local/bin/claude; fi"
           $SSH "sudo -u summit which claude && sudo -u summit claude --version || echo 'summit still cannot run claude'"
 
-          echo "=== Verify Max OAuth ==="
-          $SSH "test -f /home/summit/.claude/credentials.json && echo 'OAuth OK for summit user' || { echo '::error::No OAuth creds for summit'; exit 1; }"
+          echo "=== Verify runtime path (cliproxy OR OAuth) ==="
+          $SSH "docker ps --format '{{.Names}} {{.Status}}' | grep -q 'biddeed-cliproxy.*Up' && echo 'cliproxy alive — will route via Gemini' || (test -f /home/summit/.claude/credentials.json && echo 'OAuth fallback available' || { echo '::error::Neither cliproxy nor OAuth available'; exit 1; })"
 
-          echo "=== Launch claude -p as summit user (non-blocking tail for first 100 min) ==="
+          echo "=== Extract cliproxy gateway key from Hetzner config ==="
+          CLIPROXY_KEY=$($SSH "grep -A1 '^api-keys:' /opt/cliproxy-gateway/config.yaml | tail -1 | sed 's/.*\"\\(.*\\)\".*/\\1/'" | tr -d '\r\n')
+          echo "cliproxy key loaded: len=${#CLIPROXY_KEY} first6=${CLIPROXY_KEY:0:6}"
+
+          echo "=== Launch claude -p as summit user (via cliproxy → Gemini) ==="
           # CRITICAL: no || echo wrapper — exit codes must propagate honestly
-          # Pass GH_PAT + HETZNER_IP to summit's env via sudo env=VAR (one-shot, no disk persistence)
+          # Pass GH_PAT + HETZNER_IP + CLIPROXY_KEY to summit's env via sudo env=VAR
           set -e
-          $SSH "sudo -u summit env GH_PAT='${GH_PAT}' HETZNER_IP='${HETZNER_IP}' bash /home/summit/claude-runner.sh ${ISSUE}"
+          $SSH "sudo -u summit env GH_PAT='${GH_PAT}' HETZNER_IP='${HETZNER_IP}' CLIPROXY_KEY='${CLIPROXY_KEY}' bash /home/summit/claude-runner.sh ${ISSUE}"
           RUNNER_EXIT=$?
           set +e
           # Ghost-success detector: if output contains "Not logged in", force failure
@@ -132,7 +136,7 @@ jobs:
           echo "Output tail bytes: $(wc -c < /tmp/output_tail.txt)"
 
           echo "=== Post results comment to issue ==="
-          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (summit user, Max OAuth)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
+          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (summit user, cliproxy → Gemini)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
           curl -s -X POST -H "Authorization: token $GH_PAT" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments" --data @/tmp/result_comment.json -o /dev/null -w "Comment POST: %{http_code}\n"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
