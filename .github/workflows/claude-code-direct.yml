@@ -28,6 +28,26 @@ jobs:
     steps:
       - name: Checkout repo (for scripts/claude-runner.sh)
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT_FULL }}
+          fetch-depth: 1
+
+      - name: Mark Summit as running in Supabase
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ISSUE: ${{ matrix.issue }}
+        run: |
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sS -X PATCH \
+            "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?github_issue_number=eq.${ISSUE}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{\"workflow_run_url\":\"${WORKFLOW_URL}\",\"state\":\"running\"}" \
+            -o /tmp/patch_start.txt -w "Supabase PATCH (running): HTTP %{http_code}\n" || echo "WARN: Supabase PATCH running failed (non-fatal, continuing)"
 
       - name: Validate issue input
         env:
@@ -116,29 +136,30 @@ jobs:
           echo "=== Diagnose claude binary permissions + fix for summit user ==="
           $SSH "ls -la \$(which claude) && readlink -f \$(which claude) && (file \$(which claude) 2>/dev/null || true)"
           $SSH "CLAUDE_BIN=\$(readlink -f \$(which claude)) && chmod a+rx \$CLAUDE_BIN && dirname \$CLAUDE_BIN | xargs -I{} find {} -type f -exec chmod a+r {} \\; 2>/dev/null || true"
-          # If claude is in /root/ path, summit cannot traverse — reinstall globally accessible
           $SSH "CLAUDE_REAL=\$(readlink -f \$(which claude 2>/dev/null) 2>/dev/null); if echo \"\$CLAUDE_REAL\" | grep -q '^/root/'; then echo 'claude in /root — installing to /opt/claude for summit access'; npm install -g --prefix=/opt/claude @anthropic-ai/claude-code 2>&1 | tail -5 || true; ln -sf /opt/claude/bin/claude /usr/local/bin/claude; fi"
           $SSH "sudo -u summit which claude && sudo -u summit claude --version || echo 'summit still cannot run claude'"
 
-          echo "=== Verify runtime path (cliproxy OR OAuth) ==="
-          $SSH "docker ps --format '{{.Names}} {{.Status}}' | grep -q 'biddeed-cliproxy.*Up' && echo 'cliproxy alive — will route via Gemini' || (test -f /home/summit/.claude/credentials.json && echo 'OAuth fallback available' || { echo '::error::Neither cliproxy nor OAuth available'; exit 1; })"
+          echo "=== Verify runtime path — Tier 1 Max OAuth PRIMARY, cliproxy fallback per cost-discipline ==="
+          $SSH "test -f /home/summit/.claude/credentials.json && echo 'Max OAuth (Tier 1) — primary' || (docker ps --format '{{.Names}} {{.Status}}' | grep -q 'biddeed-cliproxy.*Up' && echo 'cliproxy Gemini (Tier 2) — fallback' || { echo '::error::No auth path available'; exit 1; })"
 
-          echo "=== Extract cliproxy gateway key from Hetzner config ==="
-          CLIPROXY_KEY=$($SSH "grep -A1 '^api-keys:' /opt/cliproxy-gateway/config.yaml | tail -1 | sed 's/.*\"\\(.*\\)\".*/\\1/'" | tr -d '\r\n')
-          echo "cliproxy key loaded: len=${#CLIPROXY_KEY} first6=${CLIPROXY_KEY:0:6}"
+          echo "=== Extract cliproxy gateway key from Hetzner config (fallback use only) ==="
+          CLIPROXY_KEY=$($SSH "grep -A1 '^api-keys:' /opt/cliproxy-gateway/config.yaml 2>/dev/null | tail -1 | sed 's/.*\"\\(.*\\)\".*/\\1/'" | tr -d '\r\n')
+          echo "cliproxy key loaded: len=${#CLIPROXY_KEY}"
 
-          echo "=== Launch claude -p as summit user (via cliproxy → Gemini) ==="
-          # CRITICAL: no || echo wrapper — exit codes must propagate honestly
-          # Pass GH_PAT + HETZNER_IP + CLIPROXY_KEY to summit's env via sudo env=VAR
+          echo "=== Launch claude -p as summit user ==="
           set -e
           $SSH "sudo -u summit env GH_PAT='${GH_PAT}' HETZNER_IP='${HETZNER_IP}' HETZNER_PASSWORD='${HETZNER_PASSWORD}' CLIPROXY_KEY='${CLIPROXY_KEY}' SUPABASE_URL='${SUPABASE_URL}' SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}' SUPABASE_ANON_KEY='${SUPABASE_ANON_KEY}' GH_PAT_FULL='${GH_PAT_FULL}' FIRECRAWL_API_KEY='${FIRECRAWL_API_KEY}' EXA_API_KEY='${EXA_API_KEY}' CF_API_TOKEN='${CF_API_TOKEN}' CF_ACCOUNT_ID='${CF_ACCOUNT_ID}' TELEGRAM_BOT_TOKEN='${TELEGRAM_BOT_TOKEN}' TELEGRAM_CHAT_ID='${TELEGRAM_CHAT_ID}' SUPADATA_API_KEY='${SUPADATA_API_KEY}' VERCEL_TOKEN='${VERCEL_TOKEN}' NEXT_PUBLIC_MAPBOX_TOKEN='${NEXT_PUBLIC_MAPBOX_TOKEN}' BIDDEED_BOT_TOKEN='${BIDDEED_BOT_TOKEN}' BIDDEED_BOT_CHAT_ID='${BIDDEED_BOT_CHAT_ID}' bash /home/summit/claude-runner.sh ${ISSUE}"
           RUNNER_EXIT=$?
           set +e
-          # Ghost-success detector: if output contains "Not logged in", force failure
-          $SSH "grep -q 'Not logged in' /home/summit/summit-${ISSUE}-output.log 2>/dev/null" && {
-            echo "::error::GHOST SUCCESS DETECTED — claude CLI reports 'Not logged in'. Runner exit code was $RUNNER_EXIT but auth failed. Forcing failure."
+
+          # EXPANDED ghost-success detector per Apr16 Architect review
+          GHOST_PATTERNS="Not logged in|fatal: could not read|fatal: repository not found|fatal: Authentication failed|exit code 128|exit status 128|rate limit exceeded|API request failed|Permission denied \(publickey\)"
+          if $SSH "grep -qE '$GHOST_PATTERNS' /home/summit/summit-${ISSUE}-output.log 2>/dev/null"; then
+            MATCHED=$($SSH "grep -oE '$GHOST_PATTERNS' /home/summit/summit-${ISSUE}-output.log 2>/dev/null | head -1")
+            echo "::error::GHOST SUCCESS DETECTED — pattern matched: '$MATCHED'. Runner exit code was $RUNNER_EXIT but critical failure detected. Forcing failure."
             exit 1
-          }
+          fi
+
           if [ "$RUNNER_EXIT" != "0" ]; then
             echo "::error::claude runner exited with code $RUNNER_EXIT"
             exit $RUNNER_EXIT
@@ -150,7 +171,36 @@ jobs:
           echo "Output tail bytes: $(wc -c < /tmp/output_tail.txt)"
 
           echo "=== Post results comment to issue ==="
-          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (summit user, cliproxy → Gemini)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
+          jq -Rs --arg issue "$ISSUE" '{body: ("## 🤖 SUMMIT #" + $issue + " Execution Report\n\n**Runner:** GH Actions → Hetzner (summit user, Tier 1 Max OAuth preferred)\n\n### Output tail (last 8KB)\n\n```\n" + .[-7500:] + "\n```\n")}' < /tmp/output_tail.txt > /tmp/result_comment.json
           curl -s -X POST -H "Authorization: token $GH_PAT" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments" --data @/tmp/result_comment.json -o /dev/null -w "Comment POST: %{http_code}\n"
 
           echo "=== SUMMIT #${ISSUE} COMPLETE ==="
+
+      - name: Write terminal state to Supabase summit_chat_dispatch
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ISSUE: ${{ matrix.issue }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # job.status is 'success', 'failure', or 'cancelled'
+          case "$JOB_STATUS" in
+            success)   NEW_STATE="verified" ;;
+            failure)   NEW_STATE="failed" ;;
+            cancelled) NEW_STATE="failed" ;;
+            *)         NEW_STATE="failed" ;;
+          esac
+          COMPLETED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PAYLOAD=$(jq -nc --arg url "$WORKFLOW_URL" --arg state "$NEW_STATE" --arg completed "$COMPLETED_AT" --arg status "$JOB_STATUS" '{workflow_run_url:$url, state:$state, completed_at:$completed, last_error:(if $status != "success" then "GHA job status: \($status)" else null end)}')
+          curl -sS -X PATCH \
+            "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?github_issue_number=eq.${ISSUE}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "$PAYLOAD" \
+            -o /tmp/patch_resp.txt -w "Supabase PATCH (terminal): HTTP %{http_code}\n"
+          cat /tmp/patch_resp.txt
+          echo "Final state for issue ${ISSUE}: ${NEW_STATE}"
