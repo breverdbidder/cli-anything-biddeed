@@ -1,8 +1,8 @@
 #!/bin/bash
 # claude-runner.sh — executes Claude Code on Hetzner as summit user
-# TIER 1 (PRIMARY per mem:18 cost-discipline): Max OAuth → claude-sonnet-4-6
-# TIER 2 (FALLBACK only): cliproxy → Gemini (if OAuth creds missing)
-# Apr16 2026: Patched to honor cost-discipline — OAuth was dead code before.
+# Apr 16 2026 REVERT: OAuth creds expired on Hetzner → Gemini primary for tonight
+# TIER ORDER (TEMP): cliproxy→Gemini PRIMARY, Max OAuth FALLBACK (currently 401)
+# RESTORE AFTER OAUTH REFRESH (Apr 17+): flip back to OAuth primary (see commit a55544be)
 # Usage: claude-runner.sh ISSUE_NUMBER
 set -e
 ISSUE="$1"
@@ -12,24 +12,22 @@ if [ -z "$ISSUE" ]; then
 fi
 cd "/home/summit/summit-${ISSUE}/work"
 
-# Model selection: env override > default (Sonnet 4.6 for code per cost-discipline)
-CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+# Model selection: env override wins, default gemini-pro while OAuth is stale
+CLAUDE_MODEL="${CLAUDE_MODEL:-gemini-pro}"
 
-# Auth routing: Max OAuth PRIMARY (Tier 1), cliproxy FALLBACK (Tier 2 only)
-if [ -f /home/summit/.claude/.credentials.json ] || [ -f /home/summit/.claude/credentials.json ]; then
-  # TIER 1: Max OAuth — Sonnet 4.6 for code/precision, Opus 4.7 if env requests
-  unset ANTHROPIC_API_KEY
-  unset ANTHROPIC_BASE_URL
-  MODEL_FLAG="--model $CLAUDE_MODEL"
-  echo "=== TIER 1: Max OAuth → $CLAUDE_MODEL ==="
-elif [ -n "$CLIPROXY_KEY" ]; then
-  # TIER 2: cliproxy → Gemini fallback when OAuth unavailable
+# Auth routing — Gemini primary tonight (flipped Apr16 due to expired OAuth)
+if [ -n "$CLIPROXY_KEY" ]; then
   export ANTHROPIC_BASE_URL="http://127.0.0.1:8317"
   export ANTHROPIC_API_KEY="$CLIPROXY_KEY"
-  MODEL_FLAG="--model gemini-pro"
-  echo "=== TIER 2: cliproxy → Gemini (OAuth credentials not found) ==="
+  MODEL_FLAG="--model $CLAUDE_MODEL"
+  echo "=== TIER 2: cliproxy -> $CLAUDE_MODEL (Gemini primary while OAuth expired) ==="
+elif [ -f /home/summit/.claude/.credentials.json ] || [ -f /home/summit/.claude/credentials.json ]; then
+  unset ANTHROPIC_API_KEY
+  unset ANTHROPIC_BASE_URL
+  MODEL_FLAG="--model ${CLAUDE_MODEL/#gemini-pro/claude-sonnet-4-6}"
+  echo "=== TIER 1 FALLBACK: Max OAuth -> ${MODEL_FLAG#--model } (CLIPROXY_KEY missing) ==="
 else
-  echo "::error::No auth path — neither Max OAuth creds nor CLIPROXY_KEY available"
+  echo "::error::No auth path available"
   exit 1
 fi
 export IS_SANDBOX=1
