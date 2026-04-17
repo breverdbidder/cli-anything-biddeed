@@ -41,9 +41,10 @@ jobs:
           echo "=== Script fetched: $(wc -l < /tmp/install.sh) lines, $(wc -c < /tmp/install.sh) bytes ==="
 
           echo "=== SCP to Hetzner ==="
+          $SSH "mkdir -p /opt/everest/scripts"
           scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             /tmp/install.sh root@${HETZNER_IP}:/opt/everest/scripts/install-mcp-hetzner.sh
-          $SSH "mkdir -p /opt/everest/scripts && chmod +x /opt/everest/scripts/install-mcp-hetzner.sh"
+          $SSH "chmod +x /opt/everest/scripts/install-mcp-hetzner.sh"
 
           echo "=== Execute install on Hetzner ==="
           set +e
