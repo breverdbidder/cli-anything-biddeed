@@ -153,11 +153,23 @@ jobs:
           set +e
 
           # EXPANDED ghost-success detector per Apr16 Architect review
-          GHOST_PATTERNS="Not logged in|fatal: could not read|fatal: repository not found|fatal: Authentication failed|exit code 128|exit status 128|rate limit exceeded|API request failed|Permission denied \(publickey\)"
+          GHOST_PATTERNS="Not logged in|fatal: could not read|fatal: repository not found|fatal: Authentication failed|exit code 128|exit status 128|rate limit exceeded|API request failed|Permission denied \(publickey\)|Invalid authentication credentials|authentication_error|waiting for your response|please confirm|should I install|Let me know if you need"
           if $SSH "grep -qE '$GHOST_PATTERNS' /home/summit/summit-${ISSUE}-output.log 2>/dev/null"; then
             MATCHED=$($SSH "grep -oE '$GHOST_PATTERNS' /home/summit/summit-${ISSUE}-output.log 2>/dev/null | head -1")
             echo "::error::GHOST SUCCESS DETECTED — pattern matched: '$MATCHED'. Runner exit code was $RUNNER_EXIT but critical failure detected. Forcing failure."
             exit 1
+          fi
+
+          # POSITIVE MARKER CHECK (Apr16 post-#511 hallucination fix)
+          # Strict dispatches require explicit output marker to distinguish real execution from Gemini hallucination
+          if grep -qE 'STRICT EXECUTE PROTOCOL|MANDATORY LAST LINE' /home/summit/summit-${ISSUE}-prompt.txt 2>/dev/null; then
+            LAST_LINES=$($SSH "tail -20 /home/summit/summit-${ISSUE}-output.log 2>/dev/null")
+            if ! echo "$LAST_LINES" | grep -qE 'PUSHED commit:[a-f0-9]{7,}|ERROR:|SUMMIT_NOOP:'; then
+              echo "::error::STRICT PROTOCOL VIOLATION — no PUSHED/ERROR/NOOP marker in last 20 lines. Gemini likely hallucinated completion. Forcing failure."
+              echo "Last 5 lines seen:"
+              echo "$LAST_LINES" | tail -5
+              exit 1
+            fi
           fi
 
           if [ "$RUNNER_EXIT" != "0" ]; then
