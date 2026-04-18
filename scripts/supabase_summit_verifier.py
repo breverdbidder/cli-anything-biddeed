@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
 """
-Supabase SUMMIT Verifier — closes the 'self-attested evidence keys' loophole
-in trg_prevent_ghost_success.
+Supabase SUMMIT Verifier v2 — Dual-Gate Enterprise-Grade
 
-Problem
--------
-The schema trigger trg_prevent_ghost_success requires evidence keys to be
-present on any state=verified transition. But the *contents* of those keys
-are self-attested by whoever wrote them. The canonical
-scripts/spec_fulfillment_verifier.py closes this by checking claims against
-real artifacts — but it operates on GitHub issues, and most SUMMITs are
-created directly in Supabase without filing an issue.
+Combines two gates:
+  1. Supabase-side claim verification (extracted from delivery_proof)
+  2. EG14 14-point gate (dispatched via GHA for touches_prod_web=TRUE summits)
 
-This wrapper bridges that gap: iterates verified Supabase SUMMITs, extracts
-claims from summit_body + delivery_proof, runs each claim through the same
-verify_* functions as the canonical verifier, aggregates verdicts, persists
-to summit_verifier_runs, and (critically) flips state=verified → failed
-when the overall verdict is GHA-GREEN-NOT-DELIVERED.
+Writes dual_gate_verdict ∈ {PASS, FAIL, INSUFFICIENT_EVIDENCE}.
+Only PASS allows state=verified (enforced by trg_require_dual_gate).
+FAIL / INSUFFICIENT_EVIDENCE auto-route to failed / closed.
 
-Usage
------
-    python supabase_summit_verifier.py --session chat-2026-04-18-autonomous-5repo
+Usage:
     python supabase_summit_verifier.py --summit-id <uuid>
-    python supabase_summit_verifier.py --all-verified-today
-    python supabase_summit_verifier.py --auto-patrol  # cron mode
+    python supabase_summit_verifier.py --session <chat_session_id>
+    python supabase_summit_verifier.py --all-awaiting-verification
+    python supabase_summit_verifier.py --auto-patrol   # cron mode, includes retro-verify
 """
 from __future__ import annotations
 
@@ -32,6 +23,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -46,16 +38,24 @@ SB_URL = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.c
 SB_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY", "")
 TG_TOKEN = os.environ.get("BIDDEED_BOT_TOKEN", "")
 TG_CHAT = os.environ.get("BIDDEED_BOT_CHAT_ID", "740118343")
+EG14_REPO = "breverdbidder/cli-anything-biddeed"
+EG14_WORKFLOW = "eg14-gate.yml"
 TIMEOUT = 20.0
+EG14_DEBOUNCE_HOURS = 1         # per-summit cooldown
+GLOBAL_RATE_LIMIT_MIN = 10      # no more than 1 EG14 dispatch per 10 min globally
+EG14_WAIT_MAX_MIN = 20          # how long to wait for EG14 completion
 
-# Verdicts — IDENTICAL to spec_fulfillment_verifier.py
-DELIVERED = "DELIVERED-VERIFIED"
-NOT_DELIVERED = "GHA-GREEN-NOT-DELIVERED"
-DISPATCHED_ONLY = "DISPATCHED-ONLY"
-BLOCKED_HONEST = "BLOCKED-HONEST"
-MIXED = "MIXED"
+# Verdicts (Supabase-side, per-claim)
+CLAIM_DELIVERED = "DELIVERED-VERIFIED"
+CLAIM_NOT_DELIVERED = "GHA-GREEN-NOT-DELIVERED"
+CLAIM_DISPATCHED_ONLY = "DISPATCHED-ONLY"
+CLAIM_BLOCKED = "BLOCKED-HONEST"
 
-# Default repo for file/PR/commit lookups when not otherwise specified
+# Combined dual-gate verdicts
+DG_PASS = "PASS"
+DG_FAIL = "FAIL"
+DG_INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
+
 DEFAULT_REPO_POOL = [
     "breverdbidder/cli-anything-biddeed",
     "breverdbidder/zonewise-web",
@@ -63,17 +63,17 @@ DEFAULT_REPO_POOL = [
 ]
 
 
-def _sanity_check_env() -> None:
-    missing = []
-    if not GH_TOKEN: missing.append("GH_TOKEN or GH_PAT")
-    if not SB_KEY:   missing.append("SUPABASE_SERVICE_KEY or SUPABASE_KEY")
-    if missing:
-        print(f"::error::missing required env: {', '.join(missing)}")
+def _sanity() -> None:
+    miss = []
+    if not GH_TOKEN: miss.append("GH_TOKEN or GH_PAT")
+    if not SB_KEY:   miss.append("SUPABASE_SERVICE_KEY or SUPABASE_KEY")
+    if miss:
+        print(f"::error::missing env: {', '.join(miss)}")
         sys.exit(2)
 
 
 # ---------------------------------------------------------------------------
-# HTTP helpers (same shape as canonical verifier)
+# HTTP helpers
 # ---------------------------------------------------------------------------
 def gh_headers():
     return {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -89,46 +89,44 @@ def gh_get(path: str) -> Any:
     return r.json()
 
 
+def gh_post(path: str, body: dict) -> httpx.Response:
+    return httpx.post(f"{GH_API}{path}", headers=gh_headers(), json=body, timeout=TIMEOUT)
+
+
 def sb_get(path: str) -> Any:
     r = httpx.get(f"{SB_URL}{path}", headers=sb_headers(), timeout=TIMEOUT)
     r.raise_for_status()
     return r.json()
 
 
-def sb_post(path: str, data: dict) -> httpx.Response:
-    h = sb_headers()
-    h["Prefer"] = "return=representation"
+def sb_post(path: str, data: Any) -> httpx.Response:
+    h = sb_headers(); h["Prefer"] = "return=representation"
     return httpx.post(f"{SB_URL}{path}", headers=h, json=data, timeout=TIMEOUT)
 
 
 def sb_patch(path: str, data: dict) -> httpx.Response:
-    h = sb_headers()
-    h["Prefer"] = "return=representation"
+    h = sb_headers(); h["Prefer"] = "return=representation"
     return httpx.patch(f"{SB_URL}{path}", headers=h, json=data, timeout=TIMEOUT)
 
 
-def tg_send(msg: str) -> bool:
-    if not TG_TOKEN:
-        return False
+def tg_send(msg: str) -> None:
+    if not TG_TOKEN: return
     try:
-        r = httpx.post(
+        httpx.post(
             f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
             json={"chat_id": TG_CHAT, "text": msg[:4000], "parse_mode": "HTML"},
             timeout=10.0,
         )
-        return r.status_code == 200
     except Exception:
-        return False
+        pass
 
 
 # ---------------------------------------------------------------------------
-# Verification primitives — logic IDENTICAL to canonical verifier,
-# but adapted to accept owner/repo rather than hardcoding.
+# Supabase-side verification primitives
 # ---------------------------------------------------------------------------
 def verify_commit_exists(sha: str, repo: str) -> bool:
     try:
-        gh_get(f"/repos/{repo}/commits/{sha}")
-        return True
+        gh_get(f"/repos/{repo}/commits/{sha}"); return True
     except Exception:
         return False
 
@@ -153,36 +151,42 @@ def verify_file_in_repo(file_path: str, repo: str, branch: str = "main") -> bool
 
 def verify_supabase_table_exists(table_name: str) -> bool:
     try:
-        r = httpx.head(
-            f"{SB_URL}/rest/v1/{table_name}?limit=0",
-            headers=sb_headers(),
-            timeout=TIMEOUT,
-        )
+        r = httpx.head(f"{SB_URL}/rest/v1/{table_name}?limit=0", headers=sb_headers(), timeout=TIMEOUT)
         return r.status_code in (200, 206)
     except Exception:
         return False
 
 
-def verify_supabase_row_count(table_name: str) -> int:
+def verify_supabase_function_exists(func_name: str) -> bool:
+    """Query pg_catalog via the exec_sql RPC (closes the 25% blind spot)."""
     try:
-        h = sb_headers()
-        h["Prefer"] = "count=exact"
-        r = httpx.get(
-            f"{SB_URL}/rest/v1/{table_name}?select=*&limit=1",
-            headers=h, timeout=TIMEOUT,
+        r = httpx.post(
+            f"{SB_URL}/rest/v1/rpc/pg_catalog_has_function",
+            headers=sb_headers(), timeout=TIMEOUT,
+            json={"p_name": func_name},
         )
-        if r.status_code not in (200, 206):
-            return -1
-        # content-range header shape: "0-0/<total>"
-        cr = r.headers.get("content-range", "")
-        m = re.search(r"/(\d+)$", cr)
-        return int(m.group(1)) if m else 0
+        if r.status_code == 200:
+            return bool(r.json())
+        return False
     except Exception:
-        return -1
+        return False
+
+
+def verify_supabase_trigger_exists(trigger_name: str) -> bool:
+    try:
+        r = httpx.post(
+            f"{SB_URL}/rest/v1/rpc/pg_catalog_has_trigger",
+            headers=sb_headers(), timeout=TIMEOUT,
+            json={"p_name": trigger_name},
+        )
+        if r.status_code == 200:
+            return bool(r.json())
+        return False
+    except Exception:
+        return False
 
 
 def verify_url_live(url: str, expected_status: int | None = None) -> tuple[bool, int]:
-    """Probe a URL. Returns (is_live_and_matches_expected, actual_status)."""
     try:
         r = httpx.get(url, timeout=TIMEOUT, follow_redirects=True)
         ok = (r.status_code == expected_status) if expected_status else (200 <= r.status_code < 400)
@@ -192,204 +196,313 @@ def verify_url_live(url: str, expected_status: int | None = None) -> tuple[bool,
 
 
 # ---------------------------------------------------------------------------
-# Claim extraction — pulls verifiable claims from summit_body + delivery_proof
+# Claim extraction + verdict
 # ---------------------------------------------------------------------------
 def extract_claims(summit: dict) -> list[dict]:
-    """Extract discrete verifiable claims from a SUMMIT row.
-
-    Sources:
-      1. delivery_proof.github_commits[*] — {repo, sha|path}
-      2. delivery_proof.supabase_migrations[*] — migration names
-      3. delivery_proof.supabase_artifacts — tables, views, functions, triggers
-      4. delivery_proof.hard_verification.*_url — URL liveness probes
-      5. summit_body — file paths in backticks, PR refs, commit SHAs
-
-    Each claim: {type, target, repo?, kind, source}
-    """
     claims: list[dict] = []
     body = summit.get("summit_body") or ""
     dp = summit.get("delivery_proof") or {}
 
-    # 1. github_commits — file-path or sha claims
     for gc in dp.get("github_commits") or []:
-        if not isinstance(gc, dict):
-            continue
+        if not isinstance(gc, dict): continue
         repo = gc.get("repo") or gc.get("target") or ""
-        sha = gc.get("sha")
-        path = gc.get("path")
-        if sha and repo:
-            claims.append({"type": "commit", "target": sha, "repo": repo, "source": "delivery_proof.github_commits"})
-        if path and repo:
-            claims.append({"type": "file", "target": path, "repo": repo, "source": "delivery_proof.github_commits"})
+        sha = gc.get("sha"); path = gc.get("path")
+        if sha and repo and re.match(r"^[0-9a-f]{7,40}$", str(sha)):
+            claims.append({"type": "commit", "target": sha, "repo": repo})
+        if path and repo and re.match(r"^[\w./\-\[\]()]+\.\w{1,5}$", str(path)):
+            claims.append({"type": "file", "target": path, "repo": repo})
 
-    # 2. supabase_migrations
-    for mig in dp.get("supabase_migrations") or []:
-        if isinstance(mig, str):
-            claims.append({"type": "migration", "target": mig, "source": "delivery_proof.supabase_migrations"})
-
-    # 3. supabase_artifacts
     sa = dp.get("supabase_artifacts") or {}
     if isinstance(sa, dict):
-        # Common shapes we saw: {trigger: "name on table"}, {function: "name"}, {views: [...]}
-        for key in ("table", "function", "trigger", "view"):
+        for key in ("table","function","trigger","view"):
             v = sa.get(key)
             if isinstance(v, str):
-                # Try to extract a bare identifier
                 ident = re.search(r"(?:public\.)?(\w+)", v)
-                if ident:
-                    claims.append({"type": f"sb_{key}", "target": ident.group(1), "source": f"delivery_proof.supabase_artifacts.{key}"})
-        for key in ("views", "tables", "functions", "triggers"):
-            arr = sa.get(key) or []
-            for item in arr:
+                if ident: claims.append({"type": f"sb_{key}", "target": ident.group(1)})
+        for key in ("views","tables","functions","triggers"):
+            for item in sa.get(key) or []:
                 if isinstance(item, str):
                     ident = re.search(r"(?:public\.)?(\w+)", item)
-                    if ident:
-                        claims.append({"type": f"sb_{key[:-1]}", "target": ident.group(1), "source": f"delivery_proof.supabase_artifacts.{key}"})
+                    if ident: claims.append({"type": f"sb_{key[:-1]}", "target": ident.group(1)})
 
-    # 4. hard_verification — URL liveness
     hv = dp.get("hard_verification") or {}
-    if isinstance(hv, dict):
-        def _walk_urls(obj, path=""):
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    _walk_urls(v, f"{path}.{k}")
-            elif isinstance(obj, list):
-                for i, v in enumerate(obj):
-                    _walk_urls(v, f"{path}[{i}]")
-            elif isinstance(obj, str):
-                if obj.startswith(("http://", "https://")):
-                    claims.append({"type": "url_live", "target": obj, "source": f"delivery_proof.hard_verification{path}"})
-        _walk_urls(hv)
+    def _walk(obj):
+        if isinstance(obj, dict):
+            for v in obj.values(): _walk(v)
+        elif isinstance(obj, list):
+            for v in obj: _walk(v)
+        elif isinstance(obj, str) and obj.startswith(("http://","https://")):
+            claims.append({"type": "url_live", "target": obj})
+    _walk(hv)
 
-    # 5. summit_body — backtick file paths + PR refs
-    for fp in re.findall(r"`([a-zA-Z0-9_./-]+\.[a-zA-Z]{1,5})`", body):
-        if "/" in fp:
-            # Guess repo from context: look for owner/repo pattern near the path
-            # Default to DEFAULT_REPO_POOL — we'll try each
-            claims.append({"type": "file_any_repo", "target": fp, "source": "summit_body.backticks"})
+    for fp in re.findall(r"`([a-zA-Z0-9_./\-\[\]()]+\.[a-zA-Z]{1,5})`", body):
+        if "/" in fp and not fp.startswith("http"):
+            claims.append({"type": "file_any_repo", "target": fp})
 
     for pr in re.findall(r"PR\s*#?(\d+)", body):
-        # Default to zonewise-web (most PRs this session)
-        claims.append({"type": "pr", "target": int(pr), "repo": "breverdbidder/zonewise-web", "source": "summit_body.PR_ref"})
+        claims.append({"type": "pr", "target": int(pr), "repo": "breverdbidder/zonewise-web"})
 
     return claims
 
 
 def verify_claim(claim: dict) -> tuple[str, str]:
-    """Run a claim through the appropriate verifier. Returns (verdict, evidence)."""
-    t = claim["type"]
-    target = claim["target"]
-
+    t = claim["type"]; target = claim["target"]
     if t == "commit":
-        return (DELIVERED, f"commit {target[:10]} in {claim['repo']}") if verify_commit_exists(target, claim["repo"]) \
-               else (NOT_DELIVERED, f"commit {target[:10]} NOT in {claim['repo']}")
+        return (CLAIM_DELIVERED, f"commit {target[:10]} in {claim['repo']}") if verify_commit_exists(target, claim["repo"]) \
+               else (CLAIM_NOT_DELIVERED, f"commit {target[:10]} NOT in {claim['repo']}")
     if t == "file":
-        return (DELIVERED, f"{target} in {claim['repo']}") if verify_file_in_repo(target, claim["repo"]) \
-               else (NOT_DELIVERED, f"{target} NOT in {claim['repo']}")
+        return (CLAIM_DELIVERED, f"{target} in {claim['repo']}") if verify_file_in_repo(target, claim["repo"]) \
+               else (CLAIM_NOT_DELIVERED, f"{target} NOT in {claim['repo']}")
     if t == "file_any_repo":
         for r in DEFAULT_REPO_POOL:
             if verify_file_in_repo(target, r):
-                return DELIVERED, f"{target} in {r}"
-        return NOT_DELIVERED, f"{target} not in any of {DEFAULT_REPO_POOL}"
+                return CLAIM_DELIVERED, f"{target} in {r}"
+        return CLAIM_NOT_DELIVERED, f"{target} not in pool"
     if t == "pr":
-        return (DELIVERED, f"PR #{target} has changes") if verify_pr_has_changes(target, claim["repo"]) \
-               else (NOT_DELIVERED, f"PR #{target} missing or empty")
-    if t == "migration":
-        # Check if migration is logged in supabase_migrations system table
-        try:
-            rows = sb_get(f"/rest/v1/rpc/pg_migrations_list") if False else None
-            # Fallback: look up via listed migrations endpoint — but we can't from anon REST,
-            # so we fall back to "the named artifact exists" heuristic: at least one of the
-            # things the migration creates must exist.
-        except Exception:
-            pass
-        return DISPATCHED_ONLY, f"migration name '{target}' recorded but cannot verify remotely from REST"
-    if t in ("sb_table", "sb_function", "sb_trigger", "sb_view"):
-        # For tables + views, confirm queryable existence
-        if t in ("sb_table", "sb_view"):
-            return (DELIVERED, f"{t} '{target}' queryable") if verify_supabase_table_exists(target) \
-                   else (NOT_DELIVERED, f"{t} '{target}' not queryable")
-        # For functions + triggers, we can't check from REST without a dedicated RPC
-        return DISPATCHED_ONLY, f"{t} '{target}' cannot be verified from REST"
+        return (CLAIM_DELIVERED, f"PR #{target} has changes") if verify_pr_has_changes(target, claim["repo"]) \
+               else (CLAIM_NOT_DELIVERED, f"PR #{target} missing or empty")
+    if t in ("sb_table","sb_view"):
+        return (CLAIM_DELIVERED, f"{t} '{target}' queryable") if verify_supabase_table_exists(target) \
+               else (CLAIM_NOT_DELIVERED, f"{t} '{target}' not queryable")
+    if t == "sb_function":
+        if verify_supabase_function_exists(target):
+            return CLAIM_DELIVERED, f"function '{target}' in pg_catalog"
+        return CLAIM_NOT_DELIVERED, f"function '{target}' NOT in pg_catalog"
+    if t == "sb_trigger":
+        if verify_supabase_trigger_exists(target):
+            return CLAIM_DELIVERED, f"trigger '{target}' in pg_catalog"
+        return CLAIM_NOT_DELIVERED, f"trigger '{target}' NOT in pg_catalog"
     if t == "url_live":
         ok, status = verify_url_live(target)
-        return (DELIVERED, f"{target} → HTTP {status}") if ok else (NOT_DELIVERED, f"{target} → HTTP {status}")
-
-    return DISPATCHED_ONLY, f"no verifier for type {t}"
+        return (CLAIM_DELIVERED, f"{target} → HTTP {status}") if ok else (CLAIM_NOT_DELIVERED, f"{target} → HTTP {status}")
+    return CLAIM_DISPATCHED_ONLY, f"no verifier for type {t}"
 
 
 # ---------------------------------------------------------------------------
-# SUMMIT-level orchestration
+# EG14 dispatch + wait
 # ---------------------------------------------------------------------------
-def verify_summit(summit: dict, auto_flip: bool = False) -> dict:
+def _last_eg14_for_summit(summit_uuid: str) -> dict | None:
+    """Return {passed, failed, total, ran_at} for most recent EG14 run, or None."""
+    try:
+        rows = sb_get(f"/rest/v1/eg14_runs?summit_uuid=eq.{summit_uuid}&select=status,ran_at&order=ran_at.desc&limit=14")
+        if not rows: return None
+        ran_at = rows[0]["ran_at"]
+        passed = sum(1 for r in rows if r["status"] == "PASS")
+        failed = sum(1 for r in rows if r["status"] == "FAIL")
+        return {"passed": passed, "failed": failed, "total": len(rows), "ran_at": ran_at}
+    except Exception:
+        return None
+
+
+def _check_global_rate_limit() -> bool:
+    """Return True if we may dispatch EG14 (no dispatch in last GLOBAL_RATE_LIMIT_MIN min)."""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=GLOBAL_RATE_LIMIT_MIN)).isoformat()
+        rows = sb_get(f"/rest/v1/summit_verifier_runs?eg14_dispatched=eq.true&run_at=gte.{cutoff}&select=id&limit=1")
+        return len(rows) == 0
+    except Exception:
+        return True  # fail-open on rate limit check
+
+
+def dispatch_eg14(summit_uuid: str, target_url: str, scope: str) -> int | None:
+    r = gh_post(
+        f"/repos/{EG14_REPO}/actions/workflows/{EG14_WORKFLOW}/dispatches",
+        {"ref": "main", "inputs": {
+            "summit_id": summit_uuid,
+            "target_url": target_url,
+            "scope": scope,
+        }},
+    )
+    if r.status_code != 204:
+        print(f"::error::EG14 dispatch failed: {r.status_code} {r.text[:200]}")
+        return None
+    # Find the run we just dispatched
+    time.sleep(5)
+    runs = gh_get(f"/repos/{EG14_REPO}/actions/workflows/{EG14_WORKFLOW}/runs?per_page=3")
+    for rn in runs.get("workflow_runs", []):
+        if rn.get("event") == "workflow_dispatch" and rn["status"] in ("queued","in_progress"):
+            return rn["id"]
+    return None
+
+
+def wait_eg14(run_id: int, max_min: int = EG14_WAIT_MAX_MIN) -> str:
+    """Wait for EG14 run to complete. Returns conclusion or 'timeout'."""
+    start = time.time()
+    while time.time() - start < max_min * 60:
+        try:
+            run = gh_get(f"/repos/{EG14_REPO}/actions/runs/{run_id}")
+            if run.get("status") == "completed":
+                return run.get("conclusion") or "unknown"
+        except Exception:
+            pass
+        time.sleep(15)
+    return "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Dual-gate orchestration
+# ---------------------------------------------------------------------------
+def verify_summit(summit: dict, auto_flip: bool = True) -> dict:
+    sid = summit["id"]
+    title = (summit.get("summit_title") or "")[:60]
+    touches_web = summit.get("touches_prod_web") is not False  # fail-safe: NULL → True
+    scope = summit.get("verification_scope") or "supabase_only"
+
+    # ---- Gate 1: Supabase-side claim verification
     claims = extract_claims(summit)
-    results = [{"claim": c, "verdict": v, "evidence": ev}
-               for c in claims for v, ev in [verify_claim(c)]]
+    per_claim = [{"claim": c, "verdict": v, "evidence": ev}
+                 for c in claims for v, ev in [verify_claim(c)]]
+    nD = sum(1 for r in per_claim if r["verdict"] == CLAIM_DELIVERED)
+    nND = sum(1 for r in per_claim if r["verdict"] == CLAIM_NOT_DELIVERED)
+    nDO = sum(1 for r in per_claim if r["verdict"] == CLAIM_DISPATCHED_ONLY)
+    nB = sum(1 for r in per_claim if r["verdict"] == CLAIM_BLOCKED)
 
-    n = len(results)
-    nD = sum(1 for r in results if r["verdict"] == DELIVERED)
-    nND = sum(1 for r in results if r["verdict"] == NOT_DELIVERED)
-    nDO = sum(1 for r in results if r["verdict"] == DISPATCHED_ONLY)
-    nB = sum(1 for r in results if r["verdict"] == BLOCKED_HONEST)
+    supabase_pass = (nND == 0 and nD > 0)
+    supabase_insufficient = (nD == 0 and nND == 0)
 
-    # Overall verdict rule
-    if n == 0:
-        overall = DISPATCHED_ONLY  # no verifiable claims, can't judge either way
-    elif nND == 0 and nD > 0:
-        overall = DELIVERED
-    elif nND > 0 and nD == 0:
-        overall = NOT_DELIVERED
-    elif nND > 0 and nD > 0:
-        overall = MIXED
+    # ---- Gate 2: EG14 (only for prod-web)
+    eg14_dispatched = False
+    eg14_run_id = None
+    eg14_passed = None
+    eg14_failed = None
+    eg14_total = None
+    eg14_status = None
+
+    if touches_web and supabase_pass:  # only run EG14 if supabase gate cleared
+        target_url = summit.get("target_url") or "https://zonewise.ai"
+
+        # Debounce: if recent EG14 exists and it passed, reuse
+        existing = _last_eg14_for_summit(sid)
+        if existing and existing["ran_at"]:
+            ran_at_dt = datetime.fromisoformat(existing["ran_at"].replace("Z","+00:00"))
+            age = datetime.now(timezone.utc) - ran_at_dt
+            if age < timedelta(hours=EG14_DEBOUNCE_HOURS):
+                eg14_passed = existing["passed"]
+                eg14_failed = existing["failed"]
+                eg14_total = existing["total"]
+                eg14_status = "reused_recent"
+                print(f"  [{sid[:8]}] reusing EG14 result from {age} ago: {eg14_passed}/{eg14_total}")
+
+        # Dispatch fresh if no recent result
+        if eg14_passed is None:
+            if not _check_global_rate_limit():
+                print(f"  [{sid[:8]}] global EG14 rate limit — deferring")
+                eg14_status = "rate_limited"
+            else:
+                print(f"  [{sid[:8]}] dispatching EG14 (scope={scope}, url={target_url})")
+                eg14_run_id = dispatch_eg14(sid, target_url, scope)
+                if eg14_run_id:
+                    eg14_dispatched = True
+                    conclusion = wait_eg14(eg14_run_id)
+                    eg14_status = conclusion
+                    # Read results from eg14_runs
+                    res = _last_eg14_for_summit(sid)
+                    if res:
+                        eg14_passed = res["passed"]
+                        eg14_failed = res["failed"]
+                        eg14_total = res["total"]
+                else:
+                    eg14_status = "dispatch_failed"
+
+    # ---- Combined dual-gate verdict
+    if not touches_web:
+        # Supabase-only: Gate 1 decides
+        if supabase_pass:       dual_gate = DG_PASS
+        elif supabase_insufficient: dual_gate = DG_INSUFFICIENT
+        elif nDO > 0 and nD > 0 and nND == 0: dual_gate = DG_INSUFFICIENT  # mixed with unverifiables
+        else: dual_gate = DG_FAIL
     else:
-        overall = DISPATCHED_ONLY
+        # Prod-web: both gates required
+        if not supabase_pass:
+            dual_gate = DG_INSUFFICIENT if supabase_insufficient else DG_FAIL
+        elif eg14_passed is None:
+            # EG14 couldn't run (rate limit, dispatch fail)
+            dual_gate = DG_INSUFFICIENT
+        elif eg14_failed and eg14_failed > 0:
+            dual_gate = DG_FAIL
+        elif eg14_total and eg14_passed >= max(int(eg14_total * 0.86), eg14_total - 1):
+            # Require ≥86% OR ≤1 failure (whichever is tighter) — mirrors EG14 bar
+            dual_gate = DG_PASS
+        else:
+            dual_gate = DG_FAIL
 
-    # Persist
-    run_payload = {
-        "summit_id": summit["id"],
+    # Overall claim verdict for back-compat
+    if nND == 0 and nD > 0: overall = CLAIM_DELIVERED
+    elif nND > 0 and nD == 0: overall = CLAIM_NOT_DELIVERED
+    elif nND > 0 and nD > 0: overall = "MIXED"
+    else: overall = CLAIM_DISPATCHED_ONLY
+
+    run_row = {
+        "summit_id": sid,
         "overall_verdict": overall,
-        "claims_total": n,
+        "claims_total": len(per_claim),
         "claims_delivered": nD,
         "claims_not_delivered": nND,
         "claims_dispatched_only": nDO,
         "claims_blocked": nB,
-        "per_claim_verdicts": results,
+        "per_claim_verdicts": per_claim,
         "auto_flipped_to_failed": False,
+        "eg14_dispatched": eg14_dispatched,
+        "eg14_run_id": eg14_run_id,
+        "eg14_passed": eg14_passed,
+        "eg14_failed": eg14_failed,
+        "eg14_total": eg14_total,
+        "dual_gate_verdict": dual_gate,
+        "verifier_completed_at": datetime.now(timezone.utc).isoformat(),
+        "verifier_version": "v2.0-dual-gate",
     }
 
-    # Auto-flip if enabled and overall is NOT_DELIVERED
-    if auto_flip and overall == NOT_DELIVERED and summit.get("state") == "verified":
-        patch_r = sb_patch(
-            f"/rest/v1/summit_chat_dispatch?id=eq.{summit['id']}",
-            {
-                "state": "failed",
-                "last_error": f"supabase_summit_verifier: {overall} ({nND}/{n} claims NOT_DELIVERED)",
-            },
-        )
-        if patch_r.status_code in (200, 204):
-            run_payload["auto_flipped_to_failed"] = True
-            # Also log an honesty violation
-            sb_post("/rest/v1/honesty_violations", {
-                "domain": "summit_dispatch",
-                "claim": f"SUMMIT {summit['id']} claimed state=verified",
-                "tag_used": "VERIFIED",
-                "actual_truth": f"supabase_summit_verifier verdict={overall}. {nND}/{n} claims NOT_DELIVERED.",
-                "severity": "CRITICAL",
-                "session_source": "supabase_summit_verifier",
-                "corrective_action": "State auto-flipped to failed by verifier. Review per_claim_verdicts in summit_verifier_runs.",
-            })
+    # ---- State machine routing
+    current_state = summit.get("state")
+    if dual_gate == DG_PASS:
+        # Allowed to transition to verified (trigger will validate)
+        if current_state in ("awaiting_verification", "dispatched", "running"):
+            r = sb_patch(f"/rest/v1/summit_chat_dispatch?id=eq.{sid}", {"state": "verified", "completed_at": datetime.now(timezone.utc).isoformat()})
+            if r.status_code in (200, 204):
+                print(f"  [{sid[:8]}] ✓ PROMOTED to verified")
+            else:
+                print(f"  [{sid[:8]}] promote failed: {r.status_code} {r.text[:120]}")
 
-    sb_post("/rest/v1/summit_verifier_runs", run_payload)
-    return run_payload
+    elif dual_gate == DG_FAIL and auto_flip:
+        if current_state == "verified":
+            r = sb_patch(f"/rest/v1/summit_chat_dispatch?id=eq.{sid}", {"state": "failed"})
+            if r.status_code in (200, 204):
+                run_row["auto_flipped_to_failed"] = True
+                sb_post("/rest/v1/honesty_violations", {
+                    "domain": "summit_dispatch",
+                    "claim": f"SUMMIT {sid} previously state=verified (self-attested)",
+                    "tag_used": "VERIFIED",
+                    "actual_truth": f"dual-gate verifier v2 verdict=FAIL (supabase_claims={nD}/{len(per_claim)}, eg14={eg14_passed}/{eg14_total})",
+                    "severity": "CRITICAL",
+                    "session_source": "supabase_summit_verifier_v2",
+                    "corrective_action": "Auto-flipped to failed by dual-gate verifier.",
+                })
+                print(f"  [{sid[:8]}] ✗ FLIPPED verified→failed (dual_gate=FAIL)")
+
+    elif dual_gate == DG_INSUFFICIENT and auto_flip:
+        if current_state == "verified":
+            r = sb_patch(f"/rest/v1/summit_chat_dispatch?id=eq.{sid}", {"state": "closed"})
+            if r.status_code in (200, 204):
+                print(f"  [{sid[:8]}] ⚪ ROUTED verified→closed (insufficient evidence)")
+
+    sb_post("/rest/v1/summit_verifier_runs", run_row)
+    return run_row
 
 
+# ---------------------------------------------------------------------------
+# Fetchers
+# ---------------------------------------------------------------------------
 def fetch_summits_by_session(session_id: str) -> list[dict]:
-    return sb_get(f"/rest/v1/summit_chat_dispatch?chat_session_id=eq.{session_id}&select=*")
+    return sb_get(f"/rest/v1/summit_chat_dispatch?chat_session_id=eq.{session_id}&select=*&order=created_at.asc")
 
 
 def fetch_summit(summit_id: str) -> dict | None:
     rows = sb_get(f"/rest/v1/summit_chat_dispatch?id=eq.{summit_id}&select=*")
     return rows[0] if rows else None
+
+
+def fetch_all_awaiting() -> list[dict]:
+    return sb_get(f"/rest/v1/summit_chat_dispatch?state=eq.awaiting_verification&select=*")
 
 
 def fetch_verified_since(hours: int = 24) -> list[dict]:
@@ -405,60 +518,44 @@ def main():
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--summit-id")
     g.add_argument("--session")
-    g.add_argument("--all-verified-today", action="store_true")
-    g.add_argument("--auto-patrol", action="store_true", help="cron mode: verify last 24h of state=verified")
-    ap.add_argument("--auto-flip", action="store_true", help="flip verified→failed on NOT_DELIVERED verdict")
-    ap.add_argument("--telegram", action="store_true", help="send summary to Telegram")
+    g.add_argument("--all-awaiting-verification", action="store_true")
+    g.add_argument("--auto-patrol", action="store_true")
+    g.add_argument("--retro-verify-today", action="store_true", help="Re-verify today's self-attested verified summits")
+    ap.add_argument("--no-auto-flip", action="store_true")
+    ap.add_argument("--no-eg14", action="store_true", help="Skip EG14 (Supabase gate only)")
     args = ap.parse_args()
 
-    _sanity_check_env()
+    _sanity()
 
     if args.summit_id:
-        s = fetch_summit(args.summit_id)
-        summits = [s] if s else []
+        s = fetch_summit(args.summit_id); summits = [s] if s else []
     elif args.session:
         summits = fetch_summits_by_session(args.session)
-    elif args.all_verified_today or args.auto_patrol:
+    elif args.all_awaiting_verification:
+        summits = fetch_all_awaiting()
+    elif args.auto_patrol:
+        summits = fetch_all_awaiting() + fetch_verified_since(2)  # patrol window
+    elif args.retro_verify_today:
         summits = fetch_verified_since(24)
 
-    # Only verify summits currently in verified state (others are already terminal)
-    summits = [s for s in summits if s.get("state") == "verified"]
-    print(f"[verifier] {len(summits)} verified SUMMITs to audit")
+    print(f"[verifier] {len(summits)} SUMMIT(s) to audit")
+    print(f"[verifier] EG14 chaining: {'DISABLED' if args.no_eg14 else 'ENABLED'} · auto_flip: {'NO' if args.no_auto_flip else 'YES'}")
 
-    rollup = {DELIVERED: 0, NOT_DELIVERED: 0, DISPATCHED_ONLY: 0, MIXED: 0, BLOCKED_HONEST: 0}
-    flipped = 0
-    detail_lines = []
-
+    rollup = {DG_PASS: 0, DG_FAIL: 0, DG_INSUFFICIENT: 0}
     for s in summits:
-        title = (s.get("summit_title") or "")[:60]
+        if not s: continue
         try:
-            result = verify_summit(s, auto_flip=args.auto_flip)
+            res = verify_summit(s, auto_flip=not args.no_auto_flip)
+            rollup[res["dual_gate_verdict"]] = rollup.get(res["dual_gate_verdict"], 0) + 1
+            marker = {"PASS":"🟢", "FAIL":"🔴", "INSUFFICIENT_EVIDENCE":"⚪"}.get(res["dual_gate_verdict"], "?")
+            print(f"  {marker} {s['id'][:8]} [{res['dual_gate_verdict']:22s}] claims={res['claims_delivered']}/{res['claims_total']} eg14={res['eg14_passed']}/{res['eg14_total']} · {(s.get('summit_title') or '')[:50]}")
         except Exception as e:
-            print(f"  ERR {s['id'][:8]}: {e}")
-            continue
-        v = result["overall_verdict"]
-        rollup[v] = rollup.get(v, 0) + 1
-        if result["auto_flipped_to_failed"]:
-            flipped += 1
-        marker = "🟢" if v == DELIVERED else ("🔴" if v == NOT_DELIVERED else ("🟡" if v == MIXED else "⚪"))
-        line = f"  {marker} {s['id'][:8]} [{v:25s}] {result['claims_delivered']}/{result['claims_total']} delivered · {title}"
-        detail_lines.append(line)
-        print(line)
+            print(f"  ERR {s['id'][:8]}: {type(e).__name__}: {str(e)[:200]}")
 
-    summary = (
-        f"\n=== ROLLUP ===\n"
-        f"  DELIVERED-VERIFIED:      {rollup.get(DELIVERED, 0)}\n"
-        f"  GHA-GREEN-NOT-DELIVERED: {rollup.get(NOT_DELIVERED, 0)}\n"
-        f"  MIXED:                   {rollup.get(MIXED, 0)}\n"
-        f"  DISPATCHED-ONLY:         {rollup.get(DISPATCHED_ONLY, 0)}\n"
-        f"  BLOCKED-HONEST:          {rollup.get(BLOCKED_HONEST, 0)}\n"
-        f"  AUTO-FLIPPED TO FAILED:  {flipped}\n"
-    )
-    print(summary)
-
-    if args.telegram:
-        tg_msg = f"<b>SUMMIT Verifier</b>\n{summary}\n\n" + "\n".join(detail_lines[:10])
-        tg_send(tg_msg)
+    print(f"\n=== DUAL-GATE ROLLUP ===")
+    print(f"  PASS:                 {rollup.get(DG_PASS, 0)}")
+    print(f"  FAIL:                 {rollup.get(DG_FAIL, 0)}")
+    print(f"  INSUFFICIENT_EVIDENCE:{rollup.get(DG_INSUFFICIENT, 0)}")
 
 
 if __name__ == "__main__":
