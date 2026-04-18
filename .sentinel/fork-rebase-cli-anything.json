@@ -1,8 +1,8 @@
 {
-  "sentinel_run": "2026-04-18T09:17:33.487004+00:00",
+  "sentinel_run": "2026-04-18T09:18:54.586467+00:00",
   "upstream_repo": "HKUDS/CLI-Anything",
   "upstream_sha": "7e61df72e95aefdc7af5cc0d1ddead64e6a8444c",
-  "target_sha_before": "d4b32cc20bae66850d4f4b060eebf2f2cd8bc7b2",
+  "target_sha_before": "ee8e2f593e49b9e6e16afb53f5ca7d5d34b5aac1",
   "already_synced": false,
   "integration_kind": "fork-rebase"
 }
