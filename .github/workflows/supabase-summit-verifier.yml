@@ -19,6 +19,7 @@ on:
           - all-verified-today
           - session
           - summit-id
+          - retro-verify-today
       session_id:
         description: "chat_session_id (if mode=session)"
         required: false
@@ -84,3 +85,6 @@ jobs:
       - name: Run verifier (summit-id)
         if: ${{ inputs.mode == 'summit-id' }}
         run: python scripts/supabase_summit_verifier.py --summit-id "${{ inputs.summit_id }}" --auto-flip --telegram
+      - name: Run verifier (retro-verify today's self-attested verified)
+        if: ${{ inputs.mode == 'retro-verify-today' }}
+        run: python scripts/supabase_summit_verifier.py --retro-verify-today
