@@ -297,7 +297,8 @@ def _last_eg14_for_summit(summit_uuid: str) -> dict | None:
 def _check_global_rate_limit() -> bool:
     """Return True if we may dispatch EG14 (no dispatch in last GLOBAL_RATE_LIMIT_MIN min)."""
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=GLOBAL_RATE_LIMIT_MIN)).isoformat()
+        from urllib.parse import quote
+        cutoff = quote((datetime.now(timezone.utc) - timedelta(minutes=GLOBAL_RATE_LIMIT_MIN)).isoformat(), safe="")
         rows = sb_get(f"/rest/v1/summit_verifier_runs?eg14_dispatched=eq.true&run_at=gte.{cutoff}&select=id&limit=1")
         return len(rows) == 0
     except Exception:
@@ -506,7 +507,8 @@ def fetch_all_awaiting() -> list[dict]:
 
 
 def fetch_verified_since(hours: int = 24) -> list[dict]:
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    from urllib.parse import quote
+    since = quote((datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(), safe="")
     return sb_get(f"/rest/v1/summit_chat_dispatch?state=eq.verified&completed_at=gte.{since}&select=*")
 
 
