@@ -369,7 +369,10 @@ def verify_summit(summit: dict, auto_flip: bool = True) -> dict:
     eg14_total = None
     eg14_status = None
 
-    if touches_web and supabase_pass:  # only run EG14 if supabase gate cleared
+    # R1.1: EG14 dispatches unconditionally for touches_prod_web=TRUE,
+    # even when supabase_pass is False. Failures deserve richer diagnostics,
+    # not short-circuit. Debounce still applies (1hr per summit).
+    if touches_web:
         target_url = summit.get("target_url") or "https://zonewise.ai"
 
         # Debounce: if recent EG14 exists and it passed, reuse
@@ -405,27 +408,41 @@ def verify_summit(summit: dict, auto_flip: bool = True) -> dict:
                 else:
                     eg14_status = "dispatch_failed"
 
-    # ---- Combined dual-gate verdict
+    # ---- Combined dual-gate verdict (R1.2: both gates required for PASS)
     if not touches_web:
-        # Supabase-only: Gate 1 decides
-        if supabase_pass:       dual_gate = DG_PASS
+        # Supabase-only path: Gate 1 decides
+        if supabase_pass:           dual_gate = DG_PASS
         elif supabase_insufficient: dual_gate = DG_INSUFFICIENT
-        elif nDO > 0 and nD > 0 and nND == 0: dual_gate = DG_INSUFFICIENT  # mixed with unverifiables
-        else: dual_gate = DG_FAIL
+        elif nDO > 0 and nD > 0 and nND == 0: dual_gate = DG_INSUFFICIENT
+        else:                       dual_gate = DG_FAIL
     else:
-        # Prod-web: both gates required
-        if not supabase_pass:
-            dual_gate = DG_INSUFFICIENT if supabase_insufficient else DG_FAIL
-        elif eg14_passed is None:
-            # EG14 couldn't run (rate limit, dispatch fail)
-            dual_gate = DG_INSUFFICIENT
+        # Prod-web path: BOTH gates must pass. Failure in either = FAIL.
+        gate1_pass = supabase_pass
+        gate1_fail = (nND > 0) and not supabase_pass
+        gate1_insufficient = supabase_insufficient
+
+        # Compute gate2 (EG14) verdict
+        if eg14_passed is None:
+            gate2_verdict = 'NOT_RUN'
         elif eg14_failed and eg14_failed > 0:
-            dual_gate = DG_FAIL
+            gate2_verdict = 'FAIL'
         elif eg14_total and eg14_passed >= max(int(eg14_total * 0.86), eg14_total - 1):
-            # Require ≥86% OR ≤1 failure (whichever is tighter) — mirrors EG14 bar
-            dual_gate = DG_PASS
+            gate2_verdict = 'PASS'
         else:
+            gate2_verdict = 'FAIL'
+
+        # Combine (strict: any failure = overall FAIL)
+        if gate1_pass and gate2_verdict == 'PASS':
+            dual_gate = DG_PASS
+        elif gate1_fail or gate2_verdict == 'FAIL':
             dual_gate = DG_FAIL
+        elif gate2_verdict == 'NOT_RUN' and gate1_pass:
+            # Gate 1 passed but EG14 couldn't run — insufficient
+            dual_gate = DG_INSUFFICIENT
+        elif gate1_insufficient and gate2_verdict == 'NOT_RUN':
+            dual_gate = DG_INSUFFICIENT
+        else:
+            dual_gate = DG_INSUFFICIENT
 
     # Overall claim verdict for back-compat
     if nND == 0 and nD > 0: overall = CLAIM_DELIVERED
@@ -450,7 +467,7 @@ def verify_summit(summit: dict, auto_flip: bool = True) -> dict:
         "eg14_total": eg14_total,
         "dual_gate_verdict": dual_gate,
         "verifier_completed_at": datetime.now(timezone.utc).isoformat(),
-        "verifier_version": "v2.0-dual-gate",
+        "verifier_version": "v2.1-decoupled-eg14",
     }
 
     # ---- State machine routing
