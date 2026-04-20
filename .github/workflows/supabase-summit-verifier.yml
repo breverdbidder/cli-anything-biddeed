@@ -72,19 +72,19 @@ jobs:
 
       - name: Run verifier (auto-patrol)
         if: ${{ github.event_name == 'schedule' || inputs.mode == 'auto-patrol' }}
-        run: python scripts/supabase_summit_verifier.py --auto-patrol --auto-flip --telegram
+        run: python scripts/supabase_summit_verifier.py --auto-patrol
 
       - name: Run verifier (all-verified-today)
         if: ${{ inputs.mode == 'all-verified-today' }}
-        run: python scripts/supabase_summit_verifier.py --all-verified-today --auto-flip --telegram
+        run: python scripts/supabase_summit_verifier.py --all-verified-today
 
       - name: Run verifier (session)
         if: ${{ inputs.mode == 'session' }}
-        run: python scripts/supabase_summit_verifier.py --session "${{ inputs.session_id }}" --auto-flip --telegram
+        run: python scripts/supabase_summit_verifier.py --session "${{ inputs.session_id }}"
 
       - name: Run verifier (summit-id)
         if: ${{ inputs.mode == 'summit-id' }}
-        run: python scripts/supabase_summit_verifier.py --summit-id "${{ inputs.summit_id }}" --auto-flip --telegram
+        run: python scripts/supabase_summit_verifier.py --summit-id "${{ inputs.summit_id }}"
       - name: Run verifier (retro-verify today's self-attested verified)
         if: ${{ inputs.mode == 'retro-verify-today' }}
         run: python scripts/supabase_summit_verifier.py --retro-verify-today
