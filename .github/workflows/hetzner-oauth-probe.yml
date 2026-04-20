@@ -1,25 +1,15 @@
-name: Hetzner OAuth Probe & Refresh
-# 2026-04-20: diagnostic workflow to investigate + attempt recovery of
-# expired Max OAuth credentials on the Hetzner runner. Triggered manually
-# from Supabase pg_net via workflow_dispatch. Reports creds metadata,
-# attempts refresh via claude CLI, then tests with a trivial claude -p.
-# Never prints actual token values.
-
+name: Hetzner OAuth Probe v2
+# 2026-04-20: corrects filename bug (.credentials.json not credentials.json)
+# and explores non-browser refresh paths.
 on:
   workflow_dispatch:
-    inputs:
-      verbose:
-        description: 'Print expanded diagnostic output'
-        required: false
-        default: 'true'
-        type: string
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: SSH to Hetzner and probe OAuth state
+      - name: Deep probe
         env:
           HETZNER_IP: ${{ secrets.HETZNER_IP }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
@@ -30,49 +20,46 @@ jobs:
           chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
 
-          echo "::group::1. Credentials file presence (ROOT)"
-          $SSH "ls -la /root/.claude/ 2>&1 || echo '/root/.claude missing'"
+          echo "::group::A. Token shape on /root/.credentials.json (keys + value types only)"
+          $SSH "jq 'to_entries | map({k: .key, vtype: (.value | type), vlen: (.value | tostring | length)})' /root/.claude/.credentials.json 2>&1" || echo "parse failed"
           echo "::endgroup::"
 
-          echo "::group::2. Credentials file presence (SUMMIT)"
-          $SSH "ls -la /home/summit/.claude/ 2>&1 || echo '/home/summit/.claude missing'"
+          echo "::group::B. Nested claudeAiOauth structure (if OAuth shape)"
+          $SSH "jq '.claudeAiOauth | if . then to_entries | map({k: .key, vtype: (.value | type), vlen: (.value | tostring | length)}) else \"no claudeAiOauth wrapper\" end' /root/.claude/.credentials.json 2>&1" || echo "nested probe failed"
           echo "::endgroup::"
 
-          echo "::group::3. Credentials file mtime + size (ROOT)"
-          $SSH "stat -c 'mtime=%y size=%s path=%n' /root/.claude/credentials.json /root/.claude/.credentials.json 2>&1 || echo 'no creds in /root/.claude/'"
+          echo "::group::C. Expiration fields (non-sensitive)"
+          $SSH "jq '{root_expires_at: .expires_at, nested_expires_at: .claudeAiOauth.expiresAt, root_exp: .exp, scopes: .claudeAiOauth.scopes, account_uuid: (.claudeAiOauth.accountUuid // \"none\"), subscription: (.claudeAiOauth.subscriptionType // \"none\")}' /root/.claude/.credentials.json 2>&1" || echo "exp fields probe failed"
           echo "::endgroup::"
 
-          echo "::group::4. Token JSON shape (keys only — values never printed)"
-          $SSH "jq 'if type==\"object\" then to_entries | map({k: .key, vtype: (.value | type), vlen: (.value | tostring | length)}) else {type: (type)} end' /root/.claude/credentials.json 2>&1 || echo 'parse failed on /root creds'"
+          echo "::group::D. Has refresh_token? (length only, not value)"
+          $SSH "jq '{has_refresh_at_root: (has(\"refreshToken\") or has(\"refresh_token\")), has_refresh_nested: (.claudeAiOauth | has(\"refreshToken\")), refresh_len: (.claudeAiOauth.refreshToken // .refreshToken // .refresh_token // empty | tostring | length)}' /root/.claude/.credentials.json 2>&1" || echo "refresh probe failed"
           echo "::endgroup::"
 
-          echo "::group::5. Token expiration extraction (if present)"
-          $SSH "jq -r '[(.expires_at // empty), (.exp // empty), (.refresh_expires_at // empty), (.access_token_expires_at // empty)] | map(tostring) | join(\" | \")' /root/.claude/credentials.json 2>&1 || echo 'no expiration fields readable'"
+          echo "::group::E. Claude CLI top-level commands"
+          $SSH "claude --help 2>&1 | head -60" || true
           echo "::endgroup::"
 
-          echo "::group::6. Claude CLI installed + version"
-          $SSH "which claude 2>&1 && claude --version 2>&1 || echo 'claude CLI missing'"
+          echo "::group::F. Claude CLI login/auth subcommands"
+          $SSH "claude /help 2>&1 | head -80" || true
           echo "::endgroup::"
 
-          echo "::group::7. Attempt claude /status as ROOT (may trigger auto-refresh)"
-          $SSH "HOME=/root timeout 15 claude /status 2>&1 | head -30 || echo 'claude /status returned nonzero'"
+          echo "::group::G. Claude CLI session / account commands (any refresh paths?)"
+          $SSH "HOME=/root claude --print '/login' --max-turns 1 2>&1 | head -20 || echo 'test interactive cmd failed'"
           echo "::endgroup::"
 
-          echo "::group::8. Credentials file mtime AFTER refresh attempt"
-          $SSH "stat -c 'mtime=%y size=%s path=%n' /root/.claude/credentials.json 2>&1 || echo 'no creds'"
+          echo "::group::H. Network check — can we reach Anthropic from Hetzner?"
+          $SSH "curl -s -o /dev/null -w 'status=%{http_code} time=%{time_total}\n' https://api.anthropic.com/v1/messages -X POST -H 'Content-Type: application/json' -d '{}' 2>&1" || true
           echo "::endgroup::"
 
-          echo "::group::9. Re-copy root creds to summit (mirroring claude-code-direct.yml)"
-          $SSH "mkdir -p /home/summit/.claude && SRC=\$(ls /root/.claude/.credentials.json /root/.claude/credentials.json 2>/dev/null | head -1); if [ -z \"\$SRC\" ]; then echo 'no source creds'; exit 1; fi; cp -fv \"\$SRC\" /home/summit/.claude/.credentials.json && cp -fv \"\$SRC\" /home/summit/.claude/credentials.json && chown -R summit:summit /home/summit/.claude && chmod 600 /home/summit/.claude/.credentials.json /home/summit/.claude/credentials.json"
+          echo "::group::I. Check for backup credential files that might be fresher"
+          $SSH "find /root/.claude /home/summit/.claude -name '*credential*' -printf '%T+ %s %p\n' 2>&1 | sort" || true
           echo "::endgroup::"
 
-          echo "::group::10. Trivial claude -p test as summit (auth validation)"
-          # If refresh worked, this should succeed with a one-word answer.
-          # If still expired, will 401 fail in ~3-5 sec with identical signature.
-          $SSH "sudo -u summit HOME=/home/summit timeout 60 claude -p 'Reply with exactly one word: ping' --model claude-sonnet-4-6 --max-turns 1 2>&1 | tail -20 || echo 'claude -p failed'"
+          echo "::group::J. Cliproxy status + supported backends"
+          $SSH "curl -s http://127.0.0.1:8317/health 2>&1 || curl -s http://127.0.0.1:8317/v1/models 2>&1 || echo 'cliproxy probe failed'" | head -30
           echo "::endgroup::"
 
-          echo "::group::11. Final credentials mtime (detect if claude -p auto-refreshed)"
-          $SSH "stat -c 'summit: mtime=%y size=%s' /home/summit/.claude/credentials.json 2>&1"
-          $SSH "stat -c 'root:   mtime=%y size=%s' /root/.claude/credentials.json 2>&1"
+          echo "::group::K. Cliproxy config (which models/providers it supports)"
+          $SSH "cat /opt/cliproxy-gateway/config.yaml 2>&1 | head -80 | sed 's/\(api-key[s]*:\s*\).*\"\(.*\)\"/\\1\"REDACTED(len=\2len)\"/g'" || true
           echo "::endgroup::"
