@@ -199,13 +199,13 @@ jobs:
           WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           # job.status is 'success', 'failure', or 'cancelled'
           case "$JOB_STATUS" in
-            success)   NEW_STATE="verified" ;;
+            success)   NEW_STATE="awaiting_verification" ;;
             failure)   NEW_STATE="failed" ;;
             cancelled) NEW_STATE="failed" ;;
             *)         NEW_STATE="failed" ;;
           esac
           COMPLETED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          PAYLOAD=$(jq -nc --arg url "$WORKFLOW_URL" --arg state "$NEW_STATE" --arg completed "$COMPLETED_AT" --arg status "$JOB_STATUS" --arg run_id "${{ github.run_id }}" '{workflow_run_id:($run_id|tonumber), workflow_run_url:$url, state:$state, completed_at:$completed, last_error:(if $status != "success" then "GHA job status: \($status)" else null end)}')
+          PAYLOAD=$(jq -nc --arg url "$WORKFLOW_URL" --arg state "$NEW_STATE" --arg completed "$COMPLETED_AT" --arg status "$JOB_STATUS" --arg run_id "${{ github.run_id }}" --arg issue "$ISSUE" '{workflow_run_id:($run_id|tonumber), workflow_run_url:$url, state:$state, completed_at:$completed, delivery_proof:{smoke_test:{gha_conclusion:$status, gha_run_id:($run_id|tonumber), gha_url:$url, issue_number:($issue|tonumber), verified_at:$completed}}, last_error:(if $status != "success" then "GHA job status: \($status)" else null end)}')
           curl -sS -X PATCH \
             "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?github_issue_number=eq.${ISSUE}" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
