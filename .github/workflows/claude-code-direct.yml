@@ -46,7 +46,7 @@ jobs:
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            -d "{\"workflow_run_url\":\"${WORKFLOW_URL}\",\"state\":\"running\"}" \
+            -d "{\"workflow_run_id\":${{ github.run_id }},\"workflow_run_url\":\"${WORKFLOW_URL}\",\"state\":\"running\"}" \
             -o /tmp/patch_start.txt -w "Supabase PATCH (running): HTTP %{http_code}\n" || echo "WARN: Supabase PATCH running failed (non-fatal, continuing)"
 
       - name: Validate issue input
@@ -205,7 +205,7 @@ jobs:
             *)         NEW_STATE="failed" ;;
           esac
           COMPLETED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          PAYLOAD=$(jq -nc --arg url "$WORKFLOW_URL" --arg state "$NEW_STATE" --arg completed "$COMPLETED_AT" --arg status "$JOB_STATUS" '{workflow_run_url:$url, state:$state, completed_at:$completed, last_error:(if $status != "success" then "GHA job status: \($status)" else null end)}')
+          PAYLOAD=$(jq -nc --arg url "$WORKFLOW_URL" --arg state "$NEW_STATE" --arg completed "$COMPLETED_AT" --arg status "$JOB_STATUS" --arg run_id "${{ github.run_id }}" '{workflow_run_id:($run_id|tonumber), workflow_run_url:$url, state:$state, completed_at:$completed, last_error:(if $status != "success" then "GHA job status: \($status)" else null end)}')
           curl -sS -X PATCH \
             "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?github_issue_number=eq.${ISSUE}" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
