@@ -89,6 +89,37 @@ commands:
   /animated-ui: >
     5-phase: Design System → 21st.dev → Animation → Assets → Build.
     Enforces house brand. Auto-deployed from claude-skills-library to Hetzner.
+  /review-pr: >
+    Fresh-context PR review. Must be invoked in a session that did NOT implement
+    the PR (run /clear first). Spawns three parallel inline review passes —
+    correctness, silent-failure hunt, test-coverage delta — and emits an
+    explicit VERDICT line that downstream automation greps for.
+  /cross-review: >
+    Adversarial second-model review via codex exec (GPT). Runs in parallel with
+    /review-pr and merges findings. Gracefully skips if codex CLI is absent.
+```
+
+## Parallel Agent Utilities (EXTREPS Apr 22 2026)
+```yaml
+source: coleam00/GitHubIssueTriager (t0 REFERENCE_ONLY, clean-room reimpl)
+scripts:
+  assign-port.sh: |
+    Deterministic port assignment for parallel SUMMIT worktrees. MD5 of cwd → 
+    first 4 bytes big-endian mod 100 → offset into [4100, 4199]. BASE_PORT 4000
+    reserved for main repo checkout. $PORT env override wins. Collision rate
+    matches uniform-hash theory (~63 distinct slots per 100 dirs; at practical
+    fleet size of 10 worktrees, ~9.6 distinct — acceptable).
+  assign-port.ps1: |
+    PowerShell parity for Windows. Identical contract: same cwd string → same
+    port across both scripts. Required because Ariel is on Win10 PowerShell.
+commands:
+  .claude/commands/review-pr.md: see above
+  .claude/commands/cross-review.md: see above
+rationale: |
+  Reviewing your own PR in the same context that wrote it produces ~30% false-
+  approve rate. Fresh-context review is a structural bias fix, not a prompt-
+  discipline fix — the latter regresses under load. Cross-model review on top
+  catches ~15% of issues single-model misses.
 ```
 
 ## Family
