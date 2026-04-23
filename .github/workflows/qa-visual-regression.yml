@@ -4,6 +4,26 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+    # Skip visual-regression for PRs that touch zero visual surface.
+    # Docs, shell scripts, .claude commands, and other workflow YAML cannot
+    # change rendered UI, so running Playwright against them is a false-
+    # positive check that blocks merge with no signal. Verified on PR #558
+    # (docs + scripts only, 5 files) which produced a "no diff PNGs found"
+    # failure because there was nothing visual to diff.
+    paths-ignore:
+      - '**/*.md'
+      - 'scripts/**'
+      - '.claude/**'
+      - 'docs/**'
+      - '.github/**'
+      - '.husky/**'
+      - '.vscode/**'
+      - '.editorconfig'
+      - '.gitignore'
+      - '.prettierrc'
+      - '.prettierignore'
+      - 'LICENSE'
+      - 'README.md'
 
 # Required check — blocks merge if visual diff > 1%
 concurrency:
