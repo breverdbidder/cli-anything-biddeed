@@ -2,7 +2,7 @@
 name: CAIRN multi-county scraper
 on:
   schedule:
-    - cron: '0 7 * * *'   # daily 07:00 UTC (02:00 EST)
+    - cron: '0 7 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -21,5 +21,5 @@ jobs:
       - name: Run CAIRN scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/cairn_multi_county_scraper.py
