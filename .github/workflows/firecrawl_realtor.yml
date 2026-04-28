@@ -23,18 +23,18 @@ jobs:
           API_KEY = os.environ['FIRECRAWL_API_KEY'].strip()
           
           PROPERTIES = [
-              {"id": "rainsville", "url": "https://www.redfin.com/FL/Palm-Bay/1548-Rainsville-Rd-SE-32909/home/96108437"},
-              {"id": "district",   "url": "https://www.redfin.com/FL/Palm-Bay/211-District-St-SE-32909/home/96189519"},
-              {"id": "fillmore",   "url": "https://www.redfin.com/FL/Palm-Bay/478-Fillmore-Ave-NE-32907/home/96196127"},
-              {"id": "copenhaver", "url": "https://www.redfin.com/FL/Palm-Bay/342-Copenhaver-Ave-NE-32907/home/96173289"},
-              {"id": "eldron",     "url": "https://www.redfin.com/FL/Palm-Bay/3120-Eldron-Blvd-SE-32909/home/96108422"},
-              {"id": "kirkland",   "url": "https://www.redfin.com/FL/Cocoa/1107-Kirkland-Dr-32922/home/96007849"},
-              {"id": "pompano",    "url": "https://www.redfin.com/FL/Rockledge/1036-Pompano-Dr-32955/home/96026773"},
-              {"id": "lakewood",   "url": "https://www.redfin.com/FL/Palm-Bay/1581-Lakewood-Dr-NE-32905/home/96011395"},
-              {"id": "robinhood",  "url": "https://www.redfin.com/FL/Melbourne/4087-Robinhood-Dr-32935/home/96082030"},
-              {"id": "miracle",    "url": "https://www.redfin.com/FL/Rockledge/977-Miracle-Way-32955/home/96027111"},
-              {"id": "bonny",      "url": "https://www.redfin.com/FL/Cocoa/2456-Bonny-Dr-32926/home/96005419"},
-              {"id": "canterbury", "url": "https://www.redfin.com/FL/Melbourne/2191-Canterbury-Ln-32935/home/96083221"},
+              {"id": "rainsville", "url": "https://www.redfin.com/FL/Palm-Bay/1548-Rainsville-Rd-SE-32909"},
+              {"id": "district",   "url": "https://www.redfin.com/FL/Palm-Bay/211-District-St-SE-32909"},
+              {"id": "fillmore",   "url": "https://www.redfin.com/FL/Palm-Bay/478-Fillmore-Ave-NE-32907"},
+              {"id": "copenhaver", "url": "https://www.redfin.com/FL/Palm-Bay/342-Copenhaver-Ave-NE-32907"},
+              {"id": "eldron",     "url": "https://www.redfin.com/FL/Palm-Bay/3120-Eldron-Blvd-SE-32909"},
+              {"id": "kirkland",   "url": "https://www.redfin.com/FL/Cocoa/1107-Kirkland-Dr-32922"},
+              {"id": "pompano",    "url": "https://www.redfin.com/FL/Rockledge/1036-Pompano-Dr-32955"},
+              {"id": "lakewood",   "url": "https://www.redfin.com/FL/Palm-Bay/1581-Lakewood-Dr-NE-32905"},
+              {"id": "robinhood",  "url": "https://www.redfin.com/FL/Melbourne/4087-Robinhood-Dr-32935"},
+              {"id": "miracle",    "url": "https://www.redfin.com/FL/Rockledge/977-Miracle-Way-32955"},
+              {"id": "bonny",      "url": "https://www.redfin.com/FL/Cocoa/2456-Bonny-Dr-32926"},
+              {"id": "canterbury", "url": "https://www.redfin.com/FL/Melbourne/2191-Canterbury-Ln-32935"},
           ]
           
           def fc_scrape(url):
