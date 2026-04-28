@@ -23,18 +23,18 @@ jobs:
           API_KEY = os.environ['FIRECRAWL_API_KEY'].strip()
           
           PROPERTIES = [
-              {"id": "rainsville", "url": "https://www.redfin.com/FL/Palm-Bay/1548-Rainsville-Rd-SE-32909"},
-              {"id": "district",   "url": "https://www.redfin.com/FL/Palm-Bay/211-District-St-SE-32909"},
-              {"id": "fillmore",   "url": "https://www.redfin.com/FL/Palm-Bay/478-Fillmore-Ave-NE-32907"},
-              {"id": "copenhaver", "url": "https://www.redfin.com/FL/Palm-Bay/342-Copenhaver-Ave-NE-32907"},
-              {"id": "eldron",     "url": "https://www.redfin.com/FL/Palm-Bay/3120-Eldron-Blvd-SE-32909"},
-              {"id": "kirkland",   "url": "https://www.redfin.com/FL/Cocoa/1107-Kirkland-Dr-32922"},
-              {"id": "pompano",    "url": "https://www.redfin.com/FL/Rockledge/1036-Pompano-Dr-32955"},
-              {"id": "lakewood",   "url": "https://www.redfin.com/FL/Palm-Bay/1581-Lakewood-Dr-NE-32905"},
-              {"id": "robinhood",  "url": "https://www.redfin.com/FL/Melbourne/4087-Robinhood-Dr-32935"},
-              {"id": "miracle",    "url": "https://www.redfin.com/FL/Rockledge/977-Miracle-Way-32955"},
-              {"id": "bonny",      "url": "https://www.redfin.com/FL/Cocoa/2456-Bonny-Dr-32926"},
-              {"id": "canterbury", "url": "https://www.redfin.com/FL/Melbourne/2191-Canterbury-Ln-32935"},
+              {"id": "rainsville", "url": "https://www.trulia.com/home/1548-rainsville-rd-se-palm-bay-fl-32909-2087463812"},
+              {"id": "district",   "url": "https://www.trulia.com/home/211-district-st-se-palm-bay-fl-32909-2087500770"},
+              {"id": "fillmore",   "url": "https://www.trulia.com/home/478-fillmore-ave-ne-palm-bay-fl-32907-2087500848"},
+              {"id": "copenhaver", "url": "https://www.trulia.com/home/342-copenhaver-ave-ne-palm-bay-fl-32907-2087500871"},
+              {"id": "eldron",     "url": "https://www.trulia.com/home/3120-eldron-blvd-se-palm-bay-fl-32909-2087463794"},
+              {"id": "kirkland",   "url": "https://www.trulia.com/home/1107-kirkland-dr-cocoa-fl-32922-2092501133"},
+              {"id": "pompano",    "url": "https://www.trulia.com/home/1036-pompano-dr-rockledge-fl-32955-2089502841"},
+              {"id": "lakewood",   "url": "https://www.trulia.com/home/1581-lakewood-dr-ne-palm-bay-fl-32905-2087463655"},
+              {"id": "robinhood",  "url": "https://www.trulia.com/home/4087-robinhood-dr-melbourne-fl-32935-2096502103"},
+              {"id": "miracle",    "url": "https://www.trulia.com/home/977-miracle-way-rockledge-fl-32955-2089502862"},
+              {"id": "bonny",      "url": "https://www.trulia.com/home/2456-bonny-dr-cocoa-fl-32926-2092501157"},
+              {"id": "canterbury", "url": "https://www.trulia.com/home/2191-canterbury-ln-melbourne-fl-32935-2096502124"},
           ]
           
           def fc_scrape(url):
@@ -78,6 +78,8 @@ jobs:
               if not html: return urls
               for pat in [
                   r'https://[a-z]{1,4}\.rdcpix\.com/[^"\s\'\\<>]+?\.jpg',
+                  r'https://thumbs[a-z0-9.\-]+/[^"\s\'\\<>]+?\.jpg',
+                  r'https://[a-z0-9.\-]+\.cdn-trulia\.com/[^"\s\'\\<>]+?\.jpg',
                   r'https://photos\.zillowstatic\.com/[^"\s\'\\<>]+?\.jpg',
                   r'https://ssl\.cdn-redfin\.com/photo/[^"\s\'\\<>]+?\.jpg',
               ]:
