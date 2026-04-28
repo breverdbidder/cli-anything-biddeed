@@ -41,11 +41,18 @@ jobs:
               """Hit Firecrawl /v1/scrape endpoint."""
               payload = json.dumps({
                   "url": url,
-                  "formats": ["html", "markdown"],
-                  "waitFor": 5000,
-                  "timeout": 45000,
+                  "formats": ["html", "markdown", "screenshot"],
+                  "waitFor": 8000,
+                  "timeout": 90000,
                   "onlyMainContent": False,
                   "blockAds": False,
+                  "proxy": "stealth",
+                  "mobile": False,
+                  "actions": [
+                      {"type": "wait", "milliseconds": 5000},
+                      {"type": "scroll", "direction": "down"},
+                      {"type": "wait", "milliseconds": 3000},
+                  ],
               }).encode()
               req = urllib.request.Request(
                   "https://api.firecrawl.dev/v1/scrape",
