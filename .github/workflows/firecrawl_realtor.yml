@@ -23,18 +23,8 @@ jobs:
           API_KEY = os.environ['FIRECRAWL_API_KEY'].strip()
           
           PROPERTIES = [
-              {"id": "rainsville", "url": "https://www.trulia.com/home/1548-rainsville-rd-se-palm-bay-fl-32909-2087463812"},
-              {"id": "district",   "url": "https://www.trulia.com/home/211-district-st-se-palm-bay-fl-32909-2087500770"},
-              {"id": "fillmore",   "url": "https://www.trulia.com/home/478-fillmore-ave-ne-palm-bay-fl-32907-2087500848"},
-              {"id": "copenhaver", "url": "https://www.trulia.com/home/342-copenhaver-ave-ne-palm-bay-fl-32907-2087500871"},
-              {"id": "eldron",     "url": "https://www.trulia.com/home/3120-eldron-blvd-se-palm-bay-fl-32909-2087463794"},
-              {"id": "kirkland",   "url": "https://www.trulia.com/home/1107-kirkland-dr-cocoa-fl-32922-2092501133"},
-              {"id": "pompano",    "url": "https://www.trulia.com/home/1036-pompano-dr-rockledge-fl-32955-2089502841"},
-              {"id": "lakewood",   "url": "https://www.trulia.com/home/1581-lakewood-dr-ne-palm-bay-fl-32905-2087463655"},
-              {"id": "robinhood",  "url": "https://www.trulia.com/home/4087-robinhood-dr-melbourne-fl-32935-2096502103"},
-              {"id": "miracle",    "url": "https://www.trulia.com/home/977-miracle-way-rockledge-fl-32955-2089502862"},
-              {"id": "bonny",      "url": "https://www.trulia.com/home/2456-bonny-dr-cocoa-fl-32926-2092501157"},
-              {"id": "canterbury", "url": "https://www.trulia.com/home/2191-canterbury-ln-melbourne-fl-32935-2096502124"},
+              {"id": "rainsville", "url": "https://www.zillow.com/homedetails/1548-Rainsville-St-SE-Palm-Bay-FL-32909/104107381_zpid/"},
+              {"id": "district",   "url": "https://www.redfin.com/FL/Palm-Bay/211-District-St-SE-32909/home/123816075"},
           ]
           
           def fc_scrape(url):
