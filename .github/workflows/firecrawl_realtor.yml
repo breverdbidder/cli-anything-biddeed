@@ -23,20 +23,7 @@ jobs:
           API_KEY = os.environ['FIRECRAWL_API_KEY'].strip()
           
           PROPERTIES = [
-              # VERIFIED URLs (have correct ZPID/home_id)
-              {"id": "rainsville", "url": "https://www.zillow.com/homedetails/1548-Rainsville-St-SE-Palm-Bay-FL-32909/104107381_zpid/"},
-              {"id": "district",   "url": "https://www.redfin.com/FL/Palm-Bay/211-District-St-SE-32909/home/123816075"},
-              {"id": "fillmore",   "url": "https://www.movoto.com/realestate/478-fillmore-ave-ne-palm-bay-fl-32907-434_785619"},
-              {"id": "copenhaver", "url": "https://www.redfin.com/FL/Palm-Bay/342-Copenhaver-Ave-NE-32907/home/122147564"},
-              {"id": "eldron",     "url": "https://www.zillow.com/homedetails/3120-Eldron-Blvd-SE-Palm-Bay-FL-32909/104080794_zpid/"},
-              # ZILLOW REDIRECT URLs - these auto-redirect to the property if it exists
-              {"id": "kirkland",   "url": "https://www.zillow.com/homes/1107-Kirkland-Dr-Cocoa-FL-32922_rb/"},
-              {"id": "pompano",    "url": "https://www.zillow.com/homes/1036-Pompano-Dr-Rockledge-FL-32955_rb/"},
-              {"id": "lakewood",   "url": "https://www.zillow.com/homes/1581-Lakewood-Dr-NE-Palm-Bay-FL-32905_rb/"},
-              {"id": "robinhood",  "url": "https://www.zillow.com/homes/4087-Robinhood-Dr-Melbourne-FL-32935_rb/"},
-              {"id": "miracle",    "url": "https://www.zillow.com/homes/977-Miracle-Way-Rockledge-FL-32955_rb/"},
-              {"id": "bonny",      "url": "https://www.zillow.com/homes/2456-Bonny-Dr-Cocoa-FL-32926_rb/"},
-              {"id": "canterbury", "url": "https://www.zillow.com/homes/2191-Canterbury-Ln-Melbourne-FL-32935_rb/"},
+              {"id": "fillmore",   "url": "https://www.zillow.com/homedetails/478-Fillmore-Ave-NE-Palm-Bay-FL-32907/104121666_zpid/"},
           ]
           
           def fc_scrape(url):
