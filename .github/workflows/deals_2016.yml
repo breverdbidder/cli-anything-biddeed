@@ -169,7 +169,7 @@ jobs:
               # 3d view uses pitch=60, bearing
               if view == "3d":
                   cfg = f"{lng},{lat},18.5,15,60"
-              url = f"https://api.mapbox.com/styles/v1/mapbox/{style}/static/{cfg}/1600x900@2x?access_token={token}"
+              url = f"https://api.mapbox.com/styles/v1/mapbox/{style}/static/{cfg}/1280x720?access_token={token}"
               try:
                   with http_get(url, timeout=25) as r:
                       data = r.read()
