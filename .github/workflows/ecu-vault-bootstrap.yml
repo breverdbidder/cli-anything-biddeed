@@ -1,0 +1,152 @@
+name: ECU Vault Bootstrap
+
+# Populates Supabase vault with secrets needed for ecu_chat_send():
+#   - anthropic_oauth_bearer (Claude Max OAuth, TIER 1 PRIMARY)
+#   - gemini_api_key         (Gemini paid API,    TIER 2 FALLBACK)
+#
+# Authoritative source of truth = GitHub repository secrets.
+# This workflow is the bridge from those secrets → Supabase vault.
+# Idempotent: re-running just refreshes the values.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ecu_vault_bootstrap_runs row id (for traceback)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  populate-vault:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required secrets present
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_OAUTH_BEARER:     ${{ secrets.ANTHROPIC_OAUTH_BEARER }}
+          GEMINI_API_KEY:             ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SUPABASE_URL:-}" ]              && missing+=("SUPABASE_URL")
+          [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ] && missing+=("SUPABASE_SERVICE_ROLE_KEY")
+          [ -z "${ANTHROPIC_OAUTH_BEARER:-}" ]    && missing+=("ANTHROPIC_OAUTH_BEARER")
+          [ -z "${GEMINI_API_KEY:-}" ]            && missing+=("GEMINI_API_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing GitHub secrets: ${missing[*]}"
+            exit 1
+          fi
+          echo "All four required secrets present."
+
+      - name: Push anthropic_oauth_bearer to Supabase vault
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_OAUTH_BEARER:     ${{ secrets.ANTHROPIC_OAUTH_BEARER }}
+        run: |
+          set -euo pipefail
+          body=$(jq -nc \
+            --arg name "anthropic_oauth_bearer" \
+            --arg value "$ANTHROPIC_OAUTH_BEARER" \
+            --arg desc "Claude Sonnet 4.6 Max OAuth bearer (TIER 1 PRIMARY for ECU chat). Set by ecu-vault-bootstrap workflow." \
+            '{p_name: $name, p_value: $value, p_description: $desc}')
+          response=$(curl -sS -w "\n%{http_code}" -X POST \
+            "$SUPABASE_URL/rest/v1/rpc/ecu_set_vault_secret" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+          status=$(echo "$response" | tail -n 1)
+          json=$(echo "$response" | sed '$d')
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::Supabase RPC failed (HTTP $status): $json"
+            exit 1
+          fi
+          echo "anthropic_oauth_bearer set: $json"
+
+      - name: Push gemini_api_key to Supabase vault
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY:             ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          body=$(jq -nc \
+            --arg name "gemini_api_key" \
+            --arg value "$GEMINI_API_KEY" \
+            --arg desc "Gemini 2.5 Flash paid API key (TIER 2 FALLBACK for ECU chat). Set by ecu-vault-bootstrap workflow." \
+            '{p_name: $name, p_value: $value, p_description: $desc}')
+          response=$(curl -sS -w "\n%{http_code}" -X POST \
+            "$SUPABASE_URL/rest/v1/rpc/ecu_set_vault_secret" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+          status=$(echo "$response" | tail -n 1)
+          json=$(echo "$response" | sed '$d')
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::Supabase RPC failed (HTTP $status): $json"
+            exit 1
+          fi
+          echo "gemini_api_key set: $json"
+
+      - name: Verify both secrets configured
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sS -X POST \
+            "$SUPABASE_URL/rest/v1/rpc/ecu_router_check_secrets" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "Secret status:"
+          echo "$response" | jq .
+          if echo "$response" | jq -e 'all(.[]; .status == "CONFIGURED")' > /dev/null; then
+            echo "✓ All secrets CONFIGURED"
+          else
+            echo "::error::Not all secrets reported CONFIGURED"
+            exit 1
+          fi
+
+      - name: Mark bootstrap run as succeeded
+        if: success()
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_ID:                     ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RUN_ID:-}" ]; then
+            echo "No run_id supplied — skipping bootstrap_runs update"
+            exit 0
+          fi
+          curl -sS -X PATCH \
+            "$SUPABASE_URL/rest/v1/ecu_vault_bootstrap_runs?id=eq.$RUN_ID" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{\"status\":\"succeeded\",\"workflow_run_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\",\"completed_at\":\"$(date -u +%FT%TZ)\"}"
+
+      - name: Mark bootstrap run as failed
+        if: failure()
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_ID:                     ${{ inputs.run_id }}
+        run: |
+          if [ -z "${RUN_ID:-}" ]; then exit 0; fi
+          curl -sS -X PATCH \
+            "$SUPABASE_URL/rest/v1/ecu_vault_bootstrap_runs?id=eq.$RUN_ID" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{\"status\":\"failed\",\"workflow_run_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\",\"completed_at\":\"$(date -u +%FT%TZ)\",\"error_message\":\"Workflow step failed; see run URL\"}" || true
