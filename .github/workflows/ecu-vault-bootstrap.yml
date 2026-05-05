@@ -1,18 +1,15 @@
 name: ECU Vault Bootstrap
 
 # Populates Supabase vault with secrets needed for ecu_chat_send():
-#   - anthropic_oauth_bearer (Claude Max OAuth, TIER 1 PRIMARY)
-#   - gemini_api_key         (Gemini paid API,    TIER 2 FALLBACK)
-#
-# Authoritative source of truth = GitHub repository secrets.
-# This workflow is the bridge from those secrets → Supabase vault.
+#   anthropic_api_key  ← from ANTHROPIC_API_KEY  (TIER 1 PRIMARY for Claude)
+#   gemini_api_key     ← from GEMINI_API_KEY     (TIER 2 FALLBACK)
 # Idempotent: re-running just refreshes the values.
 
 on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'ecu_vault_bootstrap_runs row id (for traceback)'
+        description: 'ecu_vault_bootstrap_runs row id'
         required: false
         default: ''
 
@@ -27,14 +24,14 @@ jobs:
         env:
           SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ANTHROPIC_OAUTH_BEARER:     ${{ secrets.ANTHROPIC_OAUTH_BEARER }}
+          ANTHROPIC_API_KEY:          ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY:             ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
           missing=()
           [ -z "${SUPABASE_URL:-}" ]              && missing+=("SUPABASE_URL")
           [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ] && missing+=("SUPABASE_SERVICE_ROLE_KEY")
-          [ -z "${ANTHROPIC_OAUTH_BEARER:-}" ]    && missing+=("ANTHROPIC_OAUTH_BEARER")
+          [ -z "${ANTHROPIC_API_KEY:-}" ]         && missing+=("ANTHROPIC_API_KEY")
           [ -z "${GEMINI_API_KEY:-}" ]            && missing+=("GEMINI_API_KEY")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Missing GitHub secrets: ${missing[*]}"
@@ -42,17 +39,17 @@ jobs:
           fi
           echo "All four required secrets present."
 
-      - name: Push anthropic_oauth_bearer to Supabase vault
+      - name: Push anthropic_api_key to Supabase vault
         env:
           SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ANTHROPIC_OAUTH_BEARER:     ${{ secrets.ANTHROPIC_OAUTH_BEARER }}
+          ANTHROPIC_API_KEY:          ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
           body=$(jq -nc \
-            --arg name "anthropic_oauth_bearer" \
-            --arg value "$ANTHROPIC_OAUTH_BEARER" \
-            --arg desc "Claude Sonnet 4.6 Max OAuth bearer (TIER 1 PRIMARY for ECU chat). Set by ecu-vault-bootstrap workflow." \
+            --arg name "anthropic_api_key" \
+            --arg value "$ANTHROPIC_API_KEY" \
+            --arg desc "Anthropic API key (TIER 1 PRIMARY for ECU chat). Set by ecu-vault-bootstrap workflow." \
             '{p_name: $name, p_value: $value, p_description: $desc}')
           response=$(curl -sS -w "\n%{http_code}" -X POST \
             "$SUPABASE_URL/rest/v1/rpc/ecu_set_vault_secret" \
@@ -66,7 +63,7 @@ jobs:
             echo "::error::Supabase RPC failed (HTTP $status): $json"
             exit 1
           fi
-          echo "anthropic_oauth_bearer set: $json"
+          echo "anthropic_api_key set: $json"
 
       - name: Push gemini_api_key to Supabase vault
         env:
@@ -78,7 +75,7 @@ jobs:
           body=$(jq -nc \
             --arg name "gemini_api_key" \
             --arg value "$GEMINI_API_KEY" \
-            --arg desc "Gemini 2.5 Flash paid API key (TIER 2 FALLBACK for ECU chat). Set by ecu-vault-bootstrap workflow." \
+            --arg desc "Gemini 2.5 Flash paid API key (TIER 2 FALLBACK for ECU chat)." \
             '{p_name: $name, p_value: $value, p_description: $desc}')
           response=$(curl -sS -w "\n%{http_code}" -X POST \
             "$SUPABASE_URL/rest/v1/rpc/ecu_set_vault_secret" \
@@ -94,7 +91,7 @@ jobs:
           fi
           echo "gemini_api_key set: $json"
 
-      - name: Verify both secrets configured
+      - name: Verify both required secrets configured
         env:
           SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -108,10 +105,13 @@ jobs:
             -d '{}')
           echo "Secret status:"
           echo "$response" | jq .
-          if echo "$response" | jq -e 'all(.[]; .status == "CONFIGURED")' > /dev/null; then
-            echo "✓ All secrets CONFIGURED"
+          # Both anthropic_api_key and gemini_api_key must be CONFIGURED
+          # (anthropic_oauth_bearer is OPTIONAL — only one Anthropic auth needed)
+          required_ok=$(echo "$response" | jq '[.[] | select(.secret_name=="anthropic_api_key" or .secret_name=="gemini_api_key") | .status] | all(.=="CONFIGURED")')
+          if [ "$required_ok" = "true" ]; then
+            echo "✓ Required secrets CONFIGURED (anthropic_api_key + gemini_api_key)"
           else
-            echo "::error::Not all secrets reported CONFIGURED"
+            echo "::error::Required secrets not all CONFIGURED"
             exit 1
           fi
 
@@ -123,10 +123,7 @@ jobs:
           RUN_ID:                     ${{ inputs.run_id }}
         run: |
           set -euo pipefail
-          if [ -z "${RUN_ID:-}" ]; then
-            echo "No run_id supplied — skipping bootstrap_runs update"
-            exit 0
-          fi
+          if [ -z "${RUN_ID:-}" ]; then exit 0; fi
           curl -sS -X PATCH \
             "$SUPABASE_URL/rest/v1/ecu_vault_bootstrap_runs?id=eq.$RUN_ID" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
