@@ -1,0 +1,233 @@
+name: "SUMMIT Executor — Issue → Hetzner → Claude Code"
+
+# Reuses the proven autoloop.yml pattern: SSH to Hetzner, run Claude Code with
+# --dangerously-skip-permissions, push results, Telegram alert.
+# Difference: takes an arbitrary SUMMIT issue number rather than a fixed skill list.
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'SUMMIT issue number on cli-anything-biddeed'
+        required: true
+        type: string
+      max_minutes:
+        description: 'Max runtime in minutes (default 90)'
+        required: false
+        default: '90'
+      dry_run:
+        description: 'Dry run (fetch issue, validate, do not invoke Claude)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  HETZNER_HOST: 87.99.129.125
+  REPO_PATH: /opt/biddeed/cli-anything-biddeed
+
+jobs:
+  execute_summit:
+    name: "🎯 SUMMIT #${{ github.event.inputs.issue_number }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: "1️⃣ Fetch issue body via GitHub API"
+        id: fetch
+        run: |
+          ISSUE="${{ github.event.inputs.issue_number }}"
+          PAYLOAD=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}")
+
+          TITLE=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(json.load(sys.stdin)['title'])")
+          STATE=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+          LABELS=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(','.join([l['name'] for l in json.load(sys.stdin).get('labels',[])]))")
+
+          if [ "$STATE" != "open" ]; then
+            echo "❌ Issue #${ISSUE} is $STATE, not open. Refusing to execute."
+            exit 1
+          fi
+
+          # Save body to file for Hetzner SSH
+          echo "$PAYLOAD" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          print(d.get('body',''))
+          " > /tmp/summit_body.md
+
+          BODY_LINES=$(wc -l < /tmp/summit_body.md)
+          echo "📋 Issue #${ISSUE}: ${TITLE}"
+          echo "   Labels: ${LABELS}"
+          echo "   Body lines: ${BODY_LINES}"
+
+          # Permission gate check — refuse if P0 schema changes without explicit override
+          if echo "$LABELS" | grep -qE "schema-change|production-data" && [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            echo "⚠️  Issue has schema-change/production-data label — flagging for review"
+            echo "needs_approval=true" >> $GITHUB_OUTPUT
+          fi
+
+          echo "title=${TITLE}" >> $GITHUB_OUTPUT
+          echo "labels=${LABELS}" >> $GITHUB_OUTPUT
+          echo "issue=${ISSUE}" >> $GITHUB_OUTPUT
+
+      - name: "2️⃣ Copy issue body to Hetzner"
+        if: github.event.inputs.dry_run != 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          source: "/tmp/summit_body.md"
+          target: "/tmp/summit_body_${{ steps.fetch.outputs.issue }}.md"
+
+      - name: "3️⃣ Preflight on Hetzner"
+        if: github.event.inputs.dry_run != 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            set -e
+            ISSUE="${{ steps.fetch.outputs.issue }}"
+
+            # Same preflight as autoloop.yml — proven path
+            mkdir -p /opt/biddeed
+            if [ ! -d "${{ env.REPO_PATH }}/.git" ]; then
+              git clone https://github.com/breverdbidder/cli-anything-biddeed.git ${{ env.REPO_PATH }}
+            fi
+            cd ${{ env.REPO_PATH }}
+            git fetch origin main 2>&1 | tail -2
+            git reset --hard origin/main 2>&1 | tail -1
+
+            # Verify Claude Code
+            command -v claude &>/dev/null || npm install -g @anthropic-ai/claude-code
+            claude --version 2>/dev/null || true
+
+            # Verify issue body landed
+            test -f "/tmp/summit_body_${ISSUE}.md" || { echo "❌ Issue body missing"; exit 1; }
+            BODY_SIZE=$(wc -l < "/tmp/summit_body_${ISSUE}.md")
+            echo "✅ Preflight: SUMMIT #${ISSUE} ready (${BODY_SIZE} lines)"
+
+      - name: "4️⃣ Execute SUMMIT via Claude Code"
+        if: github.event.inputs.dry_run != 'true'
+        id: execute
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: ${{ github.event.inputs.max_minutes || '90' }}m
+          script: |
+            cd ${{ env.REPO_PATH }}
+            ISSUE="${{ steps.fetch.outputs.issue }}"
+            TS=$(date +%Y%m%d_%H%M%S)
+            LOG_DIR=".claude/summit_logs"
+            mkdir -p "$LOG_DIR"
+            LOG="$LOG_DIR/summit_${ISSUE}_${TS}.log"
+
+            # Build prompt — wrap issue body with execution context
+            PROMPT_FILE="/tmp/summit_prompt_${ISSUE}.txt"
+            cat > "$PROMPT_FILE" << 'PROMPTEOF'
+            You are executing a SUMMIT task. Read the issue body below from /tmp/summit_body_ISSUEPLACEHOLDER.md and execute its Definition of Done checklist autonomously.
+
+            RULES:
+            - This repo is /opt/biddeed/cli-anything-biddeed; you are already in it
+            - Honesty Protocol: only mark items VERIFIED if you actually tested them; UNTESTED is acceptable
+            - PERMISSION GATES: if the issue body says "REQUIRES Ariel approval" for any step, STOP at that step and write a comment to the issue explaining what's blocked
+            - Commit incrementally with descriptive messages
+            - Use git remote with PAT for push (already configured in autoloop pattern)
+            - Post progress to Telegram via curl to api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage with chat_id=$TELEGRAM_CHAT_ID
+            - When done, post a final comment on the issue summarizing: completed items, skipped items + reason, files changed, commits made
+            - If you hit context 50%, checkpoint to .claude/summit_logs/summit_ISSUEPLACEHOLDER_checkpoint.json and stop cleanly
+
+            ISSUE BODY:
+            $(cat /tmp/summit_body_ISSUEPLACEHOLDER.md)
+
+            Begin execution.
+            PROMPTEOF
+
+            # Substitute issue number into prompt
+            sed -i "s/ISSUEPLACEHOLDER/${ISSUE}/g" "$PROMPT_FILE"
+
+            # Set env for Claude Code so it can post to Telegram + push to GitHub
+            export TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+            export TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+            export GH_TOKEN="${{ secrets.GH_PAT }}"
+
+            # Configure git remote with PAT (proven pattern from autoloop.yml)
+            git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/breverdbidder/cli-anything-biddeed.git
+
+            # Telegram start ping
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=🎯 SUMMIT #${ISSUE} starting on Hetzner%0A${{ steps.fetch.outputs.title }}" \
+              > /dev/null 2>&1 || true
+
+            # Run Claude Code with the prompt
+            echo "🚀 Executing SUMMIT #${ISSUE} | $(date)"
+            IS_SANDBOX=1 claude -p "$(cat $PROMPT_FILE)" --dangerously-skip-permissions 2>&1 | tee "$LOG" || true
+            echo "⏰ Done: $(date)"
+
+            # Push final state
+            git add -A
+            git diff --cached --quiet || { git commit -m "summit(#${ISSUE}): execution complete $(date +%Y%m%d)"; git push origin main; } || true
+
+            # Stash log path for next step
+            echo "LOG_PATH=$LOG" > /tmp/summit_${ISSUE}_meta.env
+
+      - name: "5️⃣ Post results comment on issue"
+        if: always() && github.event.inputs.dry_run != 'true'
+        run: |
+          ISSUE="${{ steps.fetch.outputs.issue }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          COMMENT=$(cat <<MARKDOWN
+          ## SUMMIT Executor — Run Complete
+
+          **Run:** ${RUN_URL}
+          **Server:** Hetzner ${{ env.HETZNER_HOST }}
+          **Started:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          See execution log on Hetzner at \`/opt/biddeed/cli-anything-biddeed/.claude/summit_logs/\`.
+
+          Claude Code has posted its own detailed completion summary in a separate comment if execution succeeded. If this is the only comment present, check the run log for failures.
+
+          _Generated by \`summit-executor.yml\`_
+          MARKDOWN
+          )
+
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c "import json,sys; print(json.dumps({'body': '''$COMMENT'''}))")" \
+            "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments" \
+            > /dev/null 2>&1 || true
+
+      - name: "6️⃣ Telegram completion alert"
+        if: always() && github.event.inputs.dry_run != 'true'
+        run: |
+          ISSUE="${{ steps.fetch.outputs.issue }}"
+          STATUS="${{ job.status }}"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=🏁 SUMMIT #${ISSUE} workflow ${STATUS}%0AhttpsRun:%20https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > /dev/null 2>&1 || true
+
+      - name: Summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## SUMMIT #${{ steps.fetch.outputs.issue }} — ${{ steps.fetch.outputs.title }}
+          **Server:** Hetzner ${{ env.HETZNER_HOST }}
+          **Repo path:** ${{ env.REPO_PATH }}
+          **Max minutes:** ${{ github.event.inputs.max_minutes || '90' }}
+          **Dry run:** ${{ github.event.inputs.dry_run }}
+          **Labels:** ${{ steps.fetch.outputs.labels }}
+          Issue link: https://github.com/breverdbidder/cli-anything-biddeed/issues/${{ steps.fetch.outputs.issue }}
+          EOF
