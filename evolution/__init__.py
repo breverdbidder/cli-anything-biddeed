@@ -47,6 +47,7 @@ from .jsonpath_patcher import (
     set_path,
     coerce,
 )
+from .evolver_jsonpath import JsonPathEvolver
 from .store import EvolutionStore
 from .service import EvolutionService
 
