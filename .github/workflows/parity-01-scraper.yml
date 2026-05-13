@@ -1,0 +1,203 @@
+name: PARITY-01 Multi-County Scraper (cli-anything-biddeed port)
+on:
+  push:
+    branches:
+      - ai-architect/parity-01-scrape-2026-05-13
+  workflow_dispatch:
+    inputs:
+      counties:
+        description: 'Comma-separated county_slug values, or all_top10'
+        required: false
+        default: 'brevard'
+permissions:
+  contents: read
+  issues: write
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      SELECTED_COUNTIES: ${{ github.event.inputs.counties || 'brevard' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install httpx beautifulsoup4 lxml supabase
+      - name: Scrape + parse + upsert + comment
+        run: |
+          python3 << 'PYEOF'
+          import os, re, sys, json, time, traceback
+          from datetime import datetime, timezone, date
+          import httpx
+          from bs4 import BeautifulSoup
+          from supabase import create_client
+
+          SUPABASE_URL = os.environ['SUPABASE_URL']
+          SUPABASE_KEY = os.environ['SUPABASE_SERVICE_KEY']
+          GH_PAT       = os.environ['GH_PAT']
+          SELECTED     = os.environ.get('SELECTED_COUNTIES', 'brevard').strip()
+
+          sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+          # Pull the top-10-metros fc_calendar URLs from county_auction_config
+          # (this is where PARITY-01 SQL fix lives - they should be Zmethod=CALENDAR now)
+          TOP_METROS = ['miamidade','broward','palmbeach','polk','hillsborough',
+                        'duval','orange','pinellas','lee','volusia']
+          if SELECTED == 'all_top10':
+              target_slugs = TOP_METROS
+          else:
+              target_slugs = [c.strip() for c in SELECTED.split(',') if c.strip()]
+
+          cfg_resp = sb.table('county_auction_config').select(
+              'county_name, county_slug, fc_calendar, fc_subdomain'
+          ).eq('state', 'FL').in_('county_slug', target_slugs).execute()
+
+          configs = cfg_resp.data
+          print(f"loaded {len(configs)} county configs from Supabase")
+
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Connection': 'keep-alive',
+              'Upgrade-Insecure-Requests': '1',
+          }
+
+          all_results = []
+          summary_rows = []
+
+          with httpx.Client(headers=headers, timeout=30.0, follow_redirects=True) as cli:
+              for cfg in configs:
+                  county = cfg['county_name']
+                  slug = cfg['county_slug']
+                  url = cfg.get('fc_calendar') or ''
+                  if not url:
+                      summary_rows.append((county, 'no_url', 0, 0, ''))
+                      continue
+                  try:
+                      r = cli.get(url)
+                      status = r.status_code
+                      body = r.text or ''
+                      body_size = len(body)
+                      print(f"\n=== {county} ({slug}) status={status} bytes={body_size} ===")
+                      print(f"url: {url}")
+
+                      if status != 200:
+                          summary_rows.append((county, f'http_{status}', 0, body_size, url))
+                          # Capture preview of body for diagnosis
+                          all_results.append({'county': county, 'http': status, 'body_head': body[:300]})
+                          continue
+
+                      soup = BeautifulSoup(body, 'html.parser')
+
+                      # Look for auction calendar markers + case numbers
+                      case_pattern_a = r'(?:Case|Folio|File)\s*[#:]?\s*([0-9]{2,4}[-\s]?[A-Z]{2}[-\s]?[0-9]{4,8})'
+                      case_pattern_b = r'\b(\d{2}-\d{4}-CA-\d{6})\b'
+                      case_pattern_c = r'AuctionID=(\d+)'
+                      cases_a = set(re.findall(case_pattern_a, body, re.IGNORECASE))
+                      cases_b = set(re.findall(case_pattern_b, body))
+                      cases_c = set(re.findall(case_pattern_c, body))
+
+                      # Detect any auction date or calendar markers
+                      cal_marker = ('AuctionCalendar' in body) or ('AuctionDayList' in body) or ('CalCell' in body)
+
+                      rows_to_upsert = []
+                      for case in cases_a | cases_b:
+                          rows_to_upsert.append({
+                              'county': slug if slug != 'miamidade' else 'miami_dade',
+                              'case_number': case.strip().replace(' ', '-'),
+                              'auction_type': 'foreclosure',
+                              'source_url': url,
+                              'provenance': f'parity_01_calendar_scrape_{date.today().isoformat()}',
+                              'scraped_at': datetime.now(timezone.utc).isoformat(),
+                          })
+                      for aid in cases_c:
+                          rows_to_upsert.append({
+                              'county': slug if slug != 'miamidade' else 'miami_dade',
+                              'case_number': f'AID-{aid}',
+                              'auction_type': 'foreclosure',
+                              'source_url': url,
+                              'provenance': f'parity_01_calendar_scrape_aid_{date.today().isoformat()}',
+                              'scraped_at': datetime.now(timezone.utc).isoformat(),
+                          })
+
+                      inserted = 0
+                      if rows_to_upsert:
+                          try:
+                              ins = sb.table('multi_county_auctions').upsert(
+                                  rows_to_upsert, on_conflict='county,case_number'
+                              ).execute()
+                              inserted = len(ins.data) if ins.data else len(rows_to_upsert)
+                          except Exception as e:
+                              print(f"  upsert error: {type(e).__name__}: {str(e)[:200]}")
+
+                      summary_rows.append((county, f'ok_{status}', len(rows_to_upsert), body_size, url))
+                      all_results.append({
+                          'county': county,
+                          'http': status,
+                          'body_size': body_size,
+                          'cal_marker_present': cal_marker,
+                          'cases_pattern_a': len(cases_a),
+                          'cases_pattern_b': len(cases_b),
+                          'cases_pattern_c': len(cases_c),
+                          'total_unique_cases': len(rows_to_upsert),
+                          'inserted': inserted,
+                          'body_head': body[:300] if status != 200 or len(rows_to_upsert) == 0 else '(omitted)',
+                      })
+
+                      time.sleep(2)  # rate limit
+                  except Exception as e:
+                      tb = traceback.format_exc()
+                      print(f"  EXC: {type(e).__name__}: {str(e)[:200]}")
+                      summary_rows.append((county, f'exc_{type(e).__name__}', 0, 0, url))
+                      all_results.append({'county': county, 'error': str(e)[:500]})
+
+          print("\n\n=== SUMMARY ===")
+          print(f"{'COUNTY':<20} {'STATUS':<20} {'ROWS':<8} {'BYTES':<10} URL")
+          for county, status, rows, bytes_, url in summary_rows:
+              print(f"{county:<20} {status:<20} {rows:<8} {bytes_:<10} {url[:80]}")
+
+          # Build a markdown comment for issue #7479
+          md = ["## 🤖 PARITY-01 Scrape Verification — autonomous run\n",
+                f"**When:** {datetime.now(timezone.utc).isoformat()}",
+                f"**Workflow run:** {os.environ.get('GITHUB_SERVER_URL','')}/{os.environ.get('GITHUB_REPOSITORY','')}/actions/runs/{os.environ.get('GITHUB_RUN_ID','')}",
+                f"**Counties scraped:** {len(configs)}",
+                "",
+                "| County | Status | Rows found | Body size | URL |",
+                "|---|---|---|---|---|"]
+          for county, status, rows, bytes_, url in summary_rows:
+              md.append(f"| {county} | `{status}` | {rows} | {bytes_} | `{url[:80]}` |")
+          md.append("")
+          md.append("### Per-county detail")
+          md.append("```json")
+          md.append(json.dumps(all_results, indent=2, default=str)[:6000])
+          md.append("```")
+
+          comment_body = "\n".join(md)
+
+          # Post to issue 7479
+          import urllib.request
+          req = urllib.request.Request(
+              'https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/7479/comments',
+              data=json.dumps({'body': comment_body}).encode(),
+              headers={
+                  'Authorization': f'token {GH_PAT}',
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  print(f"comment posted: HTTP {resp.status}")
+          except Exception as e:
+              print(f"comment post failed: {e}")
+
+          # Exit 0 even if some counties failed — let report stand
+          sys.exit(0)
+          PYEOF
