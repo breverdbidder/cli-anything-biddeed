@@ -1,0 +1,66 @@
+name: ASCEND Direct - PARITY-01 Bypass
+on:
+  push:
+    branches: ['ascend-direct-**']
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Execute SUMMIT-PARITY-01 via Hetzner Tier 1 Max OAuth
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_PAT_FULL: ${{ secrets.GH_PAT_FULL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          ISSUE: '7479'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=240 root@${HETZNER_IP}"
+          SCP="scp -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          echo "::group::Hetzner liveness"
+          $SSH "uptime && hostname"
+          echo "::endgroup::"
+          echo "::group::Restore Claude OAuth (self-heal from Docker overlay if missing)"
+          $SSH 'mkdir -p /root/.claude && if [ -f /root/.claude/.credentials.json ]; then echo "creds present"; else CRED=$(find /var/lib/docker/rootfs/overlayfs -name ".credentials.json" 2>/dev/null | head -1); if [ -n "$CRED" ]; then cp "$CRED" /root/.claude/.credentials.json; echo "RESTORED from $CRED"; else echo "::error::no credentials found anywhere"; exit 1; fi; fi && ls -la /root/.claude/.credentials.json && which claude && claude --version'
+          echo "::endgroup::"
+          echo "::group::Build prompt from issue $ISSUE"
+          curl -s -H "Authorization: token $GH_PAT" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}" | jq -r '.body' > /tmp/prompt.txt
+          printf "\n---\n" >> /tmp/prompt.txt
+          curl -s -H "Authorization: token $GH_PAT" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments?per_page=100" | jq -r '.[] | "\n---COMMENT by " + .user.login + "---\n" + (.body // "")' >> /tmp/prompt.txt
+          echo "prompt size: $(wc -c < /tmp/prompt.txt) bytes"
+          $SCP /tmp/prompt.txt root@${HETZNER_IP}:/root/ascend-${ISSUE}-prompt.txt
+          echo "::endgroup::"
+          echo "::group::Mark Supabase running"
+          curl -sS -X PATCH "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?github_issue_number=eq.${ISSUE}" -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" -H "Content-Type: application/json" -H "Prefer: return=minimal" -d "{\"workflow_run_id\":${{ github.run_id }},\"workflow_run_url\":\"${RUN_URL}\",\"state\":\"running\"}" -w "PATCH: %{http_code}\n" || echo "(non-fatal)"
+          echo "::endgroup::"
+          echo "::group::Clone target repo on Hetzner"
+          $SSH "mkdir -p /root/ascend-${ISSUE} && cd /root/ascend-${ISSUE} && rm -rf cli-anything-biddeed && git clone https://x-access-token:${GH_PAT_FULL}@github.com/breverdbidder/cli-anything-biddeed.git && cd cli-anything-biddeed && git config user.email 'claude-code@biddeed.ai' && git config user.name 'Claude Code ASCEND' && git checkout -b ascend/parity-01-${ISSUE}"
+          echo "::endgroup::"
+          echo "::group::Run Claude (Tier 1 Max OAuth, ANTHROPIC_API_KEY unset)"
+          set +e
+          $SSH "cd /root/ascend-${ISSUE}/cli-anything-biddeed && env -u ANTHROPIC_API_KEY GH_PAT='${GH_PAT}' GH_PAT_FULL='${GH_PAT_FULL}' SUPABASE_URL='${SUPABASE_URL}' SUPABASE_SERVICE_ROLE_KEY='${SUPABASE_SERVICE_ROLE_KEY}' FIRECRAWL_API_KEY='${FIRECRAWL_API_KEY}' EXA_API_KEY='${EXA_API_KEY}' claude -p \"\$(cat /root/ascend-${ISSUE}-prompt.txt)\" --allowedTools Bash Read Write Edit Glob Grep 2>&1 | tee /root/ascend-${ISSUE}-output.log | tail -400"
+          CLAUDE_EXIT=${PIPESTATUS[0]:-99}
+          set -e
+          echo "claude exit: $CLAUDE_EXIT"
+          echo "::endgroup::"
+          echo "::group::Final state + issue comment"
+          OUTPUT_TAIL=$($SSH "tail -c 12000 /root/ascend-${ISSUE}-output.log 2>/dev/null" || echo "(no output)")
+          if [ "$CLAUDE_EXIT" = "0" ]; then NEW_STATE=awaiting_verification; else NEW_STATE=failed; fi
+          ERR_FIELD=$(if [ "$CLAUDE_EXIT" = "0" ]; then echo null; else echo "\"claude exit: $CLAUDE_EXIT\""; fi)
+          curl -sS -X PATCH "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?github_issue_number=eq.${ISSUE}" -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" -H "Content-Type: application/json" -H "Prefer: return=minimal" -d "{\"state\":\"${NEW_STATE}\",\"completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"last_error\":${ERR_FIELD}}" -w "PATCH terminal: %{http_code}\n" || echo "(non-fatal)"
+          jq -nRs --arg tail "$OUTPUT_TAIL" --arg exit "$CLAUDE_EXIT" --arg url "$RUN_URL" '{body: ("## 🚀 ASCEND Direct Execution\n\n**Claude exit:** " + $exit + "\n**Run:** " + $url + "\n\n### Output tail (last 12KB)\n\n```\n" + $tail + "\n```\n")}' > /tmp/comment.json
+          curl -s -X POST -H "Authorization: token $GH_PAT" -H "Content-Type: application/json" "https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/${ISSUE}/comments" --data @/tmp/comment.json -o /dev/null -w "Comment: %{http_code}\n"
+          echo "::endgroup::"
+          exit $CLAUDE_EXIT
