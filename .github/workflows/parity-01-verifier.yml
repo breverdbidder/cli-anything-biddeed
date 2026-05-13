@@ -1,0 +1,182 @@
+name: PARITY-01 Verifier (Firecrawl)
+on:
+  workflow_dispatch:
+    inputs:
+      county_slug:
+        description: 'County slug to verify (default: miamidade)'
+        required: false
+        default: 'miamidade'
+  push:
+    branches:
+      - ai-architect/parity-01-verifier-2026-05-13
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install httpx
+      - name: Compare CALENDAR vs PREVIEW via Firecrawl
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          COUNTY_SLUG: ${{ inputs.county_slug || 'miamidade' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, re, sys
+          import httpx
+          import urllib.request
+
+          FC_KEY = os.environ['FIRECRAWL_API_KEY']
+          SB_URL = os.environ['SUPABASE_URL']
+          SB_KEY = os.environ['SUPABASE_KEY']
+          GH_PAT = os.environ['GH_PAT']
+          SLUG = os.environ['COUNTY_SLUG']
+
+          hdr = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}'}
+
+          # Get current CALENDAR URL
+          r = httpx.get(f'{SB_URL}/rest/v1/county_auction_config',
+              headers=hdr,
+              params={'select': 'fc_calendar,county_name,county_slug',
+                      'county_slug': f'eq.{SLUG}', 'state': 'eq.FL'},
+              timeout=20.0)
+          r.raise_for_status()
+          rows = r.json()
+          if not rows:
+              print(f'ERROR: no county_auction_config for slug={SLUG}')
+              sys.exit(1)
+          calendar_url = rows[0]['fc_calendar']
+          county_name = rows[0]['county_name']
+          print(f'County: {county_name} (slug={SLUG})')
+          print(f'CALENDAR URL: {calendar_url}')
+
+          # Get backup PREVIEW URL
+          r = httpx.get(f'{SB_URL}/rest/v1/_backup_parity_01_fc_calendar_2026_05_13',
+              headers=hdr,
+              params={'select': 'fc_calendar_before', 'county_name': f'eq.{county_name}'},
+              timeout=20.0)
+          r.raise_for_status()
+          backup = r.json()
+          preview_url = backup[0]['fc_calendar_before'] if backup else None
+          print(f'PREVIEW URL: {preview_url}')
+
+          def firecrawl(url):
+              if not url:
+                  return None, {'error': 'no url'}
+              r = httpx.post(
+                  'https://api.firecrawl.dev/v1/scrape',
+                  headers={'Authorization': f'Bearer {FC_KEY}',
+                           'Content-Type': 'application/json'},
+                  json={'url': url, 'formats': ['markdown'], 'waitFor': 4000,
+                        'timeout': 45000, 'onlyMainContent': False},
+                  timeout=90.0)
+              try:
+                  return r.status_code, r.json()
+              except Exception as e:
+                  return r.status_code, {'error': f'{e}', 'text': r.text[:500]}
+
+          def signals(payload):
+              if not isinstance(payload, dict):
+                  return {'error': str(payload)[:200]}
+              if payload.get('success') is False:
+                  return {'error': payload.get('error', 'unknown'),
+                          'detail': str(payload)[:300]}
+              data = payload.get('data') or {}
+              md = data.get('markdown') or ''
+              meta = data.get('metadata') or {}
+              return {
+                  'markdown_bytes': len(md),
+                  'http_status_via_firecrawl': meta.get('statusCode'),
+                  'page_title': meta.get('title'),
+                  'date_markers': len(re.findall(
+                      r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d\d\b',
+                      md, re.I)),
+                  'short_date_markers': len(re.findall(
+                      r'\b\d{1,2}/\d{1,2}/20\d\d\b', md)),
+                  'auction_markers': len(re.findall(
+                      r'auction[_\s]*id|case[_\s\#]*number|sale[_\s]*date', md, re.I)),
+                  'calendar_widget_markers': len(re.findall(
+                      r'calendar|month\s+view|day\s+view', md, re.I)),
+                  'no_auctions_text': bool(re.search(
+                      r'no\s+auctions|no\s+upcoming\s+sales|nothing\s+scheduled|preview[_\s]*only',
+                      md, re.I)),
+                  'sample_head': md[:500] if md else '',
+              }
+
+          print('\n=== Firecrawl PREVIEW ===')
+          p_status, p_data = firecrawl(preview_url)
+          p_sig = signals(p_data)
+          print(f'http_status={p_status}, signals={json.dumps(p_sig, indent=2)[:1500]}')
+
+          print('\n=== Firecrawl CALENDAR ===')
+          c_status, c_data = firecrawl(calendar_url)
+          c_sig = signals(c_data)
+          print(f'http_status={c_status}, signals={json.dumps(c_sig, indent=2)[:1500]}')
+
+          def safe_num(s, k):
+              try: return int(s.get(k, 0))
+              except: return 0
+
+          c_dates = safe_num(c_sig, 'date_markers') + safe_num(c_sig, 'short_date_markers')
+          p_dates = safe_num(p_sig, 'date_markers') + safe_num(p_sig, 'short_date_markers')
+          c_md = safe_num(c_sig, 'markdown_bytes')
+          p_md = safe_num(p_sig, 'markdown_bytes')
+
+          if 'error' in c_sig:
+              verdict = 'CALENDAR_FETCH_ERRORED'
+          elif 'error' in p_sig:
+              verdict = 'PREVIEW_FETCH_ERRORED__CALENDAR_OK'
+          elif c_dates > p_dates and c_dates >= 3:
+              verdict = 'CONFIRMED: CALENDAR yields more auction dates than PREVIEW'
+          elif c_md > p_md * 1.5:
+              verdict = 'LIKELY: CALENDAR returns significantly more content'
+          elif c_dates == p_dates and c_md > p_md:
+              verdict = 'WEAK: same date count but more content on CALENDAR'
+          else:
+              verdict = 'INCONCLUSIVE: no clear advantage'
+
+          body = (
+              f'## 🔍 PARITY-01 Verifier — {county_name}\n\n'
+              f'**Verdict:** `{verdict}`\n\n'
+              f'| Metric | PREVIEW (before) | CALENDAR (after fix) |\n'
+              f'|---|---|---|\n'
+              f'| Firecrawl HTTP | {p_status} | {c_status} |\n'
+              f'| Status via Firecrawl | {p_sig.get("http_status_via_firecrawl")} | {c_sig.get("http_status_via_firecrawl")} |\n'
+              f'| Page title | `{p_sig.get("page_title")}` | `{c_sig.get("page_title")}` |\n'
+              f'| Markdown bytes | {p_md} | {c_md} |\n'
+              f'| Date markers (long) | {p_sig.get("date_markers", "n/a")} | {c_sig.get("date_markers", "n/a")} |\n'
+              f'| Date markers (M/D/Y) | {p_sig.get("short_date_markers", "n/a")} | {c_sig.get("short_date_markers", "n/a")} |\n'
+              f'| Auction markers | {p_sig.get("auction_markers", "n/a")} | {c_sig.get("auction_markers", "n/a")} |\n'
+              f'| Calendar widget | {p_sig.get("calendar_widget_markers", "n/a")} | {c_sig.get("calendar_widget_markers", "n/a")} |\n'
+              f'| "No auctions" text | {p_sig.get("no_auctions_text", "n/a")} | {c_sig.get("no_auctions_text", "n/a")} |\n\n'
+              f'**PREVIEW URL:** `{preview_url}`\n'
+              f'**CALENDAR URL:** `{calendar_url}`\n\n'
+              f'### PREVIEW response head\n```\n{p_sig.get("sample_head", "")[:400]}\n```\n\n'
+              f'### CALENDAR response head\n```\n{c_sig.get("sample_head", "")[:400]}\n```\n'
+              f'\n*Verifier dispatched via Git Data API by AI Architect (no LLM). Run URL: {os.environ.get("GITHUB_SERVER_URL", "https://github.com")}/{os.environ.get("GITHUB_REPOSITORY", "")}/actions/runs/{os.environ.get("GITHUB_RUN_ID", "")}*'
+          )
+
+          req = urllib.request.Request(
+              'https://api.github.com/repos/breverdbidder/cli-anything-biddeed/issues/7479/comments',
+              data=json.dumps({'body': body}).encode(),
+              headers={'Authorization': f'token {GH_PAT}',
+                       'Accept': 'application/vnd.github+json',
+                       'Content-Type': 'application/json'},
+              method='POST')
+          with urllib.request.urlopen(req) as resp:
+              print(f'Comment posted: HTTP {resp.status}')
+
+          print(f'\nFINAL VERDICT: {verdict}')
+          PYEOF
