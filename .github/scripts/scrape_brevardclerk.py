@@ -12,7 +12,7 @@ VERBOSE = os.environ.get('VERBOSE','true').lower() == 'true'
 AUCTION_DATE = date.fromisoformat(AUCTION_DATE_STR)
 DATE_SLASH = AUCTION_DATE.strftime('%m/%d/%Y')
 
-DAYLIST_URL = f'https://brevard.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=DAYLIST&AUCTIONDATE={DATE_SLASH}'
+DAYLIST_URL = f'https://brevard.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'  # PREVIEW is the publicly accessible variant
 
 REST = f'{SUPABASE_URL}/rest/v1'
 RPC_HEADERS = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
