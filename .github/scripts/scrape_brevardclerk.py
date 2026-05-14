@@ -61,34 +61,56 @@ try:
     parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]+(\d{6,9})', md, re.IGNORECASE))
     print(f'Found {len(parcel_anchors)} parcel anchors')
 
+    # v9.1: chunk = from previous Parcel ID anchor to next "Auction Type" (next card's start)
+    # Each chunk contains: previous_card_address+assessed THEN current_card_left+right_panel UP TO its Parcel ID
+    # Then SEPARATELY: after this Parcel ID we extract address+assessed for THIS card
     cards = []
+    auction_type_anchors = list(re.finditer(r'Auction\s*Type', md, re.IGNORECASE))
     for i, m in enumerate(parcel_anchors):
-        chunk_start = parcel_anchors[i-1].end() if i > 0 else max(0, m.start() - 1500)
-        chunk_end = min(len(md), m.end() + 400)
+        # Right-half: from THIS Parcel ID forward to next Auction Type anchor (or end)
+        right_start = m.end()
+        next_at = next((a.start() for a in auction_type_anchors if a.start() > m.end()), len(md))
+        right_chunk = md[right_start:next_at]
+        # Left-half: from previous Parcel ID + buffer (skipping previous card footer) to THIS Parcel ID
+        prev_at_after_prev_parcel = None
+        if i > 0:
+            prev_end = parcel_anchors[i-1].end()
+            for at in auction_type_anchors:
+                if at.start() > prev_end and at.start() < m.start():
+                    prev_at_after_prev_parcel = at.start(); break
+            left_start = prev_at_after_prev_parcel if prev_at_after_prev_parcel else prev_end
+        else:
+            left_start = max(0, m.start() - 1500)
+        left_chunk = md[left_start:m.end()]
         cards.append({
-            'parcel_id_anchor': m.group(1),
-            'chunk': md[chunk_start:chunk_end],
+            'parcel_id': m.group(1),
+            'left_chunk': left_chunk,
+            'right_chunk': right_chunk,
         })
 
-    # 4. For each card, apply schema patterns
+    # 4. Apply schema patterns - LEFT half for status/details, RIGHT half for address/assessed
+    LEFT_FIELDS = {'auction_status','sold_timestamp','sold_amount','sold_to','auction_type','case_number','certificate_number','opening_bid','parcel_id'}
+    RIGHT_FIELDS = {'property_address','assessed_value','name_on_title'}
     extracted = []
     for card in cards:
-        chunk = card['chunk']
-        raw = {}
+        raw = {'parcel_id_text': card['parcel_id']}
         for field in schema_rows:
+            fn = field['field_name']
             pat = field.get('extraction_pattern')
-            if not pat or pat == 'first text in left panel': continue
+            if not pat or pat == 'first text in left panel' or fn == 'parcel_id': continue
+            target = card['right_chunk'] if fn in RIGHT_FIELDS else card['left_chunk']
             try:
-                # Use DOTALL because card text spans multiple newlines
-                mm = re.search(pat, chunk, re.IGNORECASE | re.DOTALL)
+                mm = re.search(pat, target, re.IGNORECASE | re.DOTALL)
                 if mm:
-                    raw[field['field_name'] + '_text'] = mm.group(1).strip()[:200]
+                    val = mm.group(1).strip()
+                    # Clean trailing markdown table garbage
+                    val = re.sub(r'[\s|\-_]+$', '', val)[:200]
+                    raw[fn + '_text'] = val
             except re.error as e:
-                print(f'  ! regex error for {field["field_name"]}: {e}')
+                print(f'  ! regex error for {fn}: {e}')
 
         # Special: detect status from left-panel text BEFORE "Auction Type"
-        i_at = chunk.lower().find('auction type')
-        left_panel = chunk[:i_at] if i_at > 0 else chunk[:500]
+        left_panel = card['left_chunk']
         status_map = next((f['normalization'] for f in schema_rows if f['field_name']=='auction_status' and f.get('normalization')), {}) or {}
         raw_status = None
         for label in sorted(status_map.keys(), key=len, reverse=True):
@@ -97,16 +119,16 @@ try:
                 break
         if raw_status: raw['raw_status_text'] = raw_status
 
-        # Extract sold_to from left panel "Sold To\s+(.+?)" pattern
-        st = re.search(r'Sold To[:\s\n|]+(.+?)(?=Auction Type|Name on Title|Bid History|$)', left_panel, re.IGNORECASE | re.DOTALL)
-        if st:
-            sto = re.sub(r'[\s|]+', ' ', st.group(1)).strip()[:80]
-            if sto and sto.lower() not in ('','sold to'):
-                raw['sold_to_text'] = sto
+        # Sold to extracted via schema regex from LEFT chunk already; clean up
+        if raw.get('sold_to_text'):
+            sto = re.sub(r'[\s|\-_]+', ' ', raw['sold_to_text']).strip()
+            # Strip trailing markdown noise and re-normalize
+            sto = re.sub(r'\s*(Auction Type|Name on Title|Bid History).*$', '', sto, flags=re.IGNORECASE).strip()
+            raw['sold_to_text'] = sto[:80] if sto else None
 
         # Sold timestamp: look for date pattern in left panel
-        ts = re.search(r'(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}\s+[AP]M\s+ET)', left_panel)
-        if ts: raw['sold_timestamp_text'] = ts.group(1)
+        # sold_timestamp also captured via schema regex from left_chunk
+        pass
 
         if raw.get('parcel_id_text'):
             raw['raw_card_text'] = chunk[:1500]
