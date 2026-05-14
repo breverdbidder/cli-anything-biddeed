@@ -131,7 +131,7 @@ try:
         pass
 
         if raw.get('parcel_id_text'):
-            raw['raw_card_text'] = chunk[:1500]
+            raw['raw_card_text'] = (card['left_chunk'] + ' | RIGHT: ' + card['right_chunk'])[:1500]
             raw['parse_confidence'] = 'high' if raw.get('raw_status_text') and raw.get('opening_bid_text') else 'partial'
             extracted.append(raw)
 
