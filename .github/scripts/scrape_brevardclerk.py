@@ -40,10 +40,16 @@ RPC_HEADERS = {
 }
 
 def rpc(name, params):
-    """Call a PostgREST RPC."""
+    """Call a PostgREST RPC. Tolerates empty bodies (VOID functions)."""
     r = requests.post(f'{REST}/rpc/{name}', json=params, headers=RPC_HEADERS, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    if r.status_code >= 400:
+        raise RuntimeError(f'RPC {name} failed [{r.status_code}]: {r.text[:500]}')
+    if not r.text or not r.text.strip():
+        return None
+    try:
+        return r.json()
+    except Exception:
+        return r.text
 
 def select(table, query=''):
     """Lightweight select."""
@@ -264,12 +270,12 @@ try:
 except Exception as e:
     import traceback
     err = f'{type(e).__name__}: {e}\n{traceback.format_exc()[:1500]}'
-    print(f'ERROR: {err}', file=sys.stderr)
+    print(f'ERROR (will log to scrape_runs): {err}', file=sys.stderr)
     try:
-        rpc('scrape_log_finish', {
-            'p_run_id': run_id, 'p_status': 'failed',
-            'p_error': err[:2000],
-        })
-    except Exception:
-        pass
+        # Direct REST call, avoid rpc() to dodge any cascading failures
+        requests.post(f'{REST}/rpc/scrape_log_finish',
+            json={'p_run_id': run_id, 'p_status': 'failed', 'p_error': err[:2000]},
+            headers=RPC_HEADERS, timeout=15)
+    except Exception as e2:
+        print(f'Also failed to log: {e2}', file=sys.stderr)
     sys.exit(1)
