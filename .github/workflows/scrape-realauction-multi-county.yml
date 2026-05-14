@@ -1,0 +1,34 @@
+name: RealAuction Multi-County Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      county_slug:
+        description: 'County slug (e.g. osceola, brevard, volusia)'
+        required: true
+      county_domain:
+        description: 'Full domain (e.g. osceola.realtaxdeed.com)'
+        required: true
+      auction_date:
+        description: 'Auction date YYYY-MM-DD'
+        required: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --quiet requests
+      - name: Scrape county
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          COUNTY_SLUG: ${{ github.event.inputs.county_slug }}
+          COUNTY_DOMAIN: ${{ github.event.inputs.county_domain }}
+          AUCTION_DATE: ${{ github.event.inputs.auction_date }}
+        run: python .github/scripts/scrape_realauction_county.py
