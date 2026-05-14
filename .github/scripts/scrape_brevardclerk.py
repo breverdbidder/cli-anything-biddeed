@@ -33,10 +33,11 @@ def firecrawl_at_page(url, page_num):
         # Click the input first to focus, then clear, then write the page number, then press Enter
         actions += [
             {'type':'click','selector':'#curPCA'},
-            {'type':'wait','milliseconds':500},
-            # Triple-click to select existing value (1) then overwrite
-            {'type':'click','selector':'#curPCA'},
-            {'type':'click','selector':'#curPCA'},
+            {'type':'wait','milliseconds':400},
+            # Clear current value (could be 1 or 2 digits) before writing target page
+            {'type':'press','key':'Backspace'},
+            {'type':'press','key':'Backspace'},
+            {'type':'press','key':'Backspace'},
             {'type':'write','text':str(page_num),'selector':'#curPCA'},
             {'type':'press','key':'Enter'},
             {'type':'wait','milliseconds':3500},
