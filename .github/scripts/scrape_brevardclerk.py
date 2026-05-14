@@ -1,86 +1,77 @@
 #!/usr/bin/env python3
-"""
-Brevard Clerk Tax Deed Sales Scraper.
-
-Fetches the auction PDF from brevardclerk.us, parses it, and updates statuses
-in Supabase via public-schema wrapper RPCs.
-
-ARCHITECTURE:
-  brevardclerk.us /tax-deed-sales (calendar)
-    -> /tax-deed-sales?ID=<guid> (sale-specific page)
-    -> /?a=Files.Serve&File_id=<guid> (PDF with auction list)
-  -> Parse PDF text via PyMuPDF
-  -> RPCs:
-       public.scrape_log_start / scrape_log_finish
-       public.brevard_update_status
-       public.brevard_update_sold
-"""
+"""Brevard Clerk Tax Deed Scraper v3 - calendar + surplus + lands_available."""
 import os, re, sys, json
 from datetime import datetime, date
 import requests
 from bs4 import BeautifulSoup
-import fitz  # pymupdf
+import fitz
 
-# ============================================================================
-# Config
-# ============================================================================
 SUPABASE_URL = os.environ['SUPABASE_URL'].rstrip('/')
 SUPABASE_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
 AUCTION_DATE_STR = os.environ.get('AUCTION_DATE', '2026-05-14')
 VERBOSE = os.environ.get('VERBOSE', 'true').lower() == 'true'
 AUCTION_DATE = date.fromisoformat(AUCTION_DATE_STR)
-UA = 'Mozilla/5.0 (compatible; BidDeedBot/1.0; +https://biddeed.ai)'
-HEADERS = {'User-Agent': UA}
+
+# Known PDF endpoints
+SURPLUS_URL = 'https://www.brevardclerk.us/?a=Files.Serve&File_id=847BFD73-D42A-4027-9079-E8E37E82E52B'
+LANDS_URL   = 'https://www.brevardclerk.us/?a=Files.Serve&File_id=7B8E6515-1AF7-4968-977F-CC32647E2257'
+
+HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; BidDeedBot/1.0)'}
 REST = f'{SUPABASE_URL}/rest/v1'
 RPC_HEADERS = {
-    'apikey': SUPABASE_KEY,
-    'Authorization': f'Bearer {SUPABASE_KEY}',
-    'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
+    'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
+    'Content-Type': 'application/json', 'Prefer': 'return=representation',
 }
 
 def rpc(name, params):
-    """Call a PostgREST RPC. Tolerates empty bodies (VOID functions)."""
-    r = requests.post(f'{REST}/rpc/{name}', json=params, headers=RPC_HEADERS, timeout=30)
+    r = requests.post(f'{REST}/rpc/{name}', json=params, headers=RPC_HEADERS, timeout=60)
     if r.status_code >= 400:
-        raise RuntimeError(f'RPC {name} failed [{r.status_code}]: {r.text[:500]}')
+        raise RuntimeError(f'RPC {name} [{r.status_code}]: {r.text[:400]}')
     if not r.text or not r.text.strip():
         return None
-    try:
-        return r.json()
-    except Exception:
-        return r.text
+    try: return r.json()
+    except Exception: return r.text
 
 def select(table, query=''):
-    """Lightweight select."""
-    url = f'{REST}/{table}?{query}'
-    r = requests.get(url, headers={'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}'}, timeout=30)
+    r = requests.get(f'{REST}/{table}?{query}',
+        headers={'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}'}, timeout=30)
     r.raise_for_status()
     return r.json()
 
-# ============================================================================
+def fetch_pdf_text(url, label):
+    print(f'[{label}] Fetching: {url[:80]}...')
+    r = requests.get(url, headers=HEADERS, timeout=120)
+    r.raise_for_status()
+    pdf_bytes = r.content
+    print(f'[{label}] {len(pdf_bytes):,} bytes downloaded')
+    doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+    text = ''.join(page.get_text() + '\n' for page in doc)
+    pages = len(doc)
+    doc.close()
+    print(f'[{label}] Parsed {pages} pages, {len(text):,} chars')
+    return text, pages, len(pdf_bytes)
+
 # Start scrape run
-# ============================================================================
 run_id = rpc('scrape_log_start', {
-    'p_source': 'brevardclerk_results',
+    'p_source': 'brevardclerk_full',
     'p_county': 'brevard',
     'p_sale_type': 'tax_deed',
     'p_auction_date': AUCTION_DATE_STR,
     'p_triggered_by': 'gha_workflow_dispatch',
 })
-print(f'>>> Scrape run id={run_id}, auction_date={AUCTION_DATE_STR}')
+print(f'>>> Run id={run_id}')
 
 try:
+    summary = {'stages': {}}
+
     # ========================================================================
-    # Step 1: Find today's sale link on the calendar page
+    # STAGE 1: Auction Calendar PDF (existing logic - confirms what's scheduled)
     # ========================================================================
-    print('Fetching calendar...')
+    print('\n=== STAGE 1: Auction Calendar ===')
     r = requests.get('https://www.brevardclerk.us/tax-deed-sales', headers=HEADERS, timeout=30)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, 'html.parser')
-
     short = f'{AUCTION_DATE.month}/{AUCTION_DATE.day}/{AUCTION_DATE.strftime("%y")}'
-    print(f'Looking for date: {short}')
     sale_link = None
     for td in soup.select('td.recordListDate'):
         if td.get_text(strip=True) == short:
@@ -88,212 +79,231 @@ try:
             if next_td:
                 a = next_td.find('a', class_='ContentGrid')
                 if a and a.get('href'):
-                    sale_link = a['href']
-                    break
-    if not sale_link:
-        raise RuntimeError(f'No sale found for date {short}')
-    print(f'Found sale page: {sale_link}')
+                    sale_link = a['href']; break
+    calendar_summary = {'sale_link': sale_link, 'date': AUCTION_DATE_STR}
 
-    # ========================================================================
-    # Step 2: Fetch sale page, find PDF link
-    # ========================================================================
-    sale_url = f'https://www.brevardclerk.us{sale_link}'
-    r = requests.get(sale_url, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    ssoup = BeautifulSoup(r.text, 'html.parser')
-
-    pdf_links = []
-    for a in ssoup.find_all('a', href=True):
-        if 'Files.Serve' in a['href']:
-            # Filter out icon-only links (those have an img child)
-            if a.find('img'):
-                continue
-            pdf_links.append(a['href'])
-    if not pdf_links:
-        # fallback: any Files.Serve link
+    if sale_link:
+        ssoup = BeautifulSoup(
+            requests.get(f'https://www.brevardclerk.us{sale_link}', headers=HEADERS, timeout=30).text,
+            'html.parser'
+        )
         for a in ssoup.find_all('a', href=True):
-            if 'Files.Serve' in a['href']:
-                pdf_links.append(a['href'])
+            if 'Files.Serve' in a['href'] and not a.find('img'):
+                pdf_url = f'https://www.brevardclerk.us{a["href"]}' if a['href'].startswith('/') else a['href']
+                cal_text, cal_pages, cal_bytes = fetch_pdf_text(pdf_url, 'calendar')
+                cal_parcels = list(set(re.findall(r'\b(\d{7,8})\b', cal_text)))
+                calendar_summary['parcels_in_pdf'] = len(cal_parcels)
+                calendar_summary['pdf_bytes'] = cal_bytes
+                calendar_summary['pdf_pages'] = cal_pages
                 break
-    if not pdf_links:
-        raise RuntimeError('No PDF link on sale page')
-    pdf_link = pdf_links[0]
-    pdf_url = f'https://www.brevardclerk.us{pdf_link}' if pdf_link.startswith('/') else pdf_link
-    print(f'PDF URL: {pdf_url}')
+
+    summary['stages']['calendar'] = calendar_summary
 
     # ========================================================================
-    # Step 3: Download + parse PDF
+    # STAGE 2: Surplus PDF - extract surplus filings (SOLD prices live here)
     # ========================================================================
-    pdf_resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
-    pdf_resp.raise_for_status()
-    pdf_bytes = pdf_resp.content
-    print(f'PDF: {len(pdf_bytes)} bytes')
-
-    doc = fitz.open(stream=pdf_bytes, filetype='pdf')
-    num_pages = len(doc)
-    full_text = ''
-    for page in doc:
-        full_text += page.get_text() + '\n'
-    doc.close()
-    print(f'PDF text: {len(full_text)} chars, {num_pages} pages')
+    print('\n=== STAGE 2: Tax Deed Surplus PDF ===')
+    surplus_text, sp_pages, sp_bytes = fetch_pdf_text(SURPLUS_URL, 'surplus')
 
     if VERBOSE:
-        print('=' * 70)
-        print('PDF TEXT (first 4000 chars):')
-        print(full_text[:4000])
-        print('=' * 70)
+        print('SAMPLE SURPLUS TEXT (first 3000 chars):')
+        print(surplus_text[:3000])
+        print('-' * 70)
 
-    # ========================================================================
-    # Step 4: Extract auction rows from PDF
-    # Brevard tax-deed format varies but typically: tax-deed case number,
-    # parcel/account, opening bid (dollar amount), optional status keyword
-    # ========================================================================
+    # Pull our 10 SOLD parcels (and all 129 for full match)
+    snap = select('v_brevard_snapshot_minimal', 'select=parcel_id,case_number,opening_bid,sale_status_canonical')
+    snap_by_parcel = {row['parcel_id']: row for row in snap if row.get('parcel_id')}
+    sold_pids = {pid for pid, r in snap_by_parcel.items() if r.get('sale_status_canonical') == 'SOLD'}
+    print(f'Snapshot parcels: {len(snap_by_parcel)}, SOLD today: {len(sold_pids)}')
+
+    # Brevard surplus PDFs typically organize entries by case number 26-TD-NNNN or 2024-CA / 2025-TD
+    # Each row contains: case#, parcel, sale date, sale price, surplus, former owner, address
+    # Extract candidate surplus rows by chunking around case-number anchors
+    case_anchor_re = re.compile(r'(\d{2,4}[-\s]?TD[-\s]?\d{3,6}|\d{4}[-\s]?CA[-\s]?\d{4,8})', re.IGNORECASE)
     parcel_re = re.compile(r'\b(\d{7,8})\b')
     money_re = re.compile(r'\$\s*([\d,]+\.\d{2})')
-    case_re = re.compile(r'(\d{4}-?TD-?\d+|TD-?\d{4}-?\d+|\d{2}\d{4}\d+)', re.IGNORECASE)
-    status_re = re.compile(r'\b(SOLD|REDEEMED|CANCELLED|CANCELED|STRUCK\s*OFF|WITHDRAWN|PENDING|UPCOMING)\b', re.IGNORECASE)
+    date_re = re.compile(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})')
 
-    rows = []
-    # Strategy: walk lines; whenever we see a parcel, start a new "row" with
-    # surrounding context (prev + next 2 lines) for money/status detection.
-    lines = [ln.strip() for ln in full_text.split('\n')]
-    for i, ln in enumerate(lines):
-        if not ln:
-            continue
-        pm = parcel_re.search(ln)
-        if not pm:
-            continue
-        # Context = this line + next 2 + prev 1
-        ctx = ' | '.join(filter(None, [lines[max(0,i-1)], ln, lines[min(len(lines)-1,i+1)], lines[min(len(lines)-1,i+2)]]))
-        parcel = pm.group(1)
-        if len(parcel) < 7:
-            continue
-        money_match = money_re.search(ctx)
-        case_match = case_re.search(ctx)
-        status_match = status_re.search(ctx)
-        rows.append({
-            'parcel': parcel,
-            'opening_bid': float(money_match.group(1).replace(',', '')) if money_match else None,
-            'case': case_match.group(1) if case_match else None,
-            'pdf_status': status_match.group(1).upper() if status_match else None,
-            'ctx': ctx[:300],
-        })
-
-    # Dedupe by parcel (keep first)
-    seen = set()
-    unique_rows = []
-    for r in rows:
-        if r['parcel'] in seen:
-            continue
-        seen.add(r['parcel'])
-        unique_rows.append(r)
-    rows = unique_rows
-    print(f'Extracted {len(rows)} unique parcels from PDF')
-
-    if VERBOSE and rows:
-        print('First 3 rows:')
-        for r in rows[:3]:
-            print(f'  {r}')
-
-    # ========================================================================
-    # Step 5: Cross-reference with snapshot
-    # ========================================================================
-    snap = select('v_brevard_snapshot_minimal', 'select=parcel_id,case_number,opening_bid,sale_status_canonical,sold_amount&limit=500')
-    snap_by_parcel = {row['parcel_id']: row for row in snap if row.get('parcel_id')}
-    print(f'Snapshot has {len(snap_by_parcel)} parcels')
-
-    matched = 0
-    new_to_us = 0
-    status_changes = []
-    for r in rows:
-        if r['parcel'] in snap_by_parcel:
-            matched += 1
-            current_status = snap_by_parcel[r['parcel']].get('sale_status_canonical')
-            pdf_status_map = {
-                'SOLD': 'SOLD', 'REDEEMED': 'REDEEMED',
-                'CANCELLED': 'CANCELED', 'CANCELED': 'CANCELED',
-                'STRUCK OFF': 'STRUCK_OFF', 'STRUCKOFF': 'STRUCK_OFF',
-                'WITHDRAWN': 'WITHDRAWN', 'PENDING': 'LISTED', 'UPCOMING': 'LISTED',
+    # First, locate all our known parcels in the surplus text
+    parcel_hits = {}
+    for pid in snap_by_parcel.keys():
+        idx = surplus_text.find(pid)
+        if idx > 0:
+            ctx = surplus_text[max(0, idx-500):idx+500]
+            moneys = money_re.findall(ctx)
+            cases = case_anchor_re.findall(ctx)
+            dates = date_re.findall(ctx)
+            parcel_hits[pid] = {
+                'context': ctx[:800],
+                'amounts': moneys,
+                'cases': cases,
+                'dates': dates,
+                'is_sold_today': pid in sold_pids,
             }
-            pdf_canonical = pdf_status_map.get(r['pdf_status'])
-            if pdf_canonical and pdf_canonical != current_status:
-                status_changes.append({'parcel': r['parcel'], 'from': current_status, 'to': pdf_canonical, 'raw': r['pdf_status']})
-        else:
-            new_to_us += 1
 
-    print(f'Cross-ref: {matched}/{len(rows)} matched our snapshot, {new_to_us} new-to-us')
-    print(f'Status changes detected: {len(status_changes)}')
+    print(f'Parcels found in surplus PDF: {len(parcel_hits)}')
+    print(f'  Of which SOLD today: {sum(1 for h in parcel_hits.values() if h["is_sold_today"])}')
 
-    # ========================================================================
-    # Step 6: Apply status updates
-    # ========================================================================
-    applied = 0
-    for change in status_changes:
-        try:
-            rpc('brevard_update_status', {
-                'p_parcel_id': change['parcel'],
-                'p_auction_date': AUCTION_DATE_STR,
-                'p_new_status': change['to'],
-                'p_source': 'brevardclerk_pdf',
-                'p_raw_status': change['raw'],
-                'p_notes': f'PDF scrape: {change["from"]} -> {change["to"]}',
+    # Also do a global scan: extract every candidate surplus row
+    # Group text into chunks per case anchor
+    all_surplus_rows = []
+    anchors = [(m.start(), m.group(1)) for m in case_anchor_re.finditer(surplus_text)]
+    for i, (start, case) in enumerate(anchors):
+        end = anchors[i+1][0] if i+1 < len(anchors) else min(start + 800, len(surplus_text))
+        chunk = surplus_text[start:end]
+        if len(chunk) < 30: continue
+        parcels = list(set(parcel_re.findall(chunk)))
+        moneys = money_re.findall(chunk)
+        dates = date_re.findall(chunk)
+        if parcels and moneys:
+            all_surplus_rows.append({
+                'case_number': case.upper().replace(' ',''),
+                'parcels': parcels[:3],
+                'amounts': moneys[:5],
+                'dates': dates[:3],
+                'chunk_size': len(chunk),
             })
-            applied += 1
-        except Exception as e:
-            print(f'  ! Update failed for {change["parcel"]}: {e}')
+
+    print(f'Total surplus-row candidates: {len(all_surplus_rows)}')
+
+    # Store all payload data for inspection
+    payload_rows = []
+    for pid, hit in parcel_hits.items():
+        payload_rows.append({'kind': 'surplus_match', 'parcel': pid, **hit})
+    for row in all_surplus_rows[:200]:  # cap at 200 to keep payload size reasonable
+        payload_rows.append({'kind': 'surplus_candidate', **row})
+
+    rpc('scrape_payload_insert', {'p_run_id': run_id, 'p_rows': payload_rows})
+    print(f'Stored {len(payload_rows)} payload rows')
 
     # ========================================================================
-    # Step 7: Finish run with summary
+    # STAGE 3: Upsert clean surplus rows where confident
     # ========================================================================
-    summary = {
-        'pdf_url': pdf_url,
-        'pdf_bytes': len(pdf_bytes),
-        'pdf_pages': num_pages,
-        'pdf_rows_extracted': len(rows),
-        'matched_snapshot': matched,
-        'new_to_us': new_to_us,
-        'status_changes_detected': len(status_changes),
-        'status_changes_applied': applied,
-        'sample_changes': status_changes[:5],
-        'note': 'Sold prices not in this PDF (auction-calendar PDF). For sold prices, run after sale day or use Official Records scraper.',
+    upserted = 0
+    for row in all_surplus_rows:
+        # Need at least: case, one parcel, two amounts (sold + surplus), one date
+        if len(row['parcels']) < 1 or len(row['amounts']) < 2 or len(row['dates']) < 1:
+            continue
+        amounts = [float(a.replace(',','')) for a in row['amounts']]
+        # Heuristic: largest amount = sold_amount, second-largest = surplus
+        amounts_sorted = sorted(amounts, reverse=True)
+        sold_amount = amounts_sorted[0]
+        surplus_amount = None
+        # Try to find which is which: surplus typically smaller than sold
+        if len(amounts_sorted) >= 2 and amounts_sorted[1] < amounts_sorted[0]:
+            surplus_amount = amounts_sorted[1]
+
+        # Parse first date
+        try:
+            d = row['dates'][0]
+            parts = re.split(r'[/-]', d)
+            if len(parts) == 3:
+                m, dd, y = parts
+                if len(y) == 2: y = '20' + y
+                sale_date = f'{y}-{int(m):02d}-{int(dd):02d}'
+            else:
+                sale_date = None
+        except Exception:
+            sale_date = None
+
+        try:
+            new_id = rpc('brevard_upsert_surplus', {'p': {
+                'case_number': row['case_number'],
+                'parcel_id': row['parcels'][0],
+                'sale_date': sale_date,
+                'sold_amount': sold_amount,
+                'surplus_amount': surplus_amount,
+                'source_pdf_url': SURPLUS_URL,
+                'scrape_run_id': str(run_id),
+                'raw_context': f'parcels={row["parcels"]} amounts={amounts} dates={row["dates"]}',
+            }})
+            upserted += 1
+        except Exception as e:
+            if upserted < 3: print(f'  ! upsert fail: {e}')
+
+    print(f'Upserted {upserted} surplus rows into pipeline.tax_deed_surplus')
+
+    # ========================================================================
+    # STAGE 4: Apply sold_amount to today's SOLD deals where match found
+    # ========================================================================
+    sold_amount_applied = 0
+    sold_amount_details = []
+    for pid in sold_pids:
+        hit = parcel_hits.get(pid)
+        if not hit or not hit.get('amounts'):
+            continue
+        amounts = [float(a.replace(',','')) for a in hit['amounts']]
+        # Look for sold amount = the amount that's both > opening_bid AND plausible
+        opening = snap_by_parcel[pid].get('opening_bid')
+        opening_f = float(opening) if opening else 0
+        # Try largest amount > opening
+        candidates = [a for a in amounts if a > opening_f]
+        if candidates:
+            sold = max(candidates)
+            try:
+                rpc('brevard_update_sold', {
+                    'p_parcel_id': pid,
+                    'p_auction_date': AUCTION_DATE_STR,
+                    'p_sold_amount': sold,
+                    'p_sold_to': None,
+                    'p_source': 'brevardclerk_surplus_pdf',
+                    'p_notes': f'Auto-matched from surplus PDF context. Opening={opening_f}, amounts={amounts[:5]}',
+                })
+                sold_amount_applied += 1
+                sold_amount_details.append({'parcel': pid, 'opening': opening_f, 'sold': sold, 'all_amounts': amounts[:5]})
+            except Exception as e:
+                print(f'  ! sold update fail {pid}: {e}')
+
+    print(f'Applied sold_amount to {sold_amount_applied}/{len(sold_pids)} SOLD parcels')
+
+    # ========================================================================
+    # STAGE 5: Lands Available PDF (struck-off tracking)
+    # ========================================================================
+    print('\n=== STAGE 5: Lands Available PDF ===')
+    lands_text, l_pages, l_bytes = fetch_pdf_text(LANDS_URL, 'lands')
+    lands_parcels = set(parcel_re.findall(lands_text))
+    # Filter to parcels we know are on FL Brevard (7-8 digits)
+    lands_summary = {
+        'pdf_bytes': l_bytes,
+        'pdf_pages': l_pages,
+        'parcels_found': len(lands_parcels),
+        'matches_our_snapshot': len([p for p in lands_parcels if p in snap_by_parcel]),
     }
-    # Store row-level data for inspection
-    payload_rows = []
-    for r in rows:
-        snap_row = snap_by_parcel.get(r["parcel"])
-        payload_rows.append({
-            "parcel": r["parcel"],
-            "opening_bid_pdf": r.get("opening_bid"),
-            "case_pdf": r.get("case"),
-            "pdf_status": r.get("pdf_status"),
-            "in_snapshot": snap_row is not None,
-            "snapshot_opening_bid": float(snap_row["opening_bid"]) if snap_row and snap_row.get("opening_bid") else None,
-            "snapshot_status": snap_row.get("sale_status_canonical") if snap_row else None,
-            "ctx": r.get("ctx", "")[:200],
-        })
-    try:
-        rpc("scrape_payload_insert", {"p_run_id": run_id, "p_rows": payload_rows})
-    except Exception as e:
-        print(f"Payload insert failed (continuing): {e}")
+
+    # If any of our today's SOLD parcels show up in Lands Available, that's a contradiction (they didn't sell)
+    sold_in_lands = sold_pids.intersection(lands_parcels)
+    if sold_in_lands:
+        print(f'⚠ Parcels marked SOLD that appear in Lands Available: {sold_in_lands}')
+        lands_summary['sold_in_lands_contradiction'] = list(sold_in_lands)
+
+    summary['stages']['surplus'] = {
+        'pdf_bytes': sp_bytes,
+        'pdf_pages': sp_pages,
+        'surplus_candidates_extracted': len(all_surplus_rows),
+        'snapshot_parcels_found_in_pdf': len(parcel_hits),
+        'sold_today_found_in_pdf': sum(1 for h in parcel_hits.values() if h['is_sold_today']),
+        'surplus_rows_upserted': upserted,
+        'sold_amounts_applied': sold_amount_applied,
+        'sold_details': sold_amount_details[:10],
+    }
+    summary['stages']['lands_available'] = lands_summary
+
     rpc('scrape_log_finish', {
         'p_run_id': run_id, 'p_status': 'success',
-        'p_rows_in': len(rows), 'p_rows_inserted': applied, 'p_rows_deduped': 0,
-        'p_notes': json.dumps(summary)[:4000],
+        'p_rows_in': len(all_surplus_rows),
+        'p_rows_inserted': upserted,
+        'p_notes': json.dumps(summary)[:6000],
     })
-    print('=' * 70)
-    print('SUMMARY:', json.dumps(summary, indent=2)[:2000])
-    print('=' * 70)
-    print(f'Run id={run_id} complete')
+    print('\n=== SUMMARY ===')
+    print(json.dumps(summary, indent=2)[:3000])
 
 except Exception as e:
     import traceback
     err = f'{type(e).__name__}: {e}\n{traceback.format_exc()[:1500]}'
-    print(f'ERROR (will log to scrape_runs): {err}', file=sys.stderr)
+    print(f'ERROR: {err}', file=sys.stderr)
     try:
-        # Direct REST call, avoid rpc() to dodge any cascading failures
         requests.post(f'{REST}/rpc/scrape_log_finish',
             json={'p_run_id': run_id, 'p_status': 'failed', 'p_error': err[:2000]},
             headers=RPC_HEADERS, timeout=15)
-    except Exception as e2:
-        print(f'Also failed to log: {e2}', file=sys.stderr)
+    except Exception: pass
     sys.exit(1)
