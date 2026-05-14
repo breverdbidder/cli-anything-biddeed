@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BidDeed.AI · Today's Auctions · Split-Panel Table</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --navy:#1E3A5F; --orange:#F59E0B; --bg:#020617; --panel:#0F172A;
+    --border:#1E293B; --text:#E2E8F0; --muted:#64748B;
+    --sold:#10B981; --redeemed:#3B82F6; --canceled:#EF4444; --listed:#F59E0B; --struck:#8B5CF6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.4}
+  header{padding:18px 20px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#0F172A 0%,#020617 100%)}
+  h1{margin:0;font-size:18px;font-weight:600}
+  .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  .source{color:var(--orange);font-weight:500}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;padding:14px 20px;border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .chip{padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap;display:flex;align-items:center;gap:6px;transition:all 0.15s}
+  .chip:hover{border-color:var(--orange)}
+  .chip.active{background:var(--orange);color:#000;border-color:var(--orange);font-weight:600}
+  .chip .count{background:rgba(255,255,255,0.15);padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700}
+  .chip.active .count{background:rgba(0,0,0,0.25)}
+  .chip.sold_3rd_party::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--sold)}
+  .chip.sold_plaintiff::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--sold);opacity:0.6}
+  .chip.redeemed::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--redeemed)}
+  .chip.canceled::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--canceled)}
+  .chip.listed::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--listed)}
+  .chip.struck_off::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--struck)}
+  .meta{padding:10px 20px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border)}
+  .table-wrap{padding:14px 12px}
+  .card-row{display:grid;grid-template-columns:240px 1fr;gap:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;overflow:hidden}
+  @media (max-width:640px){.card-row{grid-template-columns:1fr;gap:0}.card-row .right{border-left:none;border-top:1px solid var(--border)}}
+  .left, .right{padding:12px 14px}
+  .right{border-left:1px solid var(--border)}
+  .status-badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px}
+  .status-badge.sold{background:var(--sold);color:#000}
+  .status-badge.redeemed{background:var(--redeemed);color:#fff}
+  .status-badge.canceled{background:var(--canceled);color:#fff}
+  .status-badge.listed{background:var(--listed);color:#000}
+  .status-badge.struck_off{background:var(--struck);color:#fff}
+  .price{font-size:20px;font-weight:700;color:var(--text);margin:4px 0}
+  .price.zero{color:var(--muted);font-size:14px;font-weight:500}
+  .sold-meta{font-size:11px;color:var(--muted)}
+  .sold-to{display:inline-block;padding:2px 7px;background:rgba(245,158,11,0.15);color:var(--orange);border-radius:3px;font-size:11px;font-weight:600;margin-top:4px}
+  .right-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+  .field{}
+  .field .label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px}
+  .field .value{font-size:13px;color:var(--text);font-weight:500;word-break:break-word}
+  .field .value.parcel{font-family:'SF Mono','Monaco',monospace;font-size:12px}
+  .premium{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px}
+  .premium.high{background:var(--sold);color:#000}
+  .premium.mid{background:var(--listed);color:#000}
+  .premium.low{background:var(--canceled);color:#fff;opacity:0.7}
+  .conf-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:6px;vertical-align:middle}
+  .conf-badge.high{background:rgba(16,185,129,0.2);color:var(--sold)}
+  .conf-badge.partial{background:rgba(245,158,11,0.2);color:var(--orange)}
+  .conf-badge.low{background:rgba(239,68,68,0.2);color:var(--canceled)}
+  .conf-badge.snapshot_only{background:rgba(100,116,139,0.2);color:var(--muted)}
+  .empty-state{padding:60px 20px;text-align:center;color:var(--muted)}
+  .loading{padding:40px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Today's Auctions · <span style="color:var(--orange)">Brevard County</span> · <span style="color:var(--muted)">2026-05-14</span></h1>
+  <div class="sub">Tier 1 SSOT: <span class="source">brevard.realforeclose.com</span> · Schema-driven via <code style="background:var(--panel);padding:1px 5px;border-radius:3px">config.realauction_card_schema</code></div>
+</header>
+
+<div class="filters" id="filters">
+  <div class="chip active" data-filter="all">All <span class="count" id="cnt-all">—</span></div>
+  <!-- Status chips inserted by JS -->
+</div>
+
+<div class="meta" id="meta">Loading…</div>
+
+<div class="table-wrap" id="table"><div class="loading">Loading…</div></div>
+
+<script>
+const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE2MzMzMjMsImV4cCI6MjA1NzIwOTMyM30.AfsZTAVNGiCFEhCmIcMqxsdGsmEjcdGEvOgxv03f6kU';
+
+const CHIP_LABELS = {
+  'sold_3rd_party': 'SOLD · 3rd Party',
+  'sold_plaintiff': 'SOLD · Plaintiff',
+  'sold_county':    'SOLD · County',
+  'sold_other':     'SOLD · Other',
+  'redeemed':       'Redeemed',
+  'canceled':       'Canceled',
+  'struck_off':     'Struck Off',
+  'listed':         'Listed (Upcoming)',
+};
+
+let allRows = [];
+let activeFilter = 'all';
+
+const fmtMoney = (n) => n == null ? '—' : '$' + Math.round(parseFloat(n)).toLocaleString();
+const fmtPct = (n) => n == null ? '' : (parseFloat(n) > 0 ? '+' : '') + parseFloat(n).toFixed(0) + '%';
+
+async function load() {
+  const headers = { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON };
+  const [rowsRes, summaryRes] = await Promise.all([
+    fetch(SUPABASE_URL + '/rest/v1/v_realauction_table_today?select=*', { headers }),
+    fetch(SUPABASE_URL + '/rest/v1/v_realauction_table_filter_summary?select=*', { headers }),
+  ]);
+  allRows = await rowsRes.json();
+  const summary = await summaryRes.json();
+  buildChips(summary);
+  document.getElementById('cnt-all').textContent = allRows.length;
+  document.getElementById('meta').innerHTML = `Showing ${allRows.length} parcels · ${summary.length} status buckets · auto-updates from <span class="source">v_realauction_table_today</span>`;
+  render();
+}
+
+function buildChips(summary) {
+  const container = document.getElementById('filters');
+  for (const s of summary) {
+    if (!s.filter_key) continue;
+    const chip = document.createElement('div');
+    chip.className = 'chip ' + s.filter_key;
+    chip.dataset.filter = s.filter_key;
+    chip.innerHTML = (CHIP_LABELS[s.filter_key] || s.filter_key) + ' <span class="count">' + s.deal_count + '</span>';
+    chip.onclick = () => {
+      activeFilter = s.filter_key;
+      document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.filter === activeFilter));
+      render();
+    };
+    container.appendChild(chip);
+  }
+  document.querySelector('.chip[data-filter="all"]').onclick = () => {
+    activeFilter = 'all';
+    document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.filter === activeFilter));
+    render();
+  };
+}
+
+function premiumClass(pct) {
+  if (pct == null) return '';
+  const v = parseFloat(pct);
+  if (v >= 100) return 'high';
+  if (v >= 20) return 'mid';
+  return 'low';
+}
+
+function render() {
+  const filtered = activeFilter === 'all' ? allRows : allRows.filter(r => r.filter_key === activeFilter);
+  const c = document.getElementById('table');
+  if (filtered.length === 0) {
+    c.innerHTML = '<div class="empty-state">No parcels match this filter.</div>';
+    return;
+  }
+  c.innerHTML = filtered.map(r => {
+    const isSold = r.sale_status === 'SOLD';
+    const statusKey = (r.sale_status || '').toLowerCase();
+    const time = r.sold_at ? new Date(r.sold_at).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', timeZone:'America/New_York'}) + ' ET' : null;
+
+    return `
+    <div class="card-row">
+      <div class="left">
+        <span class="status-badge ${statusKey}">${r.sale_status || 'UNKNOWN'}</span>
+        <span class="conf-badge ${r.parse_confidence}">${r.parse_confidence || ''}</span>
+        ${isSold ? `
+          <div class="price">${fmtMoney(r.sold_amount)}</div>
+          ${time ? `<div class="sold-meta">at ${time}</div>` : ''}
+          ${r.sold_to_category ? `<div class="sold-to">${r.sold_to_category.replace('_',' ')}</div>` : ''}
+        ` : `
+          <div class="price zero">${r.sale_status === 'REDEEMED' ? 'Owner redeemed' : (r.sale_status === 'CANCELED' ? 'Sale canceled' : 'Pending')}</div>
+        `}
+      </div>
+      <div class="right">
+        <div class="right-grid">
+          <div class="field">
+            <div class="label">Parcel ID</div>
+            <div class="value parcel">${r.parcel_id || '—'}</div>
+          </div>
+          <div class="field">
+            <div class="label">Case #</div>
+            <div class="value">${r.case_number || '—'}</div>
+          </div>
+          <div class="field">
+            <div class="label">Cert #</div>
+            <div class="value">${r.certificate_number || '—'}</div>
+          </div>
+          <div class="field">
+            <div class="label">Opening Bid</div>
+            <div class="value">${fmtMoney(r.opening_bid)}${isSold && r.premium_pct != null ? `<span class="premium ${premiumClass(r.premium_pct)}">${fmtPct(r.premium_pct)}</span>` : ''}</div>
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <div class="label">Property Address</div>
+            <div class="value">${r.pa_address || r.pa_site_addr || '—'}${r.pa_site_city ? ', ' + r.pa_site_city : ''}</div>
+          </div>
+          <div class="field">
+            <div class="label">PA Assessed</div>
+            <div class="value">${fmtMoney(r.pa_assessed_value)}</div>
+          </div>
+          <div class="field">
+            <div class="label">PA Market</div>
+            <div class="value">${fmtMoney(r.pa_market_value)}${isSold && r.sold_pct_of_market != null ? `<span class="premium ${premiumClass(r.sold_pct_of_market < 50 ? 100 : (r.sold_pct_of_market > 90 ? 10 : 50))}">${fmtPct(r.sold_pct_of_market)}</span>` : ''}</div>
+          </div>
+          ${isSold && r.buyer_residual_equity ? `
+          <div class="field" style="grid-column:1/-1">
+            <div class="label">Buyer Residual Equity (Market - Sold)</div>
+            <div class="value" style="color:var(--sold)">${fmtMoney(r.buyer_residual_equity)}</div>
+          </div>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+load().catch(e => { document.getElementById('table').innerHTML = '<div class="empty-state">Load error: ' + e.message + '</div>'; });
+</script>
+</body>
+</html>
