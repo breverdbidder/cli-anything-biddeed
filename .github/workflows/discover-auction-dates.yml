@@ -1,0 +1,65 @@
+name: Discover RealAuction Calendar Dates
+
+on:
+  workflow_dispatch:
+    inputs:
+      counties:
+        description: 'Comma-separated county slugs (or "default" for ASCEND targets)'
+        required: false
+        default: 'default'
+      sale_type:
+        description: 'Sale type'
+        required: false
+        default: 'tax_deed'
+        type: choice
+        options: [tax_deed, foreclosure]
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        county: [osceola, polk, volusia, marion, hillsborough]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install --quiet requests
+
+      - name: Look up registry entry
+        id: registry
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COUNTY: ${{ matrix.county }}
+          SALE_TYPE: ${{ github.event.inputs.sale_type }}
+        run: |
+          set -euo pipefail
+          URL="$SUPABASE_URL/rest/v1/realauction_subdomains?county_slug=eq.${COUNTY}&sale_type=eq.${SALE_TYPE}&is_active=eq.true&limit=1"
+          RESP=$(curl -sf -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" -H "Accept: application/json" "$URL")
+          if [ "$(echo "$RESP" | jq 'length')" = "0" ]; then
+            echo "::error::No registry row for $COUNTY $SALE_TYPE"
+            exit 1
+          fi
+          FULL_BASE=$(echo "$RESP" | jq -r '.[0].base_url')
+          PLATFORM=$(echo "$RESP" | jq -r '.[0].platform')
+          ORIGIN=$(echo "$FULL_BASE" | sed -E 's|(https?://[^/]+).*|\1|')
+          echo "base_url=$ORIGIN" >> "$GITHUB_OUTPUT"
+          echo "platform=$PLATFORM" >> "$GITHUB_OUTPUT"
+          echo "::notice::$COUNTY → $ORIGIN ($PLATFORM)"
+
+      - name: Run discovery
+        id: discover
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          COUNTY_SLUG: ${{ matrix.county }}
+          BASE_URL: ${{ steps.registry.outputs.base_url }}
+          PLATFORM: ${{ steps.registry.outputs.platform }}
+          SALE_TYPE: ${{ github.event.inputs.sale_type }}
+        run: python .github/scripts/discover_auction_dates.py
