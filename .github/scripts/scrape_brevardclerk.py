@@ -35,10 +35,12 @@ def sel(table, q=''):
 
 def firecrawl_with_clicks(url, num_clicks):
     actions = [{'type':'wait','milliseconds':6000}]
+    # Click the 2nd 'Next Page' img (the one for Auctions Closed section) via executeJavascript
     for _ in range(num_clicks):
-        # Try last-of-type first; if fails Firecrawl returns error but we catch it
-        actions.append({'type':'click','selector':NEXT_SELECTOR})
-        actions.append({'type':'wait','milliseconds':2500})
+        actions.append({'type':'executeJavascript','script':
+            'var imgs=document.querySelectorAll(\'img[alt="Next Page"]\');' +
+            'if(imgs.length>1){imgs[1].click();}else if(imgs.length>0){imgs[0].click();}'})
+        actions.append({'type':'wait','milliseconds':2800})
     actions.append({'type':'wait','milliseconds':1500})
     body = {'url':url,'formats':['markdown'],'actions':actions,
             'onlyMainContent':False,'timeout':120000}
@@ -46,16 +48,8 @@ def firecrawl_with_clicks(url, num_clicks):
         headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
         json=body, timeout=180)
     if r.status_code != 200:
-        # Retry with fallback selector
-        for a in actions:
-            if a.get('type')=='click': a['selector'] = NEXT_SELECTOR_FALLBACK
-        body['actions'] = actions
-        r = requests.post('https://api.firecrawl.dev/v1/scrape',
-            headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
-            json=body, timeout=180)
-        if r.status_code != 200:
-            print(f'  ! firecrawl {r.status_code}: {r.text[:200]}')
-            return ''
+        print(f'  ! firecrawl {r.status_code}: {r.text[:300]}')
+        return ''
     return r.json().get('data',{}).get('markdown','')
 
 def extract_cards(md, schema_by_field, status_map):
