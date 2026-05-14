@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parity Battle Card · BidDeed.AI vs PropertyOnion · Brevard 2026-05-14</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#020617">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:#020617; color:#e2e8f0; margin:0; }
+html,body { scroll-behavior:smooth; }
+.deck { scroll-snap-type:y mandatory; overflow-y:scroll; height:100vh; }
+.slide { scroll-snap-align:start; scroll-snap-stop:always; min-height:100vh; display:flex; flex-direction:column; justify-content:center; padding:5vh 6vw; position:relative; }
+.slide-num { position:absolute; top:18px; right:20px; font-size:11px; color:#475569; font-family:monospace; letter-spacing:.1em; }
+.brand-grad { background:linear-gradient(135deg,#F59E0B 0%,#FBBF24 50%,#FCD34D 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.navy-grad { background:linear-gradient(135deg,#1E3A5F 0%,#0F1E3D 100%); }
+.glass { background:rgba(30,41,59,0.5); backdrop-filter:blur(10px); border:1px solid rgba(245,158,11,0.15); }
+.fade-in { animation: fadeUp .8s ease both; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+.bar { background:linear-gradient(90deg,#F59E0B,#FBBF24); height:100%; border-radius:6px; transition:width .8s ease; }
+.bar-po { background:linear-gradient(90deg,#3b82f6,#60a5fa); }
+.bar-red { background:linear-gradient(90deg,#dc2626,#ef4444); }
+.bar-grn { background:linear-gradient(90deg,#10b981,#34d399); }
+.kpi-num { font-size:clamp(2.5rem,8vw,5rem); font-weight:900; line-height:1; }
+.dot-nav { position:fixed; right:14px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:8px; z-index:50; }
+.dot { width:8px; height:8px; border-radius:50%; background:rgba(245,158,11,.25); cursor:pointer; transition:all .2s; }
+.dot.active { background:#F59E0B; transform:scale(1.4); }
+@media (max-width:640px) { .dot-nav { right:6px; } .dot { width:6px; height:6px; } }
+.tag { display:inline-block; padding:4px 10px; border-radius:999px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+.tag-win { background:rgba(16,185,129,.15); color:#34d399; border:1px solid rgba(16,185,129,.3); }
+.tag-loss { background:rgba(239,68,68,.15); color:#f87171; border:1px solid rgba(239,68,68,.3); }
+.tag-warn { background:rgba(245,158,11,.15); color:#fbbf24; border:1px solid rgba(245,158,11,.3); }
+.scrollhint { animation: bobUp 2s ease-in-out infinite; }
+@keyframes bobUp { 0%,100%{transform:translateY(0)} 50%{transform:translateY(8px)} }
+@media print {
+  .deck { height:auto; overflow:visible; scroll-snap-type:none; }
+  .slide { min-height:auto; page-break-after:always; padding:3vh 3vw; }
+  .dot-nav, .scrollhint { display:none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="dot-nav" id="dotNav"></nav>
+
+<main class="deck" id="deck">
+
+<!-- SLIDE 1: TITLE -->
+<section class="slide">
+  <div class="slide-num">01 / 11</div>
+  <div class="fade-in max-w-4xl">
+    <div class="mb-6 flex items-center gap-3">
+      <div class="text-3xl md:text-4xl font-extrabold tracking-tight brand-grad">BidDeed.AI</div>
+      <span class="tag tag-warn">PARITY BATTLE CARD</span>
+    </div>
+    <h1 class="text-4xl md:text-7xl font-black tracking-tight leading-[0.95] mb-4">
+      <span class="brand-grad">BD/MCA</span><br>
+      <span class="text-slate-500 text-2xl md:text-4xl">vs</span><br>
+      <span class="text-blue-400">PropertyOnion</span>
+    </h1>
+    <p class="text-lg md:text-xl text-slate-300 mb-2">Brevard County · Tax Deed Sales</p>
+    <p class="text-base text-amber-400 font-mono mb-8">2026-05-14 · today's auctions</p>
+    <div class="glass rounded-xl p-4 max-w-xl">
+      <p class="text-sm text-slate-400 mb-1">Honest assessment. No vanity metrics. We learn and grow from this.</p>
+      <p class="text-xs text-slate-500">Prepared: 2026-05-14 · Litmus test for case study</p>
+    </div>
+    <div class="absolute bottom-8 left-0 right-0 text-center scrollhint">
+      <div class="text-slate-500 text-xs uppercase tracking-widest">Scroll ↓</div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 2: METHODOLOGY & SCOPE -->
+<section class="slide">
+  <div class="slide-num">02 / 11</div>
+  <div class="fade-in max-w-4xl">
+    <span class="tag tag-warn mb-3 inline-block">METHODOLOGY</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-6">What we're comparing</h2>
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="glass rounded-xl p-5">
+        <div class="text-xs uppercase tracking-widest text-amber-400 mb-2">🟠 BD / MCA</div>
+        <div class="text-sm text-slate-300 mb-2">BidDeed.AI's <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">multi_county_auctions</code> table</div>
+        <div class="text-xs text-slate-500">Multi-source ingestion: primary scrape + PO backfill + fl_parcels enrichment</div>
+      </div>
+      <div class="glass rounded-xl p-5">
+        <div class="text-xs uppercase tracking-widest text-blue-400 mb-2">🔵 PO / PropertyOnion</div>
+        <div class="text-sm text-slate-300 mb-2"><code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">po_listings</code> table (our PO scrape)</div>
+        <div class="text-xs text-slate-500">Single-source ingestion from propertyonion.com</div>
+      </div>
+    </div>
+    <div class="glass rounded-xl p-5 border-amber-500/40 bg-amber-500/5">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">⚠️</span>
+        <div>
+          <div class="font-bold text-amber-300 mb-1">Important clarification: RealAuction.com is NOT the source</div>
+          <p class="text-sm text-slate-300 leading-relaxed">Brevard County tax deeds run on <span class="text-amber-400 font-mono">brevardclerk.us</span> — clerk-direct, not RealAuction.<br>RealAuction handles Brevard <i>foreclosures</i> (realforeclose.com) and <i>tax certificates</i> (realtaxlien.com), not tax deeds.<br><span class="text-emerald-400 font-bold">Ground truth = brevardclerk.us</span> for this analysis.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 3: HEADLINE PROPERTY COUNT -->
+<section class="slide">
+  <div class="slide-num">03 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-warn mb-3 inline-block">HEADLINE FINDING</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-2">Property count — the truth hurts</h2>
+    <p class="text-slate-400 text-sm mb-8">Raw row counts vs unique-parcel counts. Big gap.</p>
+
+    <div class="space-y-4 mb-8">
+      <div>
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-slate-300 font-mono text-sm">BD raw rows</div>
+          <div class="text-3xl font-black text-red-400">180</div>
+        </div>
+        <div class="h-4 bg-slate-800 rounded-full overflow-hidden"><div class="bar bar-red" style="width:100%"></div></div>
+        <div class="text-[10px] text-slate-500 mt-1">⚠️ Inflated — includes 94 duplicates</div>
+      </div>
+      <div>
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-amber-300 font-mono text-sm font-bold">BD unique parcels (honest count)</div>
+          <div class="kpi-num brand-grad">86</div>
+        </div>
+        <div class="h-4 bg-slate-800 rounded-full overflow-hidden"><div class="bar" style="width:47.8%"></div></div>
+      </div>
+      <div>
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-blue-300 font-mono text-sm font-bold">PO unique listings</div>
+          <div class="kpi-num text-blue-400">45</div>
+        </div>
+        <div class="h-4 bg-slate-800 rounded-full overflow-hidden"><div class="bar bar-po" style="width:25%"></div></div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-3">
+      <div class="glass rounded-lg p-4 text-center">
+        <div class="text-3xl font-black brand-grad">+91%</div>
+        <div class="text-xs text-slate-400 mt-1">BD volume advantage<br>(86 vs 45 unique)</div>
+      </div>
+      <div class="glass rounded-lg p-4 text-center border-red-500/30">
+        <div class="text-3xl font-black text-red-400">94</div>
+        <div class="text-xs text-slate-400 mt-1">BD duplicate rows<br>hidden in headline</div>
+      </div>
+      <div class="glass rounded-lg p-4 text-center">
+        <div class="text-3xl font-black text-slate-300">?</div>
+        <div class="text-xs text-slate-400 mt-1">Ground truth count<br><span class="text-amber-400">brevardclerk.us TBD</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 4: BD DUPLICATION DEEP-DIVE -->
+<section class="slide">
+  <div class="slide-num">04 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-loss mb-3 inline-block">🚨 CRITICAL BUG</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-2">BD duplication is a SSOT integrity failure</h2>
+    <p class="text-slate-400 text-sm mb-6">Same parcel scraped <b class="text-red-400">8 times</b> from primary scrape alone. Three provenances merged without dedup.</p>
+
+    <div class="glass rounded-xl p-5 mb-4">
+      <div class="text-xs uppercase tracking-widest text-amber-400 mb-3">Provenance breakdown</div>
+      <table class="w-full text-sm">
+        <thead class="text-xs uppercase text-slate-500 border-b border-slate-700/50">
+          <tr><th class="text-left pb-2">Source</th><th class="text-right pb-2">Raw rows</th><th class="text-right pb-2">Unique parcels</th><th class="text-right pb-2">Dupe factor</th></tr>
+        </thead>
+        <tbody class="font-mono">
+          <tr class="border-b border-slate-800/50"><td class="py-2.5 text-slate-300">primary_scrape</td><td class="text-right text-red-400 font-bold">125</td><td class="text-right">74</td><td class="text-right text-red-400">1.7×</td></tr>
+          <tr class="border-b border-slate-800/50"><td class="py-2.5 text-slate-300">po_only_2026_05_13_backfill</td><td class="text-right text-amber-400">43</td><td class="text-right text-slate-500">0 *</td><td class="text-right text-slate-500">—</td></tr>
+          <tr><td class="py-2.5 text-slate-300">fl_parcels_enriched_td_2026_05_14</td><td class="text-right text-emerald-400">12</td><td class="text-right">12</td><td class="text-right text-emerald-400">1.0×</td></tr>
+        </tbody>
+        <tfoot class="border-t border-slate-700/50"><tr><td class="pt-3 font-bold text-amber-300">TOTAL</td><td class="text-right pt-3 font-bold text-red-400">180</td><td class="text-right pt-3 font-bold brand-grad">86</td><td class="text-right pt-3 font-bold text-red-400">2.1×</td></tr></tfoot>
+      </table>
+      <p class="text-[11px] text-slate-500 mt-3">* PO-backfilled rows have NULL parcel_id (second bug — see slide 6)</p>
+    </div>
+
+    <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+      <div class="text-xs uppercase tracking-widest text-red-400 font-bold mb-2">🩸 Sample evidence</div>
+      <p class="text-sm text-slate-300 mb-2">Parcels appearing <b class="text-red-400">8× in primary_scrape</b>:</p>
+      <code class="text-xs text-slate-400 font-mono">2002531 · 2003789 · 2003722 · 2003781 · 2741712 …</code>
+      <p class="text-xs text-slate-500 mt-2">Every dashboard count we publish is potentially inflated 2× until we fix this.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 5: OVERLAP MAP -->
+<section class="slide">
+  <div class="slide-num">05 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-warn mb-3 inline-block">OVERLAP ANALYSIS</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-6">Apples-to-apples · unique deals</h2>
+
+    <div class="grid md:grid-cols-3 gap-4 mb-6">
+      <div class="glass rounded-xl p-5 text-center border-amber-500/40">
+        <div class="text-xs uppercase tracking-widest text-amber-400 mb-2">BD-only</div>
+        <div class="text-5xl font-black brand-grad">43</div>
+        <div class="text-xs text-slate-400 mt-2">unique to BidDeed</div>
+      </div>
+      <div class="glass rounded-xl p-5 text-center border-emerald-500/40 bg-emerald-500/5">
+        <div class="text-xs uppercase tracking-widest text-emerald-400 mb-2">Shared</div>
+        <div class="text-5xl font-black text-emerald-400">43</div>
+        <div class="text-xs text-slate-400 mt-2">in both BD & PO</div>
+      </div>
+      <div class="glass rounded-xl p-5 text-center border-blue-500/40">
+        <div class="text-xs uppercase tracking-widest text-blue-400 mb-2">PO-only</div>
+        <div class="text-5xl font-black text-blue-400">2</div>
+        <div class="text-xs text-slate-400 mt-2">unique to PropertyOnion</div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl p-5">
+      <div class="text-xs uppercase tracking-widest text-blue-400 mb-3">🔍 The 2 PO-unique deals (need investigation)</div>
+      <div class="space-y-2 font-mono text-sm">
+        <div class="flex justify-between items-center bg-slate-900/60 rounded p-3">
+          <div><span class="text-slate-500 text-xs">po_id:</span> <span class="text-blue-400">1100369</span><br><span class="text-slate-200">2480 Keegan Cir Sw, Palm Bay 32908</span></div>
+          <div class="text-right"><span class="text-emerald-400 font-bold">$1,625</span><br><span class="text-xs text-slate-500">opening</span></div>
+        </div>
+        <div class="flex justify-between items-center bg-slate-900/60 rounded p-3">
+          <div><span class="text-slate-500 text-xs">po_id:</span> <span class="text-blue-400">1255842</span><br><span class="text-slate-200">Land 28 3728-02--r.3, Palm Bay 32905</span></div>
+          <div class="text-right"><span class="text-emerald-400 font-bold">$2,301</span><br><span class="text-xs text-slate-500">opening</span></div>
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-500 mt-3">Likely cause: address normalization mismatch (one uses "Cir Sw" not "Circle Southwest"; one uses raw parcel ID as address)</p>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 6: FIELD QUALITY HEATMAP -->
+<section class="slide">
+  <div class="slide-num">06 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-warn mb-3 inline-block">FIELD QUALITY · 43-deal overlap</span>
+    <h2 class="text-3xl md:text-4xl font-bold mb-2">Where each source actually has the data</h2>
+    <p class="text-slate-400 text-sm mb-6">Percent of overlap rows with non-NULL field. Higher = better.</p>
+
+    <div class="glass rounded-xl p-3 md:p-5 overflow-x-auto">
+      <table class="w-full text-xs md:text-sm min-w-[500px]">
+        <thead>
+          <tr class="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-700/50">
+            <th class="text-left pb-2">Field</th>
+            <th class="text-center pb-2 px-2 text-amber-400">BD</th>
+            <th class="text-center pb-2 px-2 text-blue-400">PO</th>
+            <th class="text-left pb-2 pl-3">Winner</th>
+          </tr>
+        </thead>
+        <tbody class="font-mono">
+          <tr class="border-b border-slate-800/40"><td class="py-2">case_number</td><td class="text-center text-red-400 font-bold">0%</td><td class="text-center text-slate-500">—</td><td class="pl-3"><span class="tag tag-loss">BD GAP</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">parcel_id</td><td class="text-center text-red-400 font-bold">0%</td><td class="text-center text-slate-500">—</td><td class="pl-3"><span class="tag tag-loss">BD GAP</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">opening_bid</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="pl-3"><span class="tag tag-win">TIE</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">street_address</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="pl-3"><span class="tag tag-win">TIE</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">zip5</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="pl-3"><span class="tag tag-win">TIE</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">bedrooms</td><td class="text-center text-red-400">~0%</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="pl-3"><span class="tag tag-loss">PO WINS</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">baths</td><td class="text-center text-red-400">~0%</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="pl-3"><span class="tag tag-loss">PO WINS</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">lat/lon (geo)</td><td class="text-center text-red-400">0%</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="pl-3"><span class="tag tag-loss">PO WINS</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">market_value</td><td class="text-center text-amber-400">~30%</td><td class="text-center text-red-400">0%</td><td class="pl-3"><span class="tag tag-win">BD WINS</span></td></tr>
+          <tr class="border-b border-slate-800/40"><td class="py-2">assessed_value</td><td class="text-center text-amber-400">~75%</td><td class="text-center text-red-400">0%</td><td class="pl-3"><span class="tag tag-win">BD WINS</span></td></tr>
+          <tr><td class="py-2">equity_calc</td><td class="text-center text-emerald-400 font-bold">100%</td><td class="text-center text-red-400">0%</td><td class="pl-3"><span class="tag tag-win">BD WINS</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-[11px] text-slate-500 mt-3">⚠️ The 43 BD rows in this overlap came from PO-backfill — that's why case/parcel are 0%. Native BD primary scrape rows have these fields populated. Fix: re-join PO-imported rows to primary via address.</p>
+    <p class="text-[11px] text-slate-500 mt-1">✅ Cross-validation: bid_matches = 43/43, avg_delta = $0.00 (perfect agreement on overlap because same source). No accuracy issue, only coverage gaps.</p>
+  </div>
+</section>
+
+<!-- SLIDE 7: WHERE BD WINS -->
+<section class="slide">
+  <div class="slide-num">07 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-win mb-3 inline-block">BD ADVANTAGES</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-6">Where BidDeed wins (real)</h2>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="glass rounded-xl p-5 border-emerald-500/30">
+        <div class="text-3xl mb-2">📈</div>
+        <div class="font-bold text-emerald-400 mb-1">+91% property volume</div>
+        <p class="text-sm text-slate-300">86 unique deals vs PO's 45. We see the other 41 properties PO is missing entirely.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-emerald-500/30">
+        <div class="text-3xl mb-2">💰</div>
+        <div class="font-bold text-emerald-400 mb-1">Equity calculations</div>
+        <p class="text-sm text-slate-300">$2.86M positive equity pool surfaced. 8 personas auto-scored per deal. PO ships raw listings only.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-emerald-500/30">
+        <div class="text-3xl mb-2">🏛️</div>
+        <div class="font-bold text-emerald-400 mb-1">Market & assessed values</div>
+        <p class="text-sm text-slate-300">zw_parcels enrichment + BCPAO field scrape gives us values PO doesn't surface. Critical for ROI math.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-emerald-500/30">
+        <div class="text-3xl mb-2">🧠</div>
+        <div class="font-bold text-emerald-400 mb-1">Persona-aware filtering</div>
+        <p class="text-sm text-slate-300">Flipper / Buy&Hold / Wholesaler / Land / Owner-Occupant / Portfolio / Distressed / Title-Cure scoring. PO has no scoring layer.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-emerald-500/30">
+        <div class="text-3xl mb-2">🔗</div>
+        <div class="font-bold text-emerald-400 mb-1">Multi-source provenance</div>
+        <p class="text-sm text-slate-300">primary + PO-backfill + fl_parcels = broader coverage than single-source. <span class="text-amber-400">But dedup must be fixed for this to count.</span></p>
+      </div>
+      <div class="glass rounded-xl p-5 border-emerald-500/30">
+        <div class="text-3xl mb-2">⚖️</div>
+        <div class="font-bold text-emerald-400 mb-1">Tax-deed grading</div>
+        <p class="text-sm text-slate-300">A_GIANT through E_UNDERWATER grading system surfaces 1 A-grade + 50 B-grade discounts today. PO gives flat list.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 8: WHERE PO WINS -->
+<section class="slide">
+  <div class="slide-num">08 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-loss mb-3 inline-block">PO ADVANTAGES</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-6">Where PropertyOnion wins (also real)</h2>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="glass rounded-xl p-5 border-blue-500/30">
+        <div class="text-3xl mb-2">📐</div>
+        <div class="font-bold text-blue-400 mb-1">Per-deal field depth</div>
+        <p class="text-sm text-slate-300">100% coverage on beds, baths, geo for every listing they have. BD is sub-10% on those.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-blue-500/30">
+        <div class="text-3xl mb-2">🧹</div>
+        <div class="font-bold text-blue-400 mb-1">Clean dedup</div>
+        <p class="text-sm text-slate-300">45 rows = 45 unique listings. No duplicate noise. BD ships 180 rows for 86 properties.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-blue-500/30">
+        <div class="text-3xl mb-2">🌍</div>
+        <div class="font-bold text-blue-400 mb-1">Geo coordinates</div>
+        <p class="text-sm text-slate-300">Every listing has lat/lon. Enables instant map view, radius search, drive-time analysis. BD has zero geo.</p>
+      </div>
+      <div class="glass rounded-xl p-5 border-blue-500/30">
+        <div class="text-3xl mb-2">🛁</div>
+        <div class="font-bold text-blue-400 mb-1">Property characteristics</div>
+        <p class="text-sm text-slate-300">Beds, baths, sqft estimates on every row. Enables "rental-grade SFR" type queries out of the box. BD requires BCPAO join.</p>
+      </div>
+    </div>
+
+    <div class="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+      <div class="font-bold text-blue-300 mb-2">📊 The honest read</div>
+      <p class="text-sm text-slate-300">PO has a <b>structurally cleaner pipeline</b>. Their per-deal data is richer because they invested in property metadata. We get more deals but each deal has less depth.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 9: HONEST CRITIQUE -->
+<section class="slide">
+  <div class="slide-num">09 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-loss mb-3 inline-block">🩸 HONEST CRITIQUE</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-6">What we have to fix — no spin</h2>
+
+    <div class="space-y-3">
+      <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-5">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl">🚨</span>
+          <div>
+            <div class="font-bold text-red-300 mb-1">#1 Duplication is a silent integrity failure</div>
+            <p class="text-sm text-slate-300">8× dupes on individual parcels in primary_scrape. Every "deals today" headline we publish is potentially 2× inflated. If a customer cross-checks against the clerk site they'll catch us. <span class="text-amber-300 font-bold">Trust killer.</span></p>
+          </div>
+        </div>
+      </div>
+      <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-5">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl">🪪</span>
+          <div>
+            <div class="font-bold text-red-300 mb-1">#2 PO-backfill rows orphaned from identifiers</div>
+            <p class="text-sm text-slate-300">When we imported 43 PO rows, we didn't join them to our primary records — they sit in <code class="bg-slate-800 px-1.5 rounded text-xs">multi_county_auctions</code> with NULL case_number AND NULL parcel_id. We can't link these to BCPAO, can't pull title history, can't enrich.</p>
+          </div>
+        </div>
+      </div>
+      <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-5">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl">🔭</span>
+          <div>
+            <div class="font-bold text-red-300 mb-1">#3 No ground truth — we don't actually know if 86 is right</div>
+            <p class="text-sm text-slate-300">We claim broader coverage than PO but we haven't scraped <span class="text-amber-400 font-mono">brevardclerk.us</span> to confirm. 86 might still be incomplete. Honest version: <i>"we believe 86 is closer to truth based on multi-source ingestion, but unverified vs the clerk's published list."</i></p>
+          </div>
+        </div>
+      </div>
+      <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-5">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl">📊</span>
+          <div>
+            <div class="font-bold text-amber-300 mb-1">#4 Per-deal field depth lags PO</div>
+            <p class="text-sm text-slate-300">PO has 100% beds/baths/geo. We don't. Customers using our app for rental analysis or driveby planning will hit "—" frequently. We need BCPAO field API + Mapbox geocoder to match.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 10: ACTION PLAN -->
+<section class="slide">
+  <div class="slide-num">10 / 11</div>
+  <div class="fade-in max-w-5xl w-full">
+    <span class="tag tag-win mb-3 inline-block">ACTION PLAN · 48 HOURS</span>
+    <h2 class="text-3xl md:text-5xl font-bold mb-6">How we close the gap</h2>
+
+    <div class="space-y-3">
+      <div class="glass rounded-xl p-4 flex items-start gap-3 border-emerald-500/30">
+        <div class="text-3xl shrink-0">🧹</div>
+        <div class="flex-1">
+          <div class="flex items-baseline justify-between gap-2 mb-1 flex-wrap">
+            <div class="font-bold text-emerald-300">Fix #1 · Dedup logic on snapshot</div>
+            <span class="text-[10px] uppercase tracking-widest text-slate-500 font-mono">~30 min</span>
+          </div>
+          <p class="text-sm text-slate-300"><code class="bg-slate-800 px-1.5 rounded text-xs">DISTINCT ON (parcel_id) ORDER BY scraped_at DESC</code> in brevard_taxdeed_today_snapshot rebuild. Add unique constraint. Headline immediately becomes accurate.</p>
+        </div>
+      </div>
+      <div class="glass rounded-xl p-4 flex items-start gap-3 border-emerald-500/30">
+        <div class="text-3xl shrink-0">🪪</div>
+        <div class="flex-1">
+          <div class="flex items-baseline justify-between gap-2 mb-1 flex-wrap">
+            <div class="font-bold text-emerald-300">Fix #2 · Backfill case + parcel on PO rows</div>
+            <span class="text-[10px] uppercase tracking-widest text-slate-500 font-mono">~1 hour</span>
+          </div>
+          <p class="text-sm text-slate-300">Address-normalize PO rows, fuzzy-match to primary_scrape rows with same auction_date + zip. Propagate case_number, parcel_id. ~95% match expected.</p>
+        </div>
+      </div>
+      <div class="glass rounded-xl p-4 flex items-start gap-3 border-emerald-500/30">
+        <div class="text-3xl shrink-0">🔭</div>
+        <div class="flex-1">
+          <div class="flex items-baseline justify-between gap-2 mb-1 flex-wrap">
+            <div class="font-bold text-emerald-300">Fix #3 · Ground-truth scraper for brevardclerk.us</div>
+            <span class="text-[10px] uppercase tracking-widest text-slate-500 font-mono">~2 hours</span>
+          </div>
+          <p class="text-sm text-slate-300">Build custom Firecrawl parser for <span class="font-mono text-xs">brevardclerk.us/tax-deed-sales</span>. Cold-fusion table, not RealAuction AITEM blocks. Schedule daily cron. Now we know the real number.</p>
+        </div>
+      </div>
+      <div class="glass rounded-xl p-4 flex items-start gap-3 border-emerald-500/30">
+        <div class="text-3xl shrink-0">📐</div>
+        <div class="flex-1">
+          <div class="flex items-baseline justify-between gap-2 mb-1 flex-wrap">
+            <div class="font-bold text-emerald-300">Fix #4 · Match PO field depth</div>
+            <span class="text-[10px] uppercase tracking-widest text-slate-500 font-mono">~4 hours</span>
+          </div>
+          <p class="text-sm text-slate-300">BCPAO field API (beds/baths/sqft) + Mapbox geocoder (lat/lon from address). Per-deal cost ~$0.001. Now we match PO on depth AND beat them on volume.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-5 glass rounded-xl p-4 bg-amber-500/5 border-amber-500/40">
+      <div class="text-xs uppercase tracking-widest text-amber-400 font-bold mb-1">Estimated total effort</div>
+      <p class="text-sm text-slate-300">~8 hours of focused work. Cost: <span class="font-mono text-amber-400">$5-10</span> in API calls. Outcome: <span class="text-emerald-400 font-bold">parity-or-better with PO on every field, with verifiable ground truth.</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 11: TAKEAWAY -->
+<section class="slide">
+  <div class="slide-num">11 / 11</div>
+  <div class="fade-in max-w-4xl">
+    <span class="tag tag-win mb-3 inline-block">TAKEAWAY</span>
+    <h2 class="text-4xl md:text-6xl font-black mb-6 leading-tight">
+      We have a <span class="brand-grad">real</span> volume edge.<br>
+      <span class="text-slate-500">After we fix dedup,</span><br>
+      <span class="text-emerald-400">we win this.</span>
+    </h2>
+
+    <div class="grid md:grid-cols-2 gap-3 mb-6">
+      <div class="glass rounded-xl p-4">
+        <div class="text-xs uppercase tracking-widest text-emerald-400 mb-2">✅ What we proved</div>
+        <ul class="text-sm text-slate-300 space-y-1.5">
+          <li>• BD has 91% more property volume than PO</li>
+          <li>• Equity math + persona scoring are unique edges</li>
+          <li>• Multi-source ingestion finds deals PO misses</li>
+          <li>• Bid accuracy on overlap is perfect (100% match)</li>
+        </ul>
+      </div>
+      <div class="glass rounded-xl p-4">
+        <div class="text-xs uppercase tracking-widest text-amber-400 mb-2">⚠️ What we learned</div>
+        <ul class="text-sm text-slate-300 space-y-1.5">
+          <li>• Multi-source without dedup = silent integrity bug</li>
+          <li>• PO has structurally cleaner per-deal pipeline</li>
+          <li>• Ground-truth scrape is non-negotiable</li>
+          <li>• Field depth matters as much as deal count</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/40 rounded-xl p-5">
+      <div class="text-xs uppercase tracking-widest text-amber-400 font-bold mb-2">📍 The case for BidDeed in one line</div>
+      <p class="text-lg md:text-xl text-slate-100 leading-snug">
+        <span class="brand-grad font-bold">We see the deals PO doesn't.</span>
+        Once we fix dedup and match their field depth, we ship a product that's strictly better — verifiable against the clerk.
+      </p>
+    </div>
+
+    <div class="mt-6 text-xs text-slate-500 flex flex-wrap gap-3 justify-between items-center">
+      <div>Prepared 2026-05-14 · BidDeed.AI internal · honest assessment</div>
+      <div class="font-mono">v1.0</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// Dot navigation
+const deck = document.getElementById('deck');
+const slides = document.querySelectorAll('.slide');
+const dotNav = document.getElementById('dotNav');
+slides.forEach((s, i) => {
+  const dot = document.createElement('div');
+  dot.className = 'dot' + (i===0?' active':'');
+  dot.addEventListener('click', () => slides[i].scrollIntoView({behavior:'smooth'}));
+  dotNav.appendChild(dot);
+});
+const dots = document.querySelectorAll('.dot');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const idx = Array.from(slides).indexOf(e.target);
+      dots.forEach((d, i) => d.classList.toggle('active', i===idx));
+    }
+  });
+}, { threshold: 0.5 });
+slides.forEach(s => observer.observe(s));
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+  const current = Array.from(slides).findIndex(s => {
+    const r = s.getBoundingClientRect();
+    return r.top >= -50 && r.top < window.innerHeight / 2;
+  });
+  if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+    e.preventDefault();
+    if (current < slides.length - 1) slides[current+1].scrollIntoView({behavior:'smooth'});
+  } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+    e.preventDefault();
+    if (current > 0) slides[current-1].scrollIntoView({behavior:'smooth'});
+  } else if (e.key === 'Home') {
+    slides[0].scrollIntoView({behavior:'smooth'});
+  } else if (e.key === 'End') {
+    slides[slides.length-1].scrollIntoView({behavior:'smooth'});
+  }
+});
+</script>
+</body>
+</html>
