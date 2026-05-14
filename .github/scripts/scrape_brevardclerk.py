@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""v9.6 DEBUG - dump markdown tail directly to scrape_runs.notes."""
-import os, json, requests
+"""v9.7 - dump strategic markdown chunks to find pagination + try AID-based fetch."""
+import os, json, re, requests
 from datetime import date
 
 SUPABASE_URL = os.environ['SUPABASE_URL'].rstrip('/')
@@ -9,7 +9,6 @@ FIRECRAWL_KEY = os.environ['FIRECRAWL_API_KEY']
 AUCTION_DATE_STR = os.environ.get('AUCTION_DATE','2026-05-14')
 DATE_SLASH = date.fromisoformat(AUCTION_DATE_STR).strftime('%m/%d/%Y')
 PREVIEW_URL = f'https://brevard.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'
-DAYLIST_URL = f'https://brevard.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=DAYLIST&AUCTIONDATE={DATE_SLASH}'
 
 REST = f'{SUPABASE_URL}/rest/v1'
 H = {'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}','Content-Type':'application/json'}
@@ -19,53 +18,72 @@ def rpc(name, params):
     r.raise_for_status()
     return r.json() if r.text and r.text.strip() else None
 
-def fc(url, actions=None):
-    body = {'url':url,'formats':['markdown','html'],'waitFor':6000,'onlyMainContent':False,'timeout':60000}
-    if actions: body['actions'] = actions
-    r = requests.post('https://api.firecrawl.dev/v1/scrape',
-        headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
-        json=body, timeout=120)
-    return r.status_code, (r.json().get('data',{}) if r.status_code==200 else {'error':r.text[:300]})
-
 run_id = rpc('scrape_log_start', {'p_source':'brevard_realforeclose','p_county':'brevard',
     'p_sale_type':'tax_deed','p_auction_date':AUCTION_DATE_STR,
-    'p_triggered_by':'gha_workflow_dispatch_v9_6_probe'})
+    'p_triggered_by':'gha_workflow_dispatch_v9_7_probe'})
 
-results = {}
+# Fetch raw preview
+fc = requests.post('https://api.firecrawl.dev/v1/scrape',
+    headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
+    json={'url':PREVIEW_URL,'formats':['markdown','html','links'],'waitFor':6000,
+          'onlyMainContent':False,'timeout':60000}, timeout=120)
+data = fc.json().get('data',{})
+md = data.get('markdown','')
+html = data.get('html','')
+links = data.get('links',[])
 
-# Probe 1: PREVIEW vanilla
-s1, d1 = fc(PREVIEW_URL)
-md1 = d1.get('markdown','')
-results['preview_vanilla'] = {
-    'status': s1,
-    'md_chars': len(md1),
-    'md_tail_1500': md1[-1500:] if md1 else '',
+# Find specific regions: where do parcel cards END and pagination/IDs begin?
+# Sectioning markers
+sections = {
+    'len': len(md),
+    'auctions_closed_pos': md.lower().find('auctions closed'),
+    'page_word_pos': md.find('Page'),
+    'pagination_pos': md.lower().find('next page'),
+    'prev_page_pos': md.lower().find('previous'),
 }
 
-# Probe 2: DAYLIST vanilla
-s2, d2 = fc(DAYLIST_URL)
-md2 = d2.get('markdown','')
-results['daylist_vanilla'] = {
-    'status': s2,
-    'md_chars': len(md2),
-    'md_tail_1500': md2[-1500:] if md2 else '',
-}
+# Save chunks at key offsets
+chunks = {}
+for name, end_offset in [('around_3000',3000),('around_5000',5000),('around_7500',7500),('around_9000',9000)]:
+    start = max(0, end_offset - 700)
+    chunks[name] = md[start:end_offset]
 
-# Probe 3: PREVIEW with click via broad selector
-s3, d3 = fc(PREVIEW_URL, actions=[
-    {'type':'wait','milliseconds':6000},
-    {'type':'click','selector':'img[src*="next"], img[src*="Next"], a[onclick*="setPage"], a[onclick*="Page"], #fcdt, .NaviSt, .pagiNext'},
-    {'type':'wait','milliseconds':3000},
-])
-md3 = d3.get('markdown','')
-results['preview_clicked'] = {
-    'status': s3,
-    'md_chars': len(md3),
-    'first_parcel_match': md3.find('Parcel ID') if md3 else -1,
-    'md_tail_1000': md3[-1000:] if md3 else '',
+# Look for AID/auction-id patterns
+aid_matches = re.findall(r'AID[=:]?\s*[\'"]?(\d{6,8})', md + html, re.IGNORECASE)
+parcel_list = re.findall(r'\b(\d{7})\b', md[-2000:])
+
+# Pagination link patterns in HTML
+html_pat = {
+    'has_setPage': 'setPage' in html,
+    'has_PageNo': 'PageNo' in html,
+    'has_AjaxPage': 'AjaxPage' in html or 'ajaxpage' in html.lower(),
+    'has_NaviSt': 'NaviSt' in html,
+    'has_AuctionPage': 'AuctionPage' in html,
+    'has_GetPage': 'GetPage' in html,
+    'pagination_html_chunk': '',
+}
+for needle in ['setPage','PageNo','AjaxPage','NaviSt','AuctionPage','GetPage','fcdt']:
+    idx = html.find(needle)
+    if idx > 0:
+        html_pat['pagination_html_chunk'] = html[max(0,idx-150):idx+400]
+        html_pat['found_marker'] = needle
+        break
+
+# Check if any link looks like pagination
+pag_links = [l for l in (links or []) if any(k in str(l).lower() for k in ['page','next','setpage','aid='])]
+
+result = {
+    'sections': sections,
+    'chunks': chunks,
+    'aid_matches_count': len(set(aid_matches)),
+    'aid_sample': list(set(aid_matches))[:30],
+    'parcel_list_tail_count': len(parcel_list),
+    'html_patterns': html_pat,
+    'pag_links_sample': pag_links[:10],
+    'all_links_count': len(links) if links else 0,
 }
 
 rpc('scrape_log_finish', {'p_run_id':run_id,'p_status':'success',
-    'p_rows_in':3,'p_rows_inserted':0,
-    'p_notes':json.dumps(results)[:5800]})
-print(json.dumps(results, indent=2)[:3000])
+    'p_rows_in':0,'p_rows_inserted':0,
+    'p_notes':json.dumps(result)[:5800]})
+print(json.dumps(result, indent=2)[:3000])
