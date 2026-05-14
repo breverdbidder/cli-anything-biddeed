@@ -4,27 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       county_slug:
-        description: 'County slug (e.g. osceola, brevard, volusia)'
         required: true
       county_domain:
-        description: 'Full domain (e.g. osceola.realtaxdeed.com)'
         required: true
       auction_date:
-        description: 'Auction date YYYY-MM-DD'
         required: true
       max_pages:
-        description: 'Max pagination pages (default 15)'
         required: false
         default: '15'
-      page_param:
-        description: 'Pagination URL param (CurrentPage | PageNum | Page)'
+      section_area:
+        description: 'C = closed/canceled, R = running/upcoming'
         required: false
-        default: 'CurrentPage'
+        default: 'C'
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,5 +36,5 @@ jobs:
           COUNTY_DOMAIN: ${{ github.event.inputs.county_domain }}
           AUCTION_DATE: ${{ github.event.inputs.auction_date }}
           MAX_PAGES: ${{ github.event.inputs.max_pages }}
-          PAGE_PARAM: ${{ github.event.inputs.page_param }}
+          SECTION_AREA: ${{ github.event.inputs.section_area }}
         run: python .github/scripts/scrape_realauction_county.py
