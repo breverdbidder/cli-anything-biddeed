@@ -139,8 +139,24 @@ input[type=range] { accent-color:#f59e0b; }
             <span x-show="(d.owner_distress_score||0)>=40" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-red-500 to-amber-500 text-white" x-text="'🔺 '+d.owner_distress_score"></span>
           </div>
           <div class="text-right shrink-0">
-            <div class="text-emerald-400 font-bold text-sm">$<span x-text="formatNum(d.equity_at_opening_bid)"></span></div>
-            <div class="text-[10px] text-slate-500">equity</div>
+            <template x-if="d.sale_status==='SOLD' && d.sold_amount">
+              <div>
+                <div class="text-blue-300 font-bold text-sm">$<span x-text="formatNum(d.sold_amount)"></span></div>
+                <div class="text-[10px] text-slate-500">sold (<span x-text="d.sold_premium_pct>0 ? '+'+d.sold_premium_pct+'%' : 'opening'"></span>)</div>
+              </div>
+            </template>
+            <template x-if="d.sale_status==='SOLD' && !d.sold_amount">
+              <div>
+                <div class="text-blue-300 font-bold text-xs italic">sold</div>
+                <div class="text-[9px] text-amber-500">price TBD</div>
+              </div>
+            </template>
+            <template x-if="d.sale_status!=='SOLD'">
+              <div>
+                <div class="text-emerald-400 font-bold text-sm">$<span x-text="formatNum(d.equity_at_opening_bid)"></span></div>
+                <div class="text-[10px] text-slate-500">equity</div>
+              </div>
+            </template>
           </div>
         </div>
         <div class="text-[15px] font-semibold leading-tight" x-text="isUnknownAddr(d) ? ('PIN '+(d.bcpao_account||'?')) : (d.street_address||'(pending)')"></div>
@@ -356,6 +372,28 @@ input[type=range] { accent-color:#f59e0b; }
           </template>
         </div>
       </div>
+      <div x-show="openDeal && openDeal.sale_status==='SOLD'" class="glass-sold rounded-xl p-3 mb-3">
+        <div class="text-[10px] uppercase tracking-widest text-blue-300 font-bold mb-2">🔵 Auction Outcome</div>
+        <template x-if="openDeal && openDeal.sold_amount">
+          <div>
+            <div class="grid grid-cols-2 gap-2 text-sm mb-2">
+              <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Opening</div><div class="font-mono font-bold">$<span x-text="formatNum(openDeal.opening_bid)"></span></div></div>
+              <div class="bg-blue-950/40 border border-blue-700/30 rounded-lg p-2.5"><div class="text-[10px] text-blue-400 uppercase">Sold Price</div><div class="font-mono font-bold text-blue-300">$<span x-text="formatNum(openDeal.sold_amount)"></span></div></div>
+              <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Premium</div><div class="font-mono font-bold" :class="openDeal.sold_premium_pct>0 ? 'text-amber-400' : 'text-slate-400'" x-text="openDeal.sold_premium_pct ? (openDeal.sold_premium_pct>0?'+':'')+openDeal.sold_premium_pct+'%' : '—'"></div></div>
+              <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">% of Market</div><div class="font-mono font-bold text-purple-400" x-text="openDeal.sold_pct_of_market ? openDeal.sold_pct_of_market+'%' : '—'"></div></div>
+            </div>
+            <div x-show="openDeal.sold_to" class="text-xs text-slate-400">Sold to: <span class="text-slate-200 font-medium" x-text="openDeal.sold_to"></span></div>
+            <div x-show="openDeal.buyer_residual_equity" class="text-xs text-emerald-400 mt-1">Buyer residual equity: <b>$<span x-text="formatNum(openDeal.buyer_residual_equity)"></span></b></div>
+          </div>
+        </template>
+        <template x-if="openDeal && !openDeal.sold_amount">
+          <div class="text-sm text-amber-400 italic">
+            Sold price not yet captured · check brevardclerk.us auction results
+            <div class="text-[11px] text-slate-500 mt-2 not-italic">PO backfill arrives in 3-4 days. Manual entry: <code class="bg-slate-800 px-1 rounded text-amber-300">biddeed.update_sold_amount()</code></div>
+          </div>
+        </template>
+      </div>
+
       <div class="glass rounded-xl p-3 mb-3">
         <div class="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-2">💰 Financial</div>
         <div class="grid grid-cols-2 gap-2 text-sm">
