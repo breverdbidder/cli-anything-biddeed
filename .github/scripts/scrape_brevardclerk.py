@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Brevard Tier1 v9.18 - BACKEND ENDPOINT + token-aware parser.
-Hits /index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD&AREA=C&bypassPage=N directly.
-Response is JSON: {retHTML: '...token-compressed HTML...', rlist: 'aid1,aid2,...'}"""
+"""Brevard Tier1 v9.19 - BACKEND ENDPOINT + per-AITEM clean parser.
+Fixes v9.18 bugs:
+  - Status now extracted from @AASTAT block within each AITEM segment (not bled from neighbors)
+  - Sold amount/timestamp/buyer extracted from same AITEM segment only
+  - Adds SOLD_CERT_HOLDER and SOLD_PLAINTIFF categories
+  - Canonicalizes status in-scraper, no post-update needed"""
 import os, re, sys, json, time
 from datetime import date
 import requests
@@ -22,49 +25,67 @@ def rpc(name, params):
     if r.status_code >= 400: raise RuntimeError(f'RPC {name} [{r.status_code}]: {r.text[:400]}')
     return r.json() if r.text and r.text.strip() else None
 
-# Token expansion: RealAuction compresses retHTML to save bytes
-# Decoded by inspecting client-side LoadNewArea() and visible patterns
-def expand_tokens(html):
-    # Order matters - longer tokens first
-    replacements = [
-        ('@CAD_LBL', 'class="AD_LBL"'),
-        ('@CAD_DTA', 'class="AD_DTA"'),
-        ('@CAD_TXT', 'class="AD_TXT"'),
-        ('@AASTAT_MSGA', '<div class="ASTAT_MSGA"'),
-        ('@AASTAT_MSGB', '<div class="ASTAT_MSGB"'),
-        ('@AASTAT_MSGC', '<div class="ASTAT_MSGC"'),
-        ('@AASTAT_MSGD', '<div class="ASTAT_MSGD"'),
-        ('@AASTAT_MSGE', '<div class="ASTAT_MSGE"'),
-        ('@AASTAT', '<div class="ASTAT'),
-        ('@E_ITEM_SPACER', 'class="AUCTION_ITEM_SPACER'),
-        ('@E_ITEM', 'class="AUCTION_ITEM'),
-        ('@E_STATS', 'class="AUCTION_STATS'),
-        ('@E_DETAILS', 'class="AUCTION_DETAILS'),
-        ('@E_BIDDING', 'class="AUCTION_BIDDING'),
-        ('@A', '<div '),
-        ('@B', '</div>'),
-        ('@C', 'class='),
-        ('@H', '<tr><td '),
-        ('@F', '</td><td '),
-        ('@G', '</td></tr>'),
-        ('@I', 'table'),
-    ]
-    for tok, rep in replacements:
-        html = html.replace(tok, rep)
-    return html
+def sel(table, q=''):
+    r = requests.get(f'{REST}/{table}?{q}', headers={'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}'}, timeout=30)
+    r.raise_for_status(); return r.json()
+
+# --- Status canonicalization map ---
+# Tier1 SSOT: status keyword in segment text → canonical bucket
+def canonicalize(status_text, sold_to_text):
+    if not status_text: return 'LISTED', status_text
+    s = status_text.lower()
+    if 'redeem' in s: return 'REDEEMED', 'Redeemed'
+    if 'cancel' in s: return 'CANCELED', 'Canceled'
+    if 'postpon' in s: return 'POSTPONED', 'Postponed'
+    if 'struck' in s: return 'STRUCK_OFF', 'Struck-Off'
+    if 'wait' in s or 'pending' in s: return 'LISTED', 'Waiting'
+    if 'sold' in s or 'sale' in s:
+        st = (sold_to_text or '').lower()
+        if 'cert' in st or 'c/h' in st: return 'SOLD_CERT_HOLDER', 'Auction Sold'
+        if 'plaintiff' in st: return 'SOLD_PLAINTIFF', 'Auction Sold'
+        if '3rd' in st or '3 rd' in st or 'third' in st: return 'SOLD_3RD_PARTY', 'Auction Sold'
+        return 'SOLD_3RD_PARTY', 'Auction Sold'  # default sold bucket
+    return 'LISTED', status_text
 
 def parse_aitem(segment, aid):
-    """Parse one auction item segment (raw, with tokens). Returns card dict."""
+    """Parse one AITEM_<aid> segment. Status + sold info isolated to THIS segment's @AASTAT block."""
     c = {'aid': aid}
 
-    # Find labeled fields. Tokens @F separates td cells; @G ends row.
-    # Pattern: LABEL:@F[anything but @]*?@CAD_DTA"...>VALUE@G  OR  LABEL:@F...>VALUE@G
+    # Locate the status block: @AAUCTION_STATS ... up to @AAUCTION_DETAILS (or end of segment)
+    stats_match = re.search(r'AUCTION_STATS.*?(?=AUCTION_DETAILS|AUCTION_BIDDING|$)', segment, re.DOTALL)
+    stats_block = stats_match.group(0) if stats_match else segment[:1500]
+
+    # --- Detect status keyword in stats block ---
+    # Patterns to look for in priority order
+    status_text = None
+    if re.search(r'Auction\s*Sold', stats_block, re.IGNORECASE): status_text = 'Auction Sold'
+    elif re.search(r'\bRedeemed\b', stats_block, re.IGNORECASE): status_text = 'Redeemed'
+    elif re.search(r'\bCancel(?:ed|led)\b', stats_block, re.IGNORECASE): status_text = 'Canceled'
+    elif re.search(r'\bPostponed\b', stats_block, re.IGNORECASE): status_text = 'Postponed'
+    elif re.search(r'\bStruck\b', stats_block, re.IGNORECASE): status_text = 'Struck-Off'
+    elif re.search(r'\bWaiting\b', stats_block, re.IGNORECASE): status_text = 'Waiting'
+
+    # --- If sold: extract amount + timestamp + sold_to from SAME stats block ---
+    sold_amt = sold_to = sold_ts = None
+    if status_text == 'Auction Sold':
+        amt_m = re.search(r'\$([\d,]+\.\d{2})', stats_block)
+        if amt_m: sold_amt = amt_m.group(1)
+        ts_m = re.search(r'(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s*ET)', stats_block, re.IGNORECASE)
+        if ts_m: sold_ts = ts_m.group(1)
+        # Sold-to: search for category keyword in stats block
+        for label in ['3rd Party Bidder','3rd Party','Certificate Holder','Cert Holder','Plaintiff','Tax Deed Applicant']:
+            if re.search(re.escape(label), stats_block, re.IGNORECASE):
+                sold_to = label
+                break
+
+    canon, normalized_status = canonicalize(status_text, sold_to)
+
+    # --- Detail fields from token-compressed table rows ---
     def grab(label):
         m = re.search(
             re.escape(label) + r':\s*@F[^@]*?@CAD_DTA[^>]*>(.*?)(?:@G|<)',
             segment, re.IGNORECASE | re.DOTALL)
         if not m:
-            # Alternate without @CAD_DTA token
             m = re.search(re.escape(label) + r':\s*@F[^>]*>([^@<]+?)\s*@G',
                           segment, re.IGNORECASE | re.DOTALL)
         if m:
@@ -80,47 +101,27 @@ def parse_aitem(segment, aid):
     c['property_address_text'] = grab('Property Address')
     c['assessed_value_text'] = grab('Assessed Value')
 
-    # Parcel ID is inside a <a href=".../parcel/XXXXX">XXXXX</a>
+    # Parcel from PropertySearch link
     pm = re.search(r'/parcel/(\d{6,12})', segment)
     if pm: c['parcel_id_text'] = pm.group(1)
 
-    # Status from ASTAT_MSGA block - usually contains the status word
-    # Look for the status text near the top of the segment
-    head = segment[:1800]
-    status_keywords = [
-        ('Auction Sold', 'Sold'),
-        ('Redeemed', 'Redeemed'),
-        ('Canceled', 'Canceled'),
-        ('Cancelled', 'Canceled'),
-        ('Postponed', 'Postponed'),
-        ('Struck', 'Struck-Off'),
-        ('Waiting', 'Waiting'),
-    ]
-    for label, canon in status_keywords:
-        if re.search(r'\b' + label + r'\b', head, re.IGNORECASE):
-            c['raw_status_text'] = label
-            break
+    if status_text: c['raw_status_text'] = normalized_status
+    if sold_amt:
+        c['sold_amount_text'] = sold_amt
+    if sold_to: c['sold_to_text'] = sold_to
+    if sold_ts: c['sold_timestamp_text'] = sold_ts
 
-    # Sold amount + sold to (when status is Sold)
-    if c.get('raw_status_text') == 'Auction Sold':
-        amt = re.search(r'Amount[^$]*\$([\d,]+\.\d{2})', head, re.IGNORECASE | re.DOTALL)
-        if amt: c['sold_amount_text'] = amt.group(1)
-        ts = re.search(r'(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s*ET)', head, re.IGNORECASE)
-        if ts: c['sold_timestamp_text'] = ts.group(1)
-        sto = re.search(r'Sold\s*To[^@<]*(3rd\s*Party\s*Bidder|PLAINTIFF|[A-Z][A-Za-z0-9 ]{3,40})', head, re.IGNORECASE)
-        if sto: c['sold_to_text'] = sto.group(1).strip()[:60]
-
-    # Save a snippet for debugging
+    c['_canon'] = canon
     c['raw_card_text'] = re.sub(r'\s+',' ', segment[:1200])
-    c['parse_confidence'] = 'high' if c.get('parcel_id_text') and c.get('opening_bid_text') else 'partial'
+    c['parse_confidence'] = 'high' if c.get('parcel_id_text') and c.get('opening_bid_text') and status_text else 'partial'
     return c
 
 run_id = rpc('scrape_log_start', {
     'p_source':'brevard_realforeclose','p_county':'brevard',
     'p_sale_type':'tax_deed','p_auction_date':AUCTION_DATE_STR,
-    'p_triggered_by':'gha_workflow_dispatch_v9_18_backend',
+    'p_triggered_by':'gha_workflow_dispatch_v9_19_clean',
 })
-print(f'>>> v9.18 BACKEND+TOKEN-AWARE, run={run_id}')
+print(f'>>> v9.19 CLEAN PER-AITEM, run={run_id}')
 
 try:
     sess = requests.Session()
@@ -130,11 +131,9 @@ try:
         'Accept-Language': 'en-US,en;q=0.9',
     })
 
-    # Establish session
     r0 = sess.get(PREVIEW_URL, timeout=30)
-    print(f'PREVIEW: {r0.status_code} {len(r0.text):,}b session_cookies={list(sess.cookies.keys())}')
-    if r0.status_code != 200:
-        raise RuntimeError(f'PREVIEW failed: {r0.status_code}')
+    if r0.status_code != 200: raise RuntimeError(f'PREVIEW failed: {r0.status_code}')
+    print(f'PREVIEW: {r0.status_code} session={list(sess.cookies.keys())}')
 
     sess.headers['Referer'] = PREVIEW_URL
     sess.headers['X-Requested-With'] = 'XMLHttpRequest'
@@ -150,28 +149,23 @@ try:
         rr = sess.get(url, params={'test':1}, timeout=30)
         if rr.status_code != 200:
             print(f'[{page_num:>2}] HTTP {rr.status_code}, stop'); break
-        try:
-            j = rr.json()
+        try: j = rr.json()
         except Exception:
-            # Sometimes returns JSON-in-JSON or wrapped in noise; locate {"retHTML"
             m = re.search(r'\{"retHTML":.*\}', rr.text, re.DOTALL)
-            if not m:
-                print(f'[{page_num:>2}] no JSON, stop'); break
+            if not m: print(f'[{page_num:>2}] no JSON, stop'); break
             j = json.loads(m.group(0))
 
         retHTML = j.get('retHTML','') or ''
         rlist_str = j.get('rlist','') or ''
         aids = [a.strip() for a in rlist_str.split(',') if a.strip()]
 
-        # Split retHTML by AITEM_<aid> markers, preserving each segment with its AID
         cards_this_page = []
-        for i, aid in enumerate(aids):
-            start_marker = f'AITEM_{aid}'
-            si = retHTML.find(start_marker)
+        for aid in aids:
+            si = retHTML.find(f'AITEM_{aid}')
             if si < 0: continue
-            # End at next AITEM_ or end of retHTML
-            next_marker = re.search(r'AITEM_\d+', retHTML[si + len(start_marker):])
-            ei = (si + len(start_marker) + next_marker.start()) if next_marker else len(retHTML)
+            after = retHTML[si + len(f'AITEM_{aid}'):]
+            nm = re.search(r'AITEM_\d+', after)
+            ei = (si + len(f'AITEM_{aid}') + nm.start()) if nm else len(retHTML)
             segment = retHTML[si:ei]
             card = parse_aitem(segment, aid)
             if card.get('parcel_id_text'):
@@ -179,38 +173,40 @@ try:
 
         new = [c for c in cards_this_page if c['aid'] not in seen_aids]
         for c in new:
-            seen_aids.add(c['aid'])
-            all_cards.append(c)
+            seen_aids.add(c['aid']); all_cards.append(c)
 
         page_stats.append({
             'page':page_num,'rlist_count':len(aids),'parsed':len(cards_this_page),'new':len(new),
-            'sample':[{'parcel':c.get('parcel_id_text'),'case':c.get('case_number_text'),
-                       'status':c.get('raw_status_text'),'open':c.get('opening_bid_text'),
-                       'sold':c.get('sold_amount_text')} for c in cards_this_page[:3]],
+            'samples':[{'case':c.get('case_number_text'),'parcel':c.get('parcel_id_text'),
+                        'canon':c['_canon'],'sold':c.get('sold_amount_text'),
+                        'sold_to':c.get('sold_to_text')} for c in cards_this_page[:3]],
         })
-        print(f'[{page_num:>2}] rlist={len(aids)} parsed={len(cards_this_page)} new={len(new)} total={len(all_cards)}')
-        if len(new) == 0 and page_num > 1:
-            print('  no new, stop'); break
+        print(f'[{page_num:>2}] rlist={len(aids)} parsed={len(cards_this_page)} new={len(new)}')
+        if len(new) == 0 and page_num > 1: break
 
-    print(f'\n=== TOTAL: {len(all_cards)} unique cards across {len(page_stats)} pages ===')
+    print(f'\n=== TOTAL: {len(all_cards)} cards across {len(page_stats)} pages ===')
 
+    # Pre-canonicalize before upsert so view picks up correct status
     upserted = 0
+    canon_counts = {}
     for c in all_cards:
+        canon = c.pop('_canon', 'LISTED')
+        canon_counts[canon] = canon_counts.get(canon, 0) + 1
         try:
             payload = {k:v for k,v in c.items() if k != 'aid' and v is not None}
             payload.update({'county':'brevard','platform':'realforeclose','run_id':str(run_id)})
             rpc('tier1_card_upsert_rpc', {'p': payload})
             upserted += 1
         except Exception as e:
-            if upserted < 3: print(f'  ! upsert parcel={c.get("parcel_id_text")}: {e}')
+            if upserted < 3: print(f'  ! upsert {c.get("parcel_id_text")}: {e}')
 
     summary = {
-        'parser':'v9.18_backend_token_aware',
-        'endpoint':'/index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD&AREA=C&bypassPage=N',
+        'parser':'v9.19_clean_per_aitem',
         'pages':len(page_stats),
         'total_cards':len(all_cards),
-        'high_conf':sum(1 for c in all_cards if c['parse_confidence']=='high'),
+        'high_conf':sum(1 for c in all_cards if c.get('parse_confidence')=='high'),
         'rows_upserted':upserted,
+        'canon_breakdown':canon_counts,
         'page_stats':page_stats,
     }
     rpc('scrape_log_finish', {
@@ -218,7 +214,7 @@ try:
         'p_rows_in':len(all_cards),'p_rows_inserted':upserted,
         'p_notes':json.dumps(summary)[:6000],
     })
-    print(f'DONE: {upserted} rows upserted')
+    print(f'DONE: {upserted} rows, breakdown: {canon_counts}')
 
 except Exception as e:
     import traceback
