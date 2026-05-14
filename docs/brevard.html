@@ -14,6 +14,8 @@ body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; bac
 .glass { background:rgba(30,41,59,0.55); backdrop-filter:blur(10px); border:1px solid rgba(245,158,11,0.12); }
 .glass-diamond { background:linear-gradient(135deg,rgba(56,189,248,0.12),rgba(168,85,247,0.12)); backdrop-filter:blur(10px); border:1px solid rgba(168,85,247,0.35); }
 .glass-triangle { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(245,158,11,0.10)); backdrop-filter:blur(10px); border:1px solid rgba(239,68,68,0.30); }
+.glass-sold { background:rgba(59,130,246,0.06); backdrop-filter:blur(10px); border:1px solid rgba(59,130,246,0.25); }
+.glass-canceled { background:rgba(100,116,139,0.06); backdrop-filter:blur(10px); border:1px solid rgba(100,116,139,0.25); opacity:0.7; }
 .grade-A { background:linear-gradient(135deg,#10b981,#059669); color:#fff; }
 .grade-B { background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; }
 .grade-C { background:linear-gradient(135deg,#eab308,#ca8a04); color:#1f2937; }
@@ -40,6 +42,11 @@ input, select { font-size:16px; min-height:48px; }
 .sig-ent { background:rgba(59,130,246,.18); color:#93c5fd; border:1px solid rgba(59,130,246,.3); }
 .sig-len { background:rgba(20,184,166,.18); color:#5eead4; border:1px solid rgba(20,184,166,.3); }
 .sig-mul { background:rgba(244,114,182,.18); color:#f9a8d4; border:1px solid rgba(244,114,182,.3); }
+.status-badge { display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:9999px; font-size:9px; font-weight:800; letter-spacing:0.05em; }
+.status-LISTED { background:rgba(16,185,129,0.18); color:#6ee7b7; border:1px solid rgba(16,185,129,0.35); }
+.status-SOLD { background:rgba(59,130,246,0.18); color:#93c5fd; border:1px solid rgba(59,130,246,0.35); }
+.status-CANCELED { background:rgba(100,116,139,0.20); color:#cbd5e1; border:1px solid rgba(100,116,139,0.35); }
+.status-REDEEMED { background:rgba(168,85,247,0.20); color:#d8b4fe; border:1px solid rgba(168,85,247,0.35); }
 input[type=range] { accent-color:#f59e0b; }
 </style>
 </head>
@@ -53,16 +60,16 @@ input[type=range] { accent-color:#f59e0b; }
     </div>
     <div class="text-right shrink-0">
       <div class="text-lg font-bold text-amber-400 leading-tight">$<span x-text="formatNum(filteredEquity)"></span></div>
-      <div class="text-[9px] uppercase tracking-wider text-slate-500"><span x-text="filteredDeals.length"></span> deals · equity</div>
+      <div class="text-[9px] uppercase tracking-wider text-slate-500"><span x-text="filteredDeals.length"></span> · equity</div>
     </div>
   </div>
-  <div class="px-4 pb-2 text-[11px] text-slate-400">🏖️ Brevard tax deeds · 2026-05-14 · <span x-text="deals.length"></span> properties · 🔺 Triangle owner-vertex</div>
+  <div class="px-4 pb-2 text-[11px] text-slate-400">🏖️ Brevard tax deeds · 2026-05-14 · <b class="text-emerald-400" x-text="matchCountByStatus('LISTED')"></b> listed · <b class="text-blue-400" x-text="matchCountByStatus('SOLD')"></b> sold · <b class="text-slate-400" x-text="matchCountByStatus('CANCELED')"></b> canceled</div>
 
   <div class="px-3 pb-3 flex gap-2 overflow-x-auto scroll-h">
     <button @click="clearPersona()" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border" :class="!activePersona ? 'bg-amber-500 text-slate-900 border-amber-500 font-bold' : 'bg-slate-800/60 border-slate-700 text-slate-300'">All <span x-text="deals.length"></span></button>
     <template x-for="p in builtInPersonas" :key="p.code">
       <button @click="selectPersona(p)" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border"
-        :class="activePersona && activePersona.code===p.code ? (p.code==='DIAMONDS' ? 'diamond-chip-active font-bold' : p.code==='TRIANGLE' ? 'triangle-chip-active font-bold' : 'bg-amber-500 text-slate-900 border-amber-500 font-bold') : (p.code==='DIAMONDS' ? 'bg-gradient-to-r from-sky-500/15 to-purple-500/15 border-purple-500/40 text-sky-300' : p.code==='TRIANGLE' ? 'bg-gradient-to-r from-red-500/15 to-amber-500/15 border-red-500/40 text-red-300' : 'bg-slate-800/60 border-slate-700 text-slate-300')">
+        :class="activePersona && activePersona.code===p.code ? (p.code==='DIAMONDS' ? 'diamond-chip-active font-bold' : p.code==='TRIANGLE' ? 'triangle-chip-active font-bold' : 'bg-amber-500 text-slate-900 border-amber-500 font-bold') : (p.code==='DIAMONDS' ? 'bg-gradient-to-r from-sky-500/15 to-purple-500/15 border-purple-500/40 text-sky-300' : p.code==='TRIANGLE' ? 'bg-gradient-to-r from-red-500/15 to-amber-500/15 border-red-500/40 text-red-300' : p.code==='SOLD_TODAY' ? 'bg-blue-500/10 border-blue-500/40 text-blue-300' : 'bg-slate-800/60 border-slate-700 text-slate-300')">
         <span class="mr-1" x-text="p.icon"></span><span x-text="p.name"></span> <span class="ml-1 opacity-70" x-text="'· '+matchCount(p.filter)"></span>
       </button>
     </template>
@@ -82,6 +89,14 @@ input[type=range] { accent-color:#f59e0b; }
     </button>
   </div>
 </header>
+
+<div x-show="hiddenStatusCount>0" class="px-4 py-2 bg-slate-900/80 border-b border-slate-700/40 flex items-center justify-between gap-2 text-[11px]">
+  <span class="text-slate-400">
+    <span class="text-emerald-400">●</span> Showing <b x-text="filters.status.map(s => matchCountByStatus(s)).reduce((a,b)=>a+b,0)"></b> ·
+    <b class="text-amber-400" x-text="hiddenStatusCount"></b> hidden (<span x-text="hiddenStatusBreakdown"></span>)
+  </span>
+  <button @click="showAllStatuses()" class="text-amber-400 underline text-[11px] font-bold">Show all</button>
+</div>
 
 <div x-show="activePersona" class="px-4 py-2.5 border-b flex items-center gap-2"
      :class="activePersona && activePersona.code==='DIAMONDS' ? 'glass-diamond border-purple-500/30' : activePersona && activePersona.code==='TRIANGLE' ? 'glass-triangle border-red-500/30' : 'bg-amber-500/10 border-amber-500/20'">
@@ -113,9 +128,11 @@ input[type=range] { accent-color:#f59e0b; }
 
   <div class="md:hidden space-y-3 mt-3" x-show="deals.length>0">
     <template x-for="d in displayDeals" :key="d.tax_deed_case||d.full_address||d.street_address">
-      <div @click="openDeal=d" class="card-tap rounded-xl p-3 active:bg-slate-800/80" :class="(d.owner_distress_score||0)>=50 ? 'glass-triangle' : isUnknownAddr(d) ? 'glass-diamond' : 'glass'">
+      <div @click="openDeal=d" class="card-tap rounded-xl p-3 active:bg-slate-800/80"
+           :class="(d.sale_status==='SOLD' ? 'glass-sold' : d.sale_status==='CANCELED' ? 'glass-canceled' : (d.owner_distress_score||0)>=50 ? 'glass-triangle' : isUnknownAddr(d) ? 'glass-diamond' : 'glass')">
         <div class="flex items-start justify-between gap-2 mb-2">
           <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="status-badge" :class="'status-'+(d.sale_status||'LISTED')">● <span x-text="d.sale_status||'LISTED'"></span></span>
             <span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-'+(d.tax_deed_grade && d.tax_deed_grade.charAt(0))" x-text="d.tax_deed_grade ? d.tax_deed_grade.replace('_',' ').slice(0,12) : '?'"></span>
             <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300" x-text="(d.property_category||'?').replace(/_/g,' ')"></span>
             <span x-show="isUnknownAddr(d)" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-sky-500 to-purple-500 text-white">💎</span>
@@ -149,11 +166,12 @@ input[type=range] { accent-color:#f59e0b; }
   <div class="hidden md:block glass rounded-xl overflow-hidden mt-3" x-show="deals.length>0">
     <table class="w-full text-sm">
       <thead class="bg-slate-900/80 text-xs uppercase text-slate-400">
-        <tr><th class="p-3 text-left">Grade</th><th class="p-3 text-left">Property / Owner</th><th class="p-3 text-left">🔺 Signals</th><th class="p-3 text-right">Bid</th><th class="p-3 text-right">Equity</th><th class="p-3 text-right">Score</th></tr>
+        <tr><th class="p-3 text-left">Status</th><th class="p-3 text-left">Grade</th><th class="p-3 text-left">Property / Owner</th><th class="p-3 text-left">🔺 Signals</th><th class="p-3 text-right">Bid</th><th class="p-3 text-right">Equity</th><th class="p-3 text-right">Score</th></tr>
       </thead>
       <tbody>
         <template x-for="d in displayDeals" :key="d.tax_deed_case||d.full_address||d.street_address">
-          <tr @click="openDeal=d" class="border-t border-slate-700/40 hover:bg-amber-500/5 cursor-pointer" :class="(d.owner_distress_score||0)>=40 ? 'bg-red-500/5' : (isUnknownAddr(d) ? 'bg-purple-500/5' : '')">
+          <tr @click="openDeal=d" class="border-t border-slate-700/40 hover:bg-amber-500/5 cursor-pointer" :class="d.sale_status==='SOLD' ? 'bg-blue-500/5' : d.sale_status==='CANCELED' ? 'opacity-60' : (d.owner_distress_score||0)>=40 ? 'bg-red-500/5' : (isUnknownAddr(d) ? 'bg-purple-500/5' : '')">
+            <td class="p-3"><span class="status-badge" :class="'status-'+(d.sale_status||'LISTED')">● <span x-text="d.sale_status||'LISTED'"></span></span></td>
             <td class="p-3"><span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-'+(d.tax_deed_grade && d.tax_deed_grade.charAt(0))" x-text="d.tax_deed_grade ? d.tax_deed_grade.replace('_',' ').slice(0,12) : '?'"></span></td>
             <td class="p-3">
               <div class="font-medium" x-text="isUnknownAddr(d) ? ('PIN '+(d.bcpao_account||'?')) : (d.street_address||'(pending)')"></div>
@@ -177,7 +195,7 @@ input[type=range] { accent-color:#f59e0b; }
   <span class="text-lg">✨</span><span>Build with AI</span>
 </button>
 
-<!-- OWNER PICKER SHEET -->
+<!-- OWNER PICKER SHEET (unchanged from v5) -->
 <div x-show="showOwnerPicker" class="fixed inset-0 z-40" x-cloak>
   <div class="absolute inset-0 bg-black/80" @click="showOwnerPicker=false"></div>
   <div class="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-4">
@@ -186,24 +204,21 @@ input[type=range] { accent-color:#f59e0b; }
       <div class="p-4 border-b border-slate-700/50 flex items-center justify-between gap-2">
         <div>
           <h2 class="text-base font-bold text-amber-400">👤 Browse Owners</h2>
-          <p class="text-[11px] text-slate-400"><span x-text="uniqueOwnerCount"></span> unique owners · <span x-text="deals.filter(d => !d.owner_name).length"></span> properties without owner data</p>
+          <p class="text-[11px] text-slate-400"><span x-text="uniqueOwnerCount"></span> unique · <span x-text="deals.filter(d => !d.owner_name).length"></span> without owner data</p>
         </div>
         <button @click="showOwnerPicker=false" class="text-slate-400 text-2xl leading-none">×</button>
       </div>
       <div class="px-4 pt-3 pb-2 border-b border-slate-700/30">
         <div class="relative">
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
-          <input x-model="ownerPickerQuery" type="search" placeholder="Type to filter list…" class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-3 text-sm" autocapitalize="characters">
+          <input x-model="ownerPickerQuery" type="search" placeholder="Type to filter list…" class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-3 text-sm">
         </div>
         <div class="text-[11px] text-slate-500 mt-1.5"><span x-text="filteredOwnerList.length"></span> matches</div>
       </div>
       <div class="flex-1 overflow-y-auto">
         <button @click="clearOwner(); showOwnerPicker=false" class="w-full text-left px-4 py-3 hover:bg-slate-800/60 border-b border-slate-800/40 flex items-center gap-2" :class="!filters.ownerLike ? 'bg-amber-500/10' : ''">
           <span class="text-base">🌐</span>
-          <div class="flex-1">
-            <div class="font-bold text-amber-300">All owners</div>
-            <div class="text-[11px] text-slate-400">Clear filter · show all <span x-text="deals.length"></span> deals</div>
-          </div>
+          <div class="flex-1"><div class="font-bold text-amber-300">All owners</div><div class="text-[11px] text-slate-400">Clear filter</div></div>
           <span x-show="!filters.ownerLike" class="text-amber-400">✓</span>
         </button>
         <template x-for="o in filteredOwnerList" :key="o.name">
@@ -219,75 +234,96 @@ input[type=range] { accent-color:#f59e0b; }
                 <span x-show="o.topScore>=40" class="text-red-400 font-bold font-mono" x-text="'🔺 '+o.topScore"></span>
               </div>
               <div x-show="o.signals.length>0" class="flex flex-wrap gap-1 mt-1">
-                <template x-for="sig in o.signals">
-                  <span class="sig-badge" :class="getSigClass(sig)" x-text="getSigLabel(sig)"></span>
-                </template>
+                <template x-for="sig in o.signals"><span class="sig-badge" :class="getSigClass(sig)" x-text="getSigLabel(sig)"></span></template>
               </div>
             </div>
             <span x-show="filters.ownerLike===o.name" class="text-amber-400 shrink-0">✓</span>
           </button>
         </template>
-        <div x-show="filteredOwnerList.length===0" class="p-8 text-center text-slate-500 text-sm">No owners match "<span x-text="ownerPickerQuery"></span>"</div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- FILTERS SHEET -->
+<!-- FILTERS SHEET (status section added at top) -->
 <div x-show="showFilters" class="fixed inset-0 z-40" x-cloak>
   <div class="absolute inset-0 bg-black/70" @click="showFilters=false"></div>
   <div class="absolute bottom-0 left-0 right-0 bg-slate-900 rounded-t-2xl sheet open p-4 max-h-[88vh] overflow-y-auto" style="padding-bottom:calc(16px+var(--safe-bottom))">
     <div class="flex justify-center mb-3"><div class="w-12 h-1 bg-slate-600 rounded"></div></div>
-    <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">Filters</h2><button @click="clearFilters()" class="text-amber-400 text-sm">Clear all</button></div>
+    <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">Filters</h2><button @click="clearFilters()" class="text-amber-400 text-sm">Reset</button></div>
     <div class="space-y-3">
+
+      <div class="glass rounded-xl p-4">
+        <div class="text-xs uppercase tracking-widest text-amber-400 font-bold mb-2">📊 Sale Status</div>
+        <div class="text-[11px] text-slate-400 mb-3">Default: LISTED only (matches PO behavior). Toggle to see sold/canceled.</div>
+        <div class="space-y-1.5">
+          <label class="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/50 border border-slate-700/40">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" :checked="filters.status.includes('LISTED')" @change="toggleStatus('LISTED')" class="w-5 h-5 accent-emerald-500">
+              <span class="status-badge status-LISTED">● LISTED</span>
+              <span class="text-xs text-slate-400">Active sales</span>
+            </div>
+            <span class="text-xs font-mono text-slate-500" x-text="matchCountByStatus('LISTED')"></span>
+          </label>
+          <label class="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/50 border border-slate-700/40">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" :checked="filters.status.includes('SOLD')" @change="toggleStatus('SOLD')" class="w-5 h-5 accent-blue-500">
+              <span class="status-badge status-SOLD">● SOLD</span>
+              <span class="text-xs text-slate-400">Already auctioned</span>
+            </div>
+            <span class="text-xs font-mono text-slate-500" x-text="matchCountByStatus('SOLD')"></span>
+          </label>
+          <label class="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/50 border border-slate-700/40">
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" :checked="filters.status.includes('CANCELED')" @change="toggleStatus('CANCELED')" class="w-5 h-5 accent-slate-500">
+              <span class="status-badge status-CANCELED">● CANCELED</span>
+              <span class="text-xs text-slate-400">Pulled from sale</span>
+            </div>
+            <span class="text-xs font-mono text-slate-500" x-text="matchCountByStatus('CANCELED')"></span>
+          </label>
+        </div>
+      </div>
+
       <div class="glass-triangle rounded-xl p-4">
-        <div class="text-xs uppercase tracking-widest triangle-glow font-bold mb-2">🔺 Shapira Triangle · Owner Vertex</div>
-        <div class="text-[11px] text-slate-400 mb-3">Patented distress identification. Owner data feeding the Triangle V4.0.</div>
+        <div class="text-xs uppercase tracking-widest triangle-glow font-bold mb-2">🔺 Shapira Triangle</div>
+        <div class="text-[11px] text-slate-400 mb-3">Owner-vertex distress signals.</div>
         <div class="mb-3">
           <label class="block text-xs text-slate-300 mb-1">Min distress score: <b class="text-red-400" x-text="filters.minDistressScore||0"></b></label>
           <input type="range" min="0" max="100" step="5" x-model.number="filters.minDistressScore" class="w-full">
         </div>
         <div class="space-y-1.5">
-          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigOutOfState" class="w-4 h-4 accent-red-500"><span class="text-xs">🌐 Out-of-state owner</span></label>
-          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigAbsentee" class="w-4 h-4 accent-amber-500"><span class="text-xs">👻 Absentee owner</span></label>
-          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigEstateTrust" class="w-4 h-4 accent-purple-500"><span class="text-xs">⚰️ Estate / Trust</span></label>
-          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigEntity" class="w-4 h-4 accent-blue-500"><span class="text-xs">🏢 Entity / LLC</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigOutOfState" class="w-4 h-4 accent-red-500"><span class="text-xs">🌐 Out-of-state</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigAbsentee" class="w-4 h-4 accent-amber-500"><span class="text-xs">👻 Absentee</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigEstateTrust" class="w-4 h-4 accent-purple-500"><span class="text-xs">⚰️ Estate/Trust</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigEntity" class="w-4 h-4 accent-blue-500"><span class="text-xs">🏢 Entity/LLC</span></label>
           <label class="flex items-center gap-2"><input type="checkbox" x-model="filters.sigMultiParcel" class="w-4 h-4 accent-pink-500"><span class="text-xs">🔁 Multi-parcel</span></label>
         </div>
       </div>
+
       <label class="flex items-start gap-3 p-4 rounded-xl" :class="filters.unknownAddrOnly ? 'glass-diamond' : 'bg-slate-800 border border-slate-700'">
         <input type="checkbox" x-model="filters.unknownAddrOnly" class="w-5 h-5 accent-purple-500 mt-0.5">
-        <div class="flex-1">
-          <div class="text-sm font-bold"><span class="diamond-glow">💎 Diamonds only</span></div>
-          <div class="text-[11px] text-slate-400 mt-1">Unknown street addresses (31 deals)</div>
-        </div>
+        <div class="flex-1"><div class="text-sm font-bold"><span class="diamond-glow">💎 Diamonds only</span></div><div class="text-[11px] text-slate-400 mt-1">Unknown street addresses (31 deals)</div></div>
       </label>
+
       <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Grade</label>
         <select x-model="filters.grade" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3">
-          <option value="">Any grade</option>
-          <option value="A_GIANT_DISCOUNT">A · &lt;5%</option>
-          <option value="B_BIG_DISCOUNT">B · 5–15%</option>
-          <option value="C_MODERATE">C · 15–30%</option>
-          <option value="D_TIGHT">D · 30–70%</option>
+          <option value="">Any</option><option value="A_GIANT_DISCOUNT">A · &lt;5%</option><option value="B_BIG_DISCOUNT">B · 5-15%</option><option value="C_MODERATE">C · 15-30%</option><option value="D_TIGHT">D · 30-70%</option>
         </select></div>
-      <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Property type</label>
+      <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Type</label>
         <select x-model="filters.category" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3">
-          <option value="">Any type</option>
-          <option value="single_family">Single Family</option>
-          <option value="condominium">Condo</option>
-          <option value="vacant_residential">Vacant Lot</option>
+          <option value="">Any</option><option value="single_family">Single Family</option><option value="condominium">Condo</option><option value="vacant_residential">Vacant Lot</option>
         </select></div>
       <div class="grid grid-cols-2 gap-3">
         <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Min equity $</label><input type="number" x-model.number="filters.minEquity" placeholder="50000" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3"></div>
         <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Max bid $</label><input type="number" x-model.number="filters.maxOpenBid" placeholder="50000" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3"></div>
       </div>
-      <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">City contains</label><input x-model="filters.cityLike" placeholder="Palm Bay" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3"></div>
+      <div><label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">City</label><input x-model="filters.cityLike" placeholder="Palm Bay" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3"></div>
     </div>
     <button @click="showFilters=false" class="w-full mt-5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold py-3.5 rounded-lg">Show <span x-text="filteredDeals.length"></span> deals</button>
   </div>
 </div>
 
-<!-- DEAL DETAIL -->
+<!-- DEAL DETAIL (status badge added) -->
 <div x-show="openDeal" class="fixed inset-0 z-40" x-cloak>
   <div class="absolute inset-0 bg-black/80" @click="openDeal=null"></div>
   <div class="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-4">
@@ -296,9 +332,10 @@ input[type=range] { accent-color:#f59e0b; }
       <div class="flex items-start justify-between gap-3 mb-3">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-1.5 mb-2">
+            <span x-show="openDeal" class="status-badge" :class="openDeal && ('status-'+(openDeal.sale_status||'LISTED'))">● <span x-text="openDeal && (openDeal.sale_status||'LISTED')"></span></span>
             <span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-'+(openDeal && openDeal.tax_deed_grade && openDeal.tax_deed_grade.charAt(0))" x-text="openDeal && openDeal.tax_deed_grade"></span>
             <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300" x-text="openDeal && ('Case '+(openDeal.tax_deed_case||'?'))"></span>
-            <span x-show="openDeal && isUnknownAddr(openDeal)" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-sky-500 to-purple-500 text-white">💎 DIAMOND</span>
+            <span x-show="openDeal && isUnknownAddr(openDeal)" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-sky-500 to-purple-500 text-white">💎</span>
             <span x-show="openDeal && (openDeal.owner_distress_score||0)>=40" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-red-500 to-amber-500 text-white" x-text="openDeal && ('🔺 '+openDeal.owner_distress_score)"></span>
           </div>
           <h2 class="text-xl font-bold text-amber-400 leading-tight" x-text="openDeal && (isUnknownAddr(openDeal) ? ('PIN '+(openDeal.bcpao_account||'?')) : (openDeal.street_address||'(pending)'))"></h2>
@@ -308,7 +345,7 @@ input[type=range] { accent-color:#f59e0b; }
       </div>
       <div x-show="openDeal && openDeal.owner_name" class="glass-triangle rounded-xl p-3 mb-3">
         <div class="flex items-center justify-between mb-2">
-          <div class="text-[10px] uppercase tracking-widest triangle-glow font-bold">🔺 Triangle · Owner Vertex</div>
+          <div class="text-[10px] uppercase tracking-widest triangle-glow font-bold">🔺 Owner Vertex</div>
           <div class="text-right"><div class="text-lg font-black text-red-400" x-text="openDeal && (openDeal.owner_distress_score||0)"></div><div class="text-[9px] text-slate-500 uppercase">distress</div></div>
         </div>
         <div class="font-mono text-sm font-bold text-amber-300" x-text="openDeal && openDeal.owner_name"></div>
@@ -318,7 +355,6 @@ input[type=range] { accent-color:#f59e0b; }
             <span class="sig-badge" :class="getSigClass(sig)" x-text="getSigLabel(sig)+' · '+getSigWeight(sig)"></span>
           </template>
         </div>
-        <div x-show="openDeal && openDeal.owner_parcel_count_today>1" class="text-xs text-pink-300 mt-2">🔁 Owner has <b x-text="openDeal && openDeal.owner_parcel_count_today"></b> parcels today — portfolio sweep target.</div>
       </div>
       <div class="glass rounded-xl p-3 mb-3">
         <div class="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-2">💰 Financial</div>
@@ -338,28 +374,22 @@ input[type=range] { accent-color:#f59e0b; }
   </div>
 </div>
 
-<!-- CHAT -->
+<!-- CHAT (unchanged) -->
 <div x-show="showChatModal" class="fixed inset-0 z-40" x-cloak>
   <div class="absolute inset-0 bg-black/80" @click="showChatModal=false"></div>
   <div class="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-4">
     <div class="bg-slate-900 rounded-t-2xl md:rounded-2xl sheet open w-full md:max-w-xl border-t md:border border-amber-500/30 overflow-hidden flex flex-col" style="max-height:90vh">
       <div class="flex justify-center pt-3 md:hidden"><div class="w-12 h-1 bg-slate-600 rounded"></div></div>
       <div class="p-4 border-b border-slate-700/50 flex items-center justify-between gap-2">
-        <div><h2 class="text-base font-bold text-amber-400">✨ Build Buybox</h2><p class="text-[11px] text-slate-400">Describe your target. I'll save as persona.</p></div>
+        <div><h2 class="text-base font-bold text-amber-400">✨ Build Buybox</h2><p class="text-[11px] text-slate-400">Describe target. Saved as persona.</p></div>
         <button @click="showChatModal=false" class="text-slate-400 text-2xl">×</button>
       </div>
-      <div class="p-4 space-y-2 overflow-y-auto flex-1" id="chat-log" style="min-height:200px;max-height:50vh">
+      <div class="p-4 space-y-2 overflow-y-auto flex-1" style="min-height:200px;max-height:50vh">
         <template x-for="msg in chatLog" :key="msg.id"><div :class="msg.role==='user'?'flex justify-end':'flex justify-start'"><div :class="msg.role==='user'?'bg-amber-500 text-slate-900 font-medium':'bg-slate-800 text-slate-200'" class="px-3 py-2.5 rounded-2xl max-w-[85%] text-sm" x-html="msg.text"></div></div></template>
-        <div x-show="chatLog.length===0" class="text-slate-500 text-sm italic text-center py-6">Type criteria below ↓</div>
       </div>
-      <div class="p-3 border-t border-slate-700/50 space-y-2" style="padding-bottom:calc(12px+var(--safe-bottom))">
-        <div class="flex flex-wrap gap-1.5">
-          <button @click="quickChat('out of state owners with multiple parcels')" class="text-[11px] px-2.5 py-1.5 bg-gradient-to-r from-red-500/20 to-amber-500/20 border border-red-500/30 rounded-full text-red-300">🔺 Triangle</button>
-          <button @click="quickChat('estate or trust owners')" class="text-[11px] px-2.5 py-1.5 bg-slate-800 rounded-full text-slate-300">⚰️ Estate</button>
-          <button @click="quickChat('rough diamonds under 5000')" class="text-[11px] px-2.5 py-1.5 bg-gradient-to-r from-sky-500/20 to-purple-500/20 border border-purple-500/30 rounded-full text-purple-300">💎 Diamonds</button>
-        </div>
+      <div class="p-3 border-t border-slate-700/50" style="padding-bottom:calc(12px+var(--safe-bottom))">
         <div class="flex gap-2">
-          <input x-model="chatInput" @keyup.enter="sendChat()" placeholder="SFR Palm Bay equity over 100K" class="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4">
+          <input x-model="chatInput" @keyup.enter="sendChat()" placeholder="out-of-state owners with equity" class="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4">
           <button @click="sendChat()" class="px-5 bg-amber-500 text-slate-900 font-bold rounded-full">Send</button>
         </div>
       </div>
@@ -376,11 +406,12 @@ const SIG_META = {
   LENDER_REO:   {label:'🏦 Lender REO',   cls:'sig-len', weight:10},
   MULTI_PARCEL: {label:'🔁 Multi-parcel', cls:'sig-mul', weight:20}
 };
+const DEFAULT_FILTERS = { status:['LISTED'], grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:null, minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false };
 
 function app() {
   return {
     deals: [],
-    filters: { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:null, minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false },
+    filters: {...DEFAULT_FILTERS},
     sortKey: 'equity_at_opening_bid',
     activePersona: null,
     openDeal: null,
@@ -394,23 +425,23 @@ function app() {
     rowLimit: 25,
 
     builtInPersonas: [
-      {code:'TRIANGLE', icon:'🔺', name:'Triangle', desc:'Shapira Triangle owner-vertex score ≥ 40. The patented distress identifier.', filter:{minDistressScore:40}, scoreKey:'owner_distress_score'},
-      {code:'DIAMONDS', icon:'💎', name:'Diamonds', desc:'Unknown addresses — proxy bidders skip. Manual parcel-map review = edge.', filter:{unknownAddrOnly:true}, scoreKey:'land_score'},
-      {code:'FLIPPER', icon:'🔨', name:'Flipper', desc:'SFR 50-80% under market.', filter:{category:'single_family',minEquity:50000}, scoreKey:'flipper_score'},
-      {code:'BUY_AND_HOLD', icon:'🏠', name:'Buy & Hold', desc:'Rental cash flow.', filter:{category:'single_family',minEquity:30000}, scoreKey:'rental_score'},
-      {code:'WHOLESALER', icon:'⚡', name:'Wholesaler', desc:'Lock + assign.', filter:{maxOpenBid:50000}, scoreKey:'wholesale_score'},
-      {code:'LAND', icon:'🌲', name:'Land', desc:'Vacant lots.', filter:{category:'vacant_residential'}, scoreKey:'land_score'},
-      {code:'OUT_OF_STATE', icon:'🌐', name:'Out-of-state', desc:'Mailing state ≠ FL.', filter:{sigOutOfState:true}, scoreKey:'owner_distress_score'},
-      {code:'ESTATE', icon:'⚰️', name:'Estate', desc:'Estate / Trust / Heirs.', filter:{sigEstateTrust:true}, scoreKey:'owner_distress_score'},
-      {code:'SHELL_LLC', icon:'🏢', name:'LLC', desc:'Entity owners.', filter:{sigEntity:true}, scoreKey:'owner_distress_score'},
-      {code:'PORTFOLIO', icon:'🔁', name:'Portfolio', desc:'Multi-parcel owners.', filter:{sigMultiParcel:true}, scoreKey:'owner_distress_score'}
+      {code:'TRIANGLE', icon:'🔺', name:'Triangle', desc:'Distress score ≥ 40', filter:{status:['LISTED'],minDistressScore:40}, scoreKey:'owner_distress_score'},
+      {code:'DIAMONDS', icon:'💎', name:'Diamonds', desc:'Unknown addresses — proxy bidders skip', filter:{status:['LISTED'],unknownAddrOnly:true}, scoreKey:'land_score'},
+      {code:'SOLD_TODAY', icon:'🔵', name:'Sold Today', desc:'Already auctioned today (BD exclusive — PO does not surface)', filter:{status:['SOLD']}, scoreKey:'equity_at_opening_bid'},
+      {code:'FLIPPER', icon:'🔨', name:'Flipper', desc:'SFR with equity', filter:{status:['LISTED'],category:'single_family',minEquity:50000}, scoreKey:'flipper_score'},
+      {code:'BUY_AND_HOLD', icon:'🏠', name:'Buy & Hold', desc:'Rental cash flow', filter:{status:['LISTED'],category:'single_family',minEquity:30000}, scoreKey:'rental_score'},
+      {code:'WHOLESALER', icon:'⚡', name:'Wholesaler', desc:'Lock + assign', filter:{status:['LISTED'],maxOpenBid:50000}, scoreKey:'wholesale_score'},
+      {code:'LAND', icon:'🌲', name:'Land', desc:'Vacant lots', filter:{status:['LISTED'],category:'vacant_residential'}, scoreKey:'land_score'},
+      {code:'OUT_OF_STATE', icon:'🌐', name:'Out-of-state', desc:'Mailing ≠ FL', filter:{status:['LISTED'],sigOutOfState:true}, scoreKey:'owner_distress_score'},
+      {code:'ESTATE', icon:'⚰️', name:'Estate', desc:'Trust/heirs', filter:{status:['LISTED'],sigEstateTrust:true}, scoreKey:'owner_distress_score'},
+      {code:'SHELL_LLC', icon:'🏢', name:'LLC', desc:'Entity owners', filter:{status:['LISTED'],sigEntity:true}, scoreKey:'owner_distress_score'},
+      {code:'PORTFOLIO', icon:'🔁', name:'Portfolio', desc:'Multi-parcel', filter:{status:['LISTED'],sigMultiParcel:true}, scoreKey:'owner_distress_score'}
     ],
 
     init() {
       Papa.parse('https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/exports/brevard_taxdeed_2026-05-14.csv?v='+Date.now(), {
         download:true, header:true, dynamicTyping:true, skipEmptyLines:true,
-        complete: (r) => { this.deals = r.data.filter(d => d && (d.tax_deed_case || d.full_address || d.bcpao_account || d.street_address)); },
-        error: (err) => console.error('CSV load failed', err)
+        complete: (r) => { this.deals = r.data.filter(d => d && (d.tax_deed_case || d.full_address || d.bcpao_account || d.street_address)); }
       });
     },
 
@@ -418,6 +449,17 @@ function app() {
     getSigClass(sig) { return (SIG_META[sig] && SIG_META[sig].cls) || 'sig-out'; },
     getSigLabel(sig) { return (SIG_META[sig] && SIG_META[sig].label) || sig; },
     getSigWeight(sig) { return '+' + ((SIG_META[sig] && SIG_META[sig].weight) || 0); },
+
+    matchCountByStatus(s) { return this.deals.filter(d => (d.sale_status||'LISTED') === s).length; },
+    toggleStatus(s) {
+      if (this.filters.status.includes(s)) {
+        const next = this.filters.status.filter(x => x !== s);
+        this.filters.status = next.length ? next : ['LISTED'];
+      } else {
+        this.filters.status = [...this.filters.status, s];
+      }
+    },
+    showAllStatuses() { this.filters.status = ['LISTED','SOLD','CANCELED']; },
 
     get filteredDeals() {
       return this.deals.filter(d => this.matchesFilter(d, this.filters))
@@ -429,15 +471,26 @@ function app() {
     },
     get displayDeals() { return this.filteredDeals.slice(0, this.rowLimit); },
     get filteredEquity() { return this.filteredDeals.reduce((s,d) => s + Math.max(d.equity_at_opening_bid || 0, 0), 0); },
+    get hiddenStatusCount() {
+      return ['LISTED','SOLD','CANCELED'].filter(s => !this.filters.status.includes(s))
+        .reduce((sum, s) => sum + this.matchCountByStatus(s), 0);
+    },
+    get hiddenStatusBreakdown() {
+      return ['SOLD','CANCELED'].filter(s => !this.filters.status.includes(s))
+        .map(s => this.matchCountByStatus(s) + ' ' + s.toLowerCase())
+        .filter(x => !x.startsWith('0 ')).join(', ');
+    },
     get activeFilterCount() {
       const f = this.filters;
-      return (f.grade?1:0)+(f.category?1:0)+(f.minEquity?1:0)+(f.maxOpenBid?1:0)+(f.cityLike?1:0)+(f.unknownAddrOnly?1:0)+(f.ownerLike?1:0)+((f.minDistressScore||0)>0?1:0)+(f.sigOutOfState?1:0)+(f.sigAbsentee?1:0)+(f.sigEstateTrust?1:0)+(f.sigEntity?1:0)+(f.sigMultiParcel?1:0);
+      const statusChanged = f.status.length !== 1 || f.status[0] !== 'LISTED';
+      return (statusChanged?1:0)+(f.grade?1:0)+(f.category?1:0)+(f.minEquity?1:0)+(f.maxOpenBid?1:0)+(f.cityLike?1:0)+(f.unknownAddrOnly?1:0)+(f.ownerLike?1:0)+((f.minDistressScore||0)>0?1:0)+(f.sigOutOfState?1:0)+(f.sigAbsentee?1:0)+(f.sigEstateTrust?1:0)+(f.sigEntity?1:0)+(f.sigMultiParcel?1:0);
     },
 
     get uniqueOwnerList() {
       const map = new Map();
       this.deals.forEach(d => {
         if (!d.owner_name) return;
+        if (!this.filters.status.includes(d.sale_status||'LISTED')) return;
         const k = d.owner_name;
         if (!map.has(k)) map.set(k, { name:k, state:d.owner_mailing_state||'', deals:0, equity:0, topScore:0, signals:new Set() });
         const o = map.get(k);
@@ -456,6 +509,7 @@ function app() {
     },
 
     matchesFilter(d, f) {
+      if (f.status && f.status.length && !f.status.includes(d.sale_status||'LISTED')) return false;
       if (f.unknownAddrOnly && !this.isUnknownAddr(d)) return false;
       if (f.grade && d.tax_deed_grade !== f.grade) return false;
       if (f.category && d.property_category !== f.category) return false;
@@ -474,57 +528,53 @@ function app() {
     },
 
     formatNum(n) { return (n != null && !isNaN(n)) ? Math.round(n).toLocaleString() : '—'; },
-    matchCount(f) { return this.deals.filter(d => this.matchesFilter(d, f)).length; },
+    matchCount(f) { return this.deals.filter(d => this.matchesFilter(d, {...DEFAULT_FILTERS, ...f})).length; },
 
     pickOwner(name) { this.filters.ownerLike = name; this.showOwnerPicker = false; this.ownerPickerQuery = ''; },
     clearOwner() { this.filters.ownerLike = null; this.ownerPickerQuery = ''; },
 
     selectPersona(p) {
       this.activePersona = p;
-      this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:null, minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false, ...p.filter };
+      this.filters = {...DEFAULT_FILTERS, ...p.filter};
       if (p.scoreKey) this.sortKey = p.scoreKey;
       this.rowLimit = 25;
       window.scrollTo({top:0, behavior:'smooth'});
     },
     clearPersona() { this.activePersona = null; this.clearFilters(); },
-    clearFilters() { this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:null, minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false }; this.sortKey='equity_at_opening_bid'; },
+    clearFilters() { this.filters = {...DEFAULT_FILTERS}; this.sortKey='equity_at_opening_bid'; },
 
-    openChat() { this.showChatModal = true; this.chatLog = [{id:Date.now(), role:'ai', text:'Hi! Try <i>"out-of-state owners"</i>, <i>"estate sales"</i>, or <i>"SFR Palm Bay equity over 100K"</i>.'}]; this.chatInput = ''; },
-    quickChat(text) { this.chatInput = text; this.sendChat(); },
+    openChat() { this.showChatModal = true; this.chatLog = [{id:Date.now(), role:'ai', text:'Try "out-of-state owners", "estate sales", "SFR Palm Bay equity over 100K".'}]; this.chatInput = ''; },
 
     sendChat() {
       const text = this.chatInput.trim(); if (!text) return;
-      this.chatLog.push({id:Date.now(), role:'user', text:this.escapeHtml(text)});
+      this.chatLog.push({id:Date.now(), role:'user', text:text});
       this.chatInput = '';
       const f = this.parseNL(text);
-      const matchCount = this.deals.filter(d => this.matchesFilter(d, f)).length;
-      const totalEq = this.deals.filter(d => this.matchesFilter(d, f)).reduce((s,d) => s + Math.max(d.equity_at_opening_bid || 0, 0), 0);
-      let response = '✓ <b class="text-emerald-400">' + matchCount + ' deals</b> · $' + this.formatNum(totalEq) + ' equity pool. Applied filters.';
-      this.chatLog.push({id:Date.now()+1, role:'ai', text:response});
-      this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:null, minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false, ...f };
+      const matchCount = this.deals.filter(d => this.matchesFilter(d, {...DEFAULT_FILTERS, ...f})).length;
+      this.chatLog.push({id:Date.now()+1, role:'ai', text:'✓ <b class="text-emerald-400">' + matchCount + ' deals</b> match. Applied filters.'});
+      this.filters = {...DEFAULT_FILTERS, ...f};
       setTimeout(() => { this.showChatModal = false; }, 800);
     },
-
-    escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); },
 
     parseNL(text) {
       const t = ' ' + text.toLowerCase() + ' ';
       const f = {};
-      if (/\b(out.?of.?state|outside florida|not in fl)\b/.test(t)) f.sigOutOfState = true;
+      if (/\b(sold today|already sold|completed)\b/.test(t)) f.status = ['SOLD'];
+      else if (/\b(canceled|cancelled|pulled)\b/.test(t)) f.status = ['CANCELED'];
+      else if (/\b(all status|include sold|show everything)\b/.test(t)) f.status = ['LISTED','SOLD','CANCELED'];
+      if (/\b(out.?of.?state|outside florida)\b/.test(t)) f.sigOutOfState = true;
       if (/\babsentee\b/.test(t)) f.sigAbsentee = true;
-      if (/\bestate|trust|heirs?|deceased|probate\b/.test(t)) f.sigEstateTrust = true;
-      if (/\bllc|inc\b|corp|entity|shell|holding\b/.test(t)) f.sigEntity = true;
-      if (/\b(multiple parcels?|portfolio|repeat owner)\b/.test(t)) f.sigMultiParcel = true;
-      if (/\b(distress|triangle|motivated)\b/.test(t) && !f.minDistressScore) f.minDistressScore = 40;
-      if (/\b(diamond|rough diamond|hidden gem|unknown address)\b/.test(t)) f.unknownAddrOnly = true;
+      if (/\b(estate|trust|heirs?|deceased|probate)\b/.test(t)) f.sigEstateTrust = true;
+      if (/\b(llc|inc|corp|entity|shell)\b/.test(t)) f.sigEntity = true;
+      if (/\b(multiple parcels?|portfolio|repeat)\b/.test(t)) f.sigMultiParcel = true;
+      if (/\b(distress|triangle|motivated)\b/.test(t)) f.minDistressScore = 40;
+      if (/\b(diamond|hidden gem|unknown address)\b/.test(t)) f.unknownAddrOnly = true;
       if (/\b(vacant|empty\s+lot|raw\s+land)/.test(t)) f.category = 'vacant_residential';
       else if (/\bcondo/.test(t)) f.category = 'condominium';
       else if (/\b(single[\s-]?family|sfr|sfh|house|home)/.test(t)) f.category = 'single_family';
       ['palm bay','cocoa beach','cocoa','melbourne','rockledge','titusville','merritt island'].forEach(c => { if (t.includes(' '+c)) f.cityLike = c; });
-      const mb = t.match(/(?:under|less than|below|max|<=?)\s*\$?\s*([\d,]+)(k|m)?/);
-      if (mb && /bid|cost|price/.test(t)) { let n = parseFloat(mb[1].replace(/,/g,'')); if (mb[2]==='k') n*=1000; if (mb[2]==='m') n*=1000000; f.maxOpenBid = Math.round(n); }
       const me = t.match(/(?:over|above|more than|min|>=?)\s*\$?\s*([\d,]+)(k|m)?/);
-      if (me) { let n = parseFloat(me[1].replace(/,/g,'')); if (me[2]==='k') n*=1000; if (me[2]==='m') n*=1000000; if (/equity|profit/.test(t)) f.minEquity = Math.round(n); else if (!f.maxOpenBid) f.minEquity = Math.round(n); }
+      if (me) { let n = parseFloat(me[1].replace(/,/g,'')); if (me[2]==='k') n*=1000; if (me[2]==='m') n*=1000000; if (/equity|profit/.test(t)) f.minEquity = Math.round(n); }
       return f;
     }
   };
