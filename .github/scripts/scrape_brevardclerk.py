@@ -39,17 +39,38 @@ def select(table, query=''):
     return r.json()
 
 def fetch_pdf_text(url, label):
+    """Fetch + extract text. Falls back to OCR for image-only PDFs."""
     print(f'[{label}] Fetching: {url[:80]}...')
     r = requests.get(url, headers=HEADERS, timeout=120)
     r.raise_for_status()
     pdf_bytes = r.content
     print(f'[{label}] {len(pdf_bytes):,} bytes downloaded')
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
-    text = ''.join(page.get_text() + '\n' for page in doc)
     pages = len(doc)
+
+    # First try native text extraction
+    native_text = ''.join(page.get_text() + '\n' for page in doc)
+    if len(native_text.strip()) > 200:
+        print(f'[{label}] Native text: {pages} pages, {len(native_text):,} chars')
+        doc.close()
+        return native_text, pages, len(pdf_bytes)
+
+    # Fallback to OCR
+    print(f'[{label}] Native text too sparse ({len(native_text.strip())} chars). Running OCR...')
+    import pytesseract
+    from PIL import Image
+    import io
+    ocr_text = ''
+    for i, page in enumerate(doc):
+        pix = page.get_pixmap(dpi=200)
+        img_bytes = pix.tobytes('png')
+        img = Image.open(io.BytesIO(img_bytes))
+        page_text = pytesseract.image_to_string(img)
+        ocr_text += page_text + '\n'
+        print(f'[{label}] OCR page {i+1}/{pages}: {len(page_text):,} chars')
     doc.close()
-    print(f'[{label}] Parsed {pages} pages, {len(text):,} chars')
-    return text, pages, len(pdf_bytes)
+    print(f'[{label}] OCR complete: {len(ocr_text):,} chars total')
+    return ocr_text, pages, len(pdf_bytes)
 
 # Start scrape run
 run_id = rpc('scrape_log_start', {
