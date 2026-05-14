@@ -10,34 +10,43 @@
 <script defer src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js"></script>
 <style>
   :root { --safe-bottom: env(safe-area-inset-bottom, 0px); --safe-top: env(safe-area-inset-top, 0px); }
-  body { font-family: 'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:#020617; color:#e2e8f0; -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
-  .glass { background: rgba(30,41,59,0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(245,158,11,0.12); }
-  .glass-diamond { background: linear-gradient(135deg, rgba(56,189,248,0.12), rgba(168,85,247,0.12)); backdrop-filter: blur(10px); border: 1px solid rgba(168,85,247,0.35); }
-  .grade-A { background: linear-gradient(135deg,#10b981,#059669); color:#fff; }
-  .grade-B { background: linear-gradient(135deg,#22c55e,#16a34a); color:#fff; }
-  .grade-C { background: linear-gradient(135deg,#eab308,#ca8a04); color:#1f2937; }
-  .grade-D { background: linear-gradient(135deg,#f97316,#ea580c); color:#fff; }
+  body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:#020617; color:#e2e8f0; -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
+  .glass { background:rgba(30,41,59,0.55); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border:1px solid rgba(245,158,11,0.12); }
+  .glass-diamond { background:linear-gradient(135deg,rgba(56,189,248,0.12),rgba(168,85,247,0.12)); backdrop-filter:blur(10px); border:1px solid rgba(168,85,247,0.35); }
+  .glass-triangle { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(245,158,11,0.10)); backdrop-filter:blur(10px); border:1px solid rgba(239,68,68,0.30); }
+  .grade-A { background:linear-gradient(135deg,#10b981,#059669); color:#fff; }
+  .grade-B { background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; }
+  .grade-C { background:linear-gradient(135deg,#eab308,#ca8a04); color:#1f2937; }
+  .grade-D { background:linear-gradient(135deg,#f97316,#ea580c); color:#fff; }
   .grade-E,.grade-X,.grade-Z { background:#475569; color:#cbd5e1; }
   [x-cloak] { display:none !important; }
   .scroll-h::-webkit-scrollbar { display:none; }
   .scroll-h { -ms-overflow-style:none; scrollbar-width:none; }
-  .sheet { transform: translateY(100%); transition: transform .28s cubic-bezier(.32,.72,0,1); }
-  .sheet.open { transform: translateY(0); }
-  .backdrop { transition: opacity .25s ease; }
+  .sheet { transform:translateY(100%); transition:transform .28s cubic-bezier(.32,.72,0,1); }
+  .sheet.open { transform:translateY(0); }
   .chip { min-height:48px; display:inline-flex; align-items:center; }
   button, a, [role="button"] { min-height:44px; }
   input, select { font-size:16px; min-height:48px; }
-  .card-tap:active { transform: scale(.98); transition: transform .1s; }
-  .skeleton { background: linear-gradient(90deg,#1e293b 0%,#334155 50%,#1e293b 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  .card-tap:active { transform:scale(.98); transition:transform .1s; }
+  .skeleton { background:linear-gradient(90deg,#1e293b 0%,#334155 50%,#1e293b 100%); background-size:200% 100%; animation:shimmer 1.4s infinite; }
   @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-  .diamond-glow { background: linear-gradient(135deg,#38bdf8,#a855f7); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .diamond-glow { background:linear-gradient(135deg,#38bdf8,#a855f7); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .triangle-glow { background:linear-gradient(135deg,#ef4444,#f59e0b); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
   .diamond-chip-active { background:linear-gradient(135deg,#38bdf8,#a855f7) !important; color:#fff !important; border-color:transparent !important; }
+  .triangle-chip-active { background:linear-gradient(135deg,#ef4444,#f59e0b) !important; color:#fff !important; border-color:transparent !important; }
+  .sig-badge { display:inline-flex; align-items:center; padding:2px 6px; border-radius:9999px; font-size:9px; font-weight:700; gap:2px; }
+  .sig-out { background:rgba(239,68,68,0.18); color:#fca5a5; border:1px solid rgba(239,68,68,0.3); }
+  .sig-abs { background:rgba(245,158,11,0.18); color:#fcd34d; border:1px solid rgba(245,158,11,0.3); }
+  .sig-est { background:rgba(168,85,247,0.20); color:#d8b4fe; border:1px solid rgba(168,85,247,0.35); }
+  .sig-ent { background:rgba(59,130,246,0.18); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); }
+  .sig-len { background:rgba(20,184,166,0.18); color:#5eead4; border:1px solid rgba(20,184,166,0.3); }
+  .sig-mul { background:rgba(244,114,182,0.18); color:#f9a8d4; border:1px solid rgba(244,114,182,0.3); }
+  input[type=range] { accent-color:#f59e0b; }
 </style>
 </head>
 <body x-data="app()" x-init="init()" x-cloak class="min-h-screen pb-24">
 
-<!-- TOP BAR -->
-<header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-amber-500/20" style="padding-top: var(--safe-top)">
+<header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-amber-500/20" style="padding-top:var(--safe-top)">
   <div class="px-4 py-3 flex items-center justify-between gap-3">
     <div class="flex items-center gap-2 min-w-0">
       <div class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">BidDeed.AI</div>
@@ -48,48 +57,52 @@
       <div class="text-[9px] uppercase tracking-wider text-slate-500"><span x-text="filteredDeals.length"></span> deals · equity pool</div>
     </div>
   </div>
-  <div class="px-4 pb-2 text-[11px] text-slate-400">🏖️ Brevard tax deeds · 2026-05-14 · <span x-text="deals.length"></span> unique properties (deduped)</div>
+  <div class="px-4 pb-2 text-[11px] text-slate-400">🏖️ Brevard tax deeds · 2026-05-14 · <span x-text="deals.length"></span> properties · 🔺 Shapira Triangle owner-vertex active</div>
 
-  <!-- Persona chip rail -->
   <div class="px-3 pb-3 flex gap-2 overflow-x-auto scroll-h">
     <button @click="clearPersona()" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border" :class="!activePersona ? 'bg-amber-500 text-slate-900 border-amber-500 font-bold' : 'bg-slate-800/60 border-slate-700 text-slate-300'">All <span x-text="deals.length"></span></button>
     <template x-for="p in builtInPersonas" :key="p.code">
       <button @click="selectPersona(p)" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border"
         :class="activePersona && activePersona.code===p.code
-          ? (p.code==='DIAMONDS' ? 'diamond-chip-active font-bold' : 'bg-amber-500 text-slate-900 border-amber-500 font-bold')
-          : (p.code==='DIAMONDS' ? 'bg-gradient-to-r from-sky-500/15 to-purple-500/15 border-purple-500/40 text-sky-300' : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-700')">
-        <span class="mr-1" x-text="p.icon"></span><span x-text="p.name"></span> <span class="ml-1 opacity-70" x-text="'· ' + matchCount(p.filter)"></span>
+          ? (p.code==='DIAMONDS' ? 'diamond-chip-active font-bold' : p.code==='TRIANGLE' ? 'triangle-chip-active font-bold' : 'bg-amber-500 text-slate-900 border-amber-500 font-bold')
+          : (p.code==='DIAMONDS' ? 'bg-gradient-to-r from-sky-500/15 to-purple-500/15 border-purple-500/40 text-sky-300'
+              : p.code==='TRIANGLE' ? 'bg-gradient-to-r from-red-500/15 to-amber-500/15 border-red-500/40 text-red-300'
+              : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-700')">
+        <span class="mr-1" x-text="p.icon"></span><span x-text="p.name"></span> <span class="ml-1 opacity-70" x-text="'· '+matchCount(p.filter)"></span>
       </button>
     </template>
     <template x-for="p in customPersonas" :key="p.id">
       <button @click="selectPersona(p)" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border" :class="activePersona && activePersona.id===p.id ? 'bg-amber-500 text-slate-900 border-amber-500 font-bold' : 'bg-amber-500/10 border-amber-500/40 text-amber-300'">
-        🎯 <span x-text="p.name"></span> <span class="ml-1 opacity-70" x-text="'· ' + matchCount(p.filter)"></span>
+        🎯 <span x-text="p.name"></span> <span class="ml-1 opacity-70" x-text="'· '+matchCount(p.filter)"></span>
       </button>
     </template>
   </div>
 </header>
 
-<!-- ACTIVE PERSONA BANNER -->
 <div x-show="activePersona" class="px-4 py-2.5 border-b flex items-center gap-2"
-     :class="activePersona && activePersona.code==='DIAMONDS' ? 'glass-diamond border-purple-500/30' : 'bg-amber-500/10 border-amber-500/20'">
+     :class="activePersona && activePersona.code==='DIAMONDS' ? 'glass-diamond border-purple-500/30'
+            : activePersona && activePersona.code==='TRIANGLE' ? 'glass-triangle border-red-500/30'
+            : 'bg-amber-500/10 border-amber-500/20'">
   <span class="text-base shrink-0" x-text="activePersona && (activePersona.icon || '🎯')"></span>
   <div class="min-w-0 flex-1">
     <div class="text-sm font-bold truncate"
-         :class="activePersona && activePersona.code==='DIAMONDS' ? 'diamond-glow' : 'text-amber-300'"
-         x-text="activePersona && activePersona.name"></div>
+      :class="activePersona && activePersona.code==='DIAMONDS' ? 'diamond-glow'
+              : activePersona && activePersona.code==='TRIANGLE' ? 'triangle-glow'
+              : 'text-amber-300'"
+      x-text="activePersona && activePersona.name"></div>
     <div class="text-[11px] text-slate-400 line-clamp-2" x-text="activePersona && (activePersona.desc || activePersona.summary)"></div>
   </div>
   <button @click="clearPersona()" class="px-3 text-xs text-slate-300 hover:text-white shrink-0">✕</button>
 </div>
 
-<!-- FILTER BAR -->
-<div class="px-4 py-2 flex items-center gap-2 sticky bg-slate-950/85 backdrop-blur z-20" style="top: 110px">
+<div class="px-4 py-2 flex items-center gap-2 sticky bg-slate-950/85 backdrop-blur z-20" style="top:110px">
   <button @click="showFilters=true" class="flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-800 border border-slate-700 text-sm">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18M6 12h12M10 20h4"/></svg>
     Filters <span x-show="activeFilterCount>0" class="bg-amber-500 text-slate-900 text-[10px] font-bold rounded-full px-1.5" x-text="activeFilterCount"></span>
   </button>
   <select x-model="sortKey" class="bg-slate-800 border border-slate-700 rounded-full px-3 py-2 text-sm">
     <option value="equity_at_opening_bid">Sort: Equity ↓</option>
+    <option value="owner_distress_score">Sort: 🔺 Distress ↓</option>
     <option value="opening_bid">Sort: Open Bid ↑</option>
     <option value="market_value">Sort: Market ↓</option>
     <option value="opening_bid_pct_of_market">Sort: Best Discount</option>
@@ -97,7 +110,6 @@
   <div class="ml-auto text-[11px] text-slate-500"><span x-text="filteredDeals.length"></span>/<span x-text="deals.length"></span></div>
 </div>
 
-<!-- DEAL LIST -->
 <main class="px-3 sm:px-4 pb-4 max-w-5xl mx-auto">
   <div x-show="deals.length===0" class="space-y-3 mt-3">
     <template x-for="i in 5"><div class="h-32 rounded-xl skeleton"></div></template>
@@ -107,24 +119,37 @@
   <div class="md:hidden space-y-3 mt-3" x-show="deals.length>0">
     <template x-for="d in displayDeals" :key="d.tax_deed_case || d.full_address || d.street_address">
       <div @click="openDeal=d" class="card-tap rounded-xl p-3 active:bg-slate-800/80"
-           :class="isUnknownAddr(d) ? 'glass-diamond' : 'glass'">
+           :class="getCardClass(d)">
         <div class="flex items-start justify-between gap-2 mb-2">
           <div class="flex items-center gap-1.5 flex-wrap">
             <span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-' + (d.tax_deed_grade && d.tax_deed_grade.charAt(0))" x-text="d.tax_deed_grade ? d.tax_deed_grade.replace('_',' ').slice(0,12) : '?'"></span>
             <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300" x-text="(d.property_category||'?').replace(/_/g,' ')"></span>
-            <span x-show="isUnknownAddr(d)" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-sky-500 to-purple-500 text-white">💎 DIAMOND</span>
+            <span x-show="isUnknownAddr(d)" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-sky-500 to-purple-500 text-white">💎</span>
+            <span x-show="(d.owner_distress_score||0) >= 40" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-red-500 to-amber-500 text-white" x-text="'🔺 ' + d.owner_distress_score"></span>
           </div>
           <div class="text-right shrink-0">
             <div class="text-emerald-400 font-bold text-sm">$<span x-text="formatNum(d.equity_at_opening_bid)"></span></div>
             <div class="text-[10px] text-slate-500">equity</div>
           </div>
         </div>
-        <div class="text-[15px] font-semibold leading-tight" x-text="isUnknownAddr(d) ? ('PIN ' + (d.bcpao_account || 'unknown')) : (d.street_address || '(address pending)')"></div>
-        <div class="text-xs text-slate-400 mb-3" x-text="isUnknownAddr(d) ? 'No street address · vacant or metes-and-bounds parcel · check BCPAO map' : ((d.city||'?') + (d.zip5 ? ', ' + d.zip5 : ''))"></div>
+        <div class="text-[15px] font-semibold leading-tight" x-text="isUnknownAddr(d) ? ('PIN '+(d.bcpao_account||'unknown')) : (d.street_address||'(pending)')"></div>
+        <div class="text-xs text-slate-400 mb-2" x-text="isUnknownAddr(d) ? 'No street · check parcel map' : ((d.city||'?') + (d.zip5 ? ', '+d.zip5 : ''))"></div>
+
+        <div x-show="d.owner_name" class="text-[11px] mb-2 flex items-start gap-1.5">
+          <span class="text-slate-500">👤</span>
+          <span class="text-slate-300 font-medium truncate" x-text="(d.owner_name||'') + (d.owner_mailing_state ? ' · '+d.owner_mailing_state : '')"></span>
+        </div>
+
+        <div x-show="d.owner_distress_signals" class="flex flex-wrap gap-1 mb-2">
+          <template x-for="sig in (d.owner_distress_signals||'').split('|').filter(Boolean)">
+            <span class="sig-badge" :class="getSigClass(sig)" x-text="getSigLabel(sig)"></span>
+          </template>
+        </div>
+
         <div class="grid grid-cols-3 gap-2 text-xs">
           <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">Open bid</div><div class="font-mono font-semibold">$<span x-text="formatNum(d.opening_bid)"></span></div></div>
           <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">Market</div><div class="font-mono font-semibold">$<span x-text="formatNum(d.market_value)"></span></div></div>
-          <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">% of mkt</div><div class="font-mono font-semibold text-amber-400" x-text="d.opening_bid_pct_of_market != null ? d.opening_bid_pct_of_market + '%' : '—'"></div></div>
+          <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">% of mkt</div><div class="font-mono font-semibold text-amber-400" x-text="d.opening_bid_pct_of_market!=null ? d.opening_bid_pct_of_market+'%' : '—'"></div></div>
         </div>
       </div>
     </template>
@@ -133,46 +158,90 @@
   <div class="hidden md:block glass rounded-xl overflow-hidden mt-3" x-show="deals.length>0">
     <table class="w-full text-sm">
       <thead class="bg-slate-900/80 text-xs uppercase text-slate-400">
-        <tr><th class="p-3 text-left">Grade</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Property</th><th class="p-3 text-right">Open Bid</th><th class="p-3 text-right">Market</th><th class="p-3 text-right">Equity</th><th class="p-3 text-right">% Mkt</th></tr>
+        <tr><th class="p-3 text-left">Grade</th><th class="p-3 text-left">Property / Owner</th><th class="p-3 text-left">🔺 Signals</th><th class="p-3 text-right">Open</th><th class="p-3 text-right">Equity</th><th class="p-3 text-right">Score</th></tr>
       </thead>
       <tbody>
         <template x-for="d in displayDeals" :key="d.tax_deed_case || d.full_address || d.street_address">
-          <tr @click="openDeal=d" class="border-t border-slate-700/40 hover:bg-amber-500/5 cursor-pointer" :class="isUnknownAddr(d) ? 'bg-purple-500/5' : ''">
-            <td class="p-3"><span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-' + (d.tax_deed_grade && d.tax_deed_grade.charAt(0))" x-text="d.tax_deed_grade ? d.tax_deed_grade.replace('_',' ').slice(0,12) : '?'"></span></td>
-            <td class="p-3 text-xs"><span x-text="(d.property_category||'?').replace(/_/g,' ')"></span><span x-show="isUnknownAddr(d)" class="ml-1 text-[10px] font-bold diamond-glow">💎</span></td>
-            <td class="p-3"><div class="font-medium" x-text="isUnknownAddr(d) ? ('PIN ' + (d.bcpao_account||'?')) : (d.street_address || '(pending)')"></div><div class="text-xs text-slate-400" x-text="isUnknownAddr(d) ? 'no street addr' : ((d.city||'?') + (d.zip5 ? ', ' + d.zip5 : ''))"></div></td>
+          <tr @click="openDeal=d" class="border-t border-slate-700/40 hover:bg-amber-500/5 cursor-pointer" :class="(d.owner_distress_score||0)>=40 ? 'bg-red-500/5' : (isUnknownAddr(d) ? 'bg-purple-500/5' : '')">
+            <td class="p-3"><span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-'+(d.tax_deed_grade && d.tax_deed_grade.charAt(0))" x-text="d.tax_deed_grade ? d.tax_deed_grade.replace('_',' ').slice(0,12) : '?'"></span></td>
+            <td class="p-3">
+              <div class="font-medium" x-text="isUnknownAddr(d) ? ('PIN '+(d.bcpao_account||'?')) : (d.street_address||'(pending)')"></div>
+              <div class="text-xs text-slate-400" x-text="isUnknownAddr(d) ? 'no street' : ((d.city||'?')+(d.zip5 ? ', '+d.zip5 : ''))"></div>
+              <div x-show="d.owner_name" class="text-[11px] text-slate-500 mt-1" x-text="'👤 '+(d.owner_name||'')+(d.owner_mailing_state ? ' · '+d.owner_mailing_state : '')"></div>
+            </td>
+            <td class="p-3"><div class="flex flex-wrap gap-1"><template x-for="sig in (d.owner_distress_signals||'').split('|').filter(Boolean)"><span class="sig-badge" :class="getSigClass(sig)" x-text="getSigLabel(sig)"></span></template></div></td>
             <td class="p-3 text-right font-mono">$<span x-text="formatNum(d.opening_bid)"></span></td>
-            <td class="p-3 text-right font-mono text-slate-300">$<span x-text="formatNum(d.market_value)"></span></td>
             <td class="p-3 text-right font-mono font-bold text-emerald-400">$<span x-text="formatNum(d.equity_at_opening_bid)"></span></td>
-            <td class="p-3 text-right font-mono text-amber-400" x-text="d.opening_bid_pct_of_market != null ? d.opening_bid_pct_of_market + '%' : '—'"></td>
+            <td class="p-3 text-right font-mono"><span class="text-red-400 font-bold" x-text="d.owner_distress_score||0"></span></td>
           </tr>
         </template>
       </tbody>
     </table>
   </div>
 
-  <button x-show="displayDeals.length < filteredDeals.length" @click="rowLimit += 25" class="w-full mt-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-amber-400 text-sm font-medium">↓ Load 25 more (<span x-text="filteredDeals.length - displayDeals.length"></span> remaining)</button>
+  <button x-show="displayDeals.length < filteredDeals.length" @click="rowLimit+=25" class="w-full mt-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-amber-400 text-sm font-medium">↓ Load 25 more (<span x-text="filteredDeals.length-displayDeals.length"></span>)</button>
 </main>
 
-<!-- FAB -->
-<button @click="openChat()" class="fixed right-4 z-30 bg-gradient-to-br from-amber-500 to-amber-400 text-slate-900 font-bold rounded-full shadow-2xl shadow-amber-500/40 px-5 py-3.5 flex items-center gap-2 active:scale-95 transition" style="bottom: calc(20px + var(--safe-bottom))">
+<button @click="openChat()" class="fixed right-4 z-30 bg-gradient-to-br from-amber-500 to-amber-400 text-slate-900 font-bold rounded-full shadow-2xl shadow-amber-500/40 px-5 py-3.5 flex items-center gap-2 active:scale-95 transition" style="bottom:calc(20px + var(--safe-bottom))">
   <span class="text-lg">✨</span><span>Build with AI</span>
 </button>
 
-<!-- FILTERS BOTTOM SHEET -->
+<!-- FILTERS SHEET -->
 <div x-show="showFilters" class="fixed inset-0 z-40" x-cloak>
-  <div class="absolute inset-0 bg-black/70 backdrop" @click="showFilters=false"></div>
-  <div class="absolute bottom-0 left-0 right-0 bg-slate-900 rounded-t-2xl sheet open p-4 max-h-[85vh] overflow-y-auto" style="padding-bottom: calc(16px + var(--safe-bottom))">
+  <div class="absolute inset-0 bg-black/70" @click="showFilters=false"></div>
+  <div class="absolute bottom-0 left-0 right-0 bg-slate-900 rounded-t-2xl sheet open p-4 max-h-[88vh] overflow-y-auto" style="padding-bottom:calc(16px+var(--safe-bottom))">
     <div class="flex justify-center mb-3"><div class="w-12 h-1 bg-slate-600 rounded"></div></div>
     <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">Filters</h2><button @click="clearFilters()" class="text-amber-400 text-sm">Clear all</button></div>
+
     <div class="space-y-3">
-      <!-- DIAMONDS TOGGLE - prominent at top -->
+      <!-- 🔺 TRIANGLE OWNER VERTEX BLOCK -->
+      <div class="glass-triangle rounded-xl p-4">
+        <div class="text-xs uppercase tracking-widest triangle-glow font-bold mb-2">🔺 Shapira Triangle · Owner Vertex</div>
+        <div class="text-[11px] text-slate-400 mb-3">Patented distress signals. Owner data feeding the Triangle V4.0 identification system. Property + Financial vertices coming.</div>
+
+        <div class="mb-3">
+          <label class="block text-xs text-slate-300 mb-1">Min distress score: <b class="text-red-400" x-text="filters.minDistressScore || 0"></b></label>
+          <input type="range" min="0" max="100" step="5" x-model.number="filters.minDistressScore" class="w-full">
+          <div class="flex justify-between text-[10px] text-slate-500 mt-1"><span>0 (any)</span><span>40 (strong)</span><span>65+ (highest)</span></div>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="filters.sigOutOfState" class="w-4 h-4 accent-red-500">
+            <span class="text-xs">🌐 Out-of-state owner only (32 deals)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="filters.sigAbsentee" class="w-4 h-4 accent-amber-500">
+            <span class="text-xs">👻 Absentee owner only (38 deals · mail ≠ situs)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="filters.sigEstateTrust" class="w-4 h-4 accent-purple-500">
+            <span class="text-xs">⚰️ Estate / Trust only (2 deals · motivated sellers)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="filters.sigEntity" class="w-4 h-4 accent-blue-500">
+            <span class="text-xs">🏢 Entity owner (LLC/Inc/Holding) (7 deals)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="filters.sigMultiParcel" class="w-4 h-4 accent-pink-500">
+            <span class="text-xs">🔁 Multi-parcel owner (8 deals · 4 owners)</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- OWNER NAME SEARCH -->
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">🔍 Search owner name / entity</label>
+        <input x-model="filters.ownerLike" placeholder="e.g. SMITH, KRAEMER, LLC, ESTATE..." class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3">
+        <div x-show="filters.ownerLike" class="text-[11px] text-slate-500 mt-1">Searches owner_name field. Case-insensitive. <span class="text-amber-400" x-text="ownerSearchMatchCount + ' matches'"></span></div>
+      </div>
+
+      <!-- DIAMONDS TOGGLE -->
       <label class="flex items-start gap-3 p-4 rounded-xl cursor-pointer transition" :class="filters.unknownAddrOnly ? 'glass-diamond' : 'bg-slate-800 border border-slate-700'">
         <input type="checkbox" x-model="filters.unknownAddrOnly" class="w-5 h-5 accent-purple-500 mt-0.5">
         <div class="flex-1">
           <div class="text-sm font-bold flex items-center gap-2"><span class="diamond-glow">💎 Diamonds only</span></div>
-          <div class="text-[11px] text-slate-400 mt-1">Properties with unknown/missing street addresses. Proxy bidders skip these (can't auto-evaluate) → less competition, real edge. Requires reading parcel map.</div>
-          <div class="text-[10px] text-purple-300 mt-1 font-mono" x-show="unknownAddrCount>0"><span x-text="unknownAddrCount"></span> diamonds · $<span x-text="formatNum(unknownAddrEquity)"></span> total equity pool</div>
+          <div class="text-[11px] text-slate-400 mt-1">Properties with unknown street addresses (31 deals · proxy bidders skip)</div>
         </div>
       </label>
 
@@ -194,7 +263,6 @@
           <option value="condominium">Condo</option>
           <option value="vacant_residential">Vacant Lot</option>
           <option value="multi_family">Multi-family</option>
-          <option value="mobile_home">Mobile Home</option>
         </select>
       </div>
       <div class="grid grid-cols-2 gap-3">
@@ -207,38 +275,52 @@
   </div>
 </div>
 
-<!-- DEAL DETAIL SHEET -->
+<!-- DEAL DETAIL -->
 <div x-show="openDeal" class="fixed inset-0 z-40" x-cloak>
-  <div class="absolute inset-0 bg-black/80 backdrop" @click="openDeal=null"></div>
+  <div class="absolute inset-0 bg-black/80" @click="openDeal=null"></div>
   <div class="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-4">
-    <div class="bg-slate-900 rounded-t-2xl md:rounded-2xl sheet open p-5 max-h-[90vh] md:max-w-2xl w-full overflow-y-auto border-t md:border border-amber-500/30" style="padding-bottom: calc(20px + var(--safe-bottom))">
+    <div class="bg-slate-900 rounded-t-2xl md:rounded-2xl sheet open p-5 max-h-[90vh] md:max-w-2xl w-full overflow-y-auto border-t md:border border-amber-500/30" style="padding-bottom:calc(20px+var(--safe-bottom))">
       <div class="flex justify-center mb-3 md:hidden"><div class="w-12 h-1 bg-slate-600 rounded"></div></div>
       <div class="flex items-start justify-between gap-3 mb-3">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-1.5 mb-2">
-            <span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-' + (openDeal && openDeal.tax_deed_grade && openDeal.tax_deed_grade.charAt(0))" x-text="openDeal && openDeal.tax_deed_grade"></span>
-            <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300" x-text="openDeal && (openDeal.property_category||'?')"></span>
-            <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300" x-text="openDeal && ('Case ' + (openDeal.tax_deed_case || '?'))"></span>
+            <span class="text-[10px] font-bold px-2 py-1 rounded" :class="'grade-'+(openDeal && openDeal.tax_deed_grade && openDeal.tax_deed_grade.charAt(0))" x-text="openDeal && openDeal.tax_deed_grade"></span>
+            <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300" x-text="openDeal && ('Case '+(openDeal.tax_deed_case||'?'))"></span>
             <span x-show="openDeal && isUnknownAddr(openDeal)" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-sky-500 to-purple-500 text-white">💎 DIAMOND</span>
+            <span x-show="openDeal && (openDeal.owner_distress_score||0)>=40" class="text-[10px] font-bold px-2 py-1 rounded bg-gradient-to-r from-red-500 to-amber-500 text-white" x-text="openDeal && ('🔺 SCORE '+openDeal.owner_distress_score)"></span>
           </div>
-          <h2 class="text-xl font-bold text-amber-400 leading-tight" x-text="openDeal && (isUnknownAddr(openDeal) ? ('PIN ' + (openDeal.bcpao_account||'unknown')) : (openDeal.street_address || '(address pending)'))"></h2>
-          <p class="text-sm text-slate-400" x-text="openDeal && (isUnknownAddr(openDeal) ? 'Unknown street address · evaluate via BCPAO parcel map' : ((openDeal.city||'?') + ', FL ' + (openDeal.zip5||'')))"></p>
+          <h2 class="text-xl font-bold text-amber-400 leading-tight" x-text="openDeal && (isUnknownAddr(openDeal) ? ('PIN '+(openDeal.bcpao_account||'?')) : (openDeal.street_address||'(pending)'))"></h2>
+          <p class="text-sm text-slate-400" x-text="openDeal && ((openDeal.city||'?')+', FL '+(openDeal.zip5||''))"></p>
         </div>
         <button @click="openDeal=null" class="text-slate-400 hover:text-white text-3xl leading-none shrink-0 -mt-1">×</button>
       </div>
 
-      <div x-show="openDeal && isUnknownAddr(openDeal)" class="glass-diamond rounded-xl p-3 mb-3">
-        <div class="text-[10px] uppercase tracking-widest diamond-glow font-bold mb-2">💎 Diamond — read this</div>
-        <p class="text-xs text-slate-300 leading-relaxed">No street address means automated bidders pass on this. You'll need to: <b>(1)</b> open BCPAO map below, <b>(2)</b> verify zoning and buildability, <b>(3)</b> check adjacent parcels for context. Less competition = better entry.</p>
+      <!-- 🔺 TRIANGLE OWNER VERTEX (highlighted for high-distress) -->
+      <div x-show="openDeal && openDeal.owner_name" class="glass-triangle rounded-xl p-3 mb-3">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[10px] uppercase tracking-widest triangle-glow font-bold">🔺 Triangle · Owner Vertex</div>
+          <div class="text-right">
+            <div class="text-lg font-black text-red-400" x-text="openDeal && (openDeal.owner_distress_score||0)"></div>
+            <div class="text-[9px] text-slate-500 uppercase">distress score</div>
+          </div>
+        </div>
+        <div class="font-mono text-sm font-bold text-amber-300" x-text="openDeal && openDeal.owner_name"></div>
+        <div class="text-xs text-slate-400 mb-2" x-text="openDeal && [openDeal.owner_mailing_addr, openDeal.owner_mailing_city, openDeal.owner_mailing_state, openDeal.owner_mailing_zip].filter(Boolean).join(' ')"></div>
+        <div class="flex flex-wrap gap-1 mb-2">
+          <template x-for="sig in ((openDeal&&openDeal.owner_distress_signals)||'').split('|').filter(Boolean)">
+            <span class="sig-badge" :class="getSigClass(sig)" x-text="getSigLabel(sig)+' · '+getSigWeight(sig)"></span>
+          </template>
+        </div>
+        <div x-show="openDeal && openDeal.owner_parcel_count_today > 1" class="text-xs text-pink-300 mt-1">🔁 Owner has <b x-text="openDeal && openDeal.owner_parcel_count_today"></b> parcels on today's sale — portfolio sweep target.</div>
       </div>
 
       <div class="glass rounded-xl p-3 mb-3">
         <div class="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-2">💰 Financial</div>
         <div class="grid grid-cols-2 gap-2 text-sm">
-          <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Open Bid</div><div class="font-mono font-bold text-base">$<span x-text="openDeal && formatNum(openDeal.opening_bid)"></span></div></div>
-          <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Market</div><div class="font-mono font-bold text-base">$<span x-text="openDeal && formatNum(openDeal.market_value)"></span></div></div>
-          <div class="bg-emerald-950/50 border border-emerald-700/30 rounded-lg p-2.5"><div class="text-[10px] text-emerald-400 uppercase">Equity</div><div class="font-mono font-bold text-base text-emerald-400">$<span x-text="openDeal && formatNum(openDeal.equity_at_opening_bid)"></span></div></div>
-          <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Bid % Mkt</div><div class="font-mono font-bold text-base text-amber-400" x-text="(openDeal && openDeal.opening_bid_pct_of_market) ? openDeal.opening_bid_pct_of_market + '%' : '—'"></div></div>
+          <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Open Bid</div><div class="font-mono font-bold">$<span x-text="openDeal && formatNum(openDeal.opening_bid)"></span></div></div>
+          <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Market</div><div class="font-mono font-bold">$<span x-text="openDeal && formatNum(openDeal.market_value)"></span></div></div>
+          <div class="bg-emerald-950/50 border border-emerald-700/30 rounded-lg p-2.5"><div class="text-[10px] text-emerald-400 uppercase">Equity</div><div class="font-mono font-bold text-emerald-400">$<span x-text="openDeal && formatNum(openDeal.equity_at_opening_bid)"></span></div></div>
+          <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">Bid % Mkt</div><div class="font-mono font-bold text-amber-400" x-text="(openDeal && openDeal.opening_bid_pct_of_market) ? openDeal.opening_bid_pct_of_market+'%' : '—'"></div></div>
         </div>
       </div>
 
@@ -247,70 +329,52 @@
         <div class="grid grid-cols-2 gap-y-1.5 text-sm">
           <div class="text-slate-400">Year built</div><div x-text="openDeal && (openDeal.year_built || '—')"></div>
           <div class="text-slate-400">Sqft heated</div><div x-text="openDeal && (openDeal.sqft_heated || '—')"></div>
-          <div class="text-slate-400">Beds / Baths</div><div x-text="openDeal && ((openDeal.beds||'?')+'bd / '+(openDeal.baths_full||'?')+'ba')"></div>
           <div class="text-slate-400">Acres</div><div x-text="openDeal && (openDeal.acres_gis || '—')"></div>
           <div class="text-slate-400">Assessed</div><div class="font-mono">$<span x-text="openDeal && formatNum(openDeal.assessed_value)"></span></div>
-          <div class="text-slate-400">Homestead</div><div x-text="openDeal && openDeal.likely_homestead"></div>
         </div>
-      </div>
-
-      <div class="glass rounded-xl p-3 mb-3">
-        <div class="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-2">🎯 Persona Fit</div>
-        <div class="grid grid-cols-5 gap-1.5 text-center">
-          <div><div class="text-xl font-bold text-amber-400" x-text="openDeal && openDeal.flipper_score"></div><div class="text-[9px] text-slate-400">Flip</div></div>
-          <div><div class="text-xl font-bold text-amber-400" x-text="openDeal && openDeal.rental_score"></div><div class="text-[9px] text-slate-400">Rent</div></div>
-          <div><div class="text-xl font-bold text-amber-400" x-text="openDeal && openDeal.wholesale_score"></div><div class="text-[9px] text-slate-400">Whole</div></div>
-          <div><div class="text-xl font-bold text-amber-400" x-text="openDeal && openDeal.land_score"></div><div class="text-[9px] text-slate-400">Land</div></div>
-          <div><div class="text-xl font-bold text-amber-400" x-text="openDeal && openDeal.owner_occupant_score"></div><div class="text-[9px] text-slate-400">Owner</div></div>
-        </div>
-      </div>
-
-      <div x-show="openDeal && openDeal.owner_name" class="glass rounded-xl p-3 mb-3">
-        <div class="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-2">👤 Owner</div>
-        <div class="font-mono text-sm" x-text="openDeal && openDeal.owner_name"></div>
-        <div class="text-xs text-slate-400 mt-1" x-text="openDeal && [openDeal.owner_mailing_addr, openDeal.owner_mailing_city, openDeal.owner_mailing_state, openDeal.owner_mailing_zip].filter(Boolean).join(' ')"></div>
       </div>
 
       <div class="grid grid-cols-3 gap-2">
         <a :href="openDeal && openDeal.google_maps_url" target="_blank" class="bg-slate-800 hover:bg-slate-700 rounded-lg text-center text-xs py-3 font-medium">🗺️ Maps</a>
-        <a :href="openDeal && openDeal.bcpao_link" target="_blank" class="bg-slate-800 hover:bg-slate-700 rounded-lg text-center text-xs py-3 font-medium" :class="openDeal && isUnknownAddr(openDeal) ? 'ring-2 ring-purple-500/50' : ''">🏢 BCPAO</a>
+        <a :href="openDeal && openDeal.bcpao_link" target="_blank" class="bg-slate-800 hover:bg-slate-700 rounded-lg text-center text-xs py-3 font-medium">🏢 BCPAO</a>
         <a :href="openDeal && openDeal.brevardclerk_tax_deed_page" target="_blank" class="bg-slate-800 hover:bg-slate-700 rounded-lg text-center text-xs py-3 font-medium">⚖️ Clerk</a>
       </div>
     </div>
   </div>
 </div>
 
-<!-- CHAT SHEET -->
+<!-- CHAT (compact, same as before but with Triangle suggestions) -->
 <div x-show="showChatModal" class="fixed inset-0 z-40" x-cloak>
-  <div class="absolute inset-0 bg-black/80 backdrop" @click="showChatModal=false"></div>
+  <div class="absolute inset-0 bg-black/80" @click="showChatModal=false"></div>
   <div class="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-4">
-    <div class="bg-slate-900 rounded-t-2xl md:rounded-2xl sheet open w-full md:max-w-xl border-t md:border border-amber-500/30 overflow-hidden flex flex-col" style="max-height: 90vh">
+    <div class="bg-slate-900 rounded-t-2xl md:rounded-2xl sheet open w-full md:max-w-xl border-t md:border border-amber-500/30 overflow-hidden flex flex-col" style="max-height:90vh">
       <div class="flex justify-center pt-3 md:hidden"><div class="w-12 h-1 bg-slate-600 rounded"></div></div>
       <div class="p-4 border-b border-slate-700/50 flex items-center justify-between gap-2">
-        <div class="min-w-0"><h2 class="text-base font-bold text-amber-400">✨ Build Your Buybox</h2><p class="text-[11px] text-slate-400">Tell me what you want. I'll save it as a persona.</p></div>
-        <button @click="showChatModal=false" class="text-slate-400 text-2xl leading-none shrink-0">×</button>
+        <div><h2 class="text-base font-bold text-amber-400">✨ Build Your Buybox</h2><p class="text-[11px] text-slate-400">Tell me what you want. I'll save it as a persona.</p></div>
+        <button @click="showChatModal=false" class="text-slate-400 text-2xl leading-none">×</button>
       </div>
-      <div class="p-4 space-y-2 overflow-y-auto flex-1" id="chat-log" style="min-height: 200px; max-height: 50vh">
-        <template x-for="msg in chatLog" :key="msg.id"><div :class="msg.role==='user' ? 'flex justify-end' : 'flex justify-start'"><div :class="msg.role==='user' ? 'bg-amber-500 text-slate-900 font-medium' : 'bg-slate-800 text-slate-200'" class="px-3 py-2.5 rounded-2xl max-w-[85%] text-sm leading-relaxed" x-html="msg.text"></div></div></template>
+      <div class="p-4 space-y-2 overflow-y-auto flex-1" id="chat-log" style="min-height:200px;max-height:50vh">
+        <template x-for="msg in chatLog" :key="msg.id"><div :class="msg.role==='user'?'flex justify-end':'flex justify-start'"><div :class="msg.role==='user'?'bg-amber-500 text-slate-900 font-medium':'bg-slate-800 text-slate-200'" class="px-3 py-2.5 rounded-2xl max-w-[85%] text-sm" x-html="msg.text"></div></div></template>
         <div x-show="chatLog.length===0" class="text-slate-500 text-sm italic text-center py-6">Type your criteria below ↓</div>
       </div>
-      <div class="p-3 border-t border-slate-700/50 space-y-2" style="padding-bottom: calc(12px + var(--safe-bottom))">
+      <div class="p-3 border-t border-slate-700/50 space-y-2" style="padding-bottom:calc(12px+var(--safe-bottom))">
         <div class="flex flex-wrap gap-1.5">
-          <button @click="chatInput='rough diamonds — unknown addresses under $5000'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-gradient-to-r from-sky-500/20 to-purple-500/20 hover:from-sky-500/30 hover:to-purple-500/30 border border-purple-500/30 rounded-full text-purple-300">💎 Rough diamonds</button>
-          <button @click="chatInput='vacant lots in Palm Bay under $5000'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-300">🌲 Palm Bay lots</button>
-          <button @click="chatInput='biggest discount over 100K equity'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-300">💎 Best discounts</button>
+          <button @click="chatInput='out of state owners with multiple parcels'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-gradient-to-r from-red-500/20 to-amber-500/20 border border-red-500/30 rounded-full text-red-300">🔺 Triangle plays</button>
+          <button @click="chatInput='estate or trust owners'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-slate-800 rounded-full text-slate-300">⚰️ Estate sales</button>
+          <button @click="chatInput='rough diamonds under $5000'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-gradient-to-r from-sky-500/20 to-purple-500/20 border border-purple-500/30 rounded-full text-purple-300">💎 Diamonds</button>
+          <button @click="chatInput='LLC owners in Palm Bay'; sendChat()" class="text-[11px] px-2.5 py-1.5 bg-slate-800 rounded-full text-slate-300">🏢 Shell entities</button>
         </div>
         <div class="flex gap-2">
-          <input x-model="chatInput" @keyup.enter="sendChat()" placeholder="e.g. SFR in Palm Bay under $50K" class="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4">
-          <button @click="sendChat()" class="px-5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded-full">Send</button>
+          <input x-model="chatInput" @keyup.enter="sendChat()" placeholder="e.g. SFR Palm Bay under $50K" class="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4">
+          <button @click="sendChat()" class="px-5 bg-amber-500 text-slate-900 font-bold rounded-full">Send</button>
         </div>
         <div x-show="proposedFilter" class="glass rounded-xl p-3 border-amber-500/30">
-          <div class="text-[10px] uppercase tracking-widest text-amber-400 font-bold mb-1.5">📋 Proposed Buybox</div>
-          <pre class="text-[11px] text-slate-300 font-mono bg-slate-950/60 p-2 rounded overflow-x-auto" x-text="JSON.stringify(proposedFilter, null, 2)"></pre>
+          <div class="text-[10px] uppercase text-amber-400 font-bold mb-1.5">📋 Proposed Buybox</div>
+          <pre class="text-[11px] text-slate-300 font-mono bg-slate-950/60 p-2 rounded overflow-x-auto" x-text="JSON.stringify(proposedFilter,null,2)"></pre>
           <div class="text-xs text-slate-400 mt-2"><b class="text-emerald-400" x-text="proposedFilterMatchCount"></b> deals match</div>
           <div class="mt-2 space-y-2">
             <input x-model="customName" placeholder="Name this persona" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3">
-            <button @click="saveCustomPersona()" :disabled="!customName" class="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-900 font-bold py-3 rounded-lg">💾 Save persona</button>
+            <button @click="saveCustomPersona()" :disabled="!customName" class="w-full bg-amber-500 disabled:opacity-40 text-slate-900 font-bold py-3 rounded-lg">💾 Save</button>
           </div>
         </div>
       </div>
@@ -319,10 +383,19 @@
 </div>
 
 <script>
+const SIG_META = {
+  OUT_OF_STATE:  {label:'🌐 Out-of-state', cls:'sig-out', weight:25},
+  ABSENTEE:      {label:'👻 Absentee',     cls:'sig-abs', weight:20},
+  ESTATE_TRUST:  {label:'⚰️ Estate/Trust', cls:'sig-est', weight:30},
+  ENTITY:        {label:'🏢 LLC/Entity',   cls:'sig-ent', weight:15},
+  LENDER_REO:    {label:'🏦 Lender REO',   cls:'sig-len', weight:10},
+  MULTI_PARCEL:  {label:'🔁 Multi-parcel', cls:'sig-mul', weight:20}
+};
+
 function app() {
   return {
     deals: [],
-    filters: { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false },
+    filters: { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:'', minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false },
     sortKey: 'equity_at_opening_bid',
     activePersona: null,
     openDeal: null,
@@ -336,19 +409,20 @@ function app() {
     rowLimit: 25,
 
     builtInPersonas: [
-      {code:'DIAMONDS',icon:'💎',name:'Diamonds',desc:'Unknown/missing street addresses. Proxy bidders skip them — auto-bidders can\'t evaluate. Manual parcel-map review required. Less competition = real edge.',filter:{unknownAddrOnly:true},scoreKey:'land_score'},
-      {code:'FLIPPER',icon:'🔨',name:'Flipper',desc:'SFR + 50-80% under market. Light rehab + 60-90d resale.',filter:{category:'single_family',minEquity:50000},scoreKey:'flipper_score'},
-      {code:'BUY_AND_HOLD',icon:'🏠',name:'Buy & Hold',desc:'Rental cash flow. SFR/MFR/condo, $80-400K market.',filter:{category:'single_family',minEquity:30000},scoreKey:'rental_score'},
-      {code:'WHOLESALER',icon:'⚡',name:'Wholesaler',desc:'Lock + assign within days. Bid under $50K.',filter:{maxOpenBid:50000},scoreKey:'wholesale_score'},
-      {code:'LAND',icon:'🌲',name:'Land',desc:'Vacant lots. Hold for appreciation or develop.',filter:{category:'vacant_residential'},scoreKey:'land_score'},
-      {code:'OWNER_OCCUPANT',icon:'🔑',name:'Owner-Occ',desc:'Primary residence. SFR/condo, livable.',filter:{category:'single_family',minEquity:50000},scoreKey:'owner_occupant_score'},
-      {code:'PORTFOLIO',icon:'🏘️',name:'Portfolio',desc:'Multiple lots same day. Institutional pickups.',filter:{category:'vacant_residential',cityLike:'palm bay'},scoreKey:'land_score'},
-      {code:'DISTRESSED_DEBT',icon:'📉',name:'Distress',desc:'Underwater positions. Lien strip, Ch 13.',filter:{grade:'D_TIGHT'},scoreKey:null},
-      {code:'TITLE_CURE',icon:'⚖️',name:'Title Cure',desc:'Clouded title. Quiet title specialist.',filter:{},scoreKey:null}
+      {code:'TRIANGLE',icon:'🔺',name:'Triangle Distress',desc:'Shapira Triangle owner-vertex score ≥ 40. Out-of-state + absentee + estate/trust + multi-parcel signals. The patented distress identifier.',filter:{minDistressScore:40},scoreKey:'owner_distress_score'},
+      {code:'DIAMONDS',icon:'💎',name:'Diamonds',desc:'Unknown addresses — proxy bidders skip. Manual parcel-map review = real edge.',filter:{unknownAddrOnly:true},scoreKey:'land_score'},
+      {code:'FLIPPER',icon:'🔨',name:'Flipper',desc:'SFR 50-80% under market.',filter:{category:'single_family',minEquity:50000},scoreKey:'flipper_score'},
+      {code:'BUY_AND_HOLD',icon:'🏠',name:'Buy & Hold',desc:'Rental cash flow.',filter:{category:'single_family',minEquity:30000},scoreKey:'rental_score'},
+      {code:'WHOLESALER',icon:'⚡',name:'Wholesaler',desc:'Lock + assign. Bid <$50K.',filter:{maxOpenBid:50000},scoreKey:'wholesale_score'},
+      {code:'LAND',icon:'🌲',name:'Land',desc:'Vacant lots.',filter:{category:'vacant_residential'},scoreKey:'land_score'},
+      {code:'PORTFOLIO',icon:'🏘️',name:'Portfolio',desc:'Multi-lot Palm Bay sweeps.',filter:{sigMultiParcel:true},scoreKey:'land_score'},
+      {code:'OUT_OF_STATE',icon:'🌐',name:'Out-of-state',desc:'All owners with mailing state ≠ FL. Disconnected from FL property.',filter:{sigOutOfState:true},scoreKey:'owner_distress_score'},
+      {code:'ESTATE_SALES',icon:'⚰️',name:'Estate Sales',desc:'Estate / Trust / Heirs owners. Motivated, time-bound.',filter:{sigEstateTrust:true},scoreKey:'owner_distress_score'},
+      {code:'SHELL_LLC',icon:'🏢',name:'LLC/Shell',desc:'Entity owners (LLC, Inc, Holding). Often distressed-debt.',filter:{sigEntity:true},scoreKey:'owner_distress_score'}
     ],
 
     init() {
-      Papa.parse('https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/exports/brevard_taxdeed_2026-05-14.csv?v=' + Date.now(), {
+      Papa.parse('https://mocerqjnksmhcjzxrewo.supabase.co/storage/v1/object/public/exports/brevard_taxdeed_2026-05-14.csv?v='+Date.now(), {
         download:true, header:true, dynamicTyping:true, skipEmptyLines:true,
         complete: (r) => { this.deals = r.data.filter(d => d && (d.tax_deed_case || d.full_address || d.bcpao_account || d.street_address)); },
         error: (err) => console.error('CSV load failed', err)
@@ -361,13 +435,22 @@ function app() {
       return !addr.trim() || addr.includes('UNKNOWN') || addr.startsWith('0 ');
     },
 
+    getCardClass(d) {
+      if ((d.owner_distress_score||0) >= 50) return 'glass-triangle';
+      if (this.isUnknownAddr(d)) return 'glass-diamond';
+      return 'glass';
+    },
+
+    getSigClass(sig) { return (SIG_META[sig] && SIG_META[sig].cls) || 'sig-out'; },
+    getSigLabel(sig) { return (SIG_META[sig] && SIG_META[sig].label) || sig; },
+    getSigWeight(sig) { return '+' + ((SIG_META[sig] && SIG_META[sig].weight) || 0); },
+
     get filteredDeals() {
       const f = this.filters;
       return this.deals.filter(d => this.matchesFilter(d, f))
         .sort((a,b) => {
           const k = this.sortKey;
-          if (k === 'opening_bid') return (a[k] || Infinity) - (b[k] || Infinity);
-          if (k === 'opening_bid_pct_of_market') return (a[k] || Infinity) - (b[k] || Infinity);
+          if (k === 'opening_bid' || k === 'opening_bid_pct_of_market') return (a[k] || Infinity) - (b[k] || Infinity);
           return (b[k] || -Infinity) - (a[k] || -Infinity);
         });
     },
@@ -376,10 +459,9 @@ function app() {
     get proposedFilterMatchCount() { return this.proposedFilter ? this.deals.filter(d => this.matchesFilter(d, this.proposedFilter)).length : 0; },
     get activeFilterCount() {
       const f = this.filters;
-      return (f.grade?1:0)+(f.category?1:0)+(f.minEquity?1:0)+(f.maxOpenBid?1:0)+(f.cityLike?1:0)+(f.unknownAddrOnly?1:0);
+      return (f.grade?1:0)+(f.category?1:0)+(f.minEquity?1:0)+(f.maxOpenBid?1:0)+(f.cityLike?1:0)+(f.unknownAddrOnly?1:0)+(f.ownerLike?1:0)+((f.minDistressScore||0)>0?1:0)+(f.sigOutOfState?1:0)+(f.sigAbsentee?1:0)+(f.sigEstateTrust?1:0)+(f.sigEntity?1:0)+(f.sigMultiParcel?1:0);
     },
-    get unknownAddrCount() { return this.deals.filter(d => this.isUnknownAddr(d)).length; },
-    get unknownAddrEquity() { return this.deals.filter(d => this.isUnknownAddr(d)).reduce((s,d) => s + Math.max(d.equity_at_opening_bid || 0, 0), 0); },
+    get ownerSearchMatchCount() { if (!this.filters.ownerLike) return 0; const q = this.filters.ownerLike.toLowerCase(); return this.deals.filter(d => (d.owner_name||'').toLowerCase().includes(q)).length; },
 
     matchesFilter(d, f) {
       if (f.unknownAddrOnly && !this.isUnknownAddr(d)) return false;
@@ -388,6 +470,14 @@ function app() {
       if (f.minEquity != null && f.minEquity !== '' && (d.equity_at_opening_bid || 0) < f.minEquity) return false;
       if (f.maxOpenBid != null && f.maxOpenBid !== '' && d.opening_bid != null && d.opening_bid > f.maxOpenBid) return false;
       if (f.cityLike && !(d.city||'').toLowerCase().includes(f.cityLike.toLowerCase())) return false;
+      if (f.ownerLike && !(d.owner_name||'').toLowerCase().includes(f.ownerLike.toLowerCase())) return false;
+      if (f.minDistressScore && (d.owner_distress_score||0) < f.minDistressScore) return false;
+      const sigs = (d.owner_distress_signals||'').split('|');
+      if (f.sigOutOfState && !sigs.includes('OUT_OF_STATE')) return false;
+      if (f.sigAbsentee && !sigs.includes('ABSENTEE')) return false;
+      if (f.sigEstateTrust && !sigs.includes('ESTATE_TRUST')) return false;
+      if (f.sigEntity && !sigs.includes('ENTITY')) return false;
+      if (f.sigMultiParcel && !sigs.includes('MULTI_PARCEL')) return false;
       return true;
     },
 
@@ -396,23 +486,23 @@ function app() {
 
     selectPersona(p) {
       this.activePersona = p;
-      this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ...p.filter };
+      this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:'', minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false, ...p.filter };
       if (p.scoreKey) this.sortKey = p.scoreKey;
       this.rowLimit = 25;
       window.scrollTo({top:0, behavior:'smooth'});
     },
     clearPersona() { this.activePersona = null; this.clearFilters(); },
-    clearFilters() { this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false }; this.sortKey='equity_at_opening_bid'; },
+    clearFilters() { this.filters = { grade:'', category:'', minEquity:null, maxOpenBid:null, cityLike:'', unknownAddrOnly:false, ownerLike:'', minDistressScore:0, sigOutOfState:false, sigAbsentee:false, sigEstateTrust:false, sigEntity:false, sigMultiParcel:false }; this.sortKey='equity_at_opening_bid'; },
 
     openChat() {
       this.showChatModal = true;
-      this.chatLog = [{id:Date.now(), role:'ai', text:'Hi! Tell me what kind of tax-deed properties you want. <br><br>Try: <i>"rough diamonds under $3000"</i>, <i>"SFR Palm Bay equity over $100K"</i>, or <i>"vacant lots in Cocoa"</i>.'}];
+      this.chatLog = [{id:Date.now(), role:'ai', text:'Hi! Try Triangle queries like <i>"out-of-state owners"</i>, <i>"estate sales"</i>, <i>"owner named SMITH"</i>, or persona shortcuts like <i>"SFR Palm Bay equity over $100K"</i>.'}];
       this.chatInput = ''; this.proposedFilter = null; this.customName = '';
     },
 
     sendChat() {
       const text = this.chatInput.trim(); if (!text) return;
-      this.chatLog.push({id:Date.now(), role:'user', text: this.escapeHtml(text)});
+      this.chatLog.push({id:Date.now(), role:'user', text:this.escapeHtml(text)});
       this.chatInput = '';
       const f = this.parseNaturalLanguage(text);
       this.proposedFilter = f;
@@ -431,49 +521,57 @@ function app() {
     parseNaturalLanguage(text) {
       const t = ' ' + text.toLowerCase() + ' ';
       const f = {};
-      // DIAMONDS keywords
-      if (/\b(diamond|rough diamond|hidden gem|unknown address|no address|no street|proxy skip|institutional skip|metes.?and.?bounds)\b/.test(t)) {
-        f.unknownAddrOnly = true;
-      }
-      if (/\b(vacant|empty\s+lot|raw\s+land|undeveloped|no\s+building)/.test(t)) f.category = 'vacant_residential';
-      else if (/\bcondo|condominium|townhome/.test(t)) f.category = 'condominium';
+      // Triangle signals
+      if (/\b(out.?of.?state|outside florida|not in fl|out of fl)\b/.test(t)) f.sigOutOfState = true;
+      if (/\babsentee|mail.* not match|non.?resident\b/.test(t)) f.sigAbsentee = true;
+      if (/\bestate|trust|trustee|heirs?|deceased|probate\b/.test(t)) f.sigEstateTrust = true;
+      if (/\bllc|inc\b|corp|corporation|entity|shell|holding company|holdings?\b/.test(t)) f.sigEntity = true;
+      if (/\b(multiple parcels?|multi.?parcel|portfolio|repeat owner|same owner)\b/.test(t)) f.sigMultiParcel = true;
+      if (/\bbank|lender|reo|foreclosed|mortgage company\b/.test(t)) f.sigEntity = true;
+      // Distress score keywords
+      if (/\b(distress|triangle|motivated|absentee owner)\b/.test(t) && !f.minDistressScore) f.minDistressScore = 40;
+      // Owner search "owner named X" / "owner X"
+      const ownerMatch = text.match(/owner(?:\s+named|\s+is|\s+name)?\s+["']?([A-Za-z][A-Za-z\s,\.&]+?)["']?(?:\s|$|,|\.)/i);
+      if (ownerMatch && ownerMatch[1]) f.ownerLike = ownerMatch[1].trim();
+      // Diamonds
+      if (/\b(diamond|rough diamond|hidden gem|unknown address|no address|no street|proxy skip)\b/.test(t)) f.unknownAddrOnly = true;
+      // Property type
+      if (/\b(vacant|empty\s+lot|raw\s+land)/.test(t)) f.category = 'vacant_residential';
+      else if (/\bcondo|condominium/.test(t)) f.category = 'condominium';
       else if (/\b(single[\s-]?family|sfr|sfh|house|home)/.test(t)) f.category = 'single_family';
-      else if (/\b(multi[\s-]?family|duplex|triplex)/.test(t)) f.category = 'multi_family';
-      else if (/\bmobile\s+home|trailer/.test(t)) f.category = 'mobile_home';
-      const cities = ['palm bay','cocoa beach','cocoa','melbourne','satellite beach','indian harbour beach','indialantic','rockledge','titusville','merritt island','viera','west melbourne','grant','malabar','sebastian'];
+      // Cities
+      const cities = ['palm bay','cocoa beach','cocoa','melbourne','satellite beach','indian harbour beach','rockledge','titusville','merritt island'];
       for (const c of cities) { if (t.includes(' '+c+' ') || t.includes(' '+c+',') || t.includes(' in '+c)) { f.cityLike = c; break; } }
-      const parseAmt = (str) => {
-        const m = str.match(/\$?\s*([\d,]+(?:\.\d+)?)\s*(k|m|thousand|million)?/);
-        if (!m) return null;
-        let n = parseFloat(m[1].replace(/,/g,''));
-        if (m[2] && /k|thousand/i.test(m[2])) n *= 1000;
-        if (m[2] && /m|million/i.test(m[2])) n *= 1000000;
-        return Math.round(n);
-      };
-      const mb = t.match(/(?:under|less than|below|max(?:imum)?|up to|no more than|<=?)\s*(\$?\s*[\d,]+(?:\.\d+)?\s*(?:k|m|thousand|million)?)/);
-      if (mb && /bid|cost|price|under|spend/.test(t)) f.maxOpenBid = parseAmt(mb[1]);
-      const me = t.match(/(?:over|above|more than|at least|min(?:imum)?|>=?)\s*(\$?\s*[\d,]+(?:\.\d+)?\s*(?:k|m|thousand|million)?)/);
+      // Amounts
+      const parseAmt = (str) => { const m = str.match(/\$?\s*([\d,]+(?:\.\d+)?)\s*(k|m|thousand|million)?/); if (!m) return null; let n = parseFloat(m[1].replace(/,/g,'')); if (m[2] && /k|thousand/i.test(m[2])) n*=1000; if (m[2] && /m|million/i.test(m[2])) n*=1000000; return Math.round(n); };
+      const mb = t.match(/(?:under|less than|below|max|up to|<=?)\s*(\$?\s*[\d,]+(?:\.\d+)?\s*(?:k|m)?)/);
+      if (mb && /bid|cost|price|spend/.test(t)) f.maxOpenBid = parseAmt(mb[1]);
+      const me = t.match(/(?:over|above|more than|at least|min|>=?)\s*(\$?\s*[\d,]+(?:\.\d+)?\s*(?:k|m)?)/);
       if (me && /equity|profit|gain/.test(t)) f.minEquity = parseAmt(me[1]);
-      else if (me && !f.maxOpenBid) f.minEquity = parseAmt(me[1]);
       if (/biggest discount|best deal|cheapest|deepest/.test(t)) f.grade = 'A_GIANT_DISCOUNT';
-      else if (/big discount|great discount|deep discount/.test(t)) f.grade = 'B_BIG_DISCOUNT';
       return f;
     },
 
     summarizeFilter(f) {
       const parts = [];
-      if (f.unknownAddrOnly) parts.push('💎 unknown addresses (diamonds)');
-      if (f.category) parts.push(f.category.replace(/_/g,' ')); else if (!f.unknownAddrOnly) parts.push('any type');
-      if (f.cityLike) parts.push('in ' + f.cityLike);
-      if (f.maxOpenBid) parts.push('bid ≤ $' + this.formatNum(f.maxOpenBid));
-      if (f.minEquity) parts.push('equity ≥ $' + this.formatNum(f.minEquity));
-      if (f.grade) parts.push(f.grade.replace('_',' '));
-      return parts.join(', ');
+      if (f.minDistressScore) parts.push('🔺 distress ≥ '+f.minDistressScore);
+      if (f.sigOutOfState) parts.push('out-of-state');
+      if (f.sigAbsentee) parts.push('absentee');
+      if (f.sigEstateTrust) parts.push('estate/trust');
+      if (f.sigEntity) parts.push('entity/LLC');
+      if (f.sigMultiParcel) parts.push('multi-parcel');
+      if (f.unknownAddrOnly) parts.push('💎 diamonds');
+      if (f.ownerLike) parts.push('owner ~ "'+f.ownerLike+'"');
+      if (f.category) parts.push(f.category.replace(/_/g,' '));
+      if (f.cityLike) parts.push('in '+f.cityLike);
+      if (f.maxOpenBid) parts.push('bid ≤ $'+this.formatNum(f.maxOpenBid));
+      if (f.minEquity) parts.push('equity ≥ $'+this.formatNum(f.minEquity));
+      return parts.length ? parts.join(', ') : 'all deals';
     },
 
     saveCustomPersona() {
       if (!this.customName || !this.proposedFilter) return;
-      const p = { id:'cp_'+Date.now(), code:'CUSTOM_'+this.customName.toUpperCase().replace(/[^A-Z0-9]/g,'_').slice(0,30), name:this.customName, icon:'🎯', summary:this.summarizeFilter(this.proposedFilter), desc:this.summarizeFilter(this.proposedFilter), filter:this.proposedFilter, scoreKey:null };
+      const p = { id:'cp_'+Date.now(), code:'CUSTOM_'+this.customName.toUpperCase().replace(/[^A-Z0-9]/g,'_').slice(0,30), name:this.customName, icon:'🎯', summary:this.summarizeFilter(this.proposedFilter), desc:this.summarizeFilter(this.proposedFilter), filter:this.proposedFilter, scoreKey:'owner_distress_score' };
       this.customPersonas.push(p);
       localStorage.setItem('biddeed_personas', JSON.stringify(this.customPersonas));
       this.selectPersona(p);
