@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Brevard Tax Deed Scraper v6 - Firecrawl-powered scrape of realforeclose DAYLIST."""
+"""Brevard Tier1 Scraper v8 - HTML table-row parsing. One <tr> = one auction. No bleed."""
 import os, re, sys, json
 from datetime import date
 import requests
+from bs4 import BeautifulSoup
 
 SUPABASE_URL = os.environ['SUPABASE_URL'].rstrip('/')
 SUPABASE_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
@@ -12,7 +13,7 @@ VERBOSE = os.environ.get('VERBOSE','true').lower() == 'true'
 AUCTION_DATE = date.fromisoformat(AUCTION_DATE_STR)
 DATE_SLASH = AUCTION_DATE.strftime('%m/%d/%Y')
 
-DAYLIST_URL = f'https://brevard.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'  # PREVIEW is the publicly accessible variant
+PREVIEW_URL = f'https://brevard.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'
 
 REST = f'{SUPABASE_URL}/rest/v1'
 RPC_HEADERS = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
@@ -20,8 +21,7 @@ RPC_HEADERS = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}'
 
 def rpc(name, params):
     r = requests.post(f'{REST}/rpc/{name}', json=params, headers=RPC_HEADERS, timeout=60)
-    if r.status_code >= 400:
-        raise RuntimeError(f'RPC {name} [{r.status_code}]: {r.text[:400]}')
+    if r.status_code >= 400: raise RuntimeError(f'RPC {name} [{r.status_code}]: {r.text[:400]}')
     return r.json() if r.text and r.text.strip() else None
 
 def select(table, query=''):
@@ -30,223 +30,182 @@ def select(table, query=''):
     r.raise_for_status()
     return r.json()
 
-# Start run
 run_id = rpc('scrape_log_start', {
     'p_source': 'brevard_realforeclose', 'p_county': 'brevard',
     'p_sale_type': 'tax_deed', 'p_auction_date': AUCTION_DATE_STR,
-    'p_triggered_by': 'gha_workflow_dispatch',
+    'p_triggered_by': 'gha_workflow_dispatch_v8',
 })
-print(f'>>> Run id={run_id}')
-print(f'>>> Target URL: {DAYLIST_URL}')
+print(f'>>> Run id={run_id} v8 (HTML table-row parser)')
+print(f'>>> URL: {PREVIEW_URL}')
 
 try:
-    summary = {'url': DAYLIST_URL}
+    summary = {'url': PREVIEW_URL, 'parser_version': 'v8_html_tr'}
 
-    # =========================================================
-    # FIRECRAWL: scrape JS-rendered page
-    # =========================================================
-    if not FIRECRAWL_KEY:
-        raise RuntimeError('FIRECRAWL_API_KEY missing from environment')
-
-    print('\n>>> Calling Firecrawl with JS rendering + wait for content...')
-    fc_resp = requests.post(
-        'https://api.firecrawl.dev/v1/scrape',
+    # Firecrawl with both formats
+    print('Calling Firecrawl...')
+    fc = requests.post('https://api.firecrawl.dev/v1/scrape',
         headers={'Authorization': f'Bearer {FIRECRAWL_KEY}', 'Content-Type': 'application/json'},
-        json={
-            'url': DAYLIST_URL,
-            'formats': ['markdown', 'html'],
-            'waitFor': 5000,  # wait 5s for JS to render auction grid
-            'onlyMainContent': False,
-        },
-        timeout=120,
-    )
-    print(f'Firecrawl HTTP {fc_resp.status_code}')
-    if fc_resp.status_code != 200:
-        raise RuntimeError(f'Firecrawl failed: {fc_resp.text[:500]}')
+        json={'url': PREVIEW_URL, 'formats': ['html','markdown'], 'waitFor': 6000, 'onlyMainContent': False},
+        timeout=120)
+    if fc.status_code != 200: raise RuntimeError(f'Firecrawl [{fc.status_code}]: {fc.text[:500]}')
+    fc_data = fc.json()
+    html = fc_data.get('data',{}).get('html','')
+    md = fc_data.get('data',{}).get('markdown','')
+    print(f'Firecrawl: html={len(html):,} md={len(md):,}')
+    summary['fc_html_chars'] = len(html); summary['fc_md_chars'] = len(md)
 
-    fc_data = fc_resp.json()
-    if not fc_data.get('success'):
-        raise RuntimeError(f'Firecrawl returned !success: {fc_data}')
-
-    md = fc_data.get('data', {}).get('markdown', '')
-    html = fc_data.get('data', {}).get('html', '')
-    print(f'Firecrawl markdown: {len(md):,} chars')
-    print(f'Firecrawl html: {len(html):,} chars')
-
-    if VERBOSE and md:
-        print('\n=== MARKDOWN SAMPLE (first 4000 chars) ===')
-        print(md[:4000])
-        print('=== END SAMPLE ===\n')
-
-    summary['fc_md_chars'] = len(md)
-    summary['fc_html_chars'] = len(html)
-
-    # =========================================================
-    # PARSE: extract auction rows from rendered content
-    # =========================================================
-    aid_re = re.compile(r'AID[=\s]*(\d{5,8})', re.IGNORECASE)
-    parcel_re = re.compile(r'\b(\d{7,8})\b')
-    money_re = re.compile(r'\$\s*([\d,]+\.\d{2})')
-    case_re = re.compile(r'(\d{2,4}[-\s]?(?:TD|CA|FC)[-\s]?\d{3,6})', re.IGNORECASE)
-    # status patterns from RealAuction
-    status_re = re.compile(r'(SOLD|CANCELED|CANCELLED|REDEEMED|WITHDRAWN|STRUCK\s*OFF|READY|PENDING)', re.IGNORECASE)
-    sold_phrase_re = re.compile(r'(?:sold\s*to|winning\s*bid|final\s*bid|sale\s*amount)[:\s]*\$?([\d,]+\.\d{2})', re.IGNORECASE)
-    addr_re = re.compile(r'\b(\d+\s+[NSEW]?\s*[A-Z][A-Z\s]+(?:ST|AVE|RD|DR|BLVD|LN|CT|PL|WAY|TER|CIR|HWY|PKWY|TRL)\b)', re.IGNORECASE)
-
-    # Pull our snapshot
+    # Pull snapshot to know what we're matching against
     snap = select('v_brevard_snapshot_minimal',
         'select=parcel_id,case_number,opening_bid,sale_status_canonical')
     snap_by_parcel = {r['parcel_id']: r for r in snap if r.get('parcel_id')}
-    sold_pids = {pid for pid, r in snap_by_parcel.items() if r.get('sale_status_canonical') == 'SOLD'}
-    print(f'Snapshot: {len(snap_by_parcel)} parcels, {len(sold_pids)} marked SOLD today')
+    sold_pids_before = {pid for pid, r in snap_by_parcel.items() if r.get('sale_status_canonical') == 'SOLD'}
+    print(f'Snapshot: {len(snap_by_parcel)} parcels, {len(sold_pids_before)} marked SOLD')
 
-    # Use markdown if present, else HTML stripped
-    text = md if md else re.sub(r'<[^>]+>', ' ', html)
+    # Parse HTML with BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
 
-    # Find all AIDs in the rendered content
-    all_aids = list(set(aid_re.findall(text)))
-    all_parcels = list(set(parcel_re.findall(text)))
-    all_moneys = money_re.findall(text)
-    all_statuses = list(set(s.upper() for s in status_re.findall(text)))
-    all_sold_phrases = sold_phrase_re.findall(text)
+    parcel_re = re.compile(r'\b(\d{7,8})\b')
+    money_re = re.compile(r'\$\s*([\d,]+\.\d{2})')
+    status_re = re.compile(r'\b(SOLD|CANCELED|CANCELLED|REDEEMED|WITHDRAWN|STRUCK\s*OFF|READY|PENDING|WAITING)\b', re.IGNORECASE)
+    case_re = re.compile(r'(\d{2,4}[-\s]?(?:TD|CA|FC)[-\s]?\d{3,6})', re.IGNORECASE)
 
-    print(f'\nExtraction summary:')
-    print(f'  AIDs found: {len(all_aids)} (sample: {all_aids[:5]})')
-    print(f'  Parcels found: {len(all_parcels)} (sample: {all_parcels[:5]})')
-    print(f'  Dollar amounts: {len(all_moneys)} (sample: {all_moneys[:5]})')
-    print(f'  Statuses present: {all_statuses}')
-    print(f'  "Sold to/winning bid" amounts: {all_sold_phrases[:10]}')
+    # Find ALL <tr> rows - each is a closed unit
+    all_trs = soup.find_all('tr')
+    print(f'Found {len(all_trs)} <tr> elements')
 
-    # Match parcels to our snapshot
-    snap_matches = [p for p in all_parcels if p in snap_by_parcel]
-    sold_matches = [p for p in all_parcels if p in sold_pids]
-    print(f'  Snapshot parcels found in page: {len(snap_matches)}')
-    print(f'  Our SOLD parcels found in page: {len(sold_matches)}')
+    # ALSO find divs/cards that might contain auctions (RealAuction uses both)
+    # The auction grid is rendered as repeating divs with class names containing 'AUCTION_DETAILS' or similar
+    auction_divs = soup.find_all('div', class_=re.compile(r'(AUCTION_DETAILS|auctionItem|AuctionItem|saleItem)', re.IGNORECASE))
+    print(f'Found {len(auction_divs)} auction divs')
 
-    summary.update({
-        'aids_total': len(all_aids),
-        'parcels_total': len(all_parcels),
-        'moneys_total': len(all_moneys),
-        'statuses_present': all_statuses,
-        'snap_matches': len(snap_matches),
-        'sold_matches': len(sold_matches),
-    })
+    # Build candidate rows from BOTH sources
+    rows_parsed = []
+    seen_keys = set()
 
-    # =========================================================
-    # CHUNK-PARSE: split content per parcel/AID anchor
-    # =========================================================
-    # Strategy: find each parcel/AID and grab a window of context around it
-    rows_extracted = []
-    seen = set()
-    # Iterate over all parcel occurrences in text order
-    for m in parcel_re.finditer(text):
-        pid = m.group(1)
-        if pid in seen: continue
-        seen.add(pid)
-        start = max(0, m.start() - 600)
-        end = min(len(text), m.end() + 600)
-        ctx = text[start:end]
-        ctx_moneys = money_re.findall(ctx)
-        ctx_statuses = list(set(s.upper() for s in status_re.findall(ctx)))
-        ctx_sold_phrases = sold_phrase_re.findall(ctx)
-        ctx_aids = aid_re.findall(ctx)
-        ctx_cases = case_re.findall(ctx)
-        rows_extracted.append({
-            'parcel': pid,
-            'aid': ctx_aids[0] if ctx_aids else None,
-            'case': ctx_cases[0] if ctx_cases else None,
-            'amounts': ctx_moneys[:8],
-            'statuses': ctx_statuses,
-            'sold_phrase_amounts': ctx_sold_phrases,
-            'in_our_snapshot': pid in snap_by_parcel,
-            'in_our_sold': pid in sold_pids,
+    def consider_element(el, kind):
+        txt = el.get_text(' ', strip=True)
+        if len(txt) < 10 or len(txt) > 3000: return  # filter noise
+        parcels_in = list(set(parcel_re.findall(txt)))
+        amounts_in = money_re.findall(txt)
+        statuses_in = list(set(s.upper().replace('  ',' ') for s in status_re.findall(txt)))
+        cases_in = case_re.findall(txt)
+        # Only keep rows with at least one parcel AND some signal
+        if not parcels_in: return
+        if not (amounts_in or statuses_in): return
+        # Filter: parcels must look like Brevard format (start with 1,2,3 typically — 8 digits)
+        plausible_parcels = [p for p in parcels_in if len(p) >= 7]
+        if not plausible_parcels: return
+        # Dedup key
+        key = (plausible_parcels[0], len(amounts_in), txt[:100])
+        if key in seen_keys: return
+        seen_keys.add(key)
+        rows_parsed.append({
+            'kind': kind,
+            'parcels': plausible_parcels[:3],
+            'amounts': amounts_in[:8],
+            'statuses': statuses_in,
+            'cases': [c.upper().replace(' ','') for c in cases_in[:2]],
+            'text_sample': txt[:400],
         })
 
-    print(f'\n>>> Extracted {len(rows_extracted)} per-parcel rows from rendered content')
+    for tr in all_trs: consider_element(tr, 'tr')
+    for d in auction_divs: consider_element(d, 'div')
 
-    # Store ALL extracted rows for inspection
-    rpc('scrape_payload_insert', {'p_run_id': run_id, 'p_rows': rows_extracted})
+    print(f'\nParsed {len(rows_parsed)} candidate auction rows')
+    if VERBOSE and rows_parsed[:3]:
+        print('=== FIRST 3 SAMPLE ROWS ===')
+        for r in rows_parsed[:3]:
+            print(json.dumps(r, indent=2))
+        print('=== END SAMPLES ===\n')
 
-    # =========================================================
-    # APPLY: update sold_amount + status for matches
-    # =========================================================
-    sold_applied = 0
-    status_applied = 0
-    apply_details = []
-    for row in rows_extracted:
-        if not row['in_our_snapshot']: continue
-        pid = row['parcel']
+    # Match against our snapshot
+    snap_matches = []
+    for r in rows_parsed:
+        for pid in r['parcels']:
+            if pid in snap_by_parcel:
+                snap_matches.append({'snap_parcel': pid, **r})
+                break
+    print(f'\nRows that contain a parcel from our snapshot: {len(snap_matches)}')
 
-        # Try to detect sold price
-        sold_amount = None
-        # Preferred: a "sold to/winning bid: $X" phrase
-        if row['sold_phrase_amounts']:
-            try: sold_amount = float(row['sold_phrase_amounts'][0].replace(',', ''))
-            except Exception: pass
+    # Apply: for each snapshot match with SOLD status, extract the sold price
+    applied = []
+    for m in snap_matches:
+        pid = m['snap_parcel']
+        if 'SOLD' not in m['statuses']: continue
+        if not m['amounts']: continue
+        amts = sorted([float(a.replace(',','')) for a in m['amounts'] if float(a.replace(',','')) < 10_000_000], reverse=True)
+        if not amts: continue
+        # Heuristic: largest amount in THE SAME ROW is the sold price
+        # (since rows don't bleed, this is safe)
+        sold_amt = amts[0]
+        # But: opening bid should also be in this row. The 2nd largest is likely opening if amts span big range
+        opening_guess = None
+        if len(amts) >= 2:
+            opening_guess = amts[-1] if amts[-1] < amts[0] / 2 else amts[1]
+        applied.append({
+            'parcel': pid,
+            'sold_amount_v8': sold_amt,
+            'opening_in_row': opening_guess,
+            'all_amounts_in_row': amts,
+            'cases': m['cases'],
+            'row_kind': m['kind'],
+            'row_sample': m['text_sample'][:200],
+        })
 
-        # Fallback: largest amount > opening bid
-        if sold_amount is None and row['amounts']:
-            opening = snap_by_parcel[pid].get('opening_bid')
-            opening_f = float(opening) if opening else 0
-            amts = [float(a.replace(',', '')) for a in row['amounts']]
-            candidates = [a for a in amts if a > opening_f and a < 5_000_000]
-            if candidates and 'SOLD' in row['statuses']:
-                sold_amount = max(candidates)
+    print(f'\n=== V8 PROPOSED SOLD PRICES ===')
+    for a in applied:
+        print(f"  {a['parcel']}: sold=${a['sold_amount_v8']:,.2f} opening_in_row=${a['opening_in_row']:,.2f}" if a['opening_in_row'] else f"  {a['parcel']}: sold=${a['sold_amount_v8']:,.2f}")
+        print(f"      row amounts: {a['all_amounts_in_row']}")
+        print(f"      case: {a['cases']} kind={a['row_kind']}")
 
-        if sold_amount and 'SOLD' in row['statuses']:
-            try:
-                rpc('brevard_update_sold', {
-                    'p_parcel_id': pid,
-                    'p_auction_date': AUCTION_DATE_STR,
-                    'p_sold_amount': sold_amount,
-                    'p_sold_to': None,
-                    'p_source': 'brevard_realforeclose_firecrawl',
-                    'p_notes': f'Auto-matched from realforeclose DAYLIST. AID={row["aid"]} amounts={row["amounts"][:5]} statuses={row["statuses"]}',
-                })
-                sold_applied += 1
-                apply_details.append({'parcel': pid, 'sold': sold_amount, 'aid': row['aid']})
-            except Exception as e:
-                print(f'  ! sold update fail {pid}: {e}')
+    # Store ALL parsed rows for inspection
+    rpc('scrape_payload_insert', {'p_run_id': run_id, 'p_rows': rows_parsed[:200]})
 
-        # Status update for canonical changes
-        if row['statuses']:
-            canonical = None
-            if 'SOLD' in row['statuses']: canonical = 'SOLD'
-            elif 'CANCELED' in row['statuses'] or 'CANCELLED' in row['statuses']: canonical = 'CANCELED'
-            elif 'REDEEMED' in row['statuses']: canonical = 'REDEEMED'
-            elif 'STRUCK OFF' in row['statuses'] or 'STRUCK_OFF' in row['statuses']: canonical = 'STRUCK_OFF'
-            elif 'WITHDRAWN' in row['statuses']: canonical = 'WITHDRAWN'
-            current = snap_by_parcel[pid].get('sale_status_canonical')
-            if canonical and canonical != current:
-                try:
-                    rpc('brevard_update_status', {
-                        'p_parcel_id': pid,
-                        'p_auction_date': AUCTION_DATE_STR,
-                        'p_new_status': canonical,
-                        'p_source': 'brevard_realforeclose_firecrawl',
-                        'p_raw_status': ','.join(row['statuses']),
-                        'p_notes': f'Status change from realforeclose DAYLIST. Was {current} -> now {canonical}',
-                    })
-                    status_applied += 1
-                except Exception as e:
-                    print(f'  ! status update fail {pid}: {e}')
+    # Apply to tier1_today (the SSOT) and snapshot
+    sold_updated = 0
+    for a in applied:
+        try:
+            # Update tier1_today
+            rpc('tier1_upsert_rpc', {'p': {
+                'county': 'brevard', 'parcel_id': a['parcel'],
+                'auction_date': AUCTION_DATE_STR,
+                'case_number': a['cases'][0] if a['cases'] else None,
+                'sale_status': 'SOLD',
+                'sold_amount': a['sold_amount_v8'],
+                'opening_bid': a['opening_in_row'],
+                'sold_to': None, 'aid': None,
+                'source_platform': 'realforeclose', 'source_url': PREVIEW_URL,
+                'run_id': str(run_id),
+                'raw_context': a['row_sample'],
+                'confidence': 'tier1_verified',
+            }})
+            # And legacy update_sold_amount for the snapshot
+            rpc('brevard_update_sold', {
+                'p_parcel_id': a['parcel'], 'p_auction_date': AUCTION_DATE_STR,
+                'p_sold_amount': a['sold_amount_v8'], 'p_sold_to': None,
+                'p_source': 'brevard_realforeclose_v8_tr_parser',
+                'p_notes': f'v8 HTML-tr parser. row_amounts={a["all_amounts_in_row"]} row_kind={a["row_kind"]}',
+            })
+            sold_updated += 1
+        except Exception as e:
+            print(f'  ! apply fail {a["parcel"]}: {e}')
 
-    summary['sold_applied'] = sold_applied
-    summary['status_applied'] = status_applied
-    summary['apply_details'] = apply_details[:20]
-
+    summary.update({
+        'tr_count': len(all_trs),
+        'div_count': len(auction_divs),
+        'rows_parsed': len(rows_parsed),
+        'snap_matches': len(snap_matches),
+        'sold_applied': sold_updated,
+        'applied_details': applied,
+    })
     print(f'\n=== APPLIED ===')
-    print(f'  Sold amounts: {sold_applied}/{len(sold_pids)}')
-    print(f'  Status changes: {status_applied}')
+    print(f'  Sold prices updated: {sold_updated}')
 
     rpc('scrape_log_finish', {
         'p_run_id': run_id, 'p_status': 'success',
-        'p_rows_in': len(rows_extracted),
-        'p_rows_inserted': sold_applied + status_applied,
+        'p_rows_in': len(rows_parsed), 'p_rows_inserted': sold_updated,
         'p_notes': json.dumps(summary)[:6000],
     })
-    print('\n=== SUMMARY ===')
-    print(json.dumps(summary, indent=2)[:3000])
 
 except Exception as e:
     import traceback
