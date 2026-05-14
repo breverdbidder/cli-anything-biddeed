@@ -1,0 +1,78 @@
+name: Export CSV to Supabase Storage
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_id:
+        description: 'public._csv_exports.id to upload'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install httpx
+      - name: Fetch CSV row, ensure bucket, upload, patch URL
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EXPORT_ID: ${{ inputs.export_id }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, httpx, json, sys
+
+          SB  = os.environ['SB_URL'].rstrip('/')
+          KEY = os.environ['SB_KEY']
+          XID = os.environ['EXPORT_ID']
+          H_REST = {'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json'}
+          H_STORAGE = {'Authorization': f'Bearer {KEY}'}
+
+          # 1. Fetch CSV row
+          r = httpx.get(f'{SB}/rest/v1/_csv_exports',
+              params={'id': f'eq.{XID}', 'select': 'filename,csv_content,csv_bytes'},
+              headers=H_REST, timeout=60.0)
+          if r.status_code != 200 or not r.json():
+              print(f'ERROR fetch: {r.status_code} {r.text[:300]}'); sys.exit(1)
+          row = r.json()[0]
+          fname = row['filename']
+          csv_text = row['csv_content']
+          csv_bytes = row.get('csv_bytes', len(csv_text))
+          print(f'fetched CSV: {fname} ({csv_bytes} bytes)')
+
+          # 2. Ensure bucket exists (idempotent)
+          b = httpx.post(f'{SB}/storage/v1/bucket', headers={**H_STORAGE, 'Content-Type':'application/json'},
+              json={'id':'exports','name':'exports','public':True,'file_size_limit':52428800},
+              timeout=30.0)
+          print(f'bucket create: {b.status_code} {b.text[:200]}')
+
+          # 3. Upload file with x-upsert (PUT semantics via POST + upsert header)
+          up = httpx.post(f'{SB}/storage/v1/object/exports/{fname}',
+              headers={**H_STORAGE, 'Content-Type':'text/csv','x-upsert':'true'},
+              content=csv_text.encode('utf-8'), timeout=180.0)
+          print(f'upload: {up.status_code} body={up.text[:400]}')
+          if up.status_code not in (200, 201):
+              # Retry with PUT
+              up = httpx.put(f'{SB}/storage/v1/object/exports/{fname}',
+                  headers={**H_STORAGE, 'Content-Type':'text/csv','x-upsert':'true'},
+                  content=csv_text.encode('utf-8'), timeout=180.0)
+              print(f'upload retry PUT: {up.status_code} body={up.text[:400]}')
+              if up.status_code not in (200, 201):
+                  sys.exit(2)
+
+          public_url = f'{SB}/storage/v1/object/public/exports/{fname}'
+
+          # 4. Patch _csv_exports with the URL
+          patch = httpx.patch(f'{SB}/rest/v1/_csv_exports',
+              params={'id': f'eq.{XID}'}, headers=H_REST,
+              json={'uploaded_url': public_url}, timeout=30.0)
+          print(f'patch: {patch.status_code}')
+          print(f'\nDOWNLOAD_URL: {public_url}\n')
+          PYEOF
