@@ -257,6 +257,24 @@ try:
         'sample_changes': status_changes[:5],
         'note': 'Sold prices not in this PDF (auction-calendar PDF). For sold prices, run after sale day or use Official Records scraper.',
     }
+    # Store row-level data for inspection
+    payload_rows = []
+    for r in rows:
+        snap_row = snap_by_parcel.get(r["parcel"])
+        payload_rows.append({
+            "parcel": r["parcel"],
+            "opening_bid_pdf": r.get("opening_bid"),
+            "case_pdf": r.get("case"),
+            "pdf_status": r.get("pdf_status"),
+            "in_snapshot": snap_row is not None,
+            "snapshot_opening_bid": float(snap_row["opening_bid"]) if snap_row and snap_row.get("opening_bid") else None,
+            "snapshot_status": snap_row.get("sale_status_canonical") if snap_row else None,
+            "ctx": r.get("ctx", "")[:200],
+        })
+    try:
+        rpc("scrape_payload_insert", {"p_run_id": run_id, "p_rows": payload_rows})
+    except Exception as e:
+        print(f"Payload insert failed (continuing): {e}")
     rpc('scrape_log_finish', {
         'p_run_id': run_id, 'p_status': 'success',
         'p_rows_in': len(rows), 'p_rows_inserted': applied, 'p_rows_deduped': 0,
