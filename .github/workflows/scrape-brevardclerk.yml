@@ -12,20 +12,23 @@ on:
         required: false
         default: 'true'
   schedule:
-    # Every Wednesday at 11:30 AM EST (16:30 UTC) - 1.5h after typical 10am auction
     - cron: '30 16 * * 3'
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
-        run: pip install --quiet requests beautifulsoup4 pymupdf
+      - name: Install system deps (Tesseract OCR for scanned PDFs)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr poppler-utils
+      - name: Install Python dependencies
+        run: pip install --quiet requests beautifulsoup4 pymupdf pytesseract pillow
       - name: Run scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
