@@ -107,6 +107,11 @@ try:
     scrapes = (data.get('actions') or {}).get('scrapes',[]) or []
     final_md = data.get('markdown','')
     print(f'Firecrawl returned {len(scrapes)} action-scrape snapshots, final_md={len(final_md):,} chars')
+    print(f'data keys: {list(data.keys())}')
+    if data.get('actions'): print(f'actions keys: {list(data['actions'].keys())}')
+    if scrapes:
+        print(f'first scrape keys: {list(scrapes[0].keys())}')
+        print(f'first scrape sample: {json.dumps(scrapes[0])[:800]}')
 
     seen_parcels = set()
     all_cards = []
