@@ -58,7 +58,7 @@ try:
             print('--- END ---\n')
 
     # 3. Split into cards by Parcel ID anchor
-    parcel_anchors = list(re.finditer(r'Parcel ID[:\s]+(\d{6,9})', md, re.IGNORECASE))
+    parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]+(\d{6,9})', md, re.IGNORECASE))
     print(f'Found {len(parcel_anchors)} parcel anchors')
 
     cards = []
