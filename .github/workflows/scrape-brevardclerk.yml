@@ -35,4 +35,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AUCTION_DATE: ${{ github.event.inputs.auction_date || '2026-05-14' }}
           VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: python .github/scripts/scrape_brevardclerk.py
