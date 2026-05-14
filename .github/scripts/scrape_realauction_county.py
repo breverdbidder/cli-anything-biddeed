@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""RealAuction county scraper - v9.4 with pagination support.
-Iterates through all closed/canceled pages on the PREVIEW URL."""
+"""RealAuction county scraper - v9.5 Firecrawl actions pagination.
+Clicks .PageRight[area='C'] iteratively to walk through all closed/canceled pages."""
 import os, re, sys, json, time
 from datetime import date
 import requests
@@ -12,7 +12,7 @@ COUNTY_SLUG = os.environ['COUNTY_SLUG'].lower().strip()
 COUNTY_DOMAIN = os.environ['COUNTY_DOMAIN'].strip()
 AUCTION_DATE_STR = os.environ['AUCTION_DATE']
 MAX_PAGES = int(os.environ.get('MAX_PAGES', '15'))
-PAGE_PARAM = os.environ.get('PAGE_PARAM', 'CurrentPage')  # CurrentPage | PageNum | Page
+SECTION_AREA = os.environ.get('SECTION_AREA', 'C')   # 'C' closed/canceled, 'R' running
 AUCTION_DATE = date.fromisoformat(AUCTION_DATE_STR)
 DATE_SLASH = AUCTION_DATE.strftime('%m/%d/%Y')
 
@@ -20,7 +20,7 @@ PLATFORM = 'realtaxdeed' if 'realtaxdeed' in COUNTY_DOMAIN else \
            'realforeclose' if 'realforeclose' in COUNTY_DOMAIN else \
            'realtdm' if 'realtdm' in COUNTY_DOMAIN else 'realauction'
 SOURCE_CODE = f'{COUNTY_SLUG}_{PLATFORM}'
-BASE_URL = f'https://{COUNTY_DOMAIN}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'
+URL = f'https://{COUNTY_DOMAIN}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'
 
 REST = f'{SUPABASE_URL}/rest/v1'
 H = {'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}','Content-Type':'application/json','Prefer':'return=representation'}
@@ -33,14 +33,6 @@ def rpc(name, params):
 def sel(table, q=''):
     r = requests.get(f'{REST}/{table}?{q}', headers={'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}'}, timeout=30)
     r.raise_for_status(); return r.json()
-
-def fetch_page(url):
-    fc = requests.post('https://api.firecrawl.dev/v1/scrape',
-        headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
-        json={'url':url,'formats':['markdown'],'waitFor':6000,'onlyMainContent':False},
-        timeout=120)
-    if fc.status_code != 200: raise RuntimeError(f'Firecrawl {fc.status_code}: {fc.text[:400]}')
-    return fc.json().get('data',{}).get('markdown','')
 
 def parse_cards(md, schema_by_field, status_map):
     parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]+(\d{6,15})', md, re.IGNORECASE))
@@ -83,69 +75,80 @@ def parse_cards(md, schema_by_field, status_map):
 run_id = rpc('scrape_log_start', {
     'p_source':SOURCE_CODE,'p_county':COUNTY_SLUG,
     'p_sale_type':'tax_deed','p_auction_date':AUCTION_DATE_STR,
-    'p_triggered_by':'gha_paginated_v9_4',
+    'p_triggered_by':'gha_actions_paginated_v9_5',
 })
-print(f'>>> {SOURCE_CODE} v9.4 paginated, run={run_id}, max_pages={MAX_PAGES}, page_param={PAGE_PARAM}')
+print(f'>>> {SOURCE_CODE} v9.5 actions pagination, run={run_id}, area={SECTION_AREA}, max={MAX_PAGES}')
 
 try:
     schema_rows = sel('v_realauction_schema', 'select=*')
     schema_by_field = {f['field_name']: f for f in schema_rows}
     status_map = schema_by_field['auction_status']['normalization'] or {}
 
+    # Build Firecrawl actions: wait, scrape page 1, then for each subsequent page: click Next, wait, scrape
+    actions = [
+        {'type':'wait','milliseconds':6000},
+        {'type':'screenshot'},
+        {'type':'scrape'},
+    ]
+    selector = f".PageFrame[area='{SECTION_AREA}'] .PageRight"
+    for _ in range(MAX_PAGES - 1):
+        actions.append({'type':'click','selector':selector})
+        actions.append({'type':'wait','milliseconds':2500})
+        actions.append({'type':'scrape'})
+
+    print(f'Firecrawl action sequence: {len(actions)} steps (selector={selector})')
+    fc = requests.post('https://api.firecrawl.dev/v1/scrape',
+        headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
+        json={'url':URL,'formats':['markdown'],'actions':actions,'onlyMainContent':False,'timeout':120000},
+        timeout=180)
+    if fc.status_code != 200:
+        raise RuntimeError(f'Firecrawl {fc.status_code}: {fc.text[:500]}')
+    data = fc.json().get('data',{})
+    scrapes = (data.get('actions') or {}).get('scrapes',[]) or []
+    final_md = data.get('markdown','')
+    print(f'Firecrawl returned {len(scrapes)} action-scrape snapshots, final_md={len(final_md):,} chars')
+
     seen_parcels = set()
     all_cards = []
-    per_page_stats = []
-
-    for page in range(1, MAX_PAGES + 1):
-        url = BASE_URL if page == 1 else f'{BASE_URL}&{PAGE_PARAM}={page}'
-        print(f'\n[page {page}] fetching {url}')
-        try:
-            md = fetch_page(url)
-        except Exception as fe:
-            print(f'  Firecrawl error: {fe}'); break
-        pat_match = re.search(r'(?:page\s+|of\s+)(\d+)\s*(?:of|pages?)', md, re.IGNORECASE)
-        page_count_hint = pat_match.group(1) if pat_match else None
+    per_page = []
+    for i, snap in enumerate(scrapes):
+        md = snap.get('markdown','') or snap.get('content','')
         cards = parse_cards(md, schema_by_field, status_map)
-        new_parcels = [c for c in cards if c.get('parcel_id_text') and c['parcel_id_text'] not in seen_parcels]
+        new = [c for c in cards if c.get('parcel_id_text') and c['parcel_id_text'] not in seen_parcels]
         for c in cards:
             if c.get('parcel_id_text'): seen_parcels.add(c['parcel_id_text'])
-        per_page_stats.append({'page':page,'md_chars':len(md),'cards':len(cards),'new':len(new_parcels),'hint':page_count_hint})
-        print(f'  md_chars={len(md):,} cards={len(cards)} new={len(new_parcels)} page_hint={page_count_hint}')
-        if page == 1 and pat_match:
-            try: MAX_PAGES = min(MAX_PAGES, int(pat_match.group(1)))
-            except: pass
-            print(f'  detected total pages: {MAX_PAGES}')
-        if len(new_parcels) == 0 and page > 1:
-            print(f'  no new parcels on page {page}, stopping pagination'); break
-        all_cards.extend(new_parcels)
-        time.sleep(2)
+        per_page.append({'page':i+1,'md_chars':len(md),'cards':len(cards),'new':len(new)})
+        print(f'  page {i+1}: md={len(md):,} cards={len(cards)} new={len(new)}')
+        all_cards.extend(new)
+        if i > 0 and len(new) == 0:
+            print(f'  page {i+1} returned no new — pagination exhausted'); break
 
-    print(f'\n=== AGGREGATE: {len(all_cards)} unique cards across {len(per_page_stats)} pages ===')
-    for c in all_cards[:5]:
-        print(f"  parcel={c.get('parcel_id_text')} status={c.get('raw_status_text')} open={c.get('opening_bid_text')} sold={c.get('sold_amount_text')}")
+    # Fallback: parse final_md too if scrapes was empty
+    if not scrapes and final_md:
+        cards = parse_cards(final_md, schema_by_field, status_map)
+        for c in cards:
+            if c.get('parcel_id_text') and c['parcel_id_text'] not in seen_parcels:
+                seen_parcels.add(c['parcel_id_text']); all_cards.append(c)
+        per_page.append({'page':'final_md_fallback','md_chars':len(final_md),'cards':len(cards)})
 
+    print(f'\n=== UNIQUE CARDS: {len(all_cards)} across {len(per_page)} snapshots ===')
     upserted = 0
     for c in all_cards:
         try:
             rpc('tier1_card_upsert_rpc', {'p': {
-                'county':COUNTY_SLUG,'platform':PLATFORM,'run_id':str(run_id),
-                **c
+                'county':COUNTY_SLUG,'platform':PLATFORM,'run_id':str(run_id), **c
             }})
             upserted += 1
         except Exception as e:
             if upserted < 5: print(f'  ! upsert {c.get("parcel_id_text")}: {e}')
 
     summary = {
-        'parser':'v9.4_paginated',
-        'county':COUNTY_SLUG,'platform':PLATFORM,
-        'base_url':BASE_URL,'page_param':PAGE_PARAM,
-        'pages_fetched':len(per_page_stats),
-        'unique_cards':len(all_cards),
-        'rows_upserted':upserted,
-        'per_page':per_page_stats,
+        'parser':'v9.5_actions_paginated','county':COUNTY_SLUG,'platform':PLATFORM,
+        'url':URL,'section_area':SECTION_AREA,
+        'snapshots_returned':len(scrapes),'unique_cards':len(all_cards),
+        'rows_upserted':upserted,'per_page':per_page,
     }
-    print(f'\nUPSERTED {upserted}/{len(all_cards)}')
-
+    print(f'UPSERTED {upserted}/{len(all_cards)}')
     rpc('scrape_log_finish', {
         'p_run_id':run_id,'p_status':'success',
         'p_rows_in':len(all_cards),'p_rows_inserted':upserted,
@@ -154,7 +157,7 @@ try:
 
 except Exception as e:
     import traceback
-    err = f'{type(e).__name__}: {e}\n{traceback.format_exc()[:1200]}'
+    err = f'{type(e).__name__}: {e}\n{traceback.format_exc()[:1500]}'
     print(f'ERROR: {err}', file=sys.stderr)
     try:
         requests.post(f'{REST}/rpc/scrape_log_finish',
