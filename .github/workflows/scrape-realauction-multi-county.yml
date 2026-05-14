@@ -12,11 +12,19 @@ on:
       auction_date:
         description: 'Auction date YYYY-MM-DD'
         required: true
+      max_pages:
+        description: 'Max pagination pages (default 15)'
+        required: false
+        default: '15'
+      page_param:
+        description: 'Pagination URL param (CurrentPage | PageNum | Page)'
+        required: false
+        default: 'CurrentPage'
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,4 +39,6 @@ jobs:
           COUNTY_SLUG: ${{ github.event.inputs.county_slug }}
           COUNTY_DOMAIN: ${{ github.event.inputs.county_domain }}
           AUCTION_DATE: ${{ github.event.inputs.auction_date }}
+          MAX_PAGES: ${{ github.event.inputs.max_pages }}
+          PAGE_PARAM: ${{ github.event.inputs.page_param }}
         run: python .github/scripts/scrape_realauction_county.py
