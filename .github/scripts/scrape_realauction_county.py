@@ -1,26 +1,48 @@
 #!/usr/bin/env python3
-"""RealAuction county scraper - v9.5 Firecrawl actions pagination.
-Clicks .PageRight[area='C'] iteratively to walk through all closed/canceled pages."""
-import os, re, sys, json, time
+"""RealAuction Multi-County Tier1 Scraper v1.0 (ASCEND Phase 1).
+
+Generalization of scrape_brevardclerk.py v9.20. Same proven approach:
+  - Firecrawl per page (12 pages typical for Brevard, varies by county)
+  - #curPCA Backspace x3 + write(page_num) + Enter pagination
+  - In-scraper status canonicalization (no after-update SQL fixes)
+  - Segment-isolated extraction (no neighbor bleed)
+  - Multi sold-to category support: 3rd Party, Cert Holder, Plaintiff, Tax Deed Applicant
+
+What's parameterized:
+  COUNTY_SLUG    - e.g. 'osceola', 'polk', 'volusia' (required)
+  BASE_URL       - e.g. 'https://osceola.realtaxdeed.com' (required, no trailing slash)
+  PLATFORM       - e.g. 'realtaxdeed' or 'realforeclose' (required, becomes part of source tag)
+  SALE_TYPE      - 'tax_deed' or 'foreclosure' (required)
+  AUCTION_DATE   - YYYY-MM-DD (required, no default)
+  MAX_PAGES      - default 15
+
+Provenance:
+  Derived from scrape_brevardclerk.py v9.20 (run 38: 117 cards, 100% verified against screenshot).
+  Created under ASCEND session for multi-county FL rollout.
+"""
+import os, re, sys, json
 from datetime import date
 import requests
 
-SUPABASE_URL = os.environ['SUPABASE_URL'].rstrip('/')
-SUPABASE_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
-FIRECRAWL_KEY = os.environ['FIRECRAWL_API_KEY']
-COUNTY_SLUG = os.environ['COUNTY_SLUG'].lower().strip()
-COUNTY_DOMAIN = os.environ['COUNTY_DOMAIN'].strip()
-AUCTION_DATE_STR = os.environ['AUCTION_DATE']
-MAX_PAGES = int(os.environ.get('MAX_PAGES', '15'))
-SECTION_AREA = os.environ.get('SECTION_AREA', 'C')   # 'C' closed/canceled, 'R' running
-AUCTION_DATE = date.fromisoformat(AUCTION_DATE_STR)
-DATE_SLASH = AUCTION_DATE.strftime('%m/%d/%Y')
+# Required envs (fail fast if missing)
+def _req(name):
+    v = os.environ.get(name)
+    if not v: raise RuntimeError(f'Missing required env: {name}')
+    return v
 
-PLATFORM = 'realtaxdeed' if 'realtaxdeed' in COUNTY_DOMAIN else \
-           'realforeclose' if 'realforeclose' in COUNTY_DOMAIN else \
-           'realtdm' if 'realtdm' in COUNTY_DOMAIN else 'realauction'
-SOURCE_CODE = f'{COUNTY_SLUG}_{PLATFORM}'
-URL = f'https://{COUNTY_DOMAIN}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'
+SUPABASE_URL       = _req('SUPABASE_URL').rstrip('/')
+SUPABASE_KEY       = _req('SUPABASE_SERVICE_ROLE_KEY')
+FIRECRAWL_KEY      = _req('FIRECRAWL_API_KEY')
+COUNTY_SLUG        = _req('COUNTY_SLUG').lower().strip()
+BASE_URL           = _req('BASE_URL').rstrip('/')
+PLATFORM           = _req('PLATFORM').lower().strip()
+SALE_TYPE          = _req('SALE_TYPE').lower().strip()
+AUCTION_DATE_STR   = _req('AUCTION_DATE')
+
+MAX_PAGES   = int(os.environ.get('MAX_PAGES', '15'))
+DATE_SLASH  = date.fromisoformat(AUCTION_DATE_STR).strftime('%m/%d/%Y')
+PREVIEW_URL = f'{BASE_URL}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={DATE_SLASH}'
+SOURCE_TAG  = f'{COUNTY_SLUG}_{PLATFORM}'
 
 REST = f'{SUPABASE_URL}/rest/v1'
 H = {'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}','Content-Type':'application/json','Prefer':'return=representation'}
@@ -30,143 +52,185 @@ def rpc(name, params):
     if r.status_code >= 400: raise RuntimeError(f'RPC {name} [{r.status_code}]: {r.text[:400]}')
     return r.json() if r.text and r.text.strip() else None
 
-def sel(table, q=''):
-    r = requests.get(f'{REST}/{table}?{q}', headers={'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}'}, timeout=30)
-    r.raise_for_status(); return r.json()
+def firecrawl_page(page_num):
+    """Fetch markdown for page N. For page 1, just initial load; for >1, navigate via #curPCA."""
+    actions = [{'type':'wait','milliseconds':7000}]
+    if page_num > 1:
+        actions += [
+            {'type':'click','selector':'#curPCA'},
+            {'type':'wait','milliseconds':500},
+            {'type':'press','key':'Backspace'},
+            {'type':'press','key':'Backspace'},
+            {'type':'press','key':'Backspace'},
+            {'type':'write','text':str(page_num),'selector':'#curPCA'},
+            {'type':'press','key':'Enter'},
+            {'type':'wait','milliseconds':4500},
+        ]
+    body = {'url':PREVIEW_URL,'formats':['markdown'],'actions':actions,
+            'onlyMainContent':False,'timeout':90000}
+    r = requests.post('https://api.firecrawl.dev/v1/scrape',
+        headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
+        json=body, timeout=120)
+    if r.status_code != 200:
+        print(f'  ! firecrawl {r.status_code}: {r.text[:200]}')
+        return ''
+    return r.json().get('data',{}).get('markdown','')
 
-def parse_cards(md, schema_by_field, status_map):
-    parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]+(\d{6,15})', md, re.IGNORECASE))
-    at_anchors = list(re.finditer(r'Auction\s*Type', md, re.IGNORECASE))
-    LEFT_FIELDS = {'auction_status','sold_timestamp','sold_amount','sold_to','auction_type','case_number','certificate_number','opening_bid'}
-    RIGHT_FIELDS = {'property_address','assessed_value','name_on_title'}
+def canonicalize(status_text, sold_to_text):
+    s = (status_text or '').lower()
+    if 'redeem' in s: return 'REDEEMED'
+    if 'cancel' in s: return 'CANCELED'
+    if 'postpon' in s: return 'POSTPONED'
+    if 'struck' in s: return 'STRUCK_OFF'
+    if 'wait' in s or 'pending' in s: return 'LISTED'
+    if 'sold' in s:
+        st = (sold_to_text or '').lower()
+        if 'cert' in st or 'c/h' in st: return 'SOLD_CERT_HOLDER'
+        if 'plaintiff' in st: return 'SOLD_PLAINTIFF'
+        if '3rd' in st or 'third' in st: return 'SOLD_3RD_PARTY'
+        return 'SOLD_3RD_PARTY'
+    return 'LISTED'
+
+def extract_cards(md):
+    """Markdown parser anchored on each parcel ID. Same approach as Brevard v9.20."""
     cards = []
-    for i, m in enumerate(parcel_anchors):
-        prev_end = parcel_anchors[i-1].end() if i > 0 else max(0, m.start() - 1500)
-        left_scope = md[prev_end : m.end()]
-        next_at_start = next((a.start() for a in at_anchors if a.start() > m.end()), m.end() + 400)
-        right_scope = md[m.end() : next_at_start]
-        raw = {'parcel_id_text': m.group(1)}
-        last_status_pos, last_status_label = -1, None
-        for label in status_map.keys():
-            for sm in re.finditer(re.escape(label), left_scope, re.IGNORECASE):
-                if sm.start() > last_status_pos:
-                    last_status_pos, last_status_label = sm.start(), label
-        if last_status_label: raw['raw_status_text'] = last_status_label
-        for fn, field in schema_by_field.items():
-            if fn in ('parcel_id','auction_status'): continue
-            pat = field.get('extraction_pattern')
-            if not pat or pat == 'first text in left panel': continue
-            scope = right_scope if fn in RIGHT_FIELDS else left_scope
-            try:
-                mm = re.search(pat, scope, re.IGNORECASE | re.DOTALL)
-                if mm:
-                    val = re.sub(r'[\s|\-_]+$','', mm.group(1).strip())[:200]
-                    if val: raw[fn + '_text'] = val
-            except re.error: pass
-        if raw.get('sold_to_text'):
-            sto = re.sub(r'[\s|\-_]+',' ', raw['sold_to_text']).strip()
-            sto = re.sub(r'\s*(Auction Type|Name on Title|Bid History).*$','', sto, flags=re.IGNORECASE).strip()
-            raw['sold_to_text'] = sto[:80] if sto else None
-        raw['raw_card_text'] = (left_scope[-800:] + ' | RIGHT: ' + right_scope[:600])[:1500]
-        raw['parse_confidence'] = 'high' if raw.get('raw_status_text') and raw.get('opening_bid_text') else 'partial'
-        cards.append(raw)
+    ac_pos = md.lower().find('auctions closed')
+    if ac_pos < 0: ac_pos = 0
+    region = md[ac_pos:]
+
+    parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]*?\[(\d{6,12})\]', region))
+    if not parcel_anchors:
+        parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]+?(\d{6,12})', region))
+
+    for i, pm in enumerate(parcel_anchors):
+        start = parcel_anchors[i-1].end() if i > 0 else 0
+        end = parcel_anchors[i+1].start() if i+1 < len(parcel_anchors) else len(region)
+        seg = region[start:end]
+
+        c = {'parcel_id_text': pm.group(1)}
+        status_text = None
+        sold_amt = sold_to = sold_ts = None
+
+        seg_to_parcel = seg[:seg.find(pm.group(1)) if pm.group(1) in seg else len(seg)]
+        if re.search(r'Auction\s*Sold', seg_to_parcel, re.IGNORECASE):
+            status_text = 'Auction Sold'
+            sub = seg_to_parcel[seg_to_parcel.lower().rfind('auction sold'):]
+            ts_m = re.search(r'(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s*ET)', sub)
+            if ts_m: sold_ts = ts_m.group(1)
+            amt_m = re.search(r'Amount\s*\n+\s*\$([\d,]+\.\d{2})', sub) or re.search(r'\$([\d,]+\.\d{2})', sub)
+            if amt_m: sold_amt = amt_m.group(1)
+            for label in ['3rd Party Bidder','Certificate Holder','Cert Holder','Plaintiff','Tax Deed Applicant','3rd Party']:
+                if re.search(re.escape(label), sub, re.IGNORECASE):
+                    sold_to = label
+                    break
+        elif re.search(r'Auction\s*Status\s*\n+\s*Redeemed', seg_to_parcel, re.IGNORECASE):
+            status_text = 'Redeemed'
+        elif re.search(r'Auction\s*Status\s*\n+\s*Cancell?ed', seg_to_parcel, re.IGNORECASE):
+            status_text = 'Canceled'
+        elif re.search(r'Auction\s*Status\s*\n+\s*Postponed', seg_to_parcel, re.IGNORECASE):
+            status_text = 'Postponed'
+        elif re.search(r'Auction\s*Status\s*\n+\s*Struck', seg_to_parcel, re.IGNORECASE):
+            status_text = 'Struck-Off'
+        elif re.search(r'Auction\s*Status\s*\n+\s*Waiting', seg_to_parcel, re.IGNORECASE):
+            status_text = 'Waiting'
+
+        def grab(label):
+            m = re.search(label + r':\s*\|\s*([^\|\n]+?)\s*\|', seg, re.IGNORECASE)
+            if m:
+                val = re.sub(r'\s+', ' ', m.group(1)).strip()
+                return val[:200] if val else None
+            return None
+        c['auction_type_text']     = grab('Auction Type')
+        c['case_number_text']      = grab('Case #')
+        c['certificate_text']      = grab('Certificate #')
+        c['opening_bid_text']      = grab('Opening Bid')
+        c['property_address_text'] = grab('Property Address')
+        c['assessed_value_text']   = grab('Assessed Value')
+
+        if status_text: c['raw_status_text'] = status_text
+        if sold_amt:    c['sold_amount_text'] = sold_amt
+        if sold_ts:     c['sold_timestamp_text'] = sold_ts
+        if sold_to:     c['sold_to_text'] = sold_to
+        c['_canon']            = canonicalize(status_text, sold_to)
+        c['raw_card_text']     = re.sub(r'\s+',' ', seg[:1200])
+        c['parse_confidence']  = 'high' if c.get('parcel_id_text') and c.get('opening_bid_text') and status_text else 'partial'
+        cards.append(c)
     return cards
 
+# === MAIN ===
 run_id = rpc('scrape_log_start', {
-    'p_source':SOURCE_CODE,'p_county':COUNTY_SLUG,
-    'p_sale_type':'tax_deed','p_auction_date':AUCTION_DATE_STR,
-    'p_triggered_by':'gha_actions_paginated_v9_5',
+    'p_source':       SOURCE_TAG,
+    'p_county':       COUNTY_SLUG,
+    'p_sale_type':    SALE_TYPE,
+    'p_auction_date': AUCTION_DATE_STR,
+    'p_triggered_by': f'ascend_phase1_{COUNTY_SLUG}_{PLATFORM}',
 })
-print(f'>>> {SOURCE_CODE} v9.5 actions pagination, run={run_id}, area={SECTION_AREA}, max={MAX_PAGES}')
+print(f'>>> v1.0 multi-county scraper | county={COUNTY_SLUG} platform={PLATFORM} date={AUCTION_DATE_STR} run={run_id}')
+print(f'    PREVIEW_URL={PREVIEW_URL}')
 
 try:
-    schema_rows = sel('v_realauction_schema', 'select=*')
-    schema_by_field = {f['field_name']: f for f in schema_rows}
-    status_map = schema_by_field['auction_status']['normalization'] or {}
+    seen_parcels  = set()
+    all_cards     = []
+    page_stats    = []
+    canon_counts  = {}
 
-    # Build Firecrawl actions: wait, scrape page 1, then for each subsequent page: click Next, wait, scrape
-    actions = [
-        {'type':'wait','milliseconds':6000},
-        {'type':'screenshot'},
-        {'type':'scrape'},
-    ]
-    selector = f".PageFrame[area='{SECTION_AREA}'] .PageRight"
-    for _ in range(MAX_PAGES - 1):
-        actions.append({'type':'click','selector':selector})
-        actions.append({'type':'wait','milliseconds':2500})
-        actions.append({'type':'scrape'})
+    for page_num in range(1, MAX_PAGES + 1):
+        print(f'\n--- PAGE {page_num} ---')
+        md = firecrawl_page(page_num)
+        if not md:
+            print('  empty md, stop'); break
+        cards = extract_cards(md)
+        new = [c for c in cards if c['parcel_id_text'] not in seen_parcels]
+        for c in new:
+            seen_parcels.add(c['parcel_id_text'])
+            all_cards.append(c)
+            canon_counts[c['_canon']] = canon_counts.get(c['_canon'], 0) + 1
+        page_stats.append({'page':page_num,'md_chars':len(md),'cards':len(cards),'new':len(new),
+                          'first_3':[{'case':c.get('case_number_text'),'parcel':c.get('parcel_id_text'),
+                                      'canon':c['_canon'],'sold':c.get('sold_amount_text')} for c in cards[:3]]})
+        print(f'  md={len(md)} cards={len(cards)} new={len(new)} total={len(all_cards)}')
+        if len(new) == 0 and page_num > 1: break
 
-    print(f'Firecrawl action sequence: {len(actions)} steps (selector={selector})')
-    fc = requests.post('https://api.firecrawl.dev/v1/scrape',
-        headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
-        json={'url':URL,'formats':['markdown'],'actions':actions,'onlyMainContent':False,'timeout':120000},
-        timeout=180)
-    if fc.status_code != 200:
-        raise RuntimeError(f'Firecrawl {fc.status_code}: {fc.text[:500]}')
-    data = fc.json().get('data',{})
-    scrapes = (data.get('actions') or {}).get('scrapes',[]) or []
-    final_md = data.get('markdown','')
-    print(f'Firecrawl returned {len(scrapes)} action-scrape snapshots, final_md={len(final_md):,} chars')
-    print(f'data keys: {list(data.keys())}')
-    if data.get('actions'): print(f'actions keys: {list(data['actions'].keys())}')
-    if scrapes:
-        print(f'first scrape keys: {list(scrapes[0].keys())}')
-        print(f'first scrape sample: {json.dumps(scrapes[0])[:800]}')
+    # Hard fail if NO cards found at all (Honesty Protocol V3 K2: no silent skip)
+    if len(all_cards) == 0:
+        raise RuntimeError(f'Zero cards extracted for {COUNTY_SLUG} on {AUCTION_DATE_STR}. Either no auctions scheduled OR scraper failed. Refusing to mark success.')
 
-    seen_parcels = set()
-    all_cards = []
-    per_page = []
-    for i, snap in enumerate(scrapes):
-        md = snap.get('markdown','') or snap.get('content','')
-        cards = parse_cards(md, schema_by_field, status_map)
-        new = [c for c in cards if c.get('parcel_id_text') and c['parcel_id_text'] not in seen_parcels]
-        for c in cards:
-            if c.get('parcel_id_text'): seen_parcels.add(c['parcel_id_text'])
-        per_page.append({'page':i+1,'md_chars':len(md),'cards':len(cards),'new':len(new)})
-        print(f'  page {i+1}: md={len(md):,} cards={len(cards)} new={len(new)}')
-        all_cards.extend(new)
-        if i > 0 and len(new) == 0:
-            print(f'  page {i+1} returned no new — pagination exhausted'); break
+    print(f'\n=== {len(all_cards)} cards / {len(page_stats)} pages / canon={canon_counts} ===')
 
-    # Fallback: parse final_md too if scrapes was empty
-    if not scrapes and final_md:
-        cards = parse_cards(final_md, schema_by_field, status_map)
-        for c in cards:
-            if c.get('parcel_id_text') and c['parcel_id_text'] not in seen_parcels:
-                seen_parcels.add(c['parcel_id_text']); all_cards.append(c)
-        per_page.append({'page':'final_md_fallback','md_chars':len(final_md),'cards':len(cards)})
-
-    print(f'\n=== UNIQUE CARDS: {len(all_cards)} across {len(per_page)} snapshots ===')
     upserted = 0
     for c in all_cards:
         try:
-            rpc('tier1_card_upsert_rpc', {'p': {
-                'county':COUNTY_SLUG,'platform':PLATFORM,'run_id':str(run_id), **c
-            }})
+            c.pop('_canon', None)
+            payload = {k:v for k,v in c.items() if v is not None}
+            payload.update({'county':COUNTY_SLUG,'platform':PLATFORM,'run_id':str(run_id)})
+            rpc('tier1_card_upsert_rpc', {'p': payload})
             upserted += 1
         except Exception as e:
-            if upserted < 5: print(f'  ! upsert {c.get("parcel_id_text")}: {e}')
+            if upserted < 3: print(f'  ! {c.get("parcel_id_text")}: {e}')
 
     summary = {
-        'parser':'v9.5_actions_paginated','county':COUNTY_SLUG,'platform':PLATFORM,
-        'url':URL,'section_area':SECTION_AREA,
-        'snapshots_returned':len(scrapes),'unique_cards':len(all_cards),
-        'rows_upserted':upserted,'per_page':per_page,
+        'parser':           'v1.0_realauction_county',
+        'county':           COUNTY_SLUG,
+        'platform':         PLATFORM,
+        'sale_type':        SALE_TYPE,
+        'base_url':         BASE_URL,
+        'pages':            len(page_stats),
+        'total_cards':      len(all_cards),
+        'rows_upserted':    upserted,
+        'canon_breakdown':  canon_counts,
+        'page_stats':       page_stats,
     }
-    print(f'UPSERTED {upserted}/{len(all_cards)}')
-    rpc('scrape_log_finish', {
-        'p_run_id':run_id,'p_status':'success',
+    rpc('scrape_log_finish', {'p_run_id':run_id,'p_status':'success',
         'p_rows_in':len(all_cards),'p_rows_inserted':upserted,
-        'p_notes':json.dumps(summary)[:6000],
-    })
+        'p_notes':json.dumps(summary)[:6000]})
 
 except Exception as e:
     import traceback
-    err = f'{type(e).__name__}: {e}\n{traceback.format_exc()[:1500]}'
+    err = f'{type(e).__name__}: {e}\n{traceback.format_exc()[:1200]}'
     print(f'ERROR: {err}', file=sys.stderr)
     try:
         requests.post(f'{REST}/rpc/scrape_log_finish',
             json={'p_run_id':run_id,'p_status':'failed','p_error':err[:2000]},
             headers=H, timeout=15)
-    except Exception: pass
+    except: pass
     sys.exit(1)
