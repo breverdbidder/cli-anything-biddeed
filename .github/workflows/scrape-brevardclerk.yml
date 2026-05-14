@@ -1,0 +1,35 @@
+name: Brevard Clerk Tax Deed Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      auction_date:
+        description: 'Auction date (YYYY-MM-DD)'
+        required: true
+        default: '2026-05-14'
+      verbose:
+        description: 'Print extracted text to logs'
+        required: false
+        default: 'true'
+  schedule:
+    # Every Wednesday at 11:30 AM EST (16:30 UTC) - 1.5h after typical 10am auction
+    - cron: '30 16 * * 3'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install --quiet requests beautifulsoup4 pymupdf
+      - name: Run scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUCTION_DATE: ${{ github.event.inputs.auction_date || '2026-05-14' }}
+          VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
+        run: python .github/scripts/scrape_brevardclerk.py
