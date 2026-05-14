@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v9.7 - dump strategic markdown chunks to find pagination + try AID-based fetch."""
+"""v9.8 - capture chunk around 'Auctions Closed' header to find pagination control."""
 import os, json, re, requests
 from datetime import date
 
@@ -20,70 +20,38 @@ def rpc(name, params):
 
 run_id = rpc('scrape_log_start', {'p_source':'brevard_realforeclose','p_county':'brevard',
     'p_sale_type':'tax_deed','p_auction_date':AUCTION_DATE_STR,
-    'p_triggered_by':'gha_workflow_dispatch_v9_7_probe'})
+    'p_triggered_by':'gha_workflow_dispatch_v9_8_probe'})
 
-# Fetch raw preview
 fc = requests.post('https://api.firecrawl.dev/v1/scrape',
     headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
-    json={'url':PREVIEW_URL,'formats':['markdown','html','links'],'waitFor':6000,
+    json={'url':PREVIEW_URL,'formats':['markdown','html'],'waitFor':6000,
           'onlyMainContent':False,'timeout':60000}, timeout=120)
 data = fc.json().get('data',{})
 md = data.get('markdown','')
 html = data.get('html','')
-links = data.get('links',[])
 
-# Find specific regions: where do parcel cards END and pagination/IDs begin?
-# Sectioning markers
-sections = {
-    'len': len(md),
-    'auctions_closed_pos': md.lower().find('auctions closed'),
-    'page_word_pos': md.find('Page'),
-    'pagination_pos': md.lower().find('next page'),
-    'prev_page_pos': md.lower().find('previous'),
-}
+# Around "Auctions Closed or Canceled" header
+ac_pos = md.lower().find('auctions closed')
+prev_pos = md.lower().find('previous')
+next_pos = md.lower().find('next page')
 
-# Save chunks at key offsets
-chunks = {}
-for name, end_offset in [('around_3000',3000),('around_5000',5000),('around_7500',7500),('around_9000',9000)]:
-    start = max(0, end_offset - 700)
-    chunks[name] = md[start:end_offset]
-
-# Look for AID/auction-id patterns
-aid_matches = re.findall(r'AID[=:]?\s*[\'"]?(\d{6,8})', md + html, re.IGNORECASE)
-parcel_list = re.findall(r'\b(\d{7})\b', md[-2000:])
-
-# Pagination link patterns in HTML
-html_pat = {
-    'has_setPage': 'setPage' in html,
-    'has_PageNo': 'PageNo' in html,
-    'has_AjaxPage': 'AjaxPage' in html or 'ajaxpage' in html.lower(),
-    'has_NaviSt': 'NaviSt' in html,
-    'has_AuctionPage': 'AuctionPage' in html,
-    'has_GetPage': 'GetPage' in html,
-    'pagination_html_chunk': '',
-}
-for needle in ['setPage','PageNo','AjaxPage','NaviSt','AuctionPage','GetPage','fcdt']:
-    idx = html.find(needle)
-    if idx > 0:
-        html_pat['pagination_html_chunk'] = html[max(0,idx-150):idx+400]
-        html_pat['found_marker'] = needle
-        break
-
-# Check if any link looks like pagination
-pag_links = [l for l in (links or []) if any(k in str(l).lower() for k in ['page','next','setpage','aid='])]
+# In HTML — look for pagination controls
+html_lower = html.lower()
+all_handlers = re.findall(r'onclick=[\'"]([^\'"]{5,200})[\'"]', html, re.IGNORECASE)
+unique_handlers = sorted(set(all_handlers))[:30]
 
 result = {
-    'sections': sections,
-    'chunks': chunks,
-    'aid_matches_count': len(set(aid_matches)),
-    'aid_sample': list(set(aid_matches))[:30],
-    'parcel_list_tail_count': len(parcel_list),
-    'html_patterns': html_pat,
-    'pag_links_sample': pag_links[:10],
-    'all_links_count': len(links) if links else 0,
+    'md_len': len(md),
+    'html_len': len(html),
+    'chunk_around_auctions_closed': md[max(0,ac_pos-200):ac_pos+800] if ac_pos > 0 else '',
+    'chunk_around_prev': md[max(0,prev_pos-100):prev_pos+500] if prev_pos > 0 else '',
+    'chunk_around_next_page': md[max(0,next_pos-100):next_pos+400] if next_pos > 0 else '',
+    'html_onclick_handlers': unique_handlers,
+    'html_chunk_5000_6000': html[5000:6000],
+    'html_chunk_15000_16500': html[15000:16500] if len(html) > 15000 else '',
+    'html_chunk_25000_26500': html[25000:26500] if len(html) > 25000 else '',
 }
 
 rpc('scrape_log_finish', {'p_run_id':run_id,'p_status':'success',
     'p_rows_in':0,'p_rows_inserted':0,
     'p_notes':json.dumps(result)[:5800]})
-print(json.dumps(result, indent=2)[:3000])
