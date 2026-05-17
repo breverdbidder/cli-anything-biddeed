@@ -1,0 +1,87 @@
+{
+  "$schema": "https://everestcapital.usa/schemas/mcp-server-v1.json",
+  "name": "google-maps-platform",
+  "version": "1.0.0",
+  "category": "geospatial_grounding",
+  "registered_in_supabase": "mcp_servers.id=2",
+  "summit_provenance": "ZW-MAPS-MCP-D4D v2 (May 17 2026)",
+  "products_consuming": ["zonewise", "biddeed"],
+  "smart_router_tier": "flash",
+  "tier_routing_rationale": "Maps Grounding Lite returns structured place/route data; flash tier (Gemini Flash 2.5) is sufficient for orchestration. Escalation to deepseek/sonnet only when grounded result requires multi-source synthesis (e.g., parcel + zoning + comparable + Maps).",
+  "endpoints": {
+    "grounding_lite_mcp": {
+      "transport": "mcp",
+      "docs": "https://developers.google.com/maps/documentation/grounding/lite",
+      "marketing": "https://mapsplatform.google.com/maps-products/grounding/#maps-grounding-lite",
+      "status": "GA_MAY_2026"
+    },
+    "routing_grounding": {
+      "transport": "rest",
+      "status": "PRIVATE_PREVIEW",
+      "waitlist_required": true,
+      "docs": "https://mapsplatform.google.com/maps-products/grounding/"
+    },
+    "street_view_insights": {
+      "transport": "bigquery",
+      "status": "GA",
+      "requires": "BigQuery project + Gemini Enterprise Agent Platform",
+      "use_for": "D4D pre-route distress scoring (Phase 2)"
+    },
+    "places_insights": {
+      "transport": "bigquery",
+      "status": "GA",
+      "use_for": "Bulk parcel POI enrichment"
+    },
+    "address_validation": {
+      "transport": "rest",
+      "status": "GA",
+      "use_for": "Foreclosure/tax-deed scrape data quality"
+    }
+  },
+  "auth": {
+    "demo_key": {
+      "env_var": "GOOGLE_MAPS_DEMO_KEY",
+      "credit_card_required": false,
+      "signup_url": "https://mapsplatform.google.com/maps-demo-key/",
+      "rate_limits": "evaluated_at_runtime",
+      "current_status": "PENDING_HUMAN_SIGNUP (Ariel — see tracking issue)"
+    },
+    "production_key": {
+      "env_var": "GOOGLE_MAPS_API_KEY",
+      "credit_card_required": true,
+      "approval_gate": "REQUIRES_ARIEL_APPROVAL (>$10 threshold per userPreferences)"
+    }
+  },
+  "cost_ceiling": {
+    "phase_1_2_demo_key": "$0",
+    "phase_3_5_production": "$10_max_per_summit_policy",
+    "hard_breaker": "halt_and_surface_if_exceeded"
+  },
+  "phase_1_exit_criteria": {
+    "demo_key_active": "boolean — gated on human action",
+    "cost_per_lookup_ratio": "<= 1.2x current geocoding cost",
+    "latency_p99_ms": "<= 800",
+    "benchmark_table": "public.gmp_grounding_benchmarks",
+    "exit_view": "public.v_gmp_phase1_exit"
+  },
+  "human_action_items": [
+    {
+      "owner": "Ariel",
+      "action": "Claim Maps Demo Key (no credit card)",
+      "url": "https://mapsplatform.google.com/maps-demo-key/",
+      "secret_destination": "vault.secrets name=google_maps_demo_key",
+      "estimated_time_minutes": 3
+    },
+    {
+      "owner": "Ariel",
+      "action": "Register Routing Grounding Private Preview waitlist",
+      "url": "https://mapsplatform.google.com/maps-products/grounding/",
+      "estimated_time_minutes": 5
+    },
+    {
+      "owner": "Ariel",
+      "action": "Decide on Street View Insights billed-tier (Phase 2 gate, >$10)",
+      "decision_required_by": "2026-05-21"
+    }
+  ]
+}
