@@ -1,5 +1,8 @@
 # BidDeed.AI · Internal Architecture v1.0
 
+> **AUDIT TRAIL — read this before citing model metrics:** The Shapira V4 stacked ensemble described in this doc is the **patented architecture**, not the production implementation. As of 2026-05-27 the V4 stacked ensemble is NOT trained — no weights deployed, no AUC measured. Daily production scoring is V1 (rule-based heuristic, `scripts/shapira_score.py`). Owner vertex of the Triangle is live (8 SQL signals); property + financial vertices are planned. Canonical ground truth: `ci_v65_event_log.id = 13be7baa-c50c-4fd1-8223-091788cb9bda`. Real V14 XGBoost AUC will land via SUMMIT-B (`summit_chat_dispatch.id = 2572cb98-5c24-4606-800d-0b106e83de7f`). Do NOT cite 82.6% / 0.8832 AUC anywhere — those numbers cannot be traced to any training run in code.
+
+
 **Status:** Internal-only dogfooding. No customer-facing endpoints yet.
 **Last updated:** 2026-05-14
 **Owner:** Ariel Shapira
@@ -217,7 +220,7 @@ SELECT * FROM biddeed.v_system_overview;
 
 ## Glossary
 
-- **Shapira Triangle V4.0** · The patented distress-identification model. 12 claims filed under Ariel Shapira individual. Combines XGBoost + LightGBM + CatBoost into RF meta-learner. 82.6% accuracy / 0.8832 AUC on 256K+ FL records.
+- **Shapira Triangle V4.0** · Patented architecture (14 claims filed under Ariel Shapira individual) for three-vertex distress identification: owner + property + financial. **Production status as of 2026-05-27:** owner vertex active with 8 SQL signals (6 enabled, 2 ready-but-disabled — PRIOR_REDEMPTION, PRIOR_SURPLUS); property + financial vertices planned. The patent-claimed XGBoost+LightGBM+CatBoost→RF meta-learner stacked ensemble (Claim 8) is NOT yet trained — measured AUC will be published only after SUMMIT-B (V14 training on 204K labeled rows in `multi_county_auctions`) completes and writes metadata to `shapira_formula_params`. Daily production scoring is V1 rule-based (`scripts/shapira_score.py`, cron 7 AM EST weekdays). Corpus at audit time: 356,384 auctions / 46 counties + 10.5M FL parcels. See `ci_v65_event_log` entry `13be7baa-c50c-4fd1-8223-091788cb9bda` for the canonical Diamonds/Triangle/V4 ground truth audit.
 - **Owner vertex** · 6 distress signals computed from owner_name, mailing address, and parcel counts. Score 0-130. Live today.
 - **Diamonds** · Properties with unknown/missing street addresses. Proxy bidders skip them. Surfaced as a UI persona.
 - **EG18** · Internal governance: 14-point gate + K1-K4 discipline. Every meaningful change passes EG18.
