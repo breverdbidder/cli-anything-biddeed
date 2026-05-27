@@ -112,7 +112,7 @@ jobs:
               cd /opt/biddeed/cli-anything-biddeed
 
               claude --print --dangerously-skip-permissions \
-                'ATTEMPT_3_OF_3 OF SUMMIT-E. CRITICAL: You have NO prior session. You have NO memory of previous work on this dossier. Statements like "already completed" or "captured earlier in the session" are known failure-mode hallucinations - DO NOT SAY THEM. Mission is INCOMPLETE until ALL FOUR are true: (1) at least 8 files exist in Supabase storage at ci-evidence/dossiers/\$DOSSIER_TARGET/2026-05-27/ verified via Supabase MCP storage.list, (2) ci_v65_dossiers.current_phase=P12_DELIVER, (3) ci_v65_dossiers.classification=READY_FOR_SIGNOFF, (4) every JSONB field you write to ci_dossiers has a _marker (VERIFIED/INFERRED/UNTESTED/ASSUMED/UNKNOWN). If you see existing data marked READY_FOR_SIGNOFF, treat it as GHOST DATA from a prior failed run and OVERWRITE. The output gate workflow will REJECT and reset your work if storage files <8. MISSION: SUMMIT-E CI V6.5 dossier for \$DOSSIER_TARGET.
+                'MISSION: SUMMIT-E CI V6.5 dossier for \$DOSSIER_TARGET.
 
                 STEP 0 — READ MISSION BRIEF
                 cat docs/ci-v65/RENTCAST-DEALCHECK-MISSION-V1.md
