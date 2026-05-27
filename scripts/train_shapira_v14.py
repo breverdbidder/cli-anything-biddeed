@@ -62,20 +62,22 @@ def fetch_corpus():
     )
     page_size = 1000
     all_rows = []
-    offset = 0
+    last_id = "00000000-0000-0000-0000-000000000000"  # uuid sentinel
     while True:
+        # Keyset pagination: filter id > last_id, ordered ascending.
+        # O(log n) per page vs offset's O(offset). Avoids PostgREST 500s at depth.
         url = (f"{SUPABASE_URL}/rest/v1/multi_county_auctions"
                f"?select={select}&{CORPUS_LABEL_FILTER}"
-               f"&order=id.asc&limit={page_size}&offset={offset}")
+               f"&id=gt.{last_id}&order=id.asc&limit={page_size}")
         r = requests.get(url, headers=HEADERS, timeout=120)
         r.raise_for_status()
         batch = r.json()
         if not batch:
             break
         all_rows.extend(batch)
-        offset += page_size
-        if offset % 10000 == 0:
-            print(f"  fetched {offset} rows so far...")
+        last_id = batch[-1]["id"]
+        if len(all_rows) % 10000 == 0:
+            print(f"  fetched {len(all_rows)} rows so far (cursor={last_id[:8]}...)")
         if len(batch) < page_size:
             break
     df = pd.DataFrame(all_rows)
