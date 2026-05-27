@@ -114,53 +114,37 @@ jobs:
           echo "auth_status=$AUTH_STATUS" >> $GITHUB_OUTPUT
           if echo "$AUTH_STATUS" | grep -q '^DEAD:'; then
             echo "::error::Claude Code OAuth auth is dead on Hetzner. Remediation:"
-            echo "::error::  1. SSH into ${HETZNER_IP} from Hetzner Cloud web console (works on phone browser)"
+            echo "::error::  1. SSH into the box from Hetzner Cloud web console (works on phone browser)"
             echo "::error::  2. Run: tmux attach -t everest-agents  OR  tmux new -s cc-auth"
             echo "::error::  3. Run: claude auth login"
             echo "::error::  4. Open the printed URL in your phone browser, complete OAuth"
             echo "::error::  5. Token writes to /root/.claude/.credentials.json"
             echo "::error::  6. Re-fire this workflow"
-            # Write beacon to ci_v65_event_log
+            # Write beacon to ci_v65_event_log via pure shell (jq if available, else printf)
             if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-              # Build beacon JSON in a tempfile (env-var-safe; avoids YAML-vs-heredoc indentation issues)
-              export AUTH_STATUS_FOR_PY="$AUTH_STATUS"
-              export TARGET_REPO_FOR_PY="$TARGET_REPO"
-              export DISPATCH_ID_FOR_PY="$DISPATCH_ID"
-              export RUN_URL_FOR_PY="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-              python3 -c "
-              import json, os
-              payload = {
-                  'signal_kind': 'other',
-                  'source': 'summit_understand_anything_auth_gate',
-                  'payload': {
-                      'severity': 'BLOCK',
-                      'reason': 'cc_oauth_dead_on_hetzner',
-                      'target_repo': os.environ['TARGET_REPO_FOR_PY'],
-                      'dispatch_id': os.environ['DISPATCH_ID_FOR_PY'] or None,
-                      'auth_status': os.environ['AUTH_STATUS_FOR_PY'],
-                      'workflow_run_url': os.environ['RUN_URL_FOR_PY']
-                  }
-              }
-              with open('/tmp/beacon.json','w') as f: json.dump(payload, f)
-              print('beacon json written, size:', os.path.getsize('/tmp/beacon.json'))
-              "
+              # JSON-escape AUTH_STATUS for safety
+              AUTH_STATUS_J=$(printf '%s' "$AUTH_STATUS" | sed 's/\\/\\\\/g; s/"/\\"/g')
+              DID_J=$([ -n "$DISPATCH_ID" ] && printf '"%s"' "$DISPATCH_ID" || printf 'null')
+              RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              printf '{"signal_kind":"other","source":"summit_understand_anything_auth_gate","payload":{"severity":"BLOCK","reason":"cc_oauth_dead_on_hetzner","target_repo":"%s","dispatch_id":%s,"auth_status":"%s","workflow_run_url":"%s"}}' \
+                "$TARGET_REPO" "$DID_J" "$AUTH_STATUS_J" "$RUN_URL" > /tmp/beacon.json
               curl -sS -X POST \
                 -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
                 -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
                 -H "Content-Type: application/json" \
                 -H "Prefer: return=minimal" \
                 -d "@/tmp/beacon.json" \
-                "$SUPABASE_URL/rest/v1/ci_v65_event_log" \
-                -w "beacon http=%{http_code}\n" || true
+                -w "beacon http=%{http_code}\n" \
+                "$SUPABASE_URL/rest/v1/ci_v65_event_log" || true
             fi
-            # Annotate dispatch row if provided
             if [ -n "$DISPATCH_ID" ] && [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+              printf '%s' '{"state":"quarantined","quarantine_reason":"cc_oauth_dead_on_hetzner","quarantine_diagnosis":"Hetzner box healthy, CC binary present, network to api.anthropic.com works, but /root/.claude/.credentials.json is empty or expired. Requires interactive OAuth flow (phone browser sufficient).","quarantine_self_heal":"SSH into Hetzner Cloud web console, tmux attach -t everest-agents, claude auth login, complete OAuth in browser, re-fire workflow."}' > /tmp/quarantine.json
               curl -sS -X PATCH \
                 -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
                 -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
                 -H "Content-Type: application/json" \
                 -H "Prefer: return=minimal" \
-                -d "$(python3 -c "import json;print(json.dumps({'state':'quarantined','quarantine_reason':'cc_oauth_dead_on_hetzner','quarantine_diagnosis':'Hetzner box healthy, CC binary present, network to api.anthropic.com works, but /root/.claude/.credentials.json is empty or expired. Requires interactive OAuth flow (phone browser is sufficient).','quarantine_self_heal':'SSH into Hetzner Cloud web console (any browser, no laptop), tmux attach -t everest-agents (or create new), run claude auth login, complete OAuth in browser, token auto-writes to /root/.claude/.credentials.json, re-fire this workflow.'}))")" \
+                -d "@/tmp/quarantine.json" \
                 "$SUPABASE_URL/rest/v1/summit_chat_dispatch?id=eq.$DISPATCH_ID" || true
             fi
             exit 78  # exit code 78 = neutral skip (visible in run UI)
@@ -271,27 +255,11 @@ jobs:
         env:
           KG_COMMIT_VAL: ${{ env['knowledge-graph.json_COMMIT'] }}
           META_COMMIT_VAL: ${{ env['meta.json_COMMIT'] }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_ID: ${{ github.run_id }}
         run: |
-          python3 -c "
-          import json, os
-          payload = {
-              'state': 'closed',
-              'completed_at': 'now()',
-              'delivery_proof': {
-                  'mode': 'cc_on_hetzner_real_run',
-                  'target_repo': os.environ['TARGET_REPO'],
-                  'target_branch': os.environ['TARGET_BRANCH'],
-                  'kg_commit': os.environ.get('KG_COMMIT_VAL', ''),
-                  'meta_commit': os.environ.get('META_COMMIT_VAL', ''),
-                  'workflow_run_id': os.environ['RUN_ID'],
-                  'workflow_run_url': os.environ['RUN_URL'],
-                  'harness': 'claude-code-headless-hetzner-oauth-maxplan'
-              }
-          }
-          with open('/tmp/annotate.json','w') as f: json.dump(payload, f)
-          "
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RUN_ID_V="${{ github.run_id }}"
+          printf '{"state":"closed","completed_at":"now()","delivery_proof":{"mode":"cc_on_hetzner_real_run","target_repo":"%s","target_branch":"%s","kg_commit":"%s","meta_commit":"%s","workflow_run_id":"%s","workflow_run_url":"%s","harness":"claude-code-headless-hetzner-oauth-maxplan"}}' \
+            "$TARGET_REPO" "$TARGET_BRANCH" "$KG_COMMIT_VAL" "$META_COMMIT_VAL" "$RUN_ID_V" "$RUN_URL" > /tmp/annotate.json
           curl -sS -X PATCH \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
@@ -314,30 +282,9 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            export RUN_URL_FOR_PY="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            export RUN_ID_FOR_PY="${{ github.run_id }}"
-            python3 -c "
-            import json, os
-            payload = {
-                'signal_kind': 'other',
-                'source': 'summit_understand_anything_failure',
-                'payload': {
-                    'severity': 'HIGH',
-                    'target_repo': os.environ['TARGET_REPO'],
-                    'dispatch_id': os.environ['DISPATCH_ID'] or None,
-                    'workflow_run_id': os.environ['RUN_ID_FOR_PY'],
-                    'workflow_run_url': os.environ['RUN_URL_FOR_PY']
-                }
-            }
-            with open('/tmp/fail_beacon.json','w') as f: json.dump(payload, f)
-            "
-            curl -sS -X POST \
-              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Content-Type: application/json" \
-              -H "Prefer: return=minimal" \
-              -d "@/tmp/fail_beacon.json" \
-              "$SUPABASE_URL/rest/v1/ci_v65_event_log" || true
+            -d "$(printf '{"signal_kind":"other","source":"summit_understand_anything_failure","payload":{"severity":"HIGH","target_repo":"%s","dispatch_id":%s,"workflow_run_id":"%s","workflow_run_url":"%s"}}' \
+                "$TARGET_REPO" "$([ -n "$DISPATCH_ID" ] && printf '\"%s\"' "$DISPATCH_ID" || printf 'null')" "${{ github.run_id }}" "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")" \
+            "$SUPABASE_URL/rest/v1/ci_v65_event_log" || true
           if [ -n "$DISPATCH_ID" ]; then
             curl -sS -X PATCH \
               -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
