@@ -8,15 +8,26 @@ on:
     workflows: ["*"]
     types: [completed]
 
+concurrency:
+  group: task-lifecycle-global
+  cancel-in-progress: false
+
 jobs:
   lifecycle:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: >
+      github.event_name != 'workflow_run' ||
+      (
+        !contains(github.event.workflow_run.name, 'Task Lifecycle') &&
+        !contains(github.event.workflow_run.name, 'Sentinel') &&
+        !contains(github.event.workflow_run.name, 'Close Stale')
+      )
     steps:
       - name: Task lifecycle engine
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: \${{ secrets.SUPABASE_SERVICE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
