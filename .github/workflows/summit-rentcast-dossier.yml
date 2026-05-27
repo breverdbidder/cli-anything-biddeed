@@ -39,15 +39,15 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
-          CLAUDE_OAUTH_B64: ${{ secrets.CLAUDE_OAUTH_B64 }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_REFRESH_TOKEN: ${{ secrets.CLAUDE_CODE_REFRESH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           DOSSIER_TARGET: ${{ matrix.target }}
           DOSSIER_ID: ${{ github.event.inputs[matrix.dossier_id_var] }}
           SUMMIT_ID: ${{ github.event.inputs.summit_id }}
@@ -57,7 +57,7 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 30s
           command_timeout: 350m
-          envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_OAUTH_B64,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,FIRECRAWL_API_KEY,DEEPSEEK_API_KEY,GEMINI_API_KEY,APIFY_TOKEN,DOSSIER_TARGET,DOSSIER_ID,SUMMIT_ID
+          envs: SUPABASE_URL,SUPABASE_SERVICE_KEY,GH_PAT,CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CODE_REFRESH_TOKEN,TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,FIRECRAWL_API_KEY,DEEPSEEK_API_KEY,GEMINI_API_KEY,DOSSIER_TARGET,DOSSIER_ID,SUMMIT_ID
           script: |
             set -e
             echo "=== [1/5] Setup ==="
@@ -70,14 +70,16 @@ jobs:
             npm install -g playwright 2>&1 | tail -3
             su - claude -c "playwright install chromium" || true
 
-            echo "=== [3/5] Auth ==="
-            echo "$CLAUDE_OAUTH_B64" | base64 -d > /tmp/claude-oauth-token
-            OAUTH_TOKEN=$(cat /tmp/claude-oauth-token)
-            rm -f /tmp/claude-oauth-token
+            echo "=== [3/5] Auth (name-only secrets, no value echoes) ==="
+            test -n "$CLAUDE_CODE_OAUTH_TOKEN"   || { echo "FATAL: CLAUDE_CODE_OAUTH_TOKEN empty";   exit 1; }
+            test -n "$CLAUDE_CODE_REFRESH_TOKEN" || { echo "FATAL: CLAUDE_CODE_REFRESH_TOKEN empty"; exit 1; }
             mkdir -p /home/claude/.claude
-            echo "{\"oauth\":{\"access_token\":\"$OAUTH_TOKEN\"}}" > /home/claude/.claude/credentials.json
+            EXPIRES_MS=$(( $(date +%s) * 1000 + 28800000 ))
+            printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"%s","expiresAt":%s,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}\n' "$CLAUDE_CODE_OAUTH_TOKEN" "$CLAUDE_CODE_REFRESH_TOKEN" "$EXPIRES_MS" > /home/claude/.claude/credentials.json
             chown -R claude:claude /home/claude/.claude
             chmod 600 /home/claude/.claude/credentials.json
+            test -s /home/claude/.claude/credentials.json || { echo "FATAL: credentials.json empty"; exit 1; }
+            echo "credentials.json written ($(wc -c < /home/claude/.claude/credentials.json) bytes, expires in 8h)"
 
             echo "=== [4/5] Repo ==="
             mkdir -p /opt/biddeed
@@ -92,7 +94,7 @@ jobs:
 
             echo "=== [5/5] Claude Code — SUMMIT-E ${DOSSIER_TARGET} ==="
             su - claude -c "
-              export CLAUDE_CODE_OAUTH_TOKEN='$OAUTH_TOKEN'
+              export CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_CODE_OAUTH_TOKEN'
               export SUPABASE_URL='$SUPABASE_URL'
               export SUPABASE_SERVICE_KEY='$SUPABASE_SERVICE_KEY'
               export GH_PAT='$GH_PAT'
@@ -101,7 +103,6 @@ jobs:
               export FIRECRAWL_API_KEY='$FIRECRAWL_API_KEY'
               export DEEPSEEK_API_KEY='$DEEPSEEK_API_KEY'
               export GEMINI_API_KEY='$GEMINI_API_KEY'
-              export APIFY_TOKEN='$APIFY_TOKEN'
               export DOSSIER_TARGET='$DOSSIER_TARGET'
               export DOSSIER_ID='$DOSSIER_ID'
               export SUMMIT_ID='$SUMMIT_ID'
@@ -127,10 +128,10 @@ jobs:
       - name: "Annotate SUMMIT on failure"
         if: failure()
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           curl -sS -X PATCH "${SUPABASE_URL}/rest/v1/summit_chat_dispatch?id=eq.${{ github.event.inputs.summit_id }}" \
-            -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" \
+            -H "apikey: $SUPABASE_SERVICE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
             -H "Content-Type: application/json" -H "Prefer: return=minimal" \
-            -d '{"state":"failed","last_error":"workflow run ${{ github.run_id }} job ${{ matrix.target }} failed"}'
+            -d '{"last_error":"workflow run ${{ github.run_id }} job ${{ matrix.target }} failed"}'
