@@ -135,3 +135,32 @@ jobs:
             -H "apikey: $SUPABASE_SERVICE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
             -H "Content-Type: application/json" -H "Prefer: return=minimal" \
             -d '{"last_error":"workflow run ${{ github.run_id }} job ${{ matrix.target }} failed"}'
+
+
+  gate-rentcast:
+    name: "Output Gate · rentcast"
+    needs: dossier
+    if: ${{ always() }}
+    uses: ./.github/workflows/_ci-output-gate.yml
+    with:
+      dossier_slug: rentcast
+      dossier_date: '2026-05-27'
+      v65_dossier_id: c2c2b95c-0cfc-4d0f-a96c-6f5b0126a668
+      summit_id: ${{ github.event.inputs.summit_id }}
+      min_storage_files: 8
+      gate_mode: warn
+    secrets: inherit
+
+  gate-dealcheck:
+    name: "Output Gate · dealcheck"
+    needs: dossier
+    if: ${{ always() }}
+    uses: ./.github/workflows/_ci-output-gate.yml
+    with:
+      dossier_slug: dealcheck
+      dossier_date: '2026-05-27'
+      v65_dossier_id: d08d32b7-9159-4842-859b-d6bf87d47373
+      summit_id: ${{ github.event.inputs.summit_id }}
+      min_storage_files: 8
+      gate_mode: warn
+    secrets: inherit
