@@ -122,13 +122,22 @@ jobs:
             echo "::error::  6. Re-fire this workflow"
             # Write beacon to ci_v65_event_log
             if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+              # Heredoc-based JSON (env-var-safe; replaces broken `python3 -c "..." VAR=val` pattern)
+              # AUTH_STATUS_ESC: escape any literal " or \ in the auth status string
+              AUTH_STATUS_ESC=$(printf '%s' "$AUTH_STATUS" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read())[1:-1])")
+              DISPATCH_ID_JSON=$([ -n "$DISPATCH_ID" ] && printf '"%s"' "$DISPATCH_ID" || printf 'null')
+              BEACON_PAYLOAD=$(cat <<EOF
+{"signal_kind":"other","source":"summit_understand_anything_auth_gate","payload":{"severity":"BLOCK","reason":"cc_oauth_dead_on_hetzner","target_repo":"$TARGET_REPO","dispatch_id":$DISPATCH_ID_JSON,"auth_status":"$AUTH_STATUS_ESC","workflow_run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}}
+EOF
+)
               curl -sS -X POST \
                 -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
                 -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
                 -H "Content-Type: application/json" \
                 -H "Prefer: return=minimal" \
-                -d "$(python3 -c "import json,os;print(json.dumps({'signal_kind':'other','source':'summit_understand_anything_auth_gate','payload':{'severity':'BLOCK','reason':'cc_oauth_dead_on_hetzner','target_repo':os.environ['TARGET_REPO'],'dispatch_id':os.environ['DISPATCH_ID'] or None,'auth_status':os.environ['AUTH_STATUS']}}))" AUTH_STATUS="$AUTH_STATUS")" \
-                "$SUPABASE_URL/rest/v1/ci_v65_event_log" || true
+                -d "$BEACON_PAYLOAD" \
+                "$SUPABASE_URL/rest/v1/ci_v65_event_log" \
+                -w "beacon http=%{http_code}\n" || true
             fi
             # Annotate dispatch row if provided
             if [ -n "$DISPATCH_ID" ] && [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
@@ -245,24 +254,14 @@ jobs:
 
       - name: Annotate dispatch row on success
         if: success() && env.DISPATCH_ID != ''
+        env:
+          KG_COMMIT_VAL: ${{ env['knowledge-graph.json_COMMIT'] }}
+          META_COMMIT_VAL: ${{ env['meta.json_COMMIT'] }}
         run: |
-          PAYLOAD=$(python3 -c "
-          import json, os
-          print(json.dumps({
-              'state': 'closed',
-              'completed_at': 'now()',
-              'delivery_proof': {
-                  'mode': 'cc_on_hetzner_real_run',
-                  'target_repo': os.environ['TARGET_REPO'],
-                  'target_branch': os.environ['TARGET_BRANCH'],
-                  'kg_commit': os.environ.get('knowledge-graph.json_COMMIT', ''),
-                  'meta_commit': os.environ.get('meta.json_COMMIT', ''),
-                  'workflow_run_id': '${{ github.run_id }}',
-                  'workflow_run_url': 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}',
-                  'harness': 'claude-code-headless-hetzner-oauth-maxplan'
-              }
-          }))
-          ")
+          PAYLOAD=$(cat <<EOF
+{"state":"closed","completed_at":"now()","delivery_proof":{"mode":"cc_on_hetzner_real_run","target_repo":"$TARGET_REPO","target_branch":"$TARGET_BRANCH","kg_commit":"$KG_COMMIT_VAL","meta_commit":"$META_COMMIT_VAL","workflow_run_id":"${{ github.run_id }}","workflow_run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}","harness":"claude-code-headless-hetzner-oauth-maxplan"}}
+EOF
+)
           curl -sS -X PATCH \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
@@ -285,7 +284,10 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            -d "$(python3 -c "import json,os;print(json.dumps({'signal_kind':'other','source':'summit_understand_anything_failure','payload':{'severity':'HIGH','target_repo':os.environ['TARGET_REPO'],'dispatch_id':os.environ['DISPATCH_ID'] or None,'workflow_run_id':'${{ github.run_id }}','workflow_run_url':'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'}}))")" \
+            -d "$(cat <<EOF
+{"signal_kind":"other","source":"summit_understand_anything_failure","payload":{"severity":"HIGH","target_repo":"$TARGET_REPO","dispatch_id":$([ -n "$DISPATCH_ID" ] && printf '"%s"' "$DISPATCH_ID" || printf 'null'),"workflow_run_id":"${{ github.run_id }}","workflow_run_url":"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}}
+EOF
+)" \
             "$SUPABASE_URL/rest/v1/ci_v65_event_log" || true
           if [ -n "$DISPATCH_ID" ]; then
             curl -sS -X PATCH \
