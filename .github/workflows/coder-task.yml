@@ -1,29 +1,32 @@
-name: Coder Task from Issue
+# DEPRECATED 2026-05-28
+#
+# This workflow was the original Coder.com pathway. CODER_URL and CODER_TOKEN
+# secrets were never registered, so every dispatch silently failed.
+#
+# Replaced by .github/workflows/claude-code-action.yml which uses the official
+# anthropics/claude-code-action and the already-configured CLAUDE_CODE_OAUTH_TOKEN
+# secret. No external service registration required.
+#
+# Triggers removed below so this file no longer activates on label events.
+# Manual workflow_dispatch retained for diagnostic purposes only.
+# File kept on disk as a tombstone for historical traceability; remove after
+# confirming the new workflow is stable.
+
+name: Coder Task (DEPRECATED)
+
 on:
-  issues:
-    types: [labeled]
+  workflow_dispatch: {}
+
 permissions:
-  issues: write
+  issues: read
+
 jobs:
-  coder-create-task:
+  deprecated-notice:
     runs-on: ubuntu-latest
-    if: github.event.label.name == 'coder'
     steps:
-      - name: Create Coder Task
-        uses: coder/create-task-action@v0.0.5
-        with:
-          coder-url: ${{ secrets.CODER_URL }}
-          coder-token: ${{ secrets.CODER_TOKEN }}
-          coder-organization: "default"
-          coder-template-name: "biddeed-claude-code"
-          coder-task-name-prefix: "gh-task"
-          coder-task-prompt: |
-            Read the GitHub issue at ${{ github.event.issue.html_url }} using gh CLI.
-            Follow CLAUDE.md directives. Load TODO.md if present.
-            Read docs/plans/COUNTY-EXPANSION-CLAUDE.md for the full 5-phase pipeline.
-            Execute Phase 1-5 autonomously. Commit frequently.
-            Open a PR with summary of changes. Do NOT wait for feedback.
-          github-user-id: ${{ github.event.sender.id }}
-          github-issue-url: ${{ github.event.issue.html_url }}
-          github-token: ${{ github.token }}
-          comment-on-issue: true
+      - name: Print deprecation notice
+        run: |
+          echo "::warning::coder-task.yml is deprecated. Use claude-code-action.yml instead."
+          echo "Original Coder.com pathway never had CODER_URL/CODER_TOKEN secrets registered."
+          echo "Replacement: anthropics/claude-code-action with CLAUDE_CODE_OAUTH_TOKEN."
+          exit 0
