@@ -1,4 +1,4 @@
-name: SUMMIT - File Writer (gz+b64 -> repo)
+name: SUMMIT - File Writer (plain b64 -> repo)
 
 on:
   workflow_dispatch:
@@ -50,22 +50,27 @@ jobs:
           path: repo
           fetch-depth: 1
 
-      - name: Write files (base64 -> gunzip)
+      - name: Write files (plain base64 + md5 verify)
         working-directory: repo
         run: |
           set -eo pipefail
-          { 
+          {
             COUNT=$(jq '.files | length' /tmp/summit/inputs.json)
             echo "writing $COUNT file(s)"
             for i in $(seq 0 $((COUNT-1))); do
               P=$(jq -r ".files[$i].path" /tmp/summit/inputs.json)
+              EXPECT=$(jq -r ".files[$i].md5 // \"\"" /tmp/summit/inputs.json)
               mkdir -p "$(dirname "$P")"
-              jq -r ".files[$i].gz_b64" /tmp/summit/inputs.json > "/tmp/b64_$i.txt"
-              echo "  [$i] path=$P b64_bytes=$(wc -c < /tmp/b64_$i.txt)"
-              base64 -d "/tmp/b64_$i.txt" > "/tmp/gz_$i.bin"
-              echo "  [$i] gz_bytes=$(wc -c < /tmp/gz_$i.bin)"
-              gunzip -c "/tmp/gz_$i.bin" > "$P"
-              echo "  [$i] wrote $P html_bytes=$(wc -c < "$P")"
+              # plain base64; strip any whitespace before decode (newline-tolerant)
+              jq -r ".files[$i].b64" /tmp/summit/inputs.json | tr -d '[:space:]' > "/tmp/b64_$i.txt"
+              echo "  [$i] path=$P b64_chars=$(wc -c < /tmp/b64_$i.txt)"
+              base64 -d "/tmp/b64_$i.txt" > "$P"
+              GOT=$(md5sum "$P" | cut -d' ' -f1)
+              echo "  [$i] wrote $P html_bytes=$(wc -c < "$P") md5=$GOT expect=$EXPECT"
+              if [ -n "$EXPECT" ] && [ "$GOT" != "$EXPECT" ]; then
+                echo "  [$i] MD5 MISMATCH — aborting, will not commit corrupt content"
+                exit 1
+              fi
             done
           } 2>&1 | tee /tmp/step5.log
 
