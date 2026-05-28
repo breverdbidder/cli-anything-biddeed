@@ -1,14 +1,14 @@
 name: Claude Code
 
-# Replaces coder-task.yml (deprecated; Coder secrets were never registered).
-# Triggered by:
-#   - Issue labeled with 'claude-code' OR 'coder' (backward-compat)
-#   - New issue body containing '@claude'
-#   - Issue / PR-review comment containing '@claude'
-#   - Manual workflow_dispatch with an issue_number input
+# v2 (2026-05-28 fix):
+#   - Switched auth from claude_code_oauth_token to anthropic_api_key
+#     (OAuth token in CLAUDE_CODE_OAUTH_TOKEN was returning 401 Invalid creds;
+#      refresh required — when refreshed, swap the auth line back).
+#   - Corrected 'prompt:' to 'direct_prompt:' (correct parameter name per
+#     anthropics/claude-code-action@beta's actual input list).
 #
-# Uses Anthropic's official action. Authenticates via the
-# CLAUDE_CODE_OAUTH_TOKEN secret already present in the repo.
+# Cost note: anthropic_api_key uses metered billing, NOT Max-plan unlimited.
+# Refresh CLAUDE_CODE_OAUTH_TOKEN ASAP to switch back to Max-plan auth.
 
 on:
   issues:
@@ -58,18 +58,17 @@ jobs:
       - name: Run Claude Code
         uses: anthropics/claude-code-action@beta
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            Read this GitHub issue (#${{ github.event.issue.number || github.event.inputs.issue_number }}) using the gh CLI.
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            Process the GitHub issue that triggered this workflow.
 
             Workflow:
-            1. Read CLAUDE.md for autonomous-scope directives.
-            2. Load TODO.md if present.
-            3. Read docs/plans/COUNTY-EXPANSION-CLAUDE.md if the task involves county expansion.
-            4. Execute the work end-to-end. Commit frequently with descriptive messages.
-            5. Run any available tests. If tests pass, push to a new branch.
-            6. Open a PR with a summary of changes. Link it back to the originating issue.
-            7. Do NOT wait for human feedback during the run. Do NOT ask permission for actions covered by CLAUDE.md autonomous-scope rules.
+            1. Read CLAUDE.md for autonomous-scope directives. Read TODO.md if present.
+            2. If the task involves county expansion, read docs/plans/COUNTY-EXPANSION-CLAUDE.md.
+            3. Execute the work end-to-end. Commit frequently with descriptive messages.
+            4. Run any available tests. Push to a new branch.
+            5. Open a PR with a summary of changes. Link it back to the originating issue.
+            6. Do NOT wait for human feedback. Do NOT ask permission for actions covered by CLAUDE.md autonomous-scope rules.
 
             If you hit a true blocker after 3 retry attempts, comment on the issue with:
             "BLOCKED: <issue>. Tried: <attempts>. Recommend: <solution>. Approve?"
