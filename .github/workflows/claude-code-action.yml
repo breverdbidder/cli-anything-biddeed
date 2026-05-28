@@ -1,0 +1,75 @@
+name: Claude Code
+
+# Replaces coder-task.yml (deprecated; Coder secrets were never registered).
+# Triggered by:
+#   - Issue labeled with 'claude-code' OR 'coder' (backward-compat)
+#   - New issue body containing '@claude'
+#   - Issue / PR-review comment containing '@claude'
+#   - Manual workflow_dispatch with an issue_number input
+#
+# Uses Anthropic's official action. Authenticates via the
+# CLAUDE_CODE_OAUTH_TOKEN secret already present in the repo.
+
+on:
+  issues:
+    types: [labeled, opened]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process manually'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: claude-code-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  claude-code:
+    if: |
+      (github.event_name == 'issues' && (
+        (github.event.action == 'labeled' && (github.event.label.name == 'claude-code' || github.event.label.name == 'coder')) ||
+        (github.event.action == 'opened' && contains(github.event.issue.body, '@claude'))
+      )) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'workflow_dispatch')
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Read this GitHub issue (#${{ github.event.issue.number || github.event.inputs.issue_number }}) using the gh CLI.
+
+            Workflow:
+            1. Read CLAUDE.md for autonomous-scope directives.
+            2. Load TODO.md if present.
+            3. Read docs/plans/COUNTY-EXPANSION-CLAUDE.md if the task involves county expansion.
+            4. Execute the work end-to-end. Commit frequently with descriptive messages.
+            5. Run any available tests. If tests pass, push to a new branch.
+            6. Open a PR with a summary of changes. Link it back to the originating issue.
+            7. Do NOT wait for human feedback during the run. Do NOT ask permission for actions covered by CLAUDE.md autonomous-scope rules.
+
+            If you hit a true blocker after 3 retry attempts, comment on the issue with:
+            "BLOCKED: <issue>. Tried: <attempts>. Recommend: <solution>. Approve?"
