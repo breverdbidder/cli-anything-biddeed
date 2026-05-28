@@ -53,15 +53,21 @@ jobs:
       - name: Write files (base64 -> gunzip)
         working-directory: repo
         run: |
-          set -e
-          COUNT=$(jq '.files | length' /tmp/summit/inputs.json)
-          echo "writing $COUNT file(s)"
-          for i in $(seq 0 $((COUNT-1))); do
-            P=$(jq -r ".files[$i].path" /tmp/summit/inputs.json)
-            mkdir -p "$(dirname "$P")"
-            jq -r ".files[$i].gz_b64" /tmp/summit/inputs.json | base64 -d | gunzip > "$P"
-            echo "wrote $P ($(wc -c < "$P") bytes)"
-          done
+          set -eo pipefail
+          { 
+            COUNT=$(jq '.files | length' /tmp/summit/inputs.json)
+            echo "writing $COUNT file(s)"
+            for i in $(seq 0 $((COUNT-1))); do
+              P=$(jq -r ".files[$i].path" /tmp/summit/inputs.json)
+              mkdir -p "$(dirname "$P")"
+              jq -r ".files[$i].gz_b64" /tmp/summit/inputs.json > "/tmp/b64_$i.txt"
+              echo "  [$i] path=$P b64_bytes=$(wc -c < /tmp/b64_$i.txt)"
+              base64 -d "/tmp/b64_$i.txt" > "/tmp/gz_$i.bin"
+              echo "  [$i] gz_bytes=$(wc -c < /tmp/gz_$i.bin)"
+              gunzip -c "/tmp/gz_$i.bin" > "$P"
+              echo "  [$i] wrote $P html_bytes=$(wc -c < "$P")"
+            done
+          } 2>&1 | tee /tmp/step5.log
 
       - name: Commit + push to main
         working-directory: repo
@@ -91,8 +97,9 @@ jobs:
       - name: SUMMIT failed
         if: failure()
         run: |
+          ERR=$(tail -c 800 /tmp/step5.log 2>/dev/null | tr -d '\r' | jq -Rsa . || echo '"no step5 log"')
           curl -fsS -X PATCH \
             "$SUPA_URL/rest/v1/summit_chat_dispatch?id=eq.$SUMMIT_ID" \
             -H "apikey: $SUPA_SR" -H "Authorization: Bearer $SUPA_SR" \
             -H "Content-Type: application/json" -H "Prefer: return=minimal" \
-            -d "{\"state\":\"failed\",\"last_error\":\"run $GITHUB_RUN_ID failed - see $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"failed\",\"last_error\":$ERR}"
