@@ -1,0 +1,27 @@
+name: cc auth probe
+on: { workflow_dispatch: {} }
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: probe
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set +e
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          $SSH 'bash -s' <<"EOF" | sed -E 's/=([^=<][^=]*)$/=<set>/'
+          echo "HEALTH3001=$(curl -sS -o /dev/null -w '%{http_code}' -m 6 http://127.0.0.1:3001)"
+          echo "--- env keys (values redacted) ---"
+          sed -E 's/=.*/=<set>/' /opt/claudecodeui/.env 2>/dev/null || echo "no .env"
+          echo "--- auth status route ---"
+          echo "AUTHSTATUS_CODE=$(curl -sS -o /dev/null -w '%{http_code}' -m 6 http://127.0.0.1:3001/api/auth/status)"
+          echo -n "AUTHSTATUS_BODY="; curl -sS -m 6 http://127.0.0.1:3001/api/auth/status; echo
+          echo "--- db / users ---"
+          find /opt/claudecodeui -maxdepth 5 -name '*.db' 2>/dev/null | head -5
+          echo "END"
+          EOF
