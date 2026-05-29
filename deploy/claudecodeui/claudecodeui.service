@@ -1,0 +1,22 @@
+[Unit]
+Description=claudecodeui (CloudCLI) — Claude Code phone dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as the SAME user whose Claude Code sessions you want to see (must own ~/.claude).
+User=%i
+WorkingDirectory=/opt/claudecodeui
+EnvironmentFile=/opt/claudecodeui/.env
+# Ensure the claude CLI is reachable; adjust PATH if you use nvm.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/root/.local/bin
+ExecStart=/usr/bin/npm run server
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
