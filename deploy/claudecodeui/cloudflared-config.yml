@@ -1,0 +1,13 @@
+# cloudflared config — gives your phone an HTTPS URL to localhost:3001 with NO open inbound ports.
+# Place at /etc/cloudflared/config.yml after `cloudflared tunnel create cc-dashboard`.
+#
+# Why cloudflared: web push + "Add to Home Screen" PWA both REQUIRE https://.
+# A plain http://ip:3001 works on your LAN but breaks push and PWA install.
+
+tunnel: cc-dashboard
+credentials-file: /root/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: cc.yourdomain.com      # CNAME this to <TUNNEL_UUID>.cfargotunnel.com
+    service: http://127.0.0.1:3001
+  - service: http_status:404
