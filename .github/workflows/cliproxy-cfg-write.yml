@@ -1,0 +1,28 @@
+name: cliproxy cfg write
+on:
+  workflow_dispatch: {}
+jobs:
+  w:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: write gemini key
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          SVC: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set +e
+          SB_URL="https://mocerqjnksmhcjzxrewo.supabase.co"
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          KEY=$(curl -s -X POST "$SB_URL/rest/v1/rpc/get_router_gemini_key" -H "apikey: $SVC" -H "Authorization: Bearer $SVC" -H "Content-Type: application/json" -d '{}' | tr -d '"')
+          if [ ${#KEY} -lt 20 ]; then echo "ERR key fetch failed len=${#KEY}"; exit 1; fi
+          echo "key ok prefix ${KEY:0:6} len ${#KEY}"
+          echo "IyEvdXNyL2Jpbi9lbnYgYmFzaApzZXQgLWUKZXhwb3J0IEdLRVkKaWYgISBjb21tYW5kIC12IHlxID4vZGV2L251bGwgMj4mMTsgdGhlbgogIGN1cmwgLWZzU0wgaHR0cHM6Ly9naXRodWIuY29tL21pa2VmYXJhaC95cS9yZWxlYXNlcy9sYXRlc3QvZG93bmxvYWQveXFfbGludXhfYW1kNjQgLW8gL3Vzci9sb2NhbC9iaW4veXEKICBjaG1vZCAreCAvdXNyL2xvY2FsL2Jpbi95cQpmaQpkb2NrZXIgZXhlYyBiaWRkZWVkLWNsaXByb3h5IGNhdCAvZGF0YS9jb25maWcueWFtbCA+IC90bXAvY3BfY2ZnLnlhbWwKY3AgL3RtcC9jcF9jZmcueWFtbCAiL3RtcC9jcF9jZmcuYmFrLiQoZGF0ZSArJXMpIgp5cSAtaSAnLlsiZ2VtaW5pLWFwaS1rZXkiXVswXS5hcGkta2V5ID0gc3RyZW52KEdLRVkpJyAvdG1wL2NwX2NmZy55YW1sCmRvY2tlciBjcCAvdG1wL2NwX2NmZy55YW1sIGJpZGRlZWQtY2xpcHJveHk6L2RhdGEvY29uZmlnLnlhbWwKZG9ja2VyIHJlc3RhcnQgYmlkZGVlZC1jbGlwcm94eSA+L2Rldi9udWxsCnNsZWVwIDcKZWNobyAiY29udGFpbmVyOiAkKGRvY2tlciBpbnNwZWN0IC1mICd7ey5TdGF0ZS5TdGF0dXN9fScgYmlkZGVlZC1jbGlwcm94eSkiCmN1cmwgLXNTIC1vIC9kZXYvbnVsbCAtdyAiR0VUIC86ICV7aHR0cF9jb2RlfVxuIiAtbSA4IGh0dHA6Ly8xMjcuMC4wLjE6ODMxNy8K" | base64 -d > /tmp/remote.sh
+          $SSH "GKEY='$KEY' bash -s" < /tmp/remote.sh
+          echo "=== verify gemini route (alias gemini-flash) ==="
+          $SSH "curl -sS -X POST -H 'Content-Type: application/json' -H 'x-api-key: dummy' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"gemini-flash\",\"max_tokens\":20,\"messages\":[{\"role\":\"user\",\"content\":\"reply only ROUTE_OK\"}]}' -m 40 http://127.0.0.1:8317/v1/messages" | head -c 800
+          echo
+          echo "=== done ==="
