@@ -1,0 +1,65 @@
+name: cc brevard cal10
+on: { workflow_dispatch: {} }
+jobs:
+  b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: hardened 10-district parallel brevard calibration
+        shell: bash
+        env:
+          HETZNER_IP: ${{ secrets.HETZNER_IP }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set +e
+          mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
+          $SSH 'bash -s' <<"REMOTE"
+          rm -f /home/claude/p_*.txt /home/claude/out_*.json
+          cat > /home/claude/base_prompt.txt <<'PROMPT'
+          You are extracting the maximum permitted residential density for ONE Florida zoning district, working strictly from the PRIMARY municipal code. Be rigorous; never guess.
+
+          District: county=Brevard, jurisdiction=City of __JURIS__, zone_code=__ZONE__, district_name=__NAME__.
+
+          STEP 1 - Find the PRIMARY source. WebSearch for the City of __JURIS__ Florida land development / zoning code section defining the __ZONE__ district. Strongly prefer the official codified host: library.municode.com, ecode360.com, amlegal.com, or the city .gov site. DO NOT base an answer on aggregator/SEO sites (zoneomics, ordinance.com, zillow, etc.); if those are all you find, keep searching for the real code, and if you still cannot reach it return basis=review.
+          STEP 2 - WebFetch the actual code section and READ the dimensional/density regulations for __ZONE__. Fetch more than one page if needed to reach the regulation text.
+          STEP 3 - Decide basis EXACTLY:
+            - stated_max_density: ONLY if the code literally states a maximum density in dwelling units per acre. Put the number in density_du_acre and quote the sentence.
+            - lot_governed: if intensity is set by a MINIMUM LOT SIZE / minimum lot area / lot width / dimensional standards but NO units-per-acre figure (most single-family districts). density_du_acre=null; quote the minimum-lot-size sentence.
+            - not_stated: ONLY if the code truly states no maximum density AND no minimum lot/dimensional standard for this district (e.g., a PUD with negotiated density and no cap). density_du_acre=null.
+            - review: if you cannot reach the primary code text. density_du_acre=null.
+          NEVER derive a du/acre number from a lot size. NEVER use an aggregator number.
+
+          Output ONLY one line of JSON, nothing else:
+          {"district_id":__ID__,"zone":"__ZONE__","basis":"stated_max_density|lot_governed|not_stated|review","density_du_acre":null,"quote":"verbatim sentence from primary code","citation":"section","source_url":"primary code url fetched"}
+          PROMPT
+          cat > /home/claude/districts.txt <<'DLIST'
+          1655|Indian Harbour Beach|R-1AA|Single-Family Residential District
+          1332|Melbourne|R-1AAA|Single-Family Residential (12,000 sf)
+          1607|Cocoa|RU-1-7|Single-Family Residential District
+          1460|Indialantic|R-1B|Single-Family Medium Density
+          1430|Rockledge|R-1A|Single-Family Small Lot
+          1712|Titusville|R-1AAA|Single Family Residential
+          1608|Titusville|R-1B|Single-Family Medium Density (7,500 sf)
+          1398|Cocoa|PUD|Planned Unit Development District
+          1379|Titusville|R-1A|Single-Family Low Density (10,000 sf)
+          1377|Titusville|RE|Residential Estate (1 acre)
+          DLIST
+          chown claude:claude /home/claude/base_prompt.txt /home/claude/districts.txt
+          while IFS='|' read -r ID J Z N; do
+            [ -z "$ID" ] && continue
+            sed -e "s|__ID__|$ID|g" -e "s|__JURIS__|$J|g" -e "s|__ZONE__|$Z|g" -e "s|__NAME__|$N|g" /home/claude/base_prompt.txt > /home/claude/p_$ID.txt
+            chown claude:claude /home/claude/p_$ID.txt
+            su - claude -c "timeout 240 claude -p \"\$(cat /home/claude/p_$ID.txt)\" --allowedTools WebSearch WebFetch --output-format text > /home/claude/out_$ID.json 2>&1" &
+            sleep 2
+          done < /home/claude/districts.txt
+          echo "launched $(jobs -p | wc -l) agents; waiting..."
+          wait
+          echo "=== RESULTS ==="
+          while IFS='|' read -r ID J Z N; do
+            [ -z "$ID" ] && continue
+            echo "----DID $ID $J $Z----"
+            grep -m1 '^{' /home/claude/out_$ID.json 2>/dev/null || { echo "NO_JSON:"; tail -2 /home/claude/out_$ID.json 2>/dev/null | tr '\n' ' '; echo; }
+          done < /home/claude/districts.txt
+          echo "=== END ==="
+          REMOTE
