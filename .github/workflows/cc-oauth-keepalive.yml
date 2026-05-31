@@ -15,7 +15,7 @@ jobs:
           set +e
           mkdir -p ~/.ssh && echo "$HETZNER_SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
           SSH="ssh -i ~/.ssh/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes root@${HETZNER_IP}"
-          RAW=$($SSH 'timeout 60 claude -p "Reply with exactly the single word: PONG" --output-format text 2>&1; echo "RC=$?"')
+          RAW=$($SSH 'su - claude -c "timeout 60 claude -p \"Reply with exactly the single word: PONG\" --output-format text 2>&1"; echo "RC=$?"')
           echo "----- raw -----"; echo "$RAW"; echo "---------------"
           RC=$(printf '%s' "$RAW" | grep -o 'RC=[0-9]*' | tail -1 | cut -d= -f2)
           DET=$(printf '%s' "$RAW" | tr -d '\r' | sed -E 's/sk-ant-[A-Za-z0-9_-]+/sk-ant-***/g' | tr '\n' ' ' | tail -c 350)
