@@ -143,6 +143,8 @@ jobs:
               return items
 
           ok = err = creds = total_aids = 0
+          total_aids_inserted = 0
+          insertion_errors = []
           for it in ITEMS:
               mca = it.get('mca_id'); url = it.get('url')
               county = it.get('county'); case = it.get('case_number')
@@ -189,9 +191,16 @@ jobs:
                               'source_run_id': int(RUN) if RUN and RUN.isdigit() else None,
                           })
                       try:
-                          httpx.post(f'{SB}/rest/v1/realforeclose_aids?on_conflict=aid',
+                          aids_resp = httpx.post(f'{SB}/rest/v1/realforeclose_aids?on_conflict=aid',
                               headers=HU, json=payload, timeout=30.0)
-                      except Exception: pass
+                          if aids_resp.status_code in (200, 201, 204):
+                              total_aids_inserted += len(payload)
+                          else:
+                              msg = f'aids INSERT FAILED {case}: HTTP {aids_resp.status_code}: {aids_resp.text[:300]}'
+                              insertion_errors.append(msg); print(msg)
+                      except Exception as e:
+                          msg = f'aids INSERT EXCEPTION {case}: {e}'
+                          insertion_errors.append(msg); print(msg)
 
                   if cr_id:
                       httpx.patch(f'{SB}/rest/v1/court_responses_raw?id=eq.{cr_id}', headers=H,
@@ -220,5 +229,9 @@ jobs:
                         'stage': f'court_scraper_v2_{LBL}'}, timeout=20.0)
           except Exception: pass
 
-          print(f'BATCH DONE v2: ok={ok} err={err} creds={creds} aids_harvested={total_aids} cost=${creds*0.003:.4f} run_id={RUN}')
+          print(f'BATCH DONE v2: ok={ok} err={err} creds={creds} aids_harvested={total_aids} aids_inserted={total_aids_inserted} cost=${creds*0.003:.4f} run_id={RUN}')
+          if total_aids > 0 and total_aids_inserted == 0:
+              print(f'SILENT FAILURE DETECTED: {total_aids} aids parsed, 0 inserted. Errors:')
+              for m in insertion_errors[:20]: print('  -', m)
+              raise RuntimeError(f'Silent failure: {total_aids} aids parsed but 0 inserted into realforeclose_aids')
           PYEOF
