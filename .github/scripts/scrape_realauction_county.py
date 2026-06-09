@@ -198,6 +198,7 @@ try:
     print(f'\n=== {len(all_cards)} cards / {len(page_stats)} pages / canon={canon_counts} ===')
 
     upserted = 0
+    upsert_errors = []
     for c in all_cards:
         try:
             c.pop('_canon', None)
@@ -206,7 +207,12 @@ try:
             rpc('tier1_card_upsert_rpc', {'p': payload})
             upserted += 1
         except Exception as e:
-            if upserted < 3: print(f'  ! {c.get("parcel_id_text")}: {e}')
+            upsert_errors.append(f'{c.get("parcel_id_text")}: {e}')
+            if len(upsert_errors) <= 3: print(f'  ! {c.get("parcel_id_text")}: {e}')
+
+    # FAIL-LOUD (PENCIL incident 01): parsed>0 but inserted=0 must never be "success"
+    if len(all_cards) > 0 and upserted == 0:
+        raise RuntimeError(f'Silent failure: {len(all_cards)} cards parsed, 0 upserted. Errors: ' + ' || '.join(upsert_errors[:5]))
 
     summary = {
         'parser':           'v1.0_realauction_county',
