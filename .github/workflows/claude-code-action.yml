@@ -1,5 +1,8 @@
 name: Claude Code
 
+# v4 (2026-06-09): mode fix — workflow_dispatch events require 'agent' mode
+# (tag mode only handles issue/comment events; dispatch lane was structurally
+# broken since v3 regardless of token validity). OAuth-only auth unchanged.
 # v3 (2026-05-28): OAuth-only auth restored.
 # Previous v2 used anthropic_api_key which violated Max-plan-only architecture.
 # This file will return 401 until CLAUDE_CODE_OAUTH_TOKEN is refreshed
@@ -56,6 +59,7 @@ jobs:
       - name: Run Claude Code
         uses: anthropics/claude-code-action@beta
         with:
+          mode: ${{ github.event_name == 'workflow_dispatch' && 'agent' || 'tag' }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           direct_prompt: |
             Process the GitHub issue that triggered this workflow.
