@@ -41,7 +41,7 @@ batches:
 
 # [name, slug]  slug from fl_county_xref seed where known, else null.
 counties:
-  11: [Alachua, null]
+  11: [Alachua, alachua]
   12: [Baker, null]
   13: [Bay, null]
   14: [Bradford, null]
@@ -60,8 +60,8 @@ counties:
   27: [Escambia, null]
   28: [Flagler, null]
   29: [Franklin, null]
-  30: [Gadsden, null]
-  31: [Gilchrist, null]
+  30: [Gadsden, gadsden]
+  31: [Gilchrist, gilchrist]
   32: [Glades, null]
   33: [Gulf, null]
   34: [Hamilton, null]
@@ -74,7 +74,7 @@ counties:
   41: [Indian River, null]
   42: [Jackson, null]
   43: [Jefferson, null]
-  44: [Lafayette, null]
+  44: [Lafayette, lafayette]
   45: [Lake, null]
   46: [Lee, null]
   47: [Leon, null]
@@ -105,6 +105,6 @@ counties:
   72: [Taylor, null]
   73: [Union, null]
   74: [Volusia, volusia]
-  75: [Wakulla, null]
-  76: [Walton, null]
+  75: [Wakulla, wakulla]
+  76: [Walton, walton]
   77: [Washington, null]
