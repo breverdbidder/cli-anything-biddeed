@@ -176,7 +176,7 @@ def run_verified_outcomes_scraping(counties: list) -> dict:
     # This is where we'd implement county-specific clerk scrapers
     # For now, let's set up the framework and identify the endpoints
     
-    result = run_script('scrape_verified_outcomes.py', ['--shard', '8'] + counties)
+    result = run_script('scrape_verified_outcomes_shard8.py', ['--all-counties'])
     
     if result['success']:
         logger.info("✅ Verified outcomes scraping framework set up")
@@ -193,7 +193,7 @@ def run_property_card_enrichment(counties: list) -> dict:
     logger.info("=" * 60)
     
     args = ['--counties'] + counties
-    result = run_script('enrich_property_cards.py', args)
+    result = run_script('enrich_property_cards_shard8.py', ['--all-counties'])
     
     if result['success']:
         logger.info("✅ Property card enrichment completed")
@@ -264,7 +264,7 @@ def run_deal_thesis_pipeline(counties: list) -> dict:
     logger.info("=" * 60)
     
     args = ['--counties'] + counties
-    result = run_script('enable_deal_thesis_pipeline.py', args)
+    result = run_script('enable_deal_thesis_shard8.py', ['--all-counties'])
     
     if result['success']:
         logger.info("✅ Deal thesis pipeline completed")
