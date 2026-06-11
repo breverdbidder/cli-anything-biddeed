@@ -90,9 +90,13 @@ COUNTY_SOURCES = {
     'seminole':     ('realforeclose', 'https://seminole.realforeclose.com'),
     'st_johns':     ('realforeclose', 'https://stjohns.realforeclose.com'),
     'st_lucie':     ('realforeclose', 'https://stlucie.realforeclose.com'),
+    'suwannee':     ('realforeclose', 'https://suwannee.realforeclose.com'),
     'volusia':      ('realforeclose', 'https://volusia.realforeclose.com'),
     'walton':       ('realforeclose', 'https://walton.realforeclose.com'),
     'washington':   ('custom_clerk', 'https://www.washingtonclerk.com/foreclosure'),
+    # SHARD-7 additions for Gold Standard campaign
+    'columbia':     ('realforeclose', 'https://columbia.realforeclose.com'),
+    'madison':      ('realforeclose', 'https://madison.realforeclose.com'),
 }
 
 HEADERS = {
