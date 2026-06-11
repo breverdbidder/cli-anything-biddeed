@@ -87,12 +87,12 @@ def session_init():
         hdrs={"Content-Type": "application/x-www-form-urlencoded",
               "Referer": BASE + "/AcclaimWeb/"})
 
-def month_rows(y, m):
+def month_rows(y, m, doc_value="79", doc_label="CERTIFICATE OF TITLE (CT)"):
     last = calendar.monthrange(y, m)[1]
     payload = urllib.parse.urlencode({
-        "DocTypes": "79",
-        "DocTypesDisplay-input": "CERTIFICATE OF TITLE (CT)",
-        "DocTypesDisplay": "CERTIFICATE OF TITLE (CT)",
+        "DocTypes": doc_value,
+        "DocTypesDisplay-input": doc_label,
+        "DocTypesDisplay": doc_label,
         "DateRangeList": " ",
         "RecordDateFrom": f"{m}/1/{y}",
         "RecordDateTo": f"{m}/{last}/{y}",
@@ -181,7 +181,24 @@ if __name__ == "__main__":
                  "rows_written": len(pub),
                  "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                  "note": "gha scrape-brevard-acclaim-ct"}])
-            print(f"{month}: total={total} written={len(pub)}")
+            print(f"{month}: CT total={total} written={len(pub)}")
+            # --- TRTAX pass: recorded tax deeds -> buyer names (pipeline.brevard_trtax_deeds)
+            trows, ttotal = month_rows(y, m, "145", "TAX DEED (TRTAX)")
+            trecs = []
+            for r in trows:
+                tms = int(re.search(r"-?\d+", r["RecordDate"]).group())
+                trecs.append({
+                    "instrument": str(r.get("InstrumentNumber") or ""),
+                    "rec_date": dt.datetime.fromtimestamp(tms / 1000, dt.timezone.utc).date().isoformat(),
+                    "buyer": (r.get("IndirectName") or "").strip(),
+                    "grantor": (r.get("DirectName") or "").strip(),
+                    "consideration": r.get("Consideration"),
+                    "legal": (r.get("DocLegalDescription") or "")[:200],
+                    "case_number": (r.get("CaseNumber") or "").strip(),
+                })
+            if trecs:
+                sb_pipeline("brevard_trtax_deeds", trecs)
+            print(f"{month}: TRTAX total={ttotal} written={len(trecs)}")
         except Exception as e:
             failures += 1
             print(f"{month}: ERROR {e}", file=sys.stderr)
