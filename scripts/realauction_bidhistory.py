@@ -137,9 +137,19 @@ if __name__ == "__main__":
     date_mdY = d.strftime("%m/%d/%Y")
     login()
     html = results_page(date_mdY)
+    # DISCOVERY: persist raw authenticated HTML so it is inspectable over MCP
+    # (runner logs are not readable from the architect side). Stored truncated.
+    try:
+        rpc("upsert_live_auction_events", [{
+            "county_slug": "brevard", "sale_type": SALE_TYPE,
+            "auction_date": d.isoformat(), "event_type": "_discovery_dump",
+            "payload_text": (html or "")[:50000],
+            "event_ts": dt.datetime.now(dt.timezone.utc).isoformat()}])
+    except Exception as e:
+        print(f"discovery dump skipped: {e}", file=sys.stderr)
     # split into per-lot blocks on the "Auction Sold/Closed" card boundary
     blocks = re.split(r"Auction (?:Sold|Closed|Canceled)", html)
-    print(f"blocks: {len(blocks)-1}")
+    print(f"blocks: {len(blocks)-1} | html_len={len(html or '')}")
     all_bids, identities, events, lots = [], [], [], 0
     for blk in blocks[1:]:
         lot = parse_lot(blk, d.isoformat())
