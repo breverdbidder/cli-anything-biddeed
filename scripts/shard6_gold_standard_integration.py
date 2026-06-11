@@ -142,27 +142,18 @@ def run_property_enrichment(counties: list) -> dict:
     return result
 
 def run_deal_thesis_pipeline(counties: list) -> dict:
-    """Run Letter J: Deal thesis pipeline (adapted for SHARD-6)"""
+    """Run Letter J: Deal thesis pipeline (SHARD-6 Shapira Formula)"""
     
     logger.info("=" * 60)
     logger.info("PHASE 4: Letter J - Deal Thesis Pipeline (Shapira Formula)")
     logger.info("=" * 60)
     
-    # Create adapted version of deal thesis script for SHARD-6 counties
-    # For now, log that this needs to be implemented
+    if len(counties) == 1:
+        args = ['--county', counties[0]]
+    else:
+        args = ['--all-counties']
     
-    logger.info("Creating SHARD-6 deal thesis pipeline...")
-    
-    # Placeholder result - would implement actual deal thesis pipeline
-    result = {
-        'script': 'shard6_deal_thesis_pipeline.py',
-        'args': counties,
-        'success': True,  # Placeholder
-        'elapsed_seconds': 1.0,
-        'stdout': 'Deal thesis pipeline placeholder - implementation needed',
-        'stderr': '',
-        'returncode': 0
-    }
+    result = run_script('shard6_deal_thesis_pipeline.py', args)
     
     if result['success']:
         logger.info("✅ Deal thesis pipeline completed")
