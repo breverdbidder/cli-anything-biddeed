@@ -83,6 +83,16 @@ def login():
     req("/index.cfm")  # seed session
     resp = req("/index.cfm", data={"ZACTION": "AJAX", "ZMETHOD": "LOGIN", "func": "LOGIN",
                                    "USERNAME": EMAIL, "USERPASS": PW})
+    # Observability: persist auth outcome (NEVER the credentials) so the architect
+    # side can see what RealAuction returned. Truncated, secrets-free.
+    try:
+        rpc("upsert_live_auction_events", [{
+            "county_slug": "brevard", "sale_type": SALE_TYPE,
+            "auction_date": dt.date.today().isoformat(), "event_type": "_login_probe",
+            "payload_text": f"host={HOST} resp_head={(resp or '')[:1500]}",
+            "event_ts": dt.datetime.now(dt.timezone.utc).isoformat()}])
+    except Exception:
+        pass
     try:
         ok = json.loads(resp).get("isOk", "").upper() == "YES"
     except Exception:
