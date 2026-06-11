@@ -1,165 +1,116 @@
 #!/usr/bin/env python3
-"""Brevard RealAuction authenticated bid-history engine -> the moat.
+"""Brevard RealAuction bid-history via Firecrawl actions (clean-IP bypass).
 
-Login decoded 2026-06-11 (Summit session). RealAuction auth is a plain JSON POST
-(no Playwright):
-  POST /index.cfm  ZACTION=AJAX ZMETHOD=LOGIN func=LOGIN USERNAME=.. USERPASS=..
-  -> {"isOk":"YES"} + session cookie
+WHY FIRECRAWL: RealForeclose/RealTaxDeed 403 cloud IPs (GitHub runners included).
+Proven in prior sessions. The working bypass = the active scraping_proxy_backend
+= Firecrawl (residential IPs + JS render + scriptable actions). Drives the SAME
+login flow that worked historically (#LogName/#LogPass + #LogButton) through
+Firecrawl so it runs from anywhere.
 
-Then the closed-auction results page exposes, per lot:
-  - winner footer: "The final bid was made by 3rd party bidder: <NAME>"
-  - bid ladder rows: persistent numeric bidder IDs, amount, type, timestamp
-
-Writes:
-  pipeline.brevard_bid_history     (every bid row, bidder IDs = the moat)
-  pipeline.brevard_bidder_identity (ID -> name, confidence='footer_winner')
-  pipeline.live_auction_events     (winner_name + winner_bidder_id per sold lot)
-  + back-fills tier1_card_raw.sold_to_text where matched
-
-CREDENTIAL HANDLING: reads REALFORECLOSE_EMAIL / REALFORECLOSE_PASSWORD from env
-(GitHub Actions secrets). Never logged, never echoed. Account-safety: single
-session, polite throttle, realistic UA, backoff -- standard member browsing
-cadence, never hammered.
-
+Creds from env (GitHub Secrets, runner-only): REALFORECLOSE_EMAIL / _PASSWORD.
+Never logged. Firecrawl key from FIRECRAWL_API_KEY.
 Usage: realauction_bidhistory.py <platform> [YYYY-MM-DD]
-  platform: 'realforeclose' (foreclosure) | 'realtaxdeed' (tax deed)
-  date: sale date to harvest (default: today)
-Env: REALFORECLOSE_EMAIL, REALFORECLOSE_PASSWORD, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 """
-import sys, os, json, re, time, datetime as dt
-import urllib.request, urllib.parse, http.cookiejar
+import sys, os, json, re, datetime as dt
+import urllib.request
 
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-THROTTLE = 4.0  # polite member cadence; never hammer
-
-PLATFORM = (sys.argv[1] if len(sys.argv) > 1 else "realforeclose").lower()
+PLATFORM = (sys.argv[1] if len(sys.argv) > 1 else "realtaxdeed").lower()
 HOST = {"realforeclose": "https://brevard.realforeclose.com",
         "realtaxdeed": "https://brevard.realtaxdeed.com"}[PLATFORM]
 SALE_TYPE = {"realforeclose": "foreclosure", "realtaxdeed": "tax_deed"}[PLATFORM]
 
 EMAIL = os.environ.get("REALFORECLOSE_EMAIL", "")
 PW = os.environ.get("REALFORECLOSE_PASSWORD", "")
+FC_KEY = os.environ.get("FIRECRAWL_API_KEY", "")
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SB_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-assert EMAIL and PW, "REALFORECLOSE_EMAIL / REALFORECLOSE_PASSWORD env required"
-assert SB_URL and SB_KEY, "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env required"
+assert EMAIL and PW and FC_KEY and SB_URL and SB_KEY, "missing required env"
 
-cj = http.cookiejar.CookieJar()
-op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-
-def req(path, data=None, hdrs=None, retries=4):
-    url = path if path.startswith("http") else HOST + path
-    for a in range(retries):
-        time.sleep(THROTTLE * (2 ** a if a else 1))
-        try:
-            body = urllib.parse.urlencode(data).encode() if isinstance(data, dict) else \
-                   (data.encode() if isinstance(data, str) else data)
-            r = urllib.request.Request(url, data=body)
-            r.add_header("User-Agent", UA)
-            r.add_header("Referer", HOST + "/index.cfm")
-            if isinstance(data, dict):
-                r.add_header("Content-Type", "application/x-www-form-urlencoded")
-                r.add_header("X-Requested-With", "XMLHttpRequest")
-            for k, v in (hdrs or {}).items():
-                r.add_header(k, v)
-            with op.open(r, timeout=60) as resp:
-                return resp.read().decode("utf-8", "replace")
-        except Exception as e:
-            sys.stderr.write(f"retry {a+1}: {e}\n")
-            if a == retries - 1:
-                raise
+def firecrawl_actions(url, actions, formats=("rawHtml",)):
+    payload = {"url": url, "formats": list(formats), "actions": actions,
+               "waitFor": 3000, "timeout": 90000}
+    r = urllib.request.Request("https://api.firecrawl.dev/v1/scrape",
+                               data=json.dumps(payload).encode(), method="POST")
+    r.add_header("Authorization", f"Bearer {FC_KEY}")
+    r.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(r, timeout=150) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
 
 def rpc(fn, payload):
-    body = json.dumps({"p": payload}).encode()
-    r = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/{fn}", data=body, method="POST")
+    r = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/{fn}",
+                               data=json.dumps({"p": payload}).encode(), method="POST")
     r.add_header("apikey", SB_KEY)
     r.add_header("Authorization", f"Bearer {SB_KEY}")
     r.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(r, timeout=120) as resp:
         return resp.status
 
-def login():
-    req("/index.cfm")  # seed session
-    resp = req("/index.cfm", data={"ZACTION": "AJAX", "ZMETHOD": "LOGIN", "func": "LOGIN",
-                                   "USERNAME": EMAIL, "USERPASS": PW})
-    # Observability: persist auth outcome (NEVER the credentials) so the architect
-    # side can see what RealAuction returned. Truncated, secrets-free.
+def dump(event_type, text):
     try:
         rpc("upsert_live_auction_events", [{
             "county_slug": "brevard", "sale_type": SALE_TYPE,
-            "auction_date": dt.date.today().isoformat(), "event_type": "_login_probe",
-            "payload_text": f"host={HOST} resp_head={(resp or '')[:1500]}",
+            "auction_date": dt.date.today().isoformat(), "event_type": event_type,
+            "payload_text": (text or "")[:50000],
             "event_ts": dt.datetime.now(dt.timezone.utc).isoformat()}])
-    except Exception:
-        pass
-    try:
-        ok = json.loads(resp).get("isOk", "").upper() == "YES"
-    except Exception:
-        ok = "isOk" in (resp or "") and "YES" in (resp or "")
-    if not ok:
-        raise RuntimeError("LOGIN FAILED -- check REALFORECLOSE_EMAIL/PASSWORD secrets "
-                           "(value rotated?). Auth response did not return isOk=YES.")
-    print("login ok")
+    except Exception as e:
+        print(f"dump skipped: {e}", file=sys.stderr)
 
-def results_page(date_mdY):
-    # Closed/canceled auctions for a given sale date.
-    return req(f"/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={urllib.parse.quote(date_mdY)}")
+def harvest(date_iso):
+    d = dt.date.fromisoformat(date_iso)
+    date_mdY = d.strftime("%m/%d/%Y")
+    results_url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdY}"
+    actions = [
+        {"type": "wait", "milliseconds": 2500},
+        {"type": "write", "selector": "#LogName", "text": EMAIL},
+        {"type": "write", "selector": "#LogPass", "text": PW},
+        {"type": "click", "selector": "#LogButton"},
+        {"type": "wait", "milliseconds": 4000},
+        {"type": "navigate", "url": results_url},
+        {"type": "wait", "milliseconds": 4000},
+        {"type": "scrape"},
+    ]
+    res = firecrawl_actions(HOST + "/index.cfm", actions)
+    html = ""
+    if res.get("success"):
+        data = res.get("data", {})
+        html = data.get("rawHtml") or ""
+        sc = (data.get("actions") or {}).get("scrapes") or []
+        if sc and sc[-1].get("html"):
+            html = sc[-1]["html"]
+    dump("_discovery_dump", html or json.dumps(res)[:5000])
+    return d, html
 
-FOOTER_RE = re.compile(
-    r"final bid was made by[^:]*:\s*</?[^>]*>?\s*([A-Za-z0-9 ,.&'\-]+?)\s*<", re.I)
+FOOTER_RE = re.compile(r"final bid was made by[^:]*:\s*</?[^>]*>?\s*([A-Za-z0-9 ,.&'\-]+?)\s*<", re.I)
 AMOUNT_RE = re.compile(r"\$([\d,]+\.\d{2})")
-# bid ladder row: bidderID, [type], $amount, timestamp
-ROW_RE = re.compile(
-    r"(\d{4,6})\D{0,40}?(Auto Bid|tied high bid|winning bid)?\D{0,40}?"
-    r"\$([\d,]+\.\d{2})\D{0,40}?(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2} [AP]M)", re.I)
+ROW_RE = re.compile(r"(\d{4,6})\D{0,40}?(Auto Bid|tied high bid|winning bid)?\D{0,40}?"
+                    r"\$([\d,]+\.\d{2})\D{0,40}?(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2} [AP]M)", re.I)
 
 def num(s):
     return float(s.replace(",", "")) if s else None
 
 def parse_lot(block, date_iso):
-    """Extract winner + bid ladder from one auction block's HTML."""
-    acct = (re.search(r"Parcel ID:\s*</?[^>]*>?\s*([0-9\-]+)", block) or [None, None])[1] \
-        if "Parcel ID" in block else None
-    case = (re.search(r"Case #:\s*</?[^>]*>?\s*([0-9A-Za-z\-]+)", block) or [None, None])[1] \
-        if "Case #" in block else None
-    sold = AMOUNT_RE.search(block.split("Amount")[-1][:120]) if "Amount" in block else None
-    sold_amt = num(sold.group(1)) if sold else None
+    acct = (re.search(r"Parcel ID:\s*</?[^>]*>?\s*([0-9\-]+)", block) or [None, None])[1] if "Parcel ID" in block else None
+    case = (re.search(r"Case #:\s*</?[^>]*>?\s*([0-9A-Za-z\-]+)", block) or [None, None])[1] if "Case #" in block else None
+    sm = AMOUNT_RE.search(block.split("Amount")[-1][:120]) if "Amount" in block else None
     fm = FOOTER_RE.search(block)
     winner = fm.group(1).strip() if fm else None
     bids, win_bidder = [], None
     for m in ROW_RE.finditer(block):
-        bidder_id, btype, amt, ts = m.group(1), (m.group(2) or "").lower(), m.group(3), m.group(4)
-        is_win = btype == "winning bid"
-        if is_win:
-            win_bidder = bidder_id
+        bid_id, btype, amt, ts = m.group(1), (m.group(2) or "").lower(), m.group(3), m.group(4)
+        if btype == "winning bid":
+            win_bidder = bid_id
         bids.append({"auction_date": date_iso, "case_number": case, "account_number": acct,
-                     "bidder_id": bidder_id, "bid_amount": num(amt),
-                     "bid_type": btype or "manual",
+                     "bidder_id": bid_id, "bid_amount": num(amt), "bid_type": btype or "manual",
                      "bid_ts": dt.datetime.strptime(ts, "%m/%d/%Y %I:%M:%S %p").isoformat(),
-                     "is_winner": is_win})
-    return {"account_number": acct, "case_number": case, "sold_amount": sold_amt,
+                     "is_winner": btype == "winning bid"})
+    return {"account_number": acct, "case_number": case, "sold_amount": num(sm.group(1)) if sm else None,
             "winner_name": winner, "winner_bidder_id": win_bidder, "bids": bids}
 
 if __name__ == "__main__":
     date_arg = sys.argv[2] if len(sys.argv) > 2 else dt.date.today().isoformat()
-    d = dt.date.fromisoformat(date_arg)
-    date_mdY = d.strftime("%m/%d/%Y")
-    login()
-    html = results_page(date_mdY)
-    # DISCOVERY: persist raw authenticated HTML so it is inspectable over MCP
-    # (runner logs are not readable from the architect side). Stored truncated.
-    try:
-        rpc("upsert_live_auction_events", [{
-            "county_slug": "brevard", "sale_type": SALE_TYPE,
-            "auction_date": d.isoformat(), "event_type": "_discovery_dump",
-            "payload_text": (html or "")[:50000],
-            "event_ts": dt.datetime.now(dt.timezone.utc).isoformat()}])
-    except Exception as e:
-        print(f"discovery dump skipped: {e}", file=sys.stderr)
-    # split into per-lot blocks on the "Auction Sold/Closed" card boundary
+    d, html = harvest(date_arg)
     blocks = re.split(r"Auction (?:Sold|Closed|Canceled)", html)
-    print(f"blocks: {len(blocks)-1} | html_len={len(html or '')}")
+    print(f"blocks={len(blocks)-1} html_len={len(html)}")
     all_bids, identities, events, lots = [], [], [], 0
     for blk in blocks[1:]:
         lot = parse_lot(blk, d.isoformat())
@@ -168,17 +119,14 @@ if __name__ == "__main__":
         lots += 1
         all_bids += lot["bids"]
         if lot["winner_name"] and lot["winner_bidder_id"]:
-            identities.append({"bidder_id": lot["winner_bidder_id"],
-                               "resolved_name": lot["winner_name"],
-                               "confidence": "footer_winner",
-                               "first_seen": d.isoformat(), "last_seen": d.isoformat(),
-                               "auctions_seen": 1, "wins": 1})
+            identities.append({"bidder_id": lot["winner_bidder_id"], "resolved_name": lot["winner_name"],
+                               "confidence": "footer_winner", "first_seen": d.isoformat(),
+                               "last_seen": d.isoformat(), "auctions_seen": 1, "wins": 1})
         if lot["winner_name"]:
-            events.append({"county_slug": "brevard", "sale_type": SALE_TYPE,
-                           "auction_date": d.isoformat(), "account_number": lot["account_number"],
-                           "case_number": lot["case_number"], "event_type": "sold",
-                           "amount": lot["sold_amount"], "winner_name": lot["winner_name"],
-                           "winner_bidder_id": lot["winner_bidder_id"],
+            events.append({"county_slug": "brevard", "sale_type": SALE_TYPE, "auction_date": d.isoformat(),
+                           "account_number": lot["account_number"], "case_number": lot["case_number"],
+                           "event_type": "sold", "amount": lot["sold_amount"],
+                           "winner_name": lot["winner_name"], "winner_bidder_id": lot["winner_bidder_id"],
                            "event_ts": dt.datetime.now(dt.timezone.utc).isoformat()})
     if all_bids:
         rpc("upsert_brevard_bid_history", all_bids)
@@ -187,8 +135,4 @@ if __name__ == "__main__":
     if events:
         rpc("upsert_live_auction_events", events)
     print(f"lots={lots} bids={len(all_bids)} names={len(identities)} events={len(events)}")
-    if lots == 0:
-        print("WARNING: zero lots parsed -- results-page shape may differ when authenticated; "
-              "first-run discovery: dumping raw to stderr head", file=sys.stderr)
-        sys.stderr.write((html or "")[:2000])
-        sys.exit(1)
+    sys.exit(0 if lots else 1)
