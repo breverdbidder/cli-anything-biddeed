@@ -1,0 +1,152 @@
+name: SHARD-11 Verification Protocol
+
+on:
+  workflow_dispatch:
+    inputs:
+      counties:
+        description: 'Counties to verify (comma-separated or "all")'
+        required: false
+        default: 'orange,baker,miami_dade,gadsden,wakulla'
+  schedule:
+    # Run daily at 22:00 UTC for end-of-day verification
+    - cron: '0 22 * * *'
+
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install httpx
+
+      - name: Run SHARD-11 verification
+        id: verify
+        run: |
+          echo "=== SHARD-11 VERIFICATION PROTOCOL ==="
+          echo "Evidence-Before-Claims compliance verification"
+          echo ""
+          
+          python3 scripts/shard11_verification_protocol.py
+
+      - name: Parse verification results
+        run: |
+          echo "=== VERIFICATION SUMMARY ==="
+          
+          # County evaluation summary
+          counties=(orange baker miami_dade gadsden wakulla)
+          
+          echo "📊 SHARD-11 County Status:"
+          for county in "${counties[@]}"; do
+            echo "--- $county ---"
+            
+            # Try to get current evaluation
+            python3 -c "
+            import os, sys, httpx
+            url = os.environ['SUPABASE_URL']
+            key = os.environ['SUPABASE_SERVICE_KEY'] 
+            headers = {'apikey': key, 'Authorization': f'Bearer {key}'}
+            
+            try:
+                client = httpx.Client(timeout=30)
+                r = client.post(f'{url}/rest/v1/rpc/pencil_dod_evaluate_county',
+                               headers=headers, json={'county_slug_arg': '$county'})
+                
+                if r.status_code == 200:
+                    letters = r.json()
+                    pass_count = sum(1 for letter in letters if letter.get('pass'))
+                    print(f'  Status: {pass_count}/10 letters passing')
+                    
+                    # Show critical letters
+                    critical = ['B', 'E', 'H', 'I', 'J']
+                    for letter in letters:
+                        l = letter.get('letter', '?')
+                        if l in critical:
+                            status = '✅' if letter.get('pass') else '❌'
+                            metric = letter.get('metric', 'N/A')
+                            print(f'  {l}: {status} {metric}')
+                else:
+                    print(f'  Status: Evaluation failed ({r.status_code})')
+                    
+            except Exception as e:
+                print(f'  Status: Error - {e}')
+            "
+          done
+          
+          echo ""
+          echo "📋 Session verification completed"
+          echo "See job logs for detailed SQL verification evidence"
+
+      - name: Create verification artifact
+        run: |
+          # Create verification summary
+          cat > verification_summary.md << 'EOF'
+          # SHARD-11 Verification Report
+          
+          **Timestamp**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          **Counties**: orange, baker, miami_dade, gadsden, wakulla
+          **Verification Protocol**: Evidence-Before-Claims compliance
+          
+          ## County Status
+          
+          EOF
+          
+          # Add county details
+          counties=(orange baker miami_dade gadsden wakulla)
+          for county in "${counties[@]}"; do
+            echo "### $county" >> verification_summary.md
+            
+            python3 -c "
+            import os, sys, httpx
+            url = os.environ['SUPABASE_URL']
+            key = os.environ['SUPABASE_SERVICE_KEY']
+            headers = {'apikey': key, 'Authorization': f'Bearer {key}'}
+            
+            try:
+                client = httpx.Client(timeout=30)
+                r = client.post(f'{url}/rest/v1/rpc/pencil_dod_evaluate_county',
+                               headers=headers, json={'county_slug_arg': '$county'})
+                
+                if r.status_code == 200:
+                    letters = r.json()
+                    pass_count = sum(1 for letter in letters if letter.get('pass'))
+                    
+                    print(f'- **Pass Count**: {pass_count}/10')
+                    print(f'- **Critical Letters**:')
+                    
+                    critical = ['B', 'E', 'H', 'I', 'J']
+                    for letter in letters:
+                        l = letter.get('letter', '?')
+                        if l in critical:
+                            status = 'PASS' if letter.get('pass') else 'FAIL'
+                            metric = letter.get('metric', 'N/A')
+                            print(f'  - {l}: {status} (metric: {metric})')
+                else:
+                    print(f'- **Status**: Evaluation failed (HTTP {r.status_code})')
+                    
+            except Exception as e:
+                print(f'- **Status**: Error - {e}')
+            print('')
+            " >> verification_summary.md
+          done
+          
+          echo "" >> verification_summary.md
+          echo "---" >> verification_summary.md  
+          echo "Generated by SHARD-11 Verification Protocol" >> verification_summary.md
+
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard11-verification-${{ github.run_number }}
+          path: verification_summary.md
+          retention-days: 30
