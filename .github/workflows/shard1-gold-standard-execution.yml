@@ -1,0 +1,125 @@
+name: SHARD-1 Gold Standard Autonomous Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution mode'
+        required: true
+        default: 'full-session'
+        type: choice
+        options:
+          - full-session
+          - status-check-only
+          - single-county
+      target_county:
+        description: 'Target county (for single-county mode)'
+        required: false
+        default: 'pasco'
+        type: choice
+        options:
+          - charlotte
+          - polk
+          - escambia
+          - pasco
+          - hardee
+
+jobs:
+  shard1-execution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hour session budget
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main  # SHIP-TO-MAIN: work directly on main branch
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          pip install httpx click prompt-toolkit
+          pip install -e shared/
+      
+      - name: SHARD-1 Status Check
+        if: github.event.inputs.mode == 'status-check-only' || github.event.inputs.mode == 'full-session'
+        run: python scripts/shard1_gold_standard_bootstrap.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      
+      - name: Hardee Bootstrap (Letter A)
+        if: github.event.inputs.mode == 'full-session' || (github.event.inputs.mode == 'single-county' && github.event.inputs.target_county == 'hardee')
+        run: python scripts/shard1_hardee_bootstrap.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      
+      - name: Parcel Linkage Enhancement (Letter E)
+        if: github.event.inputs.mode == 'full-session' || github.event.inputs.mode == 'single-county'
+        run: python scripts/shard1_parcel_linkage_enhancer.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      
+      - name: Verified Outcomes Builder (Letter B)
+        if: github.event.inputs.mode == 'full-session' || github.event.inputs.mode == 'single-county'
+        run: python scripts/shard1_verified_outcomes_builder.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      
+      - name: Full Autonomous Execution
+        if: github.event.inputs.mode == 'full-session'
+        run: python scripts/shard1_autonomous_execution.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      
+      - name: Commit Results to Main
+        if: github.event.inputs.mode == 'full-session'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "feat(shard1): autonomous execution results - $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+            SHARD-1 autonomous session results:
+            - Applied high-leverage fixes for Letter A, B, E
+            - Targeted counties: charlotte, polk, escambia, pasco, hardee
+            - Session duration: 6h budget
+            - Ship-to-main mandate: Changes applied directly to main
+
+            Generated via GitHub Actions autonomous execution
+            Workflow run: ${{ github.run_id }}"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Final Verification
+        if: always()
+        run: |
+          echo "=== SHARD-1 EXECUTION COMPLETE ==="
+          echo "Mode: ${{ github.event.inputs.mode }}"
+          echo "Target County: ${{ github.event.inputs.target_county }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Workflow URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          # Run final status check if we have credentials
+          if [ -n "${{ secrets.SUPABASE_KEY }}" ]; then
+            echo "Running final status verification..."
+            python scripts/shard1_gold_standard_bootstrap.py || true
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
