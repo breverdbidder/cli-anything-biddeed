@@ -67,12 +67,18 @@ def sb(path, payload, params="", profile=None):
     with urllib.request.urlopen(r, timeout=120) as resp:
         return resp.status
 
-def sb_pipeline(path, payload, params=""):
-    """Best-effort write to pipeline schema (non-fatal if not exposed via PostgREST)."""
+def sb_pipeline(table, payload, params=""):
+    """Pipeline-schema write via public RPC proxy (pipeline is not PostgREST-exposed)."""
     try:
-        return sb(path, payload, params, profile="pipeline")
+        body = json.dumps({"p": payload}).encode()
+        r = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/upsert_{table}", data=body, method="POST")
+        r.add_header("apikey", SB_KEY)
+        r.add_header("Authorization", f"Bearer {SB_KEY}")
+        r.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(r, timeout=120) as resp:
+            return resp.status
     except Exception as e:
-        print(f"pipeline write skipped ({path}): {e}", file=sys.stderr)
+        print(f"pipeline write skipped ({table}): {e}", file=sys.stderr)
         return None
 
 def session_init():
@@ -169,21 +175,19 @@ if __name__ == "__main__":
             if pub:
                 sb("foreclosure_outcomes", pub,
                    "?on_conflict=case_number,county,auction_date")
-                sb_pipeline("brevard_fc_acclaim_raw", raw, "?on_conflict=instrument")
+                sb_pipeline("brevard_fc_acclaim_raw", raw)
             sb_pipeline("brevard_fc_acclaim_progress",
                [{"month_start": month, "status": "done", "rows_found": total,
                  "rows_written": len(pub),
                  "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-                 "note": "gha scrape-brevard-acclaim-ct"}],
-               "?on_conflict=month_start")
+                 "note": "gha scrape-brevard-acclaim-ct"}])
             print(f"{month}: total={total} written={len(pub)}")
         except Exception as e:
             failures += 1
             print(f"{month}: ERROR {e}", file=sys.stderr)
             try:
                 sb_pipeline("brevard_fc_acclaim_progress",
-                   [{"month_start": month, "status": "error", "note": str(e)[:300]}],
-                   "?on_conflict=month_start")
+                   [{"month_start": month, "status": "error", "note": str(e)[:300]}])
             except Exception:
                 pass
     sys.exit(1 if failures else 0)
