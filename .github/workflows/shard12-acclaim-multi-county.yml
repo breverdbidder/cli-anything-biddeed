@@ -1,0 +1,111 @@
+name: SHARD-12 AcclaimWeb Multi-County Port  
+# Port Brevard AcclaimWeb success to marion, clay, pasco counties
+# Auto-discovers AcclaimWeb endpoints and scrapes Certificate of Title records
+# Target: Improve B (verified outcomes) and F (tier1 sold) metrics for SHARD-12
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Year (YYYY)'
+        required: false
+        default: ''
+      month:
+        description: 'Month (MM)'  
+        required: false
+        default: ''
+      counties:
+        description: 'Counties to process (comma-separated)'
+        required: false
+        default: 'marion,clay,pasco'
+  schedule:
+    # Monthly on 3rd at 08:30Z - sweep previous month
+    - cron: '30 8 3 * *'
+
+concurrency:
+  group: shard12-acclaim-multi-county
+  cancel-in-progress: false
+
+jobs:
+  port_acclaim_scraping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies  
+        run: |
+          python -m pip install --upgrade pip
+          pip install psycopg2-binary
+
+      - name: Port AcclaimWeb to SHARD-12 counties
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          if [ -n "${{ github.event.inputs.year }}" ] && [ -n "${{ github.event.inputs.month }}" ]; then
+            python scripts/shard12_acclaim_port_multi_county.py ${{ github.event.inputs.year }} ${{ github.event.inputs.month }}
+          else
+            python scripts/shard12_acclaim_port_multi_county.py
+          fi
+
+      - name: Verify AcclaimWeb port results
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          python -c "
+          import os, psycopg2
+          conn = psycopg2.connect(
+              host='aws-0-us-west-2.pooler.supabase.com', port=5432,
+              database='postgres', user='postgres.mocerqjnksmhcjzxrewo',
+              password=os.environ['SUPABASE_DB_PASSWORD']
+          )
+          
+          counties = ['marion', 'clay', 'pasco']
+          
+          print('SHARD-12 AcclaimWeb Results:')
+          with conn.cursor() as cur:
+              for county in counties:
+                  # Count outcomes by data source  
+                  cur.execute('''
+                      SELECT data_source, COUNT(*) 
+                      FROM public.foreclosure_outcomes 
+                      WHERE county = %s AND sale_type = 'foreclosure'
+                      GROUP BY data_source 
+                      ORDER BY data_source
+                  ''', (county,))
+                  
+                  results = cur.fetchall()
+                  if results:
+                      print(f'\n{county.upper()}:')
+                      for source, count in results:
+                          print(f'  {source}: {count}')
+                  else:
+                      print(f'\n{county.upper()}: No foreclosure outcomes found')
+              
+              # Check recent AcclaimWeb results
+              cur.execute('''
+                  SELECT county, COUNT(*) 
+                  FROM public.foreclosure_outcomes 
+                  WHERE county = ANY(%s)
+                  AND data_source LIKE '%_acclaim_ct_recdate'
+                  AND enriched_at >= NOW() - INTERVAL '2 hours'
+                  GROUP BY county
+                  ORDER BY county
+              ''', (counties,))
+              
+              recent = cur.fetchall()
+              if recent:
+                  print('\nRecent AcclaimWeb mappings (last 2 hours):')
+                  for county, count in recent:
+                      print(f'  {county}: {count}')
+              else:
+                  print('\nNo recent AcclaimWeb mappings found')
+          
+          conn.close()
+          "
