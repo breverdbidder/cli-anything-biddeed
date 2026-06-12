@@ -1,0 +1,209 @@
+name: SHARD-11 Gold Standard Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Operation to execute'
+        required: true
+        type: choice
+        options:
+          - bootstrap
+          - verified_outcomes  
+          - fix_staleness
+          - parcel_linkage
+          - full_pipeline
+          - status_check
+      county:
+        description: 'County (leave empty for all SHARD-11 counties)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - manatee
+          - bay
+          - okeechobee
+          - gadsden
+          - wakulla
+      limit:
+        description: 'Record limit per operation'
+        required: false
+        default: '200'
+
+  schedule:
+    # Run daily at 14:00 UTC (automated execution)
+    - cron: '0 14 * * *'
+
+concurrency:
+  group: shard11-gold-standard-${{ github.event.inputs.operation || 'scheduled' }}-${{ github.event.inputs.county || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max for autonomous sessions
+    
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet httpx requests python-dateutil
+          pip install --quiet psycopg2-binary  # For direct DB connections if needed
+
+      - name: Determine operation mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "operation=full_pipeline" >> $GITHUB_OUTPUT
+            echo "county=" >> $GITHUB_OUTPUT
+            echo "Running scheduled full pipeline execution"
+          else
+            echo "operation=${{ github.event.inputs.operation }}" >> $GITHUB_OUTPUT  
+            echo "county=${{ github.event.inputs.county }}" >> $GITHUB_OUTPUT
+            echo "Running manual operation: ${{ github.event.inputs.operation }}"
+          fi
+
+      - name: Pre-execution status check
+        run: |
+          echo "## SHARD-11 Pre-Execution Status" >> $GITHUB_STEP_SUMMARY
+          python scripts/verify_shard11_status.py >> status_before.log 2>&1 || true
+          if [ -f status_before.log ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            tail -50 status_before.log >> $GITHUB_STEP_SUMMARY  
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Execute Bootstrap
+        if: steps.mode.outputs.operation == 'bootstrap' || steps.mode.outputs.operation == 'full_pipeline'
+        run: |
+          echo "🚀 Running county bootstrap..."
+          if [ -n "${{ steps.mode.outputs.county }}" ]; then
+            python scripts/shard11_county_bootstrap.py --county ${{ steps.mode.outputs.county }}
+          else  
+            python scripts/shard11_county_bootstrap.py
+          fi
+
+      - name: Execute Staleness Fix
+        if: steps.mode.outputs.operation == 'fix_staleness' || steps.mode.outputs.operation == 'full_pipeline'  
+        run: |
+          echo "⚡ Fixing staleness (Letter H)..."
+          if [ -n "${{ steps.mode.outputs.county }}" ]; then
+            python scripts/shard11_fix_staleness.py --county ${{ steps.mode.outputs.county }}
+          else
+            python scripts/shard11_fix_staleness.py --all-stale
+          fi
+
+      - name: Execute Parcel Linkage 
+        if: steps.mode.outputs.operation == 'parcel_linkage' || steps.mode.outputs.operation == 'full_pipeline'
+        run: |
+          echo "🔗 Fixing parcel linkage (Letter E)..."
+          if [ -n "${{ steps.mode.outputs.county }}" ]; then
+            python scripts/shard11_parcel_linkage.py --county ${{ steps.mode.outputs.county }} --limit ${{ github.event.inputs.limit || '200' }}
+          else
+            python scripts/shard11_parcel_linkage.py --all-counties --limit ${{ github.event.inputs.limit || '200' }}
+          fi
+
+      - name: Execute Verified Outcomes
+        if: steps.mode.outputs.operation == 'verified_outcomes' || steps.mode.outputs.operation == 'full_pipeline'
+        run: |
+          echo "🎯 Building verified outcomes (Letter B)..."
+          if [ -n "${{ steps.mode.outputs.county }}" ]; then
+            python scripts/shard11_verified_outcomes.py --county ${{ steps.mode.outputs.county }} --limit ${{ github.event.inputs.limit || '50' }}
+          else
+            python scripts/shard11_verified_outcomes.py --all-counties --limit ${{ github.event.inputs.limit || '50' }}
+          fi
+
+      - name: Post-execution status check
+        if: always()
+        run: |
+          echo "## SHARD-11 Post-Execution Status" >> $GITHUB_STEP_SUMMARY
+          sleep 30  # Give metrics time to update
+          python scripts/verify_shard11_status.py >> status_after.log 2>&1 || true
+          if [ -f status_after.log ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            tail -50 status_after.log >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Execute gold standard loop
+        if: steps.mode.outputs.operation == 'full_pipeline' || steps.mode.outputs.operation == 'status_check'
+        run: |
+          echo "🏆 Running gold standard evaluation loop..."
+          python -c "
+          import httpx
+          import os
+          import json
+          
+          SUPABASE_URL = os.environ['SUPABASE_URL']
+          SUPABASE_KEY = os.environ['SUPABASE_KEY']
+          
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json'
+          }
+          
+          # Run the gold standard loop
+          try:
+              client = httpx.Client(timeout=120)
+              response = client.post(
+                  f'{SUPABASE_URL}/rest/v1/rpc/gold_standard_loop',
+                  headers=headers,
+                  json={}
+              )
+              print(f'Gold standard loop: {response.status_code}')
+              if response.status_code == 200:
+                  result = response.json()
+                  print(f'Result: {json.dumps(result, indent=2)}')
+              else:
+                  print(f'Error: {response.text}')
+          except Exception as e:
+              print(f'Loop execution error: {e}')
+          "
+
+      - name: Telegram notification  
+        if: always()
+        run: |
+          if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] && [ -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
+            OPERATION="${{ steps.mode.outputs.operation }}"
+            COUNTY="${{ steps.mode.outputs.county }}"
+            STATUS="${{ job.status }}"
+            
+            MESSAGE="🎯 SHARD-11 Gold Standard Execution
+          Operation: ${OPERATION}
+          County: ${COUNTY:-'All'}  
+          Status: ${STATUS}
+          
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}"
+            
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d text="${MESSAGE}" \
+              -d parse_mode="Markdown"
+          fi
+
+      - name: Upload execution logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard11-execution-logs-${{ github.run_number }}
+          path: |
+            status_before.log
+            status_after.log
+            *.json
+          retention-days: 7
