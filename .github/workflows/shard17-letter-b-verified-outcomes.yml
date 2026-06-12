@@ -1,0 +1,66 @@
+name: SHARD-17 Letter B - Verified Outcomes (charlotte/citrus/broward)
+
+on:
+  schedule:
+    - cron: '15 3,11,19 * * *'  # Run 3x daily: 03:15, 11:15, 19:15 UTC
+  workflow_dispatch:
+    inputs:
+      county:
+        description: 'Specific county to process'
+        required: false
+        type: choice
+        options:
+          - 'all'
+          - 'charlotte'
+          - 'citrus'
+          - 'broward'
+        default: 'all'
+
+jobs:
+  verified-outcomes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests --break-system-packages -q
+          
+      - name: Run SHARD-17 Letter B Verified Outcomes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "🎯 SHARD-17 Letter B: Verified Outcomes Scraper"
+          echo "Counties: charlotte, citrus, broward"
+          
+          if [ "${{ github.event.inputs.county }}" = "all" ] || [ -z "${{ github.event.inputs.county }}" ]; then
+            echo "Processing all counties..."
+            python3 scripts/shard17_verified_outcomes.py --all-counties
+          else
+            echo "Processing county: ${{ github.event.inputs.county }}"
+            python3 scripts/shard17_verified_outcomes.py --county ${{ github.event.inputs.county }}
+          fi
+          
+      - name: Telegram Notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          MESSAGE="🔍 SHARD-17 Letter B (Verified Outcomes) - Status: $STATUS
+          Counties: charlotte, citrus, broward
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}"
+          
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MESSAGE}" \
+            -d "parse_mode=HTML" || true
