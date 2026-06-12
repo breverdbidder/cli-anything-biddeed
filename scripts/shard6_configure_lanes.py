@@ -65,12 +65,12 @@ COUNTY_LANE_CONFIGS = {
         'status': 'needs_full_config'  # A=0 metric
     },
     'liberty': {
-        'foreclosure_platform': 'unknown',  # Need to investigate
-        'foreclosure_url': None,
-        'tax_deed_platform': 'unknown',
-        'tax_deed_url': None,
+        'foreclosure_platform': 'custom_clerk',  # Liberty County Clerk
+        'foreclosure_url': 'https://www.libertycountyclerk.com/foreclosure',
+        'tax_deed_platform': 'custom_clerk',
+        'tax_deed_url': 'https://www.libertycountyclerk.com/foreclosure',
         'appraiser_url': 'https://www.libertycountyfl.com',
-        'status': 'needs_investigation'  # No known online presence
+        'status': 'needs_configuration'  # Clerk source identified
     }
 }
 

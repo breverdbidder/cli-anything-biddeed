@@ -94,7 +94,8 @@ COUNTY_SOURCES = {
     'volusia':      ('realforeclose', 'https://volusia.realforeclose.com'),
     'walton':       ('realforeclose', 'https://walton.realforeclose.com'),
     'washington':   ('custom_clerk', 'https://www.washingtonclerk.com/foreclosure'),
-    # Note: liberty county appears to not have online foreclosure listings - needs investigation
+    'liberty':      ('custom_clerk', 'https://www.libertycountyclerk.com/foreclosure'),
+    # Note: liberty county has limited online presence - using clerk site as primary
 }
 
 HEADERS = {
