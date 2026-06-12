@@ -1,0 +1,69 @@
+name: SHARD-2 Gold Standard Session
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to run'
+        required: true
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - verify
+          - implement
+          - closeout
+
+jobs:
+  shard2-session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hour session budget
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install httpx requests --break-system-packages -q
+      
+      - name: Run baseline check
+        if: inputs.action == 'baseline'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "=== SHARD-2 BASELINE CHECK ==="
+          python shard2_baseline.py
+      
+      - name: Run verification protocol
+        if: inputs.action == 'verify'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "=== SHARD-2 VERIFICATION PROTOCOL ==="
+          python scripts/shard2_verification_protocol.py
+      
+      - name: Implementation work
+        if: inputs.action == 'implement'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "=== SHARD-2 IMPLEMENTATION SESSION ==="
+          # Implementation logic will be added based on baseline results
+          echo "Implementation phase - work to be added based on baseline findings"
+      
+      - name: Close-out verification
+        if: inputs.action == 'closeout'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "=== SHARD-2 CLOSE-OUT VERIFICATION ==="
+          python scripts/shard2_verification_protocol.py
