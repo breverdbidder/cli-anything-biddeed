@@ -85,8 +85,8 @@ def run():
                 shot=f"shots/{i:03d}-{slugf[:40]}.png"; pg.screenshot(path=str(OUT/shot),full_page=True)
                 pages_rows.append({"dossier_id":DID,"url":u,"page_slug":slugf[:120],"page_title":title,
                     "http_status":(resp.status if resp else None),"page_kind":kind,"is_authenticated":False,
-                    "word_count":wc,"internal_links":il,"external_links":max(el,0),
-                    "honesty_marker":"VERIFIED"})
+                    "word_count":wc,"internal_links":json.dumps({"count":il}),"external_links":json.dumps({"count":max(el,0)}),
+                    "honesty_marker":"V"})
                 shot_specs.append((u, shot, (OUT/shot).stat().st_size if (OUT/shot).exists() else 0))
                 for h in pg.query_selector_all("h1,h2,h3"):
                     tx=(h.inner_text() or "").strip()
@@ -95,11 +95,11 @@ def run():
                             feat_seen.add(tx.lower())
                             feat_rows.append({"dossier_id":DID,"feature_name":tx[:140],
                                 "feature_category":"product","description":f"surfaced on {u}",
-                                "source_evidence":u,"honesty_marker":"VERIFIED"})
+                                "source_evidence":u,"our_parity_status":"not_planned","honesty_marker":"V"})
                 print(f"[{i+1}/{len(queue)}] {u} :: {title[:46]} cs={cstud} wc={wc}")
             except Exception as e:
                 pages_rows.append({"dossier_id":DID,"url":u,"page_slug":"load-fail","page_title":"LOAD_FAIL",
-                    "http_status":None,"page_kind":"error","word_count":0,"honesty_marker":"UNKNOWN"})
+                    "http_status":None,"page_kind":"error","word_count":0,"honesty_marker":"UNK"})
                 print(f"[{i+1}] FAIL {u}: {e}")
         for wp in (f"{ROOT}/book-a-demo","https://orbital.ubpages.com/illusionguide/"):
             try:
@@ -108,14 +108,16 @@ def run():
                 pr=up.urlparse(wp)
                 gated_rows.append({"dossier_id":DID,"host":pr.netloc,"path":pr.path[:500],"method":"GET",
                     "resource_kind":"gated_form" if gated else "page","status":200 if False else None,
-                    "honesty_marker":"UNKNOWN" if gated else "VERIFIED"})
+                    "honesty_marker":"UNK" if gated else "V"})
             except Exception as e: print("wp miss",wp,e)
         b.close()
+    # endpoints -> real columns
     ep_rows=[{"dossier_id":DID,"host":v["host"],"path":v["path"],"method":v["method"],
         "resource_kind":"api","is_3rd_party":v["third"],"observed_count":1,
-        "honesty_marker":"VERIFIED","sample_response_body":None} for v in endpoints.values()]
+        "honesty_marker":"V","sample_response_body":None} for v in endpoints.values()]
     ep_rows += [{"dossier_id":DID,"host":g["host"],"path":g["path"],"method":g["method"],
         "resource_kind":g["resource_kind"],"honesty_marker":g["honesty_marker"]} for g in gated_rows]
+    # persist (fail-loud)
     inserted_pages = sb("ci_v65_pages", pages_rows)
     if ep_rows: sb("ci_v65_api_endpoints", ep_rows)
     if feat_rows: sb("ci_v65_features", feat_rows)
