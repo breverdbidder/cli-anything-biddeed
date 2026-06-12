@@ -17,7 +17,7 @@ jobs:
           CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
           MSG: ${{ inputs.message }}
         run: |
-          curl -sS -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${CHAT_ID}" \
             --data-urlencode "text=${MSG}" \
             --data-urlencode "disable_web_page_preview=true"
