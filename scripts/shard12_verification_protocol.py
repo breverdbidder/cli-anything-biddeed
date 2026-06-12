@@ -38,8 +38,8 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# SHARD-12 target counties
-TARGET_COUNTIES = ['osceola', 'bay', 'nassau', 'glades']
+# Current session target counties (brevard + duval)
+TARGET_COUNTIES = ['brevard', 'duval']
 
 client = httpx.Client(timeout=120)  # Longer timeout for verification queries
 
@@ -307,11 +307,9 @@ Timestamp: {timestamp_utc}
 -- Set unlimited timeout for heavy queries
 SET statement_timeout = 0;
 
--- Evaluate each SHARD-12 county
-SELECT public.pencil_dod_evaluate_county('osceola');
-SELECT public.pencil_dod_evaluate_county('bay'); 
-SELECT public.pencil_dod_evaluate_county('nassau');
-SELECT public.pencil_dod_evaluate_county('glades');
+-- Evaluate each target county
+SELECT public.pencil_dod_evaluate_county('brevard');
+SELECT public.pencil_dod_evaluate_county('duval');
 
 -- Run complete Gold Standard loop
 SELECT public.gold_standard_loop();
@@ -365,7 +363,7 @@ Timestamp: {evaluation.get('timestamp', 'Unknown')}
 
 def main():
     """Execute complete verification protocol"""
-    logger.info("🔍 SHARD-12 VERIFICATION PROTOCOL EXECUTION")
+    logger.info("🔍 BREVARD+DUVAL VERIFICATION PROTOCOL EXECUTION")
     logger.info("Evidence-Before-Claims compliance verification")
     
     protocol_start = time.time()
