@@ -1,0 +1,101 @@
+name: Onboard SHARD-1 Counties
+# Establish A letter dual product coverage for counties with 0/1 scores
+# SHARD-1 Session 2026-06-12: hardee (0/10) and other low-scoring counties
+
+on:
+  workflow_dispatch:
+    inputs:
+      counties:
+        description: "Counties to onboard (comma-separated)"
+        required: false
+        default: "hardee,gilchrist"
+      dry_run:
+        description: "Dry run (true/false)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: onboard-shard1-counties
+  cancel-in-progress: false
+
+jobs:
+  onboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          
+      - name: Onboard counties
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          IFS=',' read -ra COUNTIES <<< "${{ github.event.inputs.counties }}"
+          
+          for county in "${COUNTIES[@]}"; do
+            county=$(echo "$county" | xargs)  # trim whitespace
+            echo "=== Onboarding $county ==="
+            
+            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+              python scripts/onboard_county.py "$county" --dry-run
+            else
+              python scripts/onboard_county.py "$county"
+            fi
+            
+            echo ""
+          done
+          
+      - name: Verify A letter improvement
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import json, os
+          import urllib.request
+          
+          def check_county(county):
+              headers = {
+                  'apikey': os.environ['SUPABASE_KEY'],
+                  'Authorization': f'Bearer {os.environ[\"SUPABASE_KEY\"]}',
+                  'Content-Type': 'application/json'
+              }
+              
+              payload = {'county_name': county}
+              request = urllib.request.Request(
+                  f'{os.environ[\"SUPABASE_URL\"]}/rest/v1/rpc/pencil_dod_evaluate_county',
+                  data=json.dumps(payload).encode(),
+                  method='POST'
+              )
+              
+              for k, v in headers.items():
+                  request.add_header(k, v)
+              
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      result = json.loads(response.read().decode())
+                      return result
+              except Exception as e:
+                  print(f'Error checking {county}: {e}')
+                  return None
+          
+          counties = '${{ github.event.inputs.counties }}'.split(',')
+          
+          for county in counties:
+              county = county.strip()
+              print(f'=== {county.upper()} METRICS ===')
+              result = check_county(county)
+              if result:
+                  # Look for A grade specifically
+                  a_grade = result.get('grade_a', 'UNKNOWN')
+                  a_metric = result.get('metric_a', 'N/A')
+                  print(f'A Grade: {a_grade} (metric: {a_metric})')
+              else:
+                  print('Failed to get metrics')
+              print('')
+          "

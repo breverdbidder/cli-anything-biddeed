@@ -1,0 +1,117 @@
+name: Gold Standard Tier1 Setup
+# Apply tier1 promotion functions and run initial data backfill for B+F metrics
+# SHARD-1 Session 2026-06-12: Critical fix for Brevard B+F letter grades
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_migration:
+        description: "Apply migration (true/false)"
+        required: false
+        default: "true"
+      run_promotion:
+        description: "Run tier1 promotion (true/false)" 
+        required: false
+        default: "true"
+      run_queue_feeder:
+        description: "Run acclaim queue feeder (true/false)"
+        required: false
+        default: "true"
+
+concurrency:
+  group: gold-standard-tier1-setup
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Supabase CLI
+        if: github.event.inputs.apply_migration == 'true'
+        run: |
+          npm install -g supabase@1.200.3
+          
+      - name: Apply database migration
+        if: github.event.inputs.apply_migration == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          cd supabase
+          supabase link --project-ref mocerqjnksmhcjzxrewo
+          supabase db push
+          
+      - name: Setup Python
+        if: github.event.inputs.run_promotion == 'true' || github.event.inputs.run_queue_feeder == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          
+      - name: Install Python dependencies
+        if: github.event.inputs.run_promotion == 'true' || github.event.inputs.run_queue_feeder == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install httpx requests
+          
+      - name: Run tier1 promotion function
+        if: github.event.inputs.run_promotion == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import httpx, os, json
+          client = httpx.Client(timeout=60)
+          headers = {
+              'apikey': os.environ['SUPABASE_KEY'],
+              'Authorization': f'Bearer {os.environ[\"SUPABASE_KEY\"]}',
+              'Content-Type': 'application/json'
+          }
+          
+          # Run tier1 promotion
+          r = client.post(f'{os.environ[\"SUPABASE_URL\"]}/rest/v1/rpc/promote_tier1_from_outcomes', 
+                         headers=headers, json={})
+          print(f'Tier1 promotion result: {r.status_code} - {r.text}')
+          
+          # Run queue feeder if enabled
+          if '${{ github.event.inputs.run_queue_feeder }}' == 'true':
+              r = client.post(f'{os.environ[\"SUPABASE_URL\"]}/rest/v1/rpc/feed_acclaim_queue_brevard',
+                             headers=headers, json={})
+              print(f'Queue feeder result: {r.status_code} - {r.text}')
+          "
+          
+      - name: Run acclaim CT sweep for current month
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # Run acclaim scraper for current month to test updated data_source
+          python scripts/acclaim_ct_sweep.py "$(date +%Y-%m)" "$(date +%Y-%m)"
+          
+      - name: Verify metrics improvement
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import httpx, os, json
+          client = httpx.Client(timeout=60)
+          headers = {
+              'apikey': os.environ['SUPABASE_KEY'],
+              'Authorization': f'Bearer {os.environ[\"SUPABASE_KEY\"]}',
+              'Content-Type': 'application/json'
+          }
+          
+          # Check Brevard metrics
+          r = client.post(f'{os.environ[\"SUPABASE_URL\"]}/rest/v1/rpc/pencil_dod_evaluate_county',
+                         headers=headers, json={'county_name': 'brevard'})
+          
+          if r.status_code == 200:
+              result = r.json()
+              print('=== BREVARD METRICS UPDATE ===')
+              print(json.dumps(result, indent=2))
+          else:
+              print(f'Failed to get metrics: {r.status_code} - {r.text}')
+          "
