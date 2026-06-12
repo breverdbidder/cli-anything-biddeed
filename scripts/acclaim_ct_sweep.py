@@ -30,7 +30,7 @@ BASE = "http://vaclmweb1.brevardclerk.us"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 THROTTLE = 2.5
-DATA_SOURCE = "brevard_acclaim_ct_recdate"
+DATA_SOURCE = "acclaim_ct:BREVARD-FC-V1"
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SB_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -119,8 +119,16 @@ def transform(r):
     ce = (r.get("CompressedIndirectName") or "").upper()
     pl = bool(cg and ce and (cg == ce or cg in ce or ce in cg))
     cons = r.get("Consideration")
+    
+    # Extract case number, exclude PropertyOnion format (PO-xxxxxx)
+    raw_case = (r.get("CaseNumber") or "").strip()
+    if raw_case and not raw_case.startswith("PO-"):
+        case_number = raw_case
+    else:
+        case_number = f"INSTR-{r.get('InstrumentNumber')}"
+    
     return {
-        "case_number": (r.get("CaseNumber") or f"INSTR-{r.get('InstrumentNumber')}").strip(),
+        "case_number": case_number,
         "county": "brevard", "sale_type": "foreclosure",
         "auction_date": rec_date,
         "outcome": "struck_to_plaintiff" if pl else "sold",
@@ -133,7 +141,7 @@ def transform(r):
         "enriched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }, {
         "instrument": str(r.get("InstrumentNumber") or ""),
-        "rec": {"case_number": (r.get("CaseNumber") or "").strip(),
+        "rec": {"case_number": case_number,
                 "legal": (r.get("DocLegalDescription") or "")[:500],
                 "rec_date": rec_date,
                 "winner": (r.get("IndirectName") or "").strip(),
