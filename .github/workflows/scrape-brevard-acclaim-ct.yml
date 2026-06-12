@@ -1,8 +1,8 @@
 name: scrape-brevard-acclaim-ct
 # Brevard foreclosure outcomes (Certificate of Title) from AcclaimWeb official records.
 # Forward top-up engine for PENCIL criterion B. Backfill 2018-08..2026-06 was completed
-# 2026-06-11 by Summit session (2,558 rows, data_source updated to acclaim_ct:BREVARD-FC-V1).
-# SHARD-1 fix 2026-06-12: Updated data_source format for canon compliance and B metric.
+# 2026-06-11 by Summit session (2,558 rows, data_source=brevard_acclaim_ct_recdate).
+# D1 canon: CT carries RECORDING date, not sale date -> data_source suffixed _recdate.
 # Hard rules: single session, ~2.5s throttle, never parallelize, stop on persistent block.
 
 on:
