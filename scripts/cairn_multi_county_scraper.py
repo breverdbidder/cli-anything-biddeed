@@ -90,9 +90,11 @@ COUNTY_SOURCES = {
     'seminole':     ('realforeclose', 'https://seminole.realforeclose.com'),
     'st_johns':     ('realforeclose', 'https://stjohns.realforeclose.com'),
     'st_lucie':     ('realforeclose', 'https://stlucie.realforeclose.com'),
+    'sumter':       ('realforeclose', 'https://sumter.realforeclose.com'),
     'volusia':      ('realforeclose', 'https://volusia.realforeclose.com'),
     'walton':       ('realforeclose', 'https://walton.realforeclose.com'),
     'washington':   ('custom_clerk', 'https://www.washingtonclerk.com/foreclosure'),
+    # Note: liberty county appears to not have online foreclosure listings - needs investigation
 }
 
 HEADERS = {
