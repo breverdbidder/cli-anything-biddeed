@@ -1,0 +1,36 @@
+# SHARD-9 WORKFLOW TEMPLATE
+# To be manually added to .github/workflows/shard9-gold-standard-executor.yml
+# Requires workflows permission for GitHub App
+
+name: SHARD-9 Gold Standard Executor
+
+on:
+  schedule:
+    - cron: "0 8 * * *"  # Daily at 08:00Z
+  workflow_dispatch:
+
+jobs:
+  shard9-gold-standard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hour ceiling
+    
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install httpx
+      - name: Execute SHARD-9 improvements
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python3 scripts/shard9_gold_standard_improvements.py
+      - name: Execute verification protocol  
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python3 scripts/shard9_verification_protocol.py
