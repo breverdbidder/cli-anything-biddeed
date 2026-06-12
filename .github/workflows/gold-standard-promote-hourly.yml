@@ -1,0 +1,75 @@
+name: gold-standard-promote-hourly
+# Auto-promotes tier1_sold_amount from verified outcomes (Letter F improvements)
+# Mentioned in issue #7566: "tier1-promote-hourly → public.promote_tier1_from_outcomes()"
+
+on:
+  schedule:
+    # Every hour at minute 15 (offset to avoid collision with other hourly jobs)
+    - cron: "15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run mode (test without changes)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: gold-standard-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Promote tier1 data from outcomes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # Call the promote function via Supabase REST API
+          response=$(curl -s -X POST \
+            "$SUPABASE_URL/rest/v1/rpc/promote_tier1_from_outcomes" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          
+          echo "Promote function response: $response"
+          
+          # Extract the count from response
+          count=$(echo "$response" | jq -r '.' 2>/dev/null || echo "0")
+          echo "Promoted tier1_sold_amount for $count records"
+          
+          if [ "$count" -gt 0 ]; then
+            echo "✅ Successfully promoted $count records"
+          else
+            echo "ℹ️  No new records to promote (count: $count)"
+          fi
+
+      - name: Feed acclaim queue (Duval)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # Feed closed cases to acclaim harvest queue
+          response=$(curl -s -X POST \
+            "$SUPABASE_URL/rest/v1/rpc/feed_acclaim_queue_duval" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          
+          echo "Queue feeder response: $response"
+          
+          # Extract the count from response
+          count=$(echo "$response" | jq -r '.' 2>/dev/null || echo "0")
+          echo "Enqueued $count new cases for acclaim harvest"
+          
+          if [ "$count" -gt 0 ]; then
+            echo "✅ Successfully enqueued $count cases"
+          else
+            echo "ℹ️  No new cases to enqueue (count: $count)"
+          fi
