@@ -1,0 +1,37 @@
+name: SHARD-19 Verification - Issue 7607
+
+on:
+  workflow_dispatch:
+  
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install httpx requests
+          
+      - name: Run SHARD-19 verification
+        run: |
+          python run_shard19_verification.py
+          
+      - name: Upload verification results
+        uses: actions/upload-artifact@v3
+        with:
+          name: shard19-verification-results
+          path: /tmp/shard19_verification.json
