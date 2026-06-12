@@ -2,10 +2,24 @@ name: CI V6.5 Recon
 on:
   workflow_dispatch:
     inputs:
-      slug:        { description: 'competitor slug', required: true, type: string }
-      domain:      { description: 'root domain (no scheme)', required: true, type: string }
-      mode:        { description: 'ci_v65_full | signal', required: false, default: 'ci_v65_full', type: string }
-      requested_by:{ description: 'who asked', required: false, default: 'Ariel', type: string }
+      slug:
+        description: 'competitor slug'
+        required: true
+        type: string
+      domain:
+        description: 'root domain (no scheme)'
+        required: true
+        type: string
+      mode:
+        description: 'ci_v65_full | signal'
+        required: false
+        default: 'ci_v65_full'
+        type: string
+      requested_by:
+        description: 'who asked'
+        required: false
+        default: 'Ariel'
+        type: string
 jobs:
   recon:
     runs-on: ubuntu-latest
@@ -20,7 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
+        with:
+          python-version: '3.12'
       - name: Install deps
         run: |
           pip install --quiet playwright httpx
