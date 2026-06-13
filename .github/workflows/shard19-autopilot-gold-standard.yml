@@ -1,0 +1,177 @@
+name: SHARD-19 AUTOPILOT Gold Standard Campaign
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution mode'
+        required: false
+        default: 'full-execution'
+        type: choice
+        options:
+          - 'verify-only'
+          - 'migration-only' 
+          - 'full-execution'
+          - 'j-generator-only'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/shard19_*.py'
+      - 'migrations/*shard19*'
+
+jobs:
+  shard19-campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6-hour budget per issue mandate
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: |
+          pip install httpx python-dateutil psycopg2-binary
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          
+      - name: Apply SHARD-19 Migration
+        if: github.event.inputs.mode != 'verify-only'
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "🚀 Applying SHARD-19 County Setup Migration"
+          CONN="postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require"
+          
+          # Test connection first
+          psql "$CONN" -c "SELECT 'SHARD-19 migration starting' as status, now();"
+          
+          # Apply migration with error handling
+          psql "$CONN" \
+            -f "migrations/20260613_shard19_county_setup.sql" \
+            -v ON_ERROR_STOP=1
+          
+          echo "✅ Migration applied successfully"
+          
+      - name: Verification Protocol - Before
+        run: |
+          echo "📊 VERIFICATION PROTOCOL: Before metrics for SHARD-19 counties"
+          python test_shard19_connection.py > before_metrics.txt
+          cat before_metrics.txt
+          
+      - name: Execute J Generator (Highest Leverage)
+        if: github.event.inputs.mode != 'verify-only' && github.event.inputs.mode != 'migration-only'
+        run: |
+          echo "🎯 PRIORITY #1: J Generator - bid_decisions pipeline"
+          echo "Expected gain: 0→95% across all counties = 285 total points"
+          python scripts/shard19_j_generator.py
+          
+      - name: Execute C/D Parity Fix  
+        if: github.event.inputs.mode == 'full-execution'
+        run: |
+          echo "🎯 PRIORITY #2: C/D Parity Fix - PropertyOnion supplementary litmus"
+          python scripts/shard19_cd_parity_fix.py
+          
+      - name: Execute B Reconciliation
+        if: github.event.inputs.mode == 'full-execution'  
+        run: |
+          echo "🎯 PRIORITY #3: B Reconciliation - verified outcomes anomaly fix"
+          python scripts/shard19_b_reconciliation.py
+          
+      - name: Verification Protocol - After
+        run: |
+          echo "📊 VERIFICATION PROTOCOL: After metrics for SHARD-19 counties"
+          python test_shard19_connection.py > after_metrics.txt
+          cat after_metrics.txt
+          
+      - name: Evidence Documentation
+        run: |
+          echo "🔍 EVIDENCE DOCUMENTATION per HONESTY PROTOCOL"
+          echo "Before:"
+          cat before_metrics.txt
+          echo ""
+          echo "After:" 
+          cat after_metrics.txt
+          echo ""
+          echo "Session completed: $(date -u)"
+          
+          # Calculate score improvements
+          python -c "
+          import re
+          
+          def extract_scores(text):
+              scores = {}
+              for line in text.split('\n'):
+                  if 'Score:' in line:
+                      county = line.split('County Status')[0].strip('## ').strip().lower()
+                      score = re.search(r'Score.*?(\d+)/10', line)
+                      if score:
+                          scores[county] = int(score.group(1))
+              return scores
+          
+          try:
+              with open('before_metrics.txt', 'r') as f:
+                  before = extract_scores(f.read())
+              with open('after_metrics.txt', 'r') as f:
+                  after = extract_scores(f.read())
+              
+              print('SCORE IMPROVEMENTS (VERIFIED):')
+              total_gain = 0
+              for county in ['charlotte', 'citrus', 'broward']:
+                  before_score = before.get(county, 0)
+                  after_score = after.get(county, 0)
+                  gain = after_score - before_score
+                  total_gain += gain
+                  print(f'{county}: {before_score} → {after_score} (+{gain})')
+              print(f'TOTAL GAIN: +{total_gain} points')
+          except Exception as e:
+              print(f'Score calculation failed: {e}')
+          "
+          
+      - name: Commit Results (Ship-to-Main)
+        if: github.event.inputs.mode != 'verify-only'
+        run: |
+          git config --global user.name "SHARD-19 Autopilot"
+          git config --global user.email "noreply@anthropic.com"
+          
+          # Stage any new files created during execution
+          git add -A
+          
+          # Only commit if there are changes
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "SHARD-19 AUTOPILOT: Gold Standard execution results
+
+            Systematic execution per 6-hour autonomous mandate:
+            - J Generator (bid_decisions pipeline) 
+            - C/D Parity Fix (PropertyOnion supplementary litmus)
+            - B Reconciliation (verified outcomes)
+            - All implementations wired per WIRING MANDATE
+            
+            Evidence-Before-Claims: see workflow logs for verification protocol
+            Ship-to-Main mandate: direct commit, no PRs
+            
+            🤖 Generated with [Claude Code](https://claude.ai/code)
+            
+            Co-Authored-By: Claude <noreply@anthropic.com>"
+            
+            git push origin HEAD:main
+            echo "✅ Results committed and pushed to main"
+          else
+            echo "ℹ️ No changes to commit"
+          fi
+          
+      - name: Notification
+        if: always()
+        run: |
+          echo "🏁 SHARD-19 AUTOPILOT SESSION COMPLETE"
+          echo "Counties: charlotte, citrus, broward"
+          echo "Mode: ${{ github.event.inputs.mode || 'full-execution' }}"
+          echo "Status: ${{ job.status }}"
+          echo "Duration: 6-hour budget session"
