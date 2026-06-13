@@ -71,6 +71,7 @@ COUNTY_SOURCES = {
     'lake':         ('realforeclose', 'https://lake.realforeclose.com'),
     'lee':          ('realforeclose', 'https://lee.realforeclose.com'),
     'leon':         ('realforeclose', 'https://leon.realforeclose.com'),
+    'liberty':      ('custom_clerk', 'https://www.libertyclerk.com/foreclosure'),
     'manatee':      ('realforeclose', 'https://manatee.realforeclose.com'),
     'marion':       ('realforeclose', 'https://marion.realforeclose.com'),
     'martin':       ('realforeclose', 'https://martin.realforeclose.com'),
@@ -90,11 +91,11 @@ COUNTY_SOURCES = {
     'seminole':     ('realforeclose', 'https://seminole.realforeclose.com'),
     'st_johns':     ('realforeclose', 'https://stjohns.realforeclose.com'),
     'st_lucie':     ('realforeclose', 'https://stlucie.realforeclose.com'),
+    'suwannee':     ('realforeclose', 'https://suwannee.realforeclose.com'),
     'sumter':       ('realforeclose', 'https://sumter.realforeclose.com'),
     'volusia':      ('realforeclose', 'https://volusia.realforeclose.com'),
     'walton':       ('realforeclose', 'https://walton.realforeclose.com'),
     'washington':   ('custom_clerk', 'https://www.washingtonclerk.com/foreclosure'),
-    # Note: liberty county appears to not have online foreclosure listings - needs investigation
 }
 
 HEADERS = {

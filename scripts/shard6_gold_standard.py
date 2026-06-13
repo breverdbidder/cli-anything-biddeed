@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SHARD-6 Gold Standard Campaign - Autonomous Session
-Counties: escambia, sumter, lake, calhoun, liberty
+Counties: escambia, suwannee, martin, calhoun, liberty
 
 Ship directly to main. 6-hour budget. Priority fixes for highest-leverage metrics.
 """
@@ -29,7 +29,7 @@ HEADERS = {
 }
 
 # SHARD-6 target counties
-SHARD6_COUNTIES = ['escambia', 'sumter', 'lake', 'calhoun', 'liberty']
+SHARD6_COUNTIES = ['escambia', 'suwannee', 'martin', 'calhoun', 'liberty']
 
 client = httpx.Client(timeout=120)
 
@@ -166,13 +166,13 @@ def analyze_priorities(status: Dict) -> List[str]:
     return priorities
 
 def configure_missing_counties():
-    """Configure sumter and liberty counties that are missing from pipeline"""
+    """Configure calhoun and liberty counties that are missing from pipeline"""
     # Check cairn_multi_county_scraper.py for missing counties
-    logger.info("Configuring missing counties (sumter, liberty)...")
+    logger.info("Configuring missing counties (calhoun, liberty)...")
     
-    # Based on analysis, sumter and liberty are missing from COUNTY_URLS
+    # Based on analysis, calhoun and liberty are missing from COUNTY_URLS
     missing_configs = {
-        'sumter': ('realforeclose', 'https://sumter.realforeclose.com'),
+        'calhoun': ('realforeclose', 'https://calhoun.realforeclose.com'),
         'liberty': ('realforeclose', 'https://liberty.realforeclose.com')  # Need to verify this URL
     }
     
@@ -189,7 +189,7 @@ def main():
         return
         
     logger.info("SHARD-6 Gold Standard Campaign Starting...")
-    logger.info("Counties: escambia, sumter, lake, calhoun, liberty")
+    logger.info("Counties: escambia, suwannee, martin, calhoun, liberty")
     logger.info("Budget: 6 hours autonomous")
     logger.info(f"Started: {datetime.now(timezone.utc).isoformat()}")
     
