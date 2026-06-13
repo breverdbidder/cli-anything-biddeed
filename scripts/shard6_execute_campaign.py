@@ -48,7 +48,7 @@ def main():
     """Execute SHARD-6 campaign"""
     start_time = datetime.now(timezone.utc)
     logger.info(f"SHARD-6 Gold Standard Campaign Started: {start_time.isoformat()}")
-    logger.info("Counties: escambia, sumter, lake, calhoun, liberty")
+    logger.info("Counties: escambia, suwannee, martin, calhoun, liberty")
     
     # Test connection first
     logger.info("\n=== CONNECTION TEST ===")

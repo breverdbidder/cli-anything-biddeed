@@ -40,11 +40,16 @@ CLERK_ENDPOINTS = {
         'search_endpoint': '/search',
         'result_format': 'certificates_of_title'
     },
-    'lake': {
+    'martin': {
         'type': 'clerk_official_records', 
-        'base_url': 'https://or.lakecountyfl.gov',
+        'base_url': 'https://or.martin.fl.us',
         'search_endpoint': '/search',
         'result_format': 'certificates_of_title'
+    },
+    'suwannee': {
+        'type': 'realforeclose_results',
+        'base_url': 'https://suwannee.realforeclose.com',
+        'result_format': 'sale_results'
     },
     'calhoun': {
         'type': 'custom_clerk',
@@ -52,9 +57,10 @@ CLERK_ENDPOINTS = {
         'foreclosure_url': 'https://www.calhounclerk.com/foreclosure',
         'result_format': 'sale_results'
     },
-    'sumter': {
-        'type': 'realforeclose_results',
-        'base_url': 'https://sumter.realforeclose.com',
+    'liberty': {
+        'type': 'custom_clerk',
+        'base_url': 'https://www.libertyclerk.com',
+        'foreclosure_url': 'https://www.libertyclerk.com/foreclosure',
         'result_format': 'sale_results'
     }
 }
@@ -343,7 +349,7 @@ async def run_verified_outcomes_campaign():
     logger.info("Starting SHARD-6 verified outcomes campaign (B-lane)...")
     
     # All counties need B-lane fixes according to brief
-    target_counties = ['escambia', 'sumter', 'lake', 'calhoun']  # liberty has no auctions
+    target_counties = ['escambia', 'martin', 'suwannee', 'calhoun', 'liberty']
     
     all_results = {}
     

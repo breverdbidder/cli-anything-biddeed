@@ -3,7 +3,7 @@
 SHARD-6 Parcel Linkage (E-lane) Implementation
 Link auction properties to parcels via county property appraiser APIs
 
-Priority counties: escambia, lake (both have parcel linkage <95%)
+Priority counties: escambia (87.1%), martin (34.7%), suwannee (0.0%)
 Based on BCPAO bridge implementation pattern
 """
 
@@ -37,14 +37,23 @@ APPRAISER_ENDPOINTS = {
         'property_layer': None,  # To be discovered
         'search_fields': ['PARCEL_ID', 'PARCELNO', 'PIN']
     },
-    'lake': {
-        'arcgis_base': 'https://gis.lakecountyfl.gov/arcgis/rest/services', 
+    'martin': {
+        'arcgis_base': 'https://maps.martin.fl.us/arcgis/rest/services', 
+        'property_layer': None,  # To be discovered
+        'search_fields': ['PARCEL_ID', 'PARCELNO', 'PIN', 'STRAP']
+    },
+    'suwannee': {
+        'arcgis_base': 'https://gis.suwanneecounty.com/arcgis/rest/services',
         'property_layer': None,  # To be discovered
         'search_fields': ['PARCEL_ID', 'PARCELNO', 'PIN']
     },
     'calhoun': {
         'arcgis_base': None,  # Custom clerk - may need different approach
         'fallback_url': 'https://www.calhounclerk.com'
+    },
+    'liberty': {
+        'arcgis_base': None,  # Custom clerk - may need different approach
+        'fallback_url': 'https://www.libertyclerk.com'
     }
 }
 
@@ -255,7 +264,7 @@ async def run_parcel_linkage_campaign():
     logger.info("Starting SHARD-6 parcel linkage campaign...")
     
     # Priority counties based on issue brief
-    priority_counties = ['escambia', 'lake']  # Both have E-lane failures
+    priority_counties = ['escambia', 'martin', 'suwannee']  # E-lane targets: 87.1%, 34.7%, 0.0%
     
     all_results = {}
     
