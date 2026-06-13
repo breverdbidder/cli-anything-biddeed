@@ -1,0 +1,127 @@
+name: "SHARD-4 Gold Standard Session"
+
+# Per WIRING MANDATE: All code that is not SCHEDULED is dead code and scores zero
+# This workflow ensures the shard4 improvements actually execute, not just get written
+
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'    # 08:00Z daily weekdays per 24/7 BUILD CADENCE
+    - cron: '0 16 * * 1-5'   # 16:00Z daily weekdays  
+    - cron: '0 0 * * 1-5'    # 00:00Z daily weekdays
+  workflow_dispatch:
+    inputs:
+      target_county:
+        description: 'Specific county to target (optional)'
+        required: false
+        type: choice
+        options:
+          - 'all'
+          - 'broward'
+          - 'sarasota' 
+          - 'indian_river'
+          - 'washington'
+          - 'lafayette'
+        default: 'all'
+      max_hours:
+        description: 'Maximum hours to run'
+        required: false
+        default: '5.5'
+      verify_only:
+        description: 'Verification mode only'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  shard4-session:
+    name: "SHARD-4 Counties Gold Standard Session"
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hour ceiling per issue
+    
+    # Per PARALLEL-FLEET RULES: claim shards, no cross-shard writes
+    concurrency:
+      group: shard4-gold-standard
+      cancel-in-progress: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: |
+          pip install httpx
+          python -c "import httpx; print('httpx version:', httpx.__version__)"
+          
+      - name: Git configuration
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions (SHARD-4)"
+          
+      - name: Execute SHARD-4 session
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Set parameters based on inputs
+          COUNTY_ARG=""
+          if [[ "${{ github.event.inputs.target_county }}" != "all" && -n "${{ github.event.inputs.target_county }}" ]]; then
+            COUNTY_ARG="--county ${{ github.event.inputs.target_county }}"
+          fi
+          
+          VERIFY_ARG=""
+          if [[ "${{ github.event.inputs.verify_only }}" == "true" ]]; then
+            VERIFY_ARG="--verify-only"
+          fi
+          
+          MAX_HOURS="${{ github.event.inputs.max_hours || '5.5' }}"
+          
+          echo "### SHARD-4 Gold Standard Session Starting" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: ${{ github.event.inputs.target_county || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Max hours: $MAX_HOURS" >> $GITHUB_STEP_SUMMARY  
+          echo "- Verify only: ${{ github.event.inputs.verify_only || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Started: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Execute the session
+          python3 shard4_gold_standard_session.py $COUNTY_ARG $VERIFY_ARG --max-hours $MAX_HOURS
+          
+      - name: Commit improvements (if not verify-only)
+        if: ${{ github.event.inputs.verify_only != 'true' }}
+        run: |
+          # Per SHIP-TO-MAIN MANDATE: commit directly to main
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: SHARD-4 gold standard improvements
+            
+            Counties: broward, sarasota, indian_river, washington, lafayette
+            Session: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            Strategy: CRITERION-PARALLEL PIVOT (C/D parity → J generator → E linkage)
+            
+            🤖 Generated with [Claude Code](https://claude.ai/code)
+            
+            Co-authored-by: breverdbidder <breverdbidder@users.noreply.github.com>"
+            
+            git push origin main
+            echo "✅ Committed improvements to main branch" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No changes to commit" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+      - name: Report session completion
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Session Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Ended: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: ${{ steps.execute.outputs.duration || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          
+          # Per VERIFICATION PROTOCOL: Report final metrics
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Final Verification" >> $GITHUB_STEP_SUMMARY
+          python3 shard4_gold_standard_session.py --verify-only >> $GITHUB_STEP_SUMMARY || echo "Verification failed" >> $GITHUB_STEP_SUMMARY
