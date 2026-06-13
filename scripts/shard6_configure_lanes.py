@@ -3,7 +3,7 @@
 SHARD-6 Lane Configuration (A-lane) Implementation  
 Configure foreclosure and tax deed lanes for dual-product coverage
 
-A-lane failures: sumter, calhoun, liberty
+A-lane failures: suwannee, calhoun, liberty (0 metrics)
 Need to configure BOTH lanes per pipeline.counties
 """
 
@@ -38,23 +38,23 @@ COUNTY_LANE_CONFIGS = {
         'tax_deed_platform': 'realforeclose', 
         'tax_deed_url': 'https://escambia.realforeclose.com',
         'appraiser_url': 'https://gis.myescambia.com',
-        'status': 'partially_configured'  # Already has some coverage
+        'status': 'configured'  # A=3195 metric (PASS)
     },
-    'sumter': {
+    'suwannee': {
         'foreclosure_platform': 'realforeclose',
-        'foreclosure_url': 'https://sumter.realforeclose.com',
+        'foreclosure_url': 'https://suwannee.realforeclose.com',
         'tax_deed_platform': 'realforeclose',
-        'tax_deed_url': 'https://sumter.realforeclose.com', 
-        'appraiser_url': 'https://www.sumtercountyfl.gov/223/Property-Appraiser',
+        'tax_deed_url': 'https://suwannee.realforeclose.com', 
+        'appraiser_url': 'https://gis.suwanneecounty.com',
         'status': 'needs_full_config'  # A=0 metric
     },
-    'lake': {
+    'martin': {
         'foreclosure_platform': 'realforeclose',
-        'foreclosure_url': 'https://lake.realforeclose.com',
+        'foreclosure_url': 'https://martin.realforeclose.com',
         'tax_deed_platform': 'realforeclose',
-        'tax_deed_url': 'https://lake.realforeclose.com',
-        'appraiser_url': 'https://gis.lakecountyfl.gov',
-        'status': 'partially_configured'  # A=1113 metric
+        'tax_deed_url': 'https://martin.realforeclose.com',
+        'appraiser_url': 'https://maps.martin.fl.us',
+        'status': 'configured'  # A=971 metric (PASS)
     },
     'calhoun': {
         'foreclosure_platform': 'custom_clerk',
@@ -65,12 +65,12 @@ COUNTY_LANE_CONFIGS = {
         'status': 'needs_full_config'  # A=0 metric
     },
     'liberty': {
-        'foreclosure_platform': 'unknown',  # Need to investigate
-        'foreclosure_url': None,
-        'tax_deed_platform': 'unknown',
-        'tax_deed_url': None,
+        'foreclosure_platform': 'custom_clerk',
+        'foreclosure_url': 'https://www.libertyclerk.com/foreclosure',
+        'tax_deed_platform': 'custom_clerk',
+        'tax_deed_url': 'https://www.libertyclerk.com/foreclosure',
         'appraiser_url': 'https://www.libertycountyfl.com',
-        'status': 'needs_investigation'  # No known online presence
+        'status': 'needs_full_config'  # A=0 metric
     }
 }
 
