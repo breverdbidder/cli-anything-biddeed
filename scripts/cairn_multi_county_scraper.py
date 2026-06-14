@@ -8,7 +8,7 @@ Schedule:        daily (cron */6 hours reasonable for staging)
 Auth:            SUPABASE_URL + SUPABASE_SERVICE_ROLE in env
 
 Does:
-  1. For each of 47 FL counties, scrape source auction site
+  1. For each of 49 FL counties, scrape source auction site
   2. Compare scrape vs multi_county_auctions rows
   3. Insert missing auctions (provenance='live_source_scrape_YYYY-MM-DD')
   4. Log parity metrics to parity_results table (per run, per county)
@@ -57,6 +57,7 @@ COUNTY_SOURCES = {
     'citrus':       ('realforeclose', 'https://citrus.realforeclose.com'),
     'clay':         ('realforeclose', 'https://clay.realforeclose.com'),
     'collier':      ('realforeclose', 'https://collier.realforeclose.com'),
+    'columbia':     ('realforeclose', 'https://columbia.realforeclose.com'),
     'duval':        ('realforeclose', 'https://duval.realforeclose.com'),
     'escambia':     ('realforeclose', 'https://escambia.realforeclose.com'),
     'flagler':      ('realforeclose', 'https://flagler.realforeclose.com'),
@@ -72,6 +73,7 @@ COUNTY_SOURCES = {
     'lee':          ('realforeclose', 'https://lee.realforeclose.com'),
     'leon':         ('realforeclose', 'https://leon.realforeclose.com'),
     'liberty':      ('custom_clerk', 'https://www.libertyclerk.com/foreclosure'),
+    'madison':      ('realforeclose', 'https://madison.realforeclose.com'),
     'manatee':      ('realforeclose', 'https://manatee.realforeclose.com'),
     'marion':       ('realforeclose', 'https://marion.realforeclose.com'),
     'martin':       ('realforeclose', 'https://martin.realforeclose.com'),
