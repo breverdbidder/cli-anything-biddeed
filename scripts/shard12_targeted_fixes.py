@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 SHARD-12 TARGETED GOLD STANDARD FIXES
-High-impact improvements for osceola, bay, nassau, glades
+High-impact improvements for sumter, indian_river, polk, glades
 
-PRIORITY TARGETS:
-1. glades Letter A: 0/10 → 1+/10 (data ingestion)
-2. bay/nassau Letter H: 313h → <48h (freshness fix)
-3. All counties Letter E: 77-81% → 95%+ (parcel linkage)
+PRIORITY TARGETS (CORRECTED June 14, 2026 - run 26):
+1. glades Letter A: 0/10 → 1+/10 (data ingestion) 
+2. sumter Letter H: 1218.3h → <48h (freshness fix)
+3. All counties Letter E: 68-81% → 95%+ (parcel linkage)
+4. B Letter verification fixes for all counties
 
 WIRING MANDATE: Every script shipped MUST be scheduled/executed
 """
@@ -34,12 +35,12 @@ HEADERS = {
     "Prefer": "resolution=merge-duplicates"
 }
 
-# SHARD-12 configuration
-TARGET_COUNTIES = ['osceola', 'bay', 'nassau', 'glades']
+# SHARD-12 configuration (CORRECTED June 14, 2026 - run 26)
+TARGET_COUNTIES = ['sumter', 'indian_river', 'polk', 'glades']
 COUNTY_CONFIG = {
-    'osceola': {'co_no': 59, 'fips': '12097', 'region': 'central'},
-    'bay': {'co_no': 13, 'fips': '12005', 'region': 'panhandle'}, 
-    'nassau': {'co_no': 55, 'fips': '12089', 'region': 'northeast'},
+    'sumter': {'co_no': 65, 'fips': '12119', 'region': 'central'},
+    'indian_river': {'co_no': 42, 'fips': '12061', 'region': 'east_coast'}, 
+    'polk': {'co_no': 60, 'fips': '12105', 'region': 'central'},
     'glades': {'co_no': 32, 'fips': '12043', 'region': 'central'}
 }
 
@@ -367,9 +368,9 @@ def main():
         logger.info("\n🎯 PHASE 2: Glades Letter A (0/10 → 1+/10)")
         glades_success = fix_glades_letter_a()
         
-        # Phase 2: Fix freshness for bay/nassau (quick win)
-        logger.info("\n🎯 PHASE 3: Bay/Nassau Letter H (313h → <48h)")
-        freshness_success = fix_freshness_letter_h(['bay', 'nassau'])
+        # Phase 2: Fix freshness for sumter/indian_river/polk (quick win)
+        logger.info("\n🎯 PHASE 3: Sumter/Indian_River/Polk Letter H (>48h → <48h)")
+        freshness_success = fix_freshness_letter_h(['sumter', 'indian_river', 'polk'])
         
         # Phase 3: Fix parcel linkage for all counties
         logger.info("\n🎯 PHASE 4: All Counties Letter E (77-81% → 95%+)")
@@ -388,7 +389,7 @@ def main():
         
         phases = [
             ("Glades Letter A", glades_success),
-            ("Bay/Nassau Freshness", freshness_success), 
+            ("Sumter/Indian_River/Polk Freshness", freshness_success), 
             ("Parcel Linkage", parcel_success)
         ]
         

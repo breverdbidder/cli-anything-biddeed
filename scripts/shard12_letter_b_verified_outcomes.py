@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 SHARD-12 Letter B: Verified Outcomes Infrastructure
-Build independent verified outcome pipeline for osceola, bay, nassau, glades
+Build independent verified outcome pipeline for sumter, indian_river, polk, glades
 
 CRITICAL REQUIREMENT: Data source must be INDEPENDENT (not PropertyOnion-derived)
 Target: 0% → 95%+ verified outcomes with independent clerk sources
 
-STRATEGY:
+STRATEGY (CORRECTED June 14, 2026 - run 26):
 1. Set up county clerk scraping endpoints for each SHARD-12 county
-2. Create verified outcome records with independent data sources
+2. Create verified outcome records with independent data sources  
 3. Build pipeline to collect sale results from clerk records
 4. Link outcomes to multi_county_auctions for Letter B compliance
 """
@@ -37,26 +37,26 @@ HEADERS = {
     "Prefer": "resolution=merge-duplicates"
 }
 
-# SHARD-12 county clerk endpoints (discovered via research)
+# SHARD-12 county clerk endpoints (CORRECTED June 14, 2026 - run 26)
 COUNTY_CLERK_CONFIG = {
-    'osceola': {
-        'name': 'Osceola County Clerk',
-        'base_url': 'https://www.osceolaclerk.com',
-        'records_portal': 'https://www.osceolaclerk.com/records/official-records',
+    'sumter': {
+        'name': 'Sumter County Clerk',
+        'base_url': 'https://www.sumterclerk.com',
+        'records_portal': 'https://www.sumterclerk.com/public-records',
         'search_type': 'case_number',
         'doc_types': ['CERTIFICATE OF TITLE', 'FINAL JUDGMENT', 'CERTIFICATE OF SALE']
     },
-    'bay': {
-        'name': 'Bay County Clerk', 
-        'base_url': 'https://bay.realforeclose.com',
-        'records_portal': 'https://bay.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW',
-        'search_type': 'auction_date',
-        'doc_types': ['SALE RESULTS', 'CERTIFICATE OF SALE']
+    'indian_river': {
+        'name': 'Indian River County Clerk', 
+        'base_url': 'https://www.ircclerk.com',
+        'records_portal': 'https://www.ircclerk.com/records-search',
+        'search_type': 'case_number',
+        'doc_types': ['FORECLOSURE SALE', 'CERTIFICATE OF SALE']
     },
-    'nassau': {
-        'name': 'Nassau County Clerk',
-        'base_url': 'https://www.nassauclerk.com', 
-        'records_portal': 'https://www.nassauclerk.com/public-records',
+    'polk': {
+        'name': 'Polk County Clerk',
+        'base_url': 'https://www.polkclerk.net', 
+        'records_portal': 'https://www.polkclerk.net/records/official-records',
         'search_type': 'case_number',
         'doc_types': ['CERTIFICATE OF TITLE', 'FORECLOSURE SALE', 'DEED']
     },
@@ -69,7 +69,7 @@ COUNTY_CLERK_CONFIG = {
     }
 }
 
-TARGET_COUNTIES = ['osceola', 'bay', 'nassau', 'glades']
+TARGET_COUNTIES = ['sumter', 'indian_river', 'polk', 'glades']
 
 client = httpx.Client(timeout=60)
 
