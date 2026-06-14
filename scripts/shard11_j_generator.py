@@ -26,7 +26,7 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-SHARD11_COUNTIES = ['manatee', 'bay', 'okeechobee', 'gadsden', 'wakulla']
+SHARD11_COUNTIES = ['orange', 'flagler', 'pasco', 'gadsden', 'wakulla']
 
 def log(message, level="INFO"):
     timestamp = datetime.now(timezone.utc).isoformat()

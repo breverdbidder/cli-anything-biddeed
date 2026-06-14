@@ -26,7 +26,7 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-SHARD11_COUNTIES = ['manatee', 'bay', 'okeechobee', 'gadsden', 'wakulla']
+SHARD11_COUNTIES = ['orange', 'flagler', 'pasco', 'gadsden', 'wakulla']
 
 def log(message, level="INFO"):
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -142,9 +142,9 @@ def implement_supplementary_litmus_source(county):
             "5. Update parity calculations to include clerk supplementary source"
         ],
         "clerk_endpoints": {
-            "manatee": "https://va-clmweb.manateeclerk.org/",
-            "bay": "https://www.bayclerk.org/",
-            "okeechobee": "https://www.clerk.okeechobee.fl.us/",
+            "orange": "https://myorangeclerk.com/",
+            "flagler": "https://www.flaglerclerk.com/",
+            "pasco": "https://www.pascoclerk.com/",
             "gadsden": "https://www.gadsdencountyclerk.com/",
             "wakulla": "https://www.wakullacountyclerk.com/"
         },
