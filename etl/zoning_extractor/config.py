@@ -19,6 +19,7 @@ MODEL = os.environ.get("ZONING_EXTRACT_MODEL", "claude-sonnet-4-6")
 # ---- Behavior knobs ------------------------------------------------------
 NAV_TIMEOUT_MS   = int(os.environ.get("NAV_TIMEOUT_MS", "45000"))
 RENDER_SETTLE_MS = int(os.environ.get("RENDER_SETTLE_MS", "2500"))  # extra wait after networkidle
+SELECTOR_WAIT_MS = int(os.environ.get("SELECTOR_WAIT_MS", "15000")) # wait for content selector to populate
 POLITE_DELAY_S   = float(os.environ.get("POLITE_DELAY_S", "2.0"))   # between page loads
 MAX_RETRIES      = int(os.environ.get("MAX_RETRIES", "4"))
 
