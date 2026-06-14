@@ -255,6 +255,44 @@ class JGeneratorPipeline:
         
         return round(composite, 3), factors
 
+    def get_cma_data(self, auction: AuctionData) -> Tuple[float, float]:
+        """Get real CMA data from gen_valuations_comps_batch table"""
+        try:
+            query = f"""
+            SELECT cma_distressed, cma_resale, sufficient_comps_found
+            FROM gen_valuations_comps_batch
+            WHERE case_number = '{auction.case_number}' AND county_slug = '{auction.county}'
+            """
+            
+            response = requests.post(
+                f"{self.supabase_url}/rest/v1/rpc/exec_sql",
+                headers=self.headers,
+                json={"query": query},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result:
+                    row = result[0]
+                    cma_distressed = float(row.get('cma_distressed') or 0)
+                    cma_resale = float(row.get('cma_resale') or 0)
+                    
+                    # Verify we have good CMA data
+                    if cma_distressed > 0 and cma_resale > 0:
+                        return cma_distressed, cma_resale
+                        
+            # Fallback to estimated values if no CMA data available
+            logger.warning(f"No CMA data for {auction.case_number}, using estimates")
+            arv = self.calculate_arv(auction)
+            return arv * 0.75, arv * 1.05  # Conservative estimates
+            
+        except Exception as e:
+            logger.error(f"Error fetching CMA data for {auction.case_number}: {e}")
+            # Fallback calculation
+            arv = self.calculate_arv(auction)
+            return arv * 0.75, arv * 1.05
+
     def generate_bid_decision(self, auction: AuctionData) -> BidDecision:
         """Generate complete bid decision for an auction"""
         
@@ -273,9 +311,12 @@ class JGeneratorPipeline:
         # Step 5: Triangle factors
         triangle_score, factors = self.calculate_triangle_score(auction, arv)
         
-        # Step 6: CMA estimates (placeholder - would use real comps)
-        cma_distressed = arv * 0.8  # Distressed comparables typically 80% of market
-        cma_resale = arv * 1.1      # Resale comparables typically 110% of ARV
+        # Step 6: Get real CMA data
+        cma_distressed, cma_resale = self.get_cma_data(auction)
+        
+        # Add CMA factors to the factors dict
+        factors['cma_distressed'] = cma_distressed
+        factors['cma_resale'] = cma_resale
         
         return BidDecision(
             case_number=auction.case_number,
@@ -301,7 +342,7 @@ class JGeneratorPipeline:
                 "max_bid": decision.max_bid,
                 "repair_estimate": decision.repair_estimate,
                 "ml_score": decision.ml_score,
-                "ml_model_version": "shapira_v14_placeholder",
+                "ml_model_version": "shapira_v14_with_real_cma",
                 "triangle_score": decision.triangle_score,
                 "factors": json.dumps(decision.factors),
                 "cma_distressed": decision.cma_distressed,
