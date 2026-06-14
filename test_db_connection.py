@@ -50,7 +50,7 @@ def test_connection():
 
 def get_current_gold_standard_status():
     """Get current Gold Standard metrics for our assigned counties"""
-    assigned_counties = ['charlotte', 'palm_beach', 'gilchrist', 'seminole', 'hardee']
+    assigned_counties = ['highlands', 'baker', 'miami_dade', 'columbia', 'madison']
     
     try:
         client = httpx.Client(timeout=30)
@@ -127,7 +127,7 @@ if __name__ == "__main__":
             print(f"  Pass count: {data.get('pass_count', 'N/A')}/10")
     
     print("\n=== Fresh County Evaluations ===")
-    assigned_counties = ['charlotte', 'palm_beach', 'gilchrist', 'seminole', 'hardee']
+    assigned_counties = ['highlands', 'baker', 'miami_dade', 'columbia', 'madison']
     for county in assigned_counties:
         print(f"\n--- {county} ---")
         evaluate_county_current(county)
