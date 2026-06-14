@@ -24,6 +24,7 @@ import db as dbmod
 from render import render_node, node_url
 from extract import extract_standards
 from validate import validate_row
+import runlog
 
 
 def run(county: str, only: str | None, dry_run: bool, render_only: bool = False) -> int:
@@ -36,6 +37,7 @@ def run(county: str, only: str | None, dry_run: bool, render_only: bool = False)
         return 1
 
     grand = {"jurisdictions": 0, "codes": 0, "staged": 0, "errors": 0}
+    details: list[dict] = []
 
     for j in jurisdictions:
         aj   = j["assignment_jurisdiction"]
@@ -52,6 +54,8 @@ def run(county: str, only: str | None, dry_run: bool, render_only: bool = False)
             text = render_node(url, plat)
             if render_only:
                 print(f"    rendered {len(text)} chars | sample: {text[:140]!r}")
+                details.append({"jurisdiction": aj, "platform": plat,
+                                "render_chars": len(text), "codes_targeted": len(codes)})
                 grand["jurisdictions"] += 1
                 continue
             records = extract_standards(text, codes, cj)
@@ -82,19 +86,25 @@ def run(county: str, only: str | None, dry_run: bool, render_only: bool = False)
             hi = sum(1 for x in rows if x["extraction_confidence"] == "high")
             print(f"    extracted {len(rows)} ({hi} high-confidence)"
                   + (" [dry-run, not written]" if dry_run else ""))
-            if not dry_run:
-                grand["staged"] += dbmod.stage(db, rows)
+            staged_n = 0 if dry_run else dbmod.stage(db, rows)
+            grand["staged"] += staged_n
             grand["jurisdictions"] += 1
             grand["codes"] += len(rows)
+            details.append({"jurisdiction": aj, "platform": plat,
+                            "render_chars": len(text), "codes_targeted": len(codes),
+                            "codes_extracted": len(rows), "high_conf": hi, "staged": staged_n})
 
         except Exception as e:
             grand["errors"] += 1
             print(f"[x] {aj} FAILED: {e}")
             traceback.print_exc()
+            details.append({"jurisdiction": aj, "error": str(e)[:500]})
             # continue to next jurisdiction; never let one source sink the run
 
     print(f"\n=== {county}: {grand['jurisdictions']} jurisdictions, "
           f"{grand['codes']} codes, {grand['staged']} staged, {grand['errors']} errors ===")
+    mode = "render_only" if render_only else ("dry_run" if dry_run else "live")
+    runlog.write(db, county, only, mode, grand, details)
     print("Review staged rows, then promote gated=true rows to zoning_codes separately.")
     return 0 if grand["errors"] == 0 else 2
 
