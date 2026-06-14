@@ -1,0 +1,4 @@
+playwright>=1.44
+anthropic>=0.39
+supabase>=2.7
+tenacity>=8.2
