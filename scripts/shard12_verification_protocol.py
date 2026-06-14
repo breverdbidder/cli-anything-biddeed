@@ -38,8 +38,8 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# SHARD-12 target counties
-TARGET_COUNTIES = ['osceola', 'bay', 'nassau', 'glades']
+# SHARD-12 target counties (CORRECTED June 14, 2026 - run 26)
+TARGET_COUNTIES = ['sumter', 'indian_river', 'polk', 'glades']
 
 client = httpx.Client(timeout=120)  # Longer timeout for verification queries
 
@@ -308,9 +308,9 @@ Timestamp: {timestamp_utc}
 SET statement_timeout = 0;
 
 -- Evaluate each SHARD-12 county
-SELECT public.pencil_dod_evaluate_county('osceola');
-SELECT public.pencil_dod_evaluate_county('bay'); 
-SELECT public.pencil_dod_evaluate_county('nassau');
+SELECT public.pencil_dod_evaluate_county('sumter');
+SELECT public.pencil_dod_evaluate_county('indian_river'); 
+SELECT public.pencil_dod_evaluate_county('polk');
 SELECT public.pencil_dod_evaluate_county('glades');
 
 -- Run complete Gold Standard loop
