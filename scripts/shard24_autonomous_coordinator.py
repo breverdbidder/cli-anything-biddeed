@@ -145,43 +145,78 @@ class Shard24Coordinator:
     def execute_cd_root_cause_analysis(self, county: str) -> bool:
         """Execute C/D parity root cause analysis with pre-authorized litmus fallback [UNTESTED]"""
         print(f"\n=== C/D ROOT CAUSE ANALYSIS: {county} ===")
-        print("Pre-authorized action: PropertyOnion coverage → clerk/official-records supplementary litmus")
+        print("Delegating to shard24_cd_parity_analysis.py")
         
-        # This would implement the PropertyOnion coverage audit and 
-        # clerk records supplementary matching per the brief
-        # For now, logging the framework
-        
-        print(f"[UNTESTED] Would execute PropertyOnion coverage audit for {county}")
-        print(f"[UNTESTED] Would implement clerk/official-records supplementary litmus")
-        print(f"[UNTESTED] Would backfill matches and update parity status")
-        
-        # TODO: Implement actual C/D parity fix logic
-        return False
+        try:
+            # Import and execute the dedicated C/D analysis module
+            import subprocess
+            result = subprocess.run(
+                ["python", "scripts/shard24_cd_parity_analysis.py"],
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 min timeout
+            )
+            
+            if result.returncode == 0:
+                print(f"✅ C/D parity analysis completed for {county}")
+                return True
+            else:
+                print(f"❌ C/D parity analysis failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error executing C/D analysis: {e}")
+            return False
     
     def execute_e_linkage_improvements(self, county: str) -> bool:
         """Execute E parcel linkage improvements via county property appraiser ArcGIS [UNTESTED]"""
         print(f"\n=== E PARCEL LINKAGE: {county} ===")
-        print("Method: County property appraiser ArcGIS FeatureServer integration")
+        print("Delegating to shard24_e_linkage_improvements.py")
         
-        # This would implement the parcel linking pipeline per Brevard/BCPAO pattern
-        print(f"[UNTESTED] Would probe {county} property appraiser ArcGIS endpoints")
-        print(f"[UNTESTED] Would execute parcel_id linkage pipeline")
-        print(f"[UNTESTED] Would verify linkage improvements via fresh evaluation")
-        
-        # TODO: Implement actual E linkage fix logic
-        return False
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["python", "scripts/shard24_e_linkage_improvements.py"],
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 min timeout
+            )
+            
+            if result.returncode == 0:
+                print(f"✅ E linkage improvements completed for {county}")
+                return True
+            else:
+                print(f"❌ E linkage improvements failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error executing E linkage improvements: {e}")
+            return False
     
     def execute_h_freshness_fix(self, county: str) -> bool:
         """Execute H freshness improvements - ensure <48h SLA compliance [UNTESTED]"""
         print(f"\n=== H FRESHNESS: {county} ===")
-        print("Requirement: <48h SLA compliance, scraper scheduling verification")
+        print("Delegating to shard24_h_freshness_fix.py")
         
-        print(f"[UNTESTED] Would check {county} scraper scheduling")
-        print(f"[UNTESTED] Would verify last_seen timestamps")
-        print(f"[UNTESTED] Would trigger fresh scraper run if needed")
-        
-        # TODO: Implement actual H freshness fix logic
-        return False
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["python", "scripts/shard24_h_freshness_fix.py"],
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 min timeout
+            )
+            
+            if result.returncode == 0:
+                print(f"✅ H freshness fix completed for {county}")
+                return True
+            else:
+                print(f"❌ H freshness fix failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error executing H freshness fix: {e}")
+            return False
     
     def log_ultraloop_audit(self, county: str, letter: str, claim: str, 
                            refuter_evidence: Dict, survived: bool) -> bool:
