@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
-GOLD STANDARD SHARD-4 (Loop 24): charlotte, suwannee, lee, washington, lafayette
-6-hour autonomous session coordinator with ULTRALOOP verification protocol.
+SHARD-24 Master Coordinator - Autonomous 6-hour Gold Standard Session
+Orchestrates all fixes for citrus, broward, charlotte counties per issue #7717
 
-SESSION MANDATE:
-- Ship directly to main (no side branches)
-- ULTRALOOP: adversarial verification of all claims
-- WIRING MANDATE: schedule and execute all scrapers/pipelines
-- Evidence-before-claims with VERIFIED/UNTESTED/INFERRED tags
+SHIP-TO-MAIN MANDATE: Commit and push directly to main, no side branches
+ULTRALOOP PROTOCOL: Fan-out-and-synthesize with adversarial verification
+6-HOUR BUDGET: Run until ~5.5h elapsed, then close out
 
 COUNTY STATUS (from issue brief):
-- charlotte: 2/10 (A=249, H=FAIL 50h)
-- suwannee: 2/10 (C=100.0%, D=100.0%) 
-- lee: 1/10 (A=6841)
-- washington: 1/10 (A=30, F=18.6%)
-- lafayette: 0/10 (A=0 - no data)
+- citrus (3/10): A✓ E✓ H✓ | Priority: J(0.0), C(9.5), D(75.3), F(6.1), I(null)
+- broward (2/10): A✓ H✓ | Priority: J(0.0), E(20.6), C(19.4), D(47.7), F(2.5)  
+- charlotte (2/10): A✓ D✓ | Priority: J(0.0), E(43.8), H(50.0), I(null), F(2.1)
+
+Priority order per brief analysis:
+1. Letter J (0.0% all counties) - Highest leverage: bid_decisions generator
+2. Letter E (broward 20.6%, charlotte 43.8%) - Parcel linkage
+3. Letter C/D (parity reconciliation) - Pre-authorized clerk litmus
+4. Verification protocol with live metrics
 """
 import os
 import sys
@@ -24,13 +26,11 @@ import httpx
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 
-# Shard-24 counties (ONLY work on these)
+# SHARD-24 counties from issue #7717 (ONLY work on these)
 SHARD_COUNTIES = {
-    'charlotte': {'co_no': 20, 'brief_status': '2/10', 'priority': 1},
-    'suwannee': {'co_no': 62, 'brief_status': '2/10', 'priority': 2},  
-    'lee': {'co_no': 39, 'brief_status': '1/10', 'priority': 3},
-    'washington': {'co_no': 73, 'brief_status': '1/10', 'priority': 4},
-    'lafayette': {'co_no': 38, 'brief_status': '0/10', 'priority': 5}
+    'citrus': {'co_no': 12, 'brief_status': '3/10', 'priority': 1, 'passes': ['A', 'E', 'H']},
+    'broward': {'co_no': 11, 'brief_status': '2/10', 'priority': 2, 'passes': ['A', 'H']},
+    'charlotte': {'co_no': 20, 'brief_status': '2/10', 'priority': 3, 'passes': ['A', 'D']}
 }
 
 # Supabase connection (per CLAUDE.md)
@@ -124,7 +124,7 @@ def evaluate_county_live(county_slug: str) -> Dict:
 def create_ultraloop_audit_entry(county_slug: str, letter: str, claim: str, evidence: Dict, survived: bool) -> None:
     """Log ULTRALOOP audit entry per CLAUDE.md protocol"""
     audit_data = {
-        'dispatch_id': '29ec10bc-7093-4f92-9fcc-add47359657a',  # From issue
+        'dispatch_id': '53768464-f13a-4d1e-8729-30fa26d3103a',  # From issue #7717
         'ultraloop_mode': 'native',  # Assuming native mode available
         'county_slug': county_slug,
         'letter': letter,
