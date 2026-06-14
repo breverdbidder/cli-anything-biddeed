@@ -34,7 +34,7 @@ def _extract_text(page, platform: str) -> str:
 
 
 @retry(stop=stop_after_attempt(config.MAX_RETRIES),
-       wait=wait_exponential(multiplier=1.5, min=2, max=20))
+       wait=wait_exponential(multiplier=1.5, min=2, max=20), reraise=True)
 def render_node(url: str, platform: str) -> str:
     """Return the rendered visible text of an ordinance node. Retries with backoff."""
     with sync_playwright() as p:
@@ -49,11 +49,25 @@ def render_node(url: str, platform: str) -> str:
         )
         page = ctx.new_page()
         try:
-            page.goto(url, wait_until="networkidle", timeout=config.NAV_TIMEOUT_MS)
+            # domcontentloaded (not networkidle): ordinance SPAs hold persistent
+            # connections, so networkidle never fires and goto times out at NAV_TIMEOUT.
+            page.goto(url, wait_until="domcontentloaded", timeout=config.NAV_TIMEOUT_MS)
+            # wait for the real content container to populate after the SPA hydrates
+            for sel in config.CONTENT_SELECTORS.get(platform, ["body"]):
+                try:
+                    page.wait_for_selector(sel, timeout=config.SELECTOR_WAIT_MS)
+                    break
+                except Exception:
+                    continue
             page.wait_for_timeout(config.RENDER_SETTLE_MS)
             text = _extract_text(page, platform)
             if len(text) < 400:
-                raise RuntimeError(f"Content too short ({len(text)} chars) — likely blocked/unrendered")
+                # surface what actually loaded so the log distinguishes
+                # bot-wall / captcha / empty-shell from a slow render
+                raise RuntimeError(
+                    f"Content too short ({len(text)} chars); title={page.title()!r}; "
+                    f"head={text[:200]!r}"
+                )
             return text
         finally:
             browser.close()
