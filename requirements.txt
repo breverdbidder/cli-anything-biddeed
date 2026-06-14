@@ -1,4 +1,6 @@
-# SHARD-6 Gold Standard Campaign Dependencies
+# SHARD-1 Gold Standard Campaign Dependencies
 httpx>=0.24.0
 beautifulsoup4>=4.11.0
 lxml>=4.9.0
+psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0
