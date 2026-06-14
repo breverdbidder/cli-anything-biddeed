@@ -21,8 +21,8 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Target counties for SHARD-1 (Run 20)
-SHARD1_COUNTIES = ['charlotte', 'palm_beach', 'gilchrist', 'seminole', 'hardee']
+# Target counties for SHARD-1 (Run 24)
+SHARD1_COUNTIES = ['citrus', 'putnam', 'indian_river', 'st_johns', 'hardee']
 
 def test_connection():
     """Test Supabase connection"""

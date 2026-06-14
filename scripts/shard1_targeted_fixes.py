@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SHARD-1 Targeted Fixes - Gold Standard Campaign
-Counties: charlotte, palm_beach, gilchrist, seminole, hardee
+Counties: citrus, putnam, indian_river, st_johns, hardee
 
 Implements high-leverage fixes for failing letters per priority order:
 1. Hardee bootstrap (0/10 → 1+/10)  
@@ -31,12 +31,12 @@ HEADERS = {
     "Prefer": "return=representation"
 }
 
-# SHARD-1 counties with current status
+# SHARD-1 counties with current status (RUN 24)
 SHARD1_COUNTIES = {
-    'charlotte': {'current_score': 3, 'priority_letters': ['B', 'C', 'E', 'F', 'G', 'I', 'J']},
-    'palm_beach': {'current_score': 2, 'priority_letters': ['B', 'C', 'D', 'F', 'G', 'I', 'J']},
-    'gilchrist': {'current_score': 1, 'priority_letters': ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']},
-    'seminole': {'current_score': 1, 'priority_letters': ['B', 'C', 'D', 'F', 'G', 'H', 'I', 'J']},
+    'citrus': {'current_score': 3, 'priority_letters': ['B', 'C', 'D', 'F', 'G', 'I', 'J']},
+    'putnam': {'current_score': 2, 'priority_letters': ['B', 'C', 'E', 'F', 'G', 'H', 'I', 'J']}, 
+    'indian_river': {'current_score': 1, 'priority_letters': ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']},
+    'st_johns': {'current_score': 1, 'priority_letters': ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']},
     'hardee': {'current_score': 0, 'priority_letters': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']}
 }
 

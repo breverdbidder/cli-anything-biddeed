@@ -27,7 +27,7 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-SHARD1_COUNTIES = ['charlotte', 'palm_beach', 'gilchrist', 'seminole', 'hardee']
+SHARD1_COUNTIES = ['citrus', 'putnam', 'indian_river', 'st_johns', 'hardee']
 
 def log_verification(step, details, sql_evidence=None):
     """Log verification steps with SQL evidence for SHIP GATE compliance"""
