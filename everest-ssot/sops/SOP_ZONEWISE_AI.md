@@ -1,0 +1,5 @@
+# ZoneWise.AI PROJECT SOP (zonewise_ai)
+Entity: tech venture (NOT Brevard LLC). Pairing: never ZoneWise without BidDeed; never tax deeds without foreclosures.
+Spine: 27 active workflows; shares 150 skills + 31 agents. Gap: register ZoneWise Modal Spatial Agent + Dify zoning agent next pass. Query: select * from v_ssot_master where project_key='zonewise_ai'.
+Workflows: zoning ingestion (FL Zoning Batch Ingest, Nightly Scrape, Density Extract municode, zoning-extract); coverage (Brevard 100%/Remediation, Multi-County Migration); consolidation (Consolidate Zoning -> SSOT, CDP Fix); spatial (Modal Spatial Agent, Dify); web deploy (competitors/roadmap, Stripe paywall). FLAG: Hetzner/Dify vs Supabase+GHA default — verify.
+Standing: Gold Standard Duval Aug14, constraint G+I substrate. Sprint G+I->C/D->J->B. BidDeed companion always.
