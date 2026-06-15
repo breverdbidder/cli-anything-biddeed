@@ -1,0 +1,6 @@
+# EVEREST CI SOP v6.5 (project mocerqjnksmhcjzxrewo)
+Format: YAML substrate, Mermaid, no tables. Binds HONESTY_V3, CI_RECON_DEPTH_GATE, PROPERTYONION_HARD_RULE, DEFAULT_INFRA_SUPABASE_GHA, CRED_HYGIENE.
+P0 BOUNDARY: target_class->crawl_policy. COMPETITOR_PUBLIC=public_only, no auth, no replay. Gated areas enumerated never accessed (UNKNOWN). No security probing. Network observe = passive public XHR only. Competitor data never into moats. PO+FloridaBidder litmus only. Lives on ci_v65_dossiers.auth_tier, ci_v65_pages.is_authenticated, ci_v65_api_endpoints.auth_scheme.
+SCHEMA: canonical ci_v65_* + ci_competitor_master. Deprecate ci_dossier_*/ci_competitors/competitor_intelligence/competitive_intel/competitor_snapshots/dup feature matrices. Added ci_v65_sitemaps (seam fix).
+PIPELINE: P0 auth -> P1 sitemap -> P2 crawl(ci_v65_pages) -> P3 BuiltWith(tech_stack) -> P4 SimilarWeb(traffic_intel+kpis) -> P5 screenshots every page/viewport/tab(ci_v65_screenshots) -> P6 observe public endpoints(api_endpoints; gated UNKNOWN) -> P7 synthesis(features,data_sources+our_replacement,moat_layers) -> P8 EG14 gate(FULL else SIGNAL) -> P9 battlecard Know/Say/Show -> P10 parity_audit(MY_GAP/COMPETITOR_NOISE/MY_EDGE, source adjudicates).
+EXEC: fire_workflow_dispatch('breverdbidder','ci-recon-v65.yml','main',inputs). Runner ci_recon_runner.py. Secrets by name only.
