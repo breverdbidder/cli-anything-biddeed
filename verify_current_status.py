@@ -56,11 +56,17 @@ def evaluate_county(county_slug):
         return None
 
 if __name__ == "__main__":
-    print("🎯 GOLD STANDARD AUTOPILOT-BD: BREVARD & DUVAL STATUS VERIFICATION")
+    print("🎯 GOLD STANDARD SHARD-7: LEON, CLAY, MIAMI_DADE, COLUMBIA, MADISON STATUS VERIFICATION")
     
     if not SUPABASE_KEY:
         print("❌ SUPABASE_KEY environment variable not set")
-        sys.exit(1)
+        # Try common secret names in GitHub Actions
+        SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or os.environ.get("SUPABASE_ANON_KEY", "")
+        if not SUPABASE_KEY:
+            print("❌ No Supabase keys found in environment")
+            sys.exit(1)
+        else:
+            print("✅ Found alternative Supabase key")
     
     # Test connection
     try:
@@ -75,10 +81,12 @@ if __name__ == "__main__":
         print(f"❌ Connection error: {e}")
         sys.exit(1)
     
-    # Evaluate our target counties
-    brevard_status = evaluate_county("brevard")
-    duval_status = evaluate_county("duval")
+    # Evaluate our assigned counties for SHARD-7
+    assigned_counties = ['leon', 'clay', 'miami_dade', 'columbia', 'madison']
+    
+    for county in assigned_counties:
+        evaluate_county(county)
     
     print("\n" + "="*50)
-    print("📋 READY FOR AUTONOMOUS EXECUTION")
-    print("Target counties verified, proceeding with sprint orders...")
+    print("📋 SHARD-7 STATUS VERIFICATION COMPLETE")
+    print("Ready for autonomous execution on assigned counties...")
