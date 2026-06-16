@@ -46,44 +46,31 @@ jobs:
           gh issue view ${{ matrix.issue }} --repo ${{ github.repository }} --json title,body \
             -q '"# " + .title + "\n\n" + .body' > /tmp/prompt.md
           echo "----- BRIEF -----"; cat /tmp/prompt.md
-      - name: Refresh Claude OAuth (in-runner, no Hetzner)
+      - name: Run Claude Code (in-runner, OAuth token, NO Hetzner, retry on 5xx)
         env:
-          RT: ${{ secrets.CLAUDE_CODE_REFRESH_TOKEN }}
-        run: |
-          set -o pipefail
-          RESP=$(curl -sS -X POST https://console.anthropic.com/v1/oauth/token \
-            -H 'Content-Type: application/json' \
-            -d "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"${RT}\",\"client_id\":\"9d1c250a-e61b-44d9-88ed-5944d1962f5e\"}")
-          ACCESS=$(printf '%s' "$RESP" | jq -r '.access_token // empty')
-          NEWRT=$(printf '%s' "$RESP" | jq -r '.refresh_token // empty')
-          EXPIN=$(printf '%s' "$RESP" | jq -r '.expires_in // 3600')
-          if [ -z "$ACCESS" ]; then
-            echo "::error::OAuth refresh failed — refresh token likely stale; needs one-time 'claude setup-token' (path B). err=$(printf '%s' "$RESP" | jq -r '.error // .error_description // "unknown"')"
-            exit 1
-          fi
-          EXPAT=$(( ($(date +%s) + EXPIN) * 1000 ))
-          mkdir -p "$HOME/.claude"
-          jq -n --arg at "$ACCESS" --arg rt "$NEWRT" --argjson ex "$EXPAT" \
-            '{claudeAiOauth:{accessToken:$at, refreshToken:$rt, expiresAt:$ex, scopes:["user:inference","user:profile"], subscriptionType:"max"}}' \
-            > "$HOME/.claude/.credentials.json"
-          chmod 600 "$HOME/.claude/.credentials.json"
-          echo "OAuth refreshed OK; expiresAt=$EXPAT"
-      - name: Run Claude Code (in-runner, creds file, NO Hetzner)
-        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
         run: |
-          unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
+          set +e
+          unset ANTHROPIC_API_KEY
           PROMPT="$(cat /tmp/prompt.md)"
-          claude -p "$PROMPT" --dangerously-skip-permissions --output-format text > /tmp/cc.log 2>&1
-          CC_EXIT=$?
-          cat /tmp/cc.log
-          BYTES=$(wc -c < /tmp/cc.log)
-          echo "cc_output_bytes=$BYTES exit=$CC_EXIT"
-          if [ "$CC_EXIT" -ne 0 ]; then echo "::error::claude -p exited $CC_EXIT"; exit "$CC_EXIT"; fi
-          if [ "$BYTES" -lt 50 ]; then echo "::error::Ghost-success guard: <50 bytes"; exit 1; fi
+          for attempt in 1 2 3; do
+            echo "=== claude -p attempt $attempt ==="
+            claude -p "$PROMPT" --dangerously-skip-permissions --output-format text > /tmp/cc.log 2>&1
+            CC_EXIT=$?
+            tail -c 2000 /tmp/cc.log
+            BYTES=$(wc -c < /tmp/cc.log)
+            echo "attempt=$attempt exit=$CC_EXIT bytes=$BYTES"
+            if [ "$CC_EXIT" -eq 0 ] && [ "$BYTES" -ge 50 ]; then echo "CC OK"; exit 0; fi
+            if grep -qiE 'API Error: 5[0-9][0-9]|server error|overloaded|rate.?limit|timeout' /tmp/cc.log; then
+              echo "transient error; retrying in 25s"; sleep 25; continue
+            fi
+            echo "::error::claude -p failed (exit=$CC_EXIT, non-transient)"; exit 1
+          done
+          echo "::error::claude -p failed after 3 attempts (transient)"; exit 1
       - name: Commit changes
         if: always()
         run: |
