@@ -39,6 +39,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           LOOKAHEAD_DAYS: ${{ github.event.inputs.lookahead_days || '30' }}
           GH_RUN_ID: ${{ github.run_id }}
         run: |
@@ -50,6 +51,7 @@ jobs:
           KEY   = os.environ['SUPABASE_KEY']
           EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '')
           PW    = os.environ.get('REALFORECLOSE_PASSWORD', '')
+          FC    = os.environ.get('FIRECRAWL_API_KEY', '')
           LOOK  = int(os.environ.get('LOOKAHEAD_DAYS', '30'))
           RUN   = os.environ.get('GH_RUN_ID', '')
 
@@ -153,57 +155,69 @@ jobs:
                   })
               return items
 
-          # ── 3. Direct httpx auth (no Firecrawl) ──────────────────────────────
-          # RealForeclose uses ColdFusion form auth. POST the login form, get the
-          # session cookie, then GET the PREVIEW page. No browser automation needed.
-          _session = None
+          # ── 3. Firecrawl scrape with correct action types ─────────────────────
+          # brevard.realforeclose.com blocks all cloud/datacenter IPs (HTTP 403).
+          # Firecrawl uses residential proxies so it can reach the site.
+          #
+          # VERIFIED Firecrawl v1 action types (from API probe 2026-06-16):
+          #   wait (milliseconds), click (selector), write (selector+text),
+          #   screenshot, press (key), scroll, scrape, executeJavascript (script), pdf
+          # INVALID types: "type", "navigate", "goto", "delay", "execute"
+          #
+          # Strategy: login via JS then navigate via executeJavascript
+          #   1. Start at login page
+          #   2. Use executeJavascript to set form field values directly (bypasses selector issues)
+          #   3. Click submit button
+          #   4. Wait for redirect to authenticated home page
+          #   5. Use executeJavascript to navigate to PREVIEW URL for the auction date
+          #   6. Wait for page to render
+          FH = {"Authorization": f"Bearer {FC}", "Content-Type": "application/json"}
 
-          def get_session():
-              global _session
-              if _session is not None:
-                  return _session
-              client = httpx.Client(
-                  follow_redirects=True,
-                  timeout=60.0,
-                  headers={'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124'}
-              )
-              if not EMAIL or not PW:
-                  print("  WARNING: REALFORECLOSE_EMAIL/REALFORECLOSE_PASSWORD not set — unauthenticated")
-                  _session = client
-                  return client
-              try:
-                  # Prime the session (pick up CFID/CFTOKEN cookies)
-                  r0 = client.get(f"{HOST}/index.cfm")
-                  print(f"  GET login page: HTTP {r0.status_code}, cookies={list(client.cookies.keys())}")
-                  time.sleep(1.5)
-                  # POST login form
-                  r1 = client.post(f"{HOST}/index.cfm", data={
-                      'zaction': 'USERS',
-                      'Zmethod': 'LOGIN',
-                      'LogName': EMAIL,
-                      'LogPass': PW,
-                      'loginurl': '/index.cfm',
-                  }, headers={'Referer': f'{HOST}/index.cfm'})
-                  print(f"  POST login: HTTP {r1.status_code}, final_url={r1.url}")
-                  if 'LogName' in r1.text or 'Log In' in r1.text:
-                      print("  WARNING: login form still present — credentials may be wrong")
-                  else:
-                      print("  Login appears successful")
-              except Exception as e:
-                  print(f"  Login error: {e}")
-              _session = client
-              return client
-
-          def scrape_preview(auction_date_iso):
+          def fc_scrape_preview(auction_date_iso):
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
-              preview_url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}"
-              client = get_session()
+              preview_path = f"/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy.replace('/', '%2F')}"
+              preview_url  = f"{HOST}{preview_path}"
+
+              if not FC:
+                  print("  WARNING: FIRECRAWL_API_KEY not set")
+                  return 0, ''
+              if not EMAIL or not PW:
+                  print("  WARNING: no credentials — unauthenticated (AITEM blocks will be empty)")
+
+              # Escape for JS string literals: backslash, then single-quote
+              def js_str(s): return s.replace('\\', '\\\\').replace("'", "\\'")
+
+              payload = {
+                  "url": f"{HOST}/index.cfm",
+                  "formats": ["html"],
+                  "actions": [
+                      {"type": "wait", "milliseconds": 2500},
+                      # Fill credentials via JS (avoids ColdFusion hidden-field issues)
+                      {"type": "executeJavascript", "script":
+                          f"document.getElementById('LogName') && (document.getElementById('LogName').value='{js_str(EMAIL)}')"},
+                      {"type": "executeJavascript", "script":
+                          f"document.getElementById('LogPass') && (document.getElementById('LogPass').value='{js_str(PW)}')"},
+                      {"type": "click", "selector": "#LogButton"},
+                      {"type": "wait", "milliseconds": 5000},
+                      # Navigate to preview page via JS (no "navigate" action type in Firecrawl v1)
+                      {"type": "executeJavascript", "script":
+                          f"window.location.href='{preview_url}'"},
+                      {"type": "wait", "milliseconds": 6000},
+                  ],
+                  "timeout": 90000,
+              }
               try:
-                  r = client.get(preview_url)
-                  return r.status_code, r.text
+                  resp = httpx.post('https://api.firecrawl.dev/v1/scrape',
+                                    headers=FH, json=payload, timeout=120.0)
+                  if resp.status_code != 200:
+                      print(f"  Firecrawl HTTP {resp.status_code}: {resp.text[:400]}")
+                      return resp.status_code, ''
+                  j = resp.json()
+                  html = (j.get('data') or {}).get('html', '')
+                  return 200, html
               except Exception as e:
-                  print(f"  GET error for {auction_date_iso}: {e}")
+                  print(f"  Firecrawl error: {e}")
                   return 0, ''
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
@@ -220,7 +234,7 @@ jobs:
                   'mca_id': None, 'county_slug': 'brevard', 'case_number': None,
                   'fetch_url': f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}",
                   'system_type': 'realforeclose',
-                  'backend': f'drain_httpx_{RUN}',
+                  'backend': f'drain_fc_v3_{RUN}',
                   'parse_state': 'fetching',
               }
               cr_id = None
@@ -232,7 +246,7 @@ jobs:
               except Exception as e:
                   print(f"  court_responses_raw insert error: {e}")
 
-              status_code, html = scrape_preview(auction_date)
+              status_code, html = fc_scrape_preview(auction_date)
               print(f"  HTTP {status_code}, html_len={len(html)}")
 
               aids = parse_aitem_blocks(html, 'brevard') if html else []
