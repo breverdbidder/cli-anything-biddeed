@@ -169,10 +169,13 @@ BEGIN
     END IF;
 END $$;
 
--- ─── 5. Log ──────────────────────────────────────────────────────────────────
-INSERT INTO migration_log (migration_name, applied_at, description)
-VALUES (
-    '20260616_parity_caseno_normalize',
-    NOW(),
-    'Defect 4: normalize_case_number(), refresh_parity_chunk() normalised join + dynamic F-lane; bootstrap 10K pass'
-) ON CONFLICT (migration_name) DO NOTHING;
+-- ─── 5. Log (only if migration_log table exists) ─────────────────────────────
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'migration_log' AND schemaname = 'public') THEN
+        INSERT INTO migration_log (migration_name, applied_at, description)
+        VALUES ('20260616_parity_caseno_normalize', NOW(),
+                'Defect 4: normalize_case_number(), refresh_parity_chunk() normalised join + dynamic F-lane; bootstrap 10K pass')
+        ON CONFLICT (migration_name) DO NOTHING;
+    END IF;
+END $$;

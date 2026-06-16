@@ -54,10 +54,13 @@ ALTER TABLE zoning_assignments
 CREATE INDEX IF NOT EXISTS idx_za_jurisdiction ON zoning_assignments(jurisdiction);
 CREATE INDEX IF NOT EXISTS idx_za_county        ON zoning_assignments(county);
 
--- Log
-INSERT INTO migration_log (migration_name, applied_at, description)
-VALUES (
-    '20260616_zoning_upsert_constraint',
-    NOW(),
-    'Add UNIQUE(parcel_id) to zoning_assignments so on_conflict=parcel_id upserts work; add missing columns'
-) ON CONFLICT (migration_name) DO NOTHING;
+-- Log (only if migration_log table exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'migration_log' AND schemaname = 'public') THEN
+        INSERT INTO migration_log (migration_name, applied_at, description)
+        VALUES ('20260616_zoning_upsert_constraint', NOW(),
+                'Add UNIQUE(parcel_id) to zoning_assignments so on_conflict=parcel_id upserts work; add missing columns')
+        ON CONFLICT (migration_name) DO NOTHING;
+    END IF;
+END $$;
