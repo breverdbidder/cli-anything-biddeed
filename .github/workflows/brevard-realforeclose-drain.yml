@@ -203,9 +203,9 @@ jobs:
                       # Navigate to preview page via JS (no "navigate" action type in Firecrawl v1)
                       {"type": "executeJavascript", "script":
                           f"window.location.href='{preview_url}'"},
-                      {"type": "wait", "milliseconds": 6000},
+                      {"type": "wait", "milliseconds": 12000},
                   ],
-                  "timeout": 90000,
+                  "timeout": 120000,
               }
               try:
                   resp = httpx.post('https://api.firecrawl.dev/v1/scrape',
@@ -254,8 +254,13 @@ jobs:
 
               # Quick log if we got HTML but no AITEMs (could be login failure)
               if html and not aids:
-                  if 'Log In' in html or 'LogName' in html:
-                      print("  NOTE: Page shows login form — authentication failed or session expired")
+                  # Detect actual login FORM (not just "Log In" text which appears in nav bar)
+                  if '<input' in html and 'LogName' in html and '<form' in html:
+                      print("  NOTE: Login form detected — authentication may have failed")
+                      print(f"  HTML snippet: {html[:600]!r}")
+                  elif 'Log In' in html:
+                      print("  NOTE: 'Log In' in HTML (likely nav bar) — login may be fine")
+                      print(f"  HTML snippet: {html[:600]!r}")
                   elif 'No auctions' in html or 'no auction' in html.lower():
                       print("  No auctions scheduled for this date")
                   else:
