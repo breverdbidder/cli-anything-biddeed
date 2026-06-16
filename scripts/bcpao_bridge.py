@@ -14,7 +14,7 @@ Usage: bcpao_bridge.py [limit]   (default 100 accounts/run to bound spend)
 Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FIRECRAWL_API_KEY.
 """
 import sys, os, json, re, time
-import urllib.request
+import urllib.request, urllib.error
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SB_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -90,27 +90,110 @@ def extract(account, body):
         row["confidence"] = "parsed"
     return row
 
+def sb_post(path, payload, headers=None):
+    """POST to Supabase REST, return (status_code, body)."""
+    all_hdrs = {**sb_headers(), **(headers or {}), "Content-Type": "application/json"}
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(f"{SB_URL}/{path.lstrip('/')}", data=body, method="POST")
+    for k, v in all_hdrs.items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+
+def harvest_run_create(gha_run_id):
+    """Insert a bcpao_harvest_run row. Returns the new id or None."""
+    status, body = sb_post(
+        "rest/v1/bcpao_harvest_run",
+        {"run_id": str(gha_run_id), "status": "running"},
+        {"Prefer": "return=representation"},
+    )
+    if status in (200, 201):
+        try:
+            return json.loads(body)[0]["id"]
+        except Exception:
+            pass
+    print(f"harvest_run_create: HTTP {status} {body[:200]}", file=sys.stderr)
+    return None
+
+def harvest_run_complete(run_row_id, accounts_attempted, parcels_resolved, error=None):
+    if run_row_id is None:
+        return
+    req = urllib.request.Request(
+        f"{SB_URL}/rest/v1/rpc/bcpao_harvest_run_complete",
+        data=json.dumps({
+            "p_id": run_row_id,
+            "p_status": "failed" if error else "succeeded",
+            "p_accounts": accounts_attempted,
+            "p_parcels": parcels_resolved,
+            "p_error": error,
+        }).encode(),
+        method="POST",
+    )
+    for k, v in {**sb_headers(), "Content-Type": "application/json"}.items():
+        req.add_header(k, v)
+    try:
+        urllib.request.urlopen(req, timeout=15)
+    except Exception as e:
+        print(f"harvest_run_complete: {e}", file=sys.stderr)
+
+def drain():
+    """Call bcpao_drain() to update multi_county_auctions.parcel_id. Returns updated count."""
+    req = urllib.request.Request(
+        f"{SB_URL}/rest/v1/rpc/bcpao_drain",
+        data=b"{}",
+        method="POST",
+    )
+    for k, v in {**sb_headers(), "Content-Type": "application/json"}.items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:
+        print(f"drain: {e}", file=sys.stderr)
+        return 0
+
 if __name__ == "__main__":
     limit = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else 100
+    gha_run_id = os.environ.get("GHA_RUN_ID", "")
+
+    run_row_id = harvest_run_create(gha_run_id)
+    print(f"harvest_run id={run_row_id} (gha_run_id={gha_run_id})")
+
     wl = worklist(limit)
     print(f"worklist: {len(wl)} accounts")
-    batch, parsed = [], 0
-    for i, w in enumerate(wl):
-        acct = w["account_number"]
-        try:
-            body = firecrawl(f"https://www.bcpao.us/api/v1/account/{acct}")
-            row = extract(acct, body)
-            batch.append(row)
-            parsed += row["confidence"] == "parsed"
-        except Exception as e:
-            print(f"{acct}: ERROR {e}", file=sys.stderr)
-        if len(batch) >= 20:
+    batch, parsed, errors = [], 0, 0
+    try:
+        for i, w in enumerate(wl):
+            acct = w["account_number"]
+            try:
+                body = firecrawl(f"https://www.bcpao.us/api/v1/account/{acct}")
+                row = extract(acct, body)
+                batch.append(row)
+                parsed += row["confidence"] == "parsed"
+            except Exception as e:
+                print(f"{acct}: ERROR {e}", file=sys.stderr)
+                errors += 1
+            if len(batch) >= 20:
+                rpc("upsert_brevard_account_parcel", batch)
+                batch = []
+            time.sleep(1.5)
+        if batch:
             rpc("upsert_brevard_account_parcel", batch)
-            batch = []
-        time.sleep(1.5)
-    if batch:
-        rpc("upsert_brevard_account_parcel", batch)
-    print(f"done: {len(wl)} attempted, {parsed} parcel-parsed")
+    except Exception as fatal:
+        harvest_run_complete(run_row_id, len(wl), parsed, str(fatal))
+        raise
+
+    print(f"done: {len(wl)} attempted, {parsed} parcel-parsed, {errors} errors")
+
+    # Drain: push resolved parcel_ids into multi_county_auctions.parcel_id
+    drained = drain()
+    print(f"drain: {drained} MCA rows updated with parcel_id")
+
+    harvest_run_complete(run_row_id, len(wl), parsed)
+
     if wl and parsed == 0:
         print("WARNING: zero parcels parsed -- BCPAO response shape needs review "
               "(inspect pipeline.brevard_account_parcel.raw)", file=sys.stderr)

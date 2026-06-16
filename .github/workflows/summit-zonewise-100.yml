@@ -1,5 +1,9 @@
 name: "Summit: ZoneWise Brevard 100% Completion"
+# Defect 3 fix: was manual-dispatch only — zoning_assignments had 0 writes since Mar 30
+# because the cron was missing.  Added: nightly 02:00Z run (phase=all).
 on:
+  schedule:
+    - cron: "0 2 * * *"      # nightly 02:00Z — safe gap after the 00:00Z realtaxdeed cycle
   workflow_dispatch:
     inputs:
       phase:

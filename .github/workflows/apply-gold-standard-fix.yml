@@ -1,0 +1,102 @@
+name: "Gold Standard Fix: Apply 4-Defect Migrations"
+# One-shot workflow to apply the 3 migrations that fix the 4 dead worker pipelines
+# blocking Brevard Gold Standard at 3/10.
+#
+# Defect 1 (E-lane / BCPAO): 20260616_bcpao_drain_infra.sql
+#   Creates bcpao_harvest_run table + bcpao_drain() + bcpao_harvest_run_complete()
+#
+# Defect 3 (G-lane / Zoning): 20260616_zoning_upsert_constraint.sql
+#   Adds UNIQUE(parcel_id) index so on_conflict=parcel_id upserts succeed
+#
+# Defect 4 (C/D/F-lanes / Parity): 20260616_parity_caseno_normalize.sql
+#   normalize_case_number() + refresh_parity_chunk() with normalised join
+#
+# Defect 2 (E-lane / RealForeclose): handled by brevard-realforeclose-drain.yml workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-migrations:
+    name: "Apply 3 Gold-Standard Migrations"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Test connection
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT 'connected' AS status, now();"
+
+      - name: "Migration 1: BCPAO drain infra (Defect 1)"
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "=== Applying 20260616_bcpao_drain_infra.sql ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/20260616_bcpao_drain_infra.sql
+          echo "=== Verifying bcpao_harvest_run table ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT COUNT(*) AS harvest_run_rows FROM bcpao_harvest_run;"
+          echo "=== Verifying bcpao_drain function ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT routine_name FROM information_schema.routines WHERE routine_name IN ('bcpao_drain','bcpao_harvest_run_complete') ORDER BY 1;"
+
+      - name: "Migration 2: Zoning upsert constraint (Defect 3)"
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "=== Applying 20260616_zoning_upsert_constraint.sql ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/20260616_zoning_upsert_constraint.sql
+          echo "=== Verifying unique index on zoning_assignments ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT indexname, indexdef FROM pg_indexes WHERE tablename='zoning_assignments' AND indexname='idx_za_parcel_id_unique';"
+          echo "=== Current zoning_assignments row count ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT COUNT(*) AS zoning_rows, MAX(updated_at) AS newest_write FROM zoning_assignments;"
+
+      - name: "Migration 3: Parity case_number normalize (Defect 4)"
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "=== Applying 20260616_parity_caseno_normalize.sql ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/20260616_parity_caseno_normalize.sql
+          echo "=== Verifying normalize_case_number function ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT normalize_case_number('05-2024-CA-001234-XXXX') AS norm;"
+          echo "=== Post-bootstrap parity counts ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT parity_status, COUNT(*) FROM multi_county_auctions WHERE county='brevard' GROUP BY parity_status ORDER BY COUNT(*) DESC;"
+
+      - name: "Gold Standard Scorecard (after migrations)"
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "=== Brevard Gold Standard scoreboard ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "SELECT * FROM gold_standard_scoreboard WHERE county='brevard' ORDER BY metric;" 2>/dev/null \
+            || echo "(gold_standard_scoreboard view not available — check manually)"
+          echo ""
+          echo "=== Key table growth verification ==="
+          psql "postgresql://postgres:${PGPASSWORD}@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres?sslmode=require" \
+            -c "
+            SELECT 'bcpao_harvest_run'    AS tbl, COUNT(*)::TEXT AS rows FROM bcpao_harvest_run
+            UNION ALL
+            SELECT 'zoning_assignments',   COUNT(*)::TEXT FROM zoning_assignments
+            UNION ALL
+            SELECT 'mca_brevard_parcel_id_filled', COUNT(*)::TEXT
+              FROM multi_county_auctions WHERE county='brevard' AND parcel_id IS NOT NULL
+            UNION ALL
+            SELECT 'mca_brevard_parity_matched', COUNT(*)::TEXT
+              FROM multi_county_auctions WHERE county='brevard' AND parity_status='matched_clean';"
