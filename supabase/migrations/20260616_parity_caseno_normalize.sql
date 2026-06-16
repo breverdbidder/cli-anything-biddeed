@@ -18,6 +18,7 @@ ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS parity_status      TE
 ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS parity_source      TEXT;
 ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS tier1_sold_amount  NUMERIC;
 ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS tier1_verified_at  TIMESTAMPTZ;
+ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS updated_at         TIMESTAMPTZ DEFAULT NOW();
 
 -- ─── 1. Normalizer ───────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION normalize_case_number(p_cn TEXT)
