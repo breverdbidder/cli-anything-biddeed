@@ -28,6 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_bhr_run_id  ON bcpao_harvest_run(run_id);
 --   Path C (fallback):  join via certificate_number or tax_account.
 --
 -- Returns the count of MCA rows updated in this call.
+DROP FUNCTION IF EXISTS bcpao_drain();
 CREATE OR REPLACE FUNCTION bcpao_drain()
 RETURNS INTEGER AS $$
 DECLARE
