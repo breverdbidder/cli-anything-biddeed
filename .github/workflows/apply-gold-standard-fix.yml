@@ -65,6 +65,20 @@ jobs:
           [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 3 failed HTTP $HTTP"; exit 1; }
           echo "Migration 3 OK"
 
+      - name: "Migration 4: Parity join fix v2 (correct mca_id join + expanded status filter)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260616_parity_fix_join_v2.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260616_parity_fix_join_v2.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 4 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 4 OK"
+
       - name: "Verify key tables and counts"
         run: |
           set -euo pipefail
