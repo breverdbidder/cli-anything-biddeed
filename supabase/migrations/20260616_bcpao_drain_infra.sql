@@ -16,6 +16,15 @@ CREATE TABLE IF NOT EXISTS bcpao_harvest_run (
     completed_at    TIMESTAMPTZ
 );
 
+-- Ensure all columns exist in case table was created by an earlier migration
+-- without these columns (idempotent ADD COLUMN IF NOT EXISTS).
+ALTER TABLE bcpao_harvest_run ADD COLUMN IF NOT EXISTS run_id              TEXT;
+ALTER TABLE bcpao_harvest_run ADD COLUMN IF NOT EXISTS dataset_id          TEXT;
+ALTER TABLE bcpao_harvest_run ADD COLUMN IF NOT EXISTS accounts_attempted  INTEGER DEFAULT 0;
+ALTER TABLE bcpao_harvest_run ADD COLUMN IF NOT EXISTS parcels_resolved    INTEGER DEFAULT 0;
+ALTER TABLE bcpao_harvest_run ADD COLUMN IF NOT EXISTS error_message       TEXT;
+ALTER TABLE bcpao_harvest_run ADD COLUMN IF NOT EXISTS completed_at        TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_bhr_status ON bcpao_harvest_run(status);
 CREATE INDEX IF NOT EXISTS idx_bhr_run_id  ON bcpao_harvest_run(run_id);
 
