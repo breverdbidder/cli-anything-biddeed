@@ -68,23 +68,19 @@ jobs:
                                 json=payload, timeout=30.0)
 
           # ── 1. Discover upcoming Brevard foreclosure auction dates ────────────
+          # Do NOT query MCA — upcoming auctions don't exist there yet (chicken-and-egg).
+          # Instead, generate weekday dates and probe realforeclose.com directly.
+          # Brevard foreclosure auctions run Mon-Fri.  We scrape each weekday date;
+          # dates with no AITEM blocks are skipped cheaply.
           today = date.today()
           cutoff = today + timedelta(days=LOOK)
-          r = sb_get("multi_county_auctions", {
-              "select": "sale_date",
-              "county": "eq.brevard",
-              "sale_type": "eq.foreclosure",
-              "sale_date": f"gte.{today.isoformat()}",
-              "sale_date_lte": cutoff.isoformat(),
-          })
-          rows = r.json() if r.status_code == 200 else []
-          dates = sorted({row["sale_date"] for row in rows if row.get("sale_date")})
-          print(f"Upcoming Brevard foreclosure dates: {dates}")
-
-          if not dates:
-              print("No upcoming foreclosure dates in MCA — nothing to drain.")
-              # exit cleanly but warn
-              import sys; sys.exit(0)
+          candidate = today
+          dates = []
+          while candidate <= cutoff:
+              if candidate.weekday() < 5:  # Mon=0 … Fri=4
+                  dates.append(candidate.isoformat())
+              candidate += timedelta(days=1)
+          print(f"Weekday dates to probe ({len(dates)}): {dates[:7]}{'...' if len(dates)>7 else ''}")
 
           # ── 2. Helpers ────────────────────────────────────────────────────────
           def to_float(s):

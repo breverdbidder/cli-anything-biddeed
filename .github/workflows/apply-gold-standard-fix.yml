@@ -1,12 +1,12 @@
 name: "Gold Standard Fix: Apply 4-Defect Migrations"
-# One-shot workflow to apply the 3 migrations that fix the 4 dead worker pipelines
-# blocking Brevard Gold Standard at 3/10.
+# Applies 3 migrations that fix 4 dead worker pipelines blocking Brevard Gold Standard at 3/10.
 #
 # Defect 1 (E-lane / BCPAO): 20260616_bcpao_drain_infra.sql
 # Defect 3 (G-lane / Zoning): 20260616_zoning_upsert_constraint.sql
 # Defect 4 (C/D/F-lanes / Parity): 20260616_parity_caseno_normalize.sql
 #
-# Uses Node pg with pooler (same pattern as flywheel-phase1-migrate.yml)
+# Uses Supabase Management API (SUPABASE_ACCESS_TOKEN) — same pattern as
+# bootstrap-agent-team-tables.yml (proven working).
 
 on:
   workflow_dispatch:
@@ -16,180 +16,81 @@ jobs:
     name: "Apply 3 Gold-Standard Migrations"
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - run: npm install pg
-
-      - name: "Apply all 3 migrations + verify"
-        env:
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: "Migration 1: BCPAO drain infra (Defect 1 — E-lane)"
         run: |
-          node - <<'JSEOF'
-          const { Client } = require("pg");
-          const fs = require("fs");
+          set -euo pipefail
+          echo "=== 20260616_bcpao_drain_infra.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260616_bcpao_drain_infra.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 1 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 1 OK"
 
-          const passwords = [
-            process.env.SUPABASE_DB_PASSWORD,
-            process.env.SUPABASE_KEY,
-            process.env.SUPABASE_SERVICE_KEY,
-            process.env.SUPABASE_SERVICE_ROLE_KEY,
-          ].filter(Boolean);
+      - name: "Migration 2: Zoning unique index (Defect 3 — G-lane)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260616_zoning_upsert_constraint.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260616_zoning_upsert_constraint.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 2 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 2 OK"
 
-          const hosts = [
-            "aws-0-us-west-2.pooler.supabase.com",
-            "aws-0-us-east-1.pooler.supabase.com",
-          ];
-          const ports = [6543, 5432];
-          const user = "postgres.mocerqjnksmhcjzxrewo";
+      - name: "Migration 3: Parity case_number normalize (Defect 4 — C/D/F-lanes)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260616_parity_caseno_normalize.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260616_parity_caseno_normalize.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 3 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 3 OK"
 
-          // Execute a single SQL statement, tolerate expected non-fatal errors
-          async function execStmt(client, stmt) {
-            const s = stmt.trim();
-            if (!s) return;
-            try {
-              await client.query(s);
-            } catch (err) {
-              const msg = err.message;
-              // Idempotent: already-exists errors are fine
-              if (msg.includes("already exists") || msg.includes("duplicate key")) {
-                console.log("  [skip — already exists]");
-              } else {
-                throw err;
-              }
-            }
+      - name: "Verify key tables and counts"
+        run: |
+          set -euo pipefail
+          run_query() {
+            python3 -c "import json; print(json.dumps({'query': '$1'}))" > /tmp/vq.json
+            curl -sS \
+              -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/vq.json
           }
 
-          // Split SQL into statements respecting $$ dollar-quote blocks
-          function splitSQL(sql) {
-            const stmts = [];
-            let current = "";
-            let inDollarQuote = false;
-            let quoteTag = "";
-            const lines = sql.split("\n");
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!inDollarQuote) {
-                const m = trimmed.match(/\$([A-Za-z_]*)\$/);
-                if (m) { inDollarQuote = true; quoteTag = m[0]; }
-              } else {
-                if (trimmed.includes(quoteTag)) { inDollarQuote = false; quoteTag = ""; }
-              }
-              current += line + "\n";
-              if (!inDollarQuote && trimmed.endsWith(";")) {
-                stmts.push(current.trim());
-                current = "";
-              }
-            }
-            if (current.trim()) stmts.push(current.trim());
-            return stmts.filter(s => s && !s.startsWith("--"));
-          }
-
-          async function applyFile(client, path) {
-            console.log(`\n=== ${path} ===`);
-            const sql = fs.readFileSync(path, "utf8");
-            const stmts = splitSQL(sql);
-            console.log(`  ${stmts.length} statements`);
-            for (const stmt of stmts) {
-              const preview = stmt.substring(0, 80).replace(/\n/g, " ");
-              process.stdout.write(`  > ${preview}...`);
-              await execStmt(client, stmt);
-              process.stdout.write(" OK\n");
-            }
-            console.log(`  DONE: ${path}`);
-          }
-
-          async function main() {
-            let client, connected = false;
-
-            outer:
-            for (const pw of passwords) {
-              for (const host of hosts) {
-                for (const port of ports) {
-                  client = new Client({
-                    host, port, user,
-                    password: pw,
-                    database: "postgres",
-                    ssl: { rejectUnauthorized: false },
-                    connectionTimeoutMillis: 10000,
-                    statement_timeout: 120000,
-                  });
-                  try {
-                    await client.connect();
-                    console.log(`Connected: ${host}:${port}`);
-                    connected = true;
-                    break outer;
-                  } catch (err) {
-                    const msg = err.message.substring(0, 80);
-                    console.log(`FAIL ${host}:${port} => ${msg}`);
-                    try { await client.end(); } catch(e) {}
-                  }
-                }
-              }
-            }
-
-            if (!connected) {
-              console.error("All connections failed — check SUPABASE_DB_PASSWORD secret");
-              process.exit(1);
-            }
-
-            const MIGRATIONS = [
-              "supabase/migrations/20260616_bcpao_drain_infra.sql",
-              "supabase/migrations/20260616_zoning_upsert_constraint.sql",
-              "supabase/migrations/20260616_parity_caseno_normalize.sql",
-            ];
-
-            for (const f of MIGRATIONS) {
-              await applyFile(client, f);
-            }
-
-            // Verify
-            console.log("\n=== VERIFICATION ===");
-            const checks = [
-              ["bcpao_harvest_run rows",  "SELECT COUNT(*)::text AS n FROM bcpao_harvest_run"],
-              ["zoning_assignments rows", "SELECT COUNT(*)::text AS n FROM zoning_assignments"],
-              ["idx_za_parcel_id_unique", "SELECT indexname FROM pg_indexes WHERE tablename='zoning_assignments' AND indexname='idx_za_parcel_id_unique'"],
-              ["normalize_case_number",   "SELECT normalize_case_number('05-2024-CA-001234-XXXX') AS norm"],
-              ["mca brevard parity matched", "SELECT COUNT(*)::text AS n FROM multi_county_auctions WHERE county='brevard' AND parity_status='matched_clean'"],
-              ["mca brevard parcel_id filled", "SELECT COUNT(*)::text AS n FROM multi_county_auctions WHERE county='brevard' AND parcel_id IS NOT NULL"],
-            ];
-
-            for (const [label, sql] of checks) {
-              try {
-                const res = await client.query(sql);
-                const val = Object.values(res.rows[0] || {})[0] || "(no row)";
-                console.log(`  ${label}: ${val}`);
-              } catch (err) {
-                console.log(`  ${label}: ERROR — ${err.message.substring(0, 100)}`);
-              }
-            }
-
-            // Gold standard scoreboard if available
-            try {
-              const res = await client.query(
-                "SELECT metric, passes, value::text, threshold::text FROM gold_standard_scoreboard WHERE county='brevard' ORDER BY metric"
-              );
-              if (res.rows.length) {
-                console.log("\n=== GOLD STANDARD SCOREBOARD ===");
-                for (const r of res.rows) {
-                  console.log(`  ${r.metric}: passes=${r.passes} value=${r.value} threshold=${r.threshold}`);
-                }
-              }
-            } catch (err) {
-              console.log("  gold_standard_scoreboard: not available");
-            }
-
-            await client.end();
-            console.log("\nAll done.");
-          }
-
-          main().catch(err => { console.error(err); process.exit(1); });
-          JSEOF
+          echo "=== bcpao_harvest_run table ==="
+          run_query "SELECT COUNT(*) AS harvest_run_rows FROM bcpao_harvest_run"
+          echo
+          echo "=== zoning unique index ==="
+          run_query "SELECT indexname FROM pg_indexes WHERE tablename=\\'zoning_assignments\\' AND indexname=\\'idx_za_parcel_id_unique\\'"
+          echo
+          echo "=== normalize_case_number function ==="
+          run_query "SELECT normalize_case_number(\\'05-2024-CA-001234-XXXX\\') AS norm"
+          echo
+          echo "=== parity status breakdown ==="
+          run_query "SELECT parity_status, COUNT(*) AS n FROM multi_county_auctions WHERE county=\\'brevard\\' GROUP BY parity_status ORDER BY n DESC LIMIT 5"
+          echo
+          echo "=== zoning_assignments count ==="
+          run_query "SELECT COUNT(*) AS n, MAX(updated_at) AS newest_write FROM zoning_assignments"
+          echo
+          echo "=== brevard parcel_id fill rate ==="
+          run_query "SELECT COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) AS filled, COUNT(*) AS total FROM multi_county_auctions WHERE county=\\'brevard\\'"
