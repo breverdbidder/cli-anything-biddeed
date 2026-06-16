@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install Claude Code + supabase CLI
+      - name: Install Claude Code
         run: |
           npm install -g @anthropic-ai/claude-code
           claude --version
@@ -46,30 +46,49 @@ jobs:
           gh issue view ${{ matrix.issue }} --repo ${{ github.repository }} --json title,body \
             -q '"# " + .title + "\n\n" + .body' > /tmp/prompt.md
           echo "----- BRIEF -----"; cat /tmp/prompt.md
-      - name: Run Claude Code (in-runner, OAuth, NO Hetzner)
+      - name: Refresh Claude OAuth (in-runner, no Hetzner)
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          RT: ${{ secrets.CLAUDE_CODE_REFRESH_TOKEN }}
+        run: |
+          set -o pipefail
+          RESP=$(curl -sS -X POST https://console.anthropic.com/v1/oauth/token \
+            -H 'Content-Type: application/json' \
+            -d "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"${RT}\",\"client_id\":\"9d1c250a-e61b-44d9-88ed-5944d1962f5e\"}")
+          ACCESS=$(printf '%s' "$RESP" | jq -r '.access_token // empty')
+          NEWRT=$(printf '%s' "$RESP" | jq -r '.refresh_token // empty')
+          EXPIN=$(printf '%s' "$RESP" | jq -r '.expires_in // 3600')
+          if [ -z "$ACCESS" ]; then
+            echo "::error::OAuth refresh failed — refresh token likely stale; needs one-time 'claude setup-token' (path B). err=$(printf '%s' "$RESP" | jq -r '.error // .error_description // "unknown"')"
+            exit 1
+          fi
+          EXPAT=$(( ($(date +%s) + EXPIN) * 1000 ))
+          mkdir -p "$HOME/.claude"
+          jq -n --arg at "$ACCESS" --arg rt "$NEWRT" --argjson ex "$EXPAT" \
+            '{claudeAiOauth:{accessToken:$at, refreshToken:$rt, expiresAt:$ex, scopes:["user:inference","user:profile"], subscriptionType:"max"}}' \
+            > "$HOME/.claude/.credentials.json"
+          chmod 600 "$HOME/.claude/.credentials.json"
+          echo "OAuth refreshed OK; expiresAt=$EXPAT"
+      - name: Run Claude Code (in-runner, creds file, NO Hetzner)
+        env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
         run: |
-          set -o pipefail
-          unset ANTHROPIC_API_KEY
+          unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
           PROMPT="$(cat /tmp/prompt.md)"
-          claude -p "$PROMPT" --dangerously-skip-permissions --output-format text 2>&1 | tee /tmp/cc.log
+          claude -p "$PROMPT" --dangerously-skip-permissions --output-format text > /tmp/cc.log 2>&1
+          CC_EXIT=$?
+          cat /tmp/cc.log
           BYTES=$(wc -c < /tmp/cc.log)
-          echo "cc_output_bytes=$BYTES"
-          if [ "$BYTES" -lt 50 ]; then echo "::error::Ghost-success guard: <50 bytes output"; exit 1; fi
+          echo "cc_output_bytes=$BYTES exit=$CC_EXIT"
+          if [ "$CC_EXIT" -ne 0 ]; then echo "::error::claude -p exited $CC_EXIT"; exit "$CC_EXIT"; fi
+          if [ "$BYTES" -lt 50 ]; then echo "::error::Ghost-success guard: <50 bytes"; exit 1; fi
       - name: Commit changes
         if: always()
         run: |
           git config user.name "cc-ghonly-bot"
           git config user.email "cc@biddeed.ai"
           git add -A
-          if git diff --cached --quiet; then
-            echo "No file changes"
-          else
-            git commit -m "CC GHA-only: issue ${{ matrix.issue }} (run ${{ github.run_id }})"
-            git push
-          fi
+          if git diff --cached --quiet; then echo "No file changes"; else
+            git commit -m "CC GHA-only: issue ${{ matrix.issue }} (run ${{ github.run_id }})"; git push; fi
