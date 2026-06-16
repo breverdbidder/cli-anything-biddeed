@@ -164,34 +164,32 @@ jobs:
               date_mdy = d.strftime('%m/%d/%Y')
               preview_url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}"
 
-              actions = []
+              # Firecrawl v1 action types: "click", "type", "navigate", "wait"
+              # "write" is NOT valid — use "type". "scrape" action not needed.
+              # Strip unknown fields (waitFor, onlyMainContent) that cause HTTP 400.
               if EMAIL and PW:
-                  actions = [
-                      {"type": "wait", "milliseconds": 2500},
-                      {"type": "write", "selector": "#LogName", "text": EMAIL},
-                      {"type": "write", "selector": "#LogPass", "text": PW},
-                      {"type": "click", "selector": "#LogButton"},
-                      {"type": "wait", "milliseconds": 4000},
-                      {"type": "navigate", "url": preview_url},
-                      {"type": "wait", "milliseconds": 4000},
-                      {"type": "scrape"},
-                  ]
                   payload = {
                       "url": f"{HOST}/index.cfm",
                       "formats": ["html"],
-                      "actions": actions,
-                      "waitFor": 3000,
+                      "actions": [
+                          {"type": "wait", "milliseconds": 2500},
+                          {"type": "type", "selector": "#LogName", "text": EMAIL},
+                          {"type": "type", "selector": "#LogPass", "text": PW},
+                          {"type": "click", "selector": "#LogButton"},
+                          {"type": "wait", "milliseconds": 4000},
+                          {"type": "navigate", "url": preview_url},
+                          {"type": "wait", "milliseconds": 4000},
+                      ],
                       "timeout": 90000,
                   }
               else:
-                  # Unauthenticated fallback — may miss AITEM blocks behind login
+                  # Unauthenticated fallback — brevard.realforeclose.com shows login page
+                  # AITEM blocks likely missing, but we record the response for analysis.
                   print(f"  WARNING: no creds — unauthenticated scrape for {auction_date_iso}")
                   payload = {
                       "url": preview_url,
                       "formats": ["html"],
-                      "waitFor": 4000,
                       "timeout": 45000,
-                      "onlyMainContent": False,
                   }
 
               try:
@@ -199,16 +197,13 @@ jobs:
                       'https://api.firecrawl.dev/v1/scrape',
                       headers={"Authorization": f"Bearer {FC}", "Content-Type": "application/json"},
                       json=payload, timeout=120.0)
-                  j = resp.json() if resp.status_code == 200 else {}
+                  if resp.status_code != 200:
+                      print(f"  Firecrawl HTTP {resp.status_code}: {resp.text[:200]}")
+                      return resp.status_code, ''
+                  j = resp.json()
                   data = j.get('data') or {}
-                  # Prefer last action scrape result (authenticated path)
-                  html = None
-                  if actions:
-                      scrapes = (data.get('actions') or {}).get('scrapes') or []
-                      if scrapes and scrapes[-1].get('html'):
-                          html = scrapes[-1]['html']
-                  if not html:
-                      html = data.get('html') or data.get('rawHtml') or ''
+                  # For action-chain scrapes, Firecrawl returns the final page in data.html
+                  html = data.get('html') or data.get('rawHtml') or ''
                   return resp.status_code, html
               except Exception as e:
                   print(f"  fc_scrape error for {auction_date_iso}: {e}")
