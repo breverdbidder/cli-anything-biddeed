@@ -26,6 +26,7 @@ DECLARE
     v_divergent INTEGER := 0;
     v_unmatched INTEGER := 0;
     v_promoted  INTEGER := 0;
+    v_rows      INTEGER := 0;
     v_btt_exists BOOLEAN := FALSE;
     v_aids_exists BOOLEAN := FALSE;
 BEGIN
@@ -62,7 +63,8 @@ BEGIN
           )
           AND mca.parity_status IS DISTINCT FROM 'matched_clean';
 
-        GET DIAGNOSTICS v_clean = ROW_COUNT;
+        GET DIAGNOSTICS v_rows = ROW_COUNT;
+        v_clean := v_clean + v_rows;
 
         -- F-lane: promote sold_amount from BTT
         UPDATE multi_county_auctions mca
@@ -78,7 +80,7 @@ BEGIN
 
         GET DIAGNOSTICS v_promoted = ROW_COUNT;
 
-        RAISE NOTICE 'Path A (BTT uuid): matched_clean=% f_promoted=%', v_clean, v_promoted;
+        RAISE NOTICE 'Path A (BTT uuid): matched_clean=% f_promoted=%', v_rows, v_promoted;
     END IF;
 
     -- ── Path B: FORECLOSURE auctions → realforeclose_aids (case_number norm join) ──
@@ -119,8 +121,9 @@ BEGIN
           )
           AND mca.parity_status IS DISTINCT FROM 'matched_clean';
 
-        GET DIAGNOSTICS v_clean = v_clean + ROW_COUNT;
-        RAISE NOTICE 'Path B (realforeclose_aids): total matched_clean now=%', v_clean;
+        GET DIAGNOSTICS v_rows = ROW_COUNT;
+        v_clean := v_clean + v_rows;
+        RAISE NOTICE 'Path B (realforeclose_aids): rows_this_pass=% total matched_clean now=%', v_rows, v_clean;
     END IF;
 
     -- Count unmatched
