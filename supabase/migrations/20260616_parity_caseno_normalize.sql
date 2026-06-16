@@ -91,8 +91,7 @@ BEGIN
       AND mca.county        = 'brevard'
       AND mca.auction_status IN ('sold', 'no_sale', 'canceled')
       AND mca.parity_status IS DISTINCT FROM 'matched_clean'
-      AND t1.case_number    IS NOT NULL
-    LIMIT p_limit;
+      AND t1.case_number    IS NOT NULL;
 
     -- Count matched_clean and matched_divergent after this pass
     SELECT
@@ -134,9 +133,8 @@ BEGIN
               AND mca.county            = 'brevard'
               AND mca.tier1_sold_amount IS NULL
               AND t1.%I                 IS NOT NULL
-            LIMIT %s
             $sql$,
-            v_amount_col, v_amount_col, p_limit
+            v_amount_col, v_amount_col
         );
         GET DIAGNOSTICS v_f_promoted = ROW_COUNT;
     ELSE
