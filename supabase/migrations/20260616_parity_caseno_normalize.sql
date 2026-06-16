@@ -13,6 +13,12 @@
 
 SET statement_timeout = 0;
 
+-- ─── 0. Ensure MCA columns exist (some may be missing if earlier migrations weren't applied) ──
+ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS parity_status      TEXT;
+ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS parity_source      TEXT;
+ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS tier1_sold_amount  NUMERIC;
+ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS tier1_verified_at  TIMESTAMPTZ;
+
 -- ─── 1. Normalizer ───────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION normalize_case_number(p_cn TEXT)
 RETURNS TEXT AS $$
