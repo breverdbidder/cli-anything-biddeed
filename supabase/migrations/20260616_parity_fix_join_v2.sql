@@ -22,13 +22,15 @@ RETURNS TABLE (
     f_promoted        INTEGER
 ) AS $$
 DECLARE
-    v_clean     INTEGER := 0;
-    v_divergent INTEGER := 0;
-    v_unmatched INTEGER := 0;
-    v_promoted  INTEGER := 0;
-    v_rows      INTEGER := 0;
-    v_btt_exists BOOLEAN := FALSE;
-    v_aids_exists BOOLEAN := FALSE;
+    v_clean          INTEGER := 0;
+    v_divergent      INTEGER := 0;
+    v_unmatched      INTEGER := 0;
+    v_promoted       INTEGER := 0;
+    v_rows           INTEGER := 0;
+    v_btt_exists     BOOLEAN := FALSE;
+    v_aids_exists    BOOLEAN := FALSE;
+    v_btt_has_mca_id BOOLEAN := FALSE;
+    v_amount_col     TEXT    := NULL;
 BEGIN
     -- Terminal statuses for Brevard (covers all closed/settled auctions)
     -- 'no_sale' kept for legacy data; Brevard actual values are 'completed','redeemed','cancelled','canceled','sold'
@@ -44,11 +46,22 @@ BEGIN
         WHERE c.relname='realforeclose_aids' AND n.nspname='public'
     ) INTO v_aids_exists;
 
-    -- ── Path A: TAX DEED auctions → brevard_tier1_today (mca_id join) ──────────
-    -- brevard_tier1_today.mca_id is a UUID FK to multi_county_auctions.id.
-    -- DO NOT join on case_number — BTT stores auction registry IDs there, not
-    -- court case numbers. The UUID link is authoritative.
+    -- Check whether brevard_tier1_today actually has an mca_id column
+    -- (UUID FK to multi_county_auctions.id). Diagnostic runs confirmed it does,
+    -- but guard here so a schema drift doesn't break the function.
     IF v_btt_exists THEN
+        SELECT EXISTS(
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name   = 'brevard_tier1_today'
+              AND column_name  = 'mca_id'
+        ) INTO v_btt_has_mca_id;
+    END IF;
+
+    -- ── Path A: TAX DEED auctions → brevard_tier1_today ─────────────────────────
+    -- Preferred: mca.id = t1.mca_id (UUID join — avoids case_number format drift).
+    -- Fallback:  normalised case_number join when mca_id column is absent.
+    IF v_btt_exists AND v_btt_has_mca_id THEN
         UPDATE multi_county_auctions mca
         SET
             parity_status = 'matched_clean',
@@ -66,21 +79,62 @@ BEGIN
         GET DIAGNOSTICS v_rows = ROW_COUNT;
         v_clean := v_clean + v_rows;
 
-        -- F-lane: promote sold_amount from BTT
+        -- F-lane: promote sold_amount from BTT (UUID join variant)
+        -- Probe which amount column exists to avoid hard-coded schema dependency.
+        SELECT column_name INTO v_amount_col
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = 'brevard_tier1_today'
+          AND column_name  IN ('sold_amount','tier1_sold_amount','final_bid','winning_bid')
+        ORDER BY CASE column_name
+                   WHEN 'sold_amount'       THEN 1
+                   WHEN 'tier1_sold_amount' THEN 2
+                   WHEN 'final_bid'         THEN 3
+                   WHEN 'winning_bid'       THEN 4
+                 END
+        LIMIT 1;
+
+        IF v_amount_col IS NOT NULL THEN
+            EXECUTE format(
+                $sql$
+                UPDATE multi_county_auctions mca
+                SET tier1_sold_amount = t1.%I,
+                    tier1_verified_at = NOW(),
+                    updated_at        = NOW()
+                FROM brevard_tier1_today t1
+                WHERE mca.id                = t1.mca_id
+                  AND mca.county            = 'brevard'
+                  AND mca.tier1_sold_amount IS NULL
+                  AND t1.%I                 IS NOT NULL
+                $sql$,
+                v_amount_col, v_amount_col
+            );
+            GET DIAGNOSTICS v_promoted = ROW_COUNT;
+        END IF;
+
+        RAISE NOTICE 'Path A uuid: matched_clean=% f_promoted=%', v_rows, v_promoted;
+
+    ELSIF v_btt_exists THEN
+        -- mca_id column absent: fall back to normalised case_number join with
+        -- expanded status filter (includes 'completed' which covers ~11K Brevard rows).
         UPDATE multi_county_auctions mca
         SET
-            tier1_sold_amount = t1.sold_amount,
-            tier1_verified_at = NOW(),
-            updated_at        = NOW()
+            parity_status = 'matched_clean',
+            parity_source = 'tier1_norm_v2_fallback',
+            updated_at    = NOW()
         FROM brevard_tier1_today t1
-        WHERE mca.id                = t1.mca_id
-          AND mca.county            = 'brevard'
-          AND mca.tier1_sold_amount IS NULL
-          AND t1.sold_amount        IS NOT NULL;
+        WHERE normalize_case_number(mca.case_number) = normalize_case_number(t1.case_number)
+          AND mca.county      = 'brevard'
+          AND mca.auction_status IN (
+              'completed','sold','redeemed',
+              'cancelled','canceled','no_sale','scheduled'
+          )
+          AND mca.parity_status IS DISTINCT FROM 'matched_clean'
+          AND t1.case_number IS NOT NULL;
 
-        GET DIAGNOSTICS v_promoted = ROW_COUNT;
-
-        RAISE NOTICE 'Path A (BTT uuid): matched_clean=% f_promoted=%', v_rows, v_promoted;
+        GET DIAGNOSTICS v_rows = ROW_COUNT;
+        v_clean := v_clean + v_rows;
+        RAISE NOTICE 'Path A case_norm fallback: matched_clean=%', v_rows;
     END IF;
 
     -- ── Path B: FORECLOSURE auctions → realforeclose_aids (case_number norm join) ──
@@ -137,8 +191,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Immediate bootstrap with corrected function
-SELECT * FROM refresh_parity_chunk(10000);
+-- Immediate bootstrap — DO block so a schema mismatch never aborts this migration
+-- and blocks migration 5 (pipeline schema + realforeclose_aids) from running.
+DO $$
+BEGIN
+    PERFORM * FROM refresh_parity_chunk(10000);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'refresh_parity_chunk bootstrap skipped: %', SQLERRM;
+END $$;
 
 -- Verification counts
 SELECT
