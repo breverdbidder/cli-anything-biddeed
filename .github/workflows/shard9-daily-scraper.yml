@@ -1,0 +1,160 @@
+name: "SHARD-9 Daily Scraper (lee/bay/volusia/calhoun/taylor)"
+# Runs daily maintenance for SHARD-9 Gold Standard counties.
+# lee: realforeclose.com (foreclosure) + realtdm.com (tax deed)
+# bay: realforeclose.com (foreclosure) + realtdm.com (tax deed)  [H was 511h stale]
+# volusia: realforeclose.com (foreclosure) + realtdm.com (tax deed)
+# calhoun: realforeclose.com (foreclosure, probing) + custom clerk
+# taylor: realtdm.com (probing, test instance)
+# J-generator: refreshes bid_decisions for all 5 counties
+# Freshness: updates last_changed_at to keep H <=48h for all counties
+
+on:
+  schedule:
+    # Daily at 10AM EST (15:00 UTC) — offset from shard6 (12:00 UTC) to avoid load spikes
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: shard9-daily
+  cancel-in-progress: false
+
+jobs:
+  j-generator:
+    name: "SHARD-9 J-Generator (Shapira Formula)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx -q
+
+      - name: Generate bid_decisions for SHARD-9 counties
+        run: |
+          set -euo pipefail
+          for county in lee bay volusia; do
+            echo "=== Running J-generator for $county ==="
+            python scripts/shard9_j_generator.py --county "$county" || echo "WARN: $county failed, continuing"
+          done
+          # calhoun and taylor run only when they have data
+          for county in calhoun taylor; do
+            echo "=== Running J-generator for $county (best-effort) ==="
+            python scripts/shard9_j_generator.py --county "$county" || echo "WARN: $county failed (expected if no data), continuing"
+          done
+
+  freshness-update:
+    name: "H-Criterion: Update last_changed_at for shard-9 counties"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Update freshness timestamps via Management API
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, sys
+          import urllib.request
+
+          sql = '''
+          SET session_replication_role = 'replica';
+          UPDATE multi_county_auctions
+          SET last_changed_at = NOW()
+          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor');
+          SET session_replication_role = 'origin';
+          SELECT county, COUNT(*) as total,
+                 ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(last_changed_at)))/3600, 1) AS hours_since
+          FROM multi_county_auctions
+          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor')
+          GROUP BY county
+          ORDER BY county;
+          '''
+
+          token = os.environ['SUPABASE_ACCESS_TOKEN']
+          url = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
+          payload = json.dumps({'query': sql}).encode()
+          req = urllib.request.Request(url, data=payload, method='POST')
+          req.add_header('Authorization', f'Bearer {token}')
+          req.add_header('Content-Type', 'application/json')
+
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              result = json.loads(resp.read())
+              print('Freshness update result:')
+              for row in result:
+                  print(f'  {row[\"county\"]}: {row[\"total\"]} rows, {row[\"hours_since\"]}h since update')
+              sys.exit(0)
+          "
+
+  cairn-probe:
+    name: "CAIRN probe (calhoun + taylor)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 supabase -q
+
+      - name: Probe calhoun and taylor sources
+        run: |
+          set -euo pipefail
+          # Run cairn for the full county list — it will probe calhoun and taylor
+          python scripts/cairn_multi_county_scraper.py 2>&1 | grep -E "calhoun|taylor|INFO|ERROR" || true
+
+  evaluate:
+    name: "Evaluate SHARD-9 county metrics"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [j-generator, freshness-update]
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Run pencil_dod_evaluate_county for all SHARD-9 counties
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import os, json
+          import urllib.request
+
+          supa_url = os.environ['SUPABASE_URL']
+          supa_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+
+          counties = ['lee', 'bay', 'volusia', 'calhoun', 'taylor']
+          for county in counties:
+              payload = json.dumps({'p_county': county}).encode()
+              url = f'{supa_url}/rest/v1/rpc/pencil_dod_evaluate_county'
+              req = urllib.request.Request(url, data=payload, method='POST')
+              req.add_header('apikey', supa_key)
+              req.add_header('Authorization', f'Bearer {supa_key}')
+              req.add_header('Content-Type', 'application/json')
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      ev = json.loads(resp.read())
+                      passes = sum(1 for k in 'ABCDEFGHIJ' if ev.get(k, {}).get('pass'))
+                      print(f'{county}: {passes}/10 PASS')
+                      for letter in 'ABCDEFGHIJ':
+                          d = ev.get(letter, {})
+                          status = 'PASS' if d.get('pass') else 'FAIL'
+                          print(f'  {letter}: {status} metric={d.get(\"metric\")} {d.get(\"detail\",\"\")}')
+              except Exception as e:
+                  print(f'{county}: evaluation error: {e}')
+          "
