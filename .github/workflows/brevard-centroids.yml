@@ -1,6 +1,9 @@
 name: brevard-centroids
 on:
   workflow_dispatch:
+concurrency:
+  group: brevard-centroids
+  cancel-in-progress: true
 jobs:
   harvest:
     runs-on: ubuntu-latest
@@ -10,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Harvest Brevard centroids
+      - name: Harvest Brevard centroids + value
         env:
           SUPABASE_URL: "https://mocerqjnksmhcjzxrewo.supabase.co"
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
