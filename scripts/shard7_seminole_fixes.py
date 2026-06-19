@@ -1062,11 +1062,7 @@ def run_evaluation() -> Optional[Dict]:
     log("=== EVALUATION: pencil_dod_evaluate_county(seminole) ===", tag="UNTESTED")
 
     # Try both RPC signatures used across the fleet
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_name": COUNTY})
-    if result is None:
-        result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
-    if result is None:
-        result = sb_rpc("pencil_dod_evaluate_county", {"p_county": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
 
     if result:
         log(f"Evaluation result: {json.dumps(result, indent=2)[:800]}", tag="VERIFIED")

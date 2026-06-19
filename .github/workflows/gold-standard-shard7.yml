@@ -41,7 +41,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install --quiet httpx requests
+        run: pip install --quiet httpx requests beautifulsoup4 lxml
 
       - name: Configure git
         run: |

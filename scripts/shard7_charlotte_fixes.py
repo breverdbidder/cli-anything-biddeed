@@ -1085,11 +1085,7 @@ def run_evaluation() -> Optional[Dict]:
     log("=== FINAL EVALUATION: pencil_dod_evaluate_county(charlotte) ===", tag="UNTESTED")
 
     # Try both common arg formats
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_name": COUNTY})
-    if result is None:
-        result = sb_rpc("pencil_dod_evaluate_county", {"county_slug": COUNTY})
-    if result is None:
-        result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
 
     if result:
         log(f"Evaluation result:\n{json.dumps(result, indent=2)}", tag="VERIFIED")

@@ -1469,21 +1469,14 @@ def run_evaluation() -> Optional[Dict]:
     UNTESTED: will be VERIFIED on first run.
     """
     log(f"Running pencil_dod_evaluate_county({COUNTY})...", tag="UNTESTED")
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_name": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
 
     if result:
         log(f"Evaluation result: {json.dumps(result, indent=2)}", tag="VERIFIED")
         RESULTS["evaluation"] = result
         return result
 
-    log("pencil_dod_evaluate_county (county_name) returned no result — trying county_slug param", "WARN", tag="VERIFIED")
-    result2 = sb_rpc("pencil_dod_evaluate_county", {"county_slug": COUNTY})
-    if result2:
-        log(f"Evaluation result (slug param): {json.dumps(result2, indent=2)}", tag="VERIFIED")
-        RESULTS["evaluation"] = result2
-        return result2
-
-    log("pencil_dod_evaluate_county returned no result with either param", "WARN", tag="VERIFIED")
+    log("pencil_dod_evaluate_county returned no result", "WARN", tag="VERIFIED")
     return None
 
 

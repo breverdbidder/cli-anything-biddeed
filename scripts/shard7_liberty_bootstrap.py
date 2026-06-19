@@ -13,7 +13,10 @@ This script:
 """
 import os, sys, json, httpx, time, logging, re
 from datetime import datetime, timezone, date, timedelta
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -108,6 +111,9 @@ def probe_realforeclose():
     preview_url = f"{base_url}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCAT=&myState=FL"
 
     auction_rows = []
+    if BeautifulSoup is None:
+        log_tag("beautifulsoup4 not available — skipping HTML parse", "WARNING", "VERIFIED")
+        return auction_rows
     try:
         r = client.get(preview_url, timeout=20)
         log_tag(f"realforeclose probe: HTTP {r.status_code}", tag="VERIFIED")
@@ -145,6 +151,9 @@ def probe_realtaxdeed():
     preview_url = f"{base_url}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCAT=&myState=FL"
 
     auction_rows = []
+    if BeautifulSoup is None:
+        log_tag("beautifulsoup4 not available — skipping realtaxdeed HTML parse", "WARNING", "VERIFIED")
+        return auction_rows
     try:
         r = client.get(preview_url, timeout=20)
         log_tag(f"realtaxdeed probe: HTTP {r.status_code}", tag="VERIFIED")
@@ -188,7 +197,7 @@ def insert_liberty_auction(case_number, auction_type, sale_date_str=None, openin
 
 # ── Evaluation ────────────────────────────────────────────────────────────
 def run_evaluation():
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_name": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
     if result:
         log_tag(f"Evaluation: {json.dumps(result)[:500]}", tag="VERIFIED")
         RESULTS["evaluation"] = result

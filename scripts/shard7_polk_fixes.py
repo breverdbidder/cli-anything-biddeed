@@ -966,13 +966,13 @@ def run_evaluation() -> Optional[Dict]:
     VERIFIED after call with actual response.
     """
     log(f"=== Running pencil_dod_evaluate_county({COUNTY}) ===", tag="UNTESTED")
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_name": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
     if result:
         log(f"VERIFIED: evaluation result: {json.dumps(result, indent=2)}", tag="VERIFIED")
         RESULTS["evaluation"] = result
     else:
-        # Try alternate parameter name
-        result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
+        # county_slug_arg is the canonical parameter; if still None, RPC may be unavailable
+        result = None
         if result:
             log(f"VERIFIED: evaluation result (slug_arg): {json.dumps(result, indent=2)}", tag="VERIFIED")
             RESULTS["evaluation"] = result
