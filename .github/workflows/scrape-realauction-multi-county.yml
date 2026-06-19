@@ -49,3 +49,36 @@ jobs:
           MAX_PAGES: ${{ github.event.inputs.max_pages }}
           SECTION_AREA: ${{ github.event.inputs.section_area }}
         run: python .github/scripts/scrape_realauction_county.py
+
+      - name: Promote historical tier1 cards to MCA
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 -c "
+          import json, os, urllib.request
+          token = os.environ['SUPABASE_ACCESS_TOKEN']
+          county = '${{ github.event.inputs.county_slug }}'.lower()
+          sql = f'''
+          SELECT biddeed.flow_card_to_mca(id) AS result
+          FROM pipeline.tier1_card_raw
+          WHERE county_slug = '{county}'
+            AND auction_date < current_date
+          ORDER BY id;
+          '''
+          url = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
+          payload = json.dumps({'query': sql}).encode()
+          req = urllib.request.Request(url, data=payload, method='POST')
+          req.add_header('Authorization', f'Bearer {token}')
+          req.add_header('Content-Type', 'application/json')
+          try:
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  rows = json.loads(resp.read())
+                  results = [r.get('result','') for r in rows]
+                  updated = sum(1 for r in results if r and r.startswith('updated'))
+                  inserted = sum(1 for r in results if r and r.startswith('inserted'))
+                  skipped = sum(1 for r in results if r and r.startswith('skip'))
+                  print(f'{county}: promoted {len(rows)} historical cards: updated={updated} inserted={inserted} skipped={skipped}')
+          except Exception as e:
+              print(f'WARN: promote step failed: {e} (non-fatal)')
+          "
+
