@@ -1,0 +1,17 @@
+name: brevard-centroids
+on:
+  workflow_dispatch:
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Harvest Brevard centroids
+        env:
+          SUPABASE_URL: "https://mocerqjnksmhcjzxrewo.supabase.co"
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/brevard_centroids.py
