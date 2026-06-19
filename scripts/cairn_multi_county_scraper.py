@@ -100,6 +100,8 @@ COUNTY_SOURCES = {
     # SHARD-6 additions
     'dixie':        ('custom_clerk', 'https://dixieclerk.com/departments-services/court-services/foreclosure-sales/'),
     'monroe':       ('realtaxdeed', 'https://monroe.realtaxdeed.com'),  # tax deed; requires auth for full parse
+    # SHARD-12 additions
+    'glades':       ('realforeclose', 'https://glades.realforeclose.com'),
 }
 
 HEADERS = {
