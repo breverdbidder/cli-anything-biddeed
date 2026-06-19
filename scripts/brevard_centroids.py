@@ -2,8 +2,7 @@
 """Harvest Brevard parcel centroids (WGS84) + JV market value from the FL Statewide
 Cadastral FeatureServer into pipeline.brevard_centroid via RPC. Keyed by ALT_KEY =
 BCPAO tax account = multi_county_auctions.parcel_id. Geo + value source for criterion I.
-Authoritative (FL DOR), allowlist, open (no Cloudflare).
-OBJECTID keyset pagination (hosted FeatureServer caps resultOffset ~92K)."""
+Authoritative (FL DOR), allowlist, open. OBJECTID keyset pagination + RPC retry."""
 import os, json, time, urllib.request
 
 BASE = "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query"
@@ -17,13 +16,20 @@ def get(url):
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
 
-def rpc(rows):
+def rpc(rows, tries=4):
     body = json.dumps({"p": rows}).encode()
-    req = urllib.request.Request(f"{SB}/rest/v1/rpc/brevard_centroid_upsert", data=body, method="POST")
-    for k, v in {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}.items():
-        req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read().decode()
+    last = None
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(f"{SB}/rest/v1/rpc/brevard_centroid_upsert", data=body, method="POST")
+            for k, v in {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}.items():
+                req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return r.read().decode()
+        except Exception as e:
+            last = e
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 def main():
     last_oid = 0
