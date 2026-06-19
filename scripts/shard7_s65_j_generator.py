@@ -209,7 +209,7 @@ def run_evaluation(county, client):
     resp = client.post(
         f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
         headers=headers(),
-        json={"county_name": county},
+        json={"county_slug_arg": county},
         timeout=60,
     )
     if resp.status_code == 200:

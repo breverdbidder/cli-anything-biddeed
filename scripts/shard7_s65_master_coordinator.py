@@ -165,7 +165,7 @@ def evaluate_county(county: str):
         r = client.post(
             f"{BASE}/rpc/pencil_dod_evaluate_county",
             headers=h(),
-            json={"county_name": county},
+            json={"county_slug_arg": county},
             timeout=60,
         )
         if r.status_code == 200:

@@ -182,7 +182,7 @@ jobs:
           print(f'Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()}')
 
           for county in counties:
-              r = client.post(f'{BASE}/rpc/pencil_dod_evaluate_county', headers=H, json={'county_name': county})
+              r = client.post(f'{BASE}/rpc/pencil_dod_evaluate_county', headers=H, json={'county_slug_arg': county})
               if r.status_code == 200:
                   ev = r.json()
                   if isinstance(ev, list):
