@@ -97,6 +97,9 @@ COUNTY_SOURCES = {
     'volusia':      ('realforeclose', 'https://volusia.realforeclose.com'),
     'walton':       ('realforeclose', 'https://walton.realforeclose.com'),
     'washington':   ('custom_clerk', 'https://www.washingtonclerk.com/foreclosure'),
+    # SHARD-6 additions
+    'dixie':        ('custom_clerk', 'https://dixieclerk.com/departments-services/court-services/foreclosure-sales/'),
+    'monroe':       ('realtaxdeed', 'https://monroe.realtaxdeed.com'),  # tax deed; requires auth for full parse
 }
 
 HEADERS = {
