@@ -25,6 +25,18 @@ FROM multi_county_auctions
 WHERE county = 'okaloosa'
 GROUP BY sale_type;
 
+-- ── E: PARCEL LINKAGE FIX ─────────────────────────────────────────────────────
+-- CONFIRMED via FL GIO spatial query at lat=30.685280, lon=-86.753878:
+--   PARCEL_ID=092N25000000080110, PHY_ADDR1="470 MARTIN LN" (MARTIN=variant of MARTEN),
+--   CO_NO=56 (FL GIO CO_NO 56 = Okaloosa County — confirmed via parcel 071S22108000030120
+--   which maps to 1008 BAYSHORE DR, NICEVILLE, also CO_NO=56 in FL GIO).
+UPDATE multi_county_auctions
+SET parcel_id = '092N25000000080110',
+    updated_at = NOW()
+WHERE county = 'okaloosa'
+  AND case_number = 'PO_1160043'
+  AND (parcel_id IS NULL OR parcel_id = '');
+
 -- ── H + E verification ────────────────────────────────────────────────────────
 SELECT
     county,
