@@ -48,7 +48,7 @@ COUNTY_SOURCES = {
     # Platform 'brevard_static': Static HTML clerk page (in-person auctions)
     # Platform 'custom_clerk': County-specific clerk URL
     'alachua':      ('realforeclose', 'https://alachua.realforeclose.com'),
-    'baker':        ('custom_clerk', 'https://www.bakercountyclerk.org/foreclosure'),
+    'baker':        ('realforeclose', 'https://baker.realforeclose.com'),
     'bay':          ('realforeclose', 'https://bay.realforeclose.com'),
     'brevard':      ('brevard_static', 'http://vweb2.brevardclerk.us/Foreclosures/foreclosure_sales.html'),
     'broward':      ('realforeclose', 'https://broward.realforeclose.com'),
