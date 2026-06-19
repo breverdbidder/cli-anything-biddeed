@@ -60,6 +60,7 @@ COUNTY_SOURCES = {
     'duval':        ('realforeclose', 'https://duval.realforeclose.com'),
     'escambia':     ('realforeclose', 'https://escambia.realforeclose.com'),
     'flagler':      ('realforeclose', 'https://flagler.realforeclose.com'),
+    'franklin':     ('realforeclose', 'https://franklin.realforeclose.com'),
     'gilchrist':    ('custom_clerk', 'https://www.gilchristclerk.com/foreclosure'),
     'gulf':         ('custom_clerk', 'https://www.gulfclerk.com/foreclosure'),
     'hendry':       ('realforeclose', 'https://hendry.realforeclose.com'),
