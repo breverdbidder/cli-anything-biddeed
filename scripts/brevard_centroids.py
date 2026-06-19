@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Harvest Brevard parcel centroids (WGS84) from the FL Statewide Cadastral
-FeatureServer into pipeline.brevard_centroid via RPC. Keyed by ALT_KEY = BCPAO
-tax account = multi_county_auctions.parcel_id. Geo source for criterion I.
+"""Harvest Brevard parcel centroids (WGS84) + JV market value from the FL Statewide
+Cadastral FeatureServer into pipeline.brevard_centroid via RPC. Keyed by ALT_KEY =
+BCPAO tax account = multi_county_auctions.parcel_id. Geo + value source for criterion I.
 Authoritative (FL DOR), allowlist, open (no Cloudflare)."""
 import os, json, time, urllib.request
 
@@ -28,7 +28,7 @@ def main():
     offset = 0
     total = 0
     while True:
-        url = (f"{BASE}?where=CO_NO%3D15&outFields=ALT_KEY&returnCentroid=true"
+        url = (f"{BASE}?where=CO_NO%3D15&outFields=ALT_KEY%2CJV&returnCentroid=true"
                f"&returnGeometry=false&outSR=4326&f=json"
                f"&resultRecordCount={PAGE}&resultOffset={offset}&orderByFields=OBJECTID")
         d = get(url)
@@ -37,10 +37,15 @@ def main():
             break
         rows = []
         for ft in feats:
-            a = (ft.get("attributes") or {}).get("ALT_KEY")
+            attrs = ft.get("attributes") or {}
+            a = attrs.get("ALT_KEY")
             c = ft.get("centroid") or {}
             if a and c.get("x") is not None and c.get("y") is not None:
-                rows.append({"alt_key": str(a).strip(), "lat": c["y"], "lon": c["x"]})
+                row = {"alt_key": str(a).strip(), "lat": c["y"], "lon": c["x"]}
+                jv = attrs.get("JV")
+                if jv not in (None, ""):
+                    row["val"] = jv
+                rows.append(row)
         for i in range(0, len(rows), 500):
             rpc(rows[i:i+500])
         total += len(rows)
@@ -49,7 +54,7 @@ def main():
             break
         offset += PAGE
         time.sleep(0.2)
-    print(f"DONE total_centroids={total}")
+    print(f"DONE total={total}")
 
 if __name__ == "__main__":
     main()
