@@ -6,9 +6,18 @@ on:
       county_slug:
         required: true
       county_domain:
+        description: 'Domain without https:// (e.g. bay.realforeclose.com)'
         required: true
       auction_date:
         required: true
+      platform:
+        description: 'realforeclose or realtaxdeed'
+        required: false
+        default: 'realforeclose'
+      sale_type:
+        description: 'foreclosure or tax_deed'
+        required: false
+        default: 'foreclosure'
       max_pages:
         required: false
         default: '15'
@@ -33,7 +42,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           COUNTY_SLUG: ${{ github.event.inputs.county_slug }}
-          COUNTY_DOMAIN: ${{ github.event.inputs.county_domain }}
+          BASE_URL: https://${{ github.event.inputs.county_domain }}
+          PLATFORM: ${{ github.event.inputs.platform }}
+          SALE_TYPE: ${{ github.event.inputs.sale_type }}
           AUCTION_DATE: ${{ github.event.inputs.auction_date }}
           MAX_PAGES: ${{ github.event.inputs.max_pages }}
           SECTION_AREA: ${{ github.event.inputs.section_area }}
