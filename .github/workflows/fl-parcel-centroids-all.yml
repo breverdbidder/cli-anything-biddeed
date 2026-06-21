@@ -1,0 +1,55 @@
+name: fl-parcel-centroids-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      co_no:
+        description: 'co_no to process (0 = auto-pick next pending county)'
+        required: false
+        default: '0'
+      page_size:
+        description: 'Records per API page (max 2000)'
+        required: false
+        default: '2000'
+      max_pages:
+        description: 'Max pages per run (300 = 600K parcels)'
+        required: false
+        default: '300'
+  schedule:
+    - cron: '20 */2 * * *'   # every 2h offset from other crons
+
+concurrency:
+  group: fl-parcel-centroids-all
+  cancel-in-progress: false   # never cancel — let runs queue
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run centroid enrichment
+        env:
+          SUPABASE_URL:         "https://mocerqjnksmhcjzxrewo.supabase.co"
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CO_NO:     ${{ github.event.inputs.co_no || '0' }}
+          PAGE_SIZE: ${{ github.event.inputs.page_size || '2000' }}
+          MAX_PAGES: ${{ github.event.inputs.max_pages || '300' }}
+        run: python scripts/fl_parcel_centroids_all.py
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## FL Parcel Centroid Enrichment" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| county co_no | ${{ env.co_no }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| centroids written | ${{ steps.enrich.outputs.total_written }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| pages processed | ${{ steps.enrich.outputs.pages }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| last OBJECTID | ${{ steps.enrich.outputs.last_oid }} |" >> $GITHUB_STEP_SUMMARY
