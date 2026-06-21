@@ -69,7 +69,7 @@ def sb_patch(path, body):
 
 def rpc(fn, body, tries=5):
     data = json.dumps(body).encode()
-    last = None
+    last_exc = RuntimeError("rpc() failed after all retries")
     for i in range(tries):
         try:
             req = urllib.request.Request(f"{SB}/rest/v1/rpc/{fn}", data=data, method="POST")
@@ -78,9 +78,9 @@ def rpc(fn, body, tries=5):
             with urllib.request.urlopen(req, timeout=120) as r:
                 return r.read().decode()
         except Exception as e:
-            last = e
+            last_exc = e
             time.sleep(3 * (i + 1))
-    raise last
+    raise last_exc
 
 # ── county selection ────────────────────────────────────────────────────────────
 
