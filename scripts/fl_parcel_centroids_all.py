@@ -29,13 +29,21 @@ HEADERS = {
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
-def get(url, tries=6):
+def get(url, tries=8):
     last = None
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "everest-fl-centroids/2"})
             with urllib.request.urlopen(req, timeout=120) as r:
-                return json.loads(r.read().decode("utf-8", "replace"))
+                raw = r.read()
+                try:
+                    return json.loads(raw.decode("utf-8", "replace"))
+                except json.JSONDecodeError:
+                    # Truncated response — reduce page size and retry
+                    if "resultRecordCount=2000" in url:
+                        url = url.replace("resultRecordCount=2000", "resultRecordCount=500")
+                    time.sleep(5 * (i + 1))
+                    continue
         except Exception as e:
             last = e
             time.sleep(4 * (i + 1))
