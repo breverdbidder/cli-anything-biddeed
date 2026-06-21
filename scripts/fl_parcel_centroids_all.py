@@ -118,7 +118,7 @@ def main():
     while pages < MAX_PAGES:
         params = urllib.parse.urlencode({
             "where":             f"CO_NO={co_no} AND OBJECTID>{last_oid}",
-            "outFields":         "ALT_KEY,OBJECTID",
+            "outFields":         "PARCEL_ID,ALT_KEY,OBJECTID",
             "returnCentroid":    "true",
             "returnGeometry":    "true",
             "outSR":             "4326",
@@ -145,7 +145,7 @@ def main():
             attrs = ft.get("attributes") or {}
             centroid = ft.get("centroid") or {}
             oid = attrs.get("OBJECTID")
-            alt_key = attrs.get("ALT_KEY")
+            alt_key = attrs.get("PARCEL_ID") or attrs.get("ALT_KEY")
             if oid is not None and oid > max_oid:
                 max_oid = oid
             if alt_key and centroid.get("x") is not None and centroid.get("y") is not None:
