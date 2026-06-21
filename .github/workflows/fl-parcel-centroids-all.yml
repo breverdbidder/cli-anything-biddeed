@@ -20,7 +20,7 @@ on:
 
 concurrency:
   group: fl-parcel-centroids-all
-  cancel-in-progress: false   # never cancel — let runs queue
+  cancel-in-progress: false
 
 jobs:
   enrich:
@@ -34,10 +34,35 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Resolve live service_role key
+        id: resolve_key
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          # Use Supabase Management API to get the current service_role key
+          KEY=$(curl -s \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/api-keys" \
+            | python3 -c "
+import sys, json
+keys = json.load(sys.stdin)
+for k in keys:
+    if k.get('name') == 'service_role':
+        print(k['api_key'])
+        break
+")
+          if [ -z "$KEY" ]; then
+            echo "Failed to resolve service_role key" >&2
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "service_key=$KEY" >> $GITHUB_OUTPUT
+          echo "Resolved live service_role key ✓"
+
       - name: Run centroid enrichment
         env:
           SUPABASE_URL:         "https://mocerqjnksmhcjzxrewo.supabase.co"
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ steps.resolve_key.outputs.service_key }}
           CO_NO:     ${{ github.event.inputs.co_no || '0' }}
           PAGE_SIZE: ${{ github.event.inputs.page_size || '2000' }}
           MAX_PAGES: ${{ github.event.inputs.max_pages || '300' }}
@@ -49,7 +74,4 @@ jobs:
           echo "## FL Parcel Centroid Enrichment" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| county co_no | ${{ env.co_no }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| centroids written | ${{ steps.enrich.outputs.total_written }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| pages processed | ${{ steps.enrich.outputs.pages }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| last OBJECTID | ${{ steps.enrich.outputs.last_oid }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| county co_no | ${{ env.CO_NO }} |" >> $GITHUB_STEP_SUMMARY
