@@ -30,7 +30,7 @@ HEADERS = {
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def get(url, tries=8):
-    last = None
+    last_exc = RuntimeError("get() failed after all retries")
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "everest-fl-centroids/2"})
@@ -39,15 +39,19 @@ def get(url, tries=8):
                 try:
                     return json.loads(raw.decode("utf-8", "replace"))
                 except json.JSONDecodeError:
-                    # Truncated response — reduce page size and retry
-                    if "resultRecordCount=2000" in url:
-                        url = url.replace("resultRecordCount=2000", "resultRecordCount=500")
-                    time.sleep(5 * (i + 1))
+                    # Truncated response — halve page size and retry
+                    for size in ["resultRecordCount=2000", "resultRecordCount=1000"]:
+                        if size in url:
+                            smaller = str(int(size.split("=")[1]) // 2)
+                            url = url.replace(size, f"resultRecordCount={smaller}")
+                            break
+                    last_exc = RuntimeError(f"JSON truncated at retry {i}")
+                    time.sleep(5)
                     continue
         except Exception as e:
-            last = e
+            last_exc = e
             time.sleep(4 * (i + 1))
-    raise last
+    raise last_exc
 
 def sb_get(path, params=""):
     url = f"{SB}/rest/v1/{path}{'?' + params if params else ''}"
