@@ -72,8 +72,12 @@ jobs:
           patch("fl_parcel_centroid_progress?status=eq.done&centroids_done=eq.0",
                 {"status":"pending","last_parcel_id":None,"centroids_done":0,"completed_at":None})
 
-          # Reset stale-running (running but not updated in >3h — job timed out without cleanup)
-          stale_cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+          # Reset errored counties back to pending
+          patch("fl_parcel_centroid_progress?status=eq.error",
+                {"status":"pending","error_msg":None})
+
+          # Reset stale-running: no checkpoint written in >10min means worker died
+          stale_cutoff = (datetime.datetime.utcnow() - datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
           patch(f"fl_parcel_centroid_progress?status=eq.running&updated_at=lt.{stale_cutoff}",
                 {"status":"pending"})
 
@@ -81,7 +85,7 @@ jobs:
               counties = [{"co_no": manual, "slot": 1}]
           else:
               req = urllib.request.Request(
-                  f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.pending&centroids_needed=gt.0&order=centroids_needed.desc&limit=2&select=co_no,county_name",
+                  f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.pending&centroids_needed=gt.0&order=centroids_needed.desc&limit=8&select=co_no,county_name",
                   headers=hdrs
               )
               with urllib.request.urlopen(req) as r:
@@ -114,9 +118,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Stagger start (slot 2 waits 30s to avoid API collision)
-        if: matrix.slot == 2
-        run: sleep 30
+      - name: Stagger start (non-slot-1 workers spread 15s apart to avoid API collision)
+        if: matrix.slot != 1
+        run: sleep $(( (${{ matrix.slot }} - 1) * 15 ))
 
       - name: Resolve live service_role key
         id: key

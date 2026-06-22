@@ -163,7 +163,7 @@ def main():
             )
             break
 
-        rows = []
+        rows_by_key = {}
         max_oid = last_oid
         for ft in feats:
             attrs = ft.get("attributes") or {}
@@ -173,11 +173,12 @@ def main():
             if oid is not None and oid > max_oid:
                 max_oid = oid
             if alt_key and centroid.get("x") is not None and centroid.get("y") is not None:
-                rows.append({
+                rows_by_key[str(alt_key).strip()] = {
                     "alt_key": str(alt_key).strip(),
                     "lat":     centroid["y"],
                     "lon":     centroid["x"],
-                })
+                }
+        rows = list(rows_by_key.values())
 
         # Upsert in batches
         written = 0
@@ -198,6 +199,7 @@ def main():
             sb_patch(
                 f"fl_parcel_centroid_progress?co_no=eq.{co_no}",
                 {"last_parcel_id": str(last_oid),
+                 "centroids_done": total,
                  "updated_at":     time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             )
 
