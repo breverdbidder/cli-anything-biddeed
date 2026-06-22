@@ -37,7 +37,7 @@ jobs:
       - name: Install Playwright
         run: |
           npm install playwright
-          npx playwright install chromium --with-deps
+          ./node_modules/.bin/playwright install chromium --with-deps
 
       - name: Apply migration (create tables + seed queue)
         if: ${{ github.event.inputs.apply_migration != 'no' }}
