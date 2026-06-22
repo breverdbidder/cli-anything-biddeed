@@ -36,8 +36,20 @@ jobs:
 
       - name: Install Playwright
         run: |
+          # Install @playwright/test at the version the script will load
           npm install --include=dev
+          PW_VERSION=$(node -e "console.log(require('./node_modules/@playwright/test/package.json').version)")
+          echo "Installed @playwright/test version: $PW_VERSION"
+          # List what chromium revision this version expects
+          node -e "
+            const pw = require('@playwright/test');
+            const browsers = require('./node_modules/playwright-core/browsers.json') || [];
+            console.log('browsers.json sample:', JSON.stringify((browsers.browsers || browsers).slice(0,3)));
+          " 2>/dev/null || echo "(browsers.json not accessible)"
+          # Install browser using the SAME playwright binary the script will use
           ./node_modules/.bin/playwright install chromium --with-deps
+          # Verify the installed browser path
+          ls ~/.cache/ms-playwright/ 2>/dev/null || echo "No playwright browser cache found"
 
       - name: Apply migration (create tables + seed queue)
         if: ${{ github.event.inputs.apply_migration != 'no' }}
