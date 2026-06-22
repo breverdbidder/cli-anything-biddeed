@@ -30,7 +30,8 @@ jobs:
                     if override else
                     {"status": "in.(pending)", "select": "co_no,county_name",
                      "order": "total_parcels.asc"})
-          rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress", headers=hdrs, params=params).json()
+          rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress",
+                              headers=hdrs, params=params).json()
           print(f"Counties queued: {len(rows)}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f'matrix={json.dumps({"include":[{"co_no":r["co_no"],"county_name":r["county_name"]} for r in rows]})}\n')
@@ -42,14 +43,14 @@ jobs:
     timeout-minutes: 360
     strategy:
       matrix: ${{ fromJson(needs.preflight.outputs.matrix) }}
-      max-parallel: 8
+      max-parallel: 1
       fail-fast: false
     name: "[${{ matrix.co_no }}] ${{ matrix.county_name }}"
     steps:
       - name: Install deps
         run: pip install requests --quiet
 
-      - name: Stage centroids → fl_parcels_centroid_staging
+      - name: Stage centroids
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -65,153 +66,115 @@ jobs:
           SB_KEY      = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
           SB_HDRS     = {"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}",
                          "Content-Type":"application/json","Prefer":"return=minimal"}
+          FS = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest"
+                "/services/Florida_Statewide_Parcel_Centroid_Version/FeatureServer/0/query")
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+          PAGE=2000; RETRIES=6; BATCH=500
 
-          CENTROID_FS = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest"
-                         "/services/Florida_Statewide_Parcel_Centroid_Version/FeatureServer/0/query")
-          BROWSER_UA  = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                         "AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/124.0.0.0 Safari/537.36")
+          s = requests.Session()
+          s.headers.update({"User-Agent":UA,"Accept":"application/json","Referer":"https://www.arcgis.com/"})
 
-          PAGE    = 2000
-          RETRIES = 6
-          BATCH   = 2000   # staging table = zero indexes = no bottleneck
-
-          session = requests.Session()
-          session.headers.update({"User-Agent":BROWSER_UA,"Accept":"application/json","Referer":"https://www.arcgis.com/"})
-
-          def sb_patch(p):
-              requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
-                             headers=SB_HDRS, params={"co_no":f"eq.{CO_NO}"}, json=p)
+          def patch(p): requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
+                                       headers=SB_HDRS,params={"co_no":f"eq.{CO_NO}"},json=p)
 
           def stage(rows):
-              seen = {}
-              for r in rows: seen[r["parcel_id"]] = r
-              r = requests.post(
-                  f"{SB_URL}/rest/v1/rpc/stage_centroids",
-                  headers={**SB_HDRS,"Prefer":"return=representation"},
-                  json={"rows": list(seen.values())}, timeout=30)
+              seen={r["parcel_id"]:r for r in rows}
+              r=requests.post(f"{SB_URL}/rest/v1/rpc/stage_centroids",
+                              headers={**SB_HDRS,"Prefer":"return=representation"},
+                              json={"rows":list(seen.values())},timeout=60)
               if r.status_code not in (200,201):
-                  raise RuntimeError(f"stage_rpc {r.status_code}: {r.text[:300]}")
+                  raise RuntimeError(f"stage {r.status_code}: {r.text[:200]}")
 
-          def get_oid_range():
-              for attempt in range(RETRIES):
+          def oid_range():
+              for a in range(RETRIES):
                   try:
-                      r = session.get(CENTROID_FS, params={
-                          "where":f"CO_NO={CO_NO}","outFields":"OBJECTID","returnGeometry":"false",
-                          "outStatistics":'[{"statisticType":"min","onStatisticField":"OBJECTID","outStatisticFieldName":"min_oid"},{"statisticType":"max","onStatisticField":"OBJECTID","outStatisticFieldName":"max_oid"}]',
-                          "f":"json"}, timeout=60)
-                      d = r.json()
+                      r=s.get(FS,params={"where":f"CO_NO={CO_NO}","outFields":"OBJECTID",
+                                         "returnGeometry":"false",
+                                         "outStatistics":'[{"statisticType":"min","onStatisticField":"OBJECTID","outStatisticFieldName":"min_oid"},{"statisticType":"max","onStatisticField":"OBJECTID","outStatisticFieldName":"max_oid"}]',
+                                         "f":"json"},timeout=60)
+                      d=r.json()
                       if "features" in d and d["features"]:
-                          a = d["features"][0]["attributes"]
-                          return a.get("min_oid"), a.get("max_oid")
-                      raise RuntimeError(f"stats: {d.get('error')}")
+                          a2=d["features"][0]["attributes"]
+                          return a2.get("min_oid"),a2.get("max_oid")
+                      raise RuntimeError(str(d.get("error")))
                   except Exception as e:
-                      if attempt==RETRIES-1: raise
-                      time.sleep(min(120,4**attempt))
+                      if a==RETRIES-1: raise
+                      time.sleep(min(120,4**a))
 
-          def fetch_chunk(min_oid, max_oid):
-              for attempt in range(RETRIES):
+          def fetch(mn,mx):
+              for a in range(RETRIES):
                   try:
-                      r = session.get(CENTROID_FS, params={
-                          "where":f"CO_NO={CO_NO} AND OBJECTID>={min_oid} AND OBJECTID<={max_oid}",
-                          "outFields":"PARCEL_ID,OBJECTID","returnGeometry":"true",
-                          "resultRecordCount":PAGE,"outSR":"4326","f":"json"}, timeout=120)
-                      d = r.json()
+                      r=s.get(FS,params={"where":f"CO_NO={CO_NO} AND OBJECTID>={mn} AND OBJECTID<={mx}",
+                                         "outFields":"PARCEL_ID,OBJECTID","returnGeometry":"true",
+                                         "resultRecordCount":PAGE,"outSR":"4326","f":"json"},timeout=120)
+                      d=r.json()
                       if "error" in d: raise RuntimeError(str(d["error"]))
                       return d.get("features",[])
                   except Exception as e:
-                      if attempt==RETRIES-1: raise
-                      time.sleep(min(120,4**attempt))
+                      if a==RETRIES-1: raise
+                      time.sleep(min(120,4**a))
 
-          sb_patch({"status":"running","started_at":"now()","error_msg":None})
-          print(f"[{CO_NO}] {COUNTY_NAME} start → staging")
-
-          tw = 0; batch = []
+          patch({"status":"running","started_at":"now()","error_msg":None})
+          print(f"[{CO_NO}] {COUNTY_NAME} start")
+          tw=0; batch=[]
           try:
-              min_oid, max_oid = get_oid_range()
-              if min_oid is None:
-                  sb_patch({"status":"done","centroids_done":0,"completed_at":"now()","updated_at":"now()"})
+              mn,mx=oid_range()
+              if mn is None:
+                  patch({"status":"done","centroids_done":0,"completed_at":"now()","updated_at":"now()"})
                   sys.exit(0)
-
-              print(f"[{CO_NO}] OID {min_oid}→{max_oid}")
-              cursor = min_oid
-
-              while cursor <= max_oid:
-                  chunk_end = cursor + 20000
-                  features  = fetch_chunk(cursor, chunk_end)
-
-                  for f in features:
-                      geom = f.get("geometry"); pid = f.get("attributes",{}).get("PARCEL_ID")
-                      if not pid or not geom: continue
-                      lng, lat = geom.get("x"), geom.get("y")
-                      if lng is None or lat is None: continue
+              print(f"[{CO_NO}] OID {mn}→{mx}")
+              cursor=mn
+              while cursor<=mx:
+                  end=cursor+20000
+                  feats=fetch(cursor,end)
+                  for f in feats:
+                      g=f.get("geometry"); pid=f.get("attributes",{}).get("PARCEL_ID")
+                      if not pid or not g: continue
+                      lng,lat=g.get("x"),g.get("y")
+                      if None in (lng,lat): continue
                       if not(-90<=lat<=90) or not(-180<=lng<=180): continue
                       batch.append({"parcel_id":pid,"co_no":CO_NO,
                                     "centroid_lat":round(lat,7),"centroid_lng":round(lng,7)})
-                      if len(batch)>=BATCH:
-                          stage(batch); tw+=len(batch); batch=[]
-
-                  if features:
-                      cursor = max(f["attributes"]["OBJECTID"] for f in features)+1
-                  else:
-                      cursor = chunk_end+1
-
-                  print(f"  cursor={cursor}/{max_oid} staged={tw}")
-                  if tw%10000<BATCH: sb_patch({"centroids_done":tw,"updated_at":"now()"})
-                  time.sleep(0.2)
-
+                      if len(batch)>=BATCH: stage(batch); tw+=len(batch); batch=[]
+                  cursor=(max(f["attributes"]["OBJECTID"] for f in feats)+1) if feats else end+1
+                  print(f"  cursor={cursor} staged={tw}")
+                  if tw%10000<BATCH: patch({"centroids_done":tw,"updated_at":"now()"})
+                  time.sleep(1)
               if batch: stage(batch); tw+=len(batch)
-              sb_patch({"status":"done","centroids_done":tw,"completed_at":"now()","updated_at":"now()"})
-              print(f"[{CO_NO}] {COUNTY_NAME} STAGED {tw:,}")
-
+              patch({"status":"done","centroids_done":tw,"completed_at":"now()","updated_at":"now()"})
+              print(f"[{CO_NO}] DONE {tw:,}")
           except Exception as e:
-              sb_patch({"status":"error","error_msg":str(e)[:500],"updated_at":"now()"})
-              print(f"[{CO_NO}] ERROR: {e}",file=sys.stderr); sys.exit(1)
+              patch({"status":"error","error_msg":str(e)[:500],"updated_at":"now()"})
+              print(f"[{CO_NO}] ERROR:{e}",file=sys.stderr); sys.exit(1)
           PYEOF
 
-  # ── Final merge: staging → fl_parcels in one SQL pass ──────────────────────
   merge:
     needs: harvest
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Install deps
-        run: pip install requests --quiet
-
-      - name: Merge staging → fl_parcels + scoreboard
+      - name: Merge staging → fl_parcels
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python3 - <<'PYEOF'
           import os, requests
-
-          SB_URL = os.environ["SUPABASE_URL"]; SB_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-          HDRS = {"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}","Content-Type":"application/json"}
-
-          # Check if all 67 pending/done — only merge when all counties are done
-          rows = requests.get(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
-                              headers={"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}"},
-                              params={"select":"status","order":"co_no.asc"}).json()
-          done = [r for r in rows if r["status"]=="done"]
-          errors = [r for r in rows if r["status"]=="error"]
-
-          print(f"done={len(done)}/67 errors={len(errors)}")
-
-          if len(done) == 67:
+          url=os.environ["SUPABASE_URL"]; key=os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          hdrs={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json"}
+          rows=requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress",
+                            headers={"apikey":key,"Authorization":f"Bearer {key}"},
+                            params={"select":"status","order":"co_no.asc"}).json()
+          done=[r for r in rows if r["status"]=="done"]
+          errors=[r for r in rows if r["status"]=="error"]
+          running=[r for r in rows if r["status"]=="running"]
+          print(f"done={len(done)}/67 errors={len(errors)} running={len(running)}")
+          if len(done)==67 and len(errors)==0 and len(running)==0:
               print("ALL 67 DONE — merging staging → fl_parcels")
-              # Execute merge via RPC
-              r = requests.post(f"{SB_URL}/rest/v1/rpc/merge_staged_centroids",
-                                headers=HDRS, json={}, timeout=300)
+              r=requests.post(f"{url}/rest/v1/rpc/merge_staged_centroids",
+                              headers=hdrs,json={},timeout=600)
               print(f"merge HTTP {r.status_code}: {r.text[:200]}")
           else:
-              print(f"Not all done yet — skipping merge. errors={[r['status'] for r in errors]}")
-
-          # Scoreboard
-          rows2 = requests.get(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
-                               headers={"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}"},
-                               params={"select":"co_no,county_name,status,centroids_done,total_parcels","order":"co_no.asc"}).json()
-          tw=sum(x["centroids_done"] or 0 for x in rows2); tp=sum(x["total_parcels"] or 0 for x in rows2)
-          print(f"━━━ CENTROID AUDIT ━━━")
-          print(f"done={len(done)}/67 errors={len(errors)} staged={tw:,}/{tp:,} pct={tw/tp*100:.1f}%" if tp else "")
+              print("Not all done — skipping merge this run")
           PYEOF
