@@ -103,6 +103,9 @@ def sb_patch(path: str, payload, params: str = "") -> tuple[int, str]:
             return r.status, ""
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
+    except Exception as e:
+        print(f"  sb_patch timeout/error: {e}", file=sys.stderr)
+        return 0, str(e)
 
 
 def call_drain() -> int:
@@ -290,7 +293,8 @@ def strategy_b_dor(queued: set[str], mca_addrs: dict[str, str]) -> dict[str, str
 
         if "error" in data:
             print(f"  DOR error: {data['error']}", file=sys.stderr)
-            break
+            time.sleep(10)
+            continue  # retry same page — transient ArcGIS errors are common
 
         features = data.get("features", [])
         if not features:
@@ -324,6 +328,10 @@ def strategy_b_dor(queued: set[str], mca_addrs: dict[str, str]) -> dict[str, str
 
         if pages % 10 == 0:
             print(f"  page {pages} (OID={last_oid}): alt_key={len(mapping)-phy_matched} phy={phy_matched} total={len(mapping)}/{len(queued)}")
+
+        if len(mapping) >= len(queued):
+            print(f"  all {len(queued)} accounts resolved — stopping early at page {pages}")
+            break
 
         time.sleep(0.3)
 
