@@ -1,0 +1,113 @@
+name: centroid-watchdog
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'   # every 20 min
+  workflow_dispatch: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install deps
+        run: pip install requests --quiet
+
+      - name: Check + auto-heal + redispatch
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ secrets.EVEREST_GH_PAT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, requests, json, time
+
+          SB_URL  = os.environ["SUPABASE_URL"]
+          SB_KEY  = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          GH_TOK  = os.environ.get("GH_TOKEN","")
+          TG_BOT  = os.environ.get("TELEGRAM_BOT_TOKEN","")
+          TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
+          SB_HDRS = {"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}","Content-Type":"application/json","Prefer":"return=minimal"}
+
+          def tg(msg):
+              if not TG_BOT or not TG_CHAT: return
+              try:
+                  requests.post(f"https://api.telegram.org/bot{TG_BOT}/sendMessage",
+                                json={"chat_id":TG_CHAT,"text":msg,"parse_mode":"Markdown"},timeout=10)
+              except: pass
+
+          def dispatch_harvest():
+              url = f"https://api.github.com/repos/breverdbidder/cli-anything-biddeed/actions/workflows/centroid-fdor-bulk.yml/dispatches"
+              r = requests.post(url, headers={"Authorization":f"Bearer {GH_TOK}","Accept":"application/vnd.github+json"},
+                                json={"ref":"main","inputs":{}}, timeout=15)
+              return r.status_code
+
+          # ── Pull current state ──────────────────────────────────────────────
+          rows = requests.get(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
+                              headers={"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}"},
+                              params={"select":"co_no,county_name,status,centroids_done,total_parcels,updated_at",
+                                      "order":"co_no.asc"}).json()
+
+          done    = [x for x in rows if x["status"]=="done"]
+          errors  = [x for x in rows if x["status"]=="error"]
+          running = [x for x in rows if x["status"]=="running"]
+          pending = [x for x in rows if x["status"]=="pending"]
+          tw = sum(x["centroids_done"] or 0 for x in rows)
+          tp = sum(x["total_parcels"]  or 0 for x in rows)
+          pct = tw/tp*100 if tp else 0
+
+          print(f"STATUS: done={len(done)}/67 running={len(running)} pending={len(pending)} errors={len(errors)} written={tw:,}/{tp:,} ({pct:.1f}%)")
+
+          # ── Auto-heal errors ────────────────────────────────────────────────
+          if errors:
+              err_cos = [e["co_no"] for e in errors]
+              print(f"AUTO-HEAL: resetting {len(errors)} errors: {err_cos}")
+              requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
+                             headers=SB_HDRS,
+                             params={"status":"eq.error"},
+                             json={"status":"pending","error_msg":None,"centroids_done":0,"updated_at":"now()"})
+
+              # Re-dispatch harvest to pick up reset counties
+              if pending or errors:
+                  http = dispatch_harvest()
+                  print(f"REDISPATCH centroid-fdor-bulk.yml → HTTP {http}")
+                  tg(f"🔄 *Centroid Watchdog*\nAuto-healed {len(errors)} errors: {err_cos}\nRedispatched harvest → HTTP {http}\nProgress: {tw:,}/{tp:,} ({pct:.1f}%)")
+
+          # ── DoD check ───────────────────────────────────────────────────────
+          elif len(done) == 67 and tw >= 9_500_000:
+              print(f"🏆 DOD ACHIEVED: 67/67 done, {tw:,} centroids written")
+              tg(f"🏆 *CENTROID ENRICHMENT COMPLETE*\n67/67 counties done\n{tw:,} centroids written\nDoD ✅ VERIFIED")
+
+          # ── Stall detection: running but no progress in 30min ───────────────
+          elif running:
+              from datetime import datetime, timezone
+              now = datetime.now(timezone.utc)
+              stalled = []
+              for r in running:
+                  updated = r.get("updated_at","")
+                  if updated:
+                      try:
+                          dt = datetime.fromisoformat(updated.replace("Z","+00:00"))
+                          age_min = (now-dt).total_seconds()/60
+                          if age_min > 30:
+                              stalled.append((r["co_no"],r["county_name"],round(age_min)))
+                      except: pass
+              if stalled:
+                  print(f"STALL DETECTED: {stalled}")
+                  tg(f"⚠️ *Centroid Watchdog — Stall*\n{len(stalled)} counties stalled >30min:\n" +
+                     "\n".join(f"  co_no={c} {n} ({m}min)" for c,n,m in stalled))
+
+          # ── Normal progress report ──────────────────────────────────────────
+          else:
+              print(f"NOMINAL: {len(done)}/67 done, {pct:.1f}% written, no errors")
+
+          # ── If nothing running and pending remain, redispatch ───────────────
+          if not running and pending and not errors:
+              print(f"NO RUNNERS but {len(pending)} pending — redispatching")
+              http = dispatch_harvest()
+              print(f"REDISPATCH → HTTP {http}")
+              tg(f"🔄 *Centroid Watchdog — Redispatch*\nNo runners detected, {len(pending)} pending\nRedispatched → HTTP {http}")
+
+          PYEOF
