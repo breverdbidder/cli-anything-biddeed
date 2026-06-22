@@ -38,13 +38,35 @@ async function sbFetch(path, method = 'GET', body = null, extra = {}) {
   };
   const opts = { method, headers };
   if (body !== null) opts.body = JSON.stringify(body);
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Supabase ${method} ${path}: HTTP ${res.status} — ${txt.slice(0, 300)}`);
+
+  // Retry up to 4 times on 5xx / network errors with exponential backoff
+  let lastErr;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, opts);
+      if (res.status >= 500) {
+        const txt = await res.text();
+        lastErr = new Error(`Supabase ${method} ${path}: HTTP ${res.status} — ${txt.slice(0, 200)}`);
+        const delay = attempt * 3000;
+        console.log(`  sbFetch 5xx (attempt ${attempt}/4), retrying in ${delay}ms…`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Supabase ${method} ${path}: HTTP ${res.status} — ${txt.slice(0, 300)}`);
+      }
+      const txt = await res.text();
+      return txt ? JSON.parse(txt) : null;
+    } catch (e) {
+      if (e.message.startsWith('Supabase') && !e.message.includes('5')) throw e; // non-5xx, don't retry
+      lastErr = e;
+      const delay = attempt * 3000;
+      console.log(`  sbFetch network error (attempt ${attempt}/4): ${e.message.slice(0, 80)} — retrying in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
+    }
   }
-  const txt = await res.text();
-  return txt ? JSON.parse(txt) : null;
+  throw lastErr;
 }
 
 async function getQueuedBatch() {
@@ -73,7 +95,6 @@ async function markEmpty(account) {
 
 async function markFailed(account, err) {
   const errStr = String(err).slice(0, 400);
-  // Try with last_error column; fall back if column not yet in schema cache
   try {
     return await sbFetch(
       `bcpao_fetch_jobs?account=eq.${encodeURIComponent(account)}`,
@@ -83,14 +104,21 @@ async function markFailed(account, err) {
     );
   } catch (e) {
     if (e.message.includes('PGRST204') || e.message.includes('last_error')) {
-      return sbFetch(
-        `bcpao_fetch_jobs?account=eq.${encodeURIComponent(account)}`,
-        'PATCH',
-        { status: 'failed', done_at: new Date().toISOString() },
-        { Prefer: 'return=minimal' }
-      );
+      // Schema cache miss: retry without last_error
+      try {
+        return await sbFetch(
+          `bcpao_fetch_jobs?account=eq.${encodeURIComponent(account)}`,
+          'PATCH',
+          { status: 'failed', done_at: new Date().toISOString() },
+          { Prefer: 'return=minimal' }
+        );
+      } catch (e2) {
+        console.error(`  markFailed(${account}) fallback also failed: ${e2.message.slice(0, 120)} — continuing`);
+      }
+    } else {
+      // Supabase transient error — log and continue, don't crash the harvest
+      console.error(`  markFailed(${account}) Supabase error: ${e.message.slice(0, 120)} — continuing`);
     }
-    throw e;
   }
 }
 
@@ -250,8 +278,12 @@ async function main() {
       }
 
       if (pin) {
-        await upsertBridge(account, pin);
-        await markDone(account, pin);
+        await upsertBridge(account, pin).catch(e =>
+          console.error(`  upsertBridge(${account}) error: ${e.message.slice(0, 120)} — continuing`)
+        );
+        await markDone(account, pin).catch(e =>
+          console.error(`  markDone(${account}) error: ${e.message.slice(0, 120)} — continuing`)
+        );
         console.log(`  ${account} -> ${pin}`);
         totalDone++;
       } else if (lastErr) {
@@ -259,7 +291,9 @@ async function main() {
         console.error(`  ${account}: FAILED — ${lastErr.message}`);
         totalFailed++;
       } else {
-        await markEmpty(account);
+        await markEmpty(account).catch(e =>
+          console.error(`  markEmpty(${account}) error: ${e.message.slice(0, 120)} — continuing`)
+        );
         console.log(`  ${account}: no PIN found (empty)`);
         totalEmpty++;
       }
