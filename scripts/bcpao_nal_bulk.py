@@ -23,6 +23,7 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -44,7 +45,7 @@ BCPAO_NAL_URL = os.environ.get(
 
 # DOR Cadastral fallback — same endpoint as load_brevard_parcels.py
 DOR_URL = "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query"
-DOR_FIELDS = "ALT_KEY,PARCEL_ID,PARCELNO"
+DOR_FIELDS = "ALT_KEY,PARCEL_ID,PARCELNO,PHY_ADDR1"
 DOR_WHERE = "CO_NO=15 AND ALT_KEY IS NOT NULL"
 DOR_BATCH = 2000
 
@@ -124,12 +125,46 @@ def call_drain() -> int:
 # ── Queued accounts ───────────────────────────────────────────────────────────
 
 
-def load_queued_accounts() -> set[str]:
-    """Return all account numbers in bcpao_fetch_jobs where status=queued."""
+def load_queued_accounts() -> tuple[set[str], dict[str, str]]:
+    """Return (account_set, {folio: street_normalized}) for all queued jobs."""
     rows = sb_get(JOBS_TABLE, "status=eq.queued&select=account&limit=10000")
     accounts = {str(r["account"]).strip() for r in rows}
     print(f"queued accounts: {len(accounts)}")
-    return accounts
+
+    # Fetch MCA addresses for PHY_ADDR1 cross-match
+    mca_rows: list = []
+    offset = 0
+    while True:
+        batch = sb_get(
+            "multi_county_auctions",
+            f"county=eq.brevard&parcel_id=in.({','.join(list(accounts)[:500])})&select=parcel_id,street_normalized&limit=500&offset={offset}"
+        ) if accounts else []
+        # Note: REST IN clause limited to 500; use multiple passes for larger sets
+        mca_rows.extend(batch)
+        if len(batch) < 500:
+            break
+        offset += 500
+
+    # For large sets, use a broader MCA pull filtered in Python
+    if len(accounts) > 500:
+        mca_rows = []
+        for i in range(0, len(accounts), 500):
+            chunk = list(accounts)[i:i+500]
+            in_clause = ",".join(chunk)
+            batch = sb_get(
+                "multi_county_auctions",
+                f"county=eq.brevard&select=parcel_id,street_normalized&limit=500"
+                f"&parcel_id=in.({in_clause})"
+            )
+            mca_rows.extend(batch)
+
+    mca_addrs = {
+        str(r["parcel_id"]): str(r.get("street_normalized") or "").strip().upper()
+        for r in mca_rows
+        if r.get("street_normalized")
+    }
+    print(f"MCA addresses loaded: {len(mca_addrs)}")
+    return accounts, mca_addrs
 
 
 # ── Strategy A: BCPAO NAL bulk download ──────────────────────────────────────
@@ -208,12 +243,29 @@ def strategy_a_nal(queued: set[str]) -> dict[str, str]:
 # ── Strategy B: DOR Cadastral ALT_KEY fallback ────────────────────────────────
 
 
-def strategy_b_dor(queued: set[str]) -> dict[str, str]:
-    """Paginate FL DOR Cadastral; return folio→PIN via ALT_KEY for queued accounts."""
-    print(f"Strategy B: querying FL DOR Cadastral (CO_NO=15, ALT_KEY → PARCEL_ID)")
+def _norm_phy_addr(raw: str) -> str:
+    """Normalize PHY_ADDR1 the same way MCA normalizes street_normalized: strip spaces + upcase."""
+    return re.sub(r"\s+", "", (raw or "").upper().strip())
+
+
+def strategy_b_dor(queued: set[str], mca_addrs: dict[str, str]) -> dict[str, str]:
+    """Paginate FL DOR Cadastral; return folio→PIN via ALT_KEY or PHY_ADDR1 match.
+
+    mca_addrs: {folio: street_normalized} for all queued accounts — used to
+    cross-match DOR PHY_ADDR1 when ALT_KEY lookup fails (e.g. condos).
+    """
+    print(f"Strategy B: querying FL DOR Cadastral (CO_NO=15, ALT_KEY + PHY_ADDR1)")
     mapping: dict[str, str] = {}
-    last_oid = 0
+    # Build reverse: normalized_addr → set[folio] for addr-based fallback
+    addr_to_folios: dict[str, list[str]] = {}
+    for folio, addr in mca_addrs.items():
+        if addr:
+            addr_to_folios.setdefault(addr, []).append(folio)
+
+    # CO_NO=15 (Brevard) records start at OBJECTID ~279727. Skip the non-Brevard prefix.
+    last_oid = 279700
     pages = 0
+    phy_matched = 0
 
     while True:
         where = f"{DOR_WHERE} AND OBJECTID>{last_oid}"
@@ -226,7 +278,8 @@ def strategy_b_dor(queued: set[str]) -> dict[str, str]:
             "f": "json",
         }
         qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
-        req = urllib.request.Request(f"{DOR_URL}?{qs}")
+        req = urllib.request.Request(f"{DOR_URL}?{qs}",
+                                     headers={"User-Agent": "Mozilla/5.0 (compatible; BidDeed/1.0)"})
         try:
             with urllib.request.urlopen(req, timeout=90) as r:
                 data = json.loads(r.read().decode())
@@ -248,21 +301,33 @@ def strategy_b_dor(queued: set[str]) -> dict[str, str]:
             attrs = feat.get("attributes", {})
             alt_key = str(attrs.get("ALT_KEY") or "").strip()
             pin = str(attrs.get("PARCEL_ID") or attrs.get("PARCELNO") or "").strip()
-            if alt_key and pin and alt_key in queued:
+            if not pin:
+                continue
+
+            # Primary: ALT_KEY = BCPAO folio
+            if alt_key and alt_key in queued:
                 mapping[alt_key] = pin
+
+            # Secondary: PHY_ADDR1 normalized match (catches condos where ALT_KEY differs)
+            phy_raw = attrs.get("PHY_ADDR1") or ""
+            if phy_raw and phy_raw.upper() not in ("UNKNOWN", "0 UNKNOWN", ""):
+                norm_addr = _norm_phy_addr(phy_raw)
+                if norm_addr in addr_to_folios:
+                    folios = addr_to_folios[norm_addr]
+                    if len(folios) == 1:  # only insert when address is unambiguous
+                        folio = folios[0]
+                        if folio not in mapping and folio in queued:
+                            mapping[folio] = pin
+                            phy_matched += 1
 
         last_oid = features[-1]["attributes"].get("OBJECTID", last_oid)
 
         if pages % 10 == 0:
-            print(f"  page {pages}: matched {len(mapping)}/{len(queued)} so far")
-
-        # Short-circuit if all queued accounts matched
-        if len(mapping) >= len(queued):
-            break
+            print(f"  page {pages} (OID={last_oid}): alt_key={len(mapping)-phy_matched} phy={phy_matched} total={len(mapping)}/{len(queued)}")
 
         time.sleep(0.3)
 
-    print(f"  DOR pages: {pages}, matched: {len(mapping)}")
+    print(f"  DOR pages: {pages}, alt_key_matched={len(mapping)-phy_matched}, phy_matched={phy_matched}, total={len(mapping)}")
     return mapping
 
 
@@ -312,7 +377,7 @@ import urllib.parse  # noqa: E402  (late import to keep top clean)
 
 
 def main() -> None:
-    queued = load_queued_accounts()
+    queued, mca_addrs = load_queued_accounts()
     if not queued:
         print("No queued accounts — nothing to do.")
         return
@@ -332,7 +397,7 @@ def main() -> None:
             print("Falling back to Strategy B (DOR Cadastral)...")
 
     if not mapping and STRATEGY in ("B", "AUTO"):
-        mapping = strategy_b_dor(queued)
+        mapping = strategy_b_dor(queued, mca_addrs)
         method_used = "dor_altkey"
         print(f"Strategy B matched: {len(mapping)}/{len(queued)}")
 

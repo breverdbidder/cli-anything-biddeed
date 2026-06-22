@@ -392,6 +392,118 @@ def strategy_suffix_norm():
     return new_count
 
 
+def strategy_directional_suffix():
+    """
+    S6: mca.street_normalized is a prefix of fl_parcels.addr_key where the
+    remaining suffix is a USPS directional (N/S/E/W/NE/NW/SE/SW).
+    Example: '792GEARYST' -> '792GEARYSTSW' (SW appended by fl_parcels).
+    Only inserts when exactly ONE fl_parcels row matches per folio.
+    """
+    print("S6 directional_suffix: prefix+directional match …")
+    q = """
+    INSERT INTO brevard_folio_pin_bridge (folio, resolved_pin, match_method)
+    WITH unique_matches AS (
+      SELECT DISTINCT j.account, fp.parcel_id,
+             COUNT(*) OVER (PARTITION BY j.account) AS match_cnt
+      FROM bcpao_fetch_jobs j
+      JOIN multi_county_auctions mca
+          ON mca.county = 'brevard' AND mca.parcel_id = j.account
+         AND mca.street_normalized IS NOT NULL
+         AND length(mca.street_normalized) > 3
+         AND mca.street_normalized NOT ILIKE '%unknown%'
+      JOIN fl_parcels fp
+          ON fp.co_no = 15
+         AND fp.addr_key ~ ('^' || mca.street_normalized || '(N|NE|NW|E|SE|SW|S|W)$')
+      WHERE j.status IN ('queued','failed')
+    )
+    SELECT account, parcel_id, 'directional_suffix'
+    FROM unique_matches
+    WHERE match_cnt = 1
+    ON CONFLICT (folio) DO NOTHING
+    """
+    result = sql(q)
+    if result and isinstance(result, dict) and "error" in result:
+        print(f"  S6 insert error: {result}")
+        return 0
+
+    sql("""
+    UPDATE bcpao_fetch_jobs j
+    SET status = 'done', parcel_id = b.resolved_pin, done_at = now()
+    FROM brevard_folio_pin_bridge b
+    WHERE b.folio = j.account
+      AND j.status IN ('queued','failed')
+      AND b.match_method = 'directional_suffix'
+    """)
+
+    new_count = int(count("brevard_folio_pin_bridge", "match_method=eq.directional_suffix"))
+    print(f"  S6: {new_count} bridges via directional_suffix")
+    return new_count
+
+
+def strategy_suffix_directional_combo():
+    """
+    S7: apply USPS suffix abbreviation first, then try directional suffix match.
+    Catches cases like 'NAPOLIWAY' -> 'NAPOLIWYNE' (WAY->WY + NE appended).
+    Only inserts when exactly ONE fl_parcels row matches.
+    """
+    print("S7 suffix_directional_combo: suffix_norm + directional …")
+    suffix_chain = (
+        "REGEXP_REPLACE("
+        "REGEXP_REPLACE("
+        "REGEXP_REPLACE("
+        "REGEXP_REPLACE("
+        "REGEXP_REPLACE("
+        "REGEXP_REPLACE("
+        "REGEXP_REPLACE("
+        "    mca.street_normalized,"
+        "    'WAY$', 'WY'),"
+        "    'AVENUE$', 'AVE'),"
+        "    'BOULEVARD$', 'BLVD'),"
+        "    'CIRCLE$', 'CIR'),"
+        "    'COURT$', 'CT'),"
+        "    'STREET$', 'ST'),"
+        "    'TERRACE$', 'TER')"
+    )
+    q = f"""
+    INSERT INTO brevard_folio_pin_bridge (folio, resolved_pin, match_method)
+    WITH unique_matches AS (
+      SELECT DISTINCT j.account, fp.parcel_id,
+             COUNT(*) OVER (PARTITION BY j.account) AS match_cnt
+      FROM bcpao_fetch_jobs j
+      JOIN multi_county_auctions mca
+          ON mca.county = 'brevard' AND mca.parcel_id = j.account
+         AND mca.street_normalized IS NOT NULL
+         AND length(mca.street_normalized) > 3
+         AND mca.street_normalized NOT ILIKE '%unknown%'
+      JOIN fl_parcels fp
+          ON fp.co_no = 15
+         AND fp.addr_key ~ ('^' || {suffix_chain} || '(N|NE|NW|E|SE|SW|S|W)$')
+      WHERE j.status IN ('queued','failed')
+    )
+    SELECT account, parcel_id, 'suffix_directional'
+    FROM unique_matches
+    WHERE match_cnt = 1
+    ON CONFLICT (folio) DO NOTHING
+    """
+    result = sql(q)
+    if result and isinstance(result, dict) and "error" in result:
+        print(f"  S7 insert error: {result}")
+        return 0
+
+    sql("""
+    UPDATE bcpao_fetch_jobs j
+    SET status = 'done', parcel_id = b.resolved_pin, done_at = now()
+    FROM brevard_folio_pin_bridge b
+    WHERE b.folio = j.account
+      AND j.status IN ('queued','failed')
+      AND b.match_method = 'suffix_directional'
+    """)
+
+    new_count = int(count("brevard_folio_pin_bridge", "match_method=eq.suffix_directional"))
+    print(f"  S7: {new_count} bridges via suffix_directional")
+    return new_count
+
+
 def strategy_mark_empty():
     """
     Mark queued accounts with UNKNOWN/empty addresses as 'empty' —
@@ -467,6 +579,12 @@ def main():
     # ── S5: USPS suffix normalization (WAY→WY, AVENUE→AVE, etc.) ──────────
     done_s5 = strategy_suffix_norm()
 
+    # ── S6: directional suffix (addr_key = street_normalized + N/S/E/W…) ──
+    done_s6 = strategy_directional_suffix()
+
+    # ── S7: suffix_norm + directional combo ───────────────────────────────
+    done_s7 = strategy_suffix_directional_combo()
+
     # ── S4: mark no-address accounts as empty ──────────────────────────────
     strategy_mark_empty()
 
@@ -494,10 +612,12 @@ def main():
     print(f"brevard_folio_pin_bridge  total={bridge_after}")
     print(f"bcpao_fetch_jobs  queued={queued_after}  done={done_after}  empty={empty_after}  failed={failed_after}")
     print(f"New bridges this run: {int(bridge_after) - int(bridge_before)}")
-    print(f"  S1 bcpao_data  : {done_s1}")
-    print(f"  S2 addr_exact  : {done_s2}")
-    print(f"  S3 addr_clean  : {done_s3}")
-    print(f"  S5 suffix_norm : {done_s5}")
+    print(f"  S1 bcpao_data      : {done_s1}")
+    print(f"  S2 addr_exact      : {done_s2}")
+    print(f"  S3 addr_clean      : {done_s3}")
+    print(f"  S5 suffix_norm     : {done_s5}")
+    print(f"  S6 dir_suffix      : {done_s6}")
+    print(f"  S7 suffix+dir      : {done_s7}")
 
     try:
         n = int(bridge_after)
