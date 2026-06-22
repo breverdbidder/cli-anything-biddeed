@@ -138,7 +138,17 @@ def main():
             "resultRecordCount": PAGE,
             "orderByFields":     "OBJECTID",
         })
-        data = get(f"{BASE}?{params}")
+        # Retry ArcGIS 400 "Invalid query parameters" — transient service errors
+        arcgis_tries = 5
+        data = None
+        for arc_attempt in range(arcgis_tries):
+            data = get(f"{BASE}?{params}")
+            if data.get("error") and data["error"].get("code") == 400:
+                wait = 30 * (arc_attempt + 1)
+                print(f"ArcGIS 400 at OBJECTID>{last_oid}, retry {arc_attempt+1}/{arcgis_tries} in {wait}s", flush=True)
+                time.sleep(wait)
+                continue
+            break
         if data.get("error"):
             raise RuntimeError(f"ArcGIS error: {data['error']}")
         feats = data.get("features") or []
