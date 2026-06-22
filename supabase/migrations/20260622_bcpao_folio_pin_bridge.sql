@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS bcpao_fetch_jobs (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Idempotent column additions in case table pre-existed without these columns
+ALTER TABLE bcpao_fetch_jobs ADD COLUMN IF NOT EXISTS parcel_id  TEXT;
+ALTER TABLE bcpao_fetch_jobs ADD COLUMN IF NOT EXISTS done_at    TIMESTAMPTZ;
+ALTER TABLE bcpao_fetch_jobs ADD COLUMN IF NOT EXISTS last_error TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_bcpao_fetch_jobs_status ON bcpao_fetch_jobs(status);
 
 -- Bridge table: folio (BCPAO account#) -> resolved PIN

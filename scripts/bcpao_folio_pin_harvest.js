@@ -107,7 +107,8 @@ const PIN_RE = /\b\d{2}[-\s]\d{4}[-\s][A-Z0-9]{2}[-\s][A-Z0-9*]+[-\s][A-Z0-9.]+\
  */
 async function resolvePin(page, account) {
   // Strategy 1: getpin JSON API (runs in-browser to use CF cookies)
-  const apiResult = await page.evaluate(async (acct, base) => {
+  // Playwright 1.58+ only supports a single argument to page.evaluate — wrap in object.
+  const apiResult = await page.evaluate(async ({ acct, base }) => {
     try {
       const r = await fetch(`${base}/api/search/getpin?acctno=${acct}`, {
         credentials: 'include',
@@ -120,7 +121,7 @@ async function resolvePin(page, account) {
     } catch {
       return null;
     }
-  }, account, BCPAO_BASE);
+  }, { acct: account, base: BCPAO_BASE });
 
   if (apiResult) {
     // Response shapes seen: { pin }, { parcelID }, { parcel_id }, { ParcelID }
@@ -142,7 +143,7 @@ async function resolvePin(page, account) {
   // Brief pause for any dynamic rendering
   await page.waitForTimeout(1500);
 
-  const pinFromDom = await page.evaluate((re) => {
+  const pinFromDom = await page.evaluate(({ re }) => {
     // Try known label/field patterns
     const candidates = [
       document.querySelector('[data-field="parcelID"]'),
@@ -161,9 +162,9 @@ async function resolvePin(page, account) {
     }
 
     // Fallback: grep body text for PIN pattern
-    const m = (document.body?.innerText || '').match(re);
+    const m = (document.body?.innerText || '').match(new RegExp(re, 'i'));
     return m ? m[0] : null;
-  }, PIN_RE.source);
+  }, { re: PIN_RE.source });
 
   return pinFromDom || null;
 }
