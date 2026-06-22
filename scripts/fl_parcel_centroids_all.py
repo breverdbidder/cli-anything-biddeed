@@ -132,7 +132,7 @@ def main():
             "where":             f"CO_NO={co_no} AND OBJECTID>{last_oid}",
             "outFields":         "PARCEL_ID,ALT_KEY,OBJECTID",
             "returnCentroid":    "true",
-            "returnGeometry":    "true",
+            "returnGeometry":    "false",
             "outSR":             "4326",
             "f":                 "json",
             "resultRecordCount": PAGE,
