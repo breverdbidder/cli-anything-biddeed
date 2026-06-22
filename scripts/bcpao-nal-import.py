@@ -577,11 +577,17 @@ def main():
     # ── S5: USPS suffix normalization (WAY→WY, AVENUE→AVE, etc.) ──────────
     done_s5 = strategy_suffix_norm()
 
-    # ── S6: directional suffix (addr_key = street_normalized + N/S/E/W…) ──
-    done_s6 = strategy_directional_suffix(queued_accounts)
-
-    # ── S7: suffix_norm + directional combo ───────────────────────────────
-    done_s7 = strategy_suffix_directional_combo(queued_accounts)
+    # ── S6+S7: directional bridge via DB function (RPC — uses index, no Mgmt API) ──
+    print("S6+S7 bcpao_directional_bridge() RPC …")
+    try:
+        dir_result = rpc("bcpao_directional_bridge")
+        done_s6 = int(dir_result or 0)
+        done_s7 = 0  # S7 bundled in the function; combined count in done_s6
+        print(f"  S6+S7 rpc: {done_s6} new bridges")
+    except Exception as e:
+        print(f"  S6+S7 rpc error (falling back to Python): {e}")
+        done_s6 = strategy_directional_suffix(queued_accounts)
+        done_s7 = strategy_suffix_directional_combo(queued_accounts)
 
     # ── S4: mark no-address accounts as empty ──────────────────────────────
     strategy_mark_empty()

@@ -34,27 +34,28 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Apply migration (create tables + seed queue)
+      - name: Apply migrations
         if: ${{ github.event.inputs.apply_migration != 'no' }}
         run: |
           set -euo pipefail
           TOKEN=${{ secrets.SUPABASE_ACCESS_TOKEN }}
           REF=mocerqjnksmhcjzxrewo
-          python3 -c "
-          import json
-          payload = json.dumps({'query': open('supabase/migrations/20260622_bcpao_folio_pin_bridge.sql').read()})
-          print(payload[:200])
-          with open('/tmp/payload.json','w') as f:
-              f.write(payload)
-          "
-          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
-            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
-            -H "Authorization: Bearer ${TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data-binary @/tmp/payload.json)
-          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
-          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration failed HTTP $HTTP"; exit 1; }
-          echo "Migration OK"
+          apply_sql() {
+            local file="$1"
+            python3 -c "import json; f=open('${file}'); payload=json.dumps({'query':f.read()}); open('/tmp/payload.json','w').write(payload)"
+            HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+              -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/payload.json)
+            echo "  ${file}: HTTP ${HTTP}"; cat /tmp/resp.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d)" 2>/dev/null || cat /tmp/resp.json; echo
+            [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration ${file} failed HTTP ${HTTP}"; exit 1; }
+          }
+          echo "=== Applying bridge infra migration ==="
+          apply_sql supabase/migrations/20260622_bcpao_folio_pin_bridge.sql
+          echo "=== Applying directional bridge function ==="
+          apply_sql supabase/migrations/20260622_bcpao_directional_bridge_fn.sql
+          echo "All migrations OK"
 
       - name: Run BCPAO NAL import (addr matching)
         run: python3 scripts/bcpao-nal-import.py
