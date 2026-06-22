@@ -392,116 +392,114 @@ def strategy_suffix_norm():
     return new_count
 
 
-def strategy_directional_suffix():
+_DIRECTIONS = ("N", "NE", "NW", "E", "SE", "SW", "S", "W")
+
+_SUFFIX_MAP = {
+    "WAY": "WY", "AVENUE": "AVE", "BOULEVARD": "BLVD",
+    "CIRCLE": "CIR", "COURT": "CT", "STREET": "ST", "TERRACE": "TER",
+}
+
+
+def _apply_suffix_norm(s: str) -> str:
+    for long, short in _SUFFIX_MAP.items():
+        if s.endswith(long):
+            return s[: -len(long)] + short
+    return s
+
+
+def _directional_candidates(addr: str, apply_suffix: bool = False) -> list[str]:
+    """Return all 8 directional variants of addr (optionally after suffix normalization)."""
+    base = _apply_suffix_norm(addr) if apply_suffix else addr
+    return [base + d for d in _DIRECTIONS]
+
+
+def _run_directional_strategy(strategy_name: str, apply_suffix: bool, queued_accounts: dict) -> int:
     """
-    S6: mca.street_normalized is a prefix of fl_parcels.addr_key where the
-    remaining suffix is a USPS directional (N/S/E/W/NE/NW/SE/SW).
-    Example: '792GEARYST' -> '792GEARYSTSW' (SW appended by fl_parcels).
-    Only inserts when exactly ONE fl_parcels row matches per folio.
+    Index-friendly directional suffix matching.
+    Generates all 8 directional variants for each queued addr in Python, then
+    does exact addr_key IN lookups in fl_parcels (uses B-tree index, no regex scan).
+    Only bridges when exactly ONE folio maps to a given addr_key variant.
     """
-    print("S6 directional_suffix: prefix+directional match …")
-    q = """
-    INSERT INTO brevard_folio_pin_bridge (folio, resolved_pin, match_method)
-    WITH unique_matches AS (
-      SELECT DISTINCT j.account, fp.parcel_id,
-             COUNT(*) OVER (PARTITION BY j.account) AS match_cnt
-      FROM bcpao_fetch_jobs j
-      JOIN multi_county_auctions mca
-          ON mca.county = 'brevard' AND mca.parcel_id = j.account
-         AND mca.street_normalized IS NOT NULL
-         AND length(mca.street_normalized) > 3
-         AND mca.street_normalized NOT ILIKE '%unknown%'
-      JOIN fl_parcels fp
-          ON fp.co_no = 15
-         AND fp.addr_key ~ ('^' || mca.street_normalized || '(N|NE|NW|E|SE|SW|S|W)$')
-      WHERE j.status IN ('queued','failed')
-    )
-    SELECT account, parcel_id, 'directional_suffix'
-    FROM unique_matches
-    WHERE match_cnt = 1
-    ON CONFLICT (folio) DO NOTHING
-    """
-    result = sql(q)
-    if result and isinstance(result, dict) and "error" in result:
-        print(f"  S6 insert error: {result}")
+    print(f"{strategy_name}: generating directional candidates …")
+    if not queued_accounts:
         return 0
 
-    sql("""
-    UPDATE bcpao_fetch_jobs j
-    SET status = 'done', parcel_id = b.resolved_pin, done_at = now()
-    FROM brevard_folio_pin_bridge b
-    WHERE b.folio = j.account
-      AND j.status IN ('queued','failed')
-      AND b.match_method = 'directional_suffix'
-    """)
+    # candidate_key → list of folios that produce it
+    candidate_map: dict[str, list[str]] = {}
+    for folio, addrs in queued_accounts.items():
+        for addr in addrs:
+            if not addr or len(addr) < 4 or "UNKNOWN" in addr.upper():
+                continue
+            for cand in _directional_candidates(addr, apply_suffix=apply_suffix):
+                candidate_map.setdefault(cand, []).append(folio)
 
-    new_count = int(count("brevard_folio_pin_bridge", "match_method=eq.directional_suffix"))
-    print(f"  S6: {new_count} bridges via directional_suffix")
-    return new_count
-
-
-def strategy_suffix_directional_combo():
-    """
-    S7: apply USPS suffix abbreviation first, then try directional suffix match.
-    Catches cases like 'NAPOLIWAY' -> 'NAPOLIWYNE' (WAY->WY + NE appended).
-    Only inserts when exactly ONE fl_parcels row matches.
-    """
-    print("S7 suffix_directional_combo: suffix_norm + directional …")
-    suffix_chain = (
-        "REGEXP_REPLACE("
-        "REGEXP_REPLACE("
-        "REGEXP_REPLACE("
-        "REGEXP_REPLACE("
-        "REGEXP_REPLACE("
-        "REGEXP_REPLACE("
-        "REGEXP_REPLACE("
-        "    mca.street_normalized,"
-        "    'WAY$', 'WY'),"
-        "    'AVENUE$', 'AVE'),"
-        "    'BOULEVARD$', 'BLVD'),"
-        "    'CIRCLE$', 'CIR'),"
-        "    'COURT$', 'CT'),"
-        "    'STREET$', 'ST'),"
-        "    'TERRACE$', 'TER')"
-    )
-    q = f"""
-    INSERT INTO brevard_folio_pin_bridge (folio, resolved_pin, match_method)
-    WITH unique_matches AS (
-      SELECT DISTINCT j.account, fp.parcel_id,
-             COUNT(*) OVER (PARTITION BY j.account) AS match_cnt
-      FROM bcpao_fetch_jobs j
-      JOIN multi_county_auctions mca
-          ON mca.county = 'brevard' AND mca.parcel_id = j.account
-         AND mca.street_normalized IS NOT NULL
-         AND length(mca.street_normalized) > 3
-         AND mca.street_normalized NOT ILIKE '%unknown%'
-      JOIN fl_parcels fp
-          ON fp.co_no = 15
-         AND fp.addr_key ~ ('^' || {suffix_chain} || '(N|NE|NW|E|SE|SW|S|W)$')
-      WHERE j.status IN ('queued','failed')
-    )
-    SELECT account, parcel_id, 'suffix_directional'
-    FROM unique_matches
-    WHERE match_cnt = 1
-    ON CONFLICT (folio) DO NOTHING
-    """
-    result = sql(q)
-    if result and isinstance(result, dict) and "error" in result:
-        print(f"  S7 insert error: {result}")
+    if not candidate_map:
+        print(f"  {strategy_name}: no candidates generated")
         return 0
 
-    sql("""
-    UPDATE bcpao_fetch_jobs j
-    SET status = 'done', parcel_id = b.resolved_pin, done_at = now()
-    FROM brevard_folio_pin_bridge b
-    WHERE b.folio = j.account
-      AND j.status IN ('queued','failed')
-      AND b.match_method = 'suffix_directional'
-    """)
+    print(f"  {strategy_name}: {len(candidate_map)} candidate addr_keys for {len(queued_accounts)} accounts")
 
-    new_count = int(count("brevard_folio_pin_bridge", "match_method=eq.suffix_directional"))
-    print(f"  S7: {new_count} bridges via suffix_directional")
-    return new_count
+    # Batch queries: look up candidates in fl_parcels by exact addr_key
+    # Use SQL VALUES table to avoid per-item roundtrips
+    done = 0
+    method = "directional_suffix" if not apply_suffix else "suffix_directional"
+    cand_list = list(candidate_map.items())
+    batch_size = 300  # stay well under SQL query size limits
+
+    for i in range(0, len(cand_list), batch_size):
+        batch = cand_list[i:i + batch_size]
+        # Only query candidates that could be unique (single folio)
+        unique_batch = [(k, v[0]) for k, v in batch if len(v) == 1]
+        if not unique_batch:
+            continue
+
+        in_list = ", ".join(f"'{k}'" for k, _ in unique_batch)
+        q = f"""
+        SELECT addr_key, parcel_id
+        FROM fl_parcels
+        WHERE co_no = 15 AND addr_key IN ({in_list})
+        """
+        result = sql(q)
+        if not result or isinstance(result, dict) and "error" in result:
+            if isinstance(result, dict) and "error" in result:
+                print(f"  {strategy_name} batch {i//batch_size}: {result['error'][:100]}", file=sys.stderr)
+            continue
+
+        rows = result if isinstance(result, list) else []
+        fp_map = {r["addr_key"]: r["parcel_id"] for r in rows}
+
+        for addr_key, folio in unique_batch:
+            if addr_key in fp_map:
+                pin = fp_map[addr_key]
+                try:
+                    rest_post("brevard_folio_pin_bridge", {
+                        "folio": folio,
+                        "resolved_pin": pin,
+                        "match_method": method,
+                    })
+                    rest_patch(
+                        "bcpao_fetch_jobs", f"account=eq.{folio}",
+                        {"status": "done", "parcel_id": pin, "done_at": _now()}
+                    )
+                    done += 1
+                except Exception as e:
+                    print(f"  {strategy_name} write error for {folio}: {e}")
+
+        time.sleep(0.1)
+
+    new_count = int(count("brevard_folio_pin_bridge", f"match_method=eq.{method}"))
+    print(f"  {strategy_name}: {done} new bridges, {new_count} total via {method}")
+    return done
+
+
+def strategy_directional_suffix(queued_accounts: dict) -> int:
+    """S6: exact lookup with directional suffix appended (uses index)."""
+    return _run_directional_strategy("S6 directional_suffix", apply_suffix=False, queued_accounts=queued_accounts)
+
+
+def strategy_suffix_directional_combo(queued_accounts: dict) -> int:
+    """S7: USPS suffix_norm + directional suffix (WAY→WY then + direction)."""
+    return _run_directional_strategy("S7 suffix_directional", apply_suffix=True, queued_accounts=queued_accounts)
 
 
 def strategy_mark_empty():
@@ -580,10 +578,10 @@ def main():
     done_s5 = strategy_suffix_norm()
 
     # ── S6: directional suffix (addr_key = street_normalized + N/S/E/W…) ──
-    done_s6 = strategy_directional_suffix()
+    done_s6 = strategy_directional_suffix(queued_accounts)
 
     # ── S7: suffix_norm + directional combo ───────────────────────────────
-    done_s7 = strategy_suffix_directional_combo()
+    done_s7 = strategy_suffix_directional_combo(queued_accounts)
 
     # ── S4: mark no-address accounts as empty ──────────────────────────────
     strategy_mark_empty()
