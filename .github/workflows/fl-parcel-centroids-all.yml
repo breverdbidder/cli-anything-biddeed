@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       co_no:
-        description: 'co_no to process (0 = auto-pick next pending county)'
+        description: 'co_no to process (0 = auto-pick next 2 pending counties)'
         required: false
         default: '0'
       page_size:
-        description: 'Records per API page (max 2000)'
+        description: 'Records per API page'
         required: false
-        default: '2000'
+        default: '1000'
       max_pages:
-        description: 'Max pages per run (300 = 600K parcels)'
+        description: 'Max pages per worker'
         required: false
         default: '300'
   schedule:
@@ -23,9 +23,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  pick-counties:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - name: Resolve live service_role key
+        id: key
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          KEY=$(curl -s \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/api-keys" \
+            | python3 -c "
+          import sys,json
+          for k in json.load(sys.stdin):
+              if k.get('name')=='service_role':
+                  print(k['api_key']); break
+          ")
+          echo "::add-mask::$KEY"
+          echo "service_key=$KEY" >> $GITHUB_OUTPUT
+
+      - name: Pick next 2 pending counties
+        id: pick
+        env:
+          SUPABASE_URL: "https://mocerqjnksmhcjzxrewo.supabase.co"
+          SUPABASE_KEY: ${{ steps.key.outputs.service_key }}
+          MANUAL_CO_NO: ${{ github.event.inputs.co_no || '0' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request
+
+          url  = os.environ["SUPABASE_URL"]
+          key  = os.environ["SUPABASE_KEY"]
+          manual = os.environ["MANUAL_CO_NO"]
+          hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
+
+          # Reset any false-done (done but centroids_done=0)
+          urllib.request.urlopen(urllib.request.Request(
+              f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.done&centroids_done=eq.0",
+              data=json.dumps({"status":"pending","last_parcel_id":None,"centroids_done":0,"completed_at":None}).encode(),
+              method="PATCH",
+              headers={**hdrs,"Content-Type":"application/json","Prefer":"return=minimal"}
+          ))
+
+          if manual != "0":
+              counties = [{"co_no": manual, "slot": 1}]
+          else:
+              req = urllib.request.Request(
+                  f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.pending&centroids_needed=gt.0&order=centroids_needed.desc&limit=2&select=co_no,county_name",
+                  headers=hdrs
+              )
+              with urllib.request.urlopen(req) as r:
+                  rows = json.loads(r.read())
+              counties = [{"co_no": str(row["co_no"]), "slot": i+1, "county": row["county_name"]} for i, row in enumerate(rows)]
+
+          if not counties:
+              print("No pending counties — all done!")
+              counties = []
+
+          matrix = json.dumps({"include": counties})
+          print(f"Matrix: {matrix}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"matrix={matrix}\n")
+          PYEOF
+
   enrich:
+    needs: pick-counties
+    if: ${{ needs.pick-counties.outputs.matrix != '{"include":[]}' }}
     runs-on: ubuntu-latest
     timeout-minutes: 110
+    strategy:
+      matrix: ${{ fromJson(needs.pick-counties.outputs.matrix) }}
+      fail-fast: false   # one county failing won't kill the other
 
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +105,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Stagger start (slot 2 waits 30s to avoid API collision)
+        if: matrix.slot == 2
+        run: sleep 30
+
       - name: Resolve live service_role key
-        id: resolve_key
+        id: key
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
@@ -43,34 +118,26 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/api-keys" \
             | python3 -c "
-          import sys, json
-          keys = json.load(sys.stdin)
-          for k in keys:
-              if k.get('name') == 'service_role':
-                  print(k['api_key'])
-                  break
+          import sys,json
+          for k in json.load(sys.stdin):
+              if k.get('name')=='service_role':
+                  print(k['api_key']); break
           ")
-          if [ -z "$KEY" ]; then
-            echo "Failed to resolve service_role key" >&2
-            exit 1
-          fi
           echo "::add-mask::$KEY"
           echo "service_key=$KEY" >> $GITHUB_OUTPUT
-          echo "Resolved live service_role key"
+          echo "Processing county co_no=${{ matrix.co_no }} (${{ matrix.county }})"
 
       - name: Run centroid enrichment
         env:
           SUPABASE_URL: "https://mocerqjnksmhcjzxrewo.supabase.co"
-          SUPABASE_SERVICE_KEY: ${{ steps.resolve_key.outputs.service_key }}
-          CO_NO: ${{ github.event.inputs.co_no || '0' }}
-          PAGE_SIZE: ${{ github.event.inputs.page_size || '2000' }}
+          SUPABASE_SERVICE_KEY: ${{ steps.key.outputs.service_key }}
+          CO_NO: ${{ matrix.co_no }}
+          PAGE_SIZE: ${{ github.event.inputs.page_size || '1000' }}
           MAX_PAGES: ${{ github.event.inputs.max_pages || '300' }}
         run: python scripts/fl_parcel_centroids_all.py
 
       - name: Summary
         if: always()
         run: |
-          echo "## FL Parcel Centroid Enrichment" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| county co_no | ${{ env.CO_NO }} |" >> $GITHUB_STEP_SUMMARY
+          echo "## County co_no=${{ matrix.co_no }} (${{ matrix.county }})" >> $GITHUB_STEP_SUMMARY
+          echo "slot: ${{ matrix.slot }}" >> $GITHUB_STEP_SUMMARY
