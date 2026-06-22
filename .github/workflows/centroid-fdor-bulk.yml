@@ -29,11 +29,11 @@ jobs:
           params = ({"co_no": f"eq.{override}", "select": "co_no,county_name,total_parcels"}
                     if override else
                     {"status": "in.(pending)", "select": "co_no,county_name,total_parcels",
-                     "order": "total_parcels.desc"})  # large counties first — fail fast if broken
+                     "order": "total_parcels.desc"})
           rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress", headers=hdrs, params=params).json()
           print(f"Counties queued: {len(rows)}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f'matrix={json.dumps({"include":[{"co_no":r["co_no"],"county_name":r["county_name"],"total_parcels":r.get("total_parcels",0)} for r in rows]})}\n')
+              f.write(f'matrix={json.dumps({"include":[{"co_no":r["co_no"],"county_name":r["county_name"]} for r in rows]})}\n')
           PYEOF
 
   harvest:
@@ -66,8 +66,6 @@ jobs:
           SB_HDRS     = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
                          "Content-Type": "application/json", "Prefer": "return=minimal"}
 
-          # Centroid POINT layer — geometry IS the centroid, no computation needed
-          # Using browser UA to avoid ArcGIS bot throttling
           CENTROID_FS = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest"
                          "/services/Florida_Statewide_Parcel_Centroid_Version/FeatureServer/0/query")
           BROWSER_UA  = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -76,7 +74,7 @@ jobs:
 
           PAGE    = 2000
           RETRIES = 6
-          BATCH   = 400
+          BATCH   = 150   # small batches to stay under Supabase 2min statement_timeout
 
           session = requests.Session()
           session.headers.update({
@@ -99,8 +97,7 @@ jobs:
               if r.status_code not in (200, 201):
                   raise RuntimeError(f"upsert {r.status_code}: {r.text[:300]}")
 
-          def get_objectid_range():
-              """Get min/max OBJECTID for this county to enable cursor pagination."""
+          def get_oid_range():
               for attempt in range(RETRIES):
                   try:
                       r = session.get(CENTROID_FS, params={
@@ -112,17 +109,16 @@ jobs:
                       }, timeout=60)
                       d = r.json()
                       if "features" in d and d["features"]:
-                          attrs = d["features"][0]["attributes"]
-                          return attrs.get("min_oid"), attrs.get("max_oid")
-                      raise RuntimeError(f"stats error: {d.get('error','no features')}")
+                          a = d["features"][0]["attributes"]
+                          return a.get("min_oid"), a.get("max_oid")
+                      raise RuntimeError(f"stats: {d.get('error','no features')}")
                   except Exception as e:
                       if attempt == RETRIES - 1: raise
                       wait = min(120, 4 ** attempt)
-                      print(f"  OID range retry {attempt+1} in {wait}s: {e}")
+                      print(f"  OID retry {attempt+1} in {wait}s: {e}")
                       time.sleep(wait)
 
-          def fetch_page(min_oid, max_oid):
-              """Fetch a page using OBJECTID range cursor — faster & more reliable than offset."""
+          def fetch_chunk(min_oid, max_oid):
               for attempt in range(RETRIES):
                   try:
                       r = session.get(CENTROID_FS, params={
@@ -139,27 +135,25 @@ jobs:
                   except Exception as e:
                       if attempt == RETRIES - 1: raise
                       wait = min(120, 4 ** attempt)
-                      print(f"  page retry {attempt+1} in {wait}s: {e}")
+                      print(f"  chunk retry {attempt+1} in {wait}s: {e}")
                       time.sleep(wait)
 
-          # ── MAIN ────────────────────────────────────────────────────────────
           sb_patch({"status": "running", "started_at": "now()", "error_msg": None})
-          print(f"[{CO_NO}] {COUNTY_NAME} — getting OBJECTID range")
+          print(f"[{CO_NO}] {COUNTY_NAME} start")
 
           tw = 0; batch = []
           try:
-              min_oid, max_oid = get_objectid_range()
+              min_oid, max_oid = get_oid_range()
               if min_oid is None:
                   sb_patch({"status": "done", "centroids_done": 0, "completed_at": "now()", "updated_at": "now()"})
-                  print(f"[{CO_NO}] no parcels found — marked done")
                   sys.exit(0)
 
-              print(f"[{CO_NO}] OID range: {min_oid} → {max_oid}  ({max_oid-min_oid:,} span)")
-
+              print(f"[{CO_NO}] OID {min_oid}→{max_oid}")
               cursor = min_oid
+
               while cursor <= max_oid:
-                  chunk_max = min(cursor + PAGE * 10, max_oid)  # ~20K OID window per call
-                  features = fetch_page(cursor, chunk_max)
+                  chunk_end = cursor + 20000
+                  features  = fetch_chunk(cursor, chunk_end)
 
                   for f in features:
                       geom = f.get("geometry")
@@ -175,22 +169,20 @@ jobs:
                       if len(batch) >= BATCH:
                           upsert(batch); tw += len(batch); batch = []
 
-                  # Advance cursor past last returned OBJECTID
                   if features:
-                      last_oid = max(f["attributes"]["OBJECTID"] for f in features)
-                      cursor = last_oid + 1
+                      cursor = max(f["attributes"]["OBJECTID"] for f in features) + 1
                   else:
-                      cursor = chunk_max + 1
+                      cursor = chunk_end + 1
 
-                  print(f"  cursor={cursor}/{max_oid} written={tw}")
+                  print(f"  cursor={cursor} written={tw}")
                   if tw % 5000 < BATCH:
                       sb_patch({"centroids_done": tw, "updated_at": "now()"})
-                  time.sleep(0.3)  # polite gap
+                  time.sleep(0.3)
 
               if batch: upsert(batch); tw += len(batch)
               sb_patch({"status": "done", "centroids_done": tw,
                         "completed_at": "now()", "updated_at": "now()"})
-              print(f"[{CO_NO}] {COUNTY_NAME} DONE — {tw:,} centroids")
+              print(f"[{CO_NO}] DONE {tw:,}")
 
           except Exception as e:
               sb_patch({"status": "error", "error_msg": str(e)[:500], "updated_at": "now()"})
@@ -213,12 +205,12 @@ jobs:
           url = os.environ["SUPABASE_URL"]; key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
           hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
           rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress", headers=hdrs,
-                              params={"select": "co_no,county_name,status,centroids_done,total_parcels",
-                                      "order": "co_no.asc"}).json()
-          done   = [x for x in rows if x["status"] == "done"]
-          errors = [x for x in rows if x["status"] == "error"]
-          tw = sum(x["centroids_done"] or 0 for x in rows)
-          tp = sum(x["total_parcels"]  or 0 for x in rows)
+                              params={"select":"co_no,county_name,status,centroids_done,total_parcels",
+                                      "order":"co_no.asc"}).json()
+          done=[x for x in rows if x["status"]=="done"]
+          errors=[x for x in rows if x["status"]=="error"]
+          tw=sum(x["centroids_done"] or 0 for x in rows)
+          tp=sum(x["total_parcels"] or 0 for x in rows)
           print("━━━ CENTROID AUDIT ━━━")
           print(f"done={len(done)}/67  errors={len(errors)}  written={tw:,}/{tp:,}  pct={tw/tp*100:.1f}%" if tp else "no data")
           [print(f"  ERROR [{e['co_no']}] {e['county_name']}: {(e.get('error_msg') or '')[:100]}") for e in errors]
