@@ -26,9 +26,9 @@ jobs:
           url = os.environ["SUPABASE_URL"]; key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
           hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
           override = os.environ.get("CO_NO_OVERRIDE","").strip()
-          params = ({"co_no": f"eq.{override}", "select": "co_no,county_name,total_parcels,centroids_done"}
+          params = ({"co_no": f"eq.{override}", "select": "co_no,county_name,centroids_done"}
                     if override else
-                    {"status": "in.(pending)", "select": "co_no,county_name,total_parcels,centroids_done",
+                    {"status": "in.(pending)", "select": "co_no,county_name,centroids_done",
                      "order": "total_parcels.asc"})
           rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress", headers=hdrs, params=params).json()
           print(f"Counties queued: {len(rows)}")
@@ -42,14 +42,14 @@ jobs:
     timeout-minutes: 360
     strategy:
       matrix: ${{ fromJson(needs.preflight.outputs.matrix) }}
-      max-parallel: 2        # 60 max_connections — 2 concurrent upserts is safe ceiling
+      max-parallel: 4
       fail-fast: false
     name: "[${{ matrix.co_no }}] ${{ matrix.county_name }}"
     steps:
       - name: Install deps
         run: pip install requests --quiet
 
-      - name: Harvest centroids
+      - name: Harvest centroids via RPC
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -58,7 +58,7 @@ jobs:
           RESUME_OFFSET: ${{ matrix.resume_offset }}
         run: |
           python3 - <<'PYEOF'
-          import os, requests, time, sys
+          import os, requests, time, sys, json
 
           CO_NO         = int(os.environ["CO_NO"])
           COUNTY_NAME   = os.environ["COUNTY_NAME"]
@@ -76,26 +76,29 @@ jobs:
 
           PAGE    = 2000
           RETRIES = 6
-          BATCH   = 100    # small — 2 concurrent jobs, 60 max_connections
+          BATCH   = 1000   # RPC = single DB transaction, handles large batches safely
 
           session = requests.Session()
           session.headers.update({"User-Agent":BROWSER_UA,
-                                  "Accept":"application/json, text/plain, */*",
+                                  "Accept":"application/json",
                                   "Referer":"https://www.arcgis.com/"})
 
           def sb_patch(p):
               requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
                              headers=SB_HDRS, params={"co_no":f"eq.{CO_NO}"}, json=p)
 
-          def upsert(rows):
+          def upsert_rpc(rows):
+              """Single DB transaction via upsert_centroids RPC — no PostgREST row overhead."""
               seen = {}
               for r in rows: seen[r["parcel_id"]] = r
+              payload = {"rows": list(seen.values())}
               r = requests.post(
-                  f"{SB_URL}/rest/v1/fl_parcels?on_conflict=co_no,parcel_id",
-                  headers={**SB_HDRS,"Prefer":"resolution=merge-duplicates,return=minimal"},
-                  json=list(seen.values()), timeout=90)
-              if r.status_code not in (200,201):
-                  raise RuntimeError(f"upsert {r.status_code}: {r.text[:300]}")
+                  f"{SB_URL}/rest/v1/rpc/upsert_centroids",
+                  headers={**SB_HDRS, "Prefer": "return=representation"},
+                  json=payload, timeout=120)
+              if r.status_code not in (200, 201):
+                  raise RuntimeError(f"rpc {r.status_code}: {r.text[:300]}")
+              return r.json() if r.text else 0
 
           def get_oid_range():
               for attempt in range(RETRIES):
@@ -129,7 +132,7 @@ jobs:
                       time.sleep(min(120,4**attempt))
 
           sb_patch({"status":"running","started_at":"now()","error_msg":None})
-          print(f"[{CO_NO}] {COUNTY_NAME} start (resume_offset={RESUME_OFFSET})")
+          print(f"[{CO_NO}] {COUNTY_NAME} start (resume={RESUME_OFFSET})")
 
           tw = RESUME_OFFSET; batch = []
           try:
@@ -137,15 +140,15 @@ jobs:
               if min_oid is None:
                   sb_patch({"status":"done","centroids_done":0,"completed_at":"now()","updated_at":"now()"})
                   sys.exit(0)
+
               print(f"[{CO_NO}] OID {min_oid}→{max_oid}")
 
-              # Resume: skip ahead in OID space proportionally to already-written rows
+              # Resume: skip proportionally into OID space
               if RESUME_OFFSET > 0:
-                  oid_span   = max_oid - min_oid
-                  total_est  = max_oid - min_oid  # approximate
-                  skip_ratio = RESUME_OFFSET / max(total_est, 1)
-                  cursor     = min_oid + int(oid_span * skip_ratio * 0.9)  # 90% of estimate — safer
-                  print(f"[{CO_NO}] Resuming from OID ~{cursor} (skipping ~{RESUME_OFFSET} already written)")
+                  oid_span = max_oid - min_oid
+                  skip_ratio = RESUME_OFFSET / max(max_oid - min_oid, 1)
+                  cursor = min_oid + int(oid_span * skip_ratio * 0.9)
+                  print(f"[{CO_NO}] Resuming from OID ~{cursor}")
               else:
                   cursor = min_oid
 
@@ -162,23 +165,24 @@ jobs:
                       if not(-90<=lat<=90) or not(-180<=lng<=180): continue
                       batch.append({"parcel_id":pid,"co_no":CO_NO,
                                     "centroid_lat":round(lat,7),
-                                    "centroid_lng":round(lng,7),
-                                    "updated_at":"now()"})
-                      if len(batch)>=BATCH:
-                          upsert(batch); tw+=len(batch); batch=[]
+                                    "centroid_lng":round(lng,7)})
+                      if len(batch) >= BATCH:
+                          upsert_rpc(batch); tw += len(batch); batch = []
 
                   if features:
                       cursor = max(f["attributes"]["OBJECTID"] for f in features)+1
                   else:
                       cursor = chunk_end+1
 
-                  print(f"  cursor={cursor} written={tw}")
-                  if tw%5000<BATCH: sb_patch({"centroids_done":tw,"updated_at":"now()"})
-                  time.sleep(0.5)
+                  print(f"  cursor={cursor}/{max_oid} written={tw}")
+                  if tw % 10000 < BATCH:
+                      sb_patch({"centroids_done":tw,"updated_at":"now()"})
+                  time.sleep(0.3)
 
-              if batch: upsert(batch); tw+=len(batch)
-              sb_patch({"status":"done","centroids_done":tw,"completed_at":"now()","updated_at":"now()"})
-              print(f"[{CO_NO}] DONE {tw:,}")
+              if batch: upsert_rpc(batch); tw += len(batch)
+              sb_patch({"status":"done","centroids_done":tw,
+                        "completed_at":"now()","updated_at":"now()"})
+              print(f"[{CO_NO}] {COUNTY_NAME} DONE — {tw:,}")
 
           except Exception as e:
               sb_patch({"status":"error","error_msg":str(e)[:500],"updated_at":"now()"})
