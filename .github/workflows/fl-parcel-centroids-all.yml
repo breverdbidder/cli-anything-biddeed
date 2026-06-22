@@ -53,20 +53,29 @@ jobs:
           MANUAL_CO_NO: ${{ github.event.inputs.co_no || '0' }}
         run: |
           python3 << 'PYEOF'
-          import os, json, urllib.request
+          import os, json, urllib.request, datetime
 
           url  = os.environ["SUPABASE_URL"]
           key  = os.environ["SUPABASE_KEY"]
           manual = os.environ["MANUAL_CO_NO"]
           hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
 
-          # Reset any false-done (done but centroids_done=0)
-          urllib.request.urlopen(urllib.request.Request(
-              f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.done&centroids_done=eq.0",
-              data=json.dumps({"status":"pending","last_parcel_id":None,"centroids_done":0,"completed_at":None}).encode(),
-              method="PATCH",
-              headers={**hdrs,"Content-Type":"application/json","Prefer":"return=minimal"}
-          ))
+          def patch(path, body):
+              urllib.request.urlopen(urllib.request.Request(
+                  f"{url}/rest/v1/{path}",
+                  data=json.dumps(body).encode(),
+                  method="PATCH",
+                  headers={**hdrs,"Content-Type":"application/json","Prefer":"return=minimal"}
+              ))
+
+          # Reset false-done (done but centroids_done=0)
+          patch("fl_parcel_centroid_progress?status=eq.done&centroids_done=eq.0",
+                {"status":"pending","last_parcel_id":None,"centroids_done":0,"completed_at":None})
+
+          # Reset stale-running (running but not updated in >3h — job timed out without cleanup)
+          stale_cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+          patch(f"fl_parcel_centroid_progress?status=eq.running&updated_at=lt.{stale_cutoff}",
+                {"status":"pending"})
 
           if manual != "0":
               counties = [{"co_no": manual, "slot": 1}]

@@ -139,6 +139,8 @@ def main():
             "orderByFields":     "OBJECTID",
         })
         data = get(f"{BASE}?{params}")
+        if data.get("error"):
+            raise RuntimeError(f"ArcGIS error: {data['error']}")
         feats = data.get("features") or []
 
         if not feats:
@@ -196,10 +198,11 @@ def main():
         )
         time.sleep(0.3)
 
-    # Save last OBJECTID for resume
+    # Save last OBJECTID and reset to pending so next cron resumes
     sb_patch(
         f"fl_parcel_centroid_progress?co_no=eq.{co_no}",
         {"last_parcel_id": str(last_oid),
+         "status":         "pending",
          "updated_at":     time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     )
 
@@ -215,4 +218,21 @@ def main():
             f.write(f"pages={pages}\n")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"FATAL: {e}", flush=True)
+        # Best-effort reset to pending so next cron retries this county
+        try:
+            co_env = int(os.environ.get("CO_NO", "0"))
+            if co_env > 0:
+                sb_patch(
+                    f"fl_parcel_centroid_progress?co_no=eq.{co_env}&status=eq.running",
+                    {"status": "pending",
+                     "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                )
+        except Exception:
+            pass
+        sys.exit(1)
