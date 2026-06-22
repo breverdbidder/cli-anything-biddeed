@@ -45,7 +45,7 @@ BCPAO_NAL_URL = os.environ.get(
 
 # DOR Cadastral fallback — same endpoint as load_brevard_parcels.py
 DOR_URL = "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query"
-DOR_FIELDS = "ALT_KEY,PARCEL_ID,PARCELNO,PHY_ADDR1"
+DOR_FIELDS = "OBJECTID,ALT_KEY,PARCEL_ID,PARCELNO,PHY_ADDR1"
 DOR_WHERE = "CO_NO=15 AND ALT_KEY IS NOT NULL"
 DOR_BATCH = 2000
 
