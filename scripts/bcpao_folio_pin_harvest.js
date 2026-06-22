@@ -12,7 +12,7 @@
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
-const { chromium } = require('playwright');
+const { chromium } = require('@playwright/test');
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
