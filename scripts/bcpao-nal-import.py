@@ -128,9 +128,12 @@ def sql(query):
 def count(table, params=""):
     url = f"{SUPABASE_URL}/rest/v1/{table}?select=count&{params}"
     req = urllib.request.Request(url, headers=_headers("count=exact"))
-    with urllib.request.urlopen(req, timeout=30) as r:
-        hdr = r.headers.get("content-range", "?/?")
-        return hdr.split("/")[-1]
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            hdr = r.headers.get("content-range", "?/?")
+            return hdr.split("/")[-1]
+    except Exception as e:
+        return f"?({e})"
 
 
 # ── Address normalization helpers ──────────────────────────────────────────────
