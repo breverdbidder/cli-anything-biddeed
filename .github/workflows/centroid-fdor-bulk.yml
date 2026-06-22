@@ -75,7 +75,12 @@ jobs:
           PAGE_SIZE=2000; MAX_RETRIES=4; BATCH_SIZE=500
           def patch_progress(p): requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",headers=SB_HDRS,params={"co_no":f"eq.{CO_NO}"},json=p)
           def upsert_batch(rows):
-              r=requests.post(f"{SB_URL}/rest/v1/fl_parcels",headers={**SB_HDRS,"Prefer":"resolution=merge-duplicates,return=minimal"},json=rows)
+              # on_conflict param targets the UNIQUE(co_no,parcel_id) constraint directly
+              r=requests.post(
+                  f"{SB_URL}/rest/v1/fl_parcels?on_conflict=co_no,parcel_id",
+                  headers={**SB_HDRS,"Prefer":"resolution=merge-duplicates,return=minimal"},
+                  json=rows
+              )
               if r.status_code not in (200,201): raise RuntimeError(f"upsert {r.status_code}: {r.text[:300]}")
           def fdor_page(offset):
               params={"where":f"CO_NO={CO_NO}","outFields":"PARCEL_ID,CO_NO","returnCentroid":"true","returnGeometry":"false","resultOffset":offset,"resultRecordCount":PAGE_SIZE,"outSR":"4326","f":"json"}
