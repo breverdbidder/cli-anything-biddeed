@@ -14,7 +14,7 @@ jobs:
     outputs:
       matrix: ${{ steps.build.outputs.matrix }}
     steps:
-      - name: Build matrix from pending counties
+      - name: Build matrix
         id: build
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -23,19 +23,17 @@ jobs:
         run: |
           python3 - <<'PYEOF'
           import os, requests, json
-          url = os.environ["SUPABASE_URL"]
-          key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-          hdrs = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+          url = os.environ["SUPABASE_URL"]; key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
           override = os.environ.get("CO_NO_OVERRIDE","").strip()
           if override:
               params = {"co_no": f"eq.{override}", "select": "co_no,county_name"}
           else:
               params = {"status": "in.(pending)", "select": "co_no,county_name", "order": "total_parcels.asc"}
           rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress", headers=hdrs, params=params).json()
-          print(f"Counties to run: {len(rows)}")
-          matrix = {"include": [{"co_no": r["co_no"], "county_name": r["county_name"]} for r in rows]}
+          print(f"Counties: {len(rows)}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"matrix={json.dumps(matrix)}\n")
+              f.write(f'matrix={json.dumps({"include":[{"co_no":r["co_no"],"county_name":r["county_name"]} for r in rows]})}\n')
           PYEOF
 
   harvest:
@@ -50,8 +48,7 @@ jobs:
     steps:
       - name: Install deps
         run: pip install requests --quiet
-
-      - name: Harvest FDOR → Supabase
+      - name: Harvest
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -60,109 +57,65 @@ jobs:
         run: |
           python3 - <<'PYEOF'
           import os, requests, time, sys
+          CO_NO=int(os.environ["CO_NO"]); COUNTY_NAME=os.environ["COUNTY_NAME"]
+          SB_URL=os.environ["SUPABASE_URL"]; SB_KEY=os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          SB_HDRS={"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}","Content-Type":"application/json","Prefer":"return=minimal"}
+          FDOR="https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query"
+          PAGE=1000; RETRIES=4; BATCH=400
 
-          CO_NO       = int(os.environ["CO_NO"])
-          COUNTY_NAME = os.environ["COUNTY_NAME"]
-          SB_URL      = os.environ["SUPABASE_URL"]
-          SB_KEY      = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-          SB_HDRS     = {
-              "apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
-              "Content-Type": "application/json", "Prefer": "return=minimal"
-          }
-          FDOR_FS  = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest"
-                      "/services/Florida_Statewide_Cadastral/FeatureServer/0/query")
-          PAGE     = 1000   # conservative — polygon geometry is heavier
-          RETRIES  = 4
-          BATCH    = 400
-
-          def sb_patch(payload):
-              requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
-                             headers=SB_HDRS, params={"co_no": f"eq.{CO_NO}"}, json=payload)
-
+          def sb_patch(p): requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",headers=SB_HDRS,params={"co_no":f"eq.{CO_NO}"},json=p)
           def upsert(rows):
-              r = requests.post(
-                  f"{SB_URL}/rest/v1/fl_parcels?on_conflict=co_no,parcel_id",
-                  headers={**SB_HDRS, "Prefer": "resolution=merge-duplicates,return=minimal"},
-                  json=rows)
-              if r.status_code not in (200, 201):
-                  raise RuntimeError(f"upsert {r.status_code}: {r.text[:300]}")
-
-          def ring_centroid(rings):
-              """Mean of outer ring vertices — fast, accurate enough for parcel centroid."""
-              ring = rings[0]
-              xs = [p[0] for p in ring]
-              ys = [p[1] for p in ring]
+              # Deduplicate by parcel_id within batch — FDOR has duplicate parcel rows
+              seen={}
+              for r in rows: seen[r["parcel_id"]]=r
+              deduped=list(seen.values())
+              r=requests.post(f"{SB_URL}/rest/v1/fl_parcels?on_conflict=co_no,parcel_id",
+                              headers={**SB_HDRS,"Prefer":"resolution=merge-duplicates,return=minimal"},json=deduped)
+              if r.status_code not in (200,201): raise RuntimeError(f"upsert {r.status_code}: {r.text[:300]}")
+          def centroid(rings):
+              ring=rings[0]; xs=[p[0] for p in ring]; ys=[p[1] for p in ring]
               return sum(xs)/len(xs), sum(ys)/len(ys)
-
-          def fetch_page(offset):
-              params = {
-                  "where": f"CO_NO={CO_NO}",
-                  "outFields": "PARCEL_ID",
-                  "returnGeometry": "true",
-                  "geometryType": "esriGeometryPolygon",
-                  "resultOffset": offset,
-                  "resultRecordCount": PAGE,
-                  "outSR": "4326",
-                  "f": "json"
-              }
-              for attempt in range(RETRIES):
+          def fetch(offset):
+              p={"where":f"CO_NO={CO_NO}","outFields":"PARCEL_ID","returnGeometry":"true",
+                 "geometryType":"esriGeometryPolygon","resultOffset":offset,
+                 "resultRecordCount":PAGE,"outSR":"4326","f":"json"}
+              for a in range(RETRIES):
                   try:
-                      r = requests.get(FDOR_FS, params=params, timeout=90)
-                      r.raise_for_status()
-                      data = r.json()
-                      if "error" in data:
-                          raise RuntimeError(str(data["error"]))
-                      return data.get("features", [])
+                      r=requests.get(FDOR,params=p,timeout=90); r.raise_for_status()
+                      d=r.json()
+                      if "error" in d: raise RuntimeError(str(d["error"]))
+                      return d.get("features",[])
                   except Exception as e:
-                      if attempt == RETRIES - 1: raise
-                      time.sleep(2 ** attempt)
+                      if a==RETRIES-1: raise
+                      time.sleep(2**a)
 
-          sb_patch({"status": "running", "started_at": "now()", "error_msg": None})
-          print(f"[{CO_NO}] {COUNTY_NAME} — start")
-
-          tw = 0; offset = 0; batch = []
+          sb_patch({"status":"running","started_at":"now()","error_msg":None})
+          print(f"[{CO_NO}] {COUNTY_NAME} start")
+          tw=0; offset=0; batch=[]
           try:
               while True:
-                  features = fetch_page(offset)
+                  features=fetch(offset)
                   if not features: break
-
                   for f in features:
-                      geom = f.get("geometry")
-                      attrs = f.get("attributes", {})
-                      pid = attrs.get("PARCEL_ID") or attrs.get("parcel_id")
+                      geom=f.get("geometry"); a=f.get("attributes",{})
+                      pid=a.get("PARCEL_ID") or a.get("parcel_id")
                       if not pid or not geom: continue
-                      rings = geom.get("rings")
+                      rings=geom.get("rings")
                       if not rings or not rings[0]: continue
-                      try:
-                          lng, lat = ring_centroid(rings)
-                      except Exception:
-                          continue
-                      if not (-90 <= lat <= 90) or not (-180 <= lng <= 180): continue
-                      batch.append({
-                          "parcel_id":    pid,
-                          "co_no":        CO_NO,
-                          "centroid_lat": round(lat, 7),
-                          "centroid_lng": round(lng, 7),
-                          "updated_at":   "now()"
-                      })
-                      if len(batch) >= BATCH:
-                          upsert(batch); tw += len(batch); batch = []
-
-                  offset += len(features)
-                  print(f"  offset={offset} written={tw}")
-                  if tw % 5000 < BATCH:
-                      sb_patch({"centroids_done": tw, "updated_at": "now()"})
-                  if len(features) < PAGE: break
-
-              if batch: upsert(batch); tw += len(batch)
-              sb_patch({"status": "done", "centroids_done": tw,
-                        "completed_at": "now()", "updated_at": "now()"})
-              print(f"[{CO_NO}] {COUNTY_NAME} DONE — {tw} written")
-
+                      try: lng,lat=centroid(rings)
+                      except: continue
+                      if not(-90<=lat<=90) or not(-180<=lng<=180): continue
+                      batch.append({"parcel_id":pid,"co_no":CO_NO,"centroid_lat":round(lat,7),"centroid_lng":round(lng,7),"updated_at":"now()"})
+                      if len(batch)>=BATCH: upsert(batch); tw+=len(batch); batch=[]
+                  offset+=len(features); print(f"  offset={offset} written={tw}")
+                  if tw%5000<BATCH: sb_patch({"centroids_done":tw,"updated_at":"now()"})
+                  if len(features)<PAGE: break
+              if batch: upsert(batch); tw+=len(batch)
+              sb_patch({"status":"done","centroids_done":tw,"completed_at":"now()","updated_at":"now()"})
+              print(f"[{CO_NO}] DONE {tw}")
           except Exception as e:
-              sb_patch({"status": "error", "error_msg": str(e)[:500], "updated_at": "now()"})
-              print(f"[{CO_NO}] ERROR: {e}", file=sys.stderr)
-              sys.exit(1)
+              sb_patch({"status":"error","error_msg":str(e)[:500],"updated_at":"now()"})
+              print(f"[{CO_NO}] ERROR:{e}",file=sys.stderr); sys.exit(1)
           PYEOF
 
   audit:
@@ -170,24 +123,18 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Final scoreboard
+      - name: Scoreboard
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python3 - <<'PYEOF'
           import os, requests
-          url = os.environ["SUPABASE_URL"]; key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-          hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
-          rows = requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress",
-                              headers=hdrs,
-                              params={"select": "co_no,county_name,status,centroids_done,total_parcels",
-                                      "order": "co_no.asc"}).json()
-          done   = [x for x in rows if x["status"] == "done"]
-          errors = [x for x in rows if x["status"] == "error"]
-          tw = sum(x["centroids_done"] or 0 for x in rows)
-          tp = sum(x["total_parcels"]  or 0 for x in rows)
-          print(f"━━━ CENTROID AUDIT ━━━")
-          print(f"done={len(done)}/67  errors={len(errors)}  written={tw:,}/{tp:,}  pct={tw/tp*100:.1f}%" if tp else "")
-          [print(f"  ERROR co_no={e['co_no']} {e['county_name']} — {e.get('error_msg','')[:80]}") for e in errors]
+          url=os.environ["SUPABASE_URL"]; key=os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          hdrs={"apikey":key,"Authorization":f"Bearer {key}"}
+          rows=requests.get(f"{url}/rest/v1/fl_parcel_centroid_progress",headers=hdrs,params={"select":"co_no,county_name,status,centroids_done,total_parcels","order":"co_no.asc"}).json()
+          done=[x for x in rows if x["status"]=="done"]; errors=[x for x in rows if x["status"]=="error"]
+          tw=sum(x["centroids_done"] or 0 for x in rows); tp=sum(x["total_parcels"] or 0 for x in rows)
+          print(f"done={len(done)}/67 errors={len(errors)} written={tw:,}/{tp:,} pct={tw/tp*100:.1f}%" if tp else "no data")
+          [print(f"  ERROR [{e['co_no']}] {e['county_name']}: {(e.get('error_msg') or '')[:100]}") for e in errors]
           PYEOF
