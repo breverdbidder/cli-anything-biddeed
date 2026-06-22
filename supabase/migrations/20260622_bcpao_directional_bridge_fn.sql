@@ -142,3 +142,8 @@ BEGIN
     RETURN inserted_s6 + inserted_s7;
 END;
 $$;
+
+-- Force PostgREST to reload its schema cache immediately so the function
+-- is callable via /rest/v1/rpc/bcpao_directional_bridge without waiting
+-- for the default 5-minute cache expiry cycle.
+NOTIFY pgrst, 'reload schema';

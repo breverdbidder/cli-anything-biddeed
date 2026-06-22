@@ -56,6 +56,8 @@ jobs:
           echo "=== Applying directional bridge function ==="
           apply_sql supabase/migrations/20260622_bcpao_directional_bridge_fn.sql
           echo "All migrations OK"
+          # Give PostgREST time to pick up the NOTIFY pgrst reload signal
+          sleep 8
 
       - name: Run BCPAO NAL import (addr matching)
         run: python3 scripts/bcpao-nal-import.py
