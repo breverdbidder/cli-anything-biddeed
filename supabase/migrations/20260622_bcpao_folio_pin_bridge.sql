@@ -21,6 +21,9 @@ ALTER TABLE bcpao_fetch_jobs ADD COLUMN IF NOT EXISTS last_error TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_bcpao_fetch_jobs_status ON bcpao_fetch_jobs(status);
 
+-- Force PostgREST schema cache reload so new columns are immediately visible
+SELECT pg_notify('pgrst', 'reload schema');
+
 -- Bridge table: folio (BCPAO account#) -> resolved PIN
 CREATE TABLE IF NOT EXISTS brevard_folio_pin_bridge (
     folio           TEXT PRIMARY KEY,

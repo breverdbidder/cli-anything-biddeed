@@ -72,12 +72,26 @@ async function markEmpty(account) {
 }
 
 async function markFailed(account, err) {
-  return sbFetch(
-    `bcpao_fetch_jobs?account=eq.${encodeURIComponent(account)}`,
-    'PATCH',
-    { status: 'failed', last_error: String(err).slice(0, 400), done_at: new Date().toISOString() },
-    { Prefer: 'return=minimal' }
-  );
+  const errStr = String(err).slice(0, 400);
+  // Try with last_error column; fall back if column not yet in schema cache
+  try {
+    return await sbFetch(
+      `bcpao_fetch_jobs?account=eq.${encodeURIComponent(account)}`,
+      'PATCH',
+      { status: 'failed', last_error: errStr, done_at: new Date().toISOString() },
+      { Prefer: 'return=minimal' }
+    );
+  } catch (e) {
+    if (e.message.includes('PGRST204') || e.message.includes('last_error')) {
+      return sbFetch(
+        `bcpao_fetch_jobs?account=eq.${encodeURIComponent(account)}`,
+        'PATCH',
+        { status: 'failed', done_at: new Date().toISOString() },
+        { Prefer: 'return=minimal' }
+      );
+    }
+    throw e;
+  }
 }
 
 async function upsertBridge(folio, pin) {
@@ -100,73 +114,60 @@ const PIN_RE = /\b\d{2}[-\s]\d{4}[-\s][A-Z0-9]{2}[-\s][A-Z0-9*]+[-\s][A-Z0-9.]+\
 
 /**
  * Try to resolve a PIN for the given account using the browser context.
- * Attempts:
- *   1. getpin API via in-browser fetch (same-origin, CF-cleared)
- *   2. scrapepin API via in-browser fetch
- *   3. Navigate to Property Details page and parse DOM
+ *
+ * Avoids page.evaluate() entirely (Playwright 1.58 argument handling can be
+ * unpredictable). Uses:
+ *   Strategy 1: context.request.get() for the JSON API (inherits CF cookies)
+ *   Strategy 2: page.goto() + Playwright locators for DOM extraction
  */
 async function resolvePin(page, account) {
-  // Strategy 1: getpin JSON API (runs in-browser to use CF cookies)
-  // Playwright 1.58+ only supports a single argument to page.evaluate — wrap in object.
-  const apiResult = await page.evaluate(async ({ acct, base }) => {
-    try {
-      const r = await fetch(`${base}/api/search/getpin?acctno=${acct}`, {
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
-      });
-      if (!r.ok) return null;
-      const ct = r.headers.get('content-type') || '';
-      if (!ct.includes('json')) return null;
-      return await r.json();
-    } catch {
-      return null;
-    }
-  }, { acct: account, base: BCPAO_BASE });
+  const ctx = page.context();
 
-  if (apiResult) {
-    // Response shapes seen: { pin }, { parcelID }, { parcel_id }, { ParcelID }
-    const pin = apiResult.pin
-      || apiResult.parcelID
-      || apiResult.parcelId
-      || apiResult.ParcelID
-      || apiResult.parcel_id
-      || apiResult.parcelNumber;
-    if (pin && String(pin).trim()) return String(pin).trim();
+  // Strategy 1: getpin JSON API via Node.js APIRequestContext (uses browser cookies)
+  try {
+    const resp = await ctx.request.get(
+      `${BCPAO_BASE}/api/search/getpin?acctno=${account}`,
+      { headers: { Accept: 'application/json' } }
+    );
+    if (resp.ok()) {
+      const ct = resp.headers()['content-type'] || '';
+      if (ct.includes('json')) {
+        const data = await resp.json();
+        const pin = data.pin || data.parcelID || data.parcelId
+                 || data.ParcelID || data.parcel_id || data.parcelNumber;
+        if (pin && String(pin).trim()) return String(pin).trim();
+      }
+    }
+  } catch (e) {
+    console.log(`  ${account}: API strategy failed (${e.message.slice(0, 60)}), trying DOM...`);
   }
 
-  // Strategy 2: navigate to Property Details and read the rendered page
+  // Strategy 2: navigate to Property Details and read the rendered DOM with locators
   await page.goto(`${BCPAO_BASE}/Property/Details#acct=${account}`, {
     waitUntil: 'networkidle',
     timeout: 30_000,
   });
-
-  // Brief pause for any dynamic rendering
   await page.waitForTimeout(1500);
 
-  const pinFromDom = await page.evaluate(({ re }) => {
-    // Try known label/field patterns
-    const candidates = [
-      document.querySelector('[data-field="parcelID"]'),
-      document.querySelector('#parcelNumber'),
-      document.querySelector('.parcel-id'),
-      document.querySelector('[class*="parcel-number"]'),
-      // BCPAO uses dt/dd pairs like "Parcel ID: 23-3627-..."
-      ...[...document.querySelectorAll('dt, th')].filter(el =>
-        /parcel\s*(id|number|no)/i.test(el.textContent || '')
-      ).map(el => el.nextElementSibling),
-    ].filter(Boolean);
+  // Try CSS selectors that BCPAO uses for the parcel number field
+  const candidates = [
+    '#parcelNumber',
+    '[data-field="parcelID"]',
+    '.parcel-id',
+    '[class*="parcel-number"]',
+    'dt:has-text("Parcel") + dd',
+    'th:has-text("Parcel") + td',
+  ];
+  for (const sel of candidates) {
+    const loc = page.locator(sel).first();
+    const txt = await loc.textContent({ timeout: 2000 }).catch(() => null);
+    if (txt && /^\d{2}[-\s]/.test(txt.trim())) return txt.trim();
+  }
 
-    for (const el of candidates) {
-      const txt = el.textContent?.trim();
-      if (txt && /^\d{2}/.test(txt)) return txt;
-    }
-
-    // Fallback: grep body text for PIN pattern
-    const m = (document.body?.innerText || '').match(new RegExp(re, 'i'));
-    return m ? m[0] : null;
-  }, { re: PIN_RE.source });
-
-  return pinFromDom || null;
+  // Fallback: grep the page body text via page.content() (avoids evaluate)
+  const html = await page.content();
+  const m = html.match(PIN_RE);
+  return m ? m[0] : null;
 }
 
 // ── CF warm-up ────────────────────────────────────────────────────────────────
@@ -175,16 +176,17 @@ async function warmupCloudflare(page) {
   console.log('Warming up Cloudflare clearance via bcpao.us ...');
   await page.goto(BCPAO_BASE, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
-  // If CF challenge is active, wait for it to resolve (max 15s)
   const title = await page.title();
   if (/just a moment|checking your browser/i.test(title)) {
     console.log('  CF challenge detected — waiting up to 15s...');
-    await page.waitForFunction(
-      () => !/just a moment|checking your browser/i.test(document.title),
-      { timeout: 15_000 }
-    ).catch(() => console.log('  CF challenge may not have resolved — proceeding anyway'));
+    // Wait for title to change from CF challenge page (poll without waitForFunction)
+    for (let i = 0; i < 15; i++) {
+      await page.waitForTimeout(1000);
+      const t = await page.title();
+      if (!/just a moment|checking your browser/i.test(t)) break;
+    }
   }
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1000);
   console.log(`  CF warm-up done (title: "${await page.title()}")`);
 }
 
