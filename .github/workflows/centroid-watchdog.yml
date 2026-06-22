@@ -1,5 +1,5 @@
 name: centroid-watchdog
-# TEMPORARY — self-destructs on DoD. Do not extend scope.
+# TEMPORARY — self-destructs on DoD.
 
 on:
   schedule:
@@ -24,7 +24,7 @@ jobs:
           REPO: breverdbidder/cli-anything-biddeed
         run: |
           python3 - <<'PYEOF'
-          import os, requests, json
+          import os, requests, base64
           from datetime import datetime, timezone
 
           SB_URL  = os.environ["SUPABASE_URL"]
@@ -43,36 +43,26 @@ jobs:
                                  json={"chat_id":TG_CHAT,"text":msg,"parse_mode":"Markdown"},timeout=10)
               except: pass
 
-          def dispatch_harvest():
+          def dispatch():
               r = requests.post(
                   f"https://api.github.com/repos/{REPO}/actions/workflows/centroid-fdor-bulk.yml/dispatches",
                   headers=GH_HDRS, json={"ref":"main","inputs":{}}, timeout=15)
               return r.status_code
 
           def self_destruct():
-              """Replace this file with dispatch-only version — kills the cron permanently."""
-              import base64
               path = ".github/workflows/centroid-watchdog.yml"
-              # Get current SHA for the file
               r = requests.get(f"https://api.github.com/repos/{REPO}/contents/{path}",
                                headers=GH_HDRS, timeout=15)
-              if r.status_code != 200:
-                  print(f"self_destruct: could not get file SHA: {r.status_code}")
-                  return
-              file_sha = r.json().get("sha")
-              dead_yaml = "# centroid-watchdog RETIRED — DoD achieved\n# Cron disabled. Task complete.\non:\n  workflow_dispatch: {}\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo 'DoD achieved. This workflow is retired.'\n"
-              payload = {
-                  "message": "chore(centroid): retire watchdog — DoD 67/67 achieved",
-                  "content": base64.b64encode(dead_yaml.encode()).decode(),
-                  "sha": file_sha,
-                  "branch": "main"
-              }
-              r2 = requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}",
-                                headers=GH_HDRS, json=payload, timeout=15)
-              print(f"self_destruct commit → HTTP {r2.status_code}")
-              return r2.status_code
+              if r.status_code != 200: return
+              sha = r.json().get("sha")
+              dead = "# centroid-watchdog RETIRED — DoD achieved\non:\n  workflow_dispatch: {}\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo retired\n"
+              requests.put(f"https://api.github.com/repos/{REPO}/contents/{path}",
+                           headers=GH_HDRS,
+                           json={"message":"chore: retire centroid-watchdog — DoD achieved",
+                                 "content":base64.b64encode(dead.encode()).decode(),
+                                 "sha":sha,"branch":"main"}, timeout=15)
 
-          # ── Pull state ──────────────────────────────────────────────────────
+          # Pull state
           rows = requests.get(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
                               headers={"apikey":SB_KEY,"Authorization":f"Bearer {SB_KEY}"},
                               params={"select":"co_no,county_name,status,centroids_done,total_parcels,updated_at",
@@ -88,34 +78,31 @@ jobs:
 
           print(f"done={len(done)}/67 running={len(running)} pending={len(pending)} errors={len(errors)} written={tw:,} ({pct:.1f}%)")
 
-          # ── DoD check — verify then self-destruct ───────────────────────────
+          # DoD check
           if len(done) == 67 and tw >= 9_500_000:
-              print("DOD ACHIEVED — firing Telegram + self-destructing cron")
-              tg(f"🏆 *CENTROID ENRICHMENT COMPLETE*\n67/67 counties ✅\n{tw:,} centroids written\nDoD verified. Watchdog retiring.")
-              code = self_destruct()
-              print(f"Watchdog self-destruct: HTTP {code}")
+              print("DOD ACHIEVED")
+              tg(f"🏆 *CENTROID ENRICHMENT COMPLETE*\n67/67 counties ✅\n{tw:,} centroids\nWatchdog retiring.")
+              self_destruct()
               exit(0)
 
-          # ── Auto-heal errors ────────────────────────────────────────────────
+          # Auto-heal errors — NEVER zero centroids_done, preserve resume progress
           if errors:
               err_cos = [e["co_no"] for e in errors]
-              print(f"AUTO-HEAL: {len(errors)} errors → pending: {err_cos}")
+              print(f"AUTO-HEAL {len(errors)} errors: {err_cos}")
               requests.patch(f"{SB_URL}/rest/v1/fl_parcel_centroid_progress",
                              headers=SB_HDRS, params={"status":"eq.error"},
-                             json={"status":"pending","error_msg":None,
-                                   "centroids_done":0,"updated_at":"now()"})
-              http = dispatch_harvest()
+                             json={"status":"pending","error_msg":None,"updated_at":"now()"})
+              http = dispatch()
               print(f"REDISPATCH → HTTP {http}")
-              tg(f"🔄 *Centroid Watchdog*\nAuto-healed {len(errors)} errors: {err_cos}\nRedispatched → HTTP {http}\n{tw:,}/{tp:,} ({pct:.1f}%)")
+              tg(f"🔄 *Centroid Watchdog*\nHealed {len(errors)} errors: {err_cos}\nRedispatch → {http}\n{tw:,}/{tp:,} ({pct:.1f}%)")
 
-          # ── No runners + pending remain → redispatch ────────────────────────
+          # No runners + pending → redispatch
           elif not running and pending:
-              print(f"NO RUNNERS, {len(pending)} pending — redispatching")
-              http = dispatch_harvest()
-              print(f"REDISPATCH → HTTP {http}")
-              tg(f"🔄 *Centroid Watchdog — Redispatch*\nNo runners, {len(pending)} pending\n→ HTTP {http}")
+              print(f"NO RUNNERS {len(pending)} pending — redispatching")
+              http = dispatch()
+              tg(f"🔄 *Watchdog Redispatch*\n{len(pending)} pending, no runners → {http}")
 
-          # ── Stall detection ─────────────────────────────────────────────────
+          # Stall detection
           elif running:
               now = datetime.now(timezone.utc)
               stalled = []
@@ -123,12 +110,13 @@ jobs:
                   try:
                       dt = datetime.fromisoformat(r["updated_at"].replace("Z","+00:00"))
                       age = (now-dt).total_seconds()/60
-                      if age > 30: stalled.append((r["co_no"],r["county_name"],round(age)))
+                      if age > 40: stalled.append((r["co_no"],r["county_name"],round(age)))
                   except: pass
               if stalled:
                   print(f"STALL: {stalled}")
-                  tg(f"⚠️ *Centroid Watchdog — Stall*\n" +
-                     "\n".join(f"co_no={c} {n} stalled {m}min" for c,n,m in stalled))
+                  tg(f"⚠️ *Stall Detected*\n"+"\n".join(f"[{c}] {n} {m}min" for c,n,m in stalled))
+                  http = dispatch()
+                  print(f"REDISPATCH stalled → {http}")
               else:
-                  print(f"NOMINAL — {len(running)} running, {pct:.1f}% complete")
+                  print(f"NOMINAL {len(running)} running {pct:.1f}%")
           PYEOF
