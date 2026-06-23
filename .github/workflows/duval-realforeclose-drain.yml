@@ -29,9 +29,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps
-        run: |
-          pip install --quiet httpx playwright
-          python -m playwright install chromium --with-deps
+        run: pip install --quiet httpx
 
       - name: Scrape + drain upcoming auction dates
         env:
@@ -54,6 +52,7 @@ jobs:
           RUN   = os.environ.get('GH_RUN_ID', '')
 
           HOST  = "https://duval.realforeclose.com"
+          UA    = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
           H     = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
           HU    = {**H, "Prefer": "resolution=merge-duplicates"}
           HR    = {**H, "Prefer": "return=representation"}
@@ -148,128 +147,101 @@ jobs:
                   })
               return items
 
-          # ── 3. Playwright login session (shared across dates) ─────────────────
-          # Duval has a JS splash page — no HTML form, httpx can't click through.
-          # Playwright handles JS navigation, cookie acceptance, and login.
-          from playwright.sync_api import sync_playwright
+          # ── 3. httpx session with two-step login flow ─────────────────────────
+          # Duval flow (VERIFIED from probe 2026-06-23):
+          #   Step 1: GET /index.cfm → splash page (sets cfid/cftoken/CF_CLIENT cookies)
+          #   Step 2: GET PREVIEW URL → Auction Calendar page with LogName login form
+          #   Step 3: POST login credentials to form action
+          #   Step 4: GET PREVIEW URL → AITEM blocks (authenticated)
+          # httpx works fine — datacenter IPs are NOT blocked on duval.realforeclose.com.
+          # Playwright was blocked (403 bot detection). Firecrawl was 402 (out of credits).
 
-          _browser = None
-          _page = None
-          _pw = None
+          _client = None
           _logged_in = False
 
-          def ensure_logged_in():
-              global _browser, _page, _pw, _logged_in
-              if _logged_in:
-                  return True
-              if _pw is None:
-                  _pw = sync_playwright().start()
-                  _browser = _pw.chromium.launch(headless=True)
-              _page = _browser.new_page()
-              _page.set_default_timeout(30000)
-
-              print("  Playwright: navigating to splash page")
-              _page.goto(f"{HOST}/index.cfm", wait_until='networkidle')
-              title = _page.title()
-              print(f"  Playwright: title={title!r}")
-
-              # Click through splash page — try common accept/enter buttons
-              clicked = False
-              for selector in [
-                  'input[type="submit"]',
-                  'button[type="submit"]',
-                  '#btnEnter',
-                  '.enterBtn',
-                  'a.enterBtn',
-                  'input[value*="Enter"]',
-                  'input[value*="Accept"]',
-                  'input[value*="Agree"]',
-                  'button:has-text("Enter")',
-                  'button:has-text("Accept")',
-                  'a:has-text("Enter")',
-                  'a:has-text("I Agree")',
-              ]:
-                  try:
-                      loc = _page.locator(selector)
-                      if loc.count() > 0:
-                          print(f"  Playwright: clicking splash selector {selector!r}")
-                          loc.first.click()
-                          _page.wait_for_load_state('networkidle', timeout=15000)
-                          clicked = True
-                          break
-                  except Exception as e:
-                      pass
-
-              if not clicked:
-                  print("  Playwright: no splash button found, trying direct navigation to login URL")
-                  # Try going straight to the calendar or a direct preview URL
-                  _page.goto(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR",
-                              wait_until='networkidle')
-
-              title2 = _page.title()
-              print(f"  Playwright: after splash title={title2!r}")
-
-              # Fill login if LogName field is visible
-              if _page.locator('#LogName').count() > 0:
-                  print("  Playwright: filling login form")
-                  _page.fill('#LogName', EMAIL)
-                  _page.fill('#LogPass', PW)
-                  _page.click('#LogButton')
-                  _page.wait_for_load_state('networkidle', timeout=30000)
-                  title3 = _page.title()
-                  print(f"  Playwright: post-login title={title3!r}")
-                  # Verify login succeeded
-                  if _page.locator('#LogName').count() > 0:
-                      print("  Playwright: login FAILED — LogName still visible")
-                      return False
-                  _logged_in = True
-                  print("  Playwright: login succeeded")
-                  return True
+          def extract_form_fields(html):
+              form_m = re.search(r'<form[^>]*>(.*?)</form>', html, re.DOTALL|re.IGNORECASE)
+              if not form_m:
+                  return {}, f"{HOST}/index.cfm"
+              form_html = form_m.group(0)
+              action_m = re.search(r'action=["\']([^"\']*)["\']', form_html, re.IGNORECASE)
+              raw_action = action_m.group(1) if action_m else '/index.cfm'
+              if raw_action.startswith('http'):
+                  form_action = raw_action
               else:
-                  # Maybe already on an auction page (logged in via cookie) or still on splash
-                  content = _page.content()
-                  if 'AITEM' in content or 'zaction=AUCTION' in content:
-                      print("  Playwright: appears already authenticated")
+                  form_action = HOST + '/' + raw_action.lstrip('/')
+              fields = {}
+              for tag in re.findall(r'<input[^>]+>', form_html, re.IGNORECASE):
+                  name_m = re.search(r'\bname=["\']([^"\']+)["\']', tag, re.IGNORECASE)
+                  val_m  = re.search(r'\bvalue=["\']([^"\']*)["\']', tag, re.IGNORECASE)
+                  if name_m:
+                      fields[name_m.group(1)] = val_m.group(1) if val_m else ''
+              return fields, form_action
+
+          def ensure_logged_in(first_preview_url):
+              global _client, _logged_in
+              if _logged_in and _client:
+                  return True
+              _client = httpx.Client(follow_redirects=True, timeout=30.0,
+                                     headers={'User-Agent': UA})
+              # Step 1: visit splash to get CF session cookies
+              r0 = _client.get(f"{HOST}/index.cfm")
+              print(f"  httpx: splash HTTP {r0.status_code}, cookies={list(_client.cookies.keys())}")
+
+              # Step 2: visit PREVIEW — will show login form (unauthenticated redirect)
+              r1 = _client.get(first_preview_url)
+              has_login = 'LogName' in r1.text or 'id="LogName"' in r1.text
+              print(f"  httpx: PREVIEW (pre-login) HTTP {r1.status_code}, has_login={has_login}")
+
+              if not has_login:
+                  # Unexpected — might already be authenticated or something else
+                  if 'AITEM_' in r1.text:
+                      print("  httpx: already authenticated (AITEM blocks present)")
                       _logged_in = True
                       return True
-                  print(f"  Playwright: no login form found, page content snippet: {content[:400]!r}")
+                  print(f"  httpx: unexpected page, snippet: {r1.text[:500]!r}")
                   return False
 
-          def playwright_scrape_preview(auction_date_iso):
-              global _page, _logged_in
+              # Step 3: POST credentials
+              fields, form_action = extract_form_fields(r1.text)
+              safe_fields = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
+              print(f"  httpx: login form action={form_action}, hidden fields={list(safe_fields.keys())}")
+              form_data = {**fields, 'LogName': EMAIL, 'LogPass': PW}
+              r2 = _client.post(form_action, data=form_data)
+              still_has_login = 'id="LogName"' in r2.text or ('LogName' in r2.text and '<form' in r2.text)
+              print(f"  httpx: login POST HTTP {r2.status_code}, still_has_login={still_has_login}")
+              if still_has_login:
+                  print("  httpx: login FAILED — credentials rejected")
+                  print(f"  httpx: response snippet: {r2.text[:500]!r}")
+                  return False
+              _logged_in = True
+              print("  httpx: login succeeded")
+              return True
+
+          def httpx_scrape_preview(auction_date_iso):
+              global _client
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
               preview_url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
                              f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
 
-              if not ensure_logged_in():
-                  print("  Playwright: cannot authenticate, skipping")
+              if not EMAIL or not PW:
+                  print("  WARNING: no credentials set")
                   return 0, ''
 
-              try:
-                  _page.goto(preview_url, wait_until='networkidle', timeout=60000)
-                  # Extra wait for AITEM blocks to render (JS-rendered content)
-                  _page.wait_for_timeout(5000)
-                  html = _page.content()
-                  print(f"  Playwright: PREVIEW html_len={len(html)}")
-                  return 200, html
-              except Exception as e:
-                  print(f"  Playwright: PREVIEW error: {e}")
+              if not ensure_logged_in(preview_url):
                   return 0, ''
 
-          def close_browser():
-              global _browser, _pw
-              try:
-                  if _browser: _browser.close()
-                  if _pw: _pw.stop()
-              except Exception: pass
+              # Step 4: GET the PREVIEW page (now authenticated)
+              r3 = _client.get(preview_url)
+              print(f"  httpx: PREVIEW (post-login) HTTP {r3.status_code}, len={len(r3.text)}")
+              return 200, r3.text
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
           total_aids = 0
           total_inserted = 0
 
-          try:
-            for auction_date in dates:
+          for auction_date in dates:
               print(f"\n─── {auction_date} ───────────────────────────────────")
               d_obj = datetime.strptime(auction_date, '%Y-%m-%d')
               date_mdy = d_obj.strftime('%m/%d/%Y')
@@ -278,7 +250,7 @@ jobs:
                   'mca_id': None, 'county_slug': 'duval', 'case_number': None,
                   'fetch_url': f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}",
                   'system_type': 'realforeclose',
-                  'backend': f'duval_drain_pw_v2_{RUN}',
+                  'backend': f'duval_drain_httpx_v3_{RUN}',
                   'parse_state': 'fetching',
               }
               cr_id = None
@@ -290,14 +262,14 @@ jobs:
               except Exception as e:
                   print(f"  court_responses_raw insert error: {e}")
 
-              status_code, html = playwright_scrape_preview(auction_date)
+              status_code, html = httpx_scrape_preview(auction_date)
               print(f"  HTTP {status_code}, html_len={len(html)}")
 
               aids = parse_aitem_blocks(html, 'duval') if html else []
               print(f"  AITEM blocks parsed: {len(aids)}")
 
               if html and not aids:
-                  if 'LogName' in html and '<form' in html:
+                  if 'id="LogName"' in html or ('LogName' in html and '<form' in html):
                       print("  NOTE: Login form detected — authentication may have failed")
                       print(f"  HTML snippet: {html[:600]!r}")
                   elif 'No auctions' in html or 'no auction' in html.lower():
@@ -349,9 +321,6 @@ jobs:
                       print(f"  aids INSERT EXCEPTION: {e}")
 
               time.sleep(1.0)
-
-          finally:
-            close_browser()
 
           # ── 5. Patch MCA from aids (p_county_slug='duval') ───────────────────
           if total_inserted > 0:
