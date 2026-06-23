@@ -10,6 +10,8 @@ Strategy (in order):
   Pass 1: Duval FC — httpx AJAX login to duval.realforeclose.com → PREVIEW scrape
            → insert realforeclose_aids → re-run RPC (datacenter IPs work).
   Pass 1b: Duval FC — unauthenticated zoom-page fetch for any AID we have on file.
+  Pass 1c: Duval FC — AcclaimWeb at or.duvalclerk.com case-number search (same
+           platform as Brevard AcclaimWeb — extracts judgment amounts, no auth needed).
   Pass 2: Duval tax deed — scrape duval.realtaxdeed.com for NULL rows.
   Pass 3: Brevard — AcclaimWeb case-number search → extract judgment amounts (cap 200).
   Pass 4: Brevard — brevard.realforeclose.com PREVIEW scrape (unauthenticated) → aids.
@@ -459,6 +461,110 @@ def pass1b_duval_zoom_unauth() -> int:
     return filled
 
 
+# ── Pass 1c: Duval FC — AcclaimWeb at or.duvalclerk.com ─────────────────────
+def pass1c_duval_accweb() -> int:
+    """Search Duval AcclaimWeb (or.duvalclerk.com) by case number to get judgment amounts.
+    Same AcclaimWeb platform as Brevard — no auth needed, just disclaimer acceptance."""
+    print("\n═══ Pass 1c: Duval FC — or.duvalclerk.com AcclaimWeb search ═══")
+    null_rows = fetch_null_bid_rows("duval", "Foreclosure")
+    if not null_rows:
+        print("  No NULL Duval FC rows — skip")
+        return 0
+    print(f"  {len(null_rows)} NULL Duval FC rows to attempt via AcclaimWeb")
+
+    DUVAL_AW = "http://or.duvalclerk.com"
+
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+
+    def _req(url: str, data=None, hdrs: dict = None) -> str:
+        r = urllib.request.Request(url, headers={"User-Agent": UA_DESKTOP, **(hdrs or {})})
+        if data:
+            r.data = urllib.parse.urlencode(data).encode() if isinstance(data, dict) else data.encode()
+        try:
+            with opener.open(r, timeout=60) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except Exception as e:
+            print(f"  AcclaimWeb {url} error: {e}")
+            return ""
+
+    # Session init + disclaimer
+    init = _req(f"{DUVAL_AW}/AcclaimWeb/")
+    if not init:
+        print("  or.duvalclerk.com unreachable — skip")
+        return 0
+    print(f"  AcclaimWeb init: len={len(init)}")
+    _req(f"{DUVAL_AW}/AcclaimWeb/search/Disclaimer",
+         data="disclaimer=on",
+         hdrs={"Content-Type": "application/x-www-form-urlencoded",
+               "Referer": f"{DUVAL_AW}/AcclaimWeb/"})
+    print("  AcclaimWeb session initialized")
+
+    filled = 0
+    for row in null_rows[:50]:
+        cn = (row.get("case_number") or "").strip()
+        if not cn:
+            continue
+
+        params = [
+            ("CaseNumber", cn), ("DateRangeList", " "), ("CaseNumberFilter", "0"),
+            ("RecordDateFrom", "1/1/1981"), ("RecordDateTo", date.today().strftime("%m/%d/%Y")),
+            ("DocTypesDisplay-input", "All"), ("DocTypesDisplay", ""), ("DocTypes", "all"),
+        ]
+        hdrs = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{DUVAL_AW}/AcclaimWeb/search/SearchTypeCaseNumber",
+        }
+        body = _req(f"{DUVAL_AW}/AcclaimWeb/search/SearchTypeCaseNumber?Length=6",
+                    data=urllib.parse.urlencode(params), hdrs=hdrs)
+        if "Error.htm" in body or not body:
+            time.sleep(1)
+            continue
+
+        results_body = _req(f"{DUVAL_AW}/AcclaimWeb/search/GridResults",
+                            data="page=1&size=50", hdrs=hdrs)
+        if not results_body:
+            time.sleep(1)
+            continue
+
+        try:
+            data_j = json.loads(results_body)
+        except json.JSONDecodeError:
+            time.sleep(1)
+            continue
+
+        docs = data_j.get("data", [])
+        best_amount = None
+        for doc in docs:
+            cons = doc.get("Consideration")
+            amt = to_float(str(cons)) if cons not in (None, "") else None
+            if amt and amt > 5000:
+                doc_type = (doc.get("DocType") or "").upper()
+                if any(kw in doc_type for kw in ("JUDGMENT", "NOTICE", "FORECLOS")):
+                    best_amount = amt
+                    break
+                if best_amount is None:
+                    best_amount = amt
+
+        if best_amount:
+            st, patch_body = sb_patch(
+                f"multi_county_auctions?id=eq.{row['id']}",
+                {"opening_bid": best_amount, "source_platform": "duval_accweb"})
+            if st in (200, 201, 204):
+                print(f"  FILLED id={row['id']} case={cn} bid={best_amount}")
+                filled += 1
+            else:
+                print(f"  PATCH FAILED id={row['id']}: HTTP {st}")
+        else:
+            print(f"  case {cn}: no usable amount in {len(docs)} AcclaimWeb docs")
+
+        time.sleep(2.5)
+
+    print(f"  Duval AcclaimWeb filled: {filled}")
+    return filled
+
+
 # ── Pass 2: Duval tax deed — duval.realtaxdeed.com ───────────────────────────
 def pass2_duval_taxdeed() -> int:
     """Fill opening_bid for Duval tax deed NULL rows from duval.realtaxdeed.com.
@@ -794,6 +900,10 @@ def main() -> None:
     # Pass 1b: unauthenticated zoom pages for any remaining Duval FC NULLs
     if count_null_bids("duval") > 0:
         pass1b_duval_zoom_unauth()
+
+    # Pass 1c: Duval FC via or.duvalclerk.com AcclaimWeb (same platform as Brevard)
+    if count_null_bids("duval") > 0:
+        pass1c_duval_accweb()
 
     # Pass 2: Duval tax deed from duval.realtaxdeed.com
     if count_null_bids("duval") > 0:
