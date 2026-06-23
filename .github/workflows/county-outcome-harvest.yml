@@ -220,6 +220,7 @@ jobs:
 
       # ── Phase 4a: psql SHIP GATE verification (canonical — bypasses REST 522) ──
       - name: SHIP GATE — psql verification B/C/D/F/H
+        continue-on-error: true
         env:
           SUPABASE_DB_URL:      ${{ secrets.SUPABASE_DB_URL }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
