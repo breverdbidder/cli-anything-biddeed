@@ -59,10 +59,11 @@ jobs:
       # ── Phase 1: Apply migration (all 6 counties idempotently) ─────────────
       - name: Setup Supabase CLI
         run: |
+          cd /tmp
           curl -fsSL https://github.com/supabase/cli/releases/download/v1.178.2/supabase_linux_amd64.tar.gz \
             | tar -xz supabase
-          chmod +x supabase
-          sudo mv supabase /usr/local/bin/supabase
+          chmod +x /tmp/supabase
+          sudo mv /tmp/supabase /usr/local/bin/supabase
           supabase --version
 
       - name: Apply 6-county outcome pipeline migration
