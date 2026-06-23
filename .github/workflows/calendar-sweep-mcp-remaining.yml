@@ -75,33 +75,20 @@ jobs:
             exit 0
           fi
 
-          MATRIX=$(echo "$RESP" | python3 -c "
-import json, sys
-db = json.load(sys.stdin)
-seen = set()
-entries = []
-for e in db:
-    slug = e['county_slug']
-    plat = e.get('platform') or ''
-    st   = e.get('sale_type') or ''
-    if plat not in ('realforeclose', 'realtaxdeed'):
-        continue
-    k = (slug, st)
-    if k in seen:
-        continue
-    seen.add(k)
-    raw = e.get('base_url') or f'https://{slug}.{plat}.com'
-    base = raw.split('/index.cfm')[0].rstrip('/')
-    entries.append({'county': slug, 'sale_type': st, 'platform': plat, 'base_url': base})
-print(json.dumps({'include': entries}))
-sys.stderr.write(f'INFO: {len(entries)} combos after dedup and platform filter\n')
-")
+          # Filter: realforeclose/realtaxdeed only (strip realtdm/realtaxlien).
+          # Strip /index.cfm?... suffix from base_url so calendar_sweep_mca.py gets a clean base.
+          MATRIX=$(echo "$RESP" | jq -c '{include: [.[] | select(.platform == "realforeclose" or .platform == "realtaxdeed") | {
+            county:    .county_slug,
+            sale_type: .sale_type,
+            platform:  .platform,
+            base_url:  (.base_url | split("/index.cfm")[0])
+          }]}')
 
-          TOTAL=$(echo "$MATRIX" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['include']))")
-          echo "::notice::Matrix: $TOTAL county+sale_type combos"
+          TOTAL=$(echo "$MATRIX" | jq '.include | length')
+          echo "::notice::Matrix: $TOTAL county+sale_type combos (after platform filter)"
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "total=$TOTAL"   >> "$GITHUB_OUTPUT"
-          echo "$MATRIX" | python3 -c "import json,sys; d=json.load(sys.stdin); print('Sample:', d['include'][:4])"
+          echo "Sample: $(echo "$MATRIX" | jq '.include[:3]')"
 
   # ── 2. CALENDAR SWEEP (parallel, max 5) ──────────────────────────────────────
   sweep:
