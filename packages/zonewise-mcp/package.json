@@ -1,0 +1,40 @@
+{
+  "name": "zonewise-mcp",
+  "version": "1.0.0",
+  "description": "ZoneWise MCP server — 771K+ FL parcel zoning data for Claude, Cursor, ChatGPT. Instant zone code, FAR, setbacks, and permitted use lookup for any FL parcel.",
+  "main": "src/server.js",
+  "type": "module",
+  "bin": {
+    "zonewise-mcp": "bin/zonewise-mcp.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "zoning",
+    "florida",
+    "real-estate",
+    "parcel",
+    "zonewise",
+    "modelcontextprotocol"
+  ],
+  "author": "BidDeed.AI / Everest Capital USA",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/breverdbidder/cli-anything-biddeed.git",
+    "directory": "packages/zonewise-mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ]
+}

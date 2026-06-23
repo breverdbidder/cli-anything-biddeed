@@ -1,0 +1,63 @@
+// Supabase REST client — uses native fetch (Node 18+)
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.BIDDEED_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.BIDDEED_SUPABASE_KEY;
+
+function headers() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('SUPABASE_URL and SUPABASE_KEY must be set');
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation',
+  };
+}
+
+export async function get(path) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: headers() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Supabase GET ${path} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export async function insert(table, row) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Supabase INSERT ${table} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export async function patch(table, filter, updates) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Supabase PATCH ${table} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export async function rpc(fn, params = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Supabase RPC ${fn} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export default { get, insert, patch, rpc };

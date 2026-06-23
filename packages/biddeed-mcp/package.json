@@ -1,0 +1,41 @@
+{
+  "name": "biddeed-mcp",
+  "version": "1.0.0",
+  "description": "BidDeed.AI MCP server — FL foreclosure intelligence for Claude, Cursor, ChatGPT. 25 tools: auction search, Shapira underwriting, zoning, lien stacks, co-living analysis.",
+  "main": "src/server.js",
+  "type": "module",
+  "bin": {
+    "biddeed-mcp": "bin/biddeed-mcp.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "stripe": "^17.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "foreclosure",
+    "real-estate",
+    "florida",
+    "auction",
+    "biddeed",
+    "modelcontextprotocol"
+  ],
+  "author": "BidDeed.AI / Everest Capital USA",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/breverdbidder/cli-anything-biddeed.git",
+    "directory": "packages/biddeed-mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ]
+}
