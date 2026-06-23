@@ -99,9 +99,10 @@ CREATE INDEX IF NOT EXISTS idx_beta_invites_code   ON beta_invites(invite_code);
 CREATE INDEX IF NOT EXISTS idx_beta_invites_cohort ON beta_invites(cohort);
 
 -- ── taxi_meter_streams ────────────────────────────────────────────────────────
--- Config table (6 rows, no user data) — drop+recreate to clear any partial schema
-DROP TABLE IF EXISTS taxi_meter_tools;    -- drop child first (may reference streams)
-DROP TABLE IF EXISTS taxi_meter_streams;
+-- Config table (6 rows, no user data) — drop+recreate to clear any partial schema.
+-- CASCADE drops dependent view (v_revenue_by_stream) + FK constraints on other tables.
+DROP TABLE IF EXISTS taxi_meter_tools CASCADE;
+DROP TABLE IF EXISTS taxi_meter_streams CASCADE;
 
 CREATE TABLE taxi_meter_streams (
   id             BIGSERIAL PRIMARY KEY,
