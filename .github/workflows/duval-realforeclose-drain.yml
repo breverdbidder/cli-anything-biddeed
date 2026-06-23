@@ -203,10 +203,15 @@ jobs:
                   return False
 
               # Step 3: POST credentials
+              # RealForeclose logform.js adds zaction=USER&Zmethod=LOGON before submit.
+              # The #LogButton is type="button" (not submit) — JS-driven, no hidden fields.
+              # We replicate what logform.js does: POST with CF action params + credentials.
               fields, form_action = extract_form_fields(r1.text)
               safe_fields = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
               print(f"  httpx: login form action={form_action}, hidden fields={list(safe_fields.keys())}")
-              form_data = {**fields, 'LogName': EMAIL, 'LogPass': PW}
+              form_data = {**fields,
+                           'zaction': 'USER', 'Zmethod': 'LOGON',
+                           'LogName': EMAIL, 'LogPass': PW}
               r2 = _client.post(form_action, data=form_data)
               still_has_login = 'id="LogName"' in r2.text or ('LogName' in r2.text and '<form' in r2.text)
               print(f"  httpx: login POST HTTP {r2.status_code}, still_has_login={still_has_login}")
@@ -219,7 +224,7 @@ jobs:
               return True
 
           def httpx_scrape_preview(auction_date_iso):
-              global _client
+              global _client, _logged_in
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
               preview_url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
@@ -229,12 +234,19 @@ jobs:
                   print("  WARNING: no credentials set")
                   return 0, ''
 
-              if not ensure_logged_in(preview_url):
-                  return 0, ''
+              # Login only once — reuse the same session for all dates
+              if not _logged_in:
+                  if not ensure_logged_in(preview_url):
+                      return 0, ''
 
               # Step 4: GET the PREVIEW page (now authenticated)
               r3 = _client.get(preview_url)
               print(f"  httpx: PREVIEW (post-login) HTTP {r3.status_code}, len={len(r3.text)}")
+              # If response is splash/login again, session expired — fail fast
+              if 'Splash Page' in r3.text or 'id="LogName"' in r3.text:
+                  print(f"  httpx: session lost — got login/splash instead of AITEM")
+                  _logged_in = False
+                  return 0, ''
               return 200, r3.text
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
