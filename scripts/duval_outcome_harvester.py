@@ -129,7 +129,7 @@ def log(msg: str, tag: str = "INFO") -> None:
 # ── Step 1: Audit current state ────────────────────────────────────────────────
 def audit_current_state() -> dict:
     log("Auditing current Duval B/C/D/F state...")
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"p_county": COUNTY})
     state  = {}
     if isinstance(result, list):
         for row in result:
@@ -147,14 +147,14 @@ def audit_current_state() -> dict:
 # ── Step 2: Count existing rows in outcome tables ──────────────────────────────
 def count_existing_outcomes() -> tuple[int, int]:
     fc = sb_get("foreclosure_outcomes", {
-        "county_slug": f"eq.{COUNTY}",
-        "select":      "id",
-        "limit":       "10000",
+        "county": f"eq.{COUNTY}",
+        "select": "id",
+        "limit":  "10000",
     })
     td = sb_get("tax_deed_outcomes", {
-        "county_slug": f"eq.{COUNTY}",
-        "select":      "id",
-        "limit":       "10000",
+        "county": f"eq.{COUNTY}",
+        "select": "id",
+        "limit":  "10000",
     })
     log(f"Existing outcomes: foreclosure={len(fc)}  tax_deed={len(td)}")
     return len(fc), len(td)
@@ -180,8 +180,8 @@ def fetch_closed_duval_auctions() -> list[dict]:
             "county":         f"eq.{COUNTY}",
             "auction_status": status_filter,
             "select":         "id,case_number,parcel_id,sale_type,auction_status,auction_date,"
-                              "sale_date,winning_bid,final_bid,sold_amount,opening_bid,"
-                              "buyer_name,plaintiff,judgment_amount,source_platform,"
+                              "sale_result_date,sold_amount,opening_bid,"
+                              "winning_bidder,plaintiff,judgment_amount,source_platform,"
                               "source_url,clerk_url,tier1_sold_amount",
             "limit":          str(page),
             "offset":         str(offset),
@@ -224,7 +224,7 @@ def _buyer_type(name: str | None) -> str:
     return "unknown"
 
 def _amount(row: dict) -> float | None:
-    for col in ("winning_bid", "final_bid", "sold_amount", "opening_bid"):
+    for col in ("sold_amount", "opening_bid"):
         v = row.get(col)
         if v is not None:
             try:
@@ -248,7 +248,7 @@ def build_outcome_records(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 
     for row in rows:
         case_num = row.get("case_number")
-        auc_date = row.get("auction_date") or row.get("sale_date")
+        auc_date = row.get("auction_date") or row.get("sale_result_date")
         platform = row.get("source_platform", "")
 
         # Skip PropertyOnion
@@ -260,42 +260,36 @@ def build_outcome_records(rows: list[dict]) -> tuple[list[dict], list[dict]]:
         sale_type = (row.get("sale_type") or "").lower()
         amount    = _amount(row)
         src       = _data_source(platform)
-        buyer_n   = row.get("buyer_name")
+        buyer_n   = row.get("winning_bidder")
         buyer_t   = _buyer_type(buyer_n)
 
         if sale_type in ("foreclosure", "fc"):
             fc_records.append({
-                "county_slug":        COUNTY,
-                "case_number":        case_num,
-                "parcel_id":          row.get("parcel_id"),
-                "auction_date":       auc_date,
-                "sale_status":        _sale_status_fc(row.get("auction_status", "")),
-                "sale_amount":        amount,
-                "high_bid":           amount,
-                "buyer_name":         buyer_n,
-                "buyer_type":         buyer_t,
-                "plaintiff":          row.get("plaintiff"),
-                "final_judgment_amt": row.get("judgment_amount"),
-                "court_case_number":  case_num,
-                "data_source":        src,
-                "source_url":         row.get("source_url") or row.get("clerk_url"),
-                "confidence_level":   "verified",
-                "notes":              f"From multi_county_auctions via {src}",
+                "county":         COUNTY,
+                "case_number":    case_num,
+                "parcel_id":      row.get("parcel_id"),
+                "auction_date":   auc_date,
+                "outcome":        _sale_status_fc(row.get("auction_status", "")),
+                "winning_bid":    amount,
+                "winner_name":    buyer_n,
+                "winner_type":    buyer_t,
+                "plaintiff_raw":  row.get("plaintiff"),
+                "final_judgment": row.get("judgment_amount"),
+                "data_source":    src,
+                "source_url":     row.get("source_url") or row.get("clerk_url"),
             })
         elif sale_type in ("tax_deed", "td", "tax deed"):
             td_records.append({
-                "county_slug":      COUNTY,
-                "case_number":      case_num,
-                "parcel_id":        row.get("parcel_id"),
-                "auction_date":     auc_date,
-                "sale_status":      _sale_status_td(row.get("auction_status", "")),
-                "sale_amount":      amount,
-                "buyer_name":       buyer_n,
-                "buyer_type":       buyer_t,
-                "data_source":      src,
-                "source_url":       row.get("source_url") or row.get("clerk_url"),
-                "confidence_level": "verified",
-                "notes":            f"From multi_county_auctions via {src}",
+                "county":       COUNTY,
+                "case_number":  case_num,
+                "parcel_id":    row.get("parcel_id"),
+                "auction_date": auc_date,
+                "outcome":      _sale_status_td(row.get("auction_status", "")),
+                "winning_bid":  amount,
+                "winner_name":  buyer_n,
+                "winner_type":  buyer_t,
+                "data_source":  src,
+                "source_url":   row.get("source_url") or row.get("clerk_url"),
             })
 
     log(f"Built outcome records: foreclosure={len(fc_records)}  tax_deed={len(td_records)}")
@@ -310,14 +304,14 @@ def load_outcomes(fc_records: list[dict], td_records: list[dict]) -> tuple[int, 
     for i in range(0, len(fc_records), BATCH):
         batch = fc_records[i:i + BATCH]
         n     = sb_upsert("foreclosure_outcomes", batch,
-                           conflict_cols="county_slug,case_number,auction_date")
+                           conflict_cols="county,case_number,auction_date")
         fc_loaded += n
         log(f"  foreclosure_outcomes upsert batch {i//BATCH+1}: {n} rows")
 
     for i in range(0, len(td_records), BATCH):
         batch = td_records[i:i + BATCH]
         n     = sb_upsert("tax_deed_outcomes", batch,
-                           conflict_cols="county_slug,case_number,auction_date")
+                           conflict_cols="county,case_number,auction_date")
         td_loaded += n
         log(f"  tax_deed_outcomes upsert batch {i//BATCH+1}: {n} rows")
 
@@ -460,18 +454,15 @@ def scrape_realforeclose_results(months_back: int = 3) -> list[dict]:
                     continue
 
                 month_outcomes.append({
-                    "county_slug":      COUNTY,
-                    "case_number":      case_num,
-                    "parcel_id":        parcel,
-                    "auction_date":     target.isoformat(),
-                    "sale_status":      _sale_status_fc(status),
-                    "sale_amount":      bid,
-                    "high_bid":         bid,
-                    "buyer_type":       "unknown",
-                    "data_source":      DATA_SOURCE_FC,
-                    "source_url":       url,
-                    "confidence_level": "verified",
-                    "notes":            f"Live scrape duval.realforeclose.com {target.strftime('%Y-%m')}",
+                    "county":       COUNTY,
+                    "case_number":  case_num,
+                    "parcel_id":    parcel,
+                    "auction_date": target.isoformat(),
+                    "outcome":      _sale_status_fc(status),
+                    "winning_bid":  bid,
+                    "winner_type":  "unknown",
+                    "data_source":  DATA_SOURCE_FC,
+                    "source_url":   url,
                 })
 
             log(f"  {target.strftime('%Y-%m')}: parsed {len(month_outcomes)} outcomes")
