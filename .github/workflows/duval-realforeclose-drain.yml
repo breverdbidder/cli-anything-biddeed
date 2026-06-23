@@ -299,18 +299,31 @@ jobs:
               print("  Registration: all form submissions failed — no success indicator")
               return False
 
-          def get_preview_html(auction_date_iso, authenticated=True):
-              """Fetch PREVIEW page, optionally logged in."""
+          _preview_sample_logged = False  # log one PREVIEW body for diagnosis
+
+          def get_preview_html(auction_date_iso):
+              """Fetch PREVIEW page."""
+              global _preview_sample_logged
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
               url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
                      f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
               r = _client.get(url)
               html = r.text
-              label = "auth" if authenticated else "unauth"
+              label = "auth" if _logged_in else "unauth"
               print(f"  PREVIEW {label} HTTP {r.status_code}, len={len(html)}")
+              # Log first PREVIEW body once for diagnosis (docsreq/login-wall detection)
+              if not _preview_sample_logged:
+                  _preview_sample_logged = True
+                  title_m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
+                  pg_title = title_m.group(1).strip() if title_m else 'no-title'
+                  print(f"  PREVIEW sample title: {pg_title!r}")
+                  print(f"  PREVIEW sample body[2000:2600]: {html[2000:2600]!r}")
               if 'id="LogName"' in html and '<form' in html:
-                  print(f"  PREVIEW: returned login form (session not active)")
+                  if _logged_in:
+                      print(f"  PREVIEW: login form returned even when authenticated (docsreq restriction?)")
+                  else:
+                      print(f"  PREVIEW: login wall (not authenticated)")
                   return ''
               return html
 
@@ -355,15 +368,7 @@ jobs:
               except Exception as e:
                   print(f"  court_responses_raw insert error: {e}")
 
-              html = get_preview_html(auction_date, authenticated=_logged_in)
-              if not html and not _logged_in:
-                  # Unauthenticated fallback: probe anyway (some CF sites show AITEM without login)
-                  d = datetime.strptime(auction_date, '%Y-%m-%d')
-                  url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
-                         f"&AUCTIONDATE={d.strftime('%m/%d/%Y').replace('/', '%2F')}")
-                  r = _client.get(url)
-                  html = r.text
-                  print(f"  Unauth fallback HTTP {r.status_code}, len={len(html)}")
+              html = get_preview_html(auction_date)
 
               status_code = 200 if html else 0
               aids = parse_aitem_blocks(html, 'duval') if html else []
