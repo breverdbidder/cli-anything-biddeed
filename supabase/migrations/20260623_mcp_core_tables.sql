@@ -134,15 +134,23 @@ INSERT INTO taxi_meter_tools (tool_name, stream_id, gate_cert, product) VALUES
 ON CONFLICT (tool_name) DO NOTHING;
 
 -- ── RLS: billing_events + mcp_api_keys (service role only) ───────────────────
-ALTER TABLE billing_events   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mcp_api_keys     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE beta_invites      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE taxi_meter_streams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE taxi_meter_tools   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_events     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mcp_api_keys       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE beta_invites        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE taxi_meter_streams  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE taxi_meter_tools    ENABLE ROW LEVEL SECURITY;
 
--- Service role bypasses RLS — all reads/writes from MCP server use service role key
-CREATE POLICY "service_role_all" ON billing_events    FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON mcp_api_keys      FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON beta_invites       FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON taxi_meter_streams FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON taxi_meter_tools   FOR ALL USING (auth.role() = 'service_role');
+-- Service role bypasses RLS — idempotent: drop before re-create
+DO $$ BEGIN
+  DROP POLICY IF EXISTS "service_role_all" ON billing_events;
+  DROP POLICY IF EXISTS "service_role_all" ON mcp_api_keys;
+  DROP POLICY IF EXISTS "service_role_all" ON beta_invites;
+  DROP POLICY IF EXISTS "service_role_all" ON taxi_meter_streams;
+  DROP POLICY IF EXISTS "service_role_all" ON taxi_meter_tools;
+
+  CREATE POLICY "service_role_all" ON billing_events    FOR ALL USING (auth.role() = 'service_role');
+  CREATE POLICY "service_role_all" ON mcp_api_keys      FOR ALL USING (auth.role() = 'service_role');
+  CREATE POLICY "service_role_all" ON beta_invites       FOR ALL USING (auth.role() = 'service_role');
+  CREATE POLICY "service_role_all" ON taxi_meter_streams FOR ALL USING (auth.role() = 'service_role');
+  CREATE POLICY "service_role_all" ON taxi_meter_tools   FOR ALL USING (auth.role() = 'service_role');
+END $$;
