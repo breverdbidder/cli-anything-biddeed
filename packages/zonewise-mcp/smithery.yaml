@@ -1,0 +1,49 @@
+name: zonewise-mcp
+displayName: ZoneWise — FL Parcel Zoning Lookup
+description: >
+  MCP server for Florida parcel zoning data. Instant zone code, FAR, setbacks,
+  max height, and entitlement verdicts for 771K+ FL parcels across Brevard,
+  Duval, Orange, and 40+ counties. Includes bulk lookup (50 parcels/call).
+version: 1.0.0
+author: BidDeed.AI / ZoneWise / Everest Capital USA
+license: MIT
+homepage: https://zonewise.ai
+repository: https://github.com/breverdbidder/cli-anything-biddeed/tree/main/packages/zonewise-mcp
+
+startCommand:
+  type: stdio
+  command: npx
+  args:
+    - "-y"
+    - zonewise-mcp
+
+configSchema:
+  type: object
+  properties:
+    BIDDEED_API_KEY:
+      type: string
+      description: ZoneWise API key (zw_live_xxx). Get at https://zonewise.ai/api
+    SUPABASE_URL:
+      type: string
+      description: Supabase project URL
+    SUPABASE_SERVICE_ROLE_KEY:
+      type: string
+      description: Supabase service role key
+  required:
+    - BIDDEED_API_KEY
+    - SUPABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY
+
+categories:
+  - real-estate
+  - zoning
+  - florida
+  - gis
+
+tools:
+  - name: check_zoning
+    description: Zone code, district, FAR, setbacks, max height for any FL parcel
+  - name: get_zoning_districts
+    description: All zoning districts for a county with development standards
+  - name: bulk_check_zoning
+    description: Check up to 50 FL parcels in a single call

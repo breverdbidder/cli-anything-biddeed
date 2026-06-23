@@ -1,0 +1,98 @@
+name: biddeed-mcp
+displayName: BidDeed.AI — FL Foreclosure Intelligence
+description: >
+  25-tool MCP server for Florida foreclosure and tax deed investors.
+  Full Investra parity + 8 BidDeed exclusives: Shapira Formula (82.6% accuracy),
+  zoning lookup (771K+ FL parcels), lien survival rules, co-living analysis,
+  bid packages, and deal memos. 7 revenue streams metered per call.
+version: 1.0.0
+author: BidDeed.AI / Everest Capital USA
+license: MIT
+homepage: https://biddeed.ai
+repository: https://github.com/breverdbidder/cli-anything-biddeed/tree/main/packages/biddeed-mcp
+
+startCommand:
+  type: stdio
+  command: npx
+  args:
+    - "-y"
+    - biddeed-mcp
+
+configSchema:
+  type: object
+  properties:
+    BIDDEED_API_KEY:
+      type: string
+      description: BidDeed API key (bd_live_xxx). Get at https://biddeed.ai/dashboard
+    SUPABASE_URL:
+      type: string
+      description: Supabase project URL
+    SUPABASE_SERVICE_ROLE_KEY:
+      type: string
+      description: Supabase service role key
+    STRIPE_SECRET_KEY:
+      type: string
+      description: Stripe secret key (optional — required for S5 metered billing)
+  required:
+    - BIDDEED_API_KEY
+    - SUPABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY
+
+categories:
+  - real-estate
+  - finance
+  - florida
+  - foreclosure
+  - auction
+
+tools:
+  - name: search_auctions
+    description: Search FL foreclosure + tax deed auctions
+  - name: get_auction_detail
+    description: Full auction detail by case number
+  - name: browse_deals
+    description: Pre-scored deals ranked by Shapira discount
+  - name: get_deposit_requirements
+    description: Exact FL auction deposit formula
+  - name: find_local_partners
+    description: Title companies, attorneys, contractors by county
+  - name: get_interest_rate
+    description: FRED mortgage rates
+  - name: search_properties
+    description: FL property search
+  - name: search_distressed
+    description: Lis pendens, tax delinquent, pre-foreclosure
+  - name: get_owner_intel
+    description: Property owner intelligence
+  - name: get_lien_stack
+    description: FL lien survival rules (FS 197/45)
+  - name: get_rent_estimate
+    description: HUD FMR + co-living per-room uplift
+  - name: analyze_market
+    description: County auction market analysis
+  - name: get_zip_market_data
+    description: Zip-level rents + auction overlay
+  - name: get_property_detail
+    description: Folio, DOR code, BCPAO, zoning
+  - name: check_zoning
+    description: ZoneWise 771K+ FL parcels
+  - name: underwrite_deal
+    description: Shapira Formula deal underwriting
+  - name: analyze_coliving
+    description: Config C 14-suite co-living model
+  - name: get_sales_comps
+    description: Arm-length vs distressed comps + ARV
+  - name: generate_deal_memo
+    description: 1-page deal memo (auction+underwriting+zoning+liens)
+  - name: get_bid_package
+    description: Complete bid package with all data
+  - name: get_title_chain
+    description: O&E title chain
+  - name: get_market_data
+    description: National rates + FL auction overlay
+  - name: skip_trace
+    description: REISkip/BatchData owner skip trace
+  - name: watch_auction
+    description: Auction alert subscriptions
+  - name: predict_auction_outcome
+    description: Shapira Formula ML prediction (CERT required)

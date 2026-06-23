@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "type": "module",
   "bin": {
-    "biddeed-mcp": "bin/biddeed-mcp.js"
+    "biddeed-mcp": "bin/biddeed-mcp.js",
+    "biddeed-mcp-http": "bin/biddeed-mcp-http.js"
   },
   "engines": {
     "node": ">=18"
