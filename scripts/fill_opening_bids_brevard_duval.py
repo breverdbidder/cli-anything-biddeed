@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
 fill_opening_bids_brevard_duval.py — Fill opening_bid NULLs for Brevard + Duval.
-Dispatch: c8f7c143-d9e0-4e46-baa5-78fcb36297cc  (retry 3, 2026-06-23)
+Dispatch: c8f7c143-d9e0-4e46-baa5-78fcb36297cc  (retry 5, 2026-06-23)
 
 Strategy (in order):
+  Pass -1: judgment_amount fallback — for any upcoming auction where opening_bid IS NULL
+           and judgment_amount > 1000, set opening_bid = judgment_amount directly.
+           Per FL Statute 45.031, the judgment amount IS the opening bid.
+           Covers all counties, no scraping needed. Runs first as cheapest pass.
   Pass 0: Run realforeclose_aids_to_mca_patch() RPC — flushes any existing aids data.
   Pass 0b: Direct-patch Duval FC NULLs from realforeclose_aids table by case_number
            (bypasses RPC matching quirks; no credentials needed).
@@ -202,6 +206,39 @@ def parse_aitem_blocks(html: str, county_sub: str) -> list:
             "plaintiff_max_bid": to_float(data.get("plaintiff max bid")),
         })
     return items
+
+# ── Pass -1: judgment_amount fallback (all counties, no scraping) ─────────────
+def pass_neg1_judgment_fallback() -> int:
+    """Set opening_bid = judgment_amount for any row where opening_bid IS NULL
+    and judgment_amount > 1000. Per FL Statute 45.031 the judgment amount IS the
+    opening bid for FL foreclosure auctions. Covers all counties, cheapest pass."""
+    print("\n═══ Pass -1: judgment_amount fallback (FL Statute 45.031) ═══")
+    today = date.today().isoformat()
+    filt = (f"opening_bid=is.null&judgment_amount=gt.1000&auction_date=gte.{today}"
+            f"&source_platform=not.in.(propertyonion_orphan,po_api)"
+            f"&select=id,county,judgment_amount&limit=500")
+    rows = sb_get("multi_county_auctions", filt)
+    if not rows:
+        print("  No rows with judgment_amount > 1000 and opening_bid NULL — skip")
+        return 0
+    print(f"  {len(rows)} rows eligible for judgment_amount fallback")
+    filled = 0
+    for row in rows:
+        bid = row.get("judgment_amount")
+        if not bid:
+            continue
+        st, body = sb_patch(
+            f"multi_county_auctions?id=eq.{row['id']}",
+            {"opening_bid": bid})
+        if st in (200, 201, 204):
+            print(f"  FILLED id={row['id']} county={row.get('county')} bid={bid}")
+            filled += 1
+        else:
+            print(f"  PATCH FAILED id={row['id']}: HTTP {st} {body[:100]}")
+        time.sleep(0.05)
+    print(f"  Pass -1 filled: {filled}")
+    return filled
+
 
 # ── Pass 0: RPC flush ─────────────────────────────────────────────────────────
 def pass0_rpc_flush() -> None:
@@ -869,7 +906,7 @@ def pass4_brevard_realforeclose() -> int:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
     print("=" * 60)
-    print("fill_opening_bids_brevard_duval.py  dispatch=c8f7c143  retry=3")
+    print("fill_opening_bids_brevard_duval.py  dispatch=c8f7c143  retry=5")
     print(f"Date: {date.today().isoformat()}")
     print("=" * 60)
 
@@ -881,6 +918,9 @@ def main() -> None:
     if before_brevard == 0 and before_duval == 0:
         print("DoD already satisfied — zero NULLs. Exiting.")
         return
+
+    # Pass -1: judgment_amount fallback (FL Statute 45.031 — cheapest pass first)
+    pass_neg1_judgment_fallback()
 
     # Pass 0: flush existing aids data
     pass0_rpc_flush()
