@@ -268,17 +268,30 @@ jobs:
 
               def js_str(s): return s.replace('\\', '\\\\').replace("'", "\\'")
 
+              # Duval has a splash/disclaimer page at /index.cfm that must be clicked through
+              # before the login form appears. We click any visible submit button, wait, then
+              # look for and fill the LogName/LogPass fields.
               payload = {
                   "url": f"{HOST}/index.cfm",
                   "formats": ["html"],
                   "actions": [
-                      {"type": "wait", "milliseconds": 2500},
+                      {"type": "wait", "milliseconds": 2000},
+                      # Click through splash page (try common selectors for "Enter"/"I Agree")
+                      {"type": "executeJavascript", "script":
+                          "(document.querySelector('input[type=\"submit\"]') || "
+                          " document.querySelector('button[type=\"submit\"]') || "
+                          " document.querySelector('#btnEnter') || "
+                          " document.querySelector('a.enterBtn') || "
+                          " document.querySelector('.enterBtn') || {click:()=>{}}).click()"},
+                      {"type": "wait", "milliseconds": 3000},
+                      # Now fill login credentials (may now be on login page)
                       {"type": "executeJavascript", "script":
                           f"document.getElementById('LogName') && (document.getElementById('LogName').value='{js_str(EMAIL)}')"},
                       {"type": "executeJavascript", "script":
                           f"document.getElementById('LogPass') && (document.getElementById('LogPass').value='{js_str(PW)}')"},
                       {"type": "click", "selector": "#LogButton"},
                       {"type": "wait", "milliseconds": 5000},
+                      # Navigate to preview page via JS
                       {"type": "executeJavascript", "script":
                           f"window.location.href='{preview_url}'"},
                       {"type": "wait", "milliseconds": 12000},
