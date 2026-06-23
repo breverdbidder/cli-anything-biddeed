@@ -339,7 +339,6 @@ def fix_tier1_sold_amount(rows: list[dict]) -> int:
             f"id=eq.{auction_id}",
             {
                 "tier1_sold_amount": amount,
-                "tier1_buyer_type":  "third_party",
                 "tier1_verified_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at":        datetime.now(timezone.utc).isoformat(),
             },
