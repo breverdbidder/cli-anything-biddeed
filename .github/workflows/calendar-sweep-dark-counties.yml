@@ -1,12 +1,15 @@
-name: "Calendar Sweep — 30 Dark Counties"
-# Scrapes upcoming auction listings for all zero-count counties and upserts to multi_county_auctions.
+name: "Calendar Sweep — Dark Counties"
+# Scrapes upcoming auction listings for dark (zero-count) FL counties via RealTaxDeed / RealForeclosure.
+# Extended to 39 counties (v2). DoD uses Supabase REST API only — no Management API.
+#
 # DOD: SELECT COUNT(DISTINCT county) FROM multi_county_auctions
 #      WHERE auction_date >= CURRENT_DATE AND source_platform NOT IN ('propertyonion_orphan','po_api')
-#      must return >= 50 (up from 22).
+#      must return >= 50 (up from 26).
 #
-# Counties: alachua baker bay bradford calhoun citrus clay escambia flagler gilchrist
-#           hendry hernando highlands jackson lake lee leon martin miami_dade monroe
-#           okaloosa okeechobee pasco putnam santa_rosa seminole st_johns st_lucie suwannee walton
+# Counties (39): alachua baker bay bradford calhoun citrus clay columbia escambia flagler
+#   gadsden gilchrist glades hamilton hardee hendry hernando highlands jackson jefferson
+#   lafayette lake leon levy liberty martin monroe okeechobee pasco putnam santa_rosa
+#   seminole st_johns st_lucie suwannee taylor union wakulla walton
 
 on:
   workflow_dispatch:
@@ -25,16 +28,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── 1. BUILD MATRIX FROM SSOT ────────────────────────────────────────────────
+  # ── 1. BUILD MATRIX FROM SSOT + HARDCODED FALLBACKS ─────────────────────────
   setup:
-    name: "Build county matrix from realauction_subdomains"
+    name: "Build county matrix (39 dark counties)"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
       total:  ${{ steps.gen.outputs.total }}
     steps:
-      - name: "Query realauction_subdomains for 30 dark counties"
+      - uses: actions/checkout@v4
+
+      - name: "Query realauction_subdomains + add fallbacks for counties missing from DB"
         id: gen
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -43,10 +48,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 30 dark counties from mission brief
-          SLUGS="alachua,baker,bay,bradford,calhoun,citrus,clay,escambia,flagler,gilchrist,hendry,hernando,highlands,jackson,lake,lee,leon,martin,miami_dade,monroe,okaloosa,okeechobee,pasco,putnam,santa_rosa,seminole,st_johns,st_lucie,suwannee,walton"
+          # 39 dark counties — v2 extended (added columbia, gadsden, glades, hamilton, hardee,
+          # jefferson, lafayette, levy, liberty, taylor, union, wakulla vs the prior 30)
+          SLUGS="alachua,baker,bay,bradford,calhoun,citrus,clay,columbia,escambia,flagler,gadsden,gilchrist,glades,hamilton,hardee,hendry,hernando,highlands,jackson,jefferson,lafayette,lake,leon,levy,liberty,martin,monroe,okeechobee,pasco,putnam,santa_rosa,seminole,st_johns,st_lucie,suwannee,taylor,union,wakulla,walton"
 
-          # Build sale_type filter
           STIN="${SALE_TYPE_IN:-both}"
           if [ "$STIN" = "both" ]; then
             ST_FILTER="platform=in.(realforeclose,realtaxdeed)"
@@ -57,26 +62,22 @@ jobs:
           fi
 
           URL="${SUPABASE_URL}/rest/v1/realauction_subdomains?is_active=eq.true&${ST_FILTER}&county_slug=in.(${SLUGS})&select=county_slug,sale_type,platform,base_url"
-          RESP=$(curl -sf \
+          curl -sf \
             -H "apikey: ${SUPABASE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -H "Accept: application/json" \
-            "$URL")
+            "$URL" > /tmp/db_resp.json || echo "[]" > /tmp/db_resp.json
 
-          TOTAL=$(echo "$RESP" | jq 'length')
-          echo "::notice::Found $TOTAL county+sale_type combos in realauction_subdomains"
+          DB_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/db_resp.json'))))" 2>/dev/null || echo 0)
+          echo "::notice::DB returned $DB_COUNT rows for the 39-county slug list"
 
-          # Build matrix. Fallback base_url = https://{county_slug}.{platform}.com
-          MATRIX=$(echo "$RESP" | jq -c '{include: [.[] | {
-            county:    .county_slug,
-            sale_type: .sale_type,
-            platform:  .platform,
-            base_url:  (.base_url // ("https://" + .county_slug + "." + .platform + ".com"))
-          }]}')
-
+          # build_dark_county_matrix.py: merges DB entries with fallbacks for missing counties
+          MATRIX=$(SLUGS="$SLUGS" python3 .github/scripts/build_dark_county_matrix.py)
+          TOTAL=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])['include']))" "$MATRIX")
+          echo "::notice::Matrix: $TOTAL county+sale_type combos ($DB_COUNT from DB + fallbacks)"
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "total=$TOTAL"   >> "$GITHUB_OUTPUT"
-          echo "Matrix: $MATRIX"
+          python3 -c "import json,sys; d=json.loads(sys.argv[1]); print('Sample:', d['include'][:3])" "$MATRIX"
 
   # ── 2. CALENDAR SWEEP (parallel, batch 5) ────────────────────────────────────
   sweep:
@@ -88,7 +89,7 @@ jobs:
     continue-on-error: true    # dark counties exit(2); don't fail the whole run
     strategy:
       fail-fast: false
-      max-parallel: 5          # rate-limit: 5 concurrent Firecrawl sessions
+      max-parallel: 5          # rate-limit: 5 concurrent sessions
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     steps:
@@ -121,7 +122,7 @@ jobs:
             exit 0
           fi
 
-          # Capture exit without triggering set -e; retry once on fatal error (exit 1)
+          # Retry once on fatal error (exit 1). Dark = exit 2 (continue-on-error).
           EXIT=0; python .github/scripts/calendar_sweep_mca.py || EXIT=$?
           if [ "$EXIT" = "1" ]; then
             echo "  Retrying after 15s..."
@@ -147,56 +148,48 @@ jobs:
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -H "Accept: application/json" \
             "$URL")
-          COUNT=$(echo "$RESP" | jq 'length')
+          COUNT=$(python3 -c "import json,sys; print(len(json.load(sys.stdin)))" <<< "$RESP")
           echo "### SQL VERIFICATION: ${COUNTY}" >> "$GITHUB_STEP_SUMMARY"
           echo '```sql' >> "$GITHUB_STEP_SUMMARY"
           echo "SELECT county, auction_date, case_number FROM multi_county_auctions WHERE county='${COUNTY}' AND auction_date >= '${TODAY}' LIMIT 3;" >> "$GITHUB_STEP_SUMMARY"
           echo "-- rows returned: $COUNT" >> "$GITHUB_STEP_SUMMARY"
-          echo "$RESP" | jq '.' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::${COUNTY}: $COUNT upcoming rows in MCA"
 
-  # ── 3. DOD VERIFICATION ─────────────────────────────────────────────────────
+  # ── 3. DOD VERIFICATION — REST API ONLY (no Management API) ─────────────────
   verify-dod:
     name: "DOD Verification"
     needs: [setup, sweep]
     if: always() && needs.setup.outputs.total != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      REF:   mocerqjnksmhcjzxrewo
     steps:
-      - name: "Run DOD query"
+      - uses: actions/checkout@v4
+
+      - name: "Count distinct counties via REST API"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TODAY: ""
         run: |
           set -euo pipefail
+          export TODAY=$(date -u +%Y-%m-%d)
 
-          QUERY='SELECT COUNT(DISTINCT county) AS distinct_counties FROM multi_county_auctions WHERE auction_date >= CURRENT_DATE AND source_platform NOT IN ('\''propertyonion_orphan'\'','\''po_api'\'')'
+          # dod_rest_check.py: REST only, no Management API
+          python3 .github/scripts/dod_rest_check.py > /tmp/dod_result.json
 
-          RESULT=$(python3 -c "
-          import json, os, urllib.request
-          token = os.environ.get('TOKEN','')
-          sql = '''$QUERY'''
-          body = json.dumps({'query': sql}).encode()
-          req = urllib.request.Request(
-              'https://api.supabase.com/v1/projects/$REF/database/query',
-              data=body, method='POST'
-          )
-          req.add_header('Authorization', f'Bearer {token}')
-          req.add_header('Content-Type', 'application/json')
-          with urllib.request.urlopen(req, timeout=30) as r:
-              data = json.loads(r.read())
-              print(json.dumps(data))
-          ")
+          COUNT=$(python3 -c "import json; print(json.load(open('/tmp/dod_result.json'))['distinct'])")
+          TOTAL_ROWS=$(python3 -c "import json; print(json.load(open('/tmp/dod_result.json'))['total_rows'])")
+          BREAKDOWN=$(python3 -c "import json; print(json.dumps(json.load(open('/tmp/dod_result.json'))['breakdown'], indent=2))")
 
-          COUNT=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['distinct_counties'] if d else 0)" 2>/dev/null || echo "0")
           echo "### DOD VERIFICATION" >> "$GITHUB_STEP_SUMMARY"
-          echo '```sql' >> "$GITHUB_STEP_SUMMARY"
-          echo "SELECT COUNT(DISTINCT county) FROM multi_county_auctions" >> "$GITHUB_STEP_SUMMARY"
-          echo "WHERE auction_date >= CURRENT_DATE" >> "$GITHUB_STEP_SUMMARY"
-          echo "AND source_platform NOT IN ('propertyonion_orphan','po_api');" >> "$GITHUB_STEP_SUMMARY"
-          echo "-- Result: $COUNT distinct counties" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          printf '```sql\n' >> "$GITHUB_STEP_SUMMARY"
+          echo "-- REST: GET /rest/v1/multi_county_auctions?select=county&auction_date=gte.${TODAY}&source_platform=not.in.(...)" >> "$GITHUB_STEP_SUMMARY"
+          echo "-- SQL equivalent: SELECT COUNT(DISTINCT county) FROM multi_county_auctions" >> "$GITHUB_STEP_SUMMARY"
+          echo "--   WHERE auction_date >= CURRENT_DATE AND source_platform NOT IN ('propertyonion_orphan','po_api')" >> "$GITHUB_STEP_SUMMARY"
+          echo "-- Total rows fetched: $TOTAL_ROWS | Distinct counties: $COUNT" >> "$GITHUB_STEP_SUMMARY"
+          printf '```\n' >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$COUNT" -ge 50 ] 2>/dev/null; then
             echo "::notice::DOD PASSED: $COUNT distinct counties >= 50 ✅"
@@ -204,35 +197,11 @@ jobs:
           else
             echo "::warning::DOD NOT YET MET: $COUNT distinct counties (target >= 50)"
             echo "### ⚠️ DOD NOT MET: $COUNT < 50 counties" >> "$GITHUB_STEP_SUMMARY"
-            echo "Some counties may be genuinely dark (no scheduled auctions). Check per-county summaries above."
+            echo "Some counties may be genuinely dark (no scheduled auctions). Check per-county breakdown." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # Per-county breakdown for the 30 dark counties
-          BREAKDOWN=$(python3 -c "
-          import json, os, urllib.request
-          token = os.environ.get('TOKEN','')
-          sql = '''SELECT county, COUNT(*) AS n FROM multi_county_auctions
-                   WHERE auction_date >= CURRENT_DATE
-                   AND county IN ('alachua','baker','bay','bradford','calhoun','citrus','clay',
-                                  'escambia','flagler','gilchrist','hendry','hernando','highlands',
-                                  'jackson','lake','lee','leon','martin','miami_dade','monroe',
-                                  'okaloosa','okeechobee','pasco','putnam','santa_rosa','seminole',
-                                  'st_johns','st_lucie','suwannee','walton')
-                   GROUP BY county ORDER BY county'''
-          body = json.dumps({'query': sql}).encode()
-          req = urllib.request.Request(
-              'https://api.supabase.com/v1/projects/$REF/database/query',
-              data=body, method='POST'
-          )
-          req.add_header('Authorization', f'Bearer {token}')
-          req.add_header('Content-Type', 'application/json')
-          with urllib.request.urlopen(req, timeout=30) as r:
-              data = json.loads(r.read())
-              print(json.dumps(data, indent=2))
-          ")
-
-          echo "### Per-county row counts (30 dark counties)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "### Per-county breakdown (39 dark counties)" >> "$GITHUB_STEP_SUMMARY"
+          printf '```json\n' >> "$GITHUB_STEP_SUMMARY"
           echo "$BREAKDOWN" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          printf '```\n' >> "$GITHUB_STEP_SUMMARY"
           echo "$BREAKDOWN"
