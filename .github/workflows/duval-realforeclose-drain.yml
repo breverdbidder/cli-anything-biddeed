@@ -312,18 +312,51 @@ jobs:
               html = r.text
               label = "auth" if _logged_in else "unauth"
               print(f"  PREVIEW {label} HTTP {r.status_code}, len={len(html)}")
-              # Log first PREVIEW body once for diagnosis (docsreq/login-wall detection)
+              # Log first PREVIEW body for diagnosis
               if not _preview_sample_logged:
                   _preview_sample_logged = True
                   title_m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
                   pg_title = title_m.group(1).strip() if title_m else 'no-title'
                   print(f"  PREVIEW sample title: {pg_title!r}")
-                  print(f"  PREVIEW sample body[2000:2600]: {html[2000:2600]!r}")
+                  # Show body text (strip tags) to see what the notice page says
+                  body_text = re.sub(r'<[^>]+>', ' ', html)
+                  body_text = re.sub(r'\s+', ' ', body_text).strip()
+                  print(f"  PREVIEW text[0:800]: {body_text[:800]!r}")
+
+              # Handle "Notice and alert page" (docsreq:YES) — try to accept/submit the notice
+              if 'notice and alert' in html.lower() or ('docsreq' in html.lower()) or (
+                      'upload' in html.lower() and 'document' in html.lower() and 'license' in html.lower()):
+                  print("  PREVIEW: 'Notice and alert' gate detected (docsreq:YES)")
+                  # Check if it's a TOS/acceptance form (can be automated)
+                  # vs a document upload requirement (needs human)
+                  has_file_input = '<input' in html.lower() and 'type="file"' in html.lower()
+                  print(f"  Has file upload input: {has_file_input}")
+                  if not has_file_input:
+                      # Might be a clickable acceptance — try to submit the form
+                      notice_forms = re.findall(r'<form[^>]*>.*?</form>', html, re.DOTALL|re.IGNORECASE)
+                      for nf in notice_forms:
+                          action_m = re.search(r'\baction=["\']([^"\']*)["\']', nf, re.IGNORECASE)
+                          raw_a = action_m.group(1) if action_m else '/index.cfm'
+                          notice_action = raw_a if raw_a.startswith('http') else HOST + '/' + raw_a.lstrip('/')
+                          nfields = {}
+                          for inp in re.findall(r'<input[^>]+>', nf, re.IGNORECASE):
+                              nm = re.search(r'\bname=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+                              vl = re.search(r'\bvalue=["\']([^"\']*)["\']', inp, re.IGNORECASE)
+                              if nm:
+                                  nfields[nm.group(1)] = vl.group(1) if vl else 'Y'
+                          print(f"  Notice form action={notice_action!r}, fields={list(nfields.keys())}")
+                          if nfields:
+                              nr = _client.post(notice_action, data=nfields,
+                                                headers={'Referer': url})
+                              nr_title = re.search(r'<title>([^<]+)</title>', nr.text, re.IGNORECASE)
+                              print(f"  Notice submit HTTP {nr.status_code}, title={nr_title.group(1).strip() if nr_title else 'none'!r}")
+                  return ''
+
               if 'id="LogName"' in html and '<form' in html:
                   if _logged_in:
-                      print(f"  PREVIEW: login form returned even when authenticated (docsreq restriction?)")
+                      print(f"  PREVIEW: login form returned even when authenticated")
                   else:
-                      print(f"  PREVIEW: login wall (not authenticated)")
+                      print(f"  PREVIEW: login wall")
                   return ''
               return html
 
