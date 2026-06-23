@@ -101,7 +101,7 @@ def sb_rpc(fn: str, payload: dict) -> tuple[int, str]:
 
 def count_null_bids(county: str = None) -> int:
     """Count upcoming auctions with NULL opening_bid for a county (or both if None)."""
-    filt = "auction_date=gte.2026-01-01&opening_bid=is.null"
+    filt = f"auction_date=gte.{date.today().isoformat()}&opening_bid=is.null"
     if county:
         filt += f"&county=eq.{county}"
     else:
@@ -113,7 +113,7 @@ def fetch_null_bid_rows(county: str, sale_type: str = None) -> list:
     """Fetch upcoming auction rows with NULL opening_bid."""
     filt = f"county=eq.{county}&auction_date=gte.2026-01-01&opening_bid=is.null"
     if sale_type:
-        filt += f"&auction_type=eq.{sale_type}"
+        filt += f"&auction_type=eq.{urllib.parse.quote(sale_type)}"
     return sb_get("multi_county_auctions",
                   f"{filt}&select=id,case_number,auction_date,auction_type,source_platform&limit=500") or []
 
@@ -460,16 +460,20 @@ def pass3_brevard_accweb() -> int:
         if not cn:
             continue
 
-        # Search AcclaimWeb by case number using CaseNumber search type
-        # URL: /AcclaimWeb/search/SearchTypeCaseNo (discovered from Brevard clerk docs)
-        # Payload: CaseNumber=XX-YYYY-CA-NNNNNN
-        cn_encoded = urllib.parse.quote(cn)
-        criteria_payload = f"CaseNumber={cn_encoded}"
-        search_url = f"{BREVARD_AW}/AcclaimWeb/search/SearchTypeCaseNo?Length=6"
+        # Search AcclaimWeb by case number.
+        # Correct URL: SearchTypeCaseNumber (not SearchTypeCaseNo).
+        # Requires DocTypes=all in POST body or server returns "doctype is invalid".
+        params = [
+            ("CaseNumber", cn), ("DateRangeList", " "), ("CaseNumberFilter", "0"),
+            ("RecordDateFrom", "1/1/1981"), ("RecordDateTo", date.today().strftime("%m/%d/%Y")),
+            ("DocTypesDisplay-input", "All"), ("DocTypesDisplay", ""), ("DocTypes", "all"),
+        ]
+        criteria_payload = urllib.parse.urlencode(params)
+        search_url = f"{BREVARD_AW}/AcclaimWeb/search/SearchTypeCaseNumber?Length=6"
         hdrs = {
             "Content-Type": "application/x-www-form-urlencoded",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"{BREVARD_AW}/AcclaimWeb/search/SearchTypeDocType",
+            "Referer": f"{BREVARD_AW}/AcclaimWeb/search/SearchTypeCaseNumber",
         }
         body = _req(search_url, data=criteria_payload, hdrs=hdrs)
         if "Error.htm" in body or not body:
