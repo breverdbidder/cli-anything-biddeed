@@ -26,6 +26,45 @@
 SET statement_timeout = 0;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- STEP 1a: Direct hardcoded INSERT of the 7 target cases (known auction dates)
+-- Bypasses the MCA-join path that requires auction_date IS NOT NULL.
+-- Uses format() so it works with either 'county' or 'county_slug' column name.
+-- ═══════════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+    v_county_col TEXT;
+    v_inserted   INTEGER;
+    v_sql        TEXT;
+BEGIN
+    SELECT column_name INTO v_county_col
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='foreclosure_outcomes'
+      AND column_name IN ('county','county_slug')
+    ORDER BY CASE WHEN column_name='county' THEN 1 ELSE 2 END LIMIT 1;
+
+    v_county_col := COALESCE(v_county_col, 'county');
+    RAISE NOTICE 'Step 1a: using county column = %', v_county_col;
+
+    v_sql := format(
+        'INSERT INTO foreclosure_outcomes (%I, case_number, auction_date, data_source)
+         VALUES
+           (''duval'', ''16-2025-CC-016284-AXXX-MA'', ''2026-06-09'', ''duval_realforeclose_official''),
+           (''duval'', ''16-2025-CA-004262-AXXX-MA'', ''2026-06-03'', ''duval_realforeclose_official''),
+           (''duval'', ''16-2025-CA-007003-AXXX-MA'', ''2026-06-03'', ''duval_realforeclose_official''),
+           (''duval'', ''16-2024-CA-006897-AXXX-MA'', ''2026-06-03'', ''duval_realforeclose_official''),
+           (''duval'', ''16-2025-CA-003195-AXXX-MA'', ''2026-06-01'', ''duval_realforeclose_official''),
+           (''duval'', ''16-2025-CA-003566-AXXX-MA'', ''2026-06-01'', ''duval_realforeclose_official''),
+           (''duval'', ''16-2018-CA-007837-XXXX-MA'', ''2026-06-01'', ''duval_realforeclose_official'')
+         ON CONFLICT DO NOTHING',
+        v_county_col
+    );
+    EXECUTE v_sql;
+    GET DIAGNOSTICS v_inserted = ROW_COUNT;
+    RAISE NOTICE 'Step 1a direct INSERT: % rows (0 = already existed)', v_inserted;
+END;
+$$;
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- STEP 0: Column probe — emits actual schema in RAISE NOTICE
 -- ═══════════════════════════════════════════════════════════════════════════════
 DO $$

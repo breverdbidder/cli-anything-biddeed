@@ -280,7 +280,7 @@ def verify() -> None:
     for county_filter_key in ("county", "county_slug"):
         fc_rows = sb_get("foreclosure_outcomes", {
             county_filter_key: "eq.duval",
-            "select":           "case_number,sale_amount",
+            "select":           "case_number,data_source",
             "limit":            "1000",
         })
         if isinstance(fc_rows, list) and not (len(fc_rows) == 0 and county_filter_key == "county"):
