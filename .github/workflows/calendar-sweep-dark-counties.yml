@@ -106,7 +106,6 @@ jobs:
         env:
           SUPABASE_URL:                ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY:   ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          FIRECRAWL_API_KEY:           ${{ secrets.FIRECRAWL_API_KEY }}
           COUNTY_SLUG:                 ${{ matrix.county }}
           BASE_URL:                    ${{ matrix.base_url }}
           PLATFORM:                    ${{ matrix.platform }}
@@ -122,8 +121,13 @@ jobs:
             exit 0
           fi
 
-          python .github/scripts/calendar_sweep_mca.py
-          EXIT=$?
+          # Capture exit without triggering set -e; retry once on fatal error (exit 1)
+          EXIT=0; python .github/scripts/calendar_sweep_mca.py || EXIT=$?
+          if [ "$EXIT" = "1" ]; then
+            echo "  Retrying after 15s..."
+            sleep 15
+            EXIT=0; python .github/scripts/calendar_sweep_mca.py || EXIT=$?
+          fi
           echo "exit_code=$EXIT" >> "$GITHUB_OUTPUT"
           echo "county=${{ matrix.county }}" >> "$GITHUB_OUTPUT"
           exit $EXIT

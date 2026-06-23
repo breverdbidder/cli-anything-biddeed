@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """
-calendar_sweep_mca.py — BIDDEED 67-County Calendar Sweep v1.0
+calendar_sweep_mca.py — BIDDEED 67-County Calendar Sweep v2.0
 
-Phase A: Scrape CALENDAR page → discover future auction dates
-Phase B: Scrape PREVIEW page per date → extract upcoming listings
+Phase A: Scrape CALENDAR page → discover future auction dates (direct HTTP, no Firecrawl)
+Phase B: Scrape PREVIEW page per date → extract upcoming listings via AITEM HTML blocks
 Phase C: Upsert directly into multi_county_auctions
 
+No Firecrawl dependency — uses requests + regex against server-side-rendered HTML.
+Detection: login-wall, empty calendar, 403 all exit(2) (genuinely dark / blocked).
+
 Env (required): COUNTY_SLUG, BASE_URL, PLATFORM, SALE_TYPE,
-                SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FIRECRAWL_API_KEY
+                SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 Exit codes:
   0 = success (≥1 row upserted)
-  1 = fatal error (Firecrawl failure, Supabase error)
-  2 = county genuinely dark (zero future dates on calendar, or zero listings found)
+  1 = fatal error (Supabase error, unrecoverable network failure)
+  2 = county genuinely dark (zero future dates, zero listings, login wall, or 403)
       — non-fatal for GHA (continue-on-error: true)
 """
 import os, re, sys, json, time
 from datetime import date, datetime
 import requests
-
 
 # ── ENV ──────────────────────────────────────────────────────────────────────
 
@@ -30,13 +32,11 @@ def _req(name):
 
 COUNTY    = _req('COUNTY_SLUG').lower().strip()
 _raw_url  = _req('BASE_URL').rstrip('/')
-# DB stores full calendar URL; strip path so we can append endpoint variants ourselves
 BASE_URL  = _raw_url.split('/index.cfm')[0] if '/index.cfm' in _raw_url else _raw_url
 PLATFORM  = _req('PLATFORM').lower().strip()
 SALE_TYPE = _req('SALE_TYPE').lower().strip()
 SUPA_URL  = _req('SUPABASE_URL').rstrip('/')
 SUPA_KEY  = _req('SUPABASE_SERVICE_ROLE_KEY')
-FC_KEY    = _req('FIRECRAWL_API_KEY')
 
 TODAY = date.today()
 REST  = f'{SUPA_URL}/rest/v1'
@@ -45,285 +45,350 @@ SUPA_H = {
     'Authorization': f'Bearer {SUPA_KEY}',
     'Content-Type': 'application/json',
 }
-FC_H = {'Authorization': f'Bearer {FC_KEY}', 'Content-Type': 'application/json'}
 
-print(f'>>> calendar_sweep_mca v1.0 | {COUNTY} ({SALE_TYPE}) | {PLATFORM} | today={TODAY}')
+UA = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+)
+HTTP_H = {
+    'User-Agent': UA,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+}
+
+print(f'>>> calendar_sweep_mca v2.0 | {COUNTY} ({SALE_TYPE}) | {PLATFORM} | today={TODAY}')
 print(f'    BASE_URL={BASE_URL}')
 
+SESSION = requests.Session()
+SESSION.headers.update(HTTP_H)
 
-# ── FIRECRAWL ─────────────────────────────────────────────────────────────────
 
-def firecrawl(url, actions, timeout_ms=120000):
-    body = {
-        'url': url,
-        'formats': ['markdown', 'html'],
-        'actions': actions,
-        'onlyMainContent': False,
-        'timeout': timeout_ms,
-    }
-    try:
-        r = requests.post(
-            'https://api.firecrawl.dev/v1/scrape',
-            headers=FC_H, json=body, timeout=150,
-        )
-    except requests.RequestException as e:
-        print(f'  ! firecrawl request error: {e}', file=sys.stderr)
-        return '', '', str(e)
-    if r.status_code != 200:
-        print(f'  ! firecrawl {r.status_code}: {r.text[:300]}', file=sys.stderr)
-        return '', '', f'http_{r.status_code}'
-    data = r.json().get('data', {})
-    return data.get('markdown', ''), data.get('html', ''), None
+# ── HTTP HELPERS ──────────────────────────────────────────────────────────────
+
+def _get_html(url: str, retries: int = 2) -> tuple[str, str]:
+    """Return (html, error_note). Never raises; returns ('', note) on failure."""
+    for attempt in range(retries + 1):
+        try:
+            r = SESSION.get(url, timeout=30, allow_redirects=True)
+            print(f'    GET {url} → {r.status_code} ({len(r.text)} bytes)')
+            if r.status_code == 403:
+                return '', f'403 Forbidden'
+            if r.status_code >= 400:
+                return '', f'HTTP {r.status_code}'
+            return r.text, ''
+        except requests.RequestException as e:
+            if attempt < retries:
+                time.sleep(3)
+            else:
+                return '', str(e)
+    return '', 'exhausted retries'
+
+
+def _is_login_wall(html: str) -> bool:
+    return bool(
+        re.search(r'id=["\']LogName["\']', html, re.IGNORECASE) or
+        re.search(r'name=["\']UserID["\']', html, re.IGNORECASE) or
+        re.search(r'id=["\']logPassword["\']', html, re.IGNORECASE) or
+        re.search(r'<title[^>]*>.*?Login.*?</title>', html, re.IGNORECASE | re.DOTALL)
+    )
+
+
+def _strip_html(s: str) -> str | None:
+    if not s:
+        return None
+    t = re.sub(r'<[^>]+>', '', s)
+    t = re.sub(r'&amp;', '&', t)
+    t = re.sub(r'&nbsp;', ' ', t)
+    t = re.sub(r'&#\d+;', '', t)
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t or None
+
+
+def _to_float(s: str | None) -> float | None:
+    if not s:
+        return None
+    t = re.sub(r'<[^>]+>', '', s)
+    clean = re.sub(r'[^\d.]', '', t)
+    if clean:
+        try:
+            return float(clean)
+        except ValueError:
+            pass
+    return None
 
 
 # ── PHASE A: CALENDAR → FUTURE DATES ─────────────────────────────────────────
 
-CALENDAR_ACTIONS = [
-    {'type': 'wait', 'milliseconds': 15000},
-    {'type': 'scroll', 'direction': 'down'},
-    {'type': 'wait', 'milliseconds': 3000},
-    {'type': 'scroll', 'direction': 'down'},
-    {'type': 'wait', 'milliseconds': 2000},
-]
-
-def scrape_calendar():
-    """Probe both CALENDAR endpoints; return sorted list of future dates."""
+def scrape_calendar() -> tuple[list[date], str]:
+    """Fetch both calendar endpoints; return sorted list of future dates."""
     urls = [
         f'{BASE_URL}/index.cfm?zaction=USER&zmethod=CALENDAR',
         f'{BASE_URL}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR',
     ]
-    best_md, best_html = '', ''
+
+    raw_dates: set[date] = set()
+    any_html = False
+
     for url in urls:
         print(f'  [calendar] {url}')
-        md, html, err = firecrawl(url, CALENDAR_ACTIONS)
+        html, err = _get_html(url)
         if err:
             print(f'    skipped: {err}')
             time.sleep(2)
             continue
-        print(f'    md={len(md)} html={len(html)}')
-        if len(md) + len(html) > len(best_md) + len(best_html):
-            best_md, best_html = md, html
+        if _is_login_wall(html):
+            print(f'    login wall detected — skipping')
+            time.sleep(2)
+            continue
+
+        any_html = True
+        _extract_dates(html, raw_dates)
         time.sleep(2)
 
-    if not best_md and not best_html:
-        return [], 'All calendar fetches returned empty'
-
-    combined = best_md + '\n\n' + best_html
-    raw_dates: set[date] = set()
-
-    # MM/DD/YYYY
-    for m in re.finditer(r'(\d{2})/(\d{2})/(\d{4})', combined):
-        try:
-            d = date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
-            if 2024 <= d.year <= 2030:
-                raw_dates.add(d)
-        except (ValueError, OverflowError):
-            pass
-
-    # YYYY-MM-DD
-    for m in re.finditer(r'(\d{4})-(\d{2})-(\d{2})', combined):
-        try:
-            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            if 2024 <= d.year <= 2030:
-                raw_dates.add(d)
-        except (ValueError, OverflowError):
-            pass
-
-    # AUCTIONDATE=MM/DD/YYYY
-    for m in re.finditer(r'AUCTIONDATE=([\d/]+)', combined, re.IGNORECASE):
-        try:
-            d = datetime.strptime(m.group(1), '%m/%d/%Y').date()
-            if 2024 <= d.year <= 2030:
-                raw_dates.add(d)
-        except ValueError:
-            pass
+    if not any_html:
+        return [], 'All calendar fetches failed or returned login walls'
 
     future = sorted(d for d in raw_dates if d >= TODAY)
     print(f'  [calendar] raw={len(raw_dates)} total dates; future={len(future)}: {future[:7]}')
-    return future, None
+    return future, ''
+
+
+def _extract_dates(html: str, out: set[date]) -> None:
+    """Extract all plausible auction dates from raw HTML into out set."""
+    # Pattern 1: AUCTIONDATE=MM/DD/YYYY in hrefs/links (primary RealAuction pattern)
+    for m in re.finditer(r'AUCTIONDATE=([\d%/]+)', html, re.IGNORECASE):
+        raw = m.group(1).replace('%2F', '/').replace('%2f', '/')
+        try:
+            d = datetime.strptime(raw, '%m/%d/%Y').date()
+            if 2024 <= d.year <= 2030:
+                out.add(d)
+        except ValueError:
+            pass
+
+    # Pattern 2: MM/DD/YYYY free text / cell text
+    for m in re.finditer(r'(\d{2})/(\d{2})/(\d{4})', html):
+        try:
+            d = date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+            if 2024 <= d.year <= 2030:
+                out.add(d)
+        except (ValueError, OverflowError):
+            pass
+
+    # Pattern 3: YYYY-MM-DD in data attrs or iso strings
+    for m in re.finditer(r'(\d{4})-(\d{2})-(\d{2})', html):
+        try:
+            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            if 2024 <= d.year <= 2030:
+                out.add(d)
+        except (ValueError, OverflowError):
+            pass
+
+    # Pattern 4: data-auction-date="..." attributes
+    for m in re.finditer(r'data-(?:auction-?)?date=["\']([\d/\-]+)["\']', html, re.IGNORECASE):
+        raw = m.group(1)
+        for fmt in ('%Y-%m-%d', '%m/%d/%Y'):
+            try:
+                d = datetime.strptime(raw, fmt).date()
+                if 2024 <= d.year <= 2030:
+                    out.add(d)
+                break
+            except ValueError:
+                pass
 
 
 # ── PHASE B: PREVIEW → UPCOMING LISTINGS ─────────────────────────────────────
 
-PREVIEW_P1_ACTIONS = [
-    {'type': 'wait', 'milliseconds': 8000},
-    {'type': 'scroll', 'direction': 'down'},
-    {'type': 'wait', 'milliseconds': 2000},
-]
-
-def paginate_actions(page_num):
-    return [
-        {'type': 'wait', 'milliseconds': 7000},
-        {'type': 'click', 'selector': '#curPCA'},
-        {'type': 'wait', 'milliseconds': 500},
-        {'type': 'press', 'key': 'Backspace'},
-        {'type': 'press', 'key': 'Backspace'},
-        {'type': 'press', 'key': 'Backspace'},
-        {'type': 'write', 'text': str(page_num), 'selector': '#curPCA'},
-        {'type': 'press', 'key': 'Enter'},
-        {'type': 'wait', 'milliseconds': 4500},
-    ]
-
-
-def canonicalize(status_text, sold_to_text=''):
-    s = (status_text or '').lower()
-    if 'redeem' in s:                  return 'REDEEMED'
-    if 'cancel' in s:                  return 'CANCELED'
-    if 'postpon' in s:                 return 'POSTPONED'
-    if 'struck' in s:                  return 'STRUCK_OFF'
-    if 'wait' in s or 'pending' in s:  return 'LISTED'
-    if 'sold' in s:
-        st = (sold_to_text or '').lower()
-        if 'cert' in st or 'c/h' in st:   return 'SOLD_CERT_HOLDER'
-        if 'plaintiff' in st:              return 'SOLD_PLAINTIFF'
-        return 'SOLD_3RD_PARTY'
-    return 'LISTED'
-
-
-def extract_cards(md):
-    """Parse auction cards. Works for both upcoming (Waiting) and closed auctions."""
-    cards = []
-
-    # Anchor on 'Upcoming' section if present, else full page
-    up_pos = md.lower().find('upcoming auctions')
-    ac_pos = md.lower().find('auctions closed')
-    if up_pos >= 0:
-        region = md[up_pos:]
-    elif ac_pos >= 0:
-        region = md[ac_pos:]
-    else:
-        region = md  # scan full page
-
-    parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]*?\[(\d{6,12})\]', region))
-    if not parcel_anchors:
-        parcel_anchors = list(re.finditer(r'Parcel\s*ID[^\d]+?(\d{6,12})', region))
-
-    for i, pm in enumerate(parcel_anchors):
-        start = parcel_anchors[i - 1].end() if i > 0 else 0
-        end   = parcel_anchors[i + 1].start() if i + 1 < len(parcel_anchors) else len(region)
-        seg   = region[start:end]
-
-        status_text = None
-        sold_amt = sold_to = sold_ts = None
-
-        seg_to_parcel = seg[:seg.find(pm.group(1)) if pm.group(1) in seg else len(seg)]
-        if re.search(r'Auction\s*Sold', seg_to_parcel, re.IGNORECASE):
-            status_text = 'Auction Sold'
-            sub = seg_to_parcel[seg_to_parcel.lower().rfind('auction sold'):]
-            ts_m = re.search(r'(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s*ET)', sub)
-            if ts_m: sold_ts = ts_m.group(1)
-            amt_m = (re.search(r'Amount\s*\n+\s*\$([\d,]+\.\d{2})', sub) or
-                     re.search(r'\$([\d,]+\.\d{2})', sub))
-            if amt_m: sold_amt = amt_m.group(1)
-            for lbl in ['3rd Party Bidder', 'Certificate Holder', 'Cert Holder',
-                        'Plaintiff', 'Tax Deed Applicant', '3rd Party']:
-                if re.search(re.escape(lbl), sub, re.IGNORECASE):
-                    sold_to = lbl
-                    break
-        elif re.search(r'Auction\s*Status\s*\n+\s*Redeemed', seg_to_parcel, re.IGNORECASE):
-            status_text = 'Redeemed'
-        elif re.search(r'Auction\s*Status\s*\n+\s*Cancell?ed', seg_to_parcel, re.IGNORECASE):
-            status_text = 'Canceled'
-        elif re.search(r'Auction\s*Status\s*\n+\s*Postponed', seg_to_parcel, re.IGNORECASE):
-            status_text = 'Postponed'
-        elif re.search(r'Auction\s*Status\s*\n+\s*Struck', seg_to_parcel, re.IGNORECASE):
-            status_text = 'Struck-Off'
-        elif re.search(r'Auction\s*Status\s*\n+\s*Waiting', seg_to_parcel, re.IGNORECASE):
-            status_text = 'Waiting'
-        else:
-            status_text = 'Waiting'  # default for upcoming auctions
-
-        def grab(label):
-            m = re.search(label + r':\s*\|\s*([^\|\n]+?)\s*\|', seg, re.IGNORECASE)
-            if m:
-                val = re.sub(r'\s+', ' ', m.group(1)).strip()
-                return val[:200] if val else None
-            # Also handle "Label\nValue" format
-            m2 = re.search(label + r'\s*\n+\s*([^\n]{1,150})', seg, re.IGNORECASE)
-            if m2:
-                val = re.sub(r'\s+', ' ', m2.group(1)).strip()
-                return val[:200] if val else None
-            return None
-
-        case_num   = grab('Case #') or grab('Case Number')
-        prop_addr  = grab('Property Address') or grab('Address')
-        open_bid_t = grab('Opening Bid') or grab('Opening')
-        assessed_t = grab('Assessed Value') or grab('Assessed')
-        auction_tp = grab('Auction Type')
-        cert_num   = grab('Certificate #') or grab('Certificate')
-
-        # skip cards with no case number (unparseable segment)
-        if not case_num:
-            continue
-
-        # parse opening_bid to float
-        opening_bid = None
-        if open_bid_t:
-            clean = re.sub(r'[^\d.]', '', open_bid_t)
-            if clean:
-                try:
-                    opening_bid = float(clean)
-                except ValueError:
-                    pass
-
-        cards.append({
-            'parcel_id':      pm.group(1),
-            'case_number':    case_num,
-            'property_address': prop_addr,
-            'opening_bid':    opening_bid,
-            'assessed_value': assessed_t,
-            'auction_type':   auction_tp,
-            'certificate_number': cert_num,
-            '_status':        status_text,
-            '_sold_to':       sold_to,
-            '_canon':         canonicalize(status_text, sold_to),
-        })
-
-    return cards
-
-
-def scrape_preview(auction_date: date):
+def scrape_preview(auction_date: date) -> list[dict]:
     """
-    Scrape the PREVIEW page for a specific auction date.
-    Paginates via #curPCA up to MAX_PAGES.
+    Fetch PREVIEW pages for a specific auction date.
+    Paginates via ?curPCA=N up to MAX_PAGES.
     Returns list of card dicts.
     """
-    MAX_PAGES = 12
+    MAX_PAGES = 10
     date_slash = auction_date.strftime('%m/%d/%Y')
-    url = f'{BASE_URL}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_slash}'
-    print(f'  [preview] {url}')
+    date_enc   = date_slash.replace('/', '%2F')
+    base_preview = (
+        f'{BASE_URL}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW'
+        f'&AUCTIONDATE={date_enc}'
+    )
+    print(f'  [preview] {base_preview}')
 
-    md, _, err = firecrawl(url, PREVIEW_P1_ACTIONS)
-    if err or not md:
+    html, err = _get_html(base_preview)
+    if err:
         print(f'    page 1 failed: {err}')
         return []
+    if _is_login_wall(html):
+        print(f'    page 1: login wall — county requires auth')
+        return []
 
-    cards = extract_cards(md)
-    seen  = {c['parcel_id'] for c in cards}
-    print(f'    page 1: md={len(md)} cards={len(cards)}')
+    cards = _parse_aitem_blocks(html, auction_date)
+    seen  = {c['parcel_id'] for c in cards if c.get('parcel_id')}
+    print(f'    page 1: {len(html)} bytes, {len(cards)} cards')
 
     for pg in range(2, MAX_PAGES + 1):
         time.sleep(2)
-        pg_md, _, pg_err = firecrawl(url, paginate_actions(pg))
-        if pg_err or not pg_md:
-            print(f'    page {pg} failed: {pg_err} — stopping pagination')
+        pg_url = f'{base_preview}&curPCA={pg}'
+        pg_html, pg_err = _get_html(pg_url)
+        if pg_err or not pg_html:
+            print(f'    page {pg} failed: {pg_err} — stopping')
             break
-        pg_cards = extract_cards(pg_md)
-        new = [c for c in pg_cards if c['parcel_id'] not in seen]
+        if _is_login_wall(pg_html):
+            break
+
+        pg_cards = _parse_aitem_blocks(pg_html, auction_date)
+        new = [c for c in pg_cards if c.get('parcel_id') and c['parcel_id'] not in seen]
         if not new:
             print(f'    page {pg}: no new cards — stopping')
             break
         for c in new:
-            seen.add(c['parcel_id'])
+            if c.get('parcel_id'):
+                seen.add(c['parcel_id'])
         cards.extend(new)
         print(f'    page {pg}: {len(new)} new | total={len(cards)}')
 
     return cards
 
 
+def _parse_aitem_blocks(html: str, auction_date: date) -> list[dict]:
+    """
+    Parse <div id="AITEM_XXXXXXXX"> blocks from RealAuction PREVIEW HTML.
+    Pattern proven in fill_opening_bids_brevard_duval.py.
+    """
+    items = []
+    starts = [m.start() for m in re.finditer(r'<div\s+[^>]*id=["\']AITEM_\d+["\']', html)]
+    if not starts:
+        # Fallback: try older "Upcoming Auctions" section with card-style divs
+        items = _parse_legacy_cards(html, auction_date)
+        if items:
+            print(f'      (legacy card parser: {len(items)} cards)')
+        return items
+
+    starts.append(len(html))
+    for i in range(len(starts) - 1):
+        block = html[starts[i]:starts[i + 1]]
+
+        # Extract AID (unique auction ID)
+        aid_m = re.search(r'\baid=["\']?(\d+)["\']?', block)
+        aid = aid_m.group(1) if aid_m else None
+
+        # Auction status
+        if re.search(r'Auction\s*Sold', block, re.IGNORECASE):
+            status = 'SOLD'
+        elif re.search(r'Auction\s*Status[^<]*Redeemed', block, re.IGNORECASE | re.DOTALL):
+            status = 'REDEEMED'
+        elif re.search(r'Auction\s*Status[^<]*Cancell?ed', block, re.IGNORECASE | re.DOTALL):
+            status = 'CANCELED'
+        elif re.search(r'Auction\s*Status[^<]*Postponed', block, re.IGNORECASE | re.DOTALL):
+            status = 'POSTPONED'
+        else:
+            status = 'LISTED'
+
+        # Extract label/value pairs from AD_LBL + AD_DTA table cells
+        rows = re.findall(
+            r'<td[^>]*class=["\'][^"\']*AD_LBL[^"\']*["\'][^>]*>(.*?)</td>\s*'
+            r'<td[^>]*class=["\'][^"\']*AD_DTA[^"\']*["\'][^>]*>(.*?)</td>',
+            block, re.DOTALL | re.IGNORECASE
+        )
+
+        data: dict[str, str] = {}
+        addr_parts: list[str] = []
+        last_addr = False
+
+        for lbl_h, dta_h in rows:
+            lbl = _strip_html(lbl_h) or ''
+            lbl_lower = lbl.lower().rstrip(':').strip()
+            if 'property address' in lbl_lower:
+                t = _strip_html(dta_h)
+                if t:
+                    addr_parts.append(t)
+                last_addr = True
+                continue
+            if last_addr and not lbl_lower:
+                t = _strip_html(dta_h)
+                if t:
+                    addr_parts.append(t)
+                continue
+            last_addr = False
+            if lbl_lower:
+                data[lbl_lower] = dta_h
+
+        case_num = (
+            _strip_html(data.get('case #')) or
+            _strip_html(data.get('case number')) or
+            _strip_html(data.get('case no')) or
+            _strip_html(data.get('case no.'))
+        )
+        parcel_id = (
+            _strip_html(data.get('parcel id')) or
+            _strip_html(data.get('parcel #')) or
+            _strip_html(data.get('parcel no'))
+        )
+        prop_addr = ', '.join(addr_parts) if addr_parts else _strip_html(data.get('address'))
+        opening_bid = _to_float(data.get('opening bid') or data.get('minimum bid'))
+        assessed_val = _strip_html(data.get('assessed value') or data.get('assessed val'))
+        auction_type = _strip_html(data.get('auction type') or data.get('type'))
+        cert_num = _strip_html(data.get('certificate #') or data.get('cert #') or data.get('certificate number'))
+
+        if not case_num and not parcel_id:
+            continue
+
+        items.append({
+            'aid':              aid,
+            'case_number':      case_num,
+            'parcel_id':        parcel_id,
+            'property_address': prop_addr,
+            'opening_bid':      opening_bid,
+            'assessed_value':   assessed_val,
+            'auction_type':     auction_type,
+            'certificate_number': cert_num,
+            'auction_status':   status,
+            '_auction_date':    auction_date,
+        })
+
+    return items
+
+
+def _parse_legacy_cards(html: str, auction_date: date) -> list[dict]:
+    """
+    Fallback for RealAuction variants that use different markup.
+    Looks for case number patterns in the page text.
+    """
+    items = []
+    # Find case numbers (FL format: XX-YYYY-CA-XXXXXX or similar)
+    case_nums = re.findall(
+        r'(?:Case\s*#?|Case\s*No\.?)\s*[:\|]?\s*'
+        r'([\dA-Z]{2}-\d{4}-[A-Z]{2}-\d+|[\dA-Z]+-\d+)',
+        html, re.IGNORECASE
+    )
+    seen_cases = set()
+    for cn in case_nums:
+        cn = cn.strip().upper()
+        if cn in seen_cases:
+            continue
+        seen_cases.add(cn)
+        # Find parcel near this case number
+        case_pos = html.upper().find(cn)
+        nearby = html[max(0, case_pos - 200):case_pos + 500]
+        pid_m = re.search(r'Parcel\s*ID[^\d]*(\d{6,15})', nearby, re.IGNORECASE)
+        bid_m = re.search(r'Opening\s*Bid[^\$\d]*\$?([\d,]+(?:\.\d{2})?)', nearby, re.IGNORECASE)
+        items.append({
+            'aid':              None,
+            'case_number':      cn,
+            'parcel_id':        pid_m.group(1) if pid_m else None,
+            'property_address': None,
+            'opening_bid':      _to_float(bid_m.group(1)) if bid_m else None,
+            'assessed_value':   None,
+            'auction_type':     None,
+            'certificate_number': None,
+            'auction_status':   'LISTED',
+            '_auction_date':    auction_date,
+        })
+    return items
+
+
 # ── PHASE C: UPSERT → MULTI_COUNTY_AUCTIONS ──────────────────────────────────
 
-def upsert_to_mca(cards, auction_date: date):
+def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]]:
     """Batch-upsert cards to multi_county_auctions. Returns (inserted, errors)."""
     now_iso  = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     date_iso = auction_date.isoformat()
@@ -332,7 +397,7 @@ def upsert_to_mca(cards, auction_date: date):
     for c in cards:
         row = {
             'county':          COUNTY,
-            'case_number':     c['case_number'],
+            'case_number':     c['case_number'] or c.get('parcel_id', 'UNKNOWN'),
             'auction_date':    date_iso,
             'sale_type':       SALE_TYPE,
             'auction_type':    SALE_TYPE,
@@ -340,7 +405,7 @@ def upsert_to_mca(cards, auction_date: date):
             'auction_status':  'upcoming',
             'state':           'FL',
             'last_seen_at':    now_iso,
-            'data_source':     'calendar_sweep_mca_v1',
+            'data_source':     'calendar_sweep_mca_v2',
         }
         if c.get('property_address'):
             row['property_address'] = c['property_address']
@@ -381,24 +446,30 @@ def upsert_to_mca(cards, auction_date: date):
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 
+def _write_summary(lines: list[str]) -> None:
+    gh_summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if gh_summary:
+        with open(gh_summary, 'a') as f:
+            f.write('\n'.join(lines) + '\n')
+
+
 # Phase A
 future_dates, cal_err = scrape_calendar()
-if cal_err:
-    print(f'ERROR: Calendar scrape failed: {cal_err}', file=sys.stderr)
-    sys.exit(1)
+if cal_err and not future_dates:
+    print(f'NOTE: Calendar unavailable — {cal_err}', file=sys.stderr)
+    _write_summary([f'## {COUNTY}/{SALE_TYPE}: DARK (calendar unreachable: {cal_err})'])
+    sys.exit(2)
 
 if not future_dates:
     print(f'NOTE: {COUNTY}/{SALE_TYPE} — zero future dates on calendar; county is genuinely dark',
           file=sys.stderr)
-    # Write to GHA step summary for visibility
-    gh_summary = os.environ.get('GITHUB_STEP_SUMMARY')
-    if gh_summary:
-        with open(gh_summary, 'a') as f:
-            f.write(f'## {COUNTY}/{SALE_TYPE}: DARK (no future dates)\n')
-            f.write(f'- Platform: {PLATFORM}\n- Base: {BASE_URL}\n')
+    _write_summary([
+        f'## {COUNTY}/{SALE_TYPE}: DARK (no future dates)',
+        f'- Platform: {PLATFORM}', f'- Base: {BASE_URL}'
+    ])
     sys.exit(2)
 
-# Cap at 5 future dates to control Firecrawl spend
+# Cap at 5 future dates to control cost
 target_dates = future_dates[:5]
 print(f'\nScraping {len(target_dates)} future dates: {target_dates}')
 
@@ -435,24 +506,19 @@ try:
 except Exception as e:
     print(f'\nVERIFY: failed: {e}', file=sys.stderr)
 
-# GHA step summary
-gh_summary = os.environ.get('GITHUB_STEP_SUMMARY')
-if gh_summary:
-    with open(gh_summary, 'a') as f:
-        f.write(f'## {COUNTY}/{SALE_TYPE} on {PLATFORM}\n')
-        f.write(f'- Target dates: `{target_dates}`\n')
-        f.write(f'- Rows upserted: **{total_upserted}**\n')
-        if all_errors:
-            f.write(f'- Errors: {all_errors[:3]}\n')
+_write_summary([
+    f'## {COUNTY}/{SALE_TYPE} on {PLATFORM}',
+    f'- Target dates: `{target_dates}`',
+    f'- Rows upserted: **{total_upserted}**',
+    *(f'- Errors: {all_errors[:3]}' for _ in [1] if all_errors),
+])
 
-# GHA outputs
 gh_out = os.environ.get('GITHUB_OUTPUT')
 if gh_out:
     with open(gh_out, 'a') as f:
         f.write(f'rows_upserted={total_upserted}\n')
         f.write(f'dates_scraped={len(target_dates)}\n')
 
-# Exit decision
 if total_upserted == 0 and all_errors:
     print(f'ERROR: 0 rows upserted, {len(all_errors)} errors', file=sys.stderr)
     sys.exit(1)
