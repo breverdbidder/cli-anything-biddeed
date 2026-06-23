@@ -96,13 +96,20 @@ def log(msg: str) -> None:
 # ── Step 1: Look up AIDs from realforeclose_aids ───────────────────────────────
 def fetch_aids_for_targets() -> dict[str, str]:
     """Returns {case_number: aid_str} for the 7 target cases."""
-    case_list = ",".join(f'"{c}"' for c, _ in TARGET_CASES)
     rows = sb_get("realforeclose_aids", {
         "county_slug": "eq.duval",
         "case_number":  f"in.({','.join(c for c, _ in TARGET_CASES)})",
         "select":       "aid,case_number",
         "limit":        "50",
     })
+    # Fallback: try 'county' column if county_slug returns empty
+    if not rows:
+        rows = sb_get("realforeclose_aids", {
+            "county":      "eq.duval",
+            "case_number": f"in.({','.join(c for c, _ in TARGET_CASES)})",
+            "select":      "aid,case_number",
+            "limit":       "50",
+        })
     mapping = {}
     for row in rows:
         cn  = row.get("case_number")
@@ -250,16 +257,15 @@ def apply_updates(case_number: str, auction_date: str, bid: float) -> None:
     log(f"    MCA updated: sold_amount={bid}")
 
     # foreclosure_outcomes: sale_amount + high_bid
-    sb_patch(
-        "foreclosure_outcomes",
-        f"county_slug=eq.duval&case_number=eq.{urllib.parse.quote(case_number)}"
-        f"&auction_date=eq.{auction_date}",
-        {
-            "sale_amount": bid,
-            "high_bid":    bid,
-            "updated_at":  now,
-        }
-    )
+    # Try both county and county_slug filter keys (schema varies by install)
+    for county_col in ("county", "county_slug"):
+        result = sb_patch(
+            "foreclosure_outcomes",
+            f"{county_col}=eq.duval&case_number=eq.{urllib.parse.quote(case_number)}",
+            {"sale_amount": bid, "high_bid": bid, "updated_at": now}
+        )
+        if result:
+            break
     log(f"    foreclosure_outcomes updated: sale_amount={bid}")
 
 
@@ -270,16 +276,25 @@ def verify() -> None:
     print(f"\n=== FINAL B VERIFICATION ===", flush=True)
     print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}Z", flush=True)
 
-    fc_rows = sb_get("foreclosure_outcomes", {
-        "county_slug": "eq.duval",
-        "select":      "case_number,sale_amount",
-        "limit":       "1000",
-    })
-    td_rows = sb_get("tax_deed_outcomes", {
-        "county_slug": "eq.duval",
-        "select":      "case_number",
-        "limit":       "1000",
-    })
+    # Try county column first (live table), then county_slug (migration schema)
+    for county_filter_key in ("county", "county_slug"):
+        fc_rows = sb_get("foreclosure_outcomes", {
+            county_filter_key: "eq.duval",
+            "select":           "case_number,sale_amount",
+            "limit":            "1000",
+        })
+        if isinstance(fc_rows, list) and not (len(fc_rows) == 0 and county_filter_key == "county"):
+            break
+
+    for county_filter_key in ("county", "county_slug"):
+        td_rows = sb_get("tax_deed_outcomes", {
+            county_filter_key: "eq.duval",
+            "select":          "case_number",
+            "limit":           "1000",
+        })
+        if isinstance(td_rows, list):
+            break
+
     total_outcomes = len(fc_rows) + len(td_rows)
 
     closed_rows = sb_get("multi_county_auctions", {

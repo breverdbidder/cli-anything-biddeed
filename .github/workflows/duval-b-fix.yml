@@ -127,21 +127,32 @@ jobs:
           ]
           cases_sql = ", ".join(f"'{c}'" for c in CASES)
 
+          # Schema probe — detect county column in foreclosure_outcomes
+          q0 = """
+          SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='foreclosure_outcomes'
+            AND column_name IN ('county','county_slug')
+          ORDER BY CASE WHEN column_name='county' THEN 1 ELSE 2 END LIMIT 1;
+          """
+          r0 = mgmt_query(q0)
+          county_col = (r0[0].get('column_name') if r0 else None) or 'county'
+          print(f"foreclosure_outcomes county column: {county_col!r}")
+
           # Query 1: target 7 in foreclosure_outcomes
           q1 = f"""
-          SELECT case_number, auction_date, sale_amount, data_source
+          SELECT case_number, data_source
           FROM foreclosure_outcomes
-          WHERE county_slug = 'duval'
+          WHERE {county_col} = 'duval'
             AND case_number IN ({cases_sql})
-          ORDER BY auction_date;
+          ORDER BY case_number;
           """
           r1 = mgmt_query(q1)
 
-          # Query 2: B metric
-          q2 = """
+          # Query 2: B metric (schema-adaptive)
+          q2 = f"""
           SELECT
-            (SELECT count(*) FROM foreclosure_outcomes WHERE county_slug='duval' AND data_source NOT ILIKE '%propertyonion%')
-           +(SELECT count(*) FROM tax_deed_outcomes    WHERE county_slug='duval' AND data_source NOT ILIKE '%propertyonion%')
+            (SELECT count(*) FROM foreclosure_outcomes WHERE {county_col}='duval' AND COALESCE(data_source,'') NOT ILIKE '%propertyonion%')
+           +(SELECT count(*) FROM tax_deed_outcomes    WHERE {county_col}='duval' AND COALESCE(data_source,'') NOT ILIKE '%propertyonion%')
               AS verified_outcomes,
             count(*) FILTER (WHERE sold_amount IS NOT NULL) AS closed_sold
           FROM multi_county_auctions
