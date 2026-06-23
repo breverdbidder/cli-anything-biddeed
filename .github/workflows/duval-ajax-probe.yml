@@ -1,0 +1,57 @@
+name: "Duval AJAX login probe"
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install --quiet httpx
+      - name: Probe AJAX login and Splash.js
+        env:
+          REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
+        run: |
+          python3 - <<'PYEOF'
+          import httpx, re, os, json
+          HOST = "https://duval.realforeclose.com"
+          EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '')
+          PW    = os.environ.get('REALFORECLOSE_PASSWORD', '')
+          UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+          client = httpx.Client(follow_redirects=True, timeout=30.0, headers={'User-Agent': UA})
+
+          print("=== Splash.js ===")
+          r0 = client.get(f"{HOST}/CORE/System/JS/Splash.js")
+          print(f"Status: {r0.status_code}")
+          print(r0.text[:3000])
+
+          print("\n=== Step 1: Get splash + cookies ===")
+          r1 = client.get(f"{HOST}/index.cfm")
+          print(f"Status: {r1.status_code}, cookies={list(client.cookies.keys())}")
+
+          print("\n=== Step 2: AJAX login ===")
+          ajax_data = {'ZACTION': 'AJAX', 'ZMETHOD': 'LOGIN', 'func': 'LOGIN',
+                       'USERNAME': EMAIL, 'USERPASS': PW}
+          r2 = client.post(f"{HOST}/index.cfm", data=ajax_data,
+                           headers={'X-Requested-With': 'XMLHttpRequest',
+                                    'Accept': 'application/json, text/javascript, */*; q=0.01'})
+          print(f"Status: {r2.status_code}, Content-Type: {r2.headers.get('content-type','')}")
+          print(f"Response body: {r2.text[:500]}")
+
+          print("\n=== Step 3: GET /index.cfm after AJAX login ===")
+          r3 = client.get(f"{HOST}/index.cfm")
+          title_m = re.search(r'<title>([^<]+)</title>', r3.text, re.IGNORECASE)
+          print(f"Status: {r3.status_code}, title={title_m.group(1) if title_m else 'N/A'}")
+          print(f"Has LogName: {'id=\"LogName\"' in r3.text}")
+
+          print("\n=== Step 4: GET PREVIEW ===")
+          r4 = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06%2F24%2F2026")
+          title_m2 = re.search(r'<title>([^<]+)</title>', r4.text, re.IGNORECASE)
+          print(f"Status: {r4.status_code}, title={title_m2.group(1) if title_m2 else 'N/A'}")
+          n = len(re.findall(r'<div\s+id="AITEM_\d+"', r4.text))
+          print(f"AITEM blocks: {n}")
+          if n == 0:
+              print(f"Snippet: {r4.text[1000:2000]!r}")
+          PYEOF
