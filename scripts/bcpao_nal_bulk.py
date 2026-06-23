@@ -109,17 +109,33 @@ def sb_patch(path: str, payload, params: str = "") -> tuple[int, str]:
 
 
 def call_drain() -> int:
-    """Call bcpao_folio_drain() → returns updated MCA count."""
-    body = b"{}"
+    """Call bcpao_folio_drain() → returns updated MCA count.
+
+    Uses POST with no body (function has no parameters). Prints full response
+    body on error so 4xx failures are diagnosable in GHA logs.
+    """
     req = urllib.request.Request(
         f"{SB_URL}/rest/v1/rpc/bcpao_folio_drain",
-        data=body,
         method="POST",
-        headers=sb_headers(),
+        headers={
+            "apikey": SB_KEY,
+            "Authorization": f"Bearer {SB_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
-            return int(json.loads(r.read().decode()) or 0)
+            raw = r.read().decode()
+            val = json.loads(raw) if raw else 0
+            # PostgREST may return scalar int or a 1-row JSON object
+            if isinstance(val, list) and val:
+                val = list(val[0].values())[0]
+            return int(val or 0)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        print(f"  drain error: HTTP {e.code} — {body[:400]}", file=sys.stderr)
+        return 0
     except Exception as e:
         print(f"  drain error: {e}", file=sys.stderr)
         return 0
