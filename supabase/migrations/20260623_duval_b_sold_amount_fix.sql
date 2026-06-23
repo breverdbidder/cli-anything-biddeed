@@ -254,10 +254,10 @@ BEGIN
 
     v_set_parts := ARRAY['tier1_sold_amount = COALESCE(NULLIF(sold_amount, 0), opening_bid)'];
     IF v_has_tier1_verified THEN
-        v_set_parts := v_set_parts || 'tier1_verified_at = NOW()';
+        v_set_parts := array_append(v_set_parts, 'tier1_verified_at = NOW()');
     END IF;
     IF v_has_updated_at THEN
-        v_set_parts := v_set_parts || 'updated_at = NOW()';
+        v_set_parts := array_append(v_set_parts, 'updated_at = NOW()');
     END IF;
 
     v_sql := format(
