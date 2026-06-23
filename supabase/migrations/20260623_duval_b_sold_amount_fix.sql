@@ -107,19 +107,37 @@ BEGIN
             END
         $vals$;
 
+    -- winning_bid: MCA uses sold_amount (not winning_bid column) — check if column exists in MCA
     IF v_has_winning_bid THEN
-        v_col_list := v_col_list || ', winning_bid';
-        v_val_list := v_val_list || ', NULLIF(COALESCE(mca.winning_bid, mca.final_bid), 0)';
+        -- Use mca.sold_amount if it exists, otherwise skip
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name='multi_county_auctions'
+              AND column_name='sold_amount'
+        ) THEN
+            v_col_list := v_col_list || ', winning_bid';
+            v_val_list := v_val_list || ', NULLIF(mca.sold_amount, 0)';
+        END IF;
     END IF;
     IF v_has_sale_amount THEN
-        v_col_list := v_col_list || ', sale_amount';
-        v_val_list := v_val_list || ', NULLIF(COALESCE(mca.winning_bid, mca.final_bid, mca.sold_amount), 0)';
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name='multi_county_auctions'
+              AND column_name='sold_amount'
+        ) THEN
+            v_col_list := v_col_list || ', sale_amount';
+            v_val_list := v_val_list || ', NULLIF(mca.sold_amount, 0)';
+        END IF;
     END IF;
     IF v_has_parcel_id THEN
         v_col_list := v_col_list || ', parcel_id';
         v_val_list := v_val_list || ', mca.parcel_id';
     END IF;
-    IF v_has_sale_status THEN
+    IF v_has_sale_status AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='multi_county_auctions'
+          AND column_name='auction_status'
+    ) THEN
         v_col_list := v_col_list || ', sale_status';
         v_val_list := v_val_list || $s$,
             CASE
@@ -134,14 +152,8 @@ BEGIN
                 ELSE 'struck'
             END$s$;
     END IF;
-    IF v_has_notes THEN
-        v_col_list := v_col_list || ', notes';
-        v_val_list := v_val_list || $n$, 'B-fix 2026-06-23: direct insert'$n$;
-    END IF;
-    IF v_has_source_url THEN
-        v_col_list := v_col_list || ', source_url';
-        v_val_list := v_val_list || ', COALESCE(mca.source_url, mca.clerk_url)';
-    END IF;
+    -- skip notes — column confirmed not to exist
+    -- skip source_url — avoid mca.clerk_url column uncertainty
 
     v_sql := format(
         $q$
@@ -208,14 +220,11 @@ $$;
 -- STEP 3: F fix — tier1_sold_amount for the 7 zero-bid rows
 -- NULLIF skips 0.0, opening_bid is plaintiff floor
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- F fix: use sold_amount (confirmed in MCA) → fallback to opening_bid
+-- winning_bid and final_bid confirmed NOT to exist in multi_county_auctions
 UPDATE multi_county_auctions
 SET
-    tier1_sold_amount = COALESCE(
-                            NULLIF(winning_bid, 0),
-                            NULLIF(final_bid, 0),
-                            NULLIF(sold_amount, 0),
-                            opening_bid
-                        ),
+    tier1_sold_amount = COALESCE(NULLIF(sold_amount, 0), opening_bid),
     tier1_buyer_type  = COALESCE(tier1_buyer_type, 'unknown'),
     tier1_verified_at = NOW(),
     updated_at        = NOW()
@@ -230,12 +239,7 @@ WHERE lower(county) = 'duval'
     '16-2018-CA-007837-XXXX-MA'
   )
   AND (tier1_sold_amount IS NULL OR tier1_sold_amount = 0)
-  AND COALESCE(
-        NULLIF(winning_bid, 0),
-        NULLIF(final_bid, 0),
-        NULLIF(sold_amount, 0),
-        opening_bid
-      ) IS NOT NULL;
+  AND COALESCE(NULLIF(sold_amount, 0), opening_bid) IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- STEP 4: B/F verification
