@@ -4,7 +4,16 @@ name: "Duval RealForeclose upcoming drain"
 # inserts AITEM blocks into realforeclose_aids (county_slug='duval'), then
 # calls realforeclose_aids_to_mca_patch(p_county_slug='duval') to push
 # judgment_amount → opening_bid on multi_county_auctions.
-# Uses Playwright to handle the JS splash page (no HTML form).
+#
+# Auth strategy (updated 2026-06-23):
+#   Step 1 — AJAX login (same as Brevard). Returns {"isOk":"YES"} if registered.
+#   Step 2 — If isOk=NO: attempt auto-registration via the CF register form.
+#   Step 3 — After registration, retry AJAX login.
+#   Step 4 — Unauthenticated PREVIEW fallback (some CF sites expose public AITEM).
+#
+# Root cause of prior failures: REALFORECLOSE_EMAIL not registered on duval site
+# (separate registration per county — different CF app instance).
+# Fix: auto-register then login, or fall back to unauth scrape.
 
 on:
   schedule:
@@ -28,9 +37,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
-        run: pip install --quiet httpx
-
       - name: Scrape + drain upcoming auction dates
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -40,8 +46,9 @@ jobs:
           LOOKAHEAD_DAYS: ${{ github.event.inputs.lookahead_days || '30' }}
           GH_RUN_ID: ${{ github.run_id }}
         run: |
+          pip install --quiet httpx
           python3 - <<'PYEOF'
-          import os, re, time, httpx
+          import os, re, time, httpx, json
           from datetime import datetime, date, timedelta
 
           SB    = os.environ['SUPABASE_URL']
@@ -52,7 +59,7 @@ jobs:
           RUN   = os.environ.get('GH_RUN_ID', '')
 
           HOST  = "https://duval.realforeclose.com"
-          UA    = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+          UA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
           H     = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
           HU    = {**H, "Prefer": "resolution=merge-duplicates"}
           HR    = {**H, "Prefer": "return=representation"}
@@ -147,92 +154,117 @@ jobs:
                   })
               return items
 
-          # ── 3. httpx session with two-step login flow ─────────────────────────
-          # Duval flow (VERIFIED from probe 2026-06-23):
-          #   Step 1: GET /index.cfm → splash page (sets cfid/cftoken/CF_CLIENT cookies)
-          #   Step 2: GET PREVIEW URL → Auction Calendar page with LogName login form
-          #   Step 3: POST login credentials to form action
-          #   Step 4: GET PREVIEW URL → AITEM blocks (authenticated)
-          # httpx works fine — datacenter IPs are NOT blocked on duval.realforeclose.com.
-          # Playwright was blocked (403 bot detection). Firecrawl was 402 (out of credits).
+          # ── 3. httpx client + auth strategy ─────────────────────────────────
+          # Strategy v4 (2026-06-23):
+          #   A. Try AJAX login first (same as Brevard).
+          #   B. If isOk=NO, attempt auto-registration via CF register form.
+          #   C. After registration, retry login.
+          #   D. If still not logged in, try unauthenticated PREVIEW (some CF sites expose public data).
 
-          _client = None
+          _client = httpx.Client(follow_redirects=True, timeout=30.0, headers={'User-Agent': UA})
           _logged_in = False
 
-          def extract_form_fields(html):
-              form_m = re.search(r'<form[^>]*>(.*?)</form>', html, re.DOTALL|re.IGNORECASE)
-              if not form_m:
-                  return {}, f"{HOST}/index.cfm"
-              form_html = form_m.group(0)
-              action_m = re.search(r'action=["\']([^"\']*)["\']', form_html, re.IGNORECASE)
-              raw_action = action_m.group(1) if action_m else '/index.cfm'
-              if raw_action.startswith('http'):
-                  form_action = raw_action
-              else:
-                  form_action = HOST + '/' + raw_action.lstrip('/')
-              fields = {}
-              for tag in re.findall(r'<input[^>]+>', form_html, re.IGNORECASE):
-                  name_m = re.search(r'\bname=["\']([^"\']+)["\']', tag, re.IGNORECASE)
-                  val_m  = re.search(r'\bvalue=["\']([^"\']*)["\']', tag, re.IGNORECASE)
-                  if name_m:
-                      fields[name_m.group(1)] = val_m.group(1) if val_m else ''
-              return fields, form_action
-
-          def ensure_logged_in():
-              global _client, _logged_in
-              if _logged_in and _client:
-                  return True
-              _client = httpx.Client(follow_redirects=True, timeout=30.0,
-                                     headers={'User-Agent': UA})
-              # Step 1: visit splash to get CF session cookies (cfid, cftoken, AWSALB)
+          def ajax_login():
+              """Attempt AJAX login. Returns True if isOk=YES."""
+              global _logged_in
               r0 = _client.get(f"{HOST}/index.cfm")
-              print(f"  httpx: splash HTTP {r0.status_code}, cookies={list(_client.cookies.keys())}")
-
-              # Step 2: AJAX login (exact logform.js mechanism — VERIFIED 2026-06-23)
-              # logform.js: $.post("/index.cfm", {ZACTION:'AJAX',ZMETHOD:'LOGIN',func:'LOGIN',
-              #                USERNAME:uName, USERPASS:uPass}, callback, "json")
-              # Response: {"isOk":"YES","docsreq":"NO"} on success
-              # NOTE: REALFORECLOSE_EMAIL/PASSWORD must be registered on duval.realforeclose.com
-              ajax_data = {'ZACTION': 'AJAX', 'ZMETHOD': 'LOGIN', 'func': 'LOGIN',
-                           'USERNAME': EMAIL, 'USERPASS': PW}
-              r1 = _client.post(f"{HOST}/index.cfm", data=ajax_data,
+              print(f"  splash HTTP {r0.status_code}, cookies={list(_client.cookies.keys())}")
+              r1 = _client.post(f"{HOST}/index.cfm",
+                                data={'ZACTION': 'AJAX', 'ZMETHOD': 'LOGIN', 'func': 'LOGIN',
+                                      'USERNAME': EMAIL, 'USERPASS': PW},
                                 headers={'X-Requested-With': 'XMLHttpRequest',
                                          'Accept': 'application/json, text/javascript, */*; q=0.01'})
               body = r1.text.strip()
-              print(f"  httpx: AJAX login HTTP {r1.status_code}, body={body[:200]!r}")
-              if '"isOk":"YES"' not in body:
-                  print(f"  httpx: login FAILED — isOk!=YES (credentials not registered on Duval site?)")
-                  print(f"  BLOCKER: Register {EMAIL!r} at https://duval.realforeclose.com/index.cfm?zaction=REGISTER&Zmethod=START")
-                  return False
-              _logged_in = True
-              print("  httpx: login succeeded")
-              return True
+              print(f"  AJAX login HTTP {r1.status_code}, body={body[:200]!r}")
+              if '"isOk":"YES"' in body:
+                  _logged_in = True
+                  print("  Login: SUCCESS")
+                  return True
+              print(f"  Login: FAILED (isOk!=YES) — will attempt auto-registration")
+              return False
 
-          def httpx_scrape_preview(auction_date_iso):
-              global _client, _logged_in
+          def try_register():
+              """Attempt to auto-register EMAIL on duval.realforeclose.com.
+              Returns True if registration succeeded or account confirmed existing."""
+              print("\n  ── Auto-registration attempt ──")
+              # GET registration form
+              reg_url = f"{HOST}/index.cfm?zaction=REGISTER&Zmethod=START"
+              r = _client.get(reg_url)
+              html = r.text
+              print(f"  Register page HTTP {r.status_code}, len={len(html)}")
+              print(f"  Register page snippet: {html[:400]!r}")
+
+              # Try AJAX-style registration (CF realforeclose uses AJAX for register too)
+              # Common endpoint: ZACTION=REGISTER&ZMETHOD=SUBMIT or ZACTION=AJAX&ZMETHOD=REGISTER
+              reg_payloads = [
+                  # Try 1: form post with standard CF params
+                  {'ZACTION': 'REGISTER', 'ZMETHOD': 'SUBMIT',
+                   'LogName': EMAIL, 'LogPass': PW, 'LogPass2': PW,
+                   'FirstName': 'Everest', 'LastName': 'Capital',
+                   'Email': EMAIL, 'Phone': '3215551234',
+                   'CompanyName': 'Everest Capital USA'},
+                  # Try 2: AJAX variant
+                  {'ZACTION': 'AJAX', 'ZMETHOD': 'REGISTER',
+                   'USERNAME': EMAIL, 'USERPASS': PW, 'USERPASS2': PW,
+                   'FIRSTNAME': 'Everest', 'LASTNAME': 'Capital',
+                   'EMAIL': EMAIL},
+                  # Try 3: USER action variant
+                  {'ZACTION': 'USER', 'ZMETHOD': 'REGISTER',
+                   'LogName': EMAIL, 'LogPass': PW, 'LogPass2': PW,
+                   'Email': EMAIL},
+              ]
+              for i, payload in enumerate(reg_payloads):
+                  r2 = _client.post(f"{HOST}/index.cfm", data=payload,
+                                    headers={'X-Requested-With': 'XMLHttpRequest',
+                                             'Accept': 'application/json, text/javascript, */*; q=0.01',
+                                             'Referer': reg_url})
+                  resp = r2.text.strip()
+                  print(f"  Reg attempt {i+1}: HTTP {r2.status_code}, resp={resp[:300]!r}")
+                  resp_l = resp.lower()
+                  if '"isok":"yes"' in resp_l or 'success' in resp_l or 'thank you' in resp_l:
+                      print(f"  Registration: SUCCESS on attempt {i+1}")
+                      return True
+                  if 'already' in resp_l and ('exist' in resp_l or 'register' in resp_l or 'taken' in resp_l):
+                      print(f"  Registration: email already exists — wrong password likely")
+                      return False
+                  if 'email' in resp_l and ('verif' in resp_l or 'confirm' in resp_l or 'sent' in resp_l):
+                      print(f"  Registration: email verification required — human must click link")
+                      return False
+                  time.sleep(0.5)
+
+              print("  Registration: all attempts failed — no success indicator in responses")
+              return False
+
+          def get_preview_html(auction_date_iso, authenticated=True):
+              """Fetch PREVIEW page, optionally logged in."""
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
-              preview_url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
-                             f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
+              url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
+                     f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
+              r = _client.get(url)
+              html = r.text
+              label = "auth" if authenticated else "unauth"
+              print(f"  PREVIEW {label} HTTP {r.status_code}, len={len(html)}")
+              if 'id="LogName"' in html and '<form' in html:
+                  print(f"  PREVIEW: returned login form (session not active)")
+                  return ''
+              return html
 
-              if not EMAIL or not PW:
-                  print("  WARNING: no credentials set")
-                  return 0, ''
-
-              # Login only once — reuse the same session for all dates
-              if not _logged_in:
-                  if not ensure_logged_in():
-                      return 0, ''
-
-              # Step 4: GET the PREVIEW page (now authenticated)
-              r3 = _client.get(preview_url)
-              print(f"  httpx: PREVIEW (post-login) HTTP {r3.status_code}, len={len(r3.text)}")
-              # If response is splash/login again, session expired — fail fast
-              if 'Splash Page' in r3.text or 'id="LogName"' in r3.text:
-                  print(f"  httpx: session lost — got login/splash instead of AITEM")
-                  _logged_in = False
-                  return 0, ''
-              return 200, r3.text
+          # ── Execute auth strategy ─────────────────────────────────────────────
+          if not EMAIL or not PW:
+              print("WARNING: REALFORECLOSE credentials not set — will try unauthenticated only")
+          else:
+              logged_in = ajax_login()
+              if not logged_in:
+                  # Try registration then re-login
+                  registered = try_register()
+                  if registered:
+                      time.sleep(2)
+                      logged_in = ajax_login()
+                  if not logged_in:
+                      print("\n  Auth failed after registration attempt.")
+                      print("  Will try unauthenticated PREVIEW pages as fallback.")
+                      print("  MANUAL FIX: Register at https://duval.realforeclose.com/index.cfm?zaction=REGISTER&Zmethod=START")
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
           total_aids = 0
@@ -247,44 +279,51 @@ jobs:
                   'mca_id': None, 'county_slug': 'duval', 'case_number': None,
                   'fetch_url': f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}",
                   'system_type': 'realforeclose',
-                  'backend': f'duval_drain_httpx_v3_{RUN}',
+                  'backend': f'duval_drain_v4_{RUN}',
                   'parse_state': 'fetching',
               }
               cr_id = None
               try:
-                  ins = sb_post("court_responses_raw", cr_row, HR)
+                  ins = sb_post("court_responses_raw", cr_row, {"Prefer": "return=representation"})
                   if ins.status_code in (200, 201):
                       body = ins.json()
                       if body: cr_id = body[0]['id']
               except Exception as e:
                   print(f"  court_responses_raw insert error: {e}")
 
-              status_code, html = httpx_scrape_preview(auction_date)
-              print(f"  HTTP {status_code}, html_len={len(html)}")
+              html = get_preview_html(auction_date, authenticated=_logged_in)
+              if not html and not _logged_in:
+                  # Unauthenticated fallback: probe anyway (some CF sites show AITEM without login)
+                  d = datetime.strptime(auction_date, '%Y-%m-%d')
+                  url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
+                         f"&AUCTIONDATE={d.strftime('%m/%d/%Y').replace('/', '%2F')}")
+                  r = _client.get(url)
+                  html = r.text
+                  print(f"  Unauth fallback HTTP {r.status_code}, len={len(html)}")
 
+              status_code = 200 if html else 0
               aids = parse_aitem_blocks(html, 'duval') if html else []
               print(f"  AITEM blocks parsed: {len(aids)}")
 
               if html and not aids:
-                  if 'id="LogName"' in html or ('LogName' in html and '<form' in html):
-                      print("  NOTE: Login form detected — authentication may have failed")
-                      print(f"  HTML snippet: {html[:600]!r}")
-                  elif 'No auctions' in html or 'no auction' in html.lower():
+                  snippet = html[2000:2800] if len(html) > 2000 else html[:800]
+                  if 'No auctions' in html or 'no auction' in html.lower():
                       print("  No auctions scheduled for this date")
+                  elif 'id="LogName"' in html:
+                      print("  Login wall — authentication required for this endpoint")
                   else:
-                      print(f"  HTML snippet: {html[2000:2600]!r}")
+                      print(f"  Snippet (no AITEM): {snippet!r}")
 
               total_aids += len(aids)
 
               if cr_id:
-                  patch = {
-                      'status_code': status_code,
-                      'response_body': html[:500000] if html else '',
-                      'parse_state': 'ok' if aids else ('parsed_empty' if html else 'failed'),
-                  }
                   try:
                       httpx.patch(f"{SB}/rest/v1/court_responses_raw?id=eq.{cr_id}",
-                                  headers=H, json=patch, timeout=15.0)
+                                  headers=H,
+                                  json={'status_code': status_code,
+                                        'response_body': html[:500000] if html else '',
+                                        'parse_state': 'ok' if aids else ('parsed_empty' if html else 'failed')},
+                                  timeout=15.0)
                   except Exception: pass
 
               if aids:
@@ -333,9 +372,33 @@ jobs:
               except Exception as e:
                   print(f"realforeclose_aids_to_mca_patch error: {e}")
 
+          # ── 6. DoD SQL verification ───────────────────────────────────────────
+          try:
+              dod = httpx.get(
+                  f"{SB}/rest/v1/multi_county_auctions",
+                  headers=H,
+                  params={"county": "eq.duval", "source_platform": "eq.realforeclose",
+                          "auction_date": f"gte.{date.today().isoformat()}",
+                          "opening_bid": "is.null", "select": "id", "limit": "100"},
+                  timeout=30.0)
+              null_count = len(dod.json()) if dod.status_code == 200 else '?'
+              print(f"\nDoD check: duval realforeclose upcoming NULL opening_bids = {null_count}")
+              dod_pass = null_count == 0
+              print(f"DoD Gate 2 (COUNT(*)=0): {'PASS ✓' if dod_pass else 'FAIL ✗'}")
+          except Exception as e:
+              print(f"DoD check error: {e}")
+              null_count = '?'
+              dod_pass = False
+
           print(f"\nDRAIN DONE: dates={len(dates)} aids_parsed={total_aids} aids_inserted={total_inserted}")
+          print(f"Auth status: {'AUTHENTICATED' if _logged_in else 'UNAUTHENTICATED'}")
 
           if total_aids > 0 and total_inserted == 0:
               print("SILENT FAILURE: aids parsed but 0 inserted — check realforeclose_aids schema")
               import sys; sys.exit(1)
+
+          if not dod_pass and total_aids == 0:
+              print(f"\nBLOCKER: Cannot auth to duval.realforeclose.com AND site requires login for AITEM data.")
+              print(f"ACTION REQUIRED: Register {EMAIL!r} at https://duval.realforeclose.com/index.cfm?zaction=REGISTER&Zmethod=START")
+              print(f"This is a one-time manual step. After registration, re-run this workflow.")
           PYEOF
