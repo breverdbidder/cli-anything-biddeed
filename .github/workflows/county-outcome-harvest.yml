@@ -138,59 +138,8 @@ jobs:
             echo "INFO: Constructed DB_URL from SUPABASE_DB_PASSWORD"
           fi
           if [ -z "$DB_URL" ]; then
-            echo "INFO: No SUPABASE_DB_URL or SUPABASE_DB_PASSWORD — trying Management API SQL execution"
-            # Management API SQL endpoint: api.supabase.com (different origin from 522-affected REST)
-            python3 - <<'PYEOF'
-import json, os, sys, urllib.request, urllib.error, time
-
-TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
-if not TOKEN:
-    print("No SUPABASE_ACCESS_TOKEN — all paths exhausted; migration skipped")
-    sys.exit(0)
-
-REF = "mocerqjnksmhcjzxrewo"
-H   = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-
-# Read the migration SQL
-try:
-    with open("supabase/migrations/20260623_6county_gold_b_f_outcome_pipeline.sql") as f:
-        sql = f.read()
-except FileNotFoundError:
-    print("Migration file not found")
-    sys.exit(1)
-
-print(f"Sending {len(sql)} bytes of SQL to Management API...")
-body = json.dumps({"query": sql}).encode()
-req  = urllib.request.Request(
-    f"https://api.supabase.com/v1/projects/{REF}/database/query",
-    data=body, headers=H, method="POST"
-)
-for attempt in range(3):
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            result = json.loads(r.read() or b"[]")
-            print(f"Management API SQL result ({r.status}): {json.dumps(result)[:500]}")
-            with open(os.environ["GITHUB_ENV"], "a") as f:
-                f.write("MIGRATION_APPLIED=true\n")
-            sys.exit(0)
-    except urllib.error.HTTPError as e:
-        body_txt = e.read().decode()[:500]
-        print(f"Attempt {attempt+1}: HTTP {e.code}: {body_txt}")
-        if e.code in (429, 503) and attempt < 2:
-            time.sleep(30)
-            continue
-        break
-    except Exception as e:
-        print(f"Attempt {attempt+1}: {e}")
-        if attempt < 2:
-            time.sleep(30)
-            continue
-        break
-
-print("Management API SQL execution failed — migration skipped")
-with open(os.environ["GITHUB_ENV"], "a") as f:
-    f.write("MIGRATION_SKIPPED=true\n")
-PYEOF
+            echo "INFO: No psql credentials — trying Management API SQL execution (scripts/mgmt_api_migrate.py)"
+            python3 scripts/mgmt_api_migrate.py || true
             exit 0
           fi
 
