@@ -129,10 +129,14 @@ def call_drain() -> int:
 
 
 def load_queued_accounts() -> tuple[set[str], dict[str, str]]:
-    """Return (account_set, {folio: street_normalized}) for all queued jobs."""
-    rows = sb_get(JOBS_TABLE, "status=eq.queued&select=account&limit=10000")
+    """Return (account_set, {folio: street_normalized}) for queued+failed jobs.
+
+    Includes 'failed' so that accounts incorrectly marked failed by the
+    Playwright runner (CF-blocked) are recovered by the DOR-based strategy.
+    """
+    rows = sb_get(JOBS_TABLE, "status=in.(queued,failed)&select=account&limit=10000")
     accounts = {str(r["account"]).strip() for r in rows}
-    print(f"queued accounts: {len(accounts)}")
+    print(f"queued+failed accounts: {len(accounts)}")
 
     # Fetch MCA addresses for PHY_ADDR1 cross-match
     mca_rows: list = []
@@ -269,6 +273,8 @@ def strategy_b_dor(queued: set[str], mca_addrs: dict[str, str]) -> dict[str, str
     last_oid = 279700
     pages = 0
     phy_matched = 0
+    page_retries = 0
+    MAX_PAGE_RETRIES = 5
 
     while True:
         where = f"{DOR_WHERE} AND OBJECTID>{last_oid}"
@@ -287,14 +293,24 @@ def strategy_b_dor(queued: set[str], mca_addrs: dict[str, str]) -> dict[str, str
             with urllib.request.urlopen(req, timeout=90) as r:
                 data = json.loads(r.read().decode())
         except Exception as e:
-            print(f"  DOR page {pages}: {e}", file=sys.stderr)
-            time.sleep(5)
+            page_retries += 1
+            print(f"  DOR page {pages} error (retry {page_retries}/{MAX_PAGE_RETRIES}): {e}", file=sys.stderr)
+            if page_retries >= MAX_PAGE_RETRIES:
+                print(f"  DOR page {pages}: max retries reached, stopping scan", file=sys.stderr)
+                break
+            time.sleep(5 * page_retries)
             continue
 
         if "error" in data:
-            print(f"  DOR error: {data['error']}", file=sys.stderr)
+            page_retries += 1
+            print(f"  DOR error (retry {page_retries}/{MAX_PAGE_RETRIES}): {data['error']}", file=sys.stderr)
+            if page_retries >= MAX_PAGE_RETRIES:
+                print(f"  DOR page {pages}: max retries reached on error, stopping", file=sys.stderr)
+                break
             time.sleep(10)
             continue  # retry same page — transient ArcGIS errors are common
+
+        page_retries = 0  # both HTTP and server-side checks passed
 
         features = data.get("features", [])
         if not features:
@@ -366,17 +382,31 @@ def upsert_bridge(mapping: dict[str, str], match_method: str) -> int:
 
 
 def mark_jobs_done(mapping: dict[str, str]) -> int:
-    """Update bcpao_fetch_jobs to done for resolved accounts. Returns updated count."""
-    done = 0
-    for acct, pin in mapping.items():
-        status, _ = sb_patch(
+    """Bulk-upsert bcpao_fetch_jobs rows as done using a single POST per 200-row chunk.
+
+    Uses Supabase UPSERT (merge-duplicates) so each account row is updated
+    in-place regardless of current status.  Single HTTP call per chunk rather
+    than one PATCH per account — avoids the per-row timeout that killed earlier
+    runs with 199+ accounts.
+    """
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    rows = [
+        {"account": acct, "status": "done", "parcel_id": pin, "done_at": now}
+        for acct, pin in mapping.items()
+    ]
+    ok = 0
+    for i in range(0, len(rows), CHUNK):
+        chunk = rows[i : i + CHUNK]
+        status, body = sb_post(
             JOBS_TABLE,
-            {"status": "done", "parcel_id": pin},
-            f"account=eq.{urllib.parse.quote(acct)}&status=eq.queued",
+            chunk,
+            {"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
-        if status in (200, 204):
-            done += 1
-    return done
+        if status in (200, 201):
+            ok += len(chunk)
+        else:
+            print(f"  mark_jobs_done chunk {i}: HTTP {status} {body[:200]}", file=sys.stderr)
+    return ok
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
