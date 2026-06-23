@@ -65,6 +65,22 @@ jobs:
             fi
           fi
 
+      - name: Apply auction_watches migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          PROJECT_REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260623_mcp_auction_watches.sql)
+          HTTP_CODE=$(curl -s -o /tmp/watches_resp.json -w "%{http_code}" -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+            2>&1) || HTTP_CODE="curl_error"
+          echo "auction_watches migration HTTP: ${HTTP_CODE}"
+          cat /tmp/watches_resp.json 2>/dev/null | head -3 || true
+          [[ "$HTTP_CODE" =~ ^2 ]] && echo "✅ auction_watches migration applied" || echo "⚠️  auction_watches: ${HTTP_CODE} (table may already exist — verify step will confirm)"
+
       - name: Verify tables accessible
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

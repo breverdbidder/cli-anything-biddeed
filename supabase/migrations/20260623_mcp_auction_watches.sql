@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS auction_watches (
   id            BIGSERIAL PRIMARY KEY,
   case_number   TEXT NOT NULL,
   county        TEXT NOT NULL,
-  customer_id   TEXT NOT NULL,
+  customer_id   TEXT NOT NULL DEFAULT '',
   notify_email  TEXT,
   notify_phone  TEXT,
   alert_types   TEXT[] NOT NULL DEFAULT '{}',
