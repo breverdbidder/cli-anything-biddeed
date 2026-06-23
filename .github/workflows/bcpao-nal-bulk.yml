@@ -29,6 +29,8 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       STRATEGY: ${{ github.event.inputs.strategy || 'auto' }}
       BCPAO_NAL_URL: ${{ github.event.inputs.bcpao_nal_url }}
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
 
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +38,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Apply drain-fix migration
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260623_bcpao_folio_drain_fix.sql').read()}))" > /tmp/drain_fix.json
+          HTTP=$(curl -sS -o /tmp/drain_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/drain_fix.json)
+          echo "HTTP: $HTTP"; cat /tmp/drain_resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || echo "::warning::Migration HTTP $HTTP — continuing"
 
       - name: Verify queue has work
         run: |
@@ -90,12 +104,14 @@ jobs:
           done     = count('bcpao_fetch_jobs', 'status=eq.done')
           failed   = count('bcpao_fetch_jobs', 'status=eq.failed')
           bridge   = count('brevard_folio_pin_bridge')
-          unbridged_mca = count('multi_county_auctions', "county=eq.brevard&parcel_id=like.%25_______%25&select=count")
+          # 7-char parcel_ids with no dashes ≈ unreplaced BCPAO folios
+          # LIKE '_______' = exactly 7 chars; not.like.*-* = no dash (real PINs have dashes)
+          unbridged_mca = count('multi_county_auctions', 'county=eq.brevard&parcel_id=like._______&parcel_id=not.like.*-*')
 
           print('=== VERIFICATION ===')
           print(f'bcpao_fetch_jobs   queued={queued}  done={done}  failed={failed}')
           print(f'brevard_folio_pin_bridge total={bridge}')
-          print(f'MCA brevard 7-digit parcel_ids remaining: {unbridged_mca}')
+          print(f'MCA brevard unreplaced 7-digit folios: {unbridged_mca}')
 
           try:
               if int(done) >= 2000:
