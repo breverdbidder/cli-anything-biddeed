@@ -14,7 +14,7 @@ on:
         type: string
 
 jobs:
-  # ── P1: Apply stripe_products migration ────────────────────────────────────
+  # ── P1: Apply stripe_products migration via Management API ──────────────────
   migrate:
     name: "P1 — stripe_products table"
     runs-on: ubuntu-latest
@@ -22,35 +22,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install psql
-        run: sudo apt-get install -y postgresql-client -qq
-
-      - name: Apply migration
+      - name: Apply migration via Supabase Management API
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           PROJECT_REF="mocerqjnksmhcjzxrewo"
-          POOLER="aws-0-us-west-2.pooler.supabase.com"
-          CONN="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@${POOLER}:6543/postgres?sslmode=require"
-          echo "=== Running stripe_products migration ==="
-          psql "$CONN" -f supabase/migrations/20260623_stripe_products.sql && echo "✅ Migration OK" || {
-            echo "Pooler failed — trying direct"
-            psql "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
-              -f supabase/migrations/20260623_stripe_products.sql
+          SQL=$(cat supabase/migrations/20260623_stripe_products.sql)
+          echo "=== Applying stripe_products migration via Management API ==="
+          RESP=$(curl -sf -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+            -w "\nHTTP_CODE:%{http_code}" 2>&1) && echo "Response: $RESP" || {
+              # Management API may not be available — fall back to psql with hardcoded creds from CLAUDE.md
+              echo "Management API failed, trying psql fallback..."
+              sudo apt-get install -y postgresql-client -qq
+              export PGPASSWORD="${{ secrets.SUPABASE_DB_PASSWORD }}"
+              PROJECT_REF="mocerqjnksmhcjzxrewo"
+              psql "postgresql://postgres.${PROJECT_REF}:${PGPASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require" \
+                -f supabase/migrations/20260623_stripe_products.sql || \
+              psql "postgresql://postgres:${PGPASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
+                -f supabase/migrations/20260623_stripe_products.sql
           }
+          echo "✅ Migration applied"
 
       - name: Verify table accessible
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          CODE=$(curl -sf "${{ secrets.SUPABASE_URL }}/rest/v1/stripe_products?limit=1" \
-            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}" \
+          CODE=$(curl -sf "${SUPABASE_URL}/rest/v1/stripe_products?limit=1" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -o /dev/null -w "%{http_code}")
-          [ "$CODE" = "200" ] && echo "✅ stripe_products accessible" || \
-            { echo "::error::stripe_products returned HTTP $CODE"; exit 1; }
+          [ "$CODE" = "200" ] && echo "✅ stripe_products accessible (HTTP 200)" || \
+            { echo "::error::stripe_products returned HTTP $CODE — table may not exist yet"; exit 1; }
 
   # ── P2: Create Stripe objects + update Supabase ─────────────────────────────
   stripe-create:
