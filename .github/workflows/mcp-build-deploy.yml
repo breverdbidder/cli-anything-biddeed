@@ -68,15 +68,19 @@ jobs:
       - name: Verify tables accessible
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           for TABLE in mcp_api_keys billing_events beta_invites taxi_meter_streams taxi_meter_tools; do
-            CODE=$(curl -sf "${SUPABASE_URL}/rest/v1/${TABLE}?limit=1" \
+            RESP=$(curl -s -o /tmp/resp.json -w "%{http_code}" "${SUPABASE_URL}/rest/v1/${TABLE}?limit=1" \
               -H "apikey: ${SUPABASE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_KEY}" \
-              -o /dev/null -w "%{http_code}")
-            [ "$CODE" = "200" ] && echo "✅ ${TABLE} accessible" || \
-              { echo "::error::${TABLE} returned HTTP $CODE"; exit 1; }
+              -H "Authorization: Bearer ${SUPABASE_KEY}")
+            if [ "$RESP" = "200" ]; then
+              echo "✅ ${TABLE} accessible (HTTP 200)"
+            else
+              echo "::error::${TABLE} returned HTTP $RESP"
+              cat /tmp/resp.json || true
+              exit 1
+            fi
           done
 
           echo ""
@@ -238,7 +242,7 @@ jobs:
       - name: SQL VERIFICATION
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           echo "### SQL VERIFICATION"
           echo "\`\`\`"

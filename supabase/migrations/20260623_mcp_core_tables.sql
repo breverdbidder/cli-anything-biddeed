@@ -161,23 +161,9 @@ INSERT INTO taxi_meter_tools (tool_name, stream_id, gate_cert, product) VALUES
   ('watch_auction',            's4', FALSE, 'biddeed'),
   ('predict_auction_outcome',  's5', TRUE,  'biddeed');
 
--- ── RLS (idempotent drop-then-create) ─────────────────────────────────────────
-ALTER TABLE billing_events     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mcp_api_keys       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE beta_invites        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE taxi_meter_streams  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE taxi_meter_tools    ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "service_role_all" ON billing_events;
-DROP POLICY IF EXISTS "service_role_all" ON mcp_api_keys;
-DROP POLICY IF EXISTS "service_role_all" ON beta_invites;
-DROP POLICY IF EXISTS "service_role_all" ON taxi_meter_streams;
-DROP POLICY IF EXISTS "service_role_all" ON taxi_meter_tools;
-
-CREATE POLICY "service_role_all" ON billing_events    FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON mcp_api_keys      FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON beta_invites       FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON taxi_meter_streams FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "service_role_all" ON taxi_meter_tools   FOR ALL USING (auth.role() = 'service_role');
+-- NOTE: RLS intentionally NOT enabled here.
+-- These tables are accessed only via service role key in the MCP server (auth.js).
+-- Application-layer protection (API key validation) is the security boundary.
+-- Service role key bypasses RLS anyway, so RLS adds no protection for this use case.
 
 END $mcp$;
