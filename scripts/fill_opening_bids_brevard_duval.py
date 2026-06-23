@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
 fill_opening_bids_brevard_duval.py — Fill opening_bid NULLs for Brevard + Duval.
-Dispatch: e299c7c4-a96a-4c93-852a-ac4169f60cdf  (retry 1, 2026-06-23)
+Dispatch: 2b8bf5f6-3cee-46c2-b1b9-8eee6876962f  (retry 2, 2026-06-23)
 
 Strategy (in order):
   Pass 0: Run realforeclose_aids_to_mca_patch() RPC — flushes any existing aids data.
+  Pass 0b: Direct-patch Duval FC NULLs from realforeclose_aids table by case_number
+           (bypasses RPC matching quirks; no credentials needed).
   Pass 1: Duval FC — httpx AJAX login to duval.realforeclose.com → PREVIEW scrape
            → insert realforeclose_aids → re-run RPC (datacenter IPs work).
-  Pass 2: Duval tax deed — scrape duval.realtaxdeed.com for 3 NULL rows.
+  Pass 1b: Duval FC — unauthenticated zoom-page fetch for any AID we have on file.
+  Pass 2: Duval tax deed — scrape duval.realtaxdeed.com for NULL rows.
   Pass 3: Brevard — AcclaimWeb case-number search → extract judgment amounts.
   Final:  Report exact counts (BLANK > WRONG — never claim DONE without DB proof).
 
@@ -206,6 +209,58 @@ def pass0_rpc_flush() -> None:
         print(f"  {slug}: HTTP {st}, rows_updated={body[:200]}")
         time.sleep(1)
 
+# ── Pass 0b: Direct-patch Duval FC from realforeclose_aids ───────────────────
+def pass0b_duval_direct_patch() -> int:
+    """Patch NULL Duval FC rows directly from realforeclose_aids by case_number.
+    Bypasses RPC matching quirks — no credentials needed."""
+    print("\n═══ Pass 0b: Duval FC direct patch from realforeclose_aids ═══")
+    null_rows = fetch_null_bid_rows("duval", "Foreclosure")
+    if not null_rows:
+        print("  No NULL Duval FC rows — skip")
+        return 0
+    print(f"  {len(null_rows)} NULL Duval FC rows to attempt direct patch")
+    filled = 0
+    for row in null_rows:
+        cn = (row.get("case_number") or "").strip()
+        if not cn:
+            continue
+        # Try exact match first, then normalized
+        aids_rows = sb_get(
+            "realforeclose_aids",
+            f"case_number=eq.{urllib.parse.quote(cn)}"
+            f"&county_slug=eq.duval"
+            f"&judgment_amount=not.is.null"
+            f"&select=aid,judgment_amount,auction_starts_at"
+            f"&limit=5")
+        if not aids_rows:
+            # Try partial: strip leading zeros / formatting differences
+            cn_norm = re.sub(r"[^0-9A-Za-z]", "", cn)
+            aids_rows = sb_get(
+                "realforeclose_aids",
+                f"case_number=ilike.*{urllib.parse.quote(cn_norm[-8:])}*"
+                f"&county_slug=eq.duval"
+                f"&judgment_amount=not.is.null"
+                f"&select=aid,judgment_amount,auction_starts_at"
+                f"&limit=5")
+        if not aids_rows:
+            print(f"  case {cn}: not in realforeclose_aids with judgment_amount")
+            continue
+        best = max(aids_rows, key=lambda a: a.get("judgment_amount") or 0)
+        bid = best.get("judgment_amount")
+        if not bid:
+            continue
+        st, body = sb_patch(
+            f"multi_county_auctions?id=eq.{row['id']}",
+            {"opening_bid": bid, "source_platform": "duval_realforeclose"})
+        if st in (200, 201, 204):
+            print(f"  FILLED id={row['id']} case={cn} bid={bid}")
+            filled += 1
+        else:
+            print(f"  PATCH FAILED id={row['id']}: HTTP {st} {body[:100]}")
+    print(f"  Pass 0b filled: {filled}")
+    return filled
+
+
 # ── Pass 1: Duval FC — httpx-style login + PREVIEW scrape ────────────────────
 def pass1_duval_fc() -> int:
     """Scrape duval.realforeclose.com via AJAX login (datacenter IPs allowed).
@@ -308,6 +363,100 @@ def pass1_duval_fc() -> int:
         print(f"  RPC after Duval FC insert: HTTP {st}, {body[:200]}")
 
     return total_inserted
+
+# ── Pass 1b: Duval FC — unauthenticated zoom pages by AID ────────────────────
+def pass1b_duval_zoom_unauth() -> int:
+    """For NULL Duval FC rows: look up AID in realforeclose_aids, fetch zoom page,
+    parse judgment_amount without login. Works when judgment_amount IS NULL in aids."""
+    print("\n═══ Pass 1b: Duval FC zoom pages (unauthenticated) ═══")
+    null_rows = fetch_null_bid_rows("duval", "Foreclosure")
+    if not null_rows:
+        print("  No NULL Duval FC rows — skip")
+        return 0
+
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+
+    def _get(url: str) -> str:
+        r = urllib.request.Request(url, headers={"User-Agent": UA_DESKTOP})
+        try:
+            with opener.open(r, timeout=30) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except Exception as e:
+            print(f"  GET {url} error: {e}")
+            return ""
+
+    # Warm cookies with splash page
+    _get(f"{DUVAL_HOST}/index.cfm")
+
+    filled = 0
+    for row in null_rows:
+        cn = (row.get("case_number") or "").strip()
+        if not cn:
+            continue
+        # Find AIDs for this case_number (judgment_amount may be NULL — we want the AID)
+        aids_rows = sb_get(
+            "realforeclose_aids",
+            f"case_number=eq.{urllib.parse.quote(cn)}"
+            f"&county_slug=eq.duval"
+            f"&select=aid,judgment_amount"
+            f"&limit=5")
+        if not aids_rows:
+            print(f"  case {cn}: no AID in realforeclose_aids")
+            continue
+
+        for a in aids_rows:
+            aid = a.get("aid")
+            if not aid:
+                continue
+            zoom_url = f"{DUVAL_HOST}/index.cfm?zaction=AUCTION&Zmethod=ZOOM&AID={aid}"
+            html = _get(zoom_url)
+            if not html or "LogName" in html and "<form" in html:
+                print(f"  AID {aid}: login wall returned")
+                continue
+
+            # Parse judgment amount from zoom page
+            jm = re.search(
+                r'(?:Final\s+Judgment\s+Amount|Judgment\s+Amount)[^<]*</[^>]+>\s*<[^>]+>\s*\$?([\d,]+\.?\d*)',
+                html, re.IGNORECASE)
+            if not jm:
+                # Try generic dollar-amount near relevant label
+                jm = re.search(
+                    r'AD_LBL[^>]+>\s*(?:Final\s+)?Judgment[^<]*</[^>]+>\s*<[^>]+>\s*\$?([\d,]+(?:\.\d+)?)',
+                    html, re.IGNORECASE)
+            if not jm:
+                # Fallback: parse all AITEM blocks on zoom page
+                blocks = parse_aitem_blocks(html, "duval")
+                for b in blocks:
+                    if b.get("judgment_amount") and b.get("case_number"):
+                        if _norm_case(b["case_number"]) == _norm_case(cn):
+                            jm_val = b["judgment_amount"]
+                            st, body = sb_patch(
+                                f"multi_county_auctions?id=eq.{row['id']}",
+                                {"opening_bid": jm_val, "source_platform": "duval_realforeclose"})
+                            if st in (200, 201, 204):
+                                print(f"  FILLED id={row['id']} case={cn} bid={jm_val} via zoom-block")
+                                filled += 1
+                            break
+                time.sleep(1)
+                continue
+
+            bid = to_float(jm.group(1).replace(",", ""))
+            if bid and bid > 1000:
+                st, body = sb_patch(
+                    f"multi_county_auctions?id=eq.{row['id']}",
+                    {"opening_bid": bid, "source_platform": "duval_realforeclose"})
+                if st in (200, 201, 204):
+                    print(f"  FILLED id={row['id']} case={cn} bid={bid} via zoom-page")
+                    filled += 1
+                    break
+                else:
+                    print(f"  PATCH FAILED id={row['id']}: HTTP {st} {body[:100]}")
+            time.sleep(1)
+
+    print(f"  Pass 1b filled: {filled}")
+    return filled
+
 
 # ── Pass 2: Duval tax deed — duval.realtaxdeed.com ───────────────────────────
 def pass2_duval_taxdeed() -> int:
@@ -532,7 +681,7 @@ def pass3_brevard_accweb() -> int:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
     print("=" * 60)
-    print("fill_opening_bids_brevard_duval.py  dispatch=e299c7c4")
+    print("fill_opening_bids_brevard_duval.py  dispatch=2b8bf5f6  retry=2")
     print(f"Date: {date.today().isoformat()}")
     print("=" * 60)
 
@@ -552,9 +701,17 @@ def main() -> None:
     after_p0_duval   = count_null_bids("duval")
     print(f"\nAfter Pass 0 — brevard={after_p0_brevard}, duval={after_p0_duval}")
 
-    # Pass 1: Duval FC from duval.realforeclose.com
+    # Pass 0b: direct-patch Duval FC from realforeclose_aids (no credentials needed)
     if after_p0_duval > 0:
+        pass0b_duval_direct_patch()
+
+    # Pass 1: Duval FC from duval.realforeclose.com (requires credentials)
+    if count_null_bids("duval") > 0:
         pass1_duval_fc()
+
+    # Pass 1b: unauthenticated zoom pages for any remaining Duval FC NULLs
+    if count_null_bids("duval") > 0:
+        pass1b_duval_zoom_unauth()
 
     # Pass 2: Duval tax deed from duval.realtaxdeed.com
     if count_null_bids("duval") > 0:
