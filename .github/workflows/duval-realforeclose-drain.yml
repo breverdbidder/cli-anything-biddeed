@@ -184,55 +184,100 @@ jobs:
               return False
 
           def try_register():
-              """Attempt to auto-register EMAIL on duval.realforeclose.com.
-              Returns True if registration succeeded or account confirmed existing."""
-              print("\n  ── Auto-registration attempt ──")
-              # GET registration form
+              """Parse registration form from duval.realforeclose.com and submit properly.
+              Returns True if registration succeeded or account already exists with our password."""
+              print("\n  ── Auto-registration attempt (form-parse approach) ──")
               reg_url = f"{HOST}/index.cfm?zaction=REGISTER&Zmethod=START"
               r = _client.get(reg_url)
               html = r.text
-              print(f"  Register page HTTP {r.status_code}, len={len(html)}")
-              print(f"  Register page snippet: {html[:400]!r}")
+              title_m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
+              print(f"  Register page HTTP {r.status_code}, len={len(html)}, title={title_m.group(1) if title_m else 'none'}")
 
-              # Try AJAX-style registration (CF realforeclose uses AJAX for register too)
-              # Common endpoint: ZACTION=REGISTER&ZMETHOD=SUBMIT or ZACTION=AJAX&ZMETHOD=REGISTER
-              reg_payloads = [
-                  # Try 1: form post with standard CF params
-                  {'ZACTION': 'REGISTER', 'ZMETHOD': 'SUBMIT',
-                   'LogName': EMAIL, 'LogPass': PW, 'LogPass2': PW,
-                   'FirstName': 'Everest', 'LastName': 'Capital',
-                   'Email': EMAIL, 'Phone': '3215551234',
-                   'CompanyName': 'Everest Capital USA'},
-                  # Try 2: AJAX variant
-                  {'ZACTION': 'AJAX', 'ZMETHOD': 'REGISTER',
-                   'USERNAME': EMAIL, 'USERPASS': PW, 'USERPASS2': PW,
-                   'FIRSTNAME': 'Everest', 'LASTNAME': 'Capital',
-                   'EMAIL': EMAIL},
-                  # Try 3: USER action variant
-                  {'ZACTION': 'USER', 'ZMETHOD': 'REGISTER',
-                   'LogName': EMAIL, 'LogPass': PW, 'LogPass2': PW,
-                   'Email': EMAIL},
+              # Parse ALL <form> elements from the registration page
+              forms = re.findall(r'<form[^>]*>.*?</form>', html, re.DOTALL|re.IGNORECASE)
+              print(f"  Forms found: {len(forms)}")
+
+              # Print all input field names from each form for debugging
+              for fi, form_html in enumerate(forms):
+                  action_m = re.search(r'\baction=["\']([^"\']*)["\']', form_html, re.IGNORECASE)
+                  raw_action = action_m.group(1) if action_m else '/index.cfm'
+                  form_action = raw_action if raw_action.startswith('http') else HOST + '/' + raw_action.lstrip('/')
+                  # Collect all input/select/textarea fields
+                  fields = {}
+                  for inp in re.findall(r'<input[^>]+>', form_html, re.IGNORECASE):
+                      nm = re.search(r'\bname=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+                      vl = re.search(r'\bvalue=["\']([^"\']*)["\']', inp, re.IGNORECASE)
+                      tp = re.search(r'\btype=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+                      if nm:
+                          fields[nm.group(1)] = vl.group(1) if vl else ''
+                  print(f"  Form {fi}: action={form_action!r}, fields={list(fields.keys())}")
+
+              # Try form-based submission to each form with user registration data
+              # CF realforeclose registration form typically has: LogName, LogPass, LogPass2, FirstName, LastName
+              user_map = {
+                  # exact name matches
+                  'logname': EMAIL, 'username': EMAIL, 'email': EMAIL, 'useremail': EMAIL,
+                  'logpass': PW, 'password': PW, 'userpass': PW,
+                  'logpass2': PW, 'password2': PW, 'userpass2': PW, 'confirmpassword': PW,
+                  'firstname': 'Everest', 'fname': 'Everest',
+                  'lastname': 'Capital', 'lname': 'Capital',
+                  'phone': '3215551234', 'telephone': '3215551234',
+                  'companyname': 'Everest Capital USA', 'company': 'Everest Capital USA',
+              }
+              # Also try URL-param based submissions (CF uses ZACTION/Zmethod in URL)
+              url_variants = [
+                  f"{HOST}/index.cfm?zaction=REGISTER&Zmethod=SUBMIT",
+                  f"{HOST}/index.cfm?ZACTION=REGISTER&Zmethod=SUBMIT",
+                  f"{HOST}/index.cfm",
               ]
-              for i, payload in enumerate(reg_payloads):
-                  r2 = _client.post(f"{HOST}/index.cfm", data=payload,
-                                    headers={'X-Requested-With': 'XMLHttpRequest',
-                                             'Accept': 'application/json, text/javascript, */*; q=0.01',
-                                             'Referer': reg_url})
-                  resp = r2.text.strip()
-                  print(f"  Reg attempt {i+1}: HTTP {r2.status_code}, resp={resp[:300]!r}")
-                  resp_l = resp.lower()
-                  if '"isok":"yes"' in resp_l or 'success' in resp_l or 'thank you' in resp_l:
-                      print(f"  Registration: SUCCESS on attempt {i+1}")
-                      return True
-                  if 'already' in resp_l and ('exist' in resp_l or 'register' in resp_l or 'taken' in resp_l):
-                      print(f"  Registration: email already exists — wrong password likely")
-                      return False
-                  if 'email' in resp_l and ('verif' in resp_l or 'confirm' in resp_l or 'sent' in resp_l):
-                      print(f"  Registration: email verification required — human must click link")
-                      return False
-                  time.sleep(0.5)
 
-              print("  Registration: all attempts failed — no success indicator in responses")
+              for fi, form_html in enumerate(forms):
+                  action_m = re.search(r'\baction=["\']([^"\']*)["\']', form_html, re.IGNORECASE)
+                  raw_action = action_m.group(1) if action_m else '/index.cfm'
+                  form_action = raw_action if raw_action.startswith('http') else HOST + '/' + raw_action.lstrip('/')
+
+                  fields = {}
+                  for inp in re.findall(r'<input[^>]+>', form_html, re.IGNORECASE):
+                      nm = re.search(r'\bname=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+                      vl = re.search(r'\bvalue=["\']([^"\']*)["\']', inp, re.IGNORECASE)
+                      if nm:
+                          fields[nm.group(1)] = vl.group(1) if vl else ''
+                  # Apply user data
+                  for key in list(fields.keys()):
+                      v = user_map.get(key.lower())
+                      if v is not None:
+                          fields[key] = v
+                  # Add fallback fields not in the form
+                  if not any(k.lower() in ('logname', 'username', 'email') for k in fields):
+                      fields['LogName'] = EMAIL
+                  if not any(k.lower() in ('logpass', 'password', 'userpass') for k in fields):
+                      fields['LogPass'] = PW
+                      fields['LogPass2'] = PW
+
+                  # Submit to form action (plain form POST, no XHR) and to URL variants
+                  targets = [form_action] + url_variants
+                  for target in targets:
+                      r2 = _client.post(target, data=fields,
+                                        headers={'Referer': reg_url,
+                                                 'Content-Type': 'application/x-www-form-urlencoded'})
+                      title_r = re.search(r'<title>([^<]+)</title>', r2.text, re.IGNORECASE)
+                      title_str = title_r.group(1).strip() if title_r else 'none'
+                      print(f"  Submit form {fi} → {target}: HTTP {r2.status_code}, title={title_str!r}")
+                      resp_l = r2.text.lower()
+                      if 'success' in resp_l or 'thank you' in resp_l or 'confirmation' in resp_l or 'welcome' in resp_l:
+                          print(f"  Registration: SUCCESS")
+                          return True
+                      if 'already' in resp_l and ('exist' in resp_l or 'register' in resp_l or 'taken' in resp_l or 'use' in resp_l):
+                          print(f"  Registration: email already registered (try different password or manual reset)")
+                          return False
+                      if 'verif' in resp_l or ('email' in resp_l and 'sent' in resp_l):
+                          print(f"  Registration: email verification required — human must click verification link")
+                          return False
+                      if 'error' in title_str.lower() or 'invalid' in resp_l:
+                          print(f"  Submit failed (error in response)")
+                      time.sleep(0.5)
+
+              print("  Registration: all form submissions failed — no success indicator")
               return False
 
           def get_preview_html(auction_date_iso, authenticated=True):
