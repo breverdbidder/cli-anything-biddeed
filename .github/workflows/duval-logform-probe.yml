@@ -1,0 +1,58 @@
+name: "Duval logform.js probe"
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install --quiet httpx
+      - name: Probe login form HTML and logform.js
+        env:
+          REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
+        run: |
+          python3 - <<'PYEOF'
+          import httpx, re, os
+          HOST = "https://duval.realforeclose.com"
+          EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '')
+          PW    = os.environ.get('REALFORECLOSE_PASSWORD', '')
+          UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+          client = httpx.Client(follow_redirects=True, timeout=30.0, headers={'User-Agent': UA})
+
+          # 1. Get logform.js
+          print("=== logform.js ===")
+          r = client.get(f"{HOST}/CORE/System/JS/logform.js")
+          print(f"Status: {r.status_code}")
+          print(r.text[:3000])
+
+          # 2. Get the Auction Calendar / PREVIEW login page
+          print("\n=== Splash then PREVIEW login form HTML ===")
+          client.get(f"{HOST}/index.cfm")  # set CF session cookies
+          r2 = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06%2F24%2F2026")
+          print(f"Status: {r2.status_code}, len={len(r2.text)}")
+          # Find and print the login form
+          m = re.search(r'(<form[^>]*>.*?</form>)', r2.text, re.DOTALL|re.IGNORECASE)
+          if m:
+              print(f"FIRST FORM:\n{m.group(1)[:3000]}")
+          else:
+              # Show the area around LogName
+              idx = r2.text.find('LogName')
+              print(f"LogName context (chars -500..+500):\n{r2.text[max(0,idx-500):idx+500]}")
+
+          # 3. Try login with different field combos
+          print("\n=== Try login POST ===")
+          for extra in [
+              {},
+              {'zaction': 'USER', 'Zmethod': 'LOGON'},
+              {'zaction': 'user', 'Zmethod': 'logon'},
+          ]:
+              form_data = {**extra, 'LogName': EMAIL, 'LogPass': PW}
+              r3 = client.post(f"{HOST}/index.cfm", data=form_data)
+              title_m = re.search(r'<title>([^<]+)</title>', r3.text, re.IGNORECASE)
+              title = title_m.group(1) if title_m else 'N/A'
+              has_login = 'id="LogName"' in r3.text
+              print(f"POST fields={list(extra.keys())} → title={title!r}, has_login={has_login}")
+          PYEOF
