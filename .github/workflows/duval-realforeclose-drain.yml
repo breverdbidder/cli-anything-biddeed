@@ -191,15 +191,43 @@ jobs:
                   if r0.status_code != 200:
                       print(f"  httpx: login page HTTP {r0.status_code} — site may block datacenter IPs")
                       return r0.status_code, ''
-                  if is_first:
-                      # Print form structure once for diagnostics
-                      title_m = re.search(r'<title>([^<]+)</title>', r0.text, re.IGNORECASE)
-                      print(f"  httpx: login page title={title_m.group(1) if title_m else 'N/A'}")
-                      # Show first form's inputs (non-password)
-                      fields, faction = extract_form_fields(r0.text)
-                      safe = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
-                      print(f"  httpx: form action={faction}, fields={list(safe.keys())}")
+                  title_m = re.search(r'<title>([^<]+)</title>', r0.text, re.IGNORECASE)
                   fields, form_action = extract_form_fields(r0.text)
+                  if is_first:
+                      print(f"  httpx: login page title={title_m.group(1) if title_m else 'N/A'}")
+                      safe = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
+                      print(f"  httpx: form action={form_action}, fields={list(safe.keys())}")
+                  # Splash page detection: no LogName field → follow links/redirects to login
+                  if not fields or 'LogName' not in fields:
+                      # Look for a link to the auction/login area
+                      link_m = re.search(
+                          r'href=["\']([^"\']*(?:zaction=AUCTION|LogOn|Login|index\.cfm)[^"\']*)["\']',
+                          r0.text, re.IGNORECASE)
+                      if link_m:
+                          next_url = link_m.group(1)
+                          if not next_url.startswith('http'):
+                              next_url = HOST + '/' + next_url.lstrip('/')
+                          print(f"  httpx: splash page detected, following link to {next_url}")
+                          r0 = client.get(next_url)
+                          fields, form_action = extract_form_fields(r0.text)
+                          if is_first:
+                              t2 = re.search(r'<title>([^<]+)</title>', r0.text, re.IGNORECASE)
+                              safe2 = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
+                              print(f"  httpx: after follow title={t2.group(1) if t2 else 'N/A'}, fields={list(safe2.keys())}")
+                      else:
+                          # Try known RealForeclose login URL pattern directly
+                          login_url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06/24/2026"
+                          print(f"  httpx: no link found, trying known login URL")
+                          # Just print the first form we find on the AUCTION CALENDAR
+                          r_cal = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR")
+                          fields, form_action = extract_form_fields(r_cal.text)
+                          if is_first:
+                              t_cal = re.search(r'<title>([^<]+)</title>', r_cal.text, re.IGNORECASE)
+                              safe_c = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
+                              print(f"  httpx: calendar title={t_cal.group(1) if t_cal else 'N/A'}, fields={list(safe_c.keys())}")
+                          if not fields or 'LogName' not in fields:
+                              print("  httpx: cannot find login form — aborting direct approach")
+                              return 0, ''
                   form_data = {**fields, 'LogName': EMAIL, 'LogPass': PW}
                   r1 = client.post(form_action, data=form_data)
                   if r1.status_code not in (200, 302):
