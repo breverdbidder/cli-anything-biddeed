@@ -29,7 +29,9 @@ def _req(name):
     return v
 
 COUNTY    = _req('COUNTY_SLUG').lower().strip()
-BASE_URL  = _req('BASE_URL').rstrip('/')
+_raw_url  = _req('BASE_URL').rstrip('/')
+# DB stores full calendar URL; strip path so we can append endpoint variants ourselves
+BASE_URL  = _raw_url.split('/index.cfm')[0] if '/index.cfm' in _raw_url else _raw_url
 PLATFORM  = _req('PLATFORM').lower().strip()
 SALE_TYPE = _req('SALE_TYPE').lower().strip()
 SUPA_URL  = _req('SUPABASE_URL').rstrip('/')
