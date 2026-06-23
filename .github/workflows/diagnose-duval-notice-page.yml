@@ -1,0 +1,114 @@
+name: "Diagnose Duval notice page + calendar + or.duvalclerk.com"
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install --quiet httpx
+      - name: Probe notice page body + calendar + AcclaimWeb
+        env:
+          REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
+        run: |
+          python3 - <<'PYEOF'
+          import httpx, re, os
+
+          HOST  = "https://duval.realforeclose.com"
+          EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '')
+          PW    = os.environ.get('REALFORECLOSE_PASSWORD', '')
+
+          client = httpx.Client(follow_redirects=True, timeout=30.0,
+                                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+
+          # 1. Login
+          client.get(f"{HOST}/index.cfm")
+          r = client.post(f"{HOST}/index.cfm",
+                          data={'ZACTION':'AJAX','ZMETHOD':'LOGIN','func':'LOGIN',
+                                'USERNAME':EMAIL,'USERPASS':PW},
+                          headers={'X-Requested-With':'XMLHttpRequest'})
+          print(f"Login: {r.text.strip()[:100]}")
+
+          # 2. Fetch PREVIEW for 2026-06-24 (one of our target dates)
+          pr = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06%2F24%2F2026")
+          html = pr.text
+          print(f"\nPREVIEW HTTP {pr.status_code}, len={len(html)}")
+
+          # Show body text at position 800-1800 (where notice content should be)
+          body_text = re.sub(r'<[^>]+>', ' ', html)
+          body_text = re.sub(r'\s+', ' ', body_text).strip()
+          print(f"Body text[800:1800]: {body_text[800:1800]!r}")
+
+          # Find all forms
+          forms = re.findall(r'<form[^>]*>.*?</form>', html, re.DOTALL|re.IGNORECASE)
+          print(f"\nForms found: {len(forms)}")
+          for i, f in enumerate(forms):
+              action_m = re.search(r'\baction=["\']([^"\']*)["\']', f, re.IGNORECASE)
+              print(f"  Form {i}: action={action_m.group(1) if action_m else 'none'!r}")
+              inputs = re.findall(r'<input[^>]+>', f, re.IGNORECASE)
+              for inp in inputs:
+                  nm = re.search(r'\bname=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+                  vl = re.search(r'\bvalue=["\']([^"\']*)["\']', inp, re.IGNORECASE)
+                  tp = re.search(r'\btype=["\']([^"\']+)["\']', inp, re.IGNORECASE)
+                  print(f"    input name={nm.group(1) if nm else 'N/A'!r} type={tp.group(1) if tp else 'N/A'!r} value={vl.group(1)[:50] if vl else ''!r}")
+
+          # Find links (notice acceptance links)
+          links = re.findall(r'href="([^"]*notice[^"]*|[^"]*accept[^"]*|[^"]*agree[^"]*)"', html, re.IGNORECASE)
+          print(f"\nNotice/accept links: {links[:10]}")
+
+          # 3. Try CALENDAR endpoint (might bypass notice gate)
+          print("\n=== CALENDAR endpoint ===")
+          cr = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR")
+          cal_html = cr.text
+          cal_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', cal_html)).strip()
+          print(f"HTTP {cr.status_code}, len={len(cal_html)}")
+          print(f"Title: {re.search(r'<title>([^<]+)</title>', cal_html, re.IGNORECASE).group(1).strip() if re.search(r'<title>([^<]+)</title>', cal_html, re.IGNORECASE) else 'none'!r}")
+          print(f"Cal text[0:600]: {cal_text[:600]!r}")
+          has_aitem = 'AITEM_' in cal_html
+          print(f"Has AITEM blocks: {has_aitem}")
+          n_aid = len(re.findall(r'aid="(\d+)"', cal_html))
+          print(f"AID references found: {n_aid}")
+
+          # 4. Try or.duvalclerk.com AcclaimWeb
+          import urllib.request, urllib.parse, http.cookiejar
+          print("\n=== or.duvalclerk.com AcclaimWeb ===")
+          cj = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+          UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+          def _req(url, data=None, hdrs=None):
+              r = urllib.request.Request(url, headers={'User-Agent': UA, **(hdrs or {})})
+              if data:
+                  r.data = urllib.parse.urlencode(data).encode() if isinstance(data, dict) else data.encode()
+              try:
+                  with opener.open(r, timeout=30) as resp:
+                      return resp.status, resp.read().decode('utf-8','replace')
+              except Exception as e:
+                  return 0, str(e)
+
+          st, body = _req('http://or.duvalclerk.com/AcclaimWeb/')
+          print(f"AcclaimWeb init: HTTP {st}, len={len(body)}")
+          if st == 200:
+              # Accept disclaimer
+              st2, _ = _req('http://or.duvalclerk.com/AcclaimWeb/search/Disclaimer',
+                             data='disclaimer=on',
+                             hdrs={'Content-Type':'application/x-www-form-urlencoded',
+                                   'Referer':'http://or.duvalclerk.com/AcclaimWeb/'})
+              print(f"Disclaimer: HTTP {st2}")
+              # Search for first case
+              test_case = '16-2025-CA-007080-AXXX-MA'
+              params = [('CaseNumber', test_case), ('DateRangeList', ' '), ('CaseNumberFilter', '0'),
+                        ('RecordDateFrom', '1/1/1981'), ('RecordDateTo', '06/23/2026'),
+                        ('DocTypesDisplay-input', 'All'), ('DocTypesDisplay', ''), ('DocTypes', 'all')]
+              hdrs = {'Content-Type':'application/x-www-form-urlencoded',
+                      'X-Requested-With':'XMLHttpRequest',
+                      'Referer':'http://or.duvalclerk.com/AcclaimWeb/search/SearchTypeCaseNumber'}
+              st3, s_body = _req('http://or.duvalclerk.com/AcclaimWeb/search/SearchTypeCaseNumber?Length=6',
+                                  data=urllib.parse.urlencode(params), hdrs=hdrs)
+              print(f"Search HTTP {st3}, body len={len(s_body)}, body[:200]={s_body[:200]!r}")
+              st4, g_body = _req('http://or.duvalclerk.com/AcclaimWeb/search/GridResults',
+                                  data='page=1&size=50', hdrs=hdrs)
+              print(f"GridResults HTTP {st4}, len={len(g_body)}, body[:300]={g_body[:300]!r}")
+          PYEOF
