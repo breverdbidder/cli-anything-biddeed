@@ -104,7 +104,8 @@ jobs:
           TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
           REF   = "mocerqjnksmhcjzxrewo"
           BASE  = f"https://api.supabase.com/v1/projects/{REF}/database/query"
-          HDR   = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+          HDR   = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json",
+                   "User-Agent": "curl/7.81.0"}
 
           def mgmt_query(sql):
               body = json.dumps({"query": sql}).encode()
