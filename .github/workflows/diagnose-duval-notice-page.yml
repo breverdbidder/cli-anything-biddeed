@@ -24,13 +24,29 @@ jobs:
           client = httpx.Client(follow_redirects=True, timeout=30.0,
                                 headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
 
+          # 0. Try UNAUTHENTICATED PREVIEW first (Brevard works without auth)
+          fresh = httpx.Client(follow_redirects=True, timeout=30.0,
+                               headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+          fresh.get(f"{HOST}/index.cfm")  # warm session cookie
+          unauth_pr = fresh.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06%2F24%2F2026")
+          ua_html = unauth_pr.text
+          ua_title = re.search(r'<title>([^<]+)</title>', ua_html, re.IGNORECASE)
+          ua_has_aitem = 'AITEM_' in ua_html
+          ua_has_login = 'LogName' in ua_html
+          ua_has_notice = 'notice and alert' in ua_html.lower()
+          ua_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', ua_html)).strip()
+          print(f"UNAUTH PREVIEW: HTTP {unauth_pr.status_code}, len={len(ua_html)}")
+          print(f"  title={ua_title.group(1).strip() if ua_title else 'none'!r}")
+          print(f"  has_aitem={ua_has_aitem}, has_login={ua_has_login}, has_notice={ua_has_notice}")
+          print(f"  text[0:400]: {ua_text[:400]!r}")
+
           # 1. Login
           client.get(f"{HOST}/index.cfm")
           r = client.post(f"{HOST}/index.cfm",
                           data={'ZACTION':'AJAX','ZMETHOD':'LOGIN','func':'LOGIN',
                                 'USERNAME':EMAIL,'USERPASS':PW},
                           headers={'X-Requested-With':'XMLHttpRequest'})
-          print(f"Login: {r.text.strip()[:100]}")
+          print(f"\nLogin: {r.text.strip()[:100]}")
 
           # 2. Fetch PREVIEW for 2026-06-24 (one of our target dates)
           pr = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06%2F24%2F2026")
