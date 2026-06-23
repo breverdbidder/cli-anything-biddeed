@@ -254,9 +254,9 @@ def pass0b_duval_direct_patch() -> int:
     """Patch NULL Duval FC rows directly from realforeclose_aids by case_number.
     Bypasses RPC matching quirks — no credentials needed."""
     print("\n═══ Pass 0b: Duval FC direct patch from realforeclose_aids ═══")
-    null_rows = fetch_null_bid_rows("duval", "Foreclosure")
+    null_rows = fetch_null_bid_rows("duval")  # no auction_type filter — Duval rows use non-standard type
     if not null_rows:
-        print("  No NULL Duval FC rows — skip")
+        print("  No NULL Duval rows — skip")
         return 0
     print(f"  {len(null_rows)} NULL Duval FC rows to attempt direct patch")
     filled = 0
@@ -350,6 +350,11 @@ def pass1_duval_fc() -> int:
         print("  LOGIN FAILED — skipping Duval FC scrape")
         return 0
 
+    # Step 2b: Accept notice/agreement gate (confirmed 2026-06-23: GET clears the notice page)
+    agree_html = _get(f"{DUVAL_HOST}/index.cfm?zaction=home&zmethod=agreement")
+    notice_gone = 'notice and alert' not in agree_html.lower()
+    print(f"  notice accept: len={len(agree_html)}, notice_cleared={notice_gone}")
+
     # Step 3: scrape upcoming PREVIEW pages (30 days)
     total_aids = 0
     total_inserted = 0
@@ -409,9 +414,9 @@ def pass1b_duval_zoom_unauth() -> int:
     """For NULL Duval FC rows: look up AID in realforeclose_aids, fetch zoom page,
     parse judgment_amount without login. Works when judgment_amount IS NULL in aids."""
     print("\n═══ Pass 1b: Duval FC zoom pages (unauthenticated) ═══")
-    null_rows = fetch_null_bid_rows("duval", "Foreclosure")
+    null_rows = fetch_null_bid_rows("duval")  # no auction_type filter — Duval rows use non-standard type
     if not null_rows:
-        print("  No NULL Duval FC rows — skip")
+        print("  No NULL Duval rows — skip")
         return 0
 
     cj = http.cookiejar.CookieJar()
@@ -503,11 +508,16 @@ def pass1c_duval_accweb() -> int:
     """Search Duval AcclaimWeb (or.duvalclerk.com) by case number to get judgment amounts.
     Same AcclaimWeb platform as Brevard — no auth needed, just disclaimer acceptance."""
     print("\n═══ Pass 1c: Duval FC — or.duvalclerk.com AcclaimWeb search ═══")
-    null_rows = fetch_null_bid_rows("duval", "Foreclosure")
+    # or.duvalclerk.com is unreachable from GHA datacenter IPs (HTTP 0, confirmed 2026-06-23).
+    # Skip fast — do not waste 60s timeout per case.
+    print("  SKIP: or.duvalclerk.com unreachable from GHA IPs (confirmed 2026-06-23)")
+    return 0
+    # ── unreachable code below kept for reference ──
+    null_rows = fetch_null_bid_rows("duval")  # no auction_type filter — Duval rows use non-standard type
     if not null_rows:
-        print("  No NULL Duval FC rows — skip")
+        print("  No NULL Duval rows — skip")
         return 0
-    print(f"  {len(null_rows)} NULL Duval FC rows to attempt via AcclaimWeb")
+    print(f"  {len(null_rows)} NULL Duval rows to attempt via AcclaimWeb")
 
     DUVAL_AW = "http://or.duvalclerk.com"
 

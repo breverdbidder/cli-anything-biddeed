@@ -335,6 +335,19 @@ jobs:
                   return ''
               return html
 
+          def accept_notice():
+              """GET the agreement acceptance URL to dismiss the notice/alert gate.
+              Diagnostic confirmed: notice page has href='index.cfm?zaction=home&zmethod=agreement'.
+              No form — just a GET while authenticated clears the gate."""
+              r = _client.get(f"{HOST}/index.cfm?zaction=home&zmethod=agreement")
+              title_m = re.search(r'<title>([^<]+)</title>', r.text, re.IGNORECASE)
+              pg_title = title_m.group(1).strip() if title_m else 'no-title'
+              has_notice = 'notice and alert' in r.text.lower()
+              has_aitem  = 'AITEM_' in r.text
+              print(f"  notice accept HTTP {r.status_code}, title={pg_title!r}, "
+                    f"still_notice={has_notice}, has_aitem={has_aitem}")
+              return not has_notice or has_aitem
+
           # ── Execute auth strategy ─────────────────────────────────────────────
           if not EMAIL or not PW:
               print("WARNING: REALFORECLOSE credentials not set — will try unauthenticated only")
@@ -350,6 +363,11 @@ jobs:
                       print("\n  Auth failed after registration attempt.")
                       print("  Will try unauthenticated PREVIEW pages as fallback.")
                       print("  MANUAL FIX: Register at https://duval.realforeclose.com/index.cfm?zaction=REGISTER&Zmethod=START")
+              if logged_in:
+                  # Accept the site notice/agreement (GET — no form, just a link)
+                  print("\nAccepting notice/agreement (zaction=home&zmethod=agreement)...")
+                  notice_cleared = accept_notice()
+                  print(f"  Notice cleared: {notice_cleared}")
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
           total_aids = 0
