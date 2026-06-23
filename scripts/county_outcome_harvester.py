@@ -315,6 +315,47 @@ def load_outcomes(fc_records: list[dict], td_records: list[dict]) -> tuple[int, 
         log(f"  tax_deed_outcomes batch {i//BATCH+1}: {n}")
     return fc_loaded, td_loaded
 
+# ── Step 5b: Fix C/D — parity_status via REST API ────────────────────────────
+def fix_parity_status(all_rows: list[dict]) -> tuple[int, int]:
+    """
+    Sets parity_status via PATCH for rows that need it.
+    Covers C/D in case SQL migration (supabase db push) was skipped.
+    """
+    log("Fixing parity_status for C/D criteria (REST fallback)...")
+    BATCH = 500
+    clean_ids, divergent_ids = [], []
+    for row in all_rows:
+        platform = row.get("source_platform", "")
+        if "propertyonion" in (platform or "").lower():
+            continue
+        pid = row.get("parcel_id")
+        current = row.get("parity_status")
+        row_id  = row.get("id")
+        if not row_id:
+            continue
+        if pid and pid.strip():
+            if current != "matched_clean":
+                clean_ids.append(row_id)
+        else:
+            if current is None:
+                divergent_ids.append(row_id)
+
+    def patch_batch(ids: list, status: str) -> int:
+        loaded = 0
+        for i in range(0, len(ids), BATCH):
+            chunk = ids[i:i + BATCH]
+            id_filter = "in.(" + ",".join(str(x) for x in chunk) + ")"
+            result = sb_patch("multi_county_auctions", f"id={id_filter}",
+                               {"parity_status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
+            loaded += result
+        return loaded
+
+    c_fixed = patch_batch(clean_ids, "matched_clean")
+    d_fixed = patch_batch(divergent_ids, "matched_divergent")
+    log(f"parity_status: matched_clean={c_fixed} rows  matched_divergent={d_fixed} rows")
+    return c_fixed, d_fixed
+
+
 # ── Step 6: Fix F — tier1_sold_amount ────────────────────────────────────────
 def fix_tier1_sold_amount(rows: list[dict]) -> int:
     log("Fixing tier1_sold_amount for F criterion...")
@@ -494,11 +535,29 @@ def main() -> int:
     audit_current_state()
     fc_n, td_n = count_existing_outcomes()
     log(f"Existing outcomes before harvest: fc={fc_n}  td={td_n}")
+    # Remove old fetch_closed_auctions call (now handled via all_rows filter below)
 
-    closed_rows = fetch_closed_auctions()
+    # Fetch ALL county rows (not just closed) for parity fix
+    all_rows = sb_get("multi_county_auctions", {
+        "county":  f"eq.{COUNTY}",
+        "select":  "id,parcel_id,parity_status,sale_type,auction_status,auction_date,"
+                   "sale_date,winning_bid,final_bid,sold_amount,opening_bid,"
+                   "buyer_name,plaintiff,judgment_amount,source_platform,"
+                   "source_url,clerk_url,tier1_sold_amount,certificate_number,case_number",
+        "limit":   "20000",
+    })
+    log(f"Total {COUNTY} rows in MCA: {len(all_rows)}")
+
+    closed_rows = [r for r in all_rows if (r.get("auction_status") or "").lower() in
+                   {s.lower() for s in CLOSED_STATUSES}]
+    log(f"Closed auctions for outcome pipeline: {len(closed_rows)}")
+
     fc_records, td_records = build_outcome_records(closed_rows)
     fc_loaded, td_loaded   = load_outcomes(fc_records, td_records)
     log(f"Outcomes loaded: fc={fc_loaded}  td={td_loaded}")
+
+    # C/D parity fix (REST fallback if SQL migration was not applied)
+    fix_parity_status(all_rows)
 
     fixed = fix_tier1_sold_amount(closed_rows)
     log(f"tier1_sold_amount fixed: {fixed} rows")
