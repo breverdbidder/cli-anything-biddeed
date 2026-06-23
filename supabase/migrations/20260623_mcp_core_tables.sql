@@ -99,21 +99,20 @@ CREATE INDEX IF NOT EXISTS idx_beta_invites_code   ON beta_invites(invite_code);
 CREATE INDEX IF NOT EXISTS idx_beta_invites_cohort ON beta_invites(cohort);
 
 -- ── taxi_meter_streams ────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS taxi_meter_streams (
+-- Config table (6 rows, no user data) — drop+recreate to clear any partial schema
+DROP TABLE IF EXISTS taxi_meter_tools;    -- drop child first (may reference streams)
+DROP TABLE IF EXISTS taxi_meter_streams;
+
+CREATE TABLE taxi_meter_streams (
   id             BIGSERIAL PRIMARY KEY,
   stream_id      TEXT NOT NULL UNIQUE,
-  name           TEXT NOT NULL DEFAULT '',
-  unit_price_usd NUMERIC(10,4) NOT NULL DEFAULT 0,
-  gate_tier      TEXT NOT NULL DEFAULT 'free',
+  name           TEXT NOT NULL,
+  unit_price_usd NUMERIC(10,4) NOT NULL,
+  gate_tier      TEXT NOT NULL,
   billing_type   TEXT NOT NULL DEFAULT 'per_call',
   stripe_metered BOOLEAN NOT NULL DEFAULT FALSE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS gate_tier      TEXT NOT NULL DEFAULT 'free';
-ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS unit_price_usd NUMERIC(10,4) NOT NULL DEFAULT 0;
-ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS billing_type   TEXT NOT NULL DEFAULT 'per_call';
-ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS stripe_metered BOOLEAN NOT NULL DEFAULT FALSE;
 
 INSERT INTO taxi_meter_streams (stream_id, name, unit_price_usd, gate_tier, billing_type, stripe_metered) VALUES
   ('s1',  'Discovery',       0.0500, 'free',       'per_call',       FALSE),
@@ -121,22 +120,18 @@ INSERT INTO taxi_meter_streams (stream_id, name, unit_price_usd, gate_tier, bill
   ('s3',  'Fusion',          5.0000, 'pro',        'per_call',       FALSE),
   ('s4',  'Monitoring',      0.0000, 'pro',        'subscription',   FALSE),
   ('s5',  'Shapira Formula', 25.0000,'pro',        'per_call',       TRUE),
-  ('fee', 'Close-and-Fee',   0.0000, 'enterprise', 'transaction_pct',FALSE)
-ON CONFLICT (stream_id) DO NOTHING;
+  ('fee', 'Close-and-Fee',   0.0000, 'enterprise', 'transaction_pct',FALSE);
 
 -- ── taxi_meter_tools ──────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS taxi_meter_tools (
+-- Config table (25 rows, no user data) — recreated above via DROP
+CREATE TABLE taxi_meter_tools (
   id         BIGSERIAL PRIMARY KEY,
   tool_name  TEXT NOT NULL UNIQUE,
-  stream_id  TEXT NOT NULL DEFAULT 's1',
+  stream_id  TEXT NOT NULL,
   gate_cert  BOOLEAN NOT NULL DEFAULT FALSE,
   product    TEXT NOT NULL DEFAULT 'biddeed',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-ALTER TABLE taxi_meter_tools ADD COLUMN IF NOT EXISTS stream_id  TEXT NOT NULL DEFAULT 's1';
-ALTER TABLE taxi_meter_tools ADD COLUMN IF NOT EXISTS gate_cert  BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE taxi_meter_tools ADD COLUMN IF NOT EXISTS product    TEXT NOT NULL DEFAULT 'biddeed';
 
 INSERT INTO taxi_meter_tools (tool_name, stream_id, gate_cert, product) VALUES
   ('search_auctions',          's1', FALSE, 'biddeed'),
@@ -163,8 +158,7 @@ INSERT INTO taxi_meter_tools (tool_name, stream_id, gate_cert, product) VALUES
   ('get_market_data',          's3', FALSE, 'biddeed'),
   ('skip_trace',               's3', FALSE, 'biddeed'),
   ('watch_auction',            's4', FALSE, 'biddeed'),
-  ('predict_auction_outcome',  's5', TRUE,  'biddeed')
-ON CONFLICT (tool_name) DO NOTHING;
+  ('predict_auction_outcome',  's5', TRUE,  'biddeed');
 
 -- ── RLS (idempotent drop-then-create) ─────────────────────────────────────────
 ALTER TABLE billing_events     ENABLE ROW LEVEL SECURITY;
