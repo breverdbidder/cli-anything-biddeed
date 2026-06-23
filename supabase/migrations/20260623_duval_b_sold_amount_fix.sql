@@ -220,26 +220,71 @@ $$;
 -- STEP 3: F fix — tier1_sold_amount for the 7 zero-bid rows
 -- NULLIF skips 0.0, opening_bid is plaintiff floor
 -- ═══════════════════════════════════════════════════════════════════════════════
--- F fix: use sold_amount (confirmed in MCA) → fallback to opening_bid
--- winning_bid and final_bid confirmed NOT to exist in multi_county_auctions
-UPDATE multi_county_auctions
-SET
-    tier1_sold_amount = COALESCE(NULLIF(sold_amount, 0), opening_bid),
-    tier1_buyer_type  = COALESCE(tier1_buyer_type, 'unknown'),
-    tier1_verified_at = NOW(),
-    updated_at        = NOW()
-WHERE lower(county) = 'duval'
-  AND case_number IN (
-    '16-2025-CC-016284-AXXX-MA',
-    '16-2025-CA-004262-AXXX-MA',
-    '16-2025-CA-007003-AXXX-MA',
-    '16-2024-CA-006897-AXXX-MA',
-    '16-2025-CA-003195-AXXX-MA',
-    '16-2025-CA-003566-AXXX-MA',
-    '16-2018-CA-007837-XXXX-MA'
-  )
-  AND (tier1_sold_amount IS NULL OR tier1_sold_amount = 0)
-  AND COALESCE(NULLIF(sold_amount, 0), opening_bid) IS NOT NULL;
+-- F fix: set tier1_sold_amount only — probe which optional MCA columns exist first
+DO $$
+DECLARE
+    v_has_tier1_sold     BOOLEAN;
+    v_has_tier1_verified BOOLEAN;
+    v_has_updated_at     BOOLEAN;
+    v_has_sold_amount    BOOLEAN;
+    v_has_opening_bid    BOOLEAN;
+    v_set_parts          TEXT[];
+    v_sql                TEXT;
+    v_updated            INTEGER;
+BEGIN
+    SELECT
+        bool_or(column_name = 'tier1_sold_amount'),
+        bool_or(column_name = 'tier1_verified_at'),
+        bool_or(column_name = 'updated_at'),
+        bool_or(column_name = 'sold_amount'),
+        bool_or(column_name = 'opening_bid')
+    INTO v_has_tier1_sold, v_has_tier1_verified, v_has_updated_at,
+         v_has_sold_amount, v_has_opening_bid
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='multi_county_auctions';
+
+    RAISE NOTICE 'MCA F cols: tier1_sold=% tier1_verified=% updated_at=% sold_amount=% opening_bid=%',
+        v_has_tier1_sold, v_has_tier1_verified, v_has_updated_at,
+        v_has_sold_amount, v_has_opening_bid;
+
+    IF NOT v_has_tier1_sold THEN
+        RAISE NOTICE 'tier1_sold_amount missing — adding column';
+        EXECUTE 'ALTER TABLE multi_county_auctions ADD COLUMN IF NOT EXISTS tier1_sold_amount NUMERIC';
+    END IF;
+
+    v_set_parts := ARRAY['tier1_sold_amount = COALESCE(NULLIF(sold_amount, 0), opening_bid)'];
+    IF v_has_tier1_verified THEN
+        v_set_parts := v_set_parts || 'tier1_verified_at = NOW()';
+    END IF;
+    IF v_has_updated_at THEN
+        v_set_parts := v_set_parts || 'updated_at = NOW()';
+    END IF;
+
+    v_sql := format(
+        $q$
+        UPDATE multi_county_auctions
+        SET %s
+        WHERE lower(county) = 'duval'
+          AND case_number IN (
+            '16-2025-CC-016284-AXXX-MA',
+            '16-2025-CA-004262-AXXX-MA',
+            '16-2025-CA-007003-AXXX-MA',
+            '16-2024-CA-006897-AXXX-MA',
+            '16-2025-CA-003195-AXXX-MA',
+            '16-2025-CA-003566-AXXX-MA',
+            '16-2018-CA-007837-XXXX-MA'
+          )
+          AND (tier1_sold_amount IS NULL OR tier1_sold_amount = 0)
+          AND COALESCE(NULLIF(sold_amount, 0), opening_bid) IS NOT NULL
+        $q$,
+        array_to_string(v_set_parts, ', ')
+    );
+
+    EXECUTE v_sql;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    RAISE NOTICE 'F fix: tier1_sold_amount set on % rows', v_updated;
+END;
+$$;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- STEP 4: B/F verification
