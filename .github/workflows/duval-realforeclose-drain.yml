@@ -157,7 +157,25 @@ jobs:
           FH = {"Authorization": f"Bearer {FC}", "Content-Type": "application/json"}
           UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
 
-          def httpx_scrape_preview(auction_date_iso):
+          def extract_form_fields(html):
+              """Extract all input fields from the first form; return {name: value} dict."""
+              form_m = re.search(r'<form[^>]*>(.*?)</form>', html, re.DOTALL|re.IGNORECASE)
+              if not form_m:
+                  return {}, None
+              form_html = form_m.group(0)
+              action_m = re.search(r'action=["\']([^"\']*)["\']', form_html, re.IGNORECASE)
+              form_action = action_m.group(1) if action_m else '/index.cfm'
+              if not form_action.startswith('http'):
+                  form_action = HOST + '/' + form_action.lstrip('/')
+              fields = {}
+              for tag in re.findall(r'<input[^>]+>', form_html, re.IGNORECASE):
+                  name_m = re.search(r'\bname=["\']([^"\']+)["\']', tag, re.IGNORECASE)
+                  val_m  = re.search(r'\bvalue=["\']([^"\']*)["\']', tag, re.IGNORECASE)
+                  if name_m:
+                      fields[name_m.group(1)] = val_m.group(1) if val_m else ''
+              return fields, form_action
+
+          def httpx_scrape_preview(auction_date_iso, is_first=False):
               """Direct ColdFusion form login + PREVIEW fetch. Returns (status, html)."""
               if not EMAIL or not PW:
                   return 0, ''
@@ -169,32 +187,44 @@ jobs:
                   client = httpx.Client(
                       follow_redirects=True, timeout=30.0,
                       headers={'User-Agent': UA})
-                  # GET login page to capture ColdFusion hidden fields
                   r0 = client.get(f"{HOST}/index.cfm")
                   if r0.status_code != 200:
                       print(f"  httpx: login page HTTP {r0.status_code} — site may block datacenter IPs")
                       return r0.status_code, ''
-                  # Extract hidden fields (CFID, CFTOKEN, __EVENTTARGET, etc.)
-                  hidden = dict(re.findall(
-                      r'<input[^>]+type=["\']hidden["\'][^>]+name=["\']([^"\']+)["\'][^>]+value=["\']([^"\']*)["\']',
-                      r0.text, re.IGNORECASE))
-                  form_data = {**hidden, 'LogName': EMAIL, 'LogPass': PW, 'LogAction': 'login'}
-                  # POST credentials
-                  r1 = client.post(f"{HOST}/index.cfm", data=form_data)
+                  if is_first:
+                      # Print form structure once for diagnostics
+                      title_m = re.search(r'<title>([^<]+)</title>', r0.text, re.IGNORECASE)
+                      print(f"  httpx: login page title={title_m.group(1) if title_m else 'N/A'}")
+                      # Show first form's inputs (non-password)
+                      fields, faction = extract_form_fields(r0.text)
+                      safe = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
+                      print(f"  httpx: form action={faction}, fields={list(safe.keys())}")
+                  fields, form_action = extract_form_fields(r0.text)
+                  form_data = {**fields, 'LogName': EMAIL, 'LogPass': PW}
+                  r1 = client.post(form_action, data=form_data)
                   if r1.status_code not in (200, 302):
                       print(f"  httpx: login POST HTTP {r1.status_code}")
                       return r1.status_code, ''
-                  # Check login succeeded (no LogName field in response = logged in)
-                  if 'LogName' in r1.text and '<input' in r1.text and '<form' in r1.text:
-                      print("  httpx: login failed — still showing login form")
+                  # Check: if LogName input still present → login failed
+                  if 'id="LogName"' in r1.text or 'name="LogName"' in r1.text:
+                      print("  httpx: login failed — LogName field still in response")
+                      if is_first:
+                          print(f"  httpx: response snippet: {r1.text[500:1000]!r}")
                       return 401, ''
-                  # Fetch PREVIEW page
+                  if is_first:
+                      title_m2 = re.search(r'<title>([^<]+)</title>', r1.text, re.IGNORECASE)
+                      print(f"  httpx: post-login title={title_m2.group(1) if title_m2 else 'N/A'}")
                   r2 = client.get(preview_url)
                   print(f"  httpx: PREVIEW HTTP {r2.status_code}, len={len(r2.text)}")
+                  if is_first:
+                      title_m3 = re.search(r'<title>([^<]+)</title>', r2.text, re.IGNORECASE)
+                      print(f"  httpx: PREVIEW title={title_m3.group(1) if title_m3 else 'N/A'}")
                   return r2.status_code, r2.text
               except Exception as e:
                   print(f"  httpx error: {e}")
                   return 0, ''
+
+          _httpx_first = True
 
           def fc_scrape_preview(auction_date_iso):
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
@@ -242,12 +272,16 @@ jobs:
 
           def scrape_preview(auction_date_iso):
               """Try direct httpx first; fall back to Firecrawl if httpx is blocked (403)."""
+              global _httpx_first
               print("  → trying direct httpx")
-              sc, html = httpx_scrape_preview(auction_date_iso)
+              sc, html = httpx_scrape_preview(auction_date_iso, is_first=_httpx_first)
+              _httpx_first = False
               if sc == 200 and html:
                   return sc, html
               if sc == 403:
                   print("  → httpx blocked (403 — datacenter IP), falling back to Firecrawl")
+              elif sc == 401:
+                  print("  → httpx login failed, falling back to Firecrawl")
               elif sc != 200:
                   print(f"  → httpx returned {sc}, falling back to Firecrawl")
               print("  → trying Firecrawl")
