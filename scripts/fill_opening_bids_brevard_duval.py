@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 fill_opening_bids_brevard_duval.py — Fill opening_bid NULLs for Brevard + Duval.
-Dispatch: 2b8bf5f6-3cee-46c2-b1b9-8eee6876962f  (retry 2, 2026-06-23)
+Dispatch: c8f7c143-d9e0-4e46-baa5-78fcb36297cc  (retry 3, 2026-06-23)
 
 Strategy (in order):
   Pass 0: Run realforeclose_aids_to_mca_patch() RPC — flushes any existing aids data.
@@ -11,7 +11,8 @@ Strategy (in order):
            → insert realforeclose_aids → re-run RPC (datacenter IPs work).
   Pass 1b: Duval FC — unauthenticated zoom-page fetch for any AID we have on file.
   Pass 2: Duval tax deed — scrape duval.realtaxdeed.com for NULL rows.
-  Pass 3: Brevard — AcclaimWeb case-number search → extract judgment amounts.
+  Pass 3: Brevard — AcclaimWeb case-number search → extract judgment amounts (cap 200).
+  Pass 4: Brevard — brevard.realforeclose.com PREVIEW scrape (unauthenticated) → aids.
   Final:  Report exact counts (BLANK > WRONG — never claim DONE without DB proof).
 
 Env required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -604,7 +605,7 @@ def pass3_brevard_accweb() -> int:
     print("  AcclaimWeb session initialized")
 
     filled = 0
-    for row in null_rows[:50]:  # cap at 50 to avoid throttle issues
+    for row in null_rows[:200]:  # cap at 200 (125 Brevard auctions expected)
         cn = row.get("case_number", "")
         if not cn:
             continue
@@ -678,10 +679,91 @@ def pass3_brevard_accweb() -> int:
     print(f"  Brevard AcclaimWeb filled: {filled}")
     return filled
 
+# ── Pass 4: Brevard — brevard.realforeclose.com PREVIEW scrape ───────────────
+def pass4_brevard_realforeclose() -> int:
+    """Scrape brevard.realforeclose.com PREVIEW pages unauthenticated.
+    Inserts into realforeclose_aids, then re-runs RPC to patch MCA.
+    Datacenter IPs work for brevard.realforeclose.com (unlike AcclaimWeb).
+    Returns count of aids inserted."""
+    print("\n═══ Pass 4: Brevard realforeclose.com PREVIEW scrape ═══")
+    BREVARD_RF = "https://brevard.realforeclose.com"
+
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+
+    def _get(url: str) -> str:
+        r = urllib.request.Request(url, headers={"User-Agent": UA_DESKTOP})
+        try:
+            with opener.open(r, timeout=30) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except Exception as e:
+            print(f"  GET {url} error: {e}")
+            return ""
+
+    # Warm session cookies
+    splash = _get(f"{BREVARD_RF}/index.cfm")
+    print(f"  splash: len={len(splash)}, cookies={[c.name for c in cj]}")
+
+    total_aids = 0
+    total_inserted = 0
+    today = date.today()
+    dates = [
+        (today + timedelta(days=i)).isoformat()
+        for i in range(60)
+        if (today + timedelta(days=i)).weekday() < 5
+    ]
+
+    for auction_date in dates:
+        d_obj = datetime.strptime(auction_date, "%Y-%m-%d")
+        date_mdy = d_obj.strftime("%m/%d/%Y")
+        preview_url = (f"{BREVARD_RF}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
+                       f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
+        html = _get(preview_url)
+        if not html:
+            continue
+
+        aids = parse_aitem_blocks(html, "brevard")
+        if not aids:
+            continue
+
+        print(f"  {auction_date}: {len(aids)} AITEM blocks")
+        total_aids += len(aids)
+        payload = [{
+            "aid": a["aid"], "county_slug": "brevard",
+            "auction_type": a["auction_type"],
+            "case_number": a["case_number"],
+            "judgment_amount": a["judgment_amount"],
+            "parcel_id": a["parcel_id"],
+            "property_address": a["property_address"],
+            "assessed_value": a["assessed_value"],
+            "plaintiff_max_bid": a["plaintiff_max_bid"],
+            "auction_starts_at": a["auction_starts_at"],
+            "auction_starts_raw": a["auction_starts_raw"],
+            "county_subdomain": a["county_subdomain"],
+        } for a in aids if a.get("case_number")]
+        if payload:
+            st, body = sb_post("realforeclose_aids?on_conflict=aid", payload,
+                               "resolution=merge-duplicates")
+            if st in (200, 201, 204):
+                total_inserted += len(payload)
+            else:
+                print(f"  aids INSERT FAILED: HTTP {st}: {body[:200]}")
+        time.sleep(1.5)
+
+    print(f"  Brevard RF: aids_found={total_aids}, aids_inserted={total_inserted}")
+
+    if total_inserted > 0:
+        st, body = sb_rpc("realforeclose_aids_to_mca_patch",
+                          {"p_dispatch_id": None, "p_county_slug": "brevard"})
+        print(f"  RPC after Brevard RF insert: HTTP {st}, {body[:200]}")
+
+    return total_inserted
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
     print("=" * 60)
-    print("fill_opening_bids_brevard_duval.py  dispatch=2b8bf5f6  retry=2")
+    print("fill_opening_bids_brevard_duval.py  dispatch=c8f7c143  retry=3")
     print(f"Date: {date.today().isoformat()}")
     print("=" * 60)
 
@@ -720,6 +802,10 @@ def main() -> None:
     # Pass 3: Brevard via AcclaimWeb
     if count_null_bids("brevard") > 0:
         pass3_brevard_accweb()
+
+    # Pass 4: Brevard via brevard.realforeclose.com PREVIEW (unauthenticated)
+    if count_null_bids("brevard") > 0:
+        pass4_brevard_realforeclose()
 
     # Final RPC flush — pick up anything newly inserted into realforeclose_aids
     print("\n═══ Final RPC flush ═══")
