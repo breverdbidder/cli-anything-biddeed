@@ -44,7 +44,8 @@ jobs:
           r3 = client.get(f"{HOST}/index.cfm")
           title_m = re.search(r'<title>([^<]+)</title>', r3.text, re.IGNORECASE)
           print(f"Status: {r3.status_code}, title={title_m.group(1) if title_m else 'N/A'}")
-          print(f"Has LogName: {'id=\"LogName\"' in r3.text}")
+          has_ln = 'id="LogName"' in r3.text
+          print(f"Has LogName: {has_ln}")
 
           print("\n=== Step 4: GET PREVIEW ===")
           r4 = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06%2F24%2F2026")
