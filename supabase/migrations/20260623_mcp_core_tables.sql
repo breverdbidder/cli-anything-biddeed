@@ -102,13 +102,18 @@ CREATE INDEX IF NOT EXISTS idx_beta_invites_cohort ON beta_invites(cohort);
 CREATE TABLE IF NOT EXISTS taxi_meter_streams (
   id             BIGSERIAL PRIMARY KEY,
   stream_id      TEXT NOT NULL UNIQUE,
-  name           TEXT NOT NULL,
-  unit_price_usd NUMERIC(10,4) NOT NULL,
-  gate_tier      TEXT NOT NULL,
+  name           TEXT NOT NULL DEFAULT '',
+  unit_price_usd NUMERIC(10,4) NOT NULL DEFAULT 0,
+  gate_tier      TEXT NOT NULL DEFAULT 'free',
   billing_type   TEXT NOT NULL DEFAULT 'per_call',
   stripe_metered BOOLEAN NOT NULL DEFAULT FALSE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS gate_tier      TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS unit_price_usd NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS billing_type   TEXT NOT NULL DEFAULT 'per_call';
+ALTER TABLE taxi_meter_streams ADD COLUMN IF NOT EXISTS stripe_metered BOOLEAN NOT NULL DEFAULT FALSE;
 
 INSERT INTO taxi_meter_streams (stream_id, name, unit_price_usd, gate_tier, billing_type, stripe_metered) VALUES
   ('s1',  'Discovery',       0.0500, 'free',       'per_call',       FALSE),
@@ -123,11 +128,15 @@ ON CONFLICT (stream_id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS taxi_meter_tools (
   id         BIGSERIAL PRIMARY KEY,
   tool_name  TEXT NOT NULL UNIQUE,
-  stream_id  TEXT NOT NULL,
+  stream_id  TEXT NOT NULL DEFAULT 's1',
   gate_cert  BOOLEAN NOT NULL DEFAULT FALSE,
   product    TEXT NOT NULL DEFAULT 'biddeed',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE taxi_meter_tools ADD COLUMN IF NOT EXISTS stream_id  TEXT NOT NULL DEFAULT 's1';
+ALTER TABLE taxi_meter_tools ADD COLUMN IF NOT EXISTS gate_cert  BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE taxi_meter_tools ADD COLUMN IF NOT EXISTS product    TEXT NOT NULL DEFAULT 'biddeed';
 
 INSERT INTO taxi_meter_tools (tool_name, stream_id, gate_cert, product) VALUES
   ('search_auctions',          's1', FALSE, 'biddeed'),
