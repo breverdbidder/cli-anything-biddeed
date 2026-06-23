@@ -85,12 +85,28 @@ def _get_html(url: str, retries: int = 2) -> tuple[str, str]:
 
 
 def _is_login_wall(html: str) -> bool:
-    return bool(
-        re.search(r'id=["\']LogName["\']', html, re.IGNORECASE) or
-        re.search(r'name=["\']UserID["\']', html, re.IGNORECASE) or
+    """
+    True only when the page IS a login wall (no auction content present).
+    RealAuction sites have a login header link on every page — that is NOT a wall.
+    A wall is: login form is the dominant content AND no AITEM/calendar data present.
+    """
+    if not html:
+        return False
+    has_login_form = bool(
         re.search(r'id=["\']logPassword["\']', html, re.IGNORECASE) or
-        re.search(r'<title[^>]*>.*?Login.*?</title>', html, re.IGNORECASE | re.DOTALL)
+        (re.search(r'name=["\']UserID["\']', html, re.IGNORECASE) and
+         re.search(r'<form', html, re.IGNORECASE))
     )
+    if not has_login_form:
+        return False
+    # Has a login form — but does the page also have auction content?
+    has_auction_content = bool(
+        re.search(r'AUCTIONDATE=', html, re.IGNORECASE) or
+        re.search(r'<div[^>]*id=["\']AITEM_', html, re.IGNORECASE) or
+        re.search(r'class=["\'][^"\']*TDsmal', html, re.IGNORECASE) or   # calendar cells
+        re.search(r'class=["\'][^"\']*AD_LBL', html, re.IGNORECASE)       # card labels
+    )
+    return not has_auction_content
 
 
 def _strip_html(s: str) -> str | None:
