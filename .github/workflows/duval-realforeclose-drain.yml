@@ -150,8 +150,51 @@ jobs:
                   })
               return items
 
-          # ── 3. Firecrawl scrape ───────────────────────────────────────────────
+          # ── 3. Scrape: try direct httpx first, fall back to Firecrawl ──────────
+          # Direct httpx uses ColdFusion form POST (same pattern as diagnose workflow).
+          # Firecrawl is the fallback for IP-blocked sites (needs residential proxies).
+          # If Firecrawl returns 402 (out of credits), direct httpx is the only path.
           FH = {"Authorization": f"Bearer {FC}", "Content-Type": "application/json"}
+          UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+
+          def httpx_scrape_preview(auction_date_iso):
+              """Direct ColdFusion form login + PREVIEW fetch. Returns (status, html)."""
+              if not EMAIL or not PW:
+                  return 0, ''
+              d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
+              date_mdy = d.strftime('%m/%d/%Y')
+              preview_url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
+                             f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
+              try:
+                  client = httpx.Client(
+                      follow_redirects=True, timeout=30.0,
+                      headers={'User-Agent': UA})
+                  # GET login page to capture ColdFusion hidden fields
+                  r0 = client.get(f"{HOST}/index.cfm")
+                  if r0.status_code != 200:
+                      print(f"  httpx: login page HTTP {r0.status_code} — site may block datacenter IPs")
+                      return r0.status_code, ''
+                  # Extract hidden fields (CFID, CFTOKEN, __EVENTTARGET, etc.)
+                  hidden = dict(re.findall(
+                      r'<input[^>]+type=["\']hidden["\'][^>]+name=["\']([^"\']+)["\'][^>]+value=["\']([^"\']*)["\']',
+                      r0.text, re.IGNORECASE))
+                  form_data = {**hidden, 'LogName': EMAIL, 'LogPass': PW, 'LogAction': 'login'}
+                  # POST credentials
+                  r1 = client.post(f"{HOST}/index.cfm", data=form_data)
+                  if r1.status_code not in (200, 302):
+                      print(f"  httpx: login POST HTTP {r1.status_code}")
+                      return r1.status_code, ''
+                  # Check login succeeded (no LogName field in response = logged in)
+                  if 'LogName' in r1.text and '<input' in r1.text and '<form' in r1.text:
+                      print("  httpx: login failed — still showing login form")
+                      return 401, ''
+                  # Fetch PREVIEW page
+                  r2 = client.get(preview_url)
+                  print(f"  httpx: PREVIEW HTTP {r2.status_code}, len={len(r2.text)}")
+                  return r2.status_code, r2.text
+              except Exception as e:
+                  print(f"  httpx error: {e}")
+                  return 0, ''
 
           def fc_scrape_preview(auction_date_iso):
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
@@ -197,6 +240,19 @@ jobs:
                   print(f"  Firecrawl error: {e}")
                   return 0, ''
 
+          def scrape_preview(auction_date_iso):
+              """Try direct httpx first; fall back to Firecrawl if httpx is blocked (403)."""
+              print("  → trying direct httpx")
+              sc, html = httpx_scrape_preview(auction_date_iso)
+              if sc == 200 and html:
+                  return sc, html
+              if sc == 403:
+                  print("  → httpx blocked (403 — datacenter IP), falling back to Firecrawl")
+              elif sc != 200:
+                  print(f"  → httpx returned {sc}, falling back to Firecrawl")
+              print("  → trying Firecrawl")
+              return fc_scrape_preview(auction_date_iso)
+
           # ── 4. Per-date loop ──────────────────────────────────────────────────
           total_aids = 0
           total_inserted = 0
@@ -222,7 +278,7 @@ jobs:
               except Exception as e:
                   print(f"  court_responses_raw insert error: {e}")
 
-              status_code, html = fc_scrape_preview(auction_date)
+              status_code, html = scrape_preview(auction_date)
               print(f"  HTTP {status_code}, html_len={len(html)}")
 
               aids = parse_aitem_blocks(html, 'duval') if html else []
