@@ -96,7 +96,7 @@ BEGIN
         $vals$
             'duval',
             mca.case_number,
-            COALESCE(mca.auction_date, mca.sale_date),
+            mca.auction_date,
             CASE
                 WHEN lower(COALESCE(mca.source_platform,'')) LIKE '%%realforeclose%%'
                      THEN 'duval_realforeclose_official'
@@ -158,7 +158,7 @@ BEGIN
             '16-2025-CA-003566-AXXX-MA',
             '16-2018-CA-007837-XXXX-MA'
           )
-          AND COALESCE(mca.auction_date, mca.sale_date) IS NOT NULL
+          AND mca.auction_date IS NOT NULL
         ON CONFLICT DO NOTHING
         $q$,
         v_col_list,
@@ -190,7 +190,7 @@ BEGIN
               'redeemed','postponed','opened','withdrawn'
           )
           AND COALESCE(mca.source_platform,'') NOT ILIKE '%%propertyonion%%'
-          AND COALESCE(mca.auction_date, mca.sale_date) IS NOT NULL
+          AND mca.auction_date IS NOT NULL
         ON CONFLICT DO NOTHING
         $q$,
         v_col_list,
