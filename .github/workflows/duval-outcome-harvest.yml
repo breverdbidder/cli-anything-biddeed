@@ -66,6 +66,8 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
+          # supabase init creates config.toml if absent (required by supabase link)
+          supabase init --force 2>/dev/null || true
           supabase link --project-ref mocerqjnksmhcjzxrewo
           # Push only the Duval outcome migration (idempotent — ON CONFLICT DO NOTHING)
           supabase db push --db-url "${{ secrets.SUPABASE_DB_URL }}" 2>&1 || \
