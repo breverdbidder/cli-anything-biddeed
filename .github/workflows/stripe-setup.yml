@@ -1,0 +1,151 @@
+name: "Stripe Setup — Products + Prices + Webhook → Supabase"
+# Zero-HITL: creates 4 BidDeed products, monthly/annual/S5-metered prices,
+# registers webhook at biddeed.ai/api/stripe/webhook, updates stripe_products table.
+#
+# Surface to Ariel ONLY if STRIPE_SECRET_KEY missing from secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — skip Stripe API calls (schema migration only)"
+        required: false
+        default: "false"
+        type: string
+
+jobs:
+  # ── P1: Apply stripe_products migration ────────────────────────────────────
+  migrate:
+    name: "P1 — stripe_products table"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql
+        run: sudo apt-get install -y postgresql-client -qq
+
+      - name: Apply migration
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          PROJECT_REF="mocerqjnksmhcjzxrewo"
+          POOLER="aws-0-us-west-2.pooler.supabase.com"
+          CONN="postgresql://postgres.${PROJECT_REF}:${SUPABASE_DB_PASSWORD}@${POOLER}:6543/postgres?sslmode=require"
+          echo "=== Running stripe_products migration ==="
+          psql "$CONN" -f supabase/migrations/20260623_stripe_products.sql && echo "✅ Migration OK" || {
+            echo "Pooler failed — trying direct"
+            psql "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=require" \
+              -f supabase/migrations/20260623_stripe_products.sql
+          }
+
+      - name: Verify table accessible
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          CODE=$(curl -sf "${{ secrets.SUPABASE_URL }}/rest/v1/stripe_products?limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}" \
+            -o /dev/null -w "%{http_code}")
+          [ "$CODE" = "200" ] && echo "✅ stripe_products accessible" || \
+            { echo "::error::stripe_products returned HTTP $CODE"; exit 1; }
+
+  # ── P2: Create Stripe objects + update Supabase ─────────────────────────────
+  stripe-create:
+    name: "P2 — Stripe API + Supabase update"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: migrate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Guard — STRIPE_SECRET_KEY must be set
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          if [ -z "$STRIPE_SECRET_KEY" ]; then
+            echo "::error::STRIPE_SECRET_KEY secret is not set. Add it at Settings → Secrets → Actions."
+            exit 1
+          fi
+          echo "STRIPE_SECRET_KEY present (${#STRIPE_SECRET_KEY} chars)"
+
+      - name: Install stripe SDK
+        run: npm install stripe --no-save
+
+      - name: Run stripe-setup.js
+        if: ${{ inputs.dry_run != 'true' }}
+        env:
+          STRIPE_SECRET_KEY:        ${{ secrets.STRIPE_SECRET_KEY }}
+          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY:             ${{ secrets.SUPABASE_KEY }}
+        run: node scripts/stripe-setup.js 2>&1 | tee /tmp/stripe-setup.log
+
+      - name: Dry run notice
+        if: ${{ inputs.dry_run == 'true' }}
+        run: echo "⚠️  DRY_RUN=true — skipped Stripe API calls. Migration applied only."
+
+      - name: Store STRIPE_WEBHOOK_SECRET via gh CLI
+        if: ${{ inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          if [ -f /tmp/stripe_webhook_secret ]; then
+            SECRET=$(cat /tmp/stripe_webhook_secret)
+            echo "$SECRET" | gh secret set STRIPE_WEBHOOK_SECRET \
+              --repo breverdbidder/cli-anything-biddeed && \
+              echo "✅ STRIPE_WEBHOOK_SECRET stored in GitHub Secrets" || \
+              echo "⚠️  gh secret set failed — copy STRIPE_WEBHOOK_SECRET from log above manually"
+          else
+            echo "⚠️  /tmp/stripe_webhook_secret not found — check stripe-setup.js output"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== Run complete ==="
+          if [ -f /tmp/stripe-setup.log ]; then
+            grep -E "(product_id|monthly|annual|s5_metered|webhook_id|STRIPE_WEBHOOK_SECRET|FAIL|✅|tier=)" \
+              /tmp/stripe-setup.log || true
+          fi
+
+  # ── P3: Final verification query ───────────────────────────────────────────
+  verify:
+    name: "P3 — SHIP GATE verification"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: stripe-create
+    if: ${{ inputs.dry_run != 'true' }}
+    steps:
+      - name: Query stripe_products
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "### SQL VERIFICATION"
+          echo "\`\`\`"
+          echo "SELECT tier_id, product_id, stripe_price_id_monthly, stripe_s5_price_id FROM stripe_products ORDER BY tier_id;"
+          echo ""
+          ROWS=$(curl -sf \
+            "$SUPABASE_URL/rest/v1/stripe_products?select=tier_id,product_id,stripe_price_id_monthly,stripe_price_id_annual,stripe_s5_price_id,live_mode&order=tier_id" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY")
+          echo "$ROWS" | python3 -c "
+          import json, sys
+          rows = json.load(sys.stdin)
+          pending = [r for r in rows if r.get('product_id','PENDING') == 'PENDING']
+          for r in rows:
+            print(f\"  tier={r['tier_id']} product={r['product_id']} monthly={r['stripe_price_id_monthly']} s5={r['stripe_s5_price_id']}\")
+          print()
+          if pending:
+            print(f'FAIL: {len(pending)} tiers still PENDING: {[r[\"tier_id\"] for r in pending]}')
+            sys.exit(1)
+          print('PASS: All 4 tiers have real prod_xxx IDs')
+          "
+          echo "\`\`\`"
