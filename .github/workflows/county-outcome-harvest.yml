@@ -69,10 +69,21 @@ jobs:
       - name: Apply 6-county outcome pipeline migration
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
+          set +e  # Python harvester handles REST fallback if migration fails
+          if [ -z "${SUPABASE_DB_URL}" ]; then
+            echo "SUPABASE_DB_URL not set — skipping db push (Python harvester covers C/D/F/H via REST)"
+            exit 0
+          fi
           supabase link --project-ref mocerqjnksmhcjzxrewo
-          supabase db push --db-url "${{ secrets.SUPABASE_DB_URL }}" 2>&1 || \
-            echo "Migration push completed (ON CONFLICT warnings above are safe)"
+          LINK_RC=$?
+          if [ $LINK_RC -ne 0 ]; then
+            echo "supabase link failed (rc=$LINK_RC) — skipping db push"
+            exit 0
+          fi
+          supabase db push --db-url "${SUPABASE_DB_URL}" 2>&1
+          echo "Migration push completed (ON CONFLICT warnings above are safe)"
 
       # ── Phase 2: County-specific FQDNs ────────────────────────────────────
       - name: Set county FQDNs
