@@ -178,46 +178,31 @@ jobs:
                       fields[name_m.group(1)] = val_m.group(1) if val_m else ''
               return fields, form_action
 
-          def ensure_logged_in(first_preview_url):
+          def ensure_logged_in():
               global _client, _logged_in
               if _logged_in and _client:
                   return True
               _client = httpx.Client(follow_redirects=True, timeout=30.0,
                                      headers={'User-Agent': UA})
-              # Step 1: visit splash to get CF session cookies
+              # Step 1: visit splash to get CF session cookies (cfid, cftoken, AWSALB)
               r0 = _client.get(f"{HOST}/index.cfm")
               print(f"  httpx: splash HTTP {r0.status_code}, cookies={list(_client.cookies.keys())}")
 
-              # Step 2: visit PREVIEW — will show login form (unauthenticated redirect)
-              r1 = _client.get(first_preview_url)
-              has_login = 'LogName' in r1.text or 'id="LogName"' in r1.text
-              print(f"  httpx: PREVIEW (pre-login) HTTP {r1.status_code}, has_login={has_login}")
-
-              if not has_login:
-                  # Unexpected — might already be authenticated or something else
-                  if 'AITEM_' in r1.text:
-                      print("  httpx: already authenticated (AITEM blocks present)")
-                      _logged_in = True
-                      return True
-                  print(f"  httpx: unexpected page, snippet: {r1.text[:500]!r}")
-                  return False
-
-              # Step 3: POST credentials
-              # RealForeclose logform.js adds zaction=USER&Zmethod=LOGON before submit.
-              # The #LogButton is type="button" (not submit) — JS-driven, no hidden fields.
-              # We replicate what logform.js does: POST with CF action params + credentials.
-              fields, form_action = extract_form_fields(r1.text)
-              safe_fields = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
-              print(f"  httpx: login form action={form_action}, hidden fields={list(safe_fields.keys())}")
-              form_data = {**fields,
-                           'zaction': 'USER', 'Zmethod': 'LOGON',
-                           'LogName': EMAIL, 'LogPass': PW}
-              r2 = _client.post(form_action, data=form_data)
-              still_has_login = 'id="LogName"' in r2.text or ('LogName' in r2.text and '<form' in r2.text)
-              print(f"  httpx: login POST HTTP {r2.status_code}, still_has_login={still_has_login}")
-              if still_has_login:
-                  print("  httpx: login FAILED — credentials rejected")
-                  print(f"  httpx: response snippet: {r2.text[:500]!r}")
+              # Step 2: AJAX login (exact logform.js mechanism — VERIFIED 2026-06-23)
+              # logform.js: $.post("/index.cfm", {ZACTION:'AJAX',ZMETHOD:'LOGIN',func:'LOGIN',
+              #                USERNAME:uName, USERPASS:uPass}, callback, "json")
+              # Response: {"isOk":"YES","docsreq":"NO"} on success
+              # NOTE: REALFORECLOSE_EMAIL/PASSWORD must be registered on duval.realforeclose.com
+              ajax_data = {'ZACTION': 'AJAX', 'ZMETHOD': 'LOGIN', 'func': 'LOGIN',
+                           'USERNAME': EMAIL, 'USERPASS': PW}
+              r1 = _client.post(f"{HOST}/index.cfm", data=ajax_data,
+                                headers={'X-Requested-With': 'XMLHttpRequest',
+                                         'Accept': 'application/json, text/javascript, */*; q=0.01'})
+              body = r1.text.strip()
+              print(f"  httpx: AJAX login HTTP {r1.status_code}, body={body[:200]!r}")
+              if '"isOk":"YES"' not in body:
+                  print(f"  httpx: login FAILED — isOk!=YES (credentials not registered on Duval site?)")
+                  print(f"  BLOCKER: Register {EMAIL!r} at https://duval.realforeclose.com/index.cfm?zaction=REGISTER&Zmethod=START")
                   return False
               _logged_in = True
               print("  httpx: login succeeded")
@@ -236,7 +221,7 @@ jobs:
 
               # Login only once — reuse the same session for all dates
               if not _logged_in:
-                  if not ensure_logged_in(preview_url):
+                  if not ensure_logged_in():
                       return 0, ''
 
               # Step 4: GET the PREVIEW page (now authenticated)
