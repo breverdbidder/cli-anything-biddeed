@@ -4,6 +4,7 @@ name: "Duval RealForeclose upcoming drain"
 # inserts AITEM blocks into realforeclose_aids (county_slug='duval'), then
 # calls realforeclose_aids_to_mca_patch(p_county_slug='duval') to push
 # judgment_amount → opening_bid on multi_county_auctions.
+# Uses Playwright to handle the JS splash page (no HTML form).
 
 on:
   schedule:
@@ -28,7 +29,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps
-        run: pip install --quiet httpx
+        run: |
+          pip install --quiet httpx playwright
+          python -m playwright install chromium --with-deps
 
       - name: Scrape + drain upcoming auction dates
         env:
@@ -36,19 +39,17 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           LOOKAHEAD_DAYS: ${{ github.event.inputs.lookahead_days || '30' }}
           GH_RUN_ID: ${{ github.run_id }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, re, time, httpx
-          from datetime import datetime, date, timedelta, timezone
+          import os, re, time, httpx
+          from datetime import datetime, date, timedelta
 
           SB    = os.environ['SUPABASE_URL']
           KEY   = os.environ['SUPABASE_KEY']
           EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '')
           PW    = os.environ.get('REALFORECLOSE_PASSWORD', '')
-          FC    = os.environ.get('FIRECRAWL_API_KEY', '')
           LOOK  = int(os.environ.get('LOOKAHEAD_DAYS', '30'))
           RUN   = os.environ.get('GH_RUN_ID', '')
 
@@ -57,25 +58,22 @@ jobs:
           HU    = {**H, "Prefer": "resolution=merge-duplicates"}
           HR    = {**H, "Prefer": "return=representation"}
 
-          def sb_get(path, params=None):
-              return httpx.get(f"{SB}/rest/v1/{path}", headers=H, params=params, timeout=20.0)
-
           def sb_post(path, payload, hdrs=None):
               return httpx.post(f"{SB}/rest/v1/{path}", headers={**H, **(hdrs or {})},
                                 json=payload, timeout=30.0)
 
-          # ── 1. Discover upcoming Duval foreclosure auction dates ──────────────
+          # ── 1. Build upcoming weekday date list ───────────────────────────────
           today = date.today()
           cutoff = today + timedelta(days=LOOK)
           candidate = today
           dates = []
           while candidate <= cutoff:
-              if candidate.weekday() < 5:  # Mon=0 … Fri=4
+              if candidate.weekday() < 5:
                   dates.append(candidate.isoformat())
               candidate += timedelta(days=1)
           print(f"Weekday dates to probe ({len(dates)}): {dates[:7]}{'...' if len(dates)>7 else ''}")
 
-          # ── 2. Helpers ────────────────────────────────────────────────────────
+          # ── 2. Parse helpers ──────────────────────────────────────────────────
           def to_float(s):
               if not s: return None
               m = re.search(r'\$?([\d,]+\.?\d*)', str(s))
@@ -150,189 +148,128 @@ jobs:
                   })
               return items
 
-          # ── 3. Scrape: try direct httpx first, fall back to Firecrawl ──────────
-          # Direct httpx uses ColdFusion form POST (same pattern as diagnose workflow).
-          # Firecrawl is the fallback for IP-blocked sites (needs residential proxies).
-          # If Firecrawl returns 402 (out of credits), direct httpx is the only path.
-          FH = {"Authorization": f"Bearer {FC}", "Content-Type": "application/json"}
-          UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+          # ── 3. Playwright login session (shared across dates) ─────────────────
+          # Duval has a JS splash page — no HTML form, httpx can't click through.
+          # Playwright handles JS navigation, cookie acceptance, and login.
+          from playwright.sync_api import sync_playwright
 
-          def extract_form_fields(html):
-              """Extract all input fields from the first form; return {name: value} dict."""
-              form_m = re.search(r'<form[^>]*>(.*?)</form>', html, re.DOTALL|re.IGNORECASE)
-              if not form_m:
-                  return {}, None
-              form_html = form_m.group(0)
-              action_m = re.search(r'action=["\']([^"\']*)["\']', form_html, re.IGNORECASE)
-              form_action = action_m.group(1) if action_m else '/index.cfm'
-              if not form_action.startswith('http'):
-                  form_action = HOST + '/' + form_action.lstrip('/')
-              fields = {}
-              for tag in re.findall(r'<input[^>]+>', form_html, re.IGNORECASE):
-                  name_m = re.search(r'\bname=["\']([^"\']+)["\']', tag, re.IGNORECASE)
-                  val_m  = re.search(r'\bvalue=["\']([^"\']*)["\']', tag, re.IGNORECASE)
-                  if name_m:
-                      fields[name_m.group(1)] = val_m.group(1) if val_m else ''
-              return fields, form_action
+          _browser = None
+          _page = None
+          _pw = None
+          _logged_in = False
 
-          def httpx_scrape_preview(auction_date_iso, is_first=False):
-              """Direct ColdFusion form login + PREVIEW fetch. Returns (status, html)."""
-              if not EMAIL or not PW:
-                  return 0, ''
+          def ensure_logged_in():
+              global _browser, _page, _pw, _logged_in
+              if _logged_in:
+                  return True
+              if _pw is None:
+                  _pw = sync_playwright().start()
+                  _browser = _pw.chromium.launch(headless=True)
+              _page = _browser.new_page()
+              _page.set_default_timeout(30000)
+
+              print("  Playwright: navigating to splash page")
+              _page.goto(f"{HOST}/index.cfm", wait_until='networkidle')
+              title = _page.title()
+              print(f"  Playwright: title={title!r}")
+
+              # Click through splash page — try common accept/enter buttons
+              clicked = False
+              for selector in [
+                  'input[type="submit"]',
+                  'button[type="submit"]',
+                  '#btnEnter',
+                  '.enterBtn',
+                  'a.enterBtn',
+                  'input[value*="Enter"]',
+                  'input[value*="Accept"]',
+                  'input[value*="Agree"]',
+                  'button:has-text("Enter")',
+                  'button:has-text("Accept")',
+                  'a:has-text("Enter")',
+                  'a:has-text("I Agree")',
+              ]:
+                  try:
+                      loc = _page.locator(selector)
+                      if loc.count() > 0:
+                          print(f"  Playwright: clicking splash selector {selector!r}")
+                          loc.first.click()
+                          _page.wait_for_load_state('networkidle', timeout=15000)
+                          clicked = True
+                          break
+                  except Exception as e:
+                      pass
+
+              if not clicked:
+                  print("  Playwright: no splash button found, trying direct navigation to login URL")
+                  # Try going straight to the calendar or a direct preview URL
+                  _page.goto(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR",
+                              wait_until='networkidle')
+
+              title2 = _page.title()
+              print(f"  Playwright: after splash title={title2!r}")
+
+              # Fill login if LogName field is visible
+              if _page.locator('#LogName').count() > 0:
+                  print("  Playwright: filling login form")
+                  _page.fill('#LogName', EMAIL)
+                  _page.fill('#LogPass', PW)
+                  _page.click('#LogButton')
+                  _page.wait_for_load_state('networkidle', timeout=30000)
+                  title3 = _page.title()
+                  print(f"  Playwright: post-login title={title3!r}")
+                  # Verify login succeeded
+                  if _page.locator('#LogName').count() > 0:
+                      print("  Playwright: login FAILED — LogName still visible")
+                      return False
+                  _logged_in = True
+                  print("  Playwright: login succeeded")
+                  return True
+              else:
+                  # Maybe already on an auction page (logged in via cookie) or still on splash
+                  content = _page.content()
+                  if 'AITEM' in content or 'zaction=AUCTION' in content:
+                      print("  Playwright: appears already authenticated")
+                      _logged_in = True
+                      return True
+                  print(f"  Playwright: no login form found, page content snippet: {content[:400]!r}")
+                  return False
+
+          def playwright_scrape_preview(auction_date_iso):
+              global _page, _logged_in
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
               preview_url = (f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
                              f"&AUCTIONDATE={date_mdy.replace('/', '%2F')}")
-              try:
-                  client = httpx.Client(
-                      follow_redirects=True, timeout=30.0,
-                      headers={'User-Agent': UA})
-                  r0 = client.get(f"{HOST}/index.cfm")
-                  if r0.status_code != 200:
-                      print(f"  httpx: login page HTTP {r0.status_code} — site may block datacenter IPs")
-                      return r0.status_code, ''
-                  title_m = re.search(r'<title>([^<]+)</title>', r0.text, re.IGNORECASE)
-                  fields, form_action = extract_form_fields(r0.text)
-                  if is_first:
-                      print(f"  httpx: login page title={title_m.group(1) if title_m else 'N/A'}")
-                      safe = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
-                      print(f"  httpx: form action={form_action}, fields={list(safe.keys())}")
-                  # Splash page detection: no LogName field → follow links/redirects to login
-                  if not fields or 'LogName' not in fields:
-                      # Look for a link to the auction/login area
-                      link_m = re.search(
-                          r'href=["\']([^"\']*(?:zaction=AUCTION|LogOn|Login|index\.cfm)[^"\']*)["\']',
-                          r0.text, re.IGNORECASE)
-                      if link_m:
-                          next_url = link_m.group(1)
-                          if not next_url.startswith('http'):
-                              next_url = HOST + '/' + next_url.lstrip('/')
-                          print(f"  httpx: splash page detected, following link to {next_url}")
-                          r0 = client.get(next_url)
-                          fields, form_action = extract_form_fields(r0.text)
-                          if is_first:
-                              t2 = re.search(r'<title>([^<]+)</title>', r0.text, re.IGNORECASE)
-                              safe2 = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
-                              print(f"  httpx: after follow title={t2.group(1) if t2 else 'N/A'}, fields={list(safe2.keys())}")
-                      else:
-                          # Try known RealForeclose login URL pattern directly
-                          login_url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=06/24/2026"
-                          print(f"  httpx: no link found, trying known login URL")
-                          # Just print the first form we find on the AUCTION CALENDAR
-                          r_cal = client.get(f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR")
-                          fields, form_action = extract_form_fields(r_cal.text)
-                          if is_first:
-                              t_cal = re.search(r'<title>([^<]+)</title>', r_cal.text, re.IGNORECASE)
-                              safe_c = {k: v for k, v in fields.items() if 'pass' not in k.lower()}
-                              print(f"  httpx: calendar title={t_cal.group(1) if t_cal else 'N/A'}, fields={list(safe_c.keys())}")
-                          if not fields or 'LogName' not in fields:
-                              print("  httpx: cannot find login form — aborting direct approach")
-                              return 0, ''
-                  form_data = {**fields, 'LogName': EMAIL, 'LogPass': PW}
-                  r1 = client.post(form_action, data=form_data)
-                  if r1.status_code not in (200, 302):
-                      print(f"  httpx: login POST HTTP {r1.status_code}")
-                      return r1.status_code, ''
-                  # Check: if LogName input still present → login failed
-                  if 'id="LogName"' in r1.text or 'name="LogName"' in r1.text:
-                      print("  httpx: login failed — LogName field still in response")
-                      if is_first:
-                          print(f"  httpx: response snippet: {r1.text[500:1000]!r}")
-                      return 401, ''
-                  if is_first:
-                      title_m2 = re.search(r'<title>([^<]+)</title>', r1.text, re.IGNORECASE)
-                      print(f"  httpx: post-login title={title_m2.group(1) if title_m2 else 'N/A'}")
-                  r2 = client.get(preview_url)
-                  print(f"  httpx: PREVIEW HTTP {r2.status_code}, len={len(r2.text)}")
-                  if is_first:
-                      title_m3 = re.search(r'<title>([^<]+)</title>', r2.text, re.IGNORECASE)
-                      print(f"  httpx: PREVIEW title={title_m3.group(1) if title_m3 else 'N/A'}")
-                  return r2.status_code, r2.text
-              except Exception as e:
-                  print(f"  httpx error: {e}")
+
+              if not ensure_logged_in():
+                  print("  Playwright: cannot authenticate, skipping")
                   return 0, ''
 
-          _httpx_first = True
-
-          def fc_scrape_preview(auction_date_iso):
-              d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
-              date_mdy = d.strftime('%m/%d/%Y')
-              preview_path = f"/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy.replace('/', '%2F')}"
-              preview_url  = f"{HOST}{preview_path}"
-
-              if not FC:
-                  print("  WARNING: FIRECRAWL_API_KEY not set")
-                  return 0, ''
-              if not EMAIL or not PW:
-                  print("  WARNING: no credentials — unauthenticated (AITEM blocks will be empty)")
-
-              def js_str(s): return s.replace('\\', '\\\\').replace("'", "\\'")
-
-              # Duval has a splash/disclaimer page at /index.cfm that must be clicked through
-              # before the login form appears. We click any visible submit button, wait, then
-              # look for and fill the LogName/LogPass fields.
-              payload = {
-                  "url": f"{HOST}/index.cfm",
-                  "formats": ["html"],
-                  "actions": [
-                      {"type": "wait", "milliseconds": 2000},
-                      # Click through splash page (try common selectors for "Enter"/"I Agree")
-                      {"type": "executeJavascript", "script":
-                          "(document.querySelector('input[type=\"submit\"]') || "
-                          " document.querySelector('button[type=\"submit\"]') || "
-                          " document.querySelector('#btnEnter') || "
-                          " document.querySelector('a.enterBtn') || "
-                          " document.querySelector('.enterBtn') || {click:()=>{}}).click()"},
-                      {"type": "wait", "milliseconds": 3000},
-                      # Now fill login credentials (may now be on login page)
-                      {"type": "executeJavascript", "script":
-                          f"document.getElementById('LogName') && (document.getElementById('LogName').value='{js_str(EMAIL)}')"},
-                      {"type": "executeJavascript", "script":
-                          f"document.getElementById('LogPass') && (document.getElementById('LogPass').value='{js_str(PW)}')"},
-                      {"type": "click", "selector": "#LogButton"},
-                      {"type": "wait", "milliseconds": 5000},
-                      # Navigate to preview page via JS
-                      {"type": "executeJavascript", "script":
-                          f"window.location.href='{preview_url}'"},
-                      {"type": "wait", "milliseconds": 12000},
-                  ],
-                  "timeout": 120000,
-              }
               try:
-                  resp = httpx.post('https://api.firecrawl.dev/v1/scrape',
-                                    headers=FH, json=payload, timeout=120.0)
-                  if resp.status_code != 200:
-                      print(f"  Firecrawl HTTP {resp.status_code}: {resp.text[:400]}")
-                      return resp.status_code, ''
-                  j = resp.json()
-                  html = (j.get('data') or {}).get('html', '')
+                  _page.goto(preview_url, wait_until='networkidle', timeout=60000)
+                  # Extra wait for AITEM blocks to render (JS-rendered content)
+                  _page.wait_for_timeout(5000)
+                  html = _page.content()
+                  print(f"  Playwright: PREVIEW html_len={len(html)}")
                   return 200, html
               except Exception as e:
-                  print(f"  Firecrawl error: {e}")
+                  print(f"  Playwright: PREVIEW error: {e}")
                   return 0, ''
 
-          def scrape_preview(auction_date_iso):
-              """Try direct httpx first; fall back to Firecrawl if httpx is blocked (403)."""
-              global _httpx_first
-              print("  → trying direct httpx")
-              sc, html = httpx_scrape_preview(auction_date_iso, is_first=_httpx_first)
-              _httpx_first = False
-              if sc == 200 and html:
-                  return sc, html
-              if sc == 403:
-                  print("  → httpx blocked (403 — datacenter IP), falling back to Firecrawl")
-              elif sc == 401:
-                  print("  → httpx login failed, falling back to Firecrawl")
-              elif sc != 200:
-                  print(f"  → httpx returned {sc}, falling back to Firecrawl")
-              print("  → trying Firecrawl")
-              return fc_scrape_preview(auction_date_iso)
+          def close_browser():
+              global _browser, _pw
+              try:
+                  if _browser: _browser.close()
+                  if _pw: _pw.stop()
+              except Exception: pass
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
           total_aids = 0
           total_inserted = 0
 
-          for auction_date in dates:
+          try:
+            for auction_date in dates:
               print(f"\n─── {auction_date} ───────────────────────────────────")
               d_obj = datetime.strptime(auction_date, '%Y-%m-%d')
               date_mdy = d_obj.strftime('%m/%d/%Y')
@@ -341,7 +278,7 @@ jobs:
                   'mca_id': None, 'county_slug': 'duval', 'case_number': None,
                   'fetch_url': f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}",
                   'system_type': 'realforeclose',
-                  'backend': f'duval_drain_fc_v1_{RUN}',
+                  'backend': f'duval_drain_pw_v2_{RUN}',
                   'parse_state': 'fetching',
               }
               cr_id = None
@@ -353,23 +290,20 @@ jobs:
               except Exception as e:
                   print(f"  court_responses_raw insert error: {e}")
 
-              status_code, html = scrape_preview(auction_date)
+              status_code, html = playwright_scrape_preview(auction_date)
               print(f"  HTTP {status_code}, html_len={len(html)}")
 
               aids = parse_aitem_blocks(html, 'duval') if html else []
               print(f"  AITEM blocks parsed: {len(aids)}")
 
               if html and not aids:
-                  if '<input' in html and 'LogName' in html and '<form' in html:
+                  if 'LogName' in html and '<form' in html:
                       print("  NOTE: Login form detected — authentication may have failed")
-                      print(f"  HTML snippet: {html[:600]!r}")
-                  elif 'Log In' in html:
-                      print("  NOTE: 'Log In' in HTML (likely nav bar) — login may be fine")
                       print(f"  HTML snippet: {html[:600]!r}")
                   elif 'No auctions' in html or 'no auction' in html.lower():
                       print("  No auctions scheduled for this date")
                   else:
-                      print(f"  HTML snippet: {html[:500]!r}")
+                      print(f"  HTML snippet: {html[2000:2600]!r}")
 
               total_aids += len(aids)
 
@@ -414,7 +348,10 @@ jobs:
                   except Exception as e:
                       print(f"  aids INSERT EXCEPTION: {e}")
 
-              time.sleep(1.5)
+              time.sleep(1.0)
+
+          finally:
+            close_browser()
 
           # ── 5. Patch MCA from aids (p_county_slug='duval') ───────────────────
           if total_inserted > 0:
