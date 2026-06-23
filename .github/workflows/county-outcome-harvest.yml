@@ -59,11 +59,76 @@ jobs:
           # postgresql-client gives us psql for direct DB access — bypasses Cloudflare 522
           sudo apt-get install -y --no-install-recommends postgresql-client
 
+      # ── Phase 0: Diagnose Supabase — check for paused project, restore if needed ─
+      - name: Diagnose Supabase project status
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set +e
+          if [ -z "${SUPABASE_ACCESS_TOKEN}" ]; then
+            echo "SUPABASE_ACCESS_TOKEN not set — skipping project status check"
+            exit 0
+          fi
+          python3 - <<'PYEOF'
+          import json, os, time, urllib.request, urllib.error, sys
+
+          TOKEN = os.environ["SUPABASE_ACCESS_TOKEN"]
+          REF   = "mocerqjnksmhcjzxrewo"
+          H     = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+
+          def mgmt_get(path):
+              req = urllib.request.Request(f"https://api.supabase.com/v1/{path}", headers=H)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read()), r.status
+              except urllib.error.HTTPError as e:
+                  return {"error": e.read().decode()}, e.code
+              except Exception as e:
+                  return {"error": str(e)}, 0
+
+          def mgmt_post(path, payload=None):
+              body = json.dumps(payload or {}).encode()
+              req  = urllib.request.Request(f"https://api.supabase.com/v1/{path}", data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read() or b"{}"), r.status
+              except urllib.error.HTTPError as e:
+                  return {"error": e.read().decode()}, e.code
+              except Exception as e:
+                  return {"error": str(e)}, 0
+
+          print(f"Checking project status for {REF}...")
+          proj, sc = mgmt_get(f"projects/{REF}")
+          print(f"  Status code: {sc}")
+          print(f"  Response: {json.dumps(proj, indent=2)}")
+
+          status = proj.get("status", proj.get("database_status", "UNKNOWN"))
+          print(f"  Project status: {status}")
+
+          if status in ("INACTIVE", "PAUSED", "inactive", "paused"):
+              print("  Project is PAUSED — restoring...")
+              result, rc = mgmt_post(f"projects/{REF}/restore")
+              print(f"  Restore response ({rc}): {json.dumps(result)}")
+              if rc in (200, 201):
+                  print("  Waiting 60s for project to wake up...")
+                  time.sleep(60)
+                  proj2, sc2 = mgmt_get(f"projects/{REF}")
+                  print(f"  Post-restore status: {proj2.get('status', 'UNKNOWN')}")
+              else:
+                  print("  Restore failed — proceeding anyway")
+          elif "error" in proj:
+              print(f"  Could not reach Management API (SUPABASE_ACCESS_TOKEN may be invalid)")
+          else:
+              print(f"  Project is ACTIVE — 522 is not a paused-project issue")
+              print("  Likely cause: Cloudflare rate-limiting GHA IPs for this project's REST endpoint")
+          PYEOF
+
       # ── Phase 1: Apply migration via psql (PostgreSQL — bypasses Cloudflare 522) ─
       - name: Apply 6-county outcome pipeline migration
         env:
-          SUPABASE_DB_URL:      ${{ secrets.SUPABASE_DB_URL }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL:        ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_PASSWORD:   ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_ACCESS_TOKEN:  ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set +e
           # Build DB_URL: try explicit secret first, then construct from password
@@ -73,8 +138,59 @@ jobs:
             echo "INFO: Constructed DB_URL from SUPABASE_DB_PASSWORD"
           fi
           if [ -z "$DB_URL" ]; then
-            echo "WARN: No SUPABASE_DB_URL or SUPABASE_DB_PASSWORD — migration skipped"
-            echo "MIGRATION_SKIPPED=true" >> "$GITHUB_ENV"
+            echo "INFO: No SUPABASE_DB_URL or SUPABASE_DB_PASSWORD — trying Management API SQL execution"
+            # Management API SQL endpoint: api.supabase.com (different origin from 522-affected REST)
+            python3 - <<'PYEOF'
+import json, os, sys, urllib.request, urllib.error, time
+
+TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+if not TOKEN:
+    print("No SUPABASE_ACCESS_TOKEN — all paths exhausted; migration skipped")
+    sys.exit(0)
+
+REF = "mocerqjnksmhcjzxrewo"
+H   = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+
+# Read the migration SQL
+try:
+    with open("supabase/migrations/20260623_6county_gold_b_f_outcome_pipeline.sql") as f:
+        sql = f.read()
+except FileNotFoundError:
+    print("Migration file not found")
+    sys.exit(1)
+
+print(f"Sending {len(sql)} bytes of SQL to Management API...")
+body = json.dumps({"query": sql}).encode()
+req  = urllib.request.Request(
+    f"https://api.supabase.com/v1/projects/{REF}/database/query",
+    data=body, headers=H, method="POST"
+)
+for attempt in range(3):
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            result = json.loads(r.read() or b"[]")
+            print(f"Management API SQL result ({r.status}): {json.dumps(result)[:500]}")
+            with open(os.environ["GITHUB_ENV"], "a") as f:
+                f.write("MIGRATION_APPLIED=true\n")
+            sys.exit(0)
+    except urllib.error.HTTPError as e:
+        body_txt = e.read().decode()[:500]
+        print(f"Attempt {attempt+1}: HTTP {e.code}: {body_txt}")
+        if e.code in (429, 503) and attempt < 2:
+            time.sleep(30)
+            continue
+        break
+    except Exception as e:
+        print(f"Attempt {attempt+1}: {e}")
+        if attempt < 2:
+            time.sleep(30)
+            continue
+        break
+
+print("Management API SQL execution failed — migration skipped")
+with open(os.environ["GITHUB_ENV"], "a") as f:
+    f.write("MIGRATION_SKIPPED=true\n")
+PYEOF
             exit 0
           fi
 
