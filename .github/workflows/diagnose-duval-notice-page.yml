@@ -39,6 +39,29 @@ jobs:
           print(f"  title={ua_title.group(1).strip() if ua_title else 'none'!r}")
           print(f"  has_aitem={ua_has_aitem}, has_login={ua_has_login}, has_notice={ua_has_notice}")
           print(f"  text[0:400]: {ua_text[:400]!r}")
+          print(f"  text[400:1200]: {ua_text[400:1200]!r}")
+          # Check for auction date links, AIDs, case numbers
+          aids_found = re.findall(r'aid="(\d+)"', ua_html, re.IGNORECASE)
+          case_links = re.findall(r'zaction=AUCTION[^"\']+', ua_html, re.IGNORECASE)
+          date_links = re.findall(r'AUCTIONDATE=([^&"\']+)', ua_html, re.IGNORECASE)
+          print(f"  AIDs in unauth page: {aids_found[:10]}")
+          print(f"  Auction links (first 5): {case_links[:5]}")
+          print(f"  AUCTIONDATE params: {date_links[:10]}")
+          # Look for case numbers in the page
+          case_nums = re.findall(r'16-20[0-9]{2}-C[AC]-[0-9]{6}-AXXX-MA', ua_html)
+          print(f"  Case numbers found: {case_nums[:10]}")
+          # Try QUICKSEARCH by case number (unauthenticated)
+          qs_case = '16-2025-CA-007080-AXXX-MA'
+          qs_url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=QUICKSEARCH&searchtxt={urllib.parse.quote(qs_case)}&myaction=SearchByCase"
+          qs_r = fresh.get(qs_url)
+          qs_html = qs_r.text
+          qs_title = re.search(r'<title>([^<]+)</title>', qs_html, re.IGNORECASE)
+          qs_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', qs_html)).strip()
+          print(f"\nQUICKSEARCH unauth: HTTP {qs_r.status_code}, len={len(qs_html)}")
+          print(f"  title={qs_title.group(1).strip() if qs_title else 'none'!r}")
+          print(f"  has_aitem={'AITEM_' in qs_html}, aids={re.findall(r'aid=\"(\\d+)\"', qs_html)[:5]}")
+          print(f"  text[0:400]: {qs_text[:400]!r}")
+          import urllib.parse as _up
 
           # 1. Login
           client.get(f"{HOST}/index.cfm")
