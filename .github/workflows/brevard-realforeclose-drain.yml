@@ -30,42 +30,62 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
-        run: pip install --quiet httpx
-
       - name: Scrape + drain upcoming auction dates
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           LOOKAHEAD_DAYS: ${{ github.event.inputs.lookahead_days || '30' }}
           GH_RUN_ID: ${{ github.run_id }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, re, time, httpx
-          from datetime import datetime, date, timedelta, timezone
+          import os, json, re, time, urllib.request, urllib.parse, urllib.error, http.cookiejar
+          from datetime import datetime, date, timedelta
 
           SB    = os.environ['SUPABASE_URL']
           KEY   = os.environ['SUPABASE_KEY']
           EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '')
           PW    = os.environ.get('REALFORECLOSE_PASSWORD', '')
-          FC    = os.environ.get('FIRECRAWL_API_KEY', '')
           LOOK  = int(os.environ.get('LOOKAHEAD_DAYS', '30'))
           RUN   = os.environ.get('GH_RUN_ID', '')
 
           HOST  = "https://brevard.realforeclose.com"
+          UA    = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
           H     = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
           HU    = {**H, "Prefer": "resolution=merge-duplicates"}
           HR    = {**H, "Prefer": "return=representation"}
 
-          def sb_get(path, params=None):
-              return httpx.get(f"{SB}/rest/v1/{path}", headers=H, params=params, timeout=20.0)
+          # ── urllib-based Supabase helpers (no httpx needed) ─────────────────────
+          def sb_post(path, payload, prefer=""):
+              body = json.dumps(payload).encode()
+              hdrs = {**H}
+              if prefer: hdrs["Prefer"] = prefer
+              req = urllib.request.Request(f"{SB}/rest/v1/{path}", data=body, headers=hdrs, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, []
 
-          def sb_post(path, payload, hdrs=None):
-              return httpx.post(f"{SB}/rest/v1/{path}", headers={**H, **(hdrs or {})},
-                                json=payload, timeout=30.0)
+          def sb_patch(path, payload):
+              body = json.dumps(payload).encode()
+              req = urllib.request.Request(f"{SB}/rest/v1/{path}", data=body, headers=H, method="PATCH")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, r.read().decode()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:200]
+
+          def sb_rpc(name, payload):
+              body = json.dumps(payload).encode()
+              req = urllib.request.Request(f"{SB}/rest/v1/rpc/{name}", data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, r.read().decode()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:200]
 
           # ── 1. Discover upcoming Brevard foreclosure auction dates ────────────
           # Generate weekday dates — Brevard FC auctions run Mon-Fri.
@@ -155,70 +175,61 @@ jobs:
                   })
               return items
 
-          # ── 3. Firecrawl scrape with correct action types ─────────────────────
-          # brevard.realforeclose.com blocks all cloud/datacenter IPs (HTTP 403).
-          # Firecrawl uses residential proxies so it can reach the site.
-          #
-          # VERIFIED Firecrawl v1 action types (from API probe 2026-06-16):
-          #   wait (milliseconds), click (selector), write (selector+text),
-          #   screenshot, press (key), scroll, scrape, executeJavascript (script), pdf
-          # INVALID types: "type", "navigate", "goto", "delay", "execute"
-          #
-          # Strategy: login via JS then navigate via executeJavascript
-          #   1. Start at login page
-          #   2. Use executeJavascript to set form field values directly (bypasses selector issues)
-          #   3. Click submit button
-          #   4. Wait for redirect to authenticated home page
-          #   5. Use executeJavascript to navigate to PREVIEW URL for the auction date
-          #   6. Wait for page to render
-          FH = {"Authorization": f"Bearer {FC}", "Content-Type": "application/json"}
+          # ── 3. Direct HTTP login + PREVIEW scrape (no Firecrawl needed) ──────────
+          # brevard.realforeclose.com is accessible from GHA datacenter IPs (HTTP 200).
+          # ColdFusion AJAX login: POST USERNAME+USERPASS to index.cfm with ZACTION=AJAX.
+          # Session cookies are carried via CookieJar for subsequent PREVIEW page fetches.
+          cj = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
 
-          def fc_scrape_preview(auction_date_iso):
+          def _get(url):
+              req = urllib.request.Request(url, headers={"User-Agent": UA})
+              try:
+                  with opener.open(req, timeout=30) as r:
+                      return r.status, r.read().decode('utf-8', 'replace')
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode('utf-8', 'replace')[:500]
+              except Exception as e:
+                  return 0, str(e)
+
+          def _post(url, data_dict, extra_hdrs=None):
+              body = urllib.parse.urlencode(data_dict).encode()
+              hdrs = {"User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded",
+                      **(extra_hdrs or {})}
+              req = urllib.request.Request(url, data=body, headers=hdrs, method="POST")
+              try:
+                  with opener.open(req, timeout=30) as r:
+                      return r.status, r.read().decode('utf-8', 'replace')
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode('utf-8', 'replace')[:500]
+              except Exception as e:
+                  return 0, str(e)
+
+          def login():
+              if not EMAIL or not PW:
+                  print("  WARNING: REALFORECLOSE_EMAIL/PASSWORD not set — unauthenticated (AITEM empty)")
+                  return False
+              # Step 1: splash (get CF session cookies)
+              st, _ = _get(f"{HOST}/index.cfm")
+              print(f"  Splash: HTTP {st}, cookies={[c.name for c in cj]}")
+              # Step 2: AJAX login (logform.js mechanism)
+              st, resp = _post(f"{HOST}/index.cfm",
+                  {"ZACTION": "AJAX", "ZMETHOD": "LOGIN", "func": "LOGIN",
+                   "USERNAME": EMAIL, "USERPASS": PW},
+                  {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, */*; q=0.01"})
+              print(f"  AJAX login: HTTP {st}, resp={resp[:120]!r}")
+              return '"isOk":"YES"' in resp
+
+          def scrape_preview(auction_date_iso):
               d = datetime.strptime(auction_date_iso, '%Y-%m-%d')
               date_mdy = d.strftime('%m/%d/%Y')
-              preview_path = f"/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy.replace('/', '%2F')}"
-              preview_url  = f"{HOST}{preview_path}"
+              url = f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={urllib.parse.quote(date_mdy)}"
+              st, html = _get(url)
+              return st, html
 
-              if not FC:
-                  print("  WARNING: FIRECRAWL_API_KEY not set")
-                  return 0, ''
-              if not EMAIL or not PW:
-                  print("  WARNING: no credentials — unauthenticated (AITEM blocks will be empty)")
-
-              # Escape for JS string literals: backslash, then single-quote
-              def js_str(s): return s.replace('\\', '\\\\').replace("'", "\\'")
-
-              payload = {
-                  "url": f"{HOST}/index.cfm",
-                  "formats": ["html"],
-                  "actions": [
-                      {"type": "wait", "milliseconds": 2500},
-                      # Fill credentials via JS (avoids ColdFusion hidden-field issues)
-                      {"type": "executeJavascript", "script":
-                          f"document.getElementById('LogName') && (document.getElementById('LogName').value='{js_str(EMAIL)}')"},
-                      {"type": "executeJavascript", "script":
-                          f"document.getElementById('LogPass') && (document.getElementById('LogPass').value='{js_str(PW)}')"},
-                      {"type": "click", "selector": "#LogButton"},
-                      {"type": "wait", "milliseconds": 5000},
-                      # Navigate to preview page via JS (no "navigate" action type in Firecrawl v1)
-                      {"type": "executeJavascript", "script":
-                          f"window.location.href='{preview_url}'"},
-                      {"type": "wait", "milliseconds": 12000},
-                  ],
-                  "timeout": 120000,
-              }
-              try:
-                  resp = httpx.post('https://api.firecrawl.dev/v1/scrape',
-                                    headers=FH, json=payload, timeout=120.0)
-                  if resp.status_code != 200:
-                      print(f"  Firecrawl HTTP {resp.status_code}: {resp.text[:400]}")
-                      return resp.status_code, ''
-                  j = resp.json()
-                  html = (j.get('data') or {}).get('html', '')
-                  return 200, html
-              except Exception as e:
-                  print(f"  Firecrawl error: {e}")
-                  return 0, ''
+          print("\nLogging in to brevard.realforeclose.com...")
+          logged_in = login()
+          print(f"  Login success: {logged_in}")
 
           # ── 4. Per-date loop ──────────────────────────────────────────────────
           total_aids = 0
@@ -229,56 +240,28 @@ jobs:
               d_obj = datetime.strptime(auction_date, '%Y-%m-%d')
               date_mdy = d_obj.strftime('%m/%d/%Y')
 
-              # Store raw response record
-              cr_row = {
-                  'mca_id': None, 'county_slug': 'brevard', 'case_number': None,
-                  'fetch_url': f"{HOST}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_mdy}",
-                  'system_type': 'realforeclose',
-                  'backend': f'drain_fc_v3_{RUN}',
-                  'parse_state': 'fetching',
-              }
-              cr_id = None
-              try:
-                  ins = sb_post("court_responses_raw", cr_row, HR)
-                  if ins.status_code in (200, 201):
-                      body = ins.json()
-                      if body: cr_id = body[0]['id']
-              except Exception as e:
-                  print(f"  court_responses_raw insert error: {e}")
-
-              status_code, html = fc_scrape_preview(auction_date)
+              status_code, html = scrape_preview(auction_date)
               print(f"  HTTP {status_code}, html_len={len(html)}")
+
+              # Detect session loss
+              if html and '<input' in html and 'LogName' in html and '<form' in html:
+                  print("  Session lost — re-logging in")
+                  login()
+                  status_code, html = scrape_preview(auction_date)
+                  print(f"  Retry: HTTP {status_code}, html_len={len(html)}")
 
               aids = parse_aitem_blocks(html, 'brevard') if html else []
               print(f"  AITEM blocks parsed: {len(aids)}")
 
-              # Quick log if we got HTML but no AITEMs (could be login failure)
               if html and not aids:
-                  # Detect actual login FORM (not just "Log In" text which appears in nav bar)
-                  if '<input' in html and 'LogName' in html and '<form' in html:
-                      print("  NOTE: Login form detected — authentication may have failed")
-                      print(f"  HTML snippet: {html[:600]!r}")
-                  elif 'Log In' in html:
-                      print("  NOTE: 'Log In' in HTML (likely nav bar) — login may be fine")
-                      print(f"  HTML snippet: {html[:600]!r}")
-                  elif 'No auctions' in html or 'no auction' in html.lower():
+                  if 'No auctions' in html or 'no auction' in html.lower():
                       print("  No auctions scheduled for this date")
+                  elif not logged_in:
+                      print("  Not logged in — AITEM blocks unavailable")
                   else:
-                      print(f"  HTML snippet: {html[:500]!r}")
+                      print(f"  HTML snippet: {html[:400]!r}")
 
               total_aids += len(aids)
-
-              # Update court_responses_raw record
-              if cr_id:
-                  patch = {
-                      'status_code': status_code,
-                      'response_body': html[:500000] if html else '',
-                      'parse_state': 'ok' if aids else ('parsed_empty' if html else 'failed'),
-                  }
-                  try:
-                      httpx.patch(f"{SB}/rest/v1/court_responses_raw?id=eq.{cr_id}",
-                                  headers=H, json=patch, timeout=15.0)
-                  except Exception: pass
 
               if aids:
                   payload = [{
@@ -298,29 +281,19 @@ jobs:
                       'source_response_id': cr_id,
                       'source_run_id': int(RUN) if RUN and RUN.isdigit() else None,
                   } for a in aids]
-                  try:
-                      ins2 = httpx.post(
-                          f"{SB}/rest/v1/realforeclose_aids?on_conflict=aid",
-                          headers=HU, json=payload, timeout=30.0)
-                      if ins2.status_code in (200, 201, 204):
-                          total_inserted += len(payload)
-                          print(f"  → inserted/upserted {len(payload)} aids")
-                      else:
-                          print(f"  aids INSERT FAILED: HTTP {ins2.status_code}: {ins2.text[:300]}")
-                  except Exception as e:
-                      print(f"  aids INSERT EXCEPTION: {e}")
+                  st2, body2 = sb_post("realforeclose_aids?on_conflict=aid", payload, "resolution=merge-duplicates")
+                  if st2 in (200, 201, 204):
+                      total_inserted += len(payload)
+                      print(f"  → inserted/upserted {len(payload)} aids")
+                  else:
+                      print(f"  aids INSERT FAILED: HTTP {st2}: {str(body2)[:300]}")
 
               time.sleep(1.5)
 
           # ── 5. Patch MCA from aids (case_number join) ─────────────────────────
           if total_inserted > 0:
-              try:
-                  patch_r = httpx.post(
-                      f"{SB}/rest/v1/rpc/realforeclose_aids_to_mca_patch",
-                      headers=H, json={'p_dispatch_id': None}, timeout=60.0)
-                  print(f"\nrealforeclose_aids_to_mca_patch: HTTP {patch_r.status_code}")
-              except Exception as e:
-                  print(f"realforeclose_aids_to_mca_patch error: {e}")
+              st_rpc, body_rpc = sb_rpc("realforeclose_aids_to_mca_patch", {"p_dispatch_id": None})
+              print(f"\nrealforeclose_aids_to_mca_patch: HTTP {st_rpc}, {body_rpc[:200]}")
 
           print(f"\nDRAIN DONE: dates={len(dates)} aids_parsed={total_aids} aids_inserted={total_inserted}")
 

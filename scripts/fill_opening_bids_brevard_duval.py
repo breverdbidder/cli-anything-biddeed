@@ -113,8 +113,8 @@ def count_null_bids(county: str = None) -> int:
     return len(rows) if isinstance(rows, list) else 0
 
 def fetch_null_bid_rows(county: str, sale_type: str = None) -> list:
-    """Fetch upcoming auction rows with NULL opening_bid."""
-    filt = f"county=eq.{county}&auction_date=gte.2026-01-01&opening_bid=is.null"
+    """Fetch UPCOMING auction rows with NULL opening_bid (auction_date >= today)."""
+    filt = f"county=eq.{county}&auction_date=gte.{date.today().isoformat()}&opening_bid=is.null"
     if sale_type:
         filt += f"&auction_type=eq.{urllib.parse.quote(sale_type)}"
     return sb_get("multi_county_auctions",
@@ -604,7 +604,7 @@ def pass3_brevard_accweb() -> int:
     print("  AcclaimWeb session initialized")
 
     filled = 0
-    for row in null_rows[:50]:  # cap at 50 to avoid throttle issues
+    for row in null_rows:  # process all upcoming null rows
         cn = row.get("case_number", "")
         if not cn:
             continue
