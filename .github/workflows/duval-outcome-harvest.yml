@@ -57,9 +57,9 @@ jobs:
       - name: Setup Supabase CLI
         run: |
           curl -fsSL https://github.com/supabase/cli/releases/download/v1.178.2/supabase_linux_amd64.tar.gz \
-            | tar -xz supabase
-          chmod +x supabase
-          sudo mv supabase /usr/local/bin/supabase
+            | tar -xz -C /tmp supabase
+          chmod +x /tmp/supabase
+          sudo mv /tmp/supabase /usr/local/bin/supabase
           supabase --version
 
       - name: Apply outcome pipeline migration
