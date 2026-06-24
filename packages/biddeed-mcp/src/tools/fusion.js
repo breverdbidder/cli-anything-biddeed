@@ -119,10 +119,7 @@ export async function check_zoning({ parcel_id, county, address }) {
   if (parcel_id) filters.push(`parcel_id=eq.${encodeURIComponent(parcel_id)}`);
   if (county) filters.push(`county=eq.${encodeURIComponent(county.toLowerCase())}`);
 
-  const [assignments, districts] = await Promise.all([
-    get(`zoning_assignments?${filters.join('&')}&limit=1`).catch(() => []),
-    Promise.resolve([]),
-  ]);
+  const assignments = await get(`zoning_assignments?${filters.join('&')}&limit=1`).catch(() => []);
 
   const assignment = assignments[0];
   if (!assignment) {
@@ -134,24 +131,45 @@ export async function check_zoning({ parcel_id, county, address }) {
     };
   }
 
-  // Fetch district details
+  // Fetch district details (filter by code only — zoning_districts has no county column)
   const zd = await get(
-    `zoning_districts?code=eq.${encodeURIComponent(assignment.zone_code)}&county=eq.${encodeURIComponent(county.toLowerCase())}&limit=1`
+    `zoning_districts?code=eq.${encodeURIComponent(assignment.zone_code)}&limit=1`
   ).catch(() => []);
 
   const district = zd[0];
+
+  // Fetch zone standards if district found
+  let standards = null;
+  if (district?.id) {
+    const zs = await get(
+      `zone_standards?zoning_district_id=eq.${district.id}&limit=1`
+    ).catch(() => []);
+    standards = zs[0] || null;
+  }
+
   return {
     found: true,
     parcel_id: assignment.parcel_id,
     county: assignment.county,
     zone_code: assignment.zone_code,
     zone_source: assignment.zone_source,
+    dor_uc: assignment.dor_uc || null,
     district: district ? {
       name: district.name,
       category: district.category,
-      far: district.far,
-      max_height_ft: district.max_height_ft,
-      min_lot_sqft: district.min_lot_sqft,
+      description: district.description || null,
+      far_regulated: district.far_regulated,
+      density_regulated: district.density_regulated,
+    } : null,
+    standards: standards ? {
+      max_far: standards.max_far,
+      max_height_ft: standards.max_height_ft,
+      min_lot_sqft: standards.min_lot_sqft,
+      front_setback_ft: standards.front_setback_ft,
+      side_setback_ft: standards.side_setback_ft,
+      rear_setback_ft: standards.rear_setback_ft,
+      max_lot_coverage_pct: standards.max_lot_coverage_pct,
+      max_density_du_acre: standards.max_density_du_acre,
     } : null,
     verdict: district
       ? `Zoned ${assignment.zone_code} (${district.name || 'Unknown district'}) — ${district.category || 'verify permitted uses'}`
@@ -263,19 +281,25 @@ export async function analyze_coliving({ parcel_id, county, address, bedrooms = 
 export async function get_sales_comps({ parcel_id, county, address, radius_miles = 0.5, months = 6, bedrooms }) {
   // Query our auction outcomes for distressed comps
   const since = new Date(Date.now() - months * 30 * 86400000).toISOString().slice(0, 10);
-  const filters = [
-    `county_slug=eq.${encodeURIComponent((county || '').toLowerCase())}`,
+  // Live schema: foreclosure_outcomes uses 'county' (not county_slug) and 'winning_bid' (not sale_amount/high_bid)
+  const fcFilters = [
+    `county=eq.${encodeURIComponent((county || '').toLowerCase())}`,
+    `auction_date=gte.${since}`,
+  ];
+  // tax_deed_outcomes uses 'county' and 'winning_bid' as well
+  const tdFilters = [
+    `county=eq.${encodeURIComponent((county || '').toLowerCase())}`,
     `auction_date=gte.${since}`,
   ];
 
   const [fcOutcomes, taxOutcomes] = await Promise.all([
-    get(`foreclosure_outcomes?${filters.join('&')}&select=case_number,parcel_id,auction_date,sale_amount,high_bid,buyer_type&limit=20`).catch(() => []),
-    get(`tax_deed_outcomes?${filters.join('&')}&select=case_number,parcel_id,auction_date,sale_amount,buyer_type&limit=20`).catch(() => []),
+    get(`foreclosure_outcomes?${fcFilters.join('&')}&select=case_number,parcel_id,auction_date,winning_bid,winner_type&limit=20`).catch(() => []),
+    get(`tax_deed_outcomes?${tdFilters.join('&')}&select=case_number,parcel_id,auction_date,winning_bid,winner_type&limit=20`).catch(() => []),
   ]);
 
   const distressedComps = [
-    ...fcOutcomes.map(r => ({ ...r, comp_type: 'foreclosure', sale_amount: r.sale_amount || r.high_bid })),
-    ...taxOutcomes.map(r => ({ ...r, comp_type: 'tax_deed' })),
+    ...fcOutcomes.map(r => ({ ...r, comp_type: 'foreclosure', sale_amount: r.winning_bid })),
+    ...taxOutcomes.map(r => ({ ...r, comp_type: 'tax_deed', sale_amount: r.winning_bid })),
   ].filter(r => r.sale_amount > 0);
 
   const avgDistressed = distressedComps.length
@@ -416,17 +440,19 @@ export async function get_title_chain({ parcel_id, county, case_number }) {
   const filters = [];
   if (case_number) filters.push(`case_number=eq.${encodeURIComponent(case_number)}`);
   if (parcel_id) filters.push(`parcel_id=eq.${encodeURIComponent(parcel_id)}`);
-  if (county) filters.push(`county_slug=eq.${encodeURIComponent(county.toLowerCase())}`);
+  // Live schema: foreclosure_outcomes uses 'county' (not county_slug)
+  if (county) filters.push(`county=eq.${encodeURIComponent(county.toLowerCase())}`);
 
+  // Live schema columns: outcome (not sale_status), winner_name (not buyer_name), plaintiff_raw (not plaintiff)
   const fc = await get(
-    `foreclosure_outcomes?${filters.join('&')}&select=case_number,parcel_id,auction_date,sale_status,buyer_name,plaintiff,data_source&limit=5`
+    `foreclosure_outcomes?${filters.join('&')}&select=case_number,parcel_id,auction_date,outcome,winner_name,plaintiff_raw,data_source&limit=5`
   ).catch(() => []);
 
   return {
     parcel_id,
     county,
     case_number,
-    chain_from_db: fc,
+    chain_from_db: fc.map(r => ({ ...r, sale_status: r.outcome, buyer_name: r.winner_name, plaintiff: r.plaintiff_raw })),
     title_status: fc.length
       ? 'Foreclosure history found in BidDeed database'
       : 'No prior sale history in BidDeed database',

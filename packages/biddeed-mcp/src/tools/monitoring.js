@@ -45,8 +45,7 @@ export async function watch_auction({ case_number, county, notify_email, notify_
     notify_phone: notify_phone || null,
     alert_types: activeAlerts,
     max_bid: max_bid || null,
-    auction_date: auction.auction_date,
-    created_at: new Date().toISOString(),
+    sale_date: auction.auction_date,  // live auction_watches schema uses sale_date
     status: 'active',
   };
 

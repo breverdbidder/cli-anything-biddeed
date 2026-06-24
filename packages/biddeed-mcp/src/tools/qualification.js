@@ -93,7 +93,7 @@ export async function search_distressed({ county, distress_type = 'all', zip_cod
     `county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}`,
     `auction_date=gte.${new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)}`,
   ];
-  if (zip_code) filters.push(`zip_code=eq.${zip_code}`);
+  if (zip_code) filters.push(`zip=eq.${zip_code}`);
 
   const rows = await get(
     `multi_county_auctions?${filters.join('&')}&order=auction_date.desc&limit=${Math.min(limit, 100)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,plaintiff,judgment_amount`
@@ -126,7 +126,8 @@ export async function get_owner_intel({ parcel_id, county, address }) {
   else if (address) filters.push(`property_address=ilike.${encodeURIComponent(`%${address}%`)}`);
 
   const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&select=case_number,county,property_address,parcel_id,plaintiff,defendant&limit=5`
+    // 'defendant' column doesn't exist in live schema — use 'owner_name' instead
+    `multi_county_auctions?${filters.join('&')}&select=case_number,county,property_address,parcel_id,plaintiff,owner_name&limit=5`
   ).catch(() => []);
 
   if (!rows.length) {
@@ -142,7 +143,7 @@ export async function get_owner_intel({ parcel_id, county, address }) {
       parcel_id: r.parcel_id,
       property_address: r.property_address,
       county: r.county,
-      defendant_name: r.defendant,
+      owner_name: r.owner_name,
       plaintiff: r.plaintiff,
       note: 'Full owner intel (mailing address, LLC check, absentee flag) available via skip_trace (S3) or BCPAO direct lookup.',
     })),

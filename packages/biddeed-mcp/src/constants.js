@@ -1,12 +1,15 @@
 // Revenue stream config and tier hierarchy
 export const TIER_RANK = { free: 0, investor: 1, pro: 2, proplus: 3, enterprise: 4 };
 
+// 7 revenue streams — S1 through S7
 export const STREAM_GATE = {
   s1: 'free',
   s2: 'investor',
   s3: 'pro',
   s4: 'pro',
   s5: 'pro',
+  s6: 'free',      // S6 Market Data — free tier (FRED/HUD public data)
+  s7: 'investor',  // S7 Property Intel — investor tier
   fee: 'enterprise',
 };
 
@@ -16,28 +19,27 @@ export const STREAM_PRICE = {
   s3: 5.00,
   s4: 0.00,
   s5: 25.00,
+  s6: 0.05,   // S6 Market Data — $0.05/call
+  s7: 0.25,   // S7 Property Intel — $0.25/call
   fee: 0.00,
 };
 
-// Maps every tool to its stream
+// Maps every tool to its stream (7 streams total)
 export const TOOL_STREAM = {
-  // S1 Discovery
+  // S1 Discovery — $0.05/call, free tier
   search_auctions:          's1',
   get_auction_detail:       's1',
   browse_deals:             's1',
   get_deposit_requirements: 's1',
   find_local_partners:      's1',
-  get_interest_rate:        's1',
-  search_properties:        's1',
-  // S2 Qualification
+  // S2 Qualification — $0.40/call, investor tier
   search_distressed:        's2',
   get_owner_intel:          's2',
   get_lien_stack:           's2',
   get_rent_estimate:        's2',
   analyze_market:           's2',
   get_zip_market_data:      's2',
-  get_property_detail:      's2',
-  // S3 Fusion
+  // S3 Fusion — $5.00/call, pro tier
   check_zoning:             's3',
   underwrite_deal:          's3',
   analyze_coliving:         's3',
@@ -45,12 +47,17 @@ export const TOOL_STREAM = {
   generate_deal_memo:       's3',
   get_bid_package:          's3',
   get_title_chain:          's3',
-  get_market_data:          's3',
   skip_trace:               's3',
-  // S4 Monitoring
+  // S4 Monitoring — subscription, pro tier
   watch_auction:            's4',
-  // S5 Shapira — CERT REQUIRED
+  // S5 Shapira — $25/call, pro tier + CERT REQUIRED
   predict_auction_outcome:  's5',
+  // S6 Market Data — $0.05/call, free tier (FRED/HUD public data)
+  get_interest_rate:        's6',
+  get_market_data:          's6',
+  // S7 Property Intel — $0.25/call, investor tier
+  search_properties:        's7',
+  get_property_detail:      's7',
 };
 
 // FL county clerk URLs for deposit payment

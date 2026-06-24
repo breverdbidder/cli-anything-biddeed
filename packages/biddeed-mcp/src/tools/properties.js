@@ -37,7 +37,7 @@ export async function search_properties({ county, address, parcel_id, zip_code, 
   const filters = [`county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}`];
   if (address) filters.push(`property_address=ilike.${encodeURIComponent(`%${address}%`)}`);
   if (parcel_id) filters.push(`parcel_id=eq.${encodeURIComponent(parcel_id)}`);
-  if (zip_code) filters.push(`zip_code=eq.${zip_code}`);
+  if (zip_code) filters.push(`zip=eq.${zip_code}`);
 
   const rows = await get(
     `multi_county_auctions?${filters.join('&')}&order=auction_date.desc&limit=${Math.min(limit, 50)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`
@@ -74,9 +74,9 @@ export async function get_property_detail({ parcel_id, county, address, case_num
   else if (address) filters.push(`property_address=ilike.${encodeURIComponent(`%${address}%`)}`);
 
   const [auction, zoning] = await Promise.all([
-    get(`multi_county_auctions?${filters.join('&')}&limit=1`).catch(() => []),
+    get(`multi_county_auctions?${filters.join('&')}&limit=1&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount,plaintiff,beds,baths,sqft,year_built`).catch(() => []),
     parcel_id
-      ? get(`zoning_assignments?parcel_id=eq.${encodeURIComponent(parcel_id)}&limit=1`).catch(() => [])
+      ? get(`zoning_assignments?parcel_id=eq.${encodeURIComponent(parcel_id)}&limit=1&select=parcel_id,zone_code,zone_source,county,dor_uc`).catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -122,8 +122,8 @@ export async function get_property_detail({ parcel_id, county, address, case_num
     zoning: z
       ? { zone_code: z.zone_code, source: z.zone_source }
       : { note: 'Run check_zoning (S3) for full zoning detail' },
-    dor_use_code: a?.dor_use_code,
-    dor_use_description: DOR_UC[a?.dor_use_code] || null,
+    dor_use_code: z?.dor_uc || null,
+    dor_use_description: DOR_UC[z?.dor_uc] || null,
     fl_appraiser_link: county?.toLowerCase().includes('brevard')
       ? `https://www.bcpao.us/PropertySearch/#parcel/${parcel_id}`
       : `https://www.${county?.toLowerCase().replace(/\s+/g, '')}propertyappraiser.com`,

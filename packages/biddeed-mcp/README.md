@@ -72,7 +72,6 @@ Production endpoint: `https://biddeed.ai/api/mcp`
 | `generate_deal_memo` | 1-page markdown: auction+underwriting+zoning+liens |
 | `get_bid_package` | RealForeclose link + deposit + max bid + lien summary |
 | `get_title_chain` | O&E chain + title company referral |
-| `get_market_data` | National rates + FL auction overlay |
 | `skip_trace` | REISkip/BatchData $0.07–$0.15 (vs Investra $0.98) |
 
 ### S4 Monitoring — subscription (Pro tier)
@@ -84,6 +83,18 @@ Production endpoint: `https://biddeed.ai/api/mcp`
 | Tool | Description |
 |------|-------------|
 | `predict_auction_outcome` | XGBoost+LGBM+CatBoost→RF, 82.6% accuracy on Gold Standard counties |
+
+### S6 Market Data — $0.05/call (Free tier)
+| Tool | Description |
+|------|-------------|
+| `get_interest_rate` | FRED 30yr/15yr fixed + 10yr Treasury — live rates |
+| `get_market_data` | National rates + Case-Shiller HPI + FL auction overlay |
+
+### S7 Property Intel — $0.25/call (Investor tier)
+| Tool | Description |
+|------|-------------|
+| `search_properties` | FL property search by address/parcel/zip |
+| `get_property_detail` | Folio, DOR use code, BCPAO data, zoning, auction history |
 
 ## Investra Parity
 
@@ -101,11 +112,13 @@ BidDeed matches all 17 Investra tools plus 8 exclusives:
 
 | Stream | Price | Gate | Tools |
 |--------|-------|------|-------|
-| S1 Discovery | $0.05/call | Free | 7 tools |
-| S2 Qualification | $0.40/call | Investor | 7 tools |
-| S3 Fusion | $5.00/call | Pro | 9 tools |
-| S4 Monitoring | subscription | Pro | watch_auction |
-| S5 Shapira | $25.00/call | Pro+CERT | predict_auction_outcome |
+| S1 Discovery | $0.05/call | Free | 5 tools |
+| S2 Qualification | $0.40/call | Investor | 6 tools |
+| S3 Fusion | $5.00/call | Pro | 8 tools |
+| S4 Monitoring | subscription | Pro | 1 tool |
+| S5 Shapira | $25.00/call | Pro+CERT | 1 tool |
+| S6 Market Data | $0.05/call | Free | 2 tools |
+| S7 Property Intel | $0.25/call | Investor | 2 tools |
 
 ## Auth
 

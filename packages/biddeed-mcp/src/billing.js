@@ -43,7 +43,6 @@ export async function recordBilling({
     key_prefix: customerRecord.key_prefix,
     unit_price_usd: unitPrice,
     billed_amount: unitPrice,
-    quantity: 1,
     settled: false,
     cert_status: certStatus,
     county: county || params.county || null,
