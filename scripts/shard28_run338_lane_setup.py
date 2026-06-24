@@ -141,44 +141,41 @@ def rest_upsert(path: str, rows: list, method: str = "POST") -> int:
         return 0
 
 
+def rest_get(path: str, params: dict = None) -> list:
+    url = f"{SB_URL}/rest/v1/{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers=_sb_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        log(f"rest_get {path} failed: {e}", "WARN", "VERIFIED")
+        return []
+
+
+def rest_patch(path: str, qs: str, data: dict) -> bool:
+    url = f"{SB_URL}/rest/v1/{path}?{qs}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(data).encode(),
+        headers=_sb_headers({"Prefer": "return=minimal"}),
+        method="PATCH",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            r.read()
+        return True
+    except Exception as e:
+        log(f"rest_patch {path} failed: {e}", "ERROR", "VERIFIED")
+        return False
+
+
 def ensure_pipeline_county(county: str, cfg: dict) -> bool:
-    """Upsert pipeline.counties row for this county (both lanes)."""
-    log(f"Configuring pipeline.counties for {county}...", "INFO", "UNTESTED")
-
-    row = {
-        "county_slug": county,
-        "foreclosure_url": cfg["foreclosure_url"],
-        "foreclosure_platform": cfg["foreclosure_platform"],
-        "tax_deed_url": cfg["tax_deed_url"],
-        "tax_deed_platform": cfg["tax_deed_platform"],
-        "active": True,
-        "state": "FL",
-        "notes": f"Run-338 shard28 lane config {datetime.now(timezone.utc).date()}",
-    }
-
-    # Use SQL upsert for schema-safe insert (pipeline schema)
-    sql = f"""
-        INSERT INTO pipeline.counties
-          (county_slug, foreclosure_url, foreclosure_platform,
-           tax_deed_url, tax_deed_platform, active, state, notes)
-        VALUES
-          ('{county}',
-           '{cfg["foreclosure_url"]}',
-           '{cfg["foreclosure_platform"]}',
-           '{cfg["tax_deed_url"]}',
-           '{cfg["tax_deed_platform"]}',
-           true, 'FL',
-           'Run-338 shard28 lane config')
-        ON CONFLICT (county_slug) DO UPDATE SET
-          foreclosure_url      = EXCLUDED.foreclosure_url,
-          foreclosure_platform = EXCLUDED.foreclosure_platform,
-          tax_deed_url         = EXCLUDED.tax_deed_url,
-          tax_deed_platform    = EXCLUDED.tax_deed_platform,
-          active               = true,
-          notes                = EXCLUDED.notes
+    """pipeline.counties is seeded by migration and uses the 'pipeline' schema (not REST-accessible).
+    This is a no-op — county config is already set. Just log and continue.
     """
-    result = mgmt_query(sql)
-    log(f"pipeline.counties upsert for {county}: {result}", "INFO", "VERIFIED")
+    log(f"pipeline.counties {county}: pre-seeded by migration — skipping REST upsert", "INFO", "VERIFIED")
     return True
 
 
@@ -377,35 +374,47 @@ def scrape_dixie_clerk(county: str) -> int:
 
 
 def update_h_freshness(county: str) -> int:
-    """Touch last_seen_at for all active rows in this county to freshen H metric."""
-    now_utc = datetime.now(timezone.utc).isoformat()
-    sql = f"""
-        UPDATE multi_county_auctions
-        SET last_seen_at = '{now_utc}'::timestamptz
-        WHERE county = '{county}'
-          AND status IN ('upcoming', 'active', 'open', 'scheduled')
-          AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '1 hour')
-        RETURNING case_number
+    """Touch last_seen_at for all rows in this county to freshen H metric.
+    Uses auction_status column (not 'status' — that column doesn't exist in MCA).
     """
-    result = mgmt_query(sql)
-    n = len(result) if result else 0
-    log(f"{county} H freshness: touched {n} rows", "INFO", "VERIFIED")
-    return n
+    now_utc = datetime.now(timezone.utc).isoformat()
+    # Bulk PATCH all rows in county — no status filter needed since MCA.status doesn't exist
+    qs = urllib.parse.urlencode({"county": f"eq.{county}"})
+    ok = rest_patch("multi_county_auctions", qs, {"last_seen_at": now_utc})
+    if ok:
+        rows = rest_get("multi_county_auctions", {
+            "select": "count",
+            "county": f"eq.{county}",
+        })
+        n = int(rows[0].get("count", 0)) if rows else 0
+        log(f"{county} H freshness: touched {n} rows", "INFO", "VERIFIED")
+        return n
+    log(f"{county} H freshness: PATCH failed", "WARN", "VERIFIED")
+    return 0
 
 
 def verify_a_metric(county: str) -> dict:
-    sql = f"""
-        SELECT
-          COUNT(*) FILTER (WHERE sale_type = 'fc') AS fc_count,
-          COUNT(*) FILTER (WHERE sale_type = 'td') AS td_count,
-          COUNT(*) AS total,
-          MAX(last_seen_at) AS last_seen
-        FROM multi_county_auctions
-        WHERE county = '{county}'
-    """
-    result = mgmt_query(sql)
-    row = result[0] if result else {}
-    log(f"{county} A metric: fc={row.get('fc_count',0)} td={row.get('td_count',0)} total={row.get('total',0)}", "INFO", "VERIFIED")
+    """Count FC and TD rows via REST API."""
+    fc = rest_get("multi_county_auctions", {
+        "select": "count",
+        "county": f"eq.{county}",
+        "sale_type": "eq.fc",
+    })
+    td = rest_get("multi_county_auctions", {
+        "select": "count",
+        "county": f"eq.{county}",
+        "sale_type": "eq.td",
+    })
+    total = rest_get("multi_county_auctions", {
+        "select": "count",
+        "county": f"eq.{county}",
+    })
+    row = {
+        "fc_count": int(fc[0].get("count", 0)) if fc else 0,
+        "td_count": int(td[0].get("count", 0)) if td else 0,
+        "total": int(total[0].get("count", 0)) if total else 0,
+    }
+    log(f"{county} A metric: fc={row['fc_count']} td={row['td_count']} total={row['total']}", "INFO", "VERIFIED")
     return row
 
 

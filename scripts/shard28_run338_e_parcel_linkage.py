@@ -80,134 +80,199 @@ def mgmt_query(sql: str) -> list:
         return []
 
 
+def rest_get_sb(path: str, params: dict = None) -> list:
+    """REST GET from Supabase."""
+    qs = urllib.parse.urlencode(params or {})
+    url = f"{SB_URL}/rest/v1/{path}?{qs}"
+    headers = {
+        "apikey": SB_KEY,
+        "Authorization": f"Bearer {SB_KEY}",
+        "Content-Type": "application/json",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        log(f"rest_get {path} failed: {e}", "WARN", "VERIFIED")
+        return []
+
+
+def rest_patch_sb(path: str, qs: str, data: dict) -> bool:
+    """REST PATCH to Supabase."""
+    url = f"{SB_URL}/rest/v1/{path}?{qs}"
+    headers = {
+        "apikey": SB_KEY,
+        "Authorization": f"Bearer {SB_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method="PATCH")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            r.read()
+        return True
+    except Exception as e:
+        log(f"rest_patch {path} failed: {e}", "ERROR", "VERIFIED")
+        return False
+
+
 def audit_e_before(county: str) -> dict:
-    sql = f"""
-        SELECT
-          COUNT(*) AS total,
-          COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) AS has_parcel,
-          ROUND(100.0 * COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) / NULLIF(COUNT(*),0), 1) AS e_pct
-        FROM multi_county_auctions
-        WHERE county = '{county}'
-    """
-    result = mgmt_query(sql)
-    row = result[0] if result else {}
-    log(f"{county} E baseline: total={row.get('total',0)} has_parcel={row.get('has_parcel',0)} e_pct={row.get('e_pct',0)}%", "INFO", "VERIFIED")
+    """Audit E metric via REST API."""
+    total_r = rest_get_sb("multi_county_auctions", {"select": "count", "county": f"eq.{county}"})
+    parcel_r = rest_get_sb("multi_county_auctions", {"select": "count", "county": f"eq.{county}", "parcel_id": "not.is.null"})
+    total = int(total_r[0]["count"]) if total_r else 0
+    has_parcel = int(parcel_r[0]["count"]) if parcel_r else 0
+    e_pct = round(100.0 * has_parcel / total, 1) if total > 0 else 0.0
+    row = {"total": total, "has_parcel": has_parcel, "e_pct": e_pct}
+    log(f"{county} E baseline: total={total} has_parcel={has_parcel} e_pct={e_pct}%", "INFO", "VERIFIED")
     return row
 
 
-def link_from_fl_parcels_by_address(county: str) -> int:
-    """Link parcel_id via normalized address match against fl_parcels table."""
-    sql = f"""
-        UPDATE multi_county_auctions mca
-        SET parcel_id = fp.parcel_id
-        FROM fl_parcels fp
-        WHERE mca.county = '{county}'
-          AND mca.parcel_id IS NULL
-          AND mca.address IS NOT NULL
-          AND mca.address != ''
-          AND fp.county_slug = '{county}'
-          AND (
-            LOWER(TRIM(mca.address)) = LOWER(TRIM(fp.situs_address))
-            OR LOWER(TRIM(mca.address)) = LOWER(TRIM(fp.property_address))
-          )
-        RETURNING mca.case_number
+def link_from_arcgis_by_parcel_address(county: str) -> int:
+    """Link parcel_id using county ArcGIS FeatureServer LIKE address queries.
+    Uses REST API to get rows, then queries ArcGIS, then patches via REST.
     """
-    result = mgmt_query(sql)
-    n = len(result) if result else 0
-    log(f"{county}: linked {n} parcels by address", "INFO", "VERIFIED")
-    return n
+    cfg = COUNTY_PA_CONFIGS.get(county, {})
+    arcgis_url = cfg.get("arcgis_parcels")
+    if not arcgis_url:
+        log(f"{county}: no ArcGIS URL configured", "WARN", "VERIFIED")
+        return 0
+
+    # Get rows missing parcel_id but with property_address (or old address field)
+    rows = rest_get_sb("multi_county_auctions", {
+        "select": "id,case_number,property_address",
+        "county": f"eq.{county}",
+        "parcel_id": "is.null",
+        "property_address": "not.is.null",
+        "limit": "200",
+    })
+    if not rows:
+        log(f"{county}: no rows missing parcel_id with property_address", "INFO", "VERIFIED")
+        return 0
+
+    log(f"{county}: trying ArcGIS for {len(rows)} rows missing parcel_id", "INFO", "UNTESTED")
+    patched = 0
+
+    for row in rows[:50]:  # Cap at 50 to avoid timeouts
+        addr = row.get("property_address", "").strip()
+        if not addr or addr == "0":
+            continue
+
+        safe_addr = addr.replace("'", "''")
+        params = urllib.parse.urlencode({
+            "where": f"UPPER(SITUS_ADDR) LIKE UPPER('%{safe_addr[:30]}%')",
+            "outFields": "PARCEL_ID,SITUS_ADDR",
+            "f": "json",
+            "returnGeometry": "false",
+            "resultRecordCount": "5",
+        })
+        req = urllib.request.Request(
+            f"{arcgis_url}?{params}",
+            headers={"User-Agent": "BidDeed/1.0"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read())
+        except Exception as e:
+            log(f"ArcGIS {county} failed for addr={addr!r}: {e}", "WARN", "VERIFIED")
+            time.sleep(0.5)
+            continue
+
+        features = data.get("features", [])
+        if features:
+            pid = str(features[0]["attributes"].get("PARCEL_ID", "")).strip()
+            if pid:
+                if rest_patch_sb("multi_county_auctions", f"id=eq.{row['id']}", {"parcel_id": pid}):
+                    patched += 1
+
+        time.sleep(1.0)
+
+    log(f"{county}: ArcGIS linked {patched} parcels", "INFO", "VERIFIED")
+    return patched
+
+
+def link_from_fl_parcels_by_address(county: str) -> int:
+    """Link parcel_id from fl_parcels where address matches.
+    Uses REST API to find matches — limited but works without mgmt_query.
+    """
+    # Get rows missing parcel_id
+    rows = rest_get_sb("multi_county_auctions", {
+        "select": "id,property_address",
+        "county": f"eq.{county}",
+        "parcel_id": "is.null",
+        "property_address": "not.is.null",
+        "limit": "500",
+    })
+    if not rows:
+        return 0
+
+    patched = 0
+    for row in rows:
+        addr = (row.get("property_address") or "").strip().lower()
+        if not addr:
+            continue
+        # Try exact match in fl_parcels
+        matches = rest_get_sb("fl_parcels", {
+            "select": "parcel_id",
+            "county_slug": f"eq.{county}",
+            "situs_address": f"ilike.{addr}",
+            "limit": "1",
+        })
+        if matches and matches[0].get("parcel_id"):
+            pid = matches[0]["parcel_id"]
+            if rest_patch_sb("multi_county_auctions", f"id=eq.{row['id']}", {"parcel_id": pid}):
+                patched += 1
+        time.sleep(0.05)
+
+    log(f"{county}: linked {patched} parcels from fl_parcels REST", "INFO", "VERIFIED")
+    return patched
 
 
 def link_from_sample_properties_by_address(county: str) -> int:
-    """Link parcel_id via address match against sample_properties (co_no-based)."""
-    co_no = COUNTY_PA_CONFIGS.get(county, {}).get("co_no")
-    if not co_no:
-        return 0
-
-    sql = f"""
-        UPDATE multi_county_auctions mca
-        SET parcel_id = sp.parcel_id
-        FROM sample_properties sp
-        WHERE mca.county = '{county}'
-          AND mca.parcel_id IS NULL
-          AND sp.co_no = {co_no}
-          AND mca.address IS NOT NULL
-          AND mca.address != ''
-          AND (
-            LOWER(TRIM(mca.address)) = LOWER(TRIM(sp.property_address))
-            OR LOWER(TRIM(mca.address)) LIKE LOWER(TRIM(sp.property_address)) || '%'
-          )
-        RETURNING mca.case_number
-    """
-    result = mgmt_query(sql)
-    n = len(result) if result else 0
-    log(f"{county}: linked {n} parcels from sample_properties", "INFO", "VERIFIED")
-    return n
+    """Stub — REST API join not efficient; returns 0."""
+    log(f"{county}: sample_properties REST join not implemented", "INFO", "INFERRED")
+    return 0
 
 
 def link_from_zoning_assignments_by_address(county: str) -> int:
-    """Link parcel_id via address match against zoning_assignments."""
-    sql = f"""
-        UPDATE multi_county_auctions mca
-        SET parcel_id = za.parcel_id
-        FROM zoning_assignments za
-        WHERE mca.county = '{county}'
-          AND mca.parcel_id IS NULL
-          AND za.county = '{county}'
-          AND mca.address IS NOT NULL
-          AND mca.address != ''
-          AND za.address IS NOT NULL
-          AND LOWER(TRIM(mca.address)) = LOWER(TRIM(za.address))
-        RETURNING mca.case_number
-    """
-    result = mgmt_query(sql)
-    n = len(result) if result else 0
-    log(f"{county}: linked {n} parcels from zoning_assignments", "INFO", "VERIFIED")
-    return n
+    """Link parcel_id from zoning_assignments via address match."""
+    rows = rest_get_sb("multi_county_auctions", {
+        "select": "id,property_address",
+        "county": f"eq.{county}",
+        "parcel_id": "is.null",
+        "property_address": "not.is.null",
+        "limit": "200",
+    })
+    if not rows:
+        return 0
+
+    patched = 0
+    for row in rows[:50]:
+        addr = (row.get("property_address") or "").strip()
+        if not addr:
+            continue
+        matches = rest_get_sb("zoning_assignments", {
+            "select": "parcel_id",
+            "county": f"eq.{county}",
+            "address": f"ilike.{addr}",
+            "parcel_id": "not.is.null",
+            "limit": "1",
+        })
+        if matches and matches[0].get("parcel_id"):
+            pid = matches[0]["parcel_id"]
+            if rest_patch_sb("multi_county_auctions", f"id=eq.{row['id']}", {"parcel_id": pid}):
+                patched += 1
+        time.sleep(0.05)
+
+    log(f"{county}: linked {patched} parcels from zoning_assignments REST", "INFO", "VERIFIED")
+    return patched
 
 
 def link_by_fuzzy_address(county: str) -> int:
-    """Fuzzy address match: strip apt/unit, normalize street type abbreviations."""
-    sql = f"""
-        WITH normalized AS (
-            SELECT
-              mca.id,
-              mca.case_number,
-              -- Normalize MCA address: strip leading house #, lowercase, common abbreviations
-              REGEXP_REPLACE(
-                LOWER(TRIM(COALESCE(mca.address, ''))),
-                '\\s+(st|ave|dr|blvd|rd|ln|ct|cir|way|pl|ter|trl|hwy)\\b',
-                ' \\1', 'gi'
-              ) AS mca_addr_norm
-            FROM multi_county_auctions mca
-            WHERE mca.county = '{county}'
-              AND mca.parcel_id IS NULL
-              AND mca.address IS NOT NULL
-              AND mca.address != ''
-        ),
-        fp_normalized AS (
-            SELECT
-              fp.parcel_id,
-              REGEXP_REPLACE(
-                LOWER(TRIM(COALESCE(fp.situs_address, ''))),
-                '\\s+(st|ave|dr|blvd|rd|ln|ct|cir|way|pl|ter|trl|hwy)\\b',
-                ' \\1', 'gi'
-              ) AS fp_addr_norm
-            FROM fl_parcels fp
-            WHERE fp.county_slug = '{county}'
-        )
-        UPDATE multi_county_auctions mca
-        SET parcel_id = fp_normalized.parcel_id
-        FROM normalized n
-        JOIN fp_normalized ON n.mca_addr_norm = fp_normalized.fp_addr_norm
-        WHERE mca.id = n.id
-          AND mca.parcel_id IS NULL
-        RETURNING mca.case_number
-    """
-    result = mgmt_query(sql)
-    n = len(result) if result else 0
-    log(f"{county}: fuzzy-linked {n} parcels", "INFO", "VERIFIED")
-    return n
+    """Stub — fuzzy matching requires DB-side SQL join; returns 0 without mgmt_query."""
+    log(f"{county}: fuzzy address link skipped (no mgmt_query in GHA)", "INFO", "INFERRED")
+    return 0
 
 
 def query_arcgis_by_address(county: str, rows: list) -> dict:
@@ -268,6 +333,7 @@ def process_county(county: str) -> dict:
     log(f"=== Processing E for {county} ===", "INFO", "UNTESTED")
     before = audit_e_before(county)
 
+    n0 = link_from_arcgis_by_parcel_address(county)
     n1 = link_from_fl_parcels_by_address(county)
     n2 = link_from_sample_properties_by_address(county)
     n3 = link_from_zoning_assignments_by_address(county)
@@ -277,6 +343,7 @@ def process_county(county: str) -> dict:
 
     return {
         "county": county,
+        "arcgis": n0,
         "fl_parcels": n1,
         "sample_properties": n2,
         "zoning_assignments": n3,
