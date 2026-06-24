@@ -105,8 +105,8 @@ LOC=$(find "$LOCAL_PATH" \
 
 # ── 5. Skill / SKILL.md detection ─────────────────────────────────────────────
 SKILL_MD_COUNT=$(find "$LOCAL_PATH" -name "SKILL.md" ! -path "*/.git/*" 2>/dev/null | wc -l)
-HAS_CLAUDE_MD=$([ -f "$LOCAL_PATH/CLAUDE.md" ] && echo "true" || echo "false")
-HAS_AGENTS_MD=$([ -f "$LOCAL_PATH/AGENTS.md" ] && echo "true" || echo "false")
+HAS_CLAUDE_MD=$([ -f "$LOCAL_PATH/CLAUDE.md" ] && echo "True" || echo "False")
+HAS_AGENTS_MD=$([ -f "$LOCAL_PATH/AGENTS.md" ] && echo "True" || echo "False")
 
 # ── 6. Output JSON ────────────────────────────────────────────────────────────
 python3 - <<PYEOF
