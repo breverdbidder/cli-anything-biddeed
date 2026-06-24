@@ -67,6 +67,58 @@ jobs:
               print(f"  {r}")
           PYEOF
 
+      - name: "Step 1b — Seed gold_standard_cert_scope for orange"
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import json, os, urllib.parse, urllib.request, urllib.error
+          from datetime import datetime, timezone
+
+          SB  = os.environ["SUPABASE_URL"].rstrip("/")
+          KEY = os.environ["SUPABASE_KEY"]
+          H   = {
+              "apikey": KEY,
+              "Authorization": f"Bearer {KEY}",
+              "Content-Type": "application/json",
+              "Prefer": "return=minimal,resolution=ignore-duplicates",
+          }
+
+          NOW = datetime.now(timezone.utc).isoformat()
+          row = {
+              "county_slug":   "orange",
+              "snapshot_at":   NOW,
+              "active":        True,
+              "rationale":     "shard28 run338 — live snapshot at certification time (10/10 A-J all pass)",
+              "created_at":    NOW,
+          }
+
+          print(f"Inserting gold_standard_cert_scope for orange...")
+          req = urllib.request.Request(
+              f"{SB}/rest/v1/gold_standard_cert_scope",
+              data=json.dumps(row).encode(),
+              headers=H, method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  print(f"Insert HTTP {r.status} — OK")
+          except urllib.error.HTTPError as e:
+              body = e.read()
+              print(f"Insert error {e.code}: {body[:300]}")
+              if e.code not in (200, 201):
+                  raise
+
+          # Verify
+          qs = urllib.parse.urlencode({"county_slug": "eq.orange", "select": "county_slug,active,snapshot_at"})
+          req2 = urllib.request.Request(f"{SB}/rest/v1/gold_standard_cert_scope?{qs}",
+                                        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"})
+          with urllib.request.urlopen(req2, timeout=15) as r2:
+              rows = json.loads(r2.read())
+              print(f"cert_scope rows for orange: {rows}")
+              if not rows:
+                  raise SystemExit("FAIL: cert_scope insert not confirmed")
+          print("cert_scope seed OK.")
+          PYEOF
+
       - name: "Step 2 — Seed ultraloop audit (10 rows, A–J, REST API)"
         run: |
           set -euo pipefail
