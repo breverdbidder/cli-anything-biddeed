@@ -19,15 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Install supabase CLI"
+      - name: "Create get_certify_source() via psql (pooler)"
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          npm install -g supabase@latest 2>&1 | tail -5
-          supabase --version
-
-      - name: "Push migration (creates get_certify_source wrapper)"
-        run: |
-          supabase link --project-ref mocerqjnksmhcjzxrewo --password "$SUPABASE_DB_PASSWORD" 2>&1
-          supabase db push --password "$SUPABASE_DB_PASSWORD" 2>&1
+          # Session-mode pooler: host=aws-0-us-west-2.pooler.supabase.com port=5432
+          # User format for pooler: postgres.mocerqjnksmhcjzxrewo
+          psql "postgresql://postgres.mocerqjnksmhcjzxrewo@aws-0-us-west-2.pooler.supabase.com:5432/postgres" \
+            --no-password -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/20260624_read_certify_source.sql
+          echo "Migration applied via psql pooler."
 
       - name: "Call get_certify_source() via REST and print source"
         run: |
