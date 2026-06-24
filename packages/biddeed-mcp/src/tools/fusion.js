@@ -1,6 +1,7 @@
 // S3 Fusion tools — $5.00/call, gate: pro tier
 import { get } from '../supabase.js';
 import { getClerkLink, LIEN_RULES } from '../constants.js';
+import { callRouter } from '../llm.js';
 
 export const schemas = [
   {
@@ -331,13 +332,37 @@ export async function get_sales_comps({ parcel_id, county, address, radius_miles
 }
 
 export async function generate_deal_memo({ case_number, county, strategy, arv, repairs }) {
-  const [auction, underwrite, lienStack] = await Promise.all([
+  const [auction, underwrite] = await Promise.all([
     get(`multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&limit=1`).catch(() => []),
     underwrite_deal({ case_number, strategy, arv, repairs, county }),
-    Promise.resolve(LIEN_RULES['foreclosure']),
   ]);
 
   const a = auction[0] || {};
+
+  // AI risk narrative via claude-router v4 (non-blocking — memo always returns even if LLM fails)
+  const aiResp = await callRouter(
+    [{
+      role: 'user',
+      content: JSON.stringify({
+        case_number,
+        county,
+        strategy,
+        arv,
+        repairs,
+        opening_bid: a.opening_bid || 0,
+        judgment_amount: a.judgment_amount || 0,
+        auction_date: a.auction_date || null,
+        shapira_max_bid: underwrite.shapira_max_bid,
+        verdict: underwrite.verdict,
+        roi_pct: underwrite.roi_pct,
+      }),
+    }],
+    {
+      system: 'You are BidDeed.AI\'s foreclosure deal analyst for FL tax deed and foreclosure auctions. Given this deal data, provide exactly: 3 key risk factors (labeled RISK 1/2/3) and 3 strategic recommendations (labeled REC 1/2/3). Be specific, cite FL law where relevant, max 180 words total.',
+      max_tokens: 400,
+      tool_name: 'generate_deal_memo',
+    }
+  ).catch(() => null);
 
   const memo = `
 # DEAL MEMO — ${a.property_address || case_number}
@@ -362,7 +387,7 @@ ROI:            ${underwrite.roi_pct || 'N/A'}%
 Statute:        FL FS 45
 Key Survives:   ${LIEN_RULES.foreclosure.survive.slice(0, 2).join('; ')}
 Key Extinguished: ${LIEN_RULES.foreclosure.extinguished.slice(0, 2).join('; ')}
-
+${aiResp?.text ? `\n## AI RISK INTELLIGENCE\n${aiResp.text}\n_Powered by claude-router v4 · ${aiResp.tier} · ${aiResp.latency_ms}ms_` : ''}
 ## ACTIONS
 [ ] Run check_zoning (S3) — confirm zoning + entitlement
 [ ] Run get_deposit_requirements (S1) — lock deposit amount
@@ -380,6 +405,8 @@ BidDeed.AI / Everest Capital USA | Not financial advice
     memo_text: memo,
     auction_context: a,
     underwriting: underwrite,
+    ai_enhanced: !!aiResp?.text,
+    ai_router: aiResp ? { tier: aiResp.tier, model: aiResp.model, latency_ms: aiResp.latency_ms, request_id: aiResp.request_id } : null,
     format: 'text/markdown',
     note: 'PDF export: POST to https://biddeed.ai/api/deal-memo/pdf with this response',
   };
