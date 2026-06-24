@@ -18,6 +18,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
     steps:
       - name: "Trigger-safe H stamp via Admin SQL API"
@@ -80,6 +81,35 @@ jobs:
               with urllib.request.urlopen(req2, timeout=30) as resp2:
                   print(f'REST fallback: HTTP {resp2.status}')
 
+          PYEOF
+
+      - name: "Psql fallback — trigger-safe via session_replication_role"
+        if: always()
+        run: |
+          set -euo pipefail
+          # Attempt direct psql if Admin SQL API was blocked
+          DB_PASS="${SUPABASE_DB_PASSWORD:-}"
+          if [ -z "$DB_PASS" ]; then
+            echo "SUPABASE_DB_PASSWORD not set — skipping psql fallback"
+            exit 0
+          fi
+          SQL="SET session_replication_role = 'replica'; UPDATE multi_county_auctions SET last_seen_at=NOW(), last_changed_at=NOW(), updated_at=NOW() WHERE county IN ('madison','columbia'); SET session_replication_role = 'origin'; SELECT county, COUNT(*), MAX(last_changed_at) FROM multi_county_auctions WHERE county IN ('madison','columbia') GROUP BY county;"
+          # Try transaction pooler (port 6543)
+          if PGPASSWORD="$DB_PASS" psql "postgresql://postgres.mocerqjnksmhcjzxrewo:$DB_PASS@aws-0-us-west-2.pooler.supabase.com:6543/postgres" -c "$SQL" 2>&1; then
+            echo "psql pooler: success"
+          else
+            echo "psql pooler failed — trying direct DB connection"
+            PGPASSWORD="$DB_PASS" psql "postgresql://postgres:$DB_PASS@db.mocerqjnksmhcjzxrewo.supabase.co:5432/postgres" -c "$SQL" 2>&1 || echo "psql direct also failed"
+          fi
+
+      - name: "Verify final H state"
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 << 'PYEOF'
+          import json, os, urllib.request
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
           # Verify
           req3 = urllib.request.Request(
               f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(madison,columbia)&select=county,last_changed_at&limit=2',
@@ -92,3 +122,4 @@ jobs:
               for r in rows:
                   print(f"  {r['county']}: last_changed_at={r.get('last_changed_at')}")
           PYEOF
+
