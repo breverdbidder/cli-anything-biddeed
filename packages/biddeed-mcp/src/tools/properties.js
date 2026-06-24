@@ -40,7 +40,7 @@ export async function search_properties({ county, address, parcel_id, zip_code, 
   if (zip_code) filters.push(`zip_code=eq.${zip_code}`);
 
   const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&order=sale_date.desc&limit=${Math.min(limit, 50)}&select=case_number,county,property_address,parcel_id,opening_bid,sale_date,sale_type,final_judgment_amount`
+    `multi_county_auctions?${filters.join('&')}&order=auction_date.desc&limit=${Math.min(limit, 50)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`
   ).catch(() => []);
 
   // Also search zoning_assignments for broader property coverage
@@ -58,7 +58,7 @@ export async function search_properties({ county, address, parcel_id, zip_code, 
       county: r.county,
       auction_status: 'in_auction_pipeline',
       opening_bid: r.opening_bid,
-      sale_date: r.sale_date,
+      auction_date: r.auction_date,
       sale_type: r.sale_type,
       case_number: r.case_number,
     })),
@@ -131,9 +131,9 @@ export async function get_property_detail({ parcel_id, county, address, case_num
       ? {
           case_number: a.case_number,
           sale_type: a.sale_type,
-          sale_date: a.sale_date,
+          auction_date: a.auction_date,
           opening_bid: a.opening_bid,
-          final_judgment: a.final_judgment_amount,
+          final_judgment: a.judgment_amount,
         }
       : null,
   };

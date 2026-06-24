@@ -91,19 +91,19 @@ export async function search_distressed({ county, distress_type = 'all', zip_cod
   // Query our auction table for pre-filing / lis pendens stage cases
   const filters = [
     `county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}`,
-    `sale_date=gte.${new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)}`,
+    `auction_date=gte.${new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)}`,
   ];
   if (zip_code) filters.push(`zip_code=eq.${zip_code}`);
 
   const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&order=sale_date.desc&limit=${Math.min(limit, 100)}&select=case_number,county,property_address,parcel_id,opening_bid,sale_date,sale_type,plaintiff,final_judgment_amount`
+    `multi_county_auctions?${filters.join('&')}&order=auction_date.desc&limit=${Math.min(limit, 100)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,plaintiff,judgment_amount`
   ).catch(() => []);
 
   const distressed = rows.map(r => ({
     ...r,
     distress_type: r.sale_type === 'tax_deed' ? 'tax_delinquent' : 'lis_pendens',
-    estimated_equity: r.final_judgment_amount
-      ? Math.max(0, (r.final_judgment_amount || 0) - (r.opening_bid || 0))
+    estimated_equity: r.judgment_amount
+      ? Math.max(0, (r.judgment_amount || 0) - (r.opening_bid || 0))
       : null,
   })).filter(r => !min_equity || (r.estimated_equity || 0) >= min_equity);
 
@@ -156,7 +156,7 @@ export async function get_lien_stack({ case_number, county, sale_type = 'foreclo
   let auctionContext = null;
   if (case_number) {
     const rows = await get(
-      `multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&select=case_number,county,property_address,opening_bid,final_judgment_amount,plaintiff,sale_date&limit=1`
+      `multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&select=case_number,county,property_address,opening_bid,judgment_amount,plaintiff,auction_date&limit=1`
     ).catch(() => []);
     if (rows.length) auctionContext = rows[0];
   }
@@ -246,12 +246,12 @@ export async function analyze_market({ county, months = 6, sale_type = 'all' }) 
   const since = new Date(Date.now() - months * 30 * 86400000).toISOString().slice(0, 10);
   const filters = [
     `county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}`,
-    `sale_date=gte.${since}`,
+    `auction_date=gte.${since}`,
   ];
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
   const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&select=opening_bid,final_judgment_amount,sale_date,sale_type`
+    `multi_county_auctions?${filters.join('&')}&select=opening_bid,judgment_amount,auction_date,sale_type`
   ).catch(() => []);
 
   if (!rows.length) {
@@ -259,7 +259,7 @@ export async function analyze_market({ county, months = 6, sale_type = 'all' }) 
   }
 
   const totalBid = rows.reduce((s, r) => s + (r.opening_bid || 0), 0);
-  const totalFJ = rows.reduce((s, r) => s + (r.final_judgment_amount || 0), 0);
+  const totalFJ = rows.reduce((s, r) => s + (r.judgment_amount || 0), 0);
   const avgDiscount = totalFJ > 0 ? ((totalFJ - totalBid) / totalFJ * 100).toFixed(1) : null;
 
   const byType = rows.reduce((acc, r) => {

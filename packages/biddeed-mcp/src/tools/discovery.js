@@ -81,15 +81,15 @@ export async function search_auctions({ county, date_from, date_to, min_bid, max
   const future = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
   const filters = [`county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}`];
-  filters.push(`sale_date=gte.${date_from || today}`);
-  filters.push(`sale_date=lte.${date_to || future}`);
+  filters.push(`auction_date=gte.${date_from || today}`);
+  filters.push(`auction_date=lte.${date_to || future}`);
   if (min_bid) filters.push(`opening_bid=gte.${min_bid}`);
   if (max_bid) filters.push(`opening_bid=lte.${max_bid}`);
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
   const cap = Math.min(limit, 100);
   const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&order=sale_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,sale_date,plaintiff,sale_type,final_judgment_amount`
+    `multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,plaintiff,sale_type,judgment_amount`
   );
 
   return {
@@ -122,7 +122,7 @@ export async function get_auction_detail({ case_number, county }) {
     deposit_note: `max($200, 5% × $${r.opening_bid?.toLocaleString()})`,
     payment_form: 'Cashier\'s check or same-day wire',
     clerk_link: getClerkLink(r.county),
-    realforeclose_search: `https://www.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=${r.sale_date}&county=${r.county}`,
+    realforeclose_search: `https://www.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=${r.auction_date}&county=${r.county}`,
     realauction_search: `https://www.realauction.com/`,
     cert_badge: false,
   };
@@ -133,8 +133,8 @@ export async function browse_deals({ county, max_bid, cert_only = false, sale_ty
   const future = new Date(Date.now() + days_ahead * 86400000).toISOString().slice(0, 10);
 
   const filters = [
-    `sale_date=gte.${today}`,
-    `sale_date=lte.${future}`,
+    `auction_date=gte.${today}`,
+    `auction_date=lte.${future}`,
     `opening_bid=gt.0`,
   ];
   if (county) filters.push(`county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}`);
@@ -142,13 +142,13 @@ export async function browse_deals({ county, max_bid, cert_only = false, sale_ty
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
   const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&order=sale_date.asc&limit=${Math.min(limit * 2, 200)}&select=case_number,county,property_address,parcel_id,opening_bid,sale_date,sale_type,final_judgment_amount`
+    `multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${Math.min(limit * 2, 200)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`
   );
 
-  // Quick Shapira score: judgment_discount = (final_judgment - opening_bid) / final_judgment
+  // Quick Shapira score: judgment_discount = (judgment_amount - opening_bid) / judgment_amount
   const scored = rows
     .map(r => {
-      const fj = r.final_judgment_amount || 0;
+      const fj = r.judgment_amount || 0;
       const bid = r.opening_bid || 0;
       const discount = fj > 0 ? (fj - bid) / fj : 0;
       return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05) };
@@ -169,7 +169,7 @@ export async function get_deposit_requirements({ case_number, county }) {
   const filters = [`case_number=eq.${encodeURIComponent(case_number)}`];
   if (county) filters.push(`county=ilike.${encodeURIComponent(county)}`);
 
-  const rows = await get(`multi_county_auctions?${filters.join('&')}&select=case_number,county,opening_bid,sale_date,sale_type&limit=1`);
+  const rows = await get(`multi_county_auctions?${filters.join('&')}&select=case_number,county,opening_bid,auction_date,sale_type&limit=1`);
   if (!rows.length) return { found: false, case_number, message: 'Auction not found.' };
 
   const r = rows[0];
@@ -181,7 +181,7 @@ export async function get_deposit_requirements({ case_number, county }) {
     opening_bid: r.opening_bid,
     deposit_required: deposit,
     deposit_formula: 'max($200, 5% × opening_bid)',
-    sale_date: r.sale_date,
+    auction_date: r.auction_date,
     deadline: 'By close of business on auction day (typically 4PM local)',
     payment_forms: ['Cashier\'s check', 'Wire transfer (same day)'],
     make_payable_to: `Clerk of Court, ${r.county} County`,

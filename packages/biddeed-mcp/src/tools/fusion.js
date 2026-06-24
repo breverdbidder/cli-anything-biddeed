@@ -171,7 +171,7 @@ export async function underwrite_deal({ case_number, strategy, arv, repairs, ope
 
   if (case_number) {
     const rows = await get(
-      `multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&select=opening_bid,final_judgment_amount,county,property_address,sale_date&limit=1`
+      `multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&select=opening_bid,judgment_amount,county,property_address,auction_date&limit=1`
     ).catch(() => []);
     if (rows.length) {
       auctionData = rows[0];
@@ -322,9 +322,9 @@ Generated: ${new Date().toISOString().slice(0, 10)} | BidDeed.AI
 ## AUCTION
 Case:           ${case_number}
 County:         ${county}
-Sale Date:      ${a.sale_date || 'TBD'}
+Sale Date:      ${a.auction_date || 'TBD'}
 Opening Bid:    $${(a.opening_bid || 0).toLocaleString()}
-Final Judgment: $${(a.final_judgment_amount || 0).toLocaleString()}
+Final Judgment: $${(a.judgment_amount || 0).toLocaleString()}
 Clerk:          ${getClerkLink(county)}
 
 ## SHAPIRA UNDERWRITING (${strategy.toUpperCase()})
@@ -376,7 +376,7 @@ export async function get_bid_package({ case_number, county, arv, repairs, strat
     underwriting = await underwrite_deal({ case_number, strategy, arv, repairs, county });
   }
 
-  const saleDate = a.sale_date || '';
+  const saleDate = a.auction_date || '';
   const countySlug = county.toLowerCase().replace(/\s+/g, '');
 
   return {
@@ -385,10 +385,10 @@ export async function get_bid_package({ case_number, county, arv, repairs, strat
     property_address: a.property_address,
     auction: {
       opening_bid: bid,
-      sale_date: saleDate,
+      auction_date: saleDate,
       sale_type: a.sale_type || 'foreclosure',
       plaintiff: a.plaintiff,
-      final_judgment: a.final_judgment_amount,
+      final_judgment: a.judgment_amount,
     },
     deposit: {
       amount: depositAmt,

@@ -98,7 +98,7 @@ export async function get_market_data({ metrics, county } = {}) {
   if (county) {
     const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
     const rows = await get(
-      `multi_county_auctions?county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}&sale_date=gte.${since}&select=opening_bid,final_judgment_amount&limit=500`
+      `multi_county_auctions?county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}&auction_date=gte.${since}&select=opening_bid,judgment_amount&limit=500`
     ).catch(() => []);
 
     if (rows.length) {

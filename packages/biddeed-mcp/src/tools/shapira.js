@@ -19,20 +19,25 @@ export const schemas = [
 ];
 
 export async function predict_auction_outcome({ case_number, county, arv, strategy = 'flip' }) {
-  // CERT GATE — county must be Gold Standard certified
+  // CERT GATE — county must have Gold Standard passing rows (10-letter system, status='PASS')
   const certRows = await get(
-    `gold_standard_county_status?county_slug=eq.${encodeURIComponent(county.toLowerCase())}&order=evaluated_at.desc&limit=1`
+    `gold_standard_county_status?county_slug=eq.${encodeURIComponent(county.toLowerCase())}&status=eq.PASS&order=evaluated_at.desc&limit=20`
   ).catch(() => []);
 
-  const certRecord = certRows[0];
-  const isCertified = certRecord?.gold_standard === true || certRecord?.critical_three_pass === true;
+  const certRecord = certRows[0] || null;
+  // Gold Standard = county has 8+ letters passing in the most recent evaluation run
+  const recentRunId = certRecord?.loop_run_id;
+  const passingLetters = recentRunId
+    ? certRows.filter(r => r.loop_run_id === recentRunId).length
+    : 0;
+  const isCertified = passingLetters >= 8;
 
   if (!isCertified) {
     return {
       error: 'CERT_REQUIRED',
       county,
-      message: `${county} county is not Gold Standard certified. predict_auction_outcome is only available for certified counties. Current cert status: ${certRecord ? JSON.stringify({ gold_standard: certRecord.gold_standard, critical_three_pass: certRecord.critical_three_pass }) : 'no data'}`,
-      action: 'Request certification at biddeed.ai/certify or use underwrite_deal (S3) for uncertified analysis.',
+      message: `${county} county is not Gold Standard certified. predict_auction_outcome requires ≥8 passing letters. Current: ${passingLetters} letters passing (run ${recentRunId || 'none'}).`,
+      action: 'Certification status updates daily. Use underwrite_deal (S3) for uncertified analysis.',
     };
   }
 
@@ -47,7 +52,7 @@ export async function predict_auction_outcome({ case_number, county, arv, strate
 
   const auction = rows[0];
   const bid = auction.opening_bid || 0;
-  const fj = auction.final_judgment_amount || 0;
+  const fj = auction.judgment_amount || 0;
 
   // Shapira Formula feature set
   const discount = fj > 0 ? (fj - bid) / fj : 0;
@@ -55,12 +60,11 @@ export async function predict_auction_outcome({ case_number, county, arv, strate
 
   // Fetch historical outcomes for this county to calibrate
   const outcomes = await get(
-    `foreclosure_outcomes?county_slug=eq.${encodeURIComponent(county.toLowerCase())}&order=auction_date.desc&limit=500&select=sale_status,sale_amount,high_bid`
+    `foreclosure_outcomes?county=eq.${encodeURIComponent(county.toLowerCase())}&order=auction_date.desc&limit=500&select=outcome,winning_bid`
   ).catch(() => []);
 
   const totalOutcomes = outcomes.length;
-  const sold = outcomes.filter(o => o.sale_status === 'sold' || o.sale_status === 'sold_to_third_party').length;
-  const soldToThirdParty = outcomes.filter(o => o.sale_status === 'sold_to_third_party').length;
+  const soldToThirdParty = outcomes.filter(o => o.outcome === 'sold_to_third_party' || o.outcome === 'sold').length;
   const baseRate = totalOutcomes > 0 ? soldToThirdParty / totalOutcomes : 0.42;
 
   // Shapira scoring model (simplified — full XGBoost runs server-side at S5 endpoint)

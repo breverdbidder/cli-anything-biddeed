@@ -27,7 +27,7 @@ export const schemas = [
 export async function watch_auction({ case_number, county, notify_email, notify_phone, alerts, max_bid }) {
   // Verify auction exists
   const rows = await get(
-    `multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&county=ilike.${encodeURIComponent(county)}&select=case_number,county,property_address,opening_bid,sale_date&limit=1`
+    `multi_county_auctions?case_number=eq.${encodeURIComponent(case_number)}&county=ilike.${encodeURIComponent(county)}&select=case_number,county,property_address,opening_bid,auction_date&limit=1`
   ).catch(() => []);
 
   if (!rows.length) {
@@ -45,7 +45,7 @@ export async function watch_auction({ case_number, county, notify_email, notify_
     notify_phone: notify_phone || null,
     alert_types: activeAlerts,
     max_bid: max_bid || null,
-    sale_date: auction.sale_date,
+    auction_date: auction.auction_date,
     created_at: new Date().toISOString(),
     status: 'active',
   };
@@ -57,12 +57,12 @@ export async function watch_auction({ case_number, county, notify_email, notify_
 
   const alertSchedule = [];
   if (activeAlerts.includes('24hr')) {
-    const d = new Date(auction.sale_date);
+    const d = new Date(auction.auction_date);
     d.setDate(d.getDate() - 1);
     alertSchedule.push({ type: '24hr', send_at: d.toISOString().slice(0, 10) + 'T09:00:00-05:00' });
   }
   if (activeAlerts.includes('morning_of')) {
-    alertSchedule.push({ type: 'morning_of', send_at: auction.sale_date + 'T07:00:00-05:00' });
+    alertSchedule.push({ type: 'morning_of', send_at: auction.auction_date + 'T07:00:00-05:00' });
   }
   if (activeAlerts.includes('postponement')) {
     alertSchedule.push({ type: 'postponement', send_at: 'triggered_on_court_filing' });
@@ -79,7 +79,7 @@ export async function watch_auction({ case_number, county, notify_email, notify_
     case_number,
     county,
     property_address: auction.property_address,
-    auction_date: auction.sale_date,
+    auction_date: auction.auction_date,
     opening_bid: auction.opening_bid,
     max_bid_alert: max_bid || null,
     alerts_active: activeAlerts,
