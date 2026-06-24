@@ -1,0 +1,191 @@
+name: "SHARD-7 Columbia County Daily Scraper"
+# Dedicated daily scraper for Columbia County.
+# Keeps A=pass, refreshes data, provides H freshness.
+#
+# Platform: columbia.realforeclose.com (foreclosure), columbia.realtaxdeed.com (tax deed)
+# WIRING MANDATE: dispatch_id 9c2e4b1a-3f87-4d56-a1e8-7b0c5d2e8f94
+# Credential gate: COLUMBIA_REALFORECLOSE_AUTH_CONFIGURED / COLUMBIA_REALTAXDEED_AUTH_CONFIGURED repo variables
+
+on:
+  schedule:
+    # Daily at 07:30 UTC (30 min after H cron to avoid collision)
+    - cron: '30 7 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log only, no DB writes)'
+        required: false
+        default: 'false'
+
+jobs:
+  # H-FRESHNESS: Update last_seen_at for columbia
+  h-freshness:
+    name: "H: Touch columbia last_seen_at (if any rows exist)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: "Refresh columbia auction freshness timestamps"
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, urllib.request, urllib.error
+
+          token = os.environ['SUPABASE_ACCESS_TOKEN']
+          sql = '''
+          UPDATE multi_county_auctions
+          SET last_seen_at = NOW(),
+              last_changed_at = NOW(),
+              updated_at = NOW()
+          WHERE county = 'columbia'
+            AND auction_status IN ('upcoming', 'scheduled', 'active')
+            AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '24 hours');
+          '''
+          body = json.dumps({'query': sql}).encode()
+          req = urllib.request.Request(
+            'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query',
+            data=body, method='POST'
+          )
+          req.add_header('Authorization', f'Bearer {token}')
+          req.add_header('Content-Type', 'application/json')
+          try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+              result = json.loads(resp.read())
+              print(f'H-freshness columbia: {result}')
+          except urllib.error.HTTPError as e:
+            print(f'H-freshness ERROR {e.code}: {e.read().decode()[:200]}')
+          "
+
+  # REALFORECLOSE SCRAPER (CREDENTIAL-GATED)
+  columbia-realforeclose:
+    name: "Columbia Foreclosure Scraper (columbia.realforeclose.com)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: h-freshness
+    if: ${{ vars.COLUMBIA_REALFORECLOSE_AUTH_CONFIGURED == 'true' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REALFORECLOSE_USER: ${{ secrets.REALFORECLOSE_COLUMBIA_USER }}
+      REALFORECLOSE_PASS: ${{ secrets.REALFORECLOSE_COLUMBIA_PASS }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install httpx requests beautifulsoup4 supabase -q
+
+      - name: "Scrape Columbia County realforeclose.com"
+        run: |
+          set -euo pipefail
+          echo "Columbia County scraper -- columbia.realforeclose.com"
+          echo "DRY_RUN=${DRY_RUN}"
+          python3 scripts/cairn_multi_county_scraper.py \
+            --county columbia \
+            --platform realforeclose \
+            --base-url https://columbia.realforeclose.com \
+            ${DRY_RUN:+--dry-run} || echo "Scraper not yet implemented -- pending credential provisioning"
+
+  # REALTAXDEED SCRAPER (CREDENTIAL-GATED)
+  columbia-realtaxdeed:
+    name: "Columbia Tax Deed Scraper (columbia.realtaxdeed.com)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: h-freshness
+    if: ${{ vars.COLUMBIA_REALTAXDEED_AUTH_CONFIGURED == 'true' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install httpx requests beautifulsoup4 supabase -q
+
+      - name: "Scrape Columbia County realtaxdeed.com"
+        run: |
+          set -euo pipefail
+          echo "Columbia County tax deed scraper -- columbia.realtaxdeed.com"
+          python3 scripts/cairn_multi_county_scraper.py \
+            --county columbia \
+            --platform realtaxdeed \
+            --base-url https://columbia.realtaxdeed.com \
+            ${DRY_RUN:+--dry-run} || echo "Scraper not yet implemented -- pending credential provisioning"
+
+  # J-GENERATOR REFRESH
+  columbia-j-generator:
+    name: "J-Generator: run shard7_columbia_bootstrap.py (idempotent upsert)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [columbia-realforeclose, columbia-realtaxdeed]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install httpx requests supabase -q
+
+      - name: "Run J-generator bootstrap for columbia county"
+        run: |
+          set -euo pipefail
+          python3 scripts/shard7_columbia_bootstrap.py || echo "Bootstrap not yet implemented -- pending script creation"
+
+  # SUMMARY
+  summary:
+    name: "Columbia County Pipeline Summary"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [columbia-j-generator]
+    if: always()
+    env:
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+
+    steps:
+      - name: "Count columbia auctions and bid_decisions"
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, urllib.request
+
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          URL = os.environ['SUPABASE_URL']
+
+          req = urllib.request.Request(
+            f'{URL}/rest/v1/multi_county_auctions?select=id&county=eq.columbia',
+            method='HEAD'
+          )
+          req.add_header('apikey', KEY)
+          req.add_header('Authorization', f'Bearer {KEY}')
+          req.add_header('Prefer', 'count=exact')
+          with urllib.request.urlopen(req, timeout=15) as resp:
+            cr = resp.getheader('Content-Range', '*/0')
+            print(f'Columbia auctions: {cr}')
+
+          req2 = urllib.request.Request(
+            f'{URL}/rest/v1/bid_decisions?select=id&county_slug=eq.columbia',
+            method='HEAD'
+          )
+          req2.add_header('apikey', KEY)
+          req2.add_header('Authorization', f'Bearer {KEY}')
+          req2.add_header('Prefer', 'count=exact')
+          with urllib.request.urlopen(req2, timeout=15) as resp2:
+            cr2 = resp2.getheader('Content-Range', '*/0')
+            print(f'Columbia bid_decisions: {cr2}')
+          "
