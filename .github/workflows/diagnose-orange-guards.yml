@@ -1,6 +1,6 @@
 name: "Diagnose Orange Guard Failures (calendar_parity + denominator_integrity)"
-# orange certify() blocked by no_calendar_parity+no_denominator_integrity
-# cert_scope has no rows for orange — check certified counties to understand schema
+# Digging deeper: check pencil_dod_scorecard, full certifications schema, and
+# call pencil_dod_evaluate_county(p_county='orange') with correct parameter name.
 on:
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
-      - name: "Diagnose orange guard failures — cert_scope focus"
+      - name: "Deep diagnose orange guard failures"
         run: |
           python3 - <<'PYEOF'
           import json, os, urllib.parse, urllib.request, urllib.error
@@ -39,71 +39,78 @@ jobs:
                   headers=H, method="POST"
               )
               try:
-                  with urllib.request.urlopen(req, timeout=60) as r:
+                  with urllib.request.urlopen(req, timeout=90) as r:
                       return json.loads(r.read())
               except urllib.error.HTTPError as e:
                   body_bytes = e.read()
                   print(f"  RPC {func} error {e.code}: {body_bytes[:400]}")
                   return None
 
-          # Check cert_scope for certified counties to understand schema
-          print("=== gold_standard_cert_scope — sample from certified counties ===")
-          rows = rest_get("gold_standard_cert_scope", {
-              "select": "*", "limit": "5",
-              "order": "created_at.desc"
+          # Get full schema of gold_standard_certifications
+          print("=== gold_standard_certifications — ALL columns for orange ===")
+          rows = rest_get("gold_standard_certifications", {
+              "county_slug": "eq.orange", "select": "*"
           })
           for r in rows:
-              print(json.dumps(r))
-          if not rows:
-              print("  (no rows in table)")
+              print(json.dumps(r, indent=2))
 
-          # Try all column names via get on orange
-          print("\n=== gold_standard_cert_scope for orange only ===")
-          rows = rest_get("gold_standard_cert_scope", {"county_slug": "eq.orange", "select": "*"})
+          print("\n=== gold_standard_certifications — ALL columns for brevard (certified) ===")
+          rows = rest_get("gold_standard_certifications", {
+              "county_slug": "eq.brevard", "select": "*"
+          })
           for r in rows:
-              print(json.dumps(r))
+              print(json.dumps(r, indent=2))
+
+          # Check pencil_dod_scorecard for orange
+          print("\n=== pencil_dod_scorecard for orange ===")
+          rows = rest_get("pencil_dod_scorecard", {
+              "county_slug": "eq.orange", "select": "*", "order": "created_at.desc", "limit": "3"
+          })
+          for r in rows:
+              print(json.dumps(r, indent=2))
           if not rows:
               print("  (no rows)")
 
-          # Check gold_standard_certifications for certified counties to understand the full schema
-          print("\n=== gold_standard_certifications — certified=true examples ===")
-          rows = rest_get("gold_standard_certifications", {
-              "certified": "eq.true", "select": "*", "limit": "3"
+          # Check pencil_dod_scorecard for brevard (certified)
+          print("\n=== pencil_dod_scorecard for brevard ===")
+          rows = rest_get("pencil_dod_scorecard", {
+              "county_slug": "eq.brevard", "select": "*", "order": "created_at.desc", "limit": "1"
           })
           for r in rows:
-              print(json.dumps(r))
+              print(json.dumps(r, indent=2))
 
-          # Try calling pencil_dod_evaluate_county with p_county_slug
-          print("\n=== pencil_dod_evaluate_county(p_county_slug='orange') ===")
-          ev = rpc("pencil_dod_evaluate_county", {"p_county_slug": "orange"})
+          # Try pencil_dod_evaluate_county(p_county='orange') — hint said p_county
+          print("\n=== pencil_dod_evaluate_county(p_county='orange') ===")
+          ev = rpc("pencil_dod_evaluate_county", {"p_county": "orange"})
           if ev:
               if isinstance(ev, list):
-                  for row in ev:
+                  for row in ev[:5]:
                       print(json.dumps(row))
               else:
                   print(json.dumps(ev))
 
-          # Try with county_name
-          print("\n=== pencil_dod_evaluate_county(county_name='orange') ===")
-          ev2 = rpc("pencil_dod_evaluate_county", {"county_name": "orange"})
-          if ev2:
-              if isinstance(ev2, list):
-                  for row in ev2:
-                      print(json.dumps(row))
-              else:
-                  print(json.dumps(ev2))
+          # Call gold_standard_certify() and parse result carefully
+          print("\n=== gold_standard_certify() detailed result ===")
+          result = rpc("gold_standard_certify")
+          print(json.dumps(result, indent=2))
 
-          # Check if there's a gold_standard_loop or similar function that seeds cert_scope
-          print("\n=== gold_standard_scoreboard — all certified counties ===")
-          rows = rest_get("gold_standard_scoreboard", {
-              "gold_standard": "eq.true", "select": "county_slug,pass_count,gold_standard"
+          # Check if there's a view or function showing calendar_parity/denominator_integrity
+          print("\n=== gold_standard_decisions (if exists) for orange ===")
+          rows = rest_get("gold_standard_decisions", {
+              "county_slug": "eq.orange", "select": "*", "limit": "3"
           })
-          print(f"Total gold counties: {len(rows)}")
           for r in rows:
-              print(f"  {r['county_slug']}")
+              print(json.dumps(r, indent=2))
+          if not rows:
+              print("  (no rows or table doesn't exist)")
 
-          print("\n=== gold_standard_certifications — all rows ===")
-          rows = rest_get("gold_standard_certifications", {"select": "county_slug,certified,consecutive_gold,first_certified_at"})
+          # Check gold_standard_campaign table
+          print("\n=== gold_standard_campaign for orange ===")
+          rows = rest_get("gold_standard_campaign", {
+              "county_slug": "eq.orange", "select": "*", "limit": "3"
+          })
           for r in rows:
-              print(json.dumps(r))
+              print(json.dumps(r, indent=2))
+          if not rows:
+              print("  (no rows)")
           PYEOF
