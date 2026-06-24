@@ -2,10 +2,9 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { validateKey, resolveApiKey, assertTier, AuthError } from '../../biddeed-mcp/src/auth.js';
-import { recordBilling } from '../../biddeed-mcp/src/billing.js';
-import { check_zoning } from '../../biddeed-mcp/src/tools/fusion.js';
-import { get } from '../../biddeed-mcp/src/supabase.js';
+import { validateKey, resolveApiKey, assertTier, AuthError } from './auth.js';
+import { recordBilling } from './billing.js';
+import { get } from './supabase.js';
 
 // ZoneWise-specific tool schemas
 const TOOLS = [
@@ -51,6 +50,50 @@ const TOOLS = [
     },
   },
 ];
+
+async function check_zoning({ parcel_id, county, address }) {
+  if (!parcel_id && !address) return { error: 'Provide parcel_id or address' };
+
+  const filters = [];
+  if (parcel_id) filters.push(`parcel_id=eq.${encodeURIComponent(parcel_id)}`);
+  if (county) filters.push(`county=eq.${encodeURIComponent(county.toLowerCase())}`);
+
+  const assignments = await get(`zoning_assignments?${filters.join('&')}&limit=1`).catch(() => []);
+  const assignment = assignments[0];
+
+  if (!assignment) {
+    return {
+      found: false,
+      parcel_id,
+      county,
+      note: 'Parcel not in ZoneWise database. Coverage: 771K+ FL parcels across Brevard, Duval, Orange, and 40+ more counties.',
+    };
+  }
+
+  const zd = await get(
+    `zoning_districts?code=eq.${encodeURIComponent(assignment.zone_code)}&county=eq.${encodeURIComponent(county.toLowerCase())}&limit=1`
+  ).catch(() => []);
+
+  const district = zd[0];
+  return {
+    found: true,
+    parcel_id: assignment.parcel_id,
+    county: assignment.county,
+    zone_code: assignment.zone_code,
+    zone_source: assignment.zone_source,
+    district: district ? {
+      name: district.name,
+      category: district.category,
+      far: district.far,
+      max_height_ft: district.max_height_ft,
+      min_lot_sqft: district.min_lot_sqft,
+    } : null,
+    verdict: district
+      ? `Zoned ${assignment.zone_code} (${district.name || 'Unknown district'}) — ${district.category || 'verify permitted uses'}`
+      : `Zoned ${assignment.zone_code} — run check_zoning with county for district details`,
+    zoning_map_url: `https://zonewise.ai/map?parcel=${assignment.parcel_id}&county=${county}`,
+  };
+}
 
 async function get_zoning_districts({ county, category, limit = 50 }) {
   const filters = [`county=eq.${encodeURIComponent(county.toLowerCase())}`];

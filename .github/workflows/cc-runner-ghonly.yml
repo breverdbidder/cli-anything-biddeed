@@ -54,6 +54,9 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
           set +e
           unset ANTHROPIC_API_KEY
