@@ -78,38 +78,38 @@ BEGIN
 END $$;
 
 -- Seed pipeline.counties for shard-28 counties
+-- VERIFIED: pipeline.counties uses taxdeed_url/taxdeed_platform (not tax_deed_url/tax_deed_platform)
 INSERT INTO pipeline.counties
     (county_slug, state, foreclosure_url, foreclosure_platform,
-     tax_deed_url, tax_deed_platform, active, notes)
+     taxdeed_url, taxdeed_platform, pipeline_status, notes)
 VALUES
     ('orange',   'FL',
-     'https://orange.realforeclose.com', 'realforeclose',
-     'https://orange.realtaxdeed.com',   'realtaxdeed',
-     TRUE, 'Shard-28 run-338 2026-06-24'),
+     'https://myorangeclerk.realforeclose.com/index.cfm?zaction=USER&zmethod=CALENDAR', 'realforeclose',
+     'https://orange.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR',          'realtaxdeed',
+     'active', 'Shard-28 run-338 2026-06-24'),
     ('dixie',    'FL',
      'https://dixieclerk.com/departments-services/court-services/foreclosure-sales/', 'clerk_html',
      'https://dixieclerk.com/departments-services/court-services/tax-deed-sales/',    'clerk_html',
-     TRUE, 'Shard-28 run-338 2026-06-24 — in-person courthouse'),
+     'active', 'Shard-28 run-338 2026-06-24 — in-person courthouse'),
     ('citrus',   'FL',
-     'https://citrus.realforeclose.com', 'realforeclose',
-     'https://citrus.realtaxdeed.com',   'realtaxdeed',
-     TRUE, 'Shard-28 run-338 2026-06-24'),
+     'https://citrus.realforeclose.com/index.cfm?zaction=USER&zmethod=CALENDAR', 'realforeclose',
+     'https://citrus.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR',   'realtaxdeed',
+     'active', 'Shard-28 run-338 2026-06-24'),
     ('suwannee', 'FL',
-     'https://suwannee.realforeclose.com', 'realforeclose',
-     'https://suwannee.realtaxdeed.com',   'realtaxdeed',
-     TRUE, 'Shard-28 run-338 2026-06-24'),
+     'https://suwannee.realforeclose.com/index.cfm?zaction=USER&zmethod=CALENDAR', 'realforeclose',
+     'https://suwannee.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR',   'realtaxdeed',
+     'active', 'Shard-28 run-338 2026-06-24'),
     ('okaloosa', 'FL',
-     'https://okaloosa.realforeclose.com', 'realforeclose',
-     'https://okaloosa.realtaxdeed.com',   'realtaxdeed',
-     TRUE, 'Shard-28 run-338 2026-06-24')
+     'https://okaloosa.realforeclose.com/index.cfm?zaction=USER&zmethod=CALENDAR', 'realforeclose',
+     'https://okaloosa.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR',   'realtaxdeed',
+     'active', 'Shard-28 run-338 2026-06-24')
 ON CONFLICT (county_slug) DO UPDATE SET
     foreclosure_url      = EXCLUDED.foreclosure_url,
     foreclosure_platform = EXCLUDED.foreclosure_platform,
-    tax_deed_url         = EXCLUDED.tax_deed_url,
-    tax_deed_platform    = EXCLUDED.tax_deed_platform,
-    active               = TRUE,
-    notes                = EXCLUDED.notes,
-    updated_at           = NOW();
+    taxdeed_url          = EXCLUDED.taxdeed_url,
+    taxdeed_platform     = EXCLUDED.taxdeed_platform,
+    pipeline_status      = 'active',
+    notes                = EXCLUDED.notes;
 
 -- Ensure last_seen_at column exists on MCA (needed for H metric)
 DO $$
