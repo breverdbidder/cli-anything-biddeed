@@ -1,6 +1,8 @@
-name: "Diagnose Orange Guard Failures (calendar_parity + denominator_integrity)"
-# Digging deeper: check pencil_dod_scorecard, full certifications schema, and
-# call pencil_dod_evaluate_county(p_county='orange') with correct parameter name.
+name: "Diagnose Orange B metric (187%) — scope outcomes and manual_checks"
+# B=187% blocks denominator_integrity. Need to:
+# 1. Count foreclosure/tax_deed outcomes for orange
+# 2. Find the auction_status distribution for orange MCA
+# 3. Check manual_checks table for override mechanism
 on:
   workflow_dispatch:
 
@@ -12,10 +14,11 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
-      - name: "Deep diagnose orange guard failures"
+      - name: "Diagnose orange B metric anomaly"
         run: |
           python3 - <<'PYEOF'
           import json, os, urllib.parse, urllib.request, urllib.error
+          from collections import Counter
 
           SB  = os.environ["SUPABASE_URL"].rstrip("/")
           KEY = os.environ["SUPABASE_KEY"]
@@ -32,85 +35,67 @@ jobs:
                   print(f"  GET {path} error: {e}")
                   return []
 
-          def rpc(func, body=None):
-              req = urllib.request.Request(
-                  f"{SB}/rest/v1/rpc/{func}",
-                  data=json.dumps(body or {}).encode(),
-                  headers=H, method="POST"
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=90) as r:
-                      return json.loads(r.read())
-              except urllib.error.HTTPError as e:
-                  body_bytes = e.read()
-                  print(f"  RPC {func} error {e.code}: {body_bytes[:400]}")
-                  return None
-
-          # Get full schema of gold_standard_certifications
-          print("=== gold_standard_certifications — ALL columns for orange ===")
-          rows = rest_get("gold_standard_certifications", {
-              "county_slug": "eq.orange", "select": "*"
+          # 1. orange MCA auction_status breakdown
+          print("=== orange MCA auction_status breakdown ===")
+          rows = rest_get("multi_county_auctions", {
+              "county": "eq.orange", "select": "auction_status", "limit": "2000"
           })
-          for r in rows:
-              print(json.dumps(r, indent=2))
+          status_counts = Counter(r.get("auction_status") for r in rows)
+          print(f"Total rows: {len(rows)}")
+          for status, cnt in sorted(status_counts.items(), key=lambda x: -x[1]):
+              print(f"  {status!r}: {cnt}")
 
-          print("\n=== gold_standard_certifications — ALL columns for brevard (certified) ===")
-          rows = rest_get("gold_standard_certifications", {
-              "county_slug": "eq.brevard", "select": "*"
-          })
-          for r in rows:
-              print(json.dumps(r, indent=2))
+          # 2. foreclosure_outcomes for orange
+          print("\n=== foreclosure_outcomes for orange case_numbers ===")
+          # Get orange case_numbers
+          mca_cases = {r.get("case_number") for r in rows if r.get("case_number")}
+          print(f"  MCA case_numbers: {len(mca_cases)}")
 
-          # Check pencil_dod_scorecard for orange
-          print("\n=== pencil_dod_scorecard for orange ===")
-          rows = rest_get("pencil_dod_scorecard", {
-              "county_slug": "eq.orange", "select": "*", "order": "created_at.desc", "limit": "3"
+          fo_rows = rest_get("foreclosure_outcomes", {
+              "select": "case_number,data_source", "limit": "5000",
+              "order": "case_number"
           })
+          # Filter to orange
+          orange_fo = [r for r in fo_rows if r.get("case_number") in mca_cases]
+          print(f"  foreclosure_outcomes for orange cases: {len(orange_fo)}")
+          fo_sources = Counter(r.get("data_source") for r in orange_fo)
+          for src, cnt in sorted(fo_sources.items(), key=lambda x: -x[1]):
+              print(f"    {src!r}: {cnt}")
+
+          # 3. tax_deed_outcomes for orange
+          print("\n=== tax_deed_outcomes for orange case_numbers ===")
+          td_rows = rest_get("tax_deed_outcomes", {
+              "select": "case_number,data_source", "limit": "5000"
+          })
+          orange_td = [r for r in td_rows if r.get("case_number") in mca_cases]
+          print(f"  tax_deed_outcomes for orange cases: {len(orange_td)}")
+          td_sources = Counter(r.get("data_source") for r in orange_td)
+          for src, cnt in sorted(td_sources.items(), key=lambda x: -x[1]):
+              print(f"    {src!r}: {cnt}")
+
+          print(f"\n  total verified = {len(orange_fo)} + {len(orange_td)} = {len(orange_fo)+len(orange_td)}")
+
+          # 4. gold_standard_manual_checks
+          print("\n=== gold_standard_manual_checks ===")
+          rows = rest_get("gold_standard_manual_checks", {"select": "*", "limit": "10"})
           for r in rows:
-              print(json.dumps(r, indent=2))
+              print(json.dumps(r))
           if not rows:
-              print("  (no rows)")
+              print("  (no rows or table 404)")
 
-          # Check pencil_dod_scorecard for brevard (certified)
-          print("\n=== pencil_dod_scorecard for brevard ===")
-          rows = rest_get("pencil_dod_scorecard", {
-              "county_slug": "eq.brevard", "select": "*", "order": "created_at.desc", "limit": "1"
-          })
+          # 5. gold_standard_critical_path for orange
+          print("\n=== gold_standard_critical_path for orange ===")
+          rows = rest_get("gold_standard_critical_path", {"county_slug": "eq.orange", "select": "*"})
           for r in rows:
-              print(json.dumps(r, indent=2))
-
-          # Try pencil_dod_evaluate_county(p_county='orange') — hint said p_county
-          print("\n=== pencil_dod_evaluate_county(p_county='orange') ===")
-          ev = rpc("pencil_dod_evaluate_county", {"p_county": "orange"})
-          if ev:
-              if isinstance(ev, list):
-                  for row in ev[:5]:
-                      print(json.dumps(row))
-              else:
-                  print(json.dumps(ev))
-
-          # Call gold_standard_certify() and parse result carefully
-          print("\n=== gold_standard_certify() detailed result ===")
-          result = rpc("gold_standard_certify")
-          print(json.dumps(result, indent=2))
-
-          # Check if there's a view or function showing calendar_parity/denominator_integrity
-          print("\n=== gold_standard_decisions (if exists) for orange ===")
-          rows = rest_get("gold_standard_decisions", {
-              "county_slug": "eq.orange", "select": "*", "limit": "3"
-          })
-          for r in rows:
-              print(json.dumps(r, indent=2))
+              print(json.dumps(r))
           if not rows:
-              print("  (no rows or table doesn't exist)")
+              print("  (no rows or table 404)")
 
-          # Check gold_standard_campaign table
-          print("\n=== gold_standard_campaign for orange ===")
-          rows = rest_get("gold_standard_campaign", {
-              "county_slug": "eq.orange", "select": "*", "limit": "3"
-          })
+          # 6. gold_standard_county_status for orange
+          print("\n=== gold_standard_county_status for orange ===")
+          rows = rest_get("gold_standard_county_status", {"county_slug": "eq.orange", "select": "*"})
           for r in rows:
-              print(json.dumps(r, indent=2))
+              print(json.dumps(r))
           if not rows:
-              print("  (no rows)")
+              print("  (no rows or table 404)")
           PYEOF
