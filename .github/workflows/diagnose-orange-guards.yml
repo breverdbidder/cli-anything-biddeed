@@ -1,0 +1,96 @@
+name: "Diagnose Orange Guard Failures (calendar_parity + denominator_integrity)"
+# orange certify() blocked by no_calendar_parity+no_denominator_integrity
+# Need to see raw B/C/D metric values and parity counts to understand root cause.
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: "Diagnose orange guard failures"
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, urllib.parse, urllib.request, urllib.error
+
+          SB  = os.environ["SUPABASE_URL"].rstrip("/")
+          KEY = os.environ["SUPABASE_KEY"]
+          H   = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+
+          def rest_get(path, params=None):
+              qs = urllib.parse.urlencode(params or {})
+              url = f"{SB}/rest/v1/{path}?{qs}"
+              req = urllib.request.Request(url, headers=H)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f"  GET {path} error: {e}")
+                  return []
+
+          def rpc(func, body=None):
+              req = urllib.request.Request(
+                  f"{SB}/rest/v1/rpc/{func}",
+                  data=json.dumps(body or {}).encode(),
+                  headers=H, method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  body_bytes = e.read()
+                  print(f"  RPC {func} error {e.code}: {body_bytes[:300]}")
+                  return None
+
+          print("=== pencil_dod_evaluate_county for orange ===")
+          ev = rpc("pencil_dod_evaluate_county", {"county_slug_arg": "orange"})
+          if ev:
+              if isinstance(ev, list):
+                  for row in ev:
+                      print(json.dumps(row))
+              else:
+                  print(json.dumps(ev))
+
+          print("\n=== gold_standard_cert_scope for orange ===")
+          rows = rest_get("gold_standard_cert_scope", {"county_slug": "eq.orange", "select": "*", "limit": "5"})
+          for r in rows:
+              print(json.dumps(r))
+          if not rows:
+              print("  (no rows)")
+
+          print("\n=== parity_status breakdown for orange ===")
+          # C=parity_clean (matched_clean), D=parity_any (matched_any)
+          rows = rest_get("multi_county_auctions", {
+              "county": "eq.orange",
+              "select": "parity_status",
+          })
+          from collections import Counter
+          counts = Counter(r.get("parity_status") for r in rows)
+          total = len(rows)
+          print(f"  total MCA rows for orange: {total}")
+          for status, cnt in sorted(counts.items(), key=lambda x: -x[1]):
+              print(f"  parity_status={status!r}: {cnt}")
+
+          print("\n=== B metric: outcomes vs closed auctions for orange ===")
+          # B = verified_realized_outcomes: closed_sold have independent clerk outcomes
+          closed_rows = rest_get("multi_county_auctions", {
+              "county": "eq.orange",
+              "auction_status": "in.(completed,sold,redeemed)",
+              "select": "case_number,auction_status",
+              "limit": "5000",
+          })
+          print(f"  closed/sold/redeemed MCA rows: {len(closed_rows)}")
+
+          print("\n=== gold_standard_certifications for orange ===")
+          rows = rest_get("gold_standard_certifications", {
+              "county_slug": "eq.orange", "select": "*"
+          })
+          for r in rows:
+              print(json.dumps(r))
+          if not rows:
+              print("  (no row)")
+          PYEOF
