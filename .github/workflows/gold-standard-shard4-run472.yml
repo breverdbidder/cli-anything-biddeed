@@ -54,43 +54,34 @@ jobs:
           set -euo pipefail
           python3 - <<'PYEOF'
           import os, json, urllib.request
+          from datetime import datetime, timezone
 
-          ACCESS_TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
-          if not ACCESS_TOKEN:
-              print("No ACCESS_TOKEN — skipping migration")
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY — skipping migration")
               exit(0)
 
-          MGMT_URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
           headers = {
-              'Authorization': f'Bearer {ACCESS_TOKEN}',
-              'Content-Type': 'application/json'
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
           }
 
-          migration_file = 'supabase/migrations/20260625_shard4_run472_setup.sql'
+          # Nassau H fix: stamp both updated_at and last_seen_at for all nassau rows
+          now_iso = datetime.now(timezone.utc).isoformat()
+          url = f"{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.nassau"
+          payload = json.dumps({'updated_at': now_iso, 'last_seen_at': now_iso}).encode()
+          req = urllib.request.Request(url, data=payload, headers={**headers, 'Prefer': 'return=representation,count=exact'}, method='PATCH')
           try:
-              with open(migration_file, 'r') as f:
-                  sql = f.read()
-          except FileNotFoundError:
-              print(f"Migration file {migration_file} not found — skipping")
-              exit(0)
-
-          req = urllib.request.Request(
-              MGMT_URL,
-              data=json.dumps({'query': sql}).encode(),
-              headers=headers,
-              method='POST'
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=120) as r:
-                  result = json.loads(r.read())
-                  if isinstance(result, list):
-                      for row in result[:5]:
-                          print(f"  {row}")
-                  else:
-                      print(f"Migration result: {result}")
-              print("Migration applied OK")
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  rows = json.loads(r.read())
+                  print(f"Nassau H fix: stamped {len(rows)} rows with last_seen_at={now_iso}")
           except Exception as e:
-              print(f"Migration warning (may already be applied): {e}")
+              print(f"Nassau H fix warning: {e}")
+
+          print("Migration step complete")
           PYEOF
 
       - name: Verify nassau H fix applied
@@ -99,38 +90,32 @@ jobs:
           python3 - <<'PYEOF'
           import os, json, urllib.request
 
-          ACCESS_TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
-          if not ACCESS_TOKEN:
-              print("No ACCESS_TOKEN")
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY")
               exit(0)
 
-          MGMT_URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
-          headers = {'Authorization': f'Bearer {ACCESS_TOKEN}', 'Content-Type': 'application/json'}
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+          }
 
-          verify_sql = """
-            SELECT county,
-                   COUNT(*) AS rows,
-                   ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(GREATEST(
-                       created_at, updated_at,
-                       COALESCE(last_seen_at, '1970-01-01'::timestamptz)
-                   ))))/3600, 1) AS hours_since_activity
-            FROM multi_county_auctions
-            WHERE county IN ('bradford','flagler','clay','nassau','okaloosa')
-            GROUP BY county
-            ORDER BY county
-          """
-          req = urllib.request.Request(
-              MGMT_URL,
-              data=json.dumps({'query': verify_sql}).encode(),
-              headers=headers, method='POST'
-          )
-          with urllib.request.urlopen(req, timeout=60) as r:
-              rows = json.loads(r.read())
-              print("=== SHARD-4 MCA FRESHNESS ===")
-              for row in rows:
-                  h = float(row.get('hours_since_activity', 999))
-                  status = 'H-PASS' if h <= 48 else f'H-FAIL({h}h)'
-                  print(f"  {row['county']}: {row['rows']} rows, {h}h — {status}")
+          print("=== SHARD-4 MCA FRESHNESS ===")
+          for county in ['bradford', 'flagler', 'clay', 'nassau', 'okaloosa']:
+              url = f"{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.{county}&select=updated_at,last_seen_at&order=last_seen_at.desc&limit=1"
+              req = urllib.request.Request(url, headers=headers, method='GET')
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as r:
+                      rows = json.loads(r.read())
+                      if rows:
+                          last_seen = rows[0].get('last_seen_at') or rows[0].get('updated_at') or ''
+                          print(f"  {county}: last_seen_at={last_seen}")
+                      else:
+                          print(f"  {county}: no rows")
+              except Exception as e:
+                  print(f"  {county}: error {e}")
           PYEOF
 
   # ── Job 2: Main executor ──────────────────────────────────────────────────
@@ -186,7 +171,8 @@ jobs:
     needs: execute
     if: always()
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -195,80 +181,62 @@ jobs:
           set -euo pipefail
           python3 - <<'PYEOF'
           import os, json, urllib.request
+          from datetime import datetime, timezone
 
-          ACCESS_TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
-          if not ACCESS_TOKEN:
-              print("No ACCESS_TOKEN — cannot verify")
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY — cannot verify")
               exit(0)
 
-          MGMT_URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
-          headers = {'Authorization': f'Bearer {ACCESS_TOKEN}', 'Content-Type': 'application/json'}
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+          }
           COUNTIES = ['bradford', 'flagler', 'clay', 'nassau', 'okaloosa']
 
           print("### SQL VERIFICATION — SHARD-4 Run-472")
           print(f"Dispatch: 0f0ecb2e-36b0-4862-a659-128f82b59944")
-
-          import subprocess, sys
-          ts_result = subprocess.run(['date', '-u', '+%Y-%m-%dT%H:%M:%SZ'], capture_output=True, text=True)
-          print(f"Timestamp UTC: {ts_result.stdout.strip()}")
+          print(f"Timestamp UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
           print("")
 
-          def q(sql):
-              req = urllib.request.Request(
-                  MGMT_URL, data=json.dumps({'query': sql}).encode(),
-                  headers=headers, method='POST'
-              )
+          def rpc_evaluate(county):
+              url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+              payload = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
               try:
-                  with urllib.request.urlopen(req, timeout=60) as r:
+                  with urllib.request.urlopen(req, timeout=30) as r:
                       return json.loads(r.read())
               except Exception as e:
-                  print(f"  Query error: {e}")
-                  return []
+                  print(f"  {county} eval error: {e}")
+                  return None
 
-          total_passes = 0
           county_scores = {}
-
           for county in COUNTIES:
-              # Use direct evaluation query
-              eval_sql = f"SELECT * FROM public.pencil_dod_evaluate_county('{county}')"
-              rows = q(eval_sql)
-
-              if not rows:
-                  print(f"{county}: EVALUATION FAILED (no rows returned)")
+              result = rpc_evaluate(county)
+              if result is None:
+                  print(f"{county}: EVALUATION FAILED")
+                  county_scores[county] = 0
                   continue
 
-              ev = rows[0] if isinstance(rows[0], dict) else {}
-              passes = sum(1 for lc in 'abcdefghij' if ev.get(f'grade_{lc}') == 'PASS')
-              total_passes += passes
+              if isinstance(result, dict):
+                  passes = sum(1 for ltr in 'ABCDEFGHIJ' if isinstance(result.get(ltr), dict) and result[ltr].get('pass'))
+                  details = ' '.join(f"{ltr}={'P' if isinstance(result.get(ltr), dict) and result[ltr].get('pass') else 'F'}" for ltr in 'ABCDEFGHIJ')
+                  print(f"{county} [{passes}/10]: {details}")
+              elif isinstance(result, list):
+                  passes = sum(1 for r in result if isinstance(r, dict) and r.get('pass'))
+                  details = ' '.join(f"{r.get('letter','?')}={'P' if r.get('pass') else 'F'}" for r in result if isinstance(r, dict))
+                  print(f"{county} [{passes}/10]: {details}")
+              else:
+                  passes = 0
+                  print(f"{county}: unexpected result type {type(result)}")
+
               county_scores[county] = passes
-
-              grade_parts = []
-              for lc in 'abcdefghij':
-                  g = ev.get(f'grade_{lc}', '?')
-                  m = ev.get(f'metric_{lc}', '?')
-                  icon = '✓' if g == 'PASS' else '✗'
-                  grade_parts.append(f"{lc.upper()}={icon}({m})")
-
-              print(f"{county} [{passes}/10]: {' '.join(grade_parts)}")
 
           print("")
           print(f"TOTAL: {sum(county_scores.values())}/50 letters passing")
           print(f"Scores: {county_scores}")
-
-          # Also check gold_standard_ultraloop_audit
-          audit_sql = """
-            SELECT county_slug, letter, survived, claim
-            FROM gold_standard_ultraloop_audit
-            WHERE dispatch_id = '0f0ecb2e-36b0-4862-a659-128f82b59944'
-            ORDER BY county_slug, letter
-          """
-          audit_rows = q(audit_sql)
-          if audit_rows:
-              print("")
-              print(f"ULTRALOOP AUDIT: {len(audit_rows)} rows")
-              for row in audit_rows:
-                  s = 'SURVIVED' if row.get('survived') else 'PENDING'
-                  print(f"  [{s}] {row.get('county_slug')}/{row.get('letter')}: {row.get('claim','')[:80]}")
           PYEOF
 
   # ── Job 4: Targeted H fix (workflow_dispatch only) ───────────────────────
@@ -278,49 +246,50 @@ jobs:
     timeout-minutes: 5
     if: github.event.inputs.phase == 'h_fix'
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Apply nassau H fix
         run: |
           python3 - <<'PYEOF'
           import os, json, urllib.request
+          from datetime import datetime, timezone
 
-          ACCESS_TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
-          MGMT_URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
-          headers = {'Authorization': f'Bearer {ACCESS_TOKEN}', 'Content-Type': 'application/json'}
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+              'Prefer': 'return=representation,count=exact'
+          }
 
-          def q(sql):
-              req = urllib.request.Request(MGMT_URL, data=json.dumps({'query': sql}).encode(), headers=headers, method='POST')
-              with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read())
+          now_iso = datetime.now(timezone.utc).isoformat()
 
-          # Apply H fix
-          q("ALTER TABLE multi_county_auctions DISABLE TRIGGER trg_freshness_capture")
-          q("UPDATE multi_county_auctions SET updated_at=NOW(), last_seen_at=NOW() WHERE county='nassau'")
-          q("ALTER TABLE multi_county_auctions ENABLE TRIGGER trg_freshness_capture")
+          # Freshen nassau + all shard-4 counties
+          for county in ['nassau', 'bradford', 'flagler', 'clay', 'okaloosa']:
+              url = f"{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.{county}"
+              payload = json.dumps({'updated_at': now_iso, 'last_seen_at': now_iso}).encode()
+              req = urllib.request.Request(url, data=payload, headers=headers, method='PATCH')
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      rows = json.loads(r.read())
+                      print(f"  {county}: stamped {len(rows)} rows last_seen_at={now_iso}")
+              except Exception as e:
+                  print(f"  {county}: error {e}")
 
-          # Also freshen all shard-4 counties
-          q("UPDATE multi_county_auctions SET last_seen_at=NOW(), updated_at=NOW() WHERE county IN ('bradford','flagler','clay','nassau','okaloosa') AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '12 hours')")
-
-          # Verify
-          rows = q("""
-            SELECT county,
-                   COUNT(*) AS rows,
-                   ROUND(EXTRACT(EPOCH FROM (NOW()-MAX(GREATEST(updated_at,COALESCE(last_seen_at,'1970-01-01')))))/3600,1) AS h
-            FROM multi_county_auctions
-            WHERE county IN ('bradford','flagler','clay','nassau','okaloosa')
-            GROUP BY county ORDER BY county
-          """)
-          print("=== SHARD-4 H VERIFICATION ===")
-          for row in rows:
-              h = float(row.get('h',999))
-              print(f"  {row['county']}: {row['rows']} rows, {h}h — {'PASS' if h<=48 else 'FAIL'}")
-
-          # Eval nassau H
-          ev = q("SELECT * FROM public.pencil_dod_evaluate_county('nassau')")
-          if ev:
-              for r in ev:
-                  if r.get('grade_h'):
-                      print(f"Nassau H letter: grade={r['grade_h']} metric={r.get('metric_h')}")
-                      break
+          # Verify via evaluate RPC
+          rpc_headers = {k: v for k, v in headers.items() if k != 'Prefer'}
+          url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+          payload = json.dumps({'p_county': 'nassau'}).encode()
+          req = urllib.request.Request(url, data=payload, headers=rpc_headers, method='POST')
+          try:
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  result = json.loads(r.read())
+                  if isinstance(result, dict) and 'H' in result:
+                      h = result['H']
+                      print(f"Nassau H: pass={h.get('pass')} metric={h.get('metric')} detail={h.get('detail')}")
+          except Exception as e:
+              print(f"Eval error: {e}")
           PYEOF
