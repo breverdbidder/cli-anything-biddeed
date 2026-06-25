@@ -64,13 +64,11 @@ OKALOOSA_SYNTHETIC_SEEDS = [
         "case_number": "2024-CA-000470",
         "sale_type": "foreclosure",
         "source_platform": "realforeclose",
-        "notes": "historical_seed — run472_shard4 bootstrap pending live scraper",
     },
     {
         "case_number": "2024-TDD-000089",
         "sale_type": "tax_deed",
         "source_platform": "realtaxdeed",
-        "notes": "historical_seed — run472_shard4 bootstrap pending live scraper",
     },
 ]
 
@@ -228,7 +226,7 @@ def scrape_realauction(county: str, subdomain: str, sale_type: str) -> int:
             "source_platform": platform_short,
             "auction_date": sale_date,
             "last_seen_at": now_utc,
-            "raw_source_url": preview_url,
+            "source_url": preview_url,
         })
 
     if not rows_to_upsert:
@@ -263,7 +261,7 @@ def seed_okaloosa_synthetic() -> int:
             "source_platform": seed["source_platform"],
             "auction_date": future_date,
             "last_seen_at": now_utc,
-            "raw_source_url": "https://okaloosa.realforeclose.com",
+            "source_url": "https://okaloosa.realforeclose.com",
             # notes column does not exist in MCA schema
         })
 

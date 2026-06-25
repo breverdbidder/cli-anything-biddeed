@@ -77,15 +77,19 @@ def rest_get(path: str, params: dict = None) -> list:
         return []
 
 
-def rest_upsert(path: str, rows: list, on_conflict: str = "case_number") -> int:
+def rest_insert(path: str, rows: list) -> int:
+    """Plain INSERT — no on_conflict (bid_decisions has no UNIQUE on case_number in live schema).
+    Pre-deduplicate by fetching existing case_numbers before calling.
+    """
     if DRY_RUN:
-        log(f"DRY-RUN: would upsert {len(rows)} rows to {path}", "INFO", "UNTESTED")
+        log(f"DRY-RUN: would insert {len(rows)} rows to {path}", "INFO", "UNTESTED")
         return len(rows)
-    url = f"{SB_URL}/rest/v1/{path}?on_conflict={on_conflict}"
+    if not rows:
+        return 0
     req = urllib.request.Request(
-        url,
+        f"{SB_URL}/rest/v1/{path}",
         data=json.dumps(rows).encode(),
-        headers=sb_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+        headers=sb_headers({"Prefer": "return=minimal"}),
         method="POST",
     )
     try:
@@ -94,10 +98,10 @@ def rest_upsert(path: str, rows: list, on_conflict: str = "case_number") -> int:
         return len(rows)
     except urllib.error.HTTPError as e:
         body = e.read()
-        log(f"rest_upsert {path} HTTP {e.code}: {body[:300]}", "ERROR", "VERIFIED")
+        log(f"rest_insert {path} HTTP {e.code}: {body[:300]}", "ERROR", "VERIFIED")
         return 0
     except Exception as e:
-        log(f"rest_upsert {path} failed: {e}", "ERROR", "VERIFIED")
+        log(f"rest_insert {path} failed: {e}", "ERROR", "VERIFIED")
         return 0
 
 
@@ -180,23 +184,37 @@ def process_county(county: str) -> dict:
     existing_cases = get_existing_bd_cases(county)
     log(f"{county}: {len(existing_cases)} existing bid_decisions [VERIFIED]", "INFO", "VERIFIED")
 
+    # Only insert cases not already in bid_decisions (no UNIQUE constraint, avoid duplicates)
     bid_rows = []
     for mca in mca_rows:
+        case = mca.get("case_number")
+        if case and case in existing_cases:
+            continue  # already has bid_decision
         bd = build_bid_row(mca)
         bid_rows.append(bd)
 
-    log(f"{county}: built {len(bid_rows)} bid_decision rows [VERIFIED]", "INFO", "VERIFIED")
+    log(f"{county}: built {len(bid_rows)} NEW bid_decision rows ({len(mca_rows)-len(bid_rows)} already existed) [VERIFIED]", "INFO", "VERIFIED")
 
-    # Upsert in batches of 200
+    if not bid_rows:
+        log(f"{county}: all {len(mca_rows)} cases already have bid_decisions — nothing to insert [VERIFIED]", "INFO", "VERIFIED")
+        return {
+            "county": county,
+            "inserted": 0,
+            "mca_total": len(mca_rows),
+            "built": 0,
+            "skipped_existing": len(existing_cases),
+        }
+
+    # Plain INSERT in batches of 200 (no on_conflict — bid_decisions.case_number has no UNIQUE constraint)
     total_inserted = 0
     for i in range(0, len(bid_rows), 200):
         batch = bid_rows[i:i + 200]
-        n = rest_upsert("bid_decisions", batch)
+        n = rest_insert("bid_decisions", batch)
         total_inserted += n
         if not DRY_RUN:
             time.sleep(0.3)
 
-    log(f"{county}: upserted {total_inserted} bid_decisions [VERIFIED]", "INFO", "VERIFIED")
+    log(f"{county}: inserted {total_inserted} bid_decisions [VERIFIED]", "INFO", "VERIFIED")
 
     if bid_rows and total_inserted == 0:
         raise RuntimeError(
@@ -208,6 +226,7 @@ def process_county(county: str) -> dict:
         "inserted": total_inserted,
         "mca_total": len(mca_rows),
         "built": len(bid_rows),
+        "skipped_existing": len(existing_cases),
     }
 
 
@@ -236,11 +255,13 @@ def main():
         if "error" in r:
             print(f"  {county}: ERROR — {r['error']}", flush=True)
         else:
-            pct = round(100 * r.get("inserted", 0) / max(1, r.get("mca_total", 1)), 1)
+            total_bd = r.get("skipped_existing", 0) + r.get("inserted", 0)
+            pct = round(100 * total_bd / max(1, r.get("mca_total", 1)), 1)
             print(
                 f"  {county}: mca={r.get('mca_total', 0)} "
-                f"built={r.get('built', 0)} "
-                f"inserted={r.get('inserted', 0)} "
+                f"new={r.get('inserted', 0)} "
+                f"existing={r.get('skipped_existing', 0)} "
+                f"total_bd={total_bd} "
                 f"coverage={pct}%",
                 flush=True,
             )
