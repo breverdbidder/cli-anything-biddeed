@@ -139,7 +139,7 @@ log("=== PHASE 2: CLEAN parcel_id='Property Appraiser' ===")
 # Rows with parcel_id='Property Appraiser' can't get zone_code — normalize to placeholder
 s3, _ = sb_patch(
     "multi_county_auctions",
-    f"county=eq.{COUNTY}&parcel_id=eq.Property Appraiser",
+    f"county=eq.{COUNTY}&parcel_id=eq.Property%20Appraiser",
     {"parcel_id": "00000000"},
 )
 log(f"  UPDATE parcel_id placeholder: HTTP {s3}")
