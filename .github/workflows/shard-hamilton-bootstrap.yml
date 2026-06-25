@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'bootstrap (full seed) | freshness (H-only touch)'
+        description: 'bootstrap (full seed) | freshness (H-only touch) | g_fix (G zoning fix only)'
         required: false
         default: 'bootstrap'
       dry_run:
@@ -101,6 +101,26 @@ jobs:
           print(f'pencil_dod_evaluate_county: score={len(passing)}/10 passing={passing}')
           print(json.dumps(eval_result, indent=2))
           "
+
+  # ── G FIX (manual dispatch, mode=g_fix) ─────────────────────────────────
+  g-fix:
+    name: "Hamilton G Fix — zoning density coverage"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'g_fix'
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: "Run Hamilton G fix"
+        run: |
+          set -euo pipefail
+          python3 scripts/shard_hamilton_g_fix.py
 
   # ── DAILY H-FRESHNESS (scheduled) ────────────────────────────────────────
   h-freshness:
