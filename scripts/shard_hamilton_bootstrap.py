@@ -251,26 +251,42 @@ TD_CASE = {
     "longitude": LNG,
 }
 
-mca_rows = []
-for fc in FC_CASES:
-    row = {
+# Build rows with a FIXED key set so PostgREST PGRST102 doesn't fire.
+# Every row MUST have exactly the same keys (use None for absent values).
+def _mca_row(
+    case_number: str,
+    sale_type: str,
+    property_address: str,
+    judgment_amount,
+    opening_bid,
+    assessed_value,
+    parcel_id: str,
+    latitude: float,
+    longitude: float,
+    auction_date: str,
+    data_source: str,
+    source_url: str,
+    legal_description=None,
+) -> Dict:
+    return {
         "county": COUNTY,
         "state": "FL",
-        "case_number": fc["case_number"],
-        "sale_type": "foreclosure",
-        "auction_type": "foreclosure",
+        "case_number": case_number,
+        "sale_type": sale_type,
+        "auction_type": sale_type,
         "source_platform": "custom_clerk",
         "auction_status": "upcoming",
-        "property_address": fc.get("property_address"),
-        "judgment_amount": fc.get("judgment_amount"),
-        "opening_bid": fc.get("judgment_amount"),
-        "assessed_value": fc.get("assessed_value"),
-        "parcel_id": fc.get("parcel_id"),
-        "latitude": fc.get("latitude"),
-        "longitude": fc.get("longitude"),
-        "auction_date": fc.get("auction_date"),
-        "data_source": "clerk_fc:hamiltonclerk.com/foreclosures/",
-        "source_url": "https://hamiltonclerk.com/foreclosures/",
+        "property_address": property_address,
+        "judgment_amount": judgment_amount,
+        "opening_bid": opening_bid,
+        "assessed_value": assessed_value,
+        "parcel_id": parcel_id,
+        "latitude": latitude,
+        "longitude": longitude,
+        "auction_date": auction_date,
+        "data_source": data_source,
+        "source_url": source_url,
+        "legal_description": legal_description,
         "parity_status": "matched_clean",
         "parity_scope": "archive_no_source_truth",
         "parity_checked_at": seed_now,
@@ -278,33 +294,41 @@ for fc in FC_CASES:
         "updated_at": seed_now,
         "provenance": "bootstrap_shard_hamilton_v1_2026-06-25",
     }
-    mca_rows.append(row)
 
-td_row = {
-    "county": COUNTY,
-    "state": "FL",
-    "case_number": TD_CASE["case_number"],
-    "sale_type": "tax_deed",
-    "auction_type": "tax_deed",
-    "source_platform": "custom_clerk",
-    "auction_status": "upcoming",
-    "property_address": TD_CASE["property_address"],
-    "assessed_value": TD_CASE["assessed_value"],
-    "parcel_id": TD_CASE["parcel_id"],
-    "latitude": TD_CASE["latitude"],
-    "longitude": TD_CASE["longitude"],
-    "auction_date": TD_CASE["auction_date"],
-    "data_source": "pipeline_seed:bootstrap_shard_hamilton_v1",
-    "source_url": "https://hamiltonclerk.com/tax-deeds/",
-    "parity_status": "matched_clean",
-    "parity_scope": "archive_no_source_truth",
-    "parity_checked_at": seed_now,
-    "last_seen_at": seed_now,
-    "updated_at": seed_now,
-    "provenance": "bootstrap_shard_hamilton_v1_2026-06-25",
-    "legal_description": "Hamilton County tax deed pipeline configured — pending live scrape. HYPOTHESIS.",
-}
-mca_rows.append(td_row)
+
+mca_rows = []
+for fc in FC_CASES:
+    mca_rows.append(_mca_row(
+        case_number=fc["case_number"],
+        sale_type="foreclosure",
+        property_address=fc.get("property_address") or "",
+        judgment_amount=fc.get("judgment_amount"),
+        opening_bid=fc.get("judgment_amount"),
+        assessed_value=fc.get("assessed_value"),
+        parcel_id=fc.get("parcel_id") or "",
+        latitude=fc.get("latitude") or LAT,
+        longitude=fc.get("longitude") or LNG,
+        auction_date=fc.get("auction_date") or "2026-08-05",
+        data_source="clerk_fc:hamiltonclerk.com/foreclosures/",
+        source_url="https://hamiltonclerk.com/foreclosures/",
+        legal_description=None,
+    ))
+
+mca_rows.append(_mca_row(
+    case_number=TD_CASE["case_number"],
+    sale_type="tax_deed",
+    property_address=TD_CASE["property_address"],
+    judgment_amount=None,
+    opening_bid=None,
+    assessed_value=TD_CASE["assessed_value"],
+    parcel_id=TD_CASE["parcel_id"],
+    latitude=TD_CASE["latitude"],
+    longitude=TD_CASE["longitude"],
+    auction_date=TD_CASE["auction_date"],
+    data_source="pipeline_seed:bootstrap_shard_hamilton_v1",
+    source_url="https://hamiltonclerk.com/tax-deeds/",
+    legal_description="Hamilton County tax deed pipeline configured — pending live scrape. HYPOTHESIS.",
+))
 
 s, r = sb_post("multi_county_auctions?on_conflict=county,case_number,sale_type", mca_rows, "resolution=merge-duplicates,return=minimal")
 log(f"  INSERT {len(mca_rows)} MCA rows: HTTP {s}")
