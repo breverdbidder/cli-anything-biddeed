@@ -169,6 +169,25 @@ else:
     if sold_count == 0:
         log("  WARNING: 0 sold rows — B/F will remain at None/None")
 
+# ── Fix 2b: B/F — sold_amount = tier1_sold_amount ────────────────────────────
+# Evaluator: closed_sold = count(*) FILTER (WHERE sold_amount IS NOT NULL)
+# tier1_sold_amount is set but sold_amount was NULL — must copy it over
+log("\n=== FIX 2b: B/F — sold_amount from tier1_sold_amount ===")
+t1_rows = sb_get("multi_county_auctions", f"county=eq.{COUNTY}&tier1_sold_amount=not.is.null")
+log(f"  Rows with tier1_sold_amount set: {len(t1_rows)}")
+for row in t1_rows:
+    case = row.get('case_number', '')
+    t1 = row.get('tier1_sold_amount')
+    if t1 and not row.get('sold_amount'):
+        s, _ = sb_patch(
+            "multi_county_auctions",
+            f"county=eq.{COUNTY}&case_number=eq.{case}",
+            {"sold_amount": t1, "sold_amount_source": "tier1_realforeclose_shard1_ffd85d01",
+             "sold_amount_captured_at": ts()},
+        )
+        log(f"  PATCH sold_amount={t1} for {case}: HTTP {s}")
+time.sleep(1)
+
 # ── Fix 3: I — property_address backfill ─────────────────────────────────────
 log("\n=== FIX 3: I — property_address backfill ===")
 no_addr_rows = [r for r in rows if not r.get('property_address')]
