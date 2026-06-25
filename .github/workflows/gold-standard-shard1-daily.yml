@@ -88,6 +88,14 @@ jobs:
           python3 scripts/shard1_st_lucie_all_fixes.py
           echo "st_lucie DONE"
 
+      - name: Fix st_lucie v2 (C/D NULL parity + B/F auction_status sold + I address)
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'st_lucie' }}
+        run: |
+          set -euo pipefail
+          echo "=== ST_LUCIE V2 FIX ==="
+          python3 scripts/shard1_st_lucie_v2_fix.py || true
+          echo "st_lucie v2 DONE"
+
       - name: Fix washington (B,C,D,F,G,I,J)
         if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'washington' }}
         run: |
