@@ -157,18 +157,15 @@ def build_bid_row(mca: dict) -> dict:
     min_profit = min(25000.0, arv * 0.15)
     max_bid = max(0.0, arv * 0.70 - repairs - 10000.0 - min_profit)
 
+    # Use only CONFIRMED-live columns (ml_model_version/profit_potential not in live schema)
     return {
         "case_number": case,
         "county_slug": county,
         "parcel_id": pid or None,
         "arv": round(arv, 2),
-        "repair_estimate": round(repairs, 2),
         "max_bid": round(max_bid, 2),
         "ml_score": 0.74,
-        "ml_model_version": "shapira-v14",
         "factors": FACTORS,
-        "profit_potential": round(max_bid - repairs - 10000.0, 2),
-        "notes": f"run472_shard4 arv_source={arv_source}",
     }
 
 

@@ -264,7 +264,7 @@ def seed_okaloosa_synthetic() -> int:
             "auction_date": future_date,
             "last_seen_at": now_utc,
             "raw_source_url": "https://okaloosa.realforeclose.com",
-            "notes": seed["notes"],
+            # notes column does not exist in MCA schema
         })
 
     n = rest_upsert("multi_county_auctions", rows)
