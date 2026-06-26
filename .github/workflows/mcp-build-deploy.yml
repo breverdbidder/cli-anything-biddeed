@@ -81,12 +81,44 @@ jobs:
           cat /tmp/watches_resp.json 2>/dev/null | head -3 || true
           [[ "$HTTP_CODE" =~ ^2 ]] && echo "✅ auction_watches migration applied" || echo "⚠️  auction_watches: ${HTTP_CODE} (table may already exist — verify step will confirm)"
 
+      - name: Apply stripe_products migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          PROJECT_REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260623_stripe_products.sql)
+          HTTP_CODE=$(curl -s -o /tmp/stripe_prod_resp.json -w "%{http_code}" -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+            2>&1) || HTTP_CODE="curl_error"
+          echo "stripe_products migration HTTP: ${HTTP_CODE}"
+          cat /tmp/stripe_prod_resp.json 2>/dev/null | head -3 || true
+          [[ "$HTTP_CODE" =~ ^2 ]] && echo "✅ stripe_products migration applied" || echo "⚠️  stripe_products: ${HTTP_CODE} (table may already exist)"
+
+      - name: Apply S6/S7 streams migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          PROJECT_REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260626_mcp_streams_s6_s7.sql)
+          HTTP_CODE=$(curl -s -o /tmp/s6s7_resp.json -w "%{http_code}" -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+            2>&1) || HTTP_CODE="curl_error"
+          echo "S6/S7 streams migration HTTP: ${HTTP_CODE}"
+          cat /tmp/s6s7_resp.json 2>/dev/null | head -3 || true
+          [[ "$HTTP_CODE" =~ ^2 ]] && echo "✅ S6/S7 streams added" || echo "⚠️  S6/S7 migration: ${HTTP_CODE}"
+
       - name: Verify tables accessible
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          for TABLE in mcp_api_keys billing_events beta_invites taxi_meter_streams taxi_meter_tools; do
+          for TABLE in mcp_api_keys billing_events beta_invites taxi_meter_streams taxi_meter_tools stripe_products; do
             RESP=$(curl -s -o /tmp/resp.json -w "%{http_code}" "${SUPABASE_URL}/rest/v1/${TABLE}?limit=1" \
               -H "apikey: ${SUPABASE_KEY}" \
               -H "Authorization: Bearer ${SUPABASE_KEY}")
@@ -299,12 +331,12 @@ jobs:
           print(int(cr.split('/')[-1]))
           " 2>/dev/null || echo "0")
 
-          if [ "$STREAM_COUNT" -lt 6 ]; then
-            echo "::error::SHIP GATE FAIL: Expected 6+ taxi_meter_streams, found $STREAM_COUNT"
+          if [ "$STREAM_COUNT" -lt 8 ]; then
+            echo "::error::SHIP GATE FAIL: Expected 8 taxi_meter_streams (S1-S5+fee+S6+S7), found $STREAM_COUNT"
             exit 1
           fi
 
-          echo "✅ SHIP GATE PASS: All MCP tables present, $STREAM_COUNT revenue streams seeded"
+          echo "✅ SHIP GATE PASS: All MCP tables present, $STREAM_COUNT revenue streams seeded (S1-S7 + fee)"
           echo ""
           echo "=== npx install instructions ==="
           echo ""

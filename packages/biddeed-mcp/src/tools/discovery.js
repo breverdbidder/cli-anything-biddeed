@@ -2,6 +2,34 @@
 import { get } from '../supabase.js';
 import { getClerkLink } from '../constants.js';
 
+// Certified county cache — 1hr TTL to avoid per-call DB round-trips
+const certCache = { counties: null, expiresAt: 0 };
+
+async function getCertifiedCounties() {
+  if (certCache.counties && certCache.expiresAt > Date.now()) return certCache.counties;
+  try {
+    // Gold Standard = county has ≥8 PASS letters in its most recent evaluation run
+    const rows = await get(
+      'gold_standard_county_status?status=eq.PASS&select=county_slug,loop_run_id&order=evaluated_at.desc&limit=2000'
+    ).catch(() => []);
+    const latestRun = {};
+    const passCounts = {};
+    for (const r of rows) {
+      if (!latestRun[r.county_slug]) { latestRun[r.county_slug] = r.loop_run_id; passCounts[r.county_slug] = 0; }
+      if (r.loop_run_id === latestRun[r.county_slug]) passCounts[r.county_slug]++;
+    }
+    certCache.counties = Object.entries(passCounts).filter(([, n]) => n >= 8).map(([s]) => s);
+    certCache.expiresAt = Date.now() + 60 * 60 * 1000;
+  } catch {
+    certCache.counties = certCache.counties || [];
+  }
+  return certCache.counties;
+}
+
+function countySlug(name) {
+  return (name || '').toLowerCase().replace(/\s+/g, '_');
+}
+
 export const schemas = [
   {
     name: 'search_auctions',
@@ -88,9 +116,10 @@ export async function search_auctions({ county, date_from, date_to, min_bid, max
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
   const cap = Math.min(limit, 100);
-  const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,plaintiff,sale_type,judgment_amount`
-  );
+  const [rows, certCounties] = await Promise.all([
+    get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,plaintiff,sale_type,judgment_amount`),
+    getCertifiedCounties(),
+  ]);
 
   return {
     count: rows.length,
@@ -100,7 +129,7 @@ export async function search_auctions({ county, date_from, date_to, min_bid, max
       ...r,
       deposit_required: Math.max(200, (r.opening_bid || 0) * 0.05),
       clerk_link: getClerkLink(r.county),
-      cert_badge: false,
+      cert_badge: certCounties.includes(countySlug(r.county)),
     })),
   };
 }
@@ -114,6 +143,7 @@ export async function get_auction_detail({ case_number, county }) {
 
   const r = rows[0];
   const deposit = Math.max(200, (r.opening_bid || 0) * 0.05);
+  const certCounties = await getCertifiedCounties();
 
   return {
     found: true,
@@ -124,7 +154,7 @@ export async function get_auction_detail({ case_number, county }) {
     clerk_link: getClerkLink(r.county),
     realforeclose_search: `https://www.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=${r.auction_date}&county=${r.county}`,
     realauction_search: `https://www.realauction.com/`,
-    cert_badge: false,
+    cert_badge: certCounties.includes(countySlug(r.county)),
   };
 }
 
@@ -141,25 +171,28 @@ export async function browse_deals({ county, max_bid, cert_only = false, sale_ty
   if (max_bid) filters.push(`opening_bid=lte.${max_bid}`);
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
-  const rows = await get(
-    `multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${Math.min(limit * 2, 200)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`
-  );
+  const [rows, certCounties] = await Promise.all([
+    get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${Math.min(limit * 2, 200)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`),
+    getCertifiedCounties(),
+  ]);
 
-  // Quick Shapira score: judgment_discount = (judgment_amount - opening_bid) / judgment_amount
   const scored = rows
     .map(r => {
       const fj = r.judgment_amount || 0;
       const bid = r.opening_bid || 0;
       const discount = fj > 0 ? (fj - bid) / fj : 0;
-      return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05) };
+      const cert_badge = certCounties.includes(countySlug(r.county));
+      return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05), cert_badge };
     })
-    .filter(r => !cert_only || r.gold_standard_certified)
+    .filter(r => !cert_only || r.cert_badge)
     .sort((a, b) => b.shapira_discount - a.shapira_discount)
     .slice(0, limit);
 
   return {
     count: scored.length,
     days_ahead,
+    cert_only,
+    certified_counties: cert_only ? certCounties : undefined,
     note: 'shapira_discount = (final_judgment - opening_bid) / final_judgment × 100. Higher = better deal. Run predict_auction_outcome (S5) for certified prediction.',
     deals: scored,
   };
