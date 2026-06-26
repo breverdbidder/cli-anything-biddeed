@@ -38,11 +38,15 @@ HEADERS = {
 
 # County-level ARV estimates (FL property appraiser medians)
 COUNTY_CONFIG = {
-    'lee':     {'arv': 310000, 'repair_factor': 0.09, 'location_score': 7.5},  # Fort Myers area
-    'bay':     {'arv': 285000, 'repair_factor': 0.10, 'location_score': 7.0},  # Panama City area
-    'volusia': {'arv': 280000, 'repair_factor': 0.10, 'location_score': 7.0},  # Daytona Beach area
-    'calhoun': {'arv': 145000, 'repair_factor': 0.15, 'location_score': 5.5},  # Rural panhandle
-    'taylor':  {'arv': 155000, 'repair_factor': 0.15, 'location_score': 5.5},  # Rural Big Bend
+    'lee':          {'arv': 310000, 'repair_factor': 0.09, 'location_score': 7.5},  # Fort Myers area
+    'bay':          {'arv': 285000, 'repair_factor': 0.10, 'location_score': 7.0},  # Panama City area
+    'volusia':      {'arv': 280000, 'repair_factor': 0.10, 'location_score': 7.0},  # Daytona Beach area
+    'calhoun':      {'arv': 145000, 'repair_factor': 0.15, 'location_score': 5.5},  # Rural panhandle
+    'taylor':       {'arv': 155000, 'repair_factor': 0.15, 'location_score': 5.5},  # Rural Big Bend
+    # run651 additions
+    'manatee':      {'arv': 345000, 'repair_factor': 0.09, 'location_score': 7.5},  # Bradenton area
+    'indian_river': {'arv': 290000, 'repair_factor': 0.10, 'location_score': 7.0},  # Vero Beach area
+    'pasco':        {'arv': 310000, 'repair_factor': 0.10, 'location_score': 6.5},  # New Port Richey area
 }
 
 SHARD9_COUNTIES = list(COUNTY_CONFIG.keys())
