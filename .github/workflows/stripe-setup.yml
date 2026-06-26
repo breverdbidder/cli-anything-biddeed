@@ -82,8 +82,8 @@ jobs:
         run: |
           ROWS=$(curl -sf \
             "${{ secrets.SUPABASE_URL }}/rest/v1/stripe_products?select=tier_id,product_id,stripe_price_id_monthly,stripe_price_id_annual,stripe_s5_price_id,live_mode&order=tier_id" \
-            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}")
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}")
           echo "### SQL VERIFICATION"
           echo '```'
           echo "SELECT tier_id, product_id, stripe_price_id_monthly, stripe_s5_price_id FROM stripe_products ORDER BY tier_id;"

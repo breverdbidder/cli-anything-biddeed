@@ -15,7 +15,7 @@ const PROJECT_REF = 'mocerqjnksmhcjzxrewo';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) { console.error('FATAL: SUPABASE_URL or SUPABASE_KEY not set'); process.exit(1); }
 
-const stripe = Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' });
+const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' });
 const LIVE = !STRIPE_KEY.startsWith('sk_test_');
 
 const PRODUCTS = [
