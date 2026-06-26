@@ -32,9 +32,13 @@ export async function recordBilling({
   );
 
   let stripeUsageRecordId = null;
-  if (streamId === 's5' && customerRecord.stripe_customer_id) {
+  const needsStripeMetering = streamId === 's5' && !!customerRecord.stripe_customer_id;
+  if (needsStripeMetering) {
     stripeUsageRecordId = await fileStripeS5Usage(customerRecord).catch(() => null);
   }
+
+  // Settle immediately for non-metered streams; for S5+Stripe, settled only when usage record filed
+  const settled = !needsStripeMetering || stripeUsageRecordId !== null;
 
   const event = {
     tool_name: toolName,
@@ -43,12 +47,14 @@ export async function recordBilling({
     key_prefix: customerRecord.key_prefix,
     unit_price_usd: unitPrice,
     billed_amount: unitPrice,
-    settled: false,
+    settled,
+    settled_at: settled ? new Date().toISOString() : null,
     cert_status: certStatus,
     county: county || params.county || null,
     params: safeParams,
     result_summary: String(resultSummary || '').slice(0, 500),
     stripe_usage_record_id: stripeUsageRecordId,
+    stripe_meter_id: stripeUsageRecordId,
   };
 
   // Non-blocking — billing failure must never block tool response
