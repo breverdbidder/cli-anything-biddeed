@@ -2,8 +2,8 @@
 // stripe-setup.js — Create BidDeed Stripe products, prices, webhook; update Supabase
 // Zero-HITL: reads all config from env. Run via stripe-setup.yml GHA workflow.
 
-const Stripe = require('stripe');
-const fs = require('fs');
+import Stripe from 'stripe';
+import fs from 'fs';
 
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
 if (!STRIPE_KEY) { console.error('FATAL: STRIPE_SECRET_KEY not set'); process.exit(1); }
