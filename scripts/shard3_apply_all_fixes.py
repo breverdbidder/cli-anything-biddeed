@@ -84,26 +84,35 @@ def apply_migration(path: Path) -> bool:
 
 
 def evaluate_county(county: str) -> dict:
-    """Run pencil_dod_evaluate_county for a county."""
-    sql = f"SET statement_timeout = 0; SELECT * FROM public.pencil_dod_evaluate_county('{county}');"
+    """Run pencil_dod_evaluate_county for a county.
+    Returns the inner evaluation dict with uppercase A-J keys.
+    The management API wraps the result as: [{"pencil_dod_evaluate_county": {...}}]
+    """
+    sql = f"SELECT * FROM public.pencil_dod_evaluate_county('{county}');"
     result = run_sql(sql, label=f"eval_{county}")
-    return result[0] if result else {}
+    if not result:
+        return {}
+    row = result[0]
+    # Unwrap nested result: {"pencil_dod_evaluate_county": {"A": {...}, ...}}
+    if "pencil_dod_evaluate_county" in row:
+        return row["pencil_dod_evaluate_county"]
+    return row
 
 
 def count_letters_passing(eval_result: dict) -> int:
-    """Count passing letters from pencil_dod evaluation."""
+    """Count passing letters from pencil_dod evaluation.
+    Evaluator returns uppercase keys A through J.
+    """
     if not eval_result:
         return 0
     passing = 0
-    for letter in "abcdefghij":
-        key = f"letter_{letter}"
-        if key in eval_result:
-            val = eval_result[key]
-            if isinstance(val, dict):
-                if val.get("pass"):
-                    passing += 1
-            elif val is True:
+    for letter in "ABCDEFGHIJ":
+        val = eval_result.get(letter)
+        if isinstance(val, dict):
+            if val.get("pass") is True:
                 passing += 1
+        elif val is True:
+            passing += 1
     return passing
 
 
@@ -117,13 +126,18 @@ def main() -> None:
         log("SUPABASE_ACCESS_TOKEN required for management API — aborting", "ERROR")
         sys.exit(1)
 
-    # Migration files for this shard
+    # Migration files for this shard — wave 1 + wave 2
     migration_dir = Path("supabase/migrations")
     migrations = [
+        # Wave 1 (already applied in first GHA run 28208565949)
         migration_dir / "20260626_shard3_broward_a_fix.sql",
         migration_dir / "20260626_shard3_columbia_bcd_fix.sql",
         migration_dir / "20260626_shard3_bay_bcdfgi_fix.sql",
         migration_dir / "20260626_shard3_miami_dade_fix.sql",
+        migration_dir / "20260626_shard3_miami_dade_j_generator.sql",
+        # Wave 2 (targeted fixes based on VERIFIED live state)
+        migration_dir / "20260626_shard3_wave2_cd_columbia_bay.sql",
+        migration_dir / "20260626_shard3_wave2_broward_verify_certify.sql",
     ]
 
     # ── Pre-run evaluation ────────────────────────────────────────────────────

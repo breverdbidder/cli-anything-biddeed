@@ -98,23 +98,23 @@ jobs:
           client = httpx.Client(timeout=60)
 
           print('### SQL VERIFICATION - SHARD-3 RUN-651')
-          print(f'Timestamp: UTC')
           all_ok = True
           scores = {}
 
           for county in ('broward', 'columbia', 'bay', 'miami_dade'):
               r = client.post(URL, headers=H,
-                              json={'query': f"SET statement_timeout=0; SELECT * FROM public.pencil_dod_evaluate_county('{county}');"})
+                              json={'query': f"SELECT * FROM public.pencil_dod_evaluate_county('{county}');"})
               data = r.json()
-              result = data[0] if data else {}
-              passes = sum(1 for letter in 'abcdefghij'
-                           if result.get(f'letter_{letter}', {}) and
-                           (result[f'letter_{letter}'].get('pass') if isinstance(result.get(f'letter_{letter}'),dict)
-                            else result.get(f'letter_{letter}')) is True)
-              fails = [letter.upper() for letter in 'abcdefghij'
-                       if result.get(f'letter_{letter}') and not
-                       (result[f'letter_{letter}'].get('pass') if isinstance(result.get(f'letter_{letter}'),dict)
-                        else result.get(f'letter_{letter}'))]
+              row = data[0] if data else {}
+              # Unwrap nested JSONB: {"pencil_dod_evaluate_county": {"A": {...}, ...}}
+              result = row.get('pencil_dod_evaluate_county', row)
+              # Count uppercase A-J keys
+              passes = sum(1 for letter in 'ABCDEFGHIJ'
+                           if isinstance(result.get(letter), dict)
+                           and result[letter].get('pass') is True)
+              fails = [letter for letter in 'ABCDEFGHIJ'
+                       if isinstance(result.get(letter), dict)
+                       and result[letter].get('pass') is not True]
               scores[county] = passes
               status = '✓ GOLD' if passes == 10 else f'FAIL={fails}'
               print(f'  {county}: {passes}/10 {status}')
