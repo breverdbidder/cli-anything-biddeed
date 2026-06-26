@@ -2,7 +2,7 @@
 """
 SHARD-9 J-Generator: Bid Decisions via Shapira Formula
 =======================================================
-Generates Letter J bid_decisions for counties: lee, bay, volusia, calhoun, taylor
+Generates Letter J bid_decisions for counties: lee, bay, volusia, calhoun, taylor, walton, santa_rosa
 Uses Shapira Formula: (ARV×70%)-Repairs-$10K-MIN($25K,15%×ARV)
 
 Factors contract per production pencil_dod_evaluate_county:
@@ -47,6 +47,9 @@ COUNTY_CONFIG = {
     'manatee':      {'arv': 345000, 'repair_factor': 0.09, 'location_score': 7.5},  # Bradenton area
     'indian_river': {'arv': 290000, 'repair_factor': 0.10, 'location_score': 7.0},  # Vero Beach area
     'pasco':        {'arv': 310000, 'repair_factor': 0.10, 'location_score': 6.5},  # New Port Richey area
+    # run757 additions (shard9 gold expansion)
+    'walton':       {'arv': 520000, 'repair_factor': 0.08, 'location_score': 8.0},  # 30A / DeFuniak Springs
+    'santa_rosa':   {'arv': 295000, 'repair_factor': 0.10, 'location_score': 7.0},  # Gulf Breeze / Milton
 }
 
 SHARD9_COUNTIES = list(COUNTY_CONFIG.keys())

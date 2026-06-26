@@ -40,7 +40,7 @@ jobs:
       - name: Generate bid_decisions for SHARD-9 counties
         run: |
           set -euo pipefail
-          for county in lee bay volusia; do
+          for county in lee bay volusia walton santa_rosa; do
             echo "=== Running J-generator for $county ==="
             python scripts/shard9_j_generator.py --county "$county" || echo "WARN: $county failed, continuing"
           done
@@ -69,12 +69,12 @@ jobs:
           SET session_replication_role = 'replica';
           UPDATE multi_county_auctions
           SET last_changed_at = NOW()
-          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor');
+          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor', 'walton', 'santa_rosa');
           SET session_replication_role = 'origin';
           SELECT county, COUNT(*) as total,
                  ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(last_changed_at)))/3600, 1) AS hours_since
           FROM multi_county_auctions
-          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor')
+          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor', 'walton', 'santa_rosa')
           GROUP BY county
           ORDER BY county;
           '''
@@ -138,7 +138,7 @@ jobs:
           supa_url = os.environ['SUPABASE_URL']
           supa_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
 
-          counties = ['lee', 'bay', 'volusia', 'calhoun', 'taylor']
+          counties = ['lee', 'bay', 'volusia', 'calhoun', 'taylor', 'walton', 'santa_rosa']
           for county in counties:
               payload = json.dumps({'p_county': county}).encode()
               url = f'{supa_url}/rest/v1/rpc/pencil_dod_evaluate_county'
