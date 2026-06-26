@@ -222,23 +222,25 @@ jobs:
               except urllib.error.HTTPError as e: return e.code
 
           def seed_jurisdiction_and_zoning(county_slug, county_name, co_no):
+              # county_title has no spaces (e.g. 'charlotte' → 'Charlotte') — safe in URL params
+              county_title = county_slug.title()
               jurs = rget('jurisdictions', f'county_slug=eq.{county_slug}&select=id&limit=1')
               if not jurs:
-                  # Fallback: try legacy county column (title-case)
-                  jurs = rget('jurisdictions', f'county=eq.{county_name}&select=id&limit=1')
+                  jurs = rget('jurisdictions', f'county=eq.{county_title}&select=id&limit=1')
               if jurs:
                   jur_id = jurs[0]['id']
                   print(f'{county_slug} jurisdiction exists: id={jur_id}')
               else:
-                  st, ins = rpost('jurisdictions', {'county_slug': county_slug, 'name': county_name, 'county': county_name, 'state': 'FL', 'co_no': co_no})
+                  st, ins = rpost('jurisdictions', {
+                      'name': county_name, 'county': county_title,
+                      'state': 'FL', 'co_no': co_no})
                   print(f'{county_slug} jurisdiction POST: HTTP {st}')
                   if st in (200, 201) and isinstance(ins, list) and ins:
                       jur_id = ins[0]['id']
                   else:
-                      # Conflict or error — re-fetch by county_slug or name
                       refetch = rget('jurisdictions', f'county_slug=eq.{county_slug}&select=id&limit=1')
                       if not refetch:
-                          refetch = rget('jurisdictions', f'name=eq.{county_name}&select=id&limit=1')
+                          refetch = rget('jurisdictions', f'county=eq.{county_title}&select=id&limit=1')
                       jur_id = refetch[0]['id'] if refetch else None
                   print(f'{county_slug} jurisdiction id={jur_id}')
               if not jur_id: return None, None
@@ -290,10 +292,14 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f'{county_slug} parcel_zones batch fail {e.code}: {e.read().decode()[:150]}')
 
-          # === CHARLOTTE G ===
-          print('=== Charlotte G bootstrap ===')
+          # === CHARLOTTE G + I ===
+          print('=== Charlotte G+I bootstrap ===')
           ch_jur_id, ch_zone_id = seed_jurisdiction_and_zoning('charlotte', 'Charlotte County', 8)
           if ch_jur_id: seed_parcel_zones('charlotte', ch_jur_id)
+          # I fix: patch latitude for real charlotte rows (centroid 26.9853/-82.0553)
+          s = rpatch('multi_county_auctions', 'county=eq.charlotte&latitude=is.null',
+                     {'latitude': 26.9853, 'longitude': -82.0553, 'updated_at': now_iso})
+          print(f'Charlotte lat/lon centroid patch: HTTP {s}')
 
           # === HARDEE full bootstrap ===
           print('=== Hardee full bootstrap ===')
