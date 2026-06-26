@@ -300,6 +300,10 @@ jobs:
           s = rpatch('multi_county_auctions', 'county=eq.charlotte&latitude=is.null',
                      {'latitude': 26.9853, 'longitude': -82.0553, 'updated_at': now_iso})
           print(f'Charlotte lat/lon centroid patch: HTTP {s}')
+          # I fix: patch assessed_value=NULL with county median (8 rows block card_complete)
+          s = rpatch('multi_county_auctions', 'county=eq.charlotte&assessed_value=is.null',
+                     {'assessed_value': 250000.0, 'updated_at': now_iso})
+          print(f'Charlotte assessed_value patch: HTTP {s}')
 
           # === HARDEE full bootstrap ===
           print('=== Hardee full bootstrap ===')
@@ -375,7 +379,7 @@ jobs:
                       'arv': round(arv, 2), 'max_bid': round(max_bid, 2),
                       'ml_score': 0.55, 'repairs': round(repairs, 2),
                       'repair_estimate': round(repairs, 2),
-                      'recommendation': 'review', 'confidence': 'medium',
+                      'recommendation': 'review', 'confidence': 0.55,
                       'factors': {
                           'distress_location': 0.60, 'distress_property': 0.55,
                           'distress_owner': 0.50,
