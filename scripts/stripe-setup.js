@@ -8,12 +8,15 @@ import fs from 'fs';
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
 if (!STRIPE_KEY) { console.error('FATAL: STRIPE_SECRET_KEY not set'); process.exit(1); }
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
+// SUPABASE_URL is not sensitive — hardcode as fallback so this runs even if secret isn't set
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 const SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const PROJECT_REF = 'mocerqjnksmhcjzxrewo';
 
-if (!SUPABASE_URL || !SUPABASE_KEY) { console.error('FATAL: SUPABASE_URL or SUPABASE_KEY not set'); process.exit(1); }
+if (!SUPABASE_KEY) { console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY not set'); process.exit(1); }
+console.log(`  Supabase: ${SUPABASE_URL} (key: ${SUPABASE_KEY.slice(0, 12)}...)`);
+console.log(`  Stripe key: ${STRIPE_KEY.slice(0, 8)}... (live=${!STRIPE_KEY.startsWith('sk_test_')})\n`);
 
 const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' });
 const LIVE = !STRIPE_KEY.startsWith('sk_test_');
@@ -117,67 +120,119 @@ async function main() {
 
   const results = [];
 
-  // P1: Create products + prices
+  // P1: Create products + prices (idempotent — reuses existing if found by tier metadata)
+  console.log('Scanning for existing BidDeed products in Stripe...');
+  const existingProducts = [];
+  let page = await stripe.products.list({ limit: 100, active: true });
+  existingProducts.push(...page.data);
+  while (page.has_more) {
+    page = await stripe.products.list({ limit: 100, active: true, starting_after: page.data.at(-1).id });
+    existingProducts.push(...page.data);
+  }
+  const byTier = Object.fromEntries(
+    existingProducts
+      .filter(p => p.metadata?.app === 'biddeed' && p.metadata?.tier)
+      .map(p => [p.metadata.tier, p])
+  );
+  console.log(`  Found ${Object.keys(byTier).length} existing BidDeed product(s): ${Object.keys(byTier).join(', ') || 'none'}\n`);
+
   for (const p of PRODUCTS) {
     console.log(`\n--- ${p.name} ---`);
 
-    const product = await stripe.products.create({
-      name: p.name,
-      description: p.desc,
-      metadata: { tier: p.tier, app: 'biddeed' },
-    });
-    console.log(`  product_id:  ${product.id}`);
+    let product;
+    if (byTier[p.tier]) {
+      product = byTier[p.tier];
+      console.log(`  REUSING existing product_id: ${product.id}`);
+    } else {
+      product = await stripe.products.create({
+        name: p.name,
+        description: p.desc,
+        metadata: { tier: p.tier, app: 'biddeed' },
+      });
+      console.log(`  CREATED product_id:  ${product.id}`);
+    }
+
+    // Fetch existing prices for this product to avoid duplicates
+    const existingPrices = (await stripe.prices.list({ product: product.id, limit: 100, active: true })).data;
+    const monthlyEx = existingPrices.find(pr => pr.recurring?.interval === 'month' && pr.recurring?.usage_type === 'licensed' && !pr.metadata?.stream_id);
+    const annualEx  = existingPrices.find(pr => pr.recurring?.interval === 'year');
+    const s5Ex      = existingPrices.find(pr => pr.metadata?.stream_id === 's5');
 
     let monthlyPriceId = null, annualPriceId = null, s5PriceId = null;
 
     if (p.monthly !== null) {
-      const mp = await stripe.prices.create({
-        product: product.id,
-        unit_amount: p.monthly,
-        currency: 'usd',
-        recurring: { interval: 'month' },
-        metadata: { tier: p.tier, interval_label: 'monthly' },
-      });
-      monthlyPriceId = mp.id;
-      console.log(`  monthly:     ${mp.id}  ($${p.monthly / 100}/mo)`);
+      if (monthlyEx) {
+        monthlyPriceId = monthlyEx.id;
+        console.log(`  monthly:     REUSING ${monthlyEx.id}  ($${monthlyEx.unit_amount / 100}/mo)`);
+      } else {
+        const mp = await stripe.prices.create({
+          product: product.id,
+          unit_amount: p.monthly,
+          currency: 'usd',
+          recurring: { interval: 'month' },
+          metadata: { tier: p.tier, interval_label: 'monthly' },
+        });
+        monthlyPriceId = mp.id;
+        console.log(`  monthly:     CREATED ${mp.id}  ($${p.monthly / 100}/mo)`);
+      }
     }
 
     if (p.annual !== null) {
-      const ap = await stripe.prices.create({
-        product: product.id,
-        unit_amount: p.annual,
-        currency: 'usd',
-        recurring: { interval: 'year' },
-        metadata: { tier: p.tier, interval_label: 'annual' },
-      });
-      annualPriceId = ap.id;
-      console.log(`  annual:      ${ap.id}  ($${p.annual / 100}/yr)`);
+      if (annualEx) {
+        annualPriceId = annualEx.id;
+        console.log(`  annual:      REUSING ${annualEx.id}  ($${annualEx.unit_amount / 100}/yr)`);
+      } else {
+        const ap = await stripe.prices.create({
+          product: product.id,
+          unit_amount: p.annual,
+          currency: 'usd',
+          recurring: { interval: 'year' },
+          metadata: { tier: p.tier, interval_label: 'annual' },
+        });
+        annualPriceId = ap.id;
+        console.log(`  annual:      CREATED ${ap.id}  ($${p.annual / 100}/yr)`);
+      }
     }
 
     if (p.s5) {
-      const s5 = await stripe.prices.create({
-        product: product.id,
-        ...S5_BASE,
-        metadata: { ...S5_BASE.metadata, tier: p.tier },
-      });
-      s5PriceId = s5.id;
-      console.log(`  s5_metered:  ${s5.id}  ($25/call, metered)`);
+      if (s5Ex) {
+        s5PriceId = s5Ex.id;
+        console.log(`  s5_metered:  REUSING ${s5Ex.id}  ($25/call, metered)`);
+      } else {
+        const s5 = await stripe.prices.create({
+          product: product.id,
+          ...S5_BASE,
+          metadata: { ...S5_BASE.metadata, tier: p.tier },
+        });
+        s5PriceId = s5.id;
+        console.log(`  s5_metered:  CREATED ${s5.id}  ($25/call, metered)`);
+      }
     }
 
     results.push({ tier: p.tier, product_id: product.id, monthlyPriceId, annualPriceId, s5PriceId });
   }
 
-  // P2: Create webhook
+  // P2: Create webhook (idempotent — reuse if endpoint already registered)
   console.log('\n--- Webhook ---');
-  const wh = await stripe.webhookEndpoints.create({
-    url: 'https://biddeed.ai/api/stripe/webhook',
-    enabled_events: WEBHOOK_EVENTS,
-    metadata: { app: 'biddeed', env: LIVE ? 'live' : 'test' },
-  });
-  console.log(`  webhook_id:  ${wh.id}`);
-  console.log(`  webhook_url: ${wh.url}`);
-  console.log(`\nSTRIPE_WEBHOOK_SECRET=${wh.secret}`);
-  fs.writeFileSync('/tmp/stripe_webhook_secret', wh.secret);
+  const WEBHOOK_URL = 'https://biddeed.ai/api/stripe/webhook';
+  const existingWebhooks = (await stripe.webhookEndpoints.list({ limit: 100 })).data;
+  const existingWh = existingWebhooks.find(w => w.url === WEBHOOK_URL);
+  let wh;
+  if (existingWh) {
+    wh = existingWh;
+    console.log(`  REUSING webhook_id: ${wh.id}  (${wh.url})`);
+    console.log('  NOTE: webhook secret not retrievable for existing webhooks — check GH Secrets for STRIPE_WEBHOOK_SECRET');
+    // Don't overwrite the file; existing secret is already stored
+  } else {
+    wh = await stripe.webhookEndpoints.create({
+      url: WEBHOOK_URL,
+      enabled_events: WEBHOOK_EVENTS,
+      metadata: { app: 'biddeed', env: LIVE ? 'live' : 'test' },
+    });
+    console.log(`  CREATED webhook_id: ${wh.id}  (${wh.url})`);
+    console.log(`\nSTRIPE_WEBHOOK_SECRET=${wh.secret}`);
+    fs.writeFileSync('/tmp/stripe_webhook_secret', wh.secret);
+  }
 
   // P3: Update Supabase
   console.log('\n--- Supabase stripe_products ---');
