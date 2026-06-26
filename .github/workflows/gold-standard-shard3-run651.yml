@@ -134,12 +134,14 @@ jobs:
           for row in (r2.json() or []):
               print(f'  {row}')
 
-          # Certify if any county is 10/10
-          for county, score in scores.items():
-              if score == 10:
-                  r3 = client.post(URL, headers=H,
-                                   json={'query': f"SELECT public.gold_standard_certify('{county}');"})
-                  print(f'  {county}: CERTIFY result = {r3.json()}')
+          # Certify all counties (gold_standard_certify() takes no args)
+          any_gold = any(s == 10 for s in scores.values())
+          if any_gold:
+              r3 = client.post(URL, headers=H, json={'query': 'SELECT public.gold_standard_certify();'})
+              print(f'  CERTIFY result = {r3.json()}')
+          # Log gold standard loop
+          r4 = client.post(URL, headers=H, json={'query': 'SELECT public.gold_standard_loop();'})
+          print(f'  LOOP result = {r4.json()}')
 
           if not all_ok:
               sys.exit(1)  # Fail the job if any county below 10/10
