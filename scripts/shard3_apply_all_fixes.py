@@ -126,18 +126,23 @@ def main() -> None:
         log("SUPABASE_ACCESS_TOKEN required for management API — aborting", "ERROR")
         sys.exit(1)
 
-    # Migration files for this shard — wave 1 + wave 2
+    # Migration files for this shard — all waves
     migration_dir = Path("supabase/migrations")
     migrations = [
-        # Wave 1 (already applied in first GHA run 28208565949)
+        # Wave 1 (applied in run 28208565949)
         migration_dir / "20260626_shard3_broward_a_fix.sql",
         migration_dir / "20260626_shard3_columbia_bcd_fix.sql",
         migration_dir / "20260626_shard3_bay_bcdfgi_fix.sql",
         migration_dir / "20260626_shard3_miami_dade_fix.sql",
         migration_dir / "20260626_shard3_miami_dade_j_generator.sql",
-        # Wave 2 (targeted fixes based on VERIFIED live state)
+        # Wave 2 (applied in run 28208866477 — broward+columbia now 10/10)
         migration_dir / "20260626_shard3_wave2_cd_columbia_bay.sql",
         migration_dir / "20260626_shard3_wave2_broward_verify_certify.sql",
+        # Wave 3 (bay B/F + miami_dade J generator)
+        migration_dir / "20260626_shard3_wave3_bay_bf_miami_j.sql",
+        migration_dir / "20260626_shard3_wave3_columbia_bf.sql",
+        # Wave 4 (miami_dade H refresh + bay C/D schema-safe fix)
+        migration_dir / "20260626_shard3_wave4_h_refresh_and_bay_cd.sql",
     ]
 
     # ── Pre-run evaluation ────────────────────────────────────────────────────
