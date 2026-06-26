@@ -146,7 +146,7 @@ jobs:
           # CHARLOTTE C: supplementary litmus — promote all non-PO case_numbers (pre-authorized 2026-06-12)
           # Covers PO-sourced rows that have real clerk case numbers (not PO-% style)
           s = patch('multi_county_auctions',
-                    'county=eq.charlotte&parcel_id=not.is.null&case_number=not.like.PO-%',
+                    'county=eq.charlotte&parcel_id=not.is.null&case_number=not.like.PO-%25',
                     {'parity_status': 'matched_clean',
                      'parity_source': 'supplementary_litmus:CHARLOTTE-PO-COVERAGE-V2',
                      'parity_checked_at': now_iso, 'updated_at': now_iso})
@@ -208,7 +208,8 @@ jobs:
               req.add_header('Prefer', prefer)
               try:
                   with urllib.request.urlopen(req, timeout=30) as r:
-                      return r.status, (json.loads(r.read()) if r.status != 204 else [])
+                      body = r.read()
+                      return r.status, (json.loads(body) if body else []) if r.status != 204 else []
               except urllib.error.HTTPError as e: return e.code, e.read().decode()[:200]
 
           def rpatch(path, params, payload):
@@ -221,14 +222,25 @@ jobs:
               except urllib.error.HTTPError as e: return e.code
 
           def seed_jurisdiction_and_zoning(county_slug, county_name, co_no):
-              jurs = rget('jurisdictions', f'county=eq.{county_slug}&select=id&limit=1')
+              jurs = rget('jurisdictions', f'county_slug=eq.{county_slug}&select=id&limit=1')
+              if not jurs:
+                  # Fallback: try legacy county column (title-case)
+                  jurs = rget('jurisdictions', f'county=eq.{county_name}&select=id&limit=1')
               if jurs:
                   jur_id = jurs[0]['id']
                   print(f'{county_slug} jurisdiction exists: id={jur_id}')
               else:
-                  st, ins = rpost('jurisdictions', {'name': county_name, 'county': county_slug, 'co_no': co_no})
-                  jur_id = ins[0]['id'] if st in (200,201) and isinstance(ins,list) and ins else None
-                  print(f'{county_slug} jurisdiction created: HTTP {st}, id={jur_id}')
+                  st, ins = rpost('jurisdictions', {'county_slug': county_slug, 'name': county_name, 'county': county_name, 'state': 'FL', 'co_no': co_no})
+                  print(f'{county_slug} jurisdiction POST: HTTP {st}')
+                  if st in (200, 201) and isinstance(ins, list) and ins:
+                      jur_id = ins[0]['id']
+                  else:
+                      # Conflict or error — re-fetch by county_slug or name
+                      refetch = rget('jurisdictions', f'county_slug=eq.{county_slug}&select=id&limit=1')
+                      if not refetch:
+                          refetch = rget('jurisdictions', f'name=eq.{county_name}&select=id&limit=1')
+                      jur_id = refetch[0]['id'] if refetch else None
+                  print(f'{county_slug} jurisdiction id={jur_id}')
               if not jur_id: return None, None
 
               zdists = rget('zoning_districts', f'jurisdiction_id=eq.{jur_id}&code=eq.R-1&select=id&limit=1')
