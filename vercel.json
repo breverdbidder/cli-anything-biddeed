@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "name": "biddeed-mcp",
+  "framework": null,
+  "installCommand": "cd packages/biddeed-mcp && npm install",
+  "functions": {
+    "api/mcp.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    { "source": "/api/mcp/(.*)", "destination": "/api/mcp" }
+  ],
+  "env": {
+    "SUPABASE_URL": "@supabase-url",
+    "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
+    "STRIPE_SECRET_KEY": "@stripe-secret-key"
+  }
+}

@@ -29,6 +29,19 @@ function readBody(req) {
   });
 }
 
+// Exported for Vercel serverless handler (api/mcp.js)
+export async function handleMcpRequest(req, res) {
+  try {
+    await handleRequest(req, res);
+  } catch (err) {
+    process.stderr.write(`[biddeed-mcp/http] Unhandled: ${err.message}\n`);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+  }
+}
+
 export async function startHttp(port = parseInt(process.env.PORT || '3000', 10)) {
   const httpServer = createHttpServer(async (req, res) => {
     try {
