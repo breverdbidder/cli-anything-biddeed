@@ -210,7 +210,7 @@ async function main() {
   rows.forEach(r => console.log(
     `  ${r.tier_id.padEnd(12)} prod=${r.product_id}  monthly=${r.stripe_price_id_monthly || 'null'}  s5=${r.stripe_s5_price_id || 'null'}`
   ));
-  const pending = rows.filter(r => r.product_id === 'PENDING' || !r.product_id);
+  const pending = rows.filter(r => !r.product_id || r.product_id.includes('PENDING'));
   if (pending.length > 0) {
     console.error(`\nFAIL: ${pending.length} tiers still PENDING: ${pending.map(r => r.tier_id).join(', ')}`);
     process.exit(1);

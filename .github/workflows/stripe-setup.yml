@@ -49,7 +49,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_KEY:              ${{ secrets.SUPABASE_KEY }}
           SUPABASE_ACCESS_TOKEN:     ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: node scripts/stripe-setup.js 2>&1 | tee /tmp/stripe-setup.log
+        run: |
+          set -o pipefail
+          node scripts/stripe-setup.js 2>&1 | tee /tmp/stripe-setup.log
 
       - name: Dry run notice
         if: ${{ inputs.dry_run == 'true' }}
@@ -91,7 +93,7 @@ jobs:
           echo "$ROWS" | python3 -c "
           import json, sys
           rows = json.load(sys.stdin)
-          pending = [r for r in rows if r.get('product_id','PENDING') == 'PENDING']
+          pending = [r for r in rows if not r.get('product_id') or 'PENDING' in r.get('product_id','PENDING')]
           for r in rows:
             print(f\"  {r['tier_id']:<12} prod={r['product_id']}  monthly={r['stripe_price_id_monthly']}  s5={r['stripe_s5_price_id']}\")
           print()
