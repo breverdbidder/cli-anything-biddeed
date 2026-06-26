@@ -143,6 +143,8 @@ def main() -> None:
         migration_dir / "20260626_shard3_wave3_columbia_bf.sql",
         # Wave 4 (miami_dade H refresh + bay C/D schema-safe fix)
         migration_dir / "20260626_shard3_wave4_h_refresh_and_bay_cd.sql",
+        # Wave 5 (miami_dade H last_changed_at fix + J generator fixed + bay B gap)
+        migration_dir / "20260626_shard3_wave5_miami_h_j_bay_b.sql",
     ]
 
     # ── Pre-run evaluation ────────────────────────────────────────────────────
