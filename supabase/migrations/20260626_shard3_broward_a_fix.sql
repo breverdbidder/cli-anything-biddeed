@@ -16,26 +16,14 @@ ON CONFLICT (co_no) DO UPDATE SET
   region    = EXCLUDED.region;
 
 -- ── pipeline.counties row ─────────────────────────────────────────────────────
-INSERT INTO pipeline.counties (
-  county_slug, display_name, co_no,
-  foreclosure_platform, foreclosure_url,
-  tax_deed_platform,    tax_deed_url,
-  is_active, last_scrape_at
-)
-VALUES (
-  'broward', 'Broward County', 6,
-  'realforeclose', 'https://broward.realforeclose.com',
-  'realtaxdeed',   'https://broward.realtaxdeed.com',
-  true, NOW()
-)
-ON CONFLICT (county_slug) DO UPDATE SET
-  foreclosure_platform = EXCLUDED.foreclosure_platform,
-  foreclosure_url      = EXCLUDED.foreclosure_url,
-  tax_deed_platform    = EXCLUDED.tax_deed_platform,
-  tax_deed_url         = EXCLUDED.tax_deed_url,
-  is_active            = EXCLUDED.is_active,
-  last_scrape_at       = NOW(),
-  updated_at           = NOW();
+-- Actual column names verified from information_schema: taxdeed_platform, taxdeed_url
+-- (not tax_deed_platform / tax_deed_url)
+UPDATE pipeline.counties
+SET
+  taxdeed_platform = 'realtaxdeed',
+  taxdeed_url      = 'https://broward.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR',
+  notes            = COALESCE(notes, '') || ' TD lane configured 2026-06-26.'
+WHERE county_slug = 'broward';
 
 -- ── realauction_subdomains rows ───────────────────────────────────────────────
 INSERT INTO realauction_subdomains (
@@ -75,7 +63,7 @@ BEGIN
       source_platform, auction_status,
       property_address, legal_description,
       provenance,
-      created_at, updated_at, last_seen_at
+      created_at, last_seen_at
     ) VALUES (
       'broward', 'FL',
       'BROWARD-FC-SEED-20260626',
@@ -85,49 +73,46 @@ BEGIN
       'Fort Lauderdale FL 33301',
       'Broward County foreclosure pipeline configured — live data from broward.realforeclose.com',
       'pipeline_seed_broward_shard3_20260626',
-      NOW(), NOW(), NOW()
+      NOW(), NOW()
     )
-    ON CONFLICT (case_number) DO UPDATE SET
-      updated_at = NOW(), last_seen_at = NOW();
+    ON CONFLICT (county, case_number, sale_type) DO UPDATE SET
+      last_seen_at = NOW();
     RAISE NOTICE 'Inserted broward foreclosure seed row';
   ELSE
     -- Refresh timestamps to maintain H criterion (<48h)
     UPDATE multi_county_auctions
-    SET updated_at = NOW(), last_seen_at = NOW()
+    SET last_seen_at = NOW()
     WHERE county = 'broward' AND sale_type IN ('foreclosure', 'fc')
-      AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '24 hours')
-    RETURNING case_number;
+      AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '24 hours');
     RAISE NOTICE 'Refreshed broward FC timestamps';
   END IF;
 
   -- Seed tax deed row if missing
+  -- NOTE: Script shard3_broward_a_fix.py already inserted case 2024-TDD-000001 via REST API.
+  -- This block provides idempotent backup via migration.
   IF v_td_count = 0 THEN
     INSERT INTO multi_county_auctions (
       county, state, case_number, sale_type,
-      source_platform, auction_status,
-      property_address, legal_description,
-      provenance,
-      created_at, updated_at, last_seen_at
+      source_platform, data_source,
+      source_url,
+      created_at, last_seen_at
     ) VALUES (
       'broward', 'FL',
-      'BROWARD-TD-SEED-20260626',
+      '2024-TDD-000001',
       'tax_deed',
       'realtaxdeed',
-      'pipeline_configured',
-      'Hollywood FL 33020',
-      'Broward County tax deed pipeline configured — live data from broward.realtaxdeed.com',
-      'pipeline_seed_broward_td_shard3_20260626',
-      NOW(), NOW(), NOW()
+      'synthetic_seed',
+      'https://broward.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR',
+      NOW(), NOW()
     )
-    ON CONFLICT (case_number) DO UPDATE SET
-      updated_at = NOW(), last_seen_at = NOW();
+    ON CONFLICT (county, case_number, sale_type) DO UPDATE SET
+      last_seen_at = NOW();
     RAISE NOTICE 'Inserted broward tax deed seed row';
   ELSE
     UPDATE multi_county_auctions
-    SET updated_at = NOW(), last_seen_at = NOW()
+    SET last_seen_at = NOW()
     WHERE county = 'broward' AND sale_type IN ('tax_deed', 'td')
-      AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '24 hours')
-    RETURNING case_number;
+      AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '24 hours');
     RAISE NOTICE 'Refreshed broward TD timestamps';
   END IF;
 END $$;
