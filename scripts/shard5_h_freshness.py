@@ -34,7 +34,7 @@ HEADERS = {
     "Prefer": "return=minimal",
 }
 
-COUNTIES = ["collier", "leon", "highlands", "bradford", "wakulla"]
+COUNTIES = ["collier", "leon", "highlands", "bradford", "wakulla", "citrus"]
 CUTOFF_HOURS = 24
 
 NOW = datetime.now(timezone.utc)
