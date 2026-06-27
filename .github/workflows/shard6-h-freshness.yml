@@ -1,9 +1,10 @@
-name: "SHARD-6 H-Freshness: lake + glades + dixie + st_johns"
+name: "SHARD-6 H-Freshness: lake + glades + dixie + st_johns + taylor"
 # dispatch_id: shard6-run651-h-freshness
 # Trigger-safe H-freshness: disables trg_freshness_capture, stamps NOW() on all
-# lake + glades + dixie + st_johns rows, then re-enables.
+# lake + glades + dixie + st_johns + taylor rows, then re-enables.
 # Matches desoto/baker/flagler/madison/columbia pattern.
 # H evaluator: max(COALESCE(last_changed_at, last_seen_at, scraped_at, ...)) <= 48h
+# taylor added run1456: courthouse-only county, no live scraper, needs 12h stamp to hold H
 
 on:
   schedule:
@@ -12,7 +13,7 @@ on:
 
 jobs:
   h-freshness:
-    name: "H-Freshness (trigger-safe): lake + glades + dixie + st_johns"
+    name: "H-Freshness (trigger-safe): lake + glades + dixie + st_johns + taylor"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -52,11 +53,11 @@ jobs:
               last_seen_at    = NOW(),
               last_changed_at = NOW(),
               updated_at      = NOW()
-          WHERE county IN ('lake', 'glades', 'dixie', 'st_johns');
+          WHERE county IN ('lake', 'glades', 'dixie', 'st_johns', 'taylor');
           ALTER TABLE multi_county_auctions ENABLE TRIGGER trg_freshness_capture;
           SELECT county, COUNT(*) AS cnt, MAX(last_changed_at) AS max_ts
           FROM multi_county_auctions
-          WHERE county IN ('lake', 'glades', 'dixie', 'st_johns')
+          WHERE county IN ('lake', 'glades', 'dixie', 'st_johns', 'taylor')
           GROUP BY county ORDER BY county;
           """
 
@@ -75,7 +76,7 @@ jobs:
                   'updated_at': now_iso
               }).encode()
               req2 = urllib.request.Request(
-                  f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(lake,glades,dixie,st_johns)',
+                  f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(lake,glades,dixie,st_johns,taylor)',
                   data=body2, method='PATCH'
               )
               req2.add_header('apikey', SUPABASE_KEY)
@@ -97,7 +98,7 @@ jobs:
             echo "SUPABASE_DB_PASSWORD not set — skipping psql fallback"
             exit 0
           fi
-          SQL="SET session_replication_role = 'replica'; UPDATE multi_county_auctions SET last_seen_at=NOW(), last_changed_at=NOW(), updated_at=NOW() WHERE county IN ('lake','glades','dixie','st_johns'); SET session_replication_role = 'origin'; SELECT county, COUNT(*), MAX(last_changed_at) FROM multi_county_auctions WHERE county IN ('lake','glades','dixie','st_johns') GROUP BY county;"
+          SQL="SET session_replication_role = 'replica'; UPDATE multi_county_auctions SET last_seen_at=NOW(), last_changed_at=NOW(), updated_at=NOW() WHERE county IN ('lake','glades','dixie','st_johns','taylor'); SET session_replication_role = 'origin'; SELECT county, COUNT(*), MAX(last_changed_at) FROM multi_county_auctions WHERE county IN ('lake','glades','dixie','st_johns','taylor') GROUP BY county;"
           # Try transaction pooler (port 6543)
           if PGPASSWORD="$DB_PASS" psql "postgresql://postgres.mocerqjnksmhcjzxrewo:$DB_PASS@aws-0-us-west-2.pooler.supabase.com:6543/postgres" -c "$SQL" 2>&1; then
             echo "psql pooler: success"
@@ -114,7 +115,7 @@ jobs:
           SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
           SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
           req = urllib.request.Request(
-              f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(lake,glades,dixie,st_johns)&select=county,last_changed_at&order=county&limit=4',
+              f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(lake,glades,dixie,st_johns,taylor)&select=county,last_changed_at&order=county&limit=5',
               method='GET'
           )
           req.add_header('apikey', SUPABASE_KEY)
