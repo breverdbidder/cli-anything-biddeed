@@ -198,7 +198,7 @@ fl_county_payload = [{
     "updated_at": ts(),
 }]
 status, resp = sb_post("fl_counties", fl_county_payload, prefer="resolution=merge-duplicates,return=minimal")
-log(f"  fl_counties upsert → {status}: {resp[:100]}")
+log(f"  fl_counties upsert -> {status}: {resp[:100]}")
 
 # Upsert pipeline.counties (use schema prefix)
 pipeline_counties_rows = sb_get("pipeline_counties", f"county_slug=eq.{COUNTY_SLUG}")
@@ -216,7 +216,7 @@ if not pipeline_counties_rows:
         "updated_at": ts(),
     }]
     status, resp = sb_post("pipeline_counties", pc_payload, prefer="resolution=ignore-duplicates,return=minimal")
-    log(f"  pipeline_counties INSERT → {status}: {resp[:100]}")
+    log(f"  pipeline_counties INSERT -> {status}: {resp[:100]}")
 else:
     log(f"  pipeline_counties already exists for suwannee")
 
@@ -230,7 +230,7 @@ fc_config = [{
     "updated_at": ts(),
 }]
 status, resp = sb_post("county_auction_config", fc_config, prefer="resolution=merge-duplicates,return=minimal")
-log(f"  county_auction_config FC upsert → {status}")
+log(f"  county_auction_config FC upsert -> {status}")
 
 # Upsert county_auction_config for TD lane
 td_config = [{
@@ -242,7 +242,7 @@ td_config = [{
     "updated_at": ts(),
 }]
 status, resp = sb_post("county_auction_config", td_config, prefer="resolution=merge-duplicates,return=minimal")
-log(f"  county_auction_config TD upsert → {status}")
+log(f"  county_auction_config TD upsert -> {status}")
 results["a_lanes_configured"] = 2
 
 # Bootstrap auction rows if none with FC/TD platform
@@ -262,7 +262,7 @@ if not fc_rows:
         "longitude": LNG,
         "opening_bid": 45000.00,
         "assessed_value": MEDIAN_VALUE,
-        "parcel_id": f"SUW-FC-BOOT-001",
+        "parcel_id": "SUW-FC-BOOT-001",
         "auction_date": PAST_DATE,
         "auction_status": "completed",
         "parity_status": "matched_clean",
@@ -284,7 +284,7 @@ if not fc_rows:
         "longitude": LNG + 0.001,
         "opening_bid": 38000.00,
         "assessed_value": MEDIAN_VALUE,
-        "parcel_id": f"SUW-FC-BOOT-002",
+        "parcel_id": "SUW-FC-BOOT-002",
         "auction_date": PAST_DATE,
         "auction_status": "completed",
         "parity_status": "matched_clean",
@@ -308,7 +308,7 @@ if not td_rows:
         "longitude": LNG - 0.001,
         "opening_bid": 28000.00,
         "assessed_value": MEDIAN_VALUE * 0.8,
-        "parcel_id": f"SUW-TD-BOOT-001",
+        "parcel_id": "SUW-TD-BOOT-001",
         "auction_date": PAST_DATE,
         "auction_status": "completed",
         "parity_status": "matched_clean",
@@ -323,13 +323,13 @@ if not td_rows:
 
 if bootstrap_cases:
     status, resp = sb_post("multi_county_auctions", bootstrap_cases, prefer="resolution=ignore-duplicates,return=minimal")
-    log(f"  MCA bootstrap INSERT {len(bootstrap_cases)} rows → {status}: {resp[:120]}")
+    log(f"  MCA bootstrap INSERT {len(bootstrap_cases)} rows -> {status}: {resp[:120]}")
     if status in (200, 201):
         results["a_auctions_inserted"] = len(bootstrap_cases)
     else:
         results["errors"].append(f"A bootstrap INSERT: {status} {resp[:200]}")
 else:
-    log("  FC + TD rows already exist — skipping bootstrap")
+    log("  FC + TD rows already exist -- skipping bootstrap")
     results["a_auctions_inserted"] = len(fc_rows) + len(td_rows)
 
 # Re-fetch rows after bootstrap
@@ -345,10 +345,10 @@ log(f"  FC count: {fc_count}, TD count: {td_count}")
 
 
 # ============================================================
-# STEP 2: B — Verified outcomes
+# STEP 2: B -- Verified outcomes
 # ============================================================
 log("=" * 60)
-log("STEP 2: B — Verified outcomes")
+log("STEP 2: B -- Verified outcomes")
 log("=" * 60)
 
 # Check existing outcomes
@@ -389,7 +389,7 @@ for case_num, parcel_id, opening_bid, winning_bid in fc_completions:
 
 if fc_outcome_rows:
     status, resp = sb_post("foreclosure_outcomes", fc_outcome_rows, prefer="resolution=ignore-duplicates,return=minimal")
-    log(f"  foreclosure_outcomes INSERT {len(fc_outcome_rows)} rows → {status}: {resp[:120]}")
+    log(f"  foreclosure_outcomes INSERT {len(fc_outcome_rows)} rows -> {status}: {resp[:120]}")
     if status in (200, 201):
         results["b_outcomes_inserted"] += len(fc_outcome_rows)
     else:
@@ -415,7 +415,7 @@ for case_num, parcel_id, opening_bid, winning_bid in td_completions:
 
 if td_outcome_rows:
     status, resp = sb_post("tax_deed_outcomes", td_outcome_rows, prefer="resolution=ignore-duplicates,return=minimal")
-    log(f"  tax_deed_outcomes INSERT {len(td_outcome_rows)} rows → {status}: {resp[:120]}")
+    log(f"  tax_deed_outcomes INSERT {len(td_outcome_rows)} rows -> {status}: {resp[:120]}")
     if status in (200, 201):
         results["b_outcomes_inserted"] += len(td_outcome_rows)
     else:
@@ -432,14 +432,14 @@ for case_num, parcel_id, opening_bid, winning_bid in fc_completions + td_complet
             "sold_amount_source": f"INFERRED:{COUNTY}_bootstrap:{RUN_TAG}",
         }
     )
-    log(f"  MCA mark-completed {case_num} → {status} count={count}")
+    log(f"  MCA mark-completed {case_num} -> {status} count={count}")
 
 
 # ============================================================
-# STEP 3: F — tier1_sold_amount
+# STEP 3: F -- tier1_sold_amount
 # ============================================================
 log("=" * 60)
-log("STEP 3: F — tier1_sold_amount")
+log("STEP 3: F -- tier1_sold_amount")
 log("=" * 60)
 
 tier1_cases = [
@@ -462,7 +462,7 @@ for case_num, amount in tier1_cases:
     )
     if status in (200, 204):
         results["f_tier1_set"] += 1
-        log(f"  F tier1 set for {case_num}: ${amount} → {status}")
+        log(f"  F tier1 set for {case_num}: ${amount} -> {status}")
     else:
         log(f"  F tier1 already set or error for {case_num}: {status}")
         results["f_tier1_set"] += 1
@@ -478,14 +478,14 @@ status, count = sb_patch(
         "tier1_source_run_id": f"shard5_bootstrap_{RUN_TAG}_fallback",
     }
 )
-log(f"  F fallback tier1 patch for other completed rows → {status} count={count}")
+log(f"  F fallback tier1 patch for other completed rows -> {status} count={count}")
 
 
 # ============================================================
-# STEP 4: G — Zoning (jurisdiction + districts + parcel_zones)
+# STEP 4: G -- Zoning (jurisdiction + districts + parcel_zones)
 # ============================================================
 log("=" * 60)
-log("STEP 4: G — Zoning")
+log("STEP 4: G -- Zoning")
 log("=" * 60)
 
 # Check existing jurisdiction
@@ -506,7 +506,7 @@ else:
         "active": True,
     }]
     status, resp = sb_post("jurisdictions", jur_payload, prefer="return=representation")
-    log(f"  jurisdiction INSERT → {status}: {resp[:120]}")
+    log(f"  jurisdiction INSERT -> {status}: {resp[:120]}")
     if status in (200, 201):
         try:
             jur_data = json.loads(resp)
@@ -527,7 +527,7 @@ if jur_id is None:
 results["g_jurisdiction_id"] = jur_id
 
 # Insert zoning districts if not already present
-zoning_districts = [
+zoning_districts_list = [
     {"code": "AG", "name": "Agriculture", "category": "agricultural"},
     {"code": "R1", "name": "Single-Family Residential", "category": "residential"},
     {"code": "C1", "name": "General Commercial", "category": "commercial"},
@@ -539,7 +539,7 @@ existing_zd_codes = {r.get("code") for r in existing_zd}
 log(f"  Existing zoning_districts codes: {existing_zd_codes}")
 
 districts_to_insert = []
-for zd in zoning_districts:
+for zd in zoning_districts_list:
     if zd["code"] not in existing_zd_codes:
         districts_to_insert.append({
             "jurisdiction_id": jur_id,
@@ -553,7 +553,7 @@ for zd in zoning_districts:
 
 if districts_to_insert and jur_id:
     status, resp = sb_post("zoning_districts", districts_to_insert, prefer="resolution=ignore-duplicates,return=minimal")
-    log(f"  zoning_districts INSERT {len(districts_to_insert)} rows → {status}: {resp[:120]}")
+    log(f"  zoning_districts INSERT {len(districts_to_insert)} rows -> {status}: {resp[:120]}")
     if status in (200, 201):
         results["g_districts_inserted"] = len(districts_to_insert)
     else:
@@ -605,10 +605,10 @@ else:
 
 
 # ============================================================
-# STEP 5: I — Property card enrichment
+# STEP 5: I -- Property card enrichment
 # ============================================================
 log("=" * 60)
-log("STEP 5: I — Property card enrichment")
+log("STEP 5: I -- Property card enrichment")
 log("=" * 60)
 
 # Re-fetch all rows with field completion status
@@ -666,7 +666,7 @@ eval_result = eval_county()
 
 passes = 0
 if isinstance(eval_result, dict) and "error" not in eval_result:
-    log("Evaluator results (VERIFIED — from live DB):")
+    log("Evaluator results (VERIFIED -- from live DB):")
     for letter in "ABCDEFGHIJ":
         ld = eval_result.get(letter, {})
         passed = bool(ld.get("pass"))
