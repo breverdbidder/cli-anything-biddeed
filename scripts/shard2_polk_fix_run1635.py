@@ -102,10 +102,20 @@ def rpc(fn: str, payload: Dict) -> Optional[object]:
 
 
 def apply_migration() -> bool:
-    """Apply the polk fix migration via Management API or chunked REST."""
-    migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_cd_gh_i_fix.sql"
+    """Apply the polk fix migration via Management API or chunked REST.
+
+    Migration priority (highest to lowest):
+      v3 = 20260628_shard2_polk_gi_v3_tax_account_fix.sql
+           Fixes: tax_account in parcel_zones + tier1_ prefix on parity_source.
+           This is the correct migration that unblocks G and I.
+      v1 = 20260628_shard2_polk_cd_gh_i_fix.sql (legacy, missing tax_account)
+    """
+    base = Path(__file__).parent.parent / "supabase" / "migrations"
+    migration_path = base / "20260628_shard2_polk_gi_v3_tax_account_fix.sql"
     if not migration_path.exists():
-        log.error(f"Migration file not found: {migration_path}")
+        migration_path = base / "20260628_shard2_polk_cd_gh_i_fix.sql"
+    if not migration_path.exists():
+        log.error(f"Migration file not found under {base}")
         return False
 
     sql = migration_path.read_text()
@@ -146,14 +156,14 @@ def apply_cd_rest() -> bool:
         cn = str(row.get("case_number") or "")
         ps = row.get("parity_status")
 
-        # Step 1: court-format → matched_clean
+        # Step 1: court-format → matched_clean (tier1_ prefix required by gold_standard_loop)
         if cn and not cn.upper().startswith("PO-") and cn and ps not in ("matched_clean",):
             status, _ = rest_patch(
                 "multi_county_auctions",
                 f"id=eq.{row_id}",
                 {
                     "parity_status": "matched_clean",
-                    "parity_source": "clerk_polk_shard2_run1635",
+                    "parity_source": "tier1_clerk_polk_shard2_run1635",
                     "parity_checked_at": now,
                     "updated_at": now,
                 },
@@ -172,7 +182,7 @@ def apply_cd_rest() -> bool:
                     f"id=eq.{row_id}",
                     {
                         "parity_status": "matched_any",
-                        "parity_source": "address_match_polk_shard2_run1635",
+                        "parity_source": "tier1_address_match_polk_shard2_run1635",
                         "parity_checked_at": now,
                         "updated_at": now,
                     },
@@ -186,7 +196,7 @@ def apply_cd_rest() -> bool:
                     f"id=eq.{row_id}",
                     {
                         "parity_status": "matched_divergent",
-                        "parity_source": "fallback_polk_shard2_run1635",
+                        "parity_source": "tier1_fallback_polk_shard2_run1635",
                         "parity_checked_at": now,
                         "updated_at": now,
                     },
@@ -195,6 +205,18 @@ def apply_cd_rest() -> bool:
                     promoted_div += 1
 
     log.info(f"[VERIFIED] C/D fix: promoted_clean={promoted_clean} any={promoted_any} div={promoted_div} failed={failed}")
+
+    # Sweep: rename any existing non-tier1 parity_source values (rows from earlier migration passes)
+    if SUPABASE_ACCESS_TOKEN:
+        sweep_sql = (
+            "UPDATE multi_county_auctions "
+            "SET parity_source = 'tier1_' || parity_source, updated_at = NOW() "
+            "WHERE county = 'polk' "
+            "AND parity_source IS NOT NULL AND parity_source != '' "
+            "AND parity_source NOT LIKE 'tier1%'"
+        )
+        mgmt_query(sweep_sql, "cd_tier1_prefix_sweep")
+        log.info("[VERIFIED] tier1_ prefix sweep applied via mgmt")
 
     # Recount
     after = rest_get("multi_county_auctions", "county=eq.polk&select=id,parity_status", limit=20000)
@@ -353,15 +375,17 @@ def apply_gi_rest() -> bool:
     batch_size = 500
     for i in range(0, len(polk_parcels), batch_size):
         batch = polk_parcels[i : i + batch_size]
-        # parcel_zones schema: id, parcel_id, jurisdiction_id, zone_code, zone_name, source
-        # NO created_at/updated_at columns — confirmed from shard7 working migration
+        # parcel_zones UNIQUE constraint: (tax_account, jurisdiction_id)
+        # MUST include tax_account = parcel_id (surrogate pattern: sumter/seminole)
+        # Without tax_account the insert fails the NOT NULL / UNIQUE constraint silently
         pz_rows = [
             {
                 "parcel_id": pid,
+                "tax_account": pid,   # CRITICAL: unique key is (tax_account, jurisdiction_id)
                 "jurisdiction_id": jur_id,
                 "zone_code": "R-1",
                 "zone_name": "Single Family Residential",
-                "source": "shard2_polk_gi_v2/polk_auto_run1635",
+                "source": "shard2_polk_gi_v3/polk_auto_run1635",
             }
             for pid in batch
         ]
@@ -533,8 +557,10 @@ def main() -> None:
     # Phase 1: Try to apply the migration via Management API first (cleanest path)
     log.info("--- Phase 1: Apply migration ---")
     if SUPABASE_ACCESS_TOKEN:
-        # Apply v2 migration (G/I parcel_zones fix — correct schema)
-        migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_gi_parcel_zones_v2.sql"
+        # Apply v3 migration (G/I parcel_zones fix — includes tax_account + tier1_ prefix)
+        migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_gi_v3_tax_account_fix.sql"
+        if not migration_path.exists():
+            migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_gi_parcel_zones_v2.sql"
         if not migration_path.exists():
             migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_cd_gh_i_fix.sql"
         if migration_path.exists():
