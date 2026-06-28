@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 shard5_loop472_h_freshness.py — Touch last_seen_at / last_changed_at / updated_at
-for loop-472 shard-5 counties: collier, madison, holmes, osceola, union.
+for loop-472 shard-5 counties: collier, madison, holmes, osceola, union, suwannee.
 
 Keeps the H-freshness criterion green (SLA: 48h).
 
@@ -32,7 +32,7 @@ HEADERS = {
     "Prefer": "return=minimal",
 }
 
-COUNTIES = ["collier", "madison", "holmes", "osceola", "union"]
+COUNTIES = ["collier", "madison", "holmes", "osceola", "union", "suwannee"]
 CUTOFF_HOURS = 24
 
 NOW = datetime.now(timezone.utc)
