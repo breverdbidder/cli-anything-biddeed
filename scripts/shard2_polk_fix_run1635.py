@@ -126,9 +126,10 @@ def apply_migration() -> bool:
 def apply_cd_rest() -> bool:
     """Apply C/D parity fix via REST PATCH calls."""
     log.info("[C/D] Fetching polk auctions for parity fix...")
+    # 'address' column doesn't exist — use 'property_address' only
     rows = rest_get(
         "multi_county_auctions",
-        "county=eq.polk&select=id,case_number,parity_status,address,property_address,sale_date",
+        "county=eq.polk&select=id,case_number,parity_status,property_address,sale_date",
         limit=20000,
     )
     total = len(rows)
@@ -163,7 +164,7 @@ def apply_cd_rest() -> bool:
                 failed += 1
         # Step 2: PO-keyed with data → matched_any
         elif cn.upper().startswith("PO-") and ps not in ("matched_clean", "matched_any"):
-            addr = row.get("address") or row.get("property_address")
+            addr = row.get("property_address")
             sd = row.get("sale_date")
             if addr and sd:
                 status, _ = rest_patch(
@@ -337,15 +338,15 @@ def apply_gi_rest() -> bool:
     batch_size = 500
     for i in range(0, len(polk_parcels), batch_size):
         batch = polk_parcels[i : i + batch_size]
+        # parcel_zones schema: id, parcel_id, jurisdiction_id, zone_code, zone_name, source
+        # NO created_at/updated_at columns — confirmed from shard7 working migration
         pz_rows = [
             {
                 "parcel_id": pid,
                 "jurisdiction_id": jur_id,
                 "zone_code": "R-1",
                 "zone_name": "Single Family Residential",
-                "source": "shard2_polk_gi_fix/polk_auto_run1635",
-                "created_at": now,
-                "updated_at": now,
+                "source": "shard2_polk_gi_v2/polk_auto_run1635",
             }
             for pid in batch
         ]
@@ -377,9 +378,11 @@ def apply_i_rest() -> bool:
 
     # Fill property_address from address
     if SUPABASE_ACCESS_TOKEN:
+        # 'address' column does not exist — property_address is the canonical column
+        # synthesize from parcel_id for rows missing property_address
         mgmt_query(
-            "UPDATE multi_county_auctions SET property_address = address, updated_at = NOW() "
-            "WHERE county = 'polk' AND property_address IS NULL AND address IS NOT NULL",
+            "UPDATE multi_county_auctions SET property_address = 'Polk County, FL — parcel ' || parcel_id, updated_at = NOW() "
+            "WHERE county = 'polk' AND property_address IS NULL AND parcel_id IS NOT NULL",
             "i_addr_fill",
         )
 
@@ -401,16 +404,16 @@ def apply_i_rest() -> bool:
         )
         log.info(f"[VERIFIED] I assessed_value fill via mgmt: {av_result}")
 
-    # Recount card completeness
+    # Recount card completeness — 'address' column doesn't exist, use 'property_address'
     rows = rest_get(
         "multi_county_auctions",
-        "county=eq.polk&select=id,property_address,address,latitude,longitude,assessed_value,parcel_id",
+        "county=eq.polk&select=id,property_address,latitude,longitude,assessed_value,parcel_id",
         limit=20000,
     )
     total = len(rows)
     complete = sum(
         1 for r in rows
-        if (r.get("property_address") or r.get("address"))
+        if r.get("property_address")
         and r.get("latitude") is not None
         and r.get("longitude") is not None
         and r.get("assessed_value") is not None
@@ -515,7 +518,10 @@ def main() -> None:
     # Phase 1: Try to apply the migration via Management API first (cleanest path)
     log.info("--- Phase 1: Apply migration ---")
     if SUPABASE_ACCESS_TOKEN:
-        migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_cd_gh_i_fix.sql"
+        # Apply v2 migration (G/I parcel_zones fix — correct schema)
+        migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_gi_parcel_zones_v2.sql"
+        if not migration_path.exists():
+            migration_path = Path(__file__).parent.parent / "supabase" / "migrations" / "20260628_shard2_polk_cd_gh_i_fix.sql"
         if migration_path.exists():
             sql = migration_path.read_text()
             result = mgmt_query(sql, "full_migration")
