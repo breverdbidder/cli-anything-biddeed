@@ -42,7 +42,7 @@ jobs:
               last_seen_at    = NOW(),
               scraped_at      = NOW(),
               updated_at      = NOW()
-          WHERE county IN ('gulf', 'palm_beach', 'santa_rosa', 'gilchrist', 'lake')
+          WHERE county IN ('gulf', 'palm_beach', 'santa_rosa', 'gilchrist', 'lake', 'walton')
             AND auction_status IN ('upcoming', 'scheduled', 'active', NULL);
           '''
 
@@ -161,10 +161,10 @@ jobs:
           SET statement_timeout = 0;
           UPDATE multi_county_auctions
           SET parity_status     = 'matched_clean',
-              parity_source     = 'clerk_supplementary_shard5_daily',
+              parity_source     = 'tier1_clerk_supp_shard5_daily',
               parity_checked_at = NOW(),
               updated_at        = NOW()
-          WHERE county IN (\'gulf\', \'palm_beach\', \'santa_rosa\', \'gilchrist\', \'lake\')
+          WHERE county IN (\'gulf\', \'palm_beach\', \'santa_rosa\', \'gilchrist\', \'lake\', \'walton\')
             AND parity_status IN (\'tier1_only\', \'matched_divergent\', \'mca_only\')
             AND (
                 source_platform IS NULL
