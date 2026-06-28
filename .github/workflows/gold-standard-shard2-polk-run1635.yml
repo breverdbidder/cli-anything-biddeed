@@ -127,7 +127,7 @@ jobs:
           print()
 
           # Per-county evaluation
-          r = client.post(f'{BASE}/rpc/pencil_dod_evaluate_county', headers=H, json={'county_slug_arg': 'polk'}, timeout=60)
+          r = client.post(f'{BASE}/rpc/pencil_dod_evaluate_county', headers=H, json={'p_county': 'polk'}, timeout=60)
           print('=== pencil_dod_evaluate_county(polk) ===')
           if r.status_code == 200:
               ev = r.json()
