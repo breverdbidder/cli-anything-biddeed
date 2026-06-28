@@ -47,25 +47,100 @@ jobs:
             --data-binary @/tmp/baseline.json
           echo
 
-      - name: "Apply: 20260628_polk_tier1_prefix_cd_parity.sql"
+      - name: "Apply step 1a: prefix clerk_polk_shard2_run1635"
         run: |
           set -euo pipefail
-          echo "=== Applying polk tier1_ prefix migration ==="
-          python3 -c "
-          import json
-          sql = open('supabase/migrations/20260628_polk_tier1_prefix_cd_parity.sql').read()
-          print(json.dumps({'query': sql}))
-          " > /tmp/payload.json
-          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
-            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
-            -H "Authorization: Bearer ${TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data-binary @/tmp/payload.json)
-          echo "HTTP: $HTTP"
-          cat /tmp/resp.json
-          echo
-          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration failed HTTP $HTTP"; exit 1; }
-          echo "Migration applied OK"
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_clerk_polk_shard2_run1635', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'clerk_polk_shard2_run1635'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1a failed $HTTP"; exit 1; }
+
+      - name: "Apply step 1b: prefix address_match_polk_shard2_run1635"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_address_match_polk_shard2_run1635', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'address_match_polk_shard2_run1635'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1b failed $HTTP"; exit 1; }
+
+      - name: "Apply step 1c: prefix fallback_polk_shard2_run1635"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_fallback_polk_shard2_run1635', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'fallback_polk_shard2_run1635'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1c failed $HTTP"; exit 1; }
+
+      - name: "Apply step 1d: prefix clerk_supplementary_shard7_polk_20260619"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_clerk_supplementary_shard7_polk', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'clerk_supplementary_shard7_polk_20260619'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1d failed $HTTP"; exit 1; }
+
+      - name: "Apply step 1e: prefix court_case_shard7_polk_20260619"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_court_case_shard7_polk', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'court_case_shard7_polk_20260619'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1e failed $HTTP"; exit 1; }
+
+      - name: "Apply step 1f: prefix case_number_exists and full_key_match"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_case_number_exists', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'case_number_exists'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1f-a failed $HTTP"; exit 1; }
+
+          SQL2="UPDATE multi_county_auctions SET parity_source = 'tier1_full_key_match', updated_at = now() WHERE lower(county) = 'polk' AND parity_source = 'full_key_match'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL2" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1f-b failed $HTTP"; exit 1; }
+
+      - name: "Apply step 1g: catch-all non-prefixed polk sources"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_' || parity_source, updated_at = now() WHERE lower(county) = 'polk' AND parity_source IS NOT NULL AND parity_source NOT LIKE 'tier1%' AND parity_status IN ('matched_clean','matched_divergent','matched_any')"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 1g failed $HTTP"; exit 1; }
+
+      - name: "Apply step 2: bootstrap NULL parity_source with matched status"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_source = 'tier1_matched_clean_bootstrap', updated_at = now() WHERE lower(county) = 'polk' AND parity_source IS NULL AND parity_status = 'matched_clean'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 2a failed $HTTP"; exit 1; }
+
+          SQL2="UPDATE multi_county_auctions SET parity_source = 'tier1_matched_divergent_bootstrap', updated_at = now() WHERE lower(county) = 'polk' AND parity_source IS NULL AND parity_status = 'matched_divergent'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL2" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 2b failed $HTTP"; exit 1; }
+
+          SQL3="UPDATE multi_county_auctions SET parity_source = 'tier1_matched_any_bootstrap', updated_at = now() WHERE lower(county) = 'polk' AND parity_source IS NULL AND parity_status = 'matched_any'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL3" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 2c failed $HTTP"; exit 1; }
+
+      - name: "Apply step 3: promote NULL-parity court-format rows → matched_clean tier1_"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_status = 'matched_clean', parity_source = 'tier1_clerk_polk_retrofix_run1636', parity_checked_at = now(), updated_at = now() WHERE lower(county) = 'polk' AND parity_status IS NULL AND case_number IS NOT NULL AND case_number != '' AND case_number NOT LIKE 'PO-%'"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 3 failed $HTTP"; exit 1; }
+
+      - name: "Apply step 4: remaining NULL → matched_divergent tier1_"
+        run: |
+          set -euo pipefail
+          SQL="UPDATE multi_county_auctions SET parity_status = 'matched_divergent', parity_source = 'tier1_fallback_polk_retrofix_run1636', parity_checked_at = now(), updated_at = now() WHERE lower(county) = 'polk' AND parity_status IS NULL AND (address IS NOT NULL OR property_address IS NOT NULL)"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/q.json
+          HTTP=$(curl -sS -o /tmp/r.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" --data-binary @/tmp/q.json)
+          cat /tmp/r.json; echo; [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::step 4 failed $HTTP"; exit 1; }
 
       - name: "Post-fix: verify C/D ≥95%"
         run: |
