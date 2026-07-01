@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { validateKey, assertTier, resolveApiKey, AuthError } from './auth.js';
+import { validateOAuthToken, resolveCustomerFromOAuth, isJwtLike } from './oauth.js';
 import { recordBilling } from './billing.js';
 import { TOOL_STREAM } from './constants.js';
 
@@ -87,11 +88,15 @@ export function createServer(apiKey) {
       return { content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }) }], isError: true };
     }
 
-    // Auth + tier check
+    // Auth + tier check — bd_* API key and WorkOS OAuth bearer token are
+    // parallel paths; the credential shape (JWT vs opaque bd_ string) decides
+    // which validator runs.
     let customerRecord;
     try {
-      const key = resolveApiKey(apiKey);
-      customerRecord = await validateKey(key);
+      const credential = resolveApiKey(apiKey);
+      customerRecord = isJwtLike(credential)
+        ? await resolveCustomerFromOAuth(await validateOAuthToken(credential))
+        : await validateKey(credential);
       const streamId = TOOL_STREAM[name] || 's1';
       assertTier(customerRecord, streamId);
     } catch (err) {

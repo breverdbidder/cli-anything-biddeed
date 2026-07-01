@@ -122,7 +122,15 @@ BidDeed matches all 17 Investra tools plus 8 exclusives:
 
 ## Auth
 
-API keys: `bd_live_xxx` (BidDeed) or `zw_live_xxx` (ZoneWise)
+Two parallel auth paths on HTTP mode — either works, pick one per request:
+
+- API keys: `bd_live_xxx` (BidDeed) or `zw_live_xxx` (ZoneWise) — `Authorization: Bearer bd_live_xxx`
+- OAuth: a WorkOS AuthKit access token — `Authorization: Bearer eyJ...` (JWT).
+  biddeed-mcp is a resource server only — it verifies tokens WorkOS issued, it
+  never issues tokens itself. Clients discover the authorization server via
+  `GET /.well-known/oauth-protected-resource`. On first OAuth login, the
+  WorkOS user is upserted into `mcp_customers` (`tier_id='free'`,
+  `stripe_customer_id=NULL` until linked in Sprint 3).
 
 Tiers: free → investor → pro → proplus → enterprise
 
@@ -134,6 +142,9 @@ Tiers: free → investor → pro → proplus → enterprise
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
 | `STRIPE_SECRET_KEY` | S5 only | For metered S5 billing |
+| `WORKOS_API_KEY` | OAuth only | WorkOS secret key — required to accept OAuth bearer tokens |
+| `WORKOS_CLIENT_ID` | OAuth only | WorkOS AuthKit client ID — derives the JWKS endpoint |
+| `MCP_PUBLIC_URL` | No | Canonical MCP URL for OAuth metadata (default: `https://biddeed.ai/api/mcp`) |
 | `REISKIP_API_KEY` | skip_trace | REISkip integration |
 | `BATCHDATA_API_KEY` | skip_trace | BatchData fallback |
 | `PORT` | HTTP mode | HTTP server port (default: 3000) |

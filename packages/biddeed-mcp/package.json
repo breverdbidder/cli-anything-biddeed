@@ -4,6 +4,9 @@
   "description": "BidDeed.AI MCP server — FL foreclosure intelligence for Claude, Cursor, ChatGPT. 25 tools: auction search, Shapira underwriting, zoning, lien stacks, co-living analysis.",
   "main": "src/server.js",
   "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  },
   "bin": {
     "biddeed-mcp": "bin/biddeed-mcp.js",
     "biddeed-mcp-http": "bin/biddeed-mcp-http.js"
@@ -13,6 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "jose": "^6.2.3",
     "stripe": "^17.0.0"
   },
   "keywords": [

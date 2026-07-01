@@ -16,6 +16,25 @@ function extractApiKey(req) {
   }
 }
 
+// RFC 9728 protected-resource metadata — tells MCP clients where to go for
+// OAuth (WorkOS AuthKit). biddeed-mcp is the resource server ONLY; it never
+// issues tokens itself.
+export function buildProtectedResourceMetadata(resourceUrl) {
+  return {
+    resource: resourceUrl,
+    authorization_servers: ['https://api.workos.com'],
+    bearer_methods_supported: ['header'],
+  };
+}
+
+function wwwAuthenticateHeader(resourceUrl) {
+  return [
+    'Bearer error="unauthorized"',
+    'error_description="Authorization needed"',
+    `resource_metadata="${resourceUrl}/.well-known/oauth-protected-resource"`,
+  ].join(', ');
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -80,14 +99,26 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // RFC 9728 OAuth protected-resource metadata — resource server discovery
+  if (req.method === 'GET' && path === '/.well-known/oauth-protected-resource') {
+    const resourceUrl = process.env.MCP_PUBLIC_URL || 'https://biddeed.ai/api/mcp';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(buildProtectedResourceMetadata(resourceUrl)));
+    return;
+  }
+
   // MCP over Streamable HTTP
   if (path === '/mcp' || path === '/api/mcp') {
     const apiKey = extractApiKey(req);
     if (!apiKey) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
+      const resourceUrl = process.env.MCP_PUBLIC_URL || 'https://biddeed.ai/api/mcp';
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': wwwAuthenticateHeader(resourceUrl),
+      });
       res.end(JSON.stringify({
         error: 'Authorization required',
-        hint: 'Set header: Authorization: Bearer bd_live_xxx',
+        hint: 'Set header: Authorization: Bearer bd_live_xxx (API key) or a WorkOS OAuth access token',
         get_key: 'https://biddeed.ai/dashboard',
       }));
       return;

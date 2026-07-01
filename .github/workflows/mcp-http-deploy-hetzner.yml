@@ -25,6 +25,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
         run: |
           set -euo pipefail
           HETZNER_IP="87.99.129.125"
@@ -49,6 +51,8 @@ jobs:
           SUPABASE_URL=${SUPABASE_URL}
           SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
           STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+          WORKOS_API_KEY=${WORKOS_API_KEY:-}
+          WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
           PORT=${PORT}
           ENVEOF"
 

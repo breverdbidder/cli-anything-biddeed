@@ -56,9 +56,10 @@ export class AuthError extends Error {
   }
 }
 
-// Resolve API key from env (stdio) or explicit param (HTTP)
+// Resolve auth credential from env (stdio) or explicit param (HTTP) — may be
+// a bd_* API key or a WorkOS OAuth bearer token, disambiguated by the caller.
 export function resolveApiKey(envKey) {
   const key = envKey || process.env.BIDDEED_API_KEY || process.env.ZONEWISE_API_KEY;
-  if (!key) throw new AuthError('API key required. Set BIDDEED_API_KEY env var.');
+  if (!key) throw new AuthError('Authorization required. Set BIDDEED_API_KEY env var or pass an OAuth bearer token.');
   return key;
 }
