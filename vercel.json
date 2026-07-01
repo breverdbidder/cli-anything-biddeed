@@ -7,6 +7,10 @@
     "api/mcp.js": {
       "runtime": "nodejs20.x",
       "maxDuration": 60
+    },
+    "api/stripe/webhook.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
     }
   },
   "rewrites": [
@@ -15,6 +19,7 @@
   "env": {
     "SUPABASE_URL": "@supabase-url",
     "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
-    "STRIPE_SECRET_KEY": "@stripe-secret-key"
+    "STRIPE_SECRET_KEY": "@stripe-secret-key",
+    "STRIPE_WEBHOOK_SECRET": "@stripe-webhook-secret"
   }
 }
