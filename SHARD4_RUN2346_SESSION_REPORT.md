@@ -77,3 +77,26 @@ gulf and marion are genuinely 10/10 (gulf's E/I no longer rest on any placeholde
 | Fleet loop/certify | run if no other shard mid-flight | skipped — 9 other shards dispatched same timestamp | Per parallel-fleet rules |
 | ULTRALOOP audit | populate audit table for cert eligibility | 30/120-agent workflow run, all rows persisted, surfaced 5 real findings (2 fixed, 1 reverted, 2 flagged) | Took ~90 min of wall-clock, worth it — caught 2 ghost-successes (one of which I then reverted) and a double-count a naive PASS/FAIL check would have missed |
 | okeechobee real B/F backfill | not planned; attempted after the revert | ran existing `county_outcome_harvester.py` against RealForeclose/RealTaxDeed, found 0 historical results (registration-gated, no credentials available) | Confirmed real data isn't obtainable this session; flagged as concrete next step rather than fabricating a replacement |
+
+## Continuation run (same dispatch redelivered, 2026-07-02 ~10:00-11:00Z) — okeechobee B/F genuinely fixed
+
+The dispatch above was redelivered after the work up to this point had already landed on main. Rather than repeat the ULTRALOOP audit, this continuation picked up the concrete next-step this report flagged and left undone.
+
+**Found a real, public, no-auth data source distinct from the Landmark Web lead documented above**: `pioneer.okeechobeelandmark.com/TaxSmartWebLive` is a *separate* Pioneer Technology Group portal, purpose-built for tax deed case results (the general LandmarkWebLive official-records index does NOT carry sale-price data — its recorded "Deed Consideration" on Certificates of Title is routinely $0.00 for tax deeds, a red herring). TaxSmartWebLive's jqGrid API (`Home/GridSearchData?SearchType=Case%20%23`) returns Status/OpeningBid/HighBid/Surplus directly per case number, no login required.
+
+Harvested all 17 okeechobee TD-format cases: 6 genuinely **SOLD** with real high-bid dollars ($4,500–$23,000), 4 **REDEEMED** (correctly left with no sale amount), 7 still **upcoming** (2026-08-06 sale date). Cross-checked opening_bid + parcel_id byte-for-byte against existing `multi_county_auctions` rows before writing anything — all 6 matched exactly, confirming correct case mapping. 3 of the 6 (2026TD020/028/029) were stale-labeled `cancelled` by our own scraper; corrected to `sold` to match the live Clerk record.
+
+Shipped: `supabase/migrations/20260702_shard4_okeechobee_taxsmartweb_bf_backfill.sql` (commit `1ac9caaf`), applied live via the Supabase Management API (`curl` + explicit `User-Agent` header — the same psql-pooler-auth-broken workaround documented above still applies).
+
+**ULTRALOOP verify (fallback mode, `/effort ultracode` menu unavailable)**: 6-agent workflow, 3 independent refuters each for claims B and F, each independently re-fetching all 6 cases live from TaxSmartWebLive with fresh cookie jars and cross-checking dollar-for-dollar against the DB, checking for propertyonion contamination, duplicate case_numbers, and the >105%/<95% anomaly pattern that caught the prior fabrication. **6/6 SURVIVED.** All rows confirmed persisted via live SELECT (`letter=B: 5 survived=true rows, letter=F: 5 survived=true rows` for this dispatch_id+county).
+
+Final live verification (2026-07-02, post-continuation):
+```
+gulf:       10/10 -- unchanged
+okeechobee: 10/10 -- A P(10) B P(100.0,verified=6/6) C P(100.0) D P(100.0) E P(100.0) F P(100.0,tier1=6/6) G P(100.0) H P(0.1) I P(96.7) J P(100.0)
+marion:     10/10 -- cleaned up by concurrent shard7 (SYN- fabricated parcel_id removal, commit 8013da41) before this continuation touched it
+```
+
+**Net: all three shard counties are now genuinely 10/10** — okeechobee's B/F no longer rest on fabricated data, they rest on independently-verified, adversarially-refuted real Clerk auction results. Full writeup posted to tracking issue [#9914](https://github.com/breverdbidder/cli-anything-biddeed/issues/9914).
+
+Not attempted: the 13 CA/CC-format (judicial foreclosure) okeechobee cases still have no independent B/F source — `okeechobee.realforeclose.com` returns 403 to anonymous requests, and there is no TaxSmartWebLive-equivalent for foreclosure sales (tax-deed only). Doesn't affect the current PASS (none of those 13 rows are closed_sold yet), but flagged as the next concrete gap, same shape as the still-open brevard/duval RealForeclose leads.
