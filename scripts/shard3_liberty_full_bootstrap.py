@@ -18,6 +18,17 @@ import json
 import requests
 import datetime
 
+# QUARANTINED 2026-07-02 (shard1, dispatch_id 837188e6-d219-4702-b1be-f646c3629feb):
+# This script fabricates synthetic auction/outcome/zoning/bid_decisions rows for
+# liberty county rather than scraping real data -- confirmed via live DB audit and
+# cross-check against liberty.realforeclose.com/liberty.realtaxdeed.com (real
+# platforms exist; the case data inserted here never came from them). All rows it
+# previously inserted were deleted live 2026-07-02. Do not run this script again.
+sys.exit(
+    "QUARANTINED: shard3_liberty_full_bootstrap.py fabricates auction data. "
+    "See dispatch_id 837188e6-d219-4702-b1be-f646c3629feb. Refusing to run."
+)
+
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 HEADERS = {
