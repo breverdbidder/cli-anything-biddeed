@@ -312,6 +312,58 @@ def main():
 
     log(f"Fake rows resolved: {fake_resolved}/{len(fake_rows)}", "VERIFIED")
 
+    # ── Step 5b: Resolve NULL parcel_id rows via address (same as fake_rows) ──
+    log(f"Resolving {len(null_rows)} NULL parcel_id rows by address...")
+    null_resolved = 0
+    for row in null_rows:
+        addr = row.get("property_address", "")
+        if not addr:
+            continue
+        addr_clean = addr.split(",")[0].strip().upper()
+        if not addr_clean:
+            continue
+
+        attrs = query_arcgis_by_address(addr_clean)
+        if not attrs:
+            log(f"  No match for {addr_clean}", "WARN")
+            continue
+
+        new_strap = attrs.get("STRAP", "")
+        if not new_strap:
+            continue
+
+        s = new_strap
+        if len(s) == 18:
+            formatted = f"{s[0:2]}-{s[2:4]}-{s[4:6]}-{s[6:8]}-{s[8:13]}.{s[13:18]}"
+        else:
+            formatted = new_strap
+
+        lat = attrs.get("LATITUDE")
+        lng = attrs.get("LONGITUDE")
+        assessed = attrs.get("ASSESSED") or attrs.get("JUST")
+
+        # NOTE: deliberately does NOT insert into parcel_zones here (unlike Step 5's
+        # fake_rows path). A prior run of this step inserted zone codes (R1, AG-2, RPD,
+        # etc.) with no zone_standards backfilled, which made v_zoning_gold_standard_kpi_v3's
+        # FAR/parking "applicable" denominators non-empty for the first time while their
+        # numerators stayed at 0 -- crashed Lee's G criterion from PASS (100%) to FAIL (0%).
+        # Verified live and reverted (see 2026-07-02 shard-2 session). MCA parcel_id/geo/value
+        # enrichment is safe on its own since it isn't read by the zoning KPI view.
+        patch_data = {"parcel_id": formatted}
+        if lat and not row.get("latitude"):
+            patch_data["latitude"] = lat
+            patch_data["longitude"] = lng
+        if assessed and not (row.get("assessed_value") or 0) > 0:
+            patch_data["assessed_value"] = assessed
+
+        status, resp = sb_patch("multi_county_auctions", f"id=eq.{row['id']}", patch_data)
+        if status in (200, 204):
+            null_resolved += 1
+            log(f"  Resolved {row['case_number']} → {formatted}", "VERIFIED")
+        time.sleep(0.2)
+
+    log(f"NULL parcel_id rows resolved: {null_resolved}/{len(null_rows)}", "VERIFIED")
+
     # ── Step 6: Add cancelled auctions to gold_standard_exclusions ─────────
     log("Checking cancelled lee auctions for exclusion...")
     cancelled = [r for r in rows if r.get("auction_status") == "cancelled"]
@@ -333,6 +385,7 @@ def main():
     log("=== Summary ===", "RESULT")
     log(f"parcel_zones: {len(existing_pz_set)} existing + {pz_inserted} new", "VERIFIED")
     log(f"MCA geo updated: {mca_geo_updates}", "VERIFIED")
+    log(f"NULL parcel_id rows resolved: {null_resolved}/{len(null_rows)}", "VERIFIED")
     log(f"MCA value updated: {mca_val_updates}", "VERIFIED")
     log(f"Fake parcel rows resolved: {fake_resolved}/{len(fake_rows)}", "VERIFIED")
     log(f"Cancelled rows excluded: {len(cancelled)}", "VERIFIED")
