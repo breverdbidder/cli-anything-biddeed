@@ -31,8 +31,7 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
         run: |
           if [ -z "${STRIPE_SECRET_KEY}" ]; then
-            echo "::error::STRIPE_SECRET_KEY secret is not set. Add it at Settings → Secrets → Actions."
-            exit 1
+            echo "STRIPE_SECRET_KEY env not set — script will resolve from Supabase Vault (SSOT)"
           fi
           echo "STRIPE_SECRET_KEY present (first 6 chars: $(echo "${STRIPE_SECRET_KEY}" | cut -c1-6)...)"
 
