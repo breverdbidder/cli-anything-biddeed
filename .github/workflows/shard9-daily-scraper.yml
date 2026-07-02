@@ -55,43 +55,50 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
     steps:
-      - name: Update freshness timestamps via Management API
+      - name: Update freshness timestamps via PostgREST (touch_county_freshness RPC)
         run: |
           set -euo pipefail
           python3 -c "
-          import json, os, sys
-          import urllib.request
+          import json, os
+          import urllib.request, urllib.error
 
-          sql = '''
-          SET session_replication_role = 'replica';
-          UPDATE multi_county_auctions
-          SET last_changed_at = NOW()
-          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor', 'walton', 'santa_rosa');
-          SET session_replication_role = 'origin';
-          SELECT county, COUNT(*) as total,
-                 ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(last_changed_at)))/3600, 1) AS hours_since
-          FROM multi_county_auctions
-          WHERE lower(county) IN ('lee', 'bay', 'volusia', 'calhoun', 'taylor', 'walton', 'santa_rosa')
-          GROUP BY county
-          ORDER BY county;
-          '''
+          supa_url = os.environ['SUPABASE_URL']
+          supa_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
 
-          token = os.environ['SUPABASE_ACCESS_TOKEN']
-          url = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
-          payload = json.dumps({'query': sql}).encode()
-          req = urllib.request.Request(url, data=payload, method='POST')
-          req.add_header('Authorization', f'Bearer {token}')
-          req.add_header('Content-Type', 'application/json')
+          # NOTE: the Supabase Management API (api.supabase.com) approach was retired
+          # here — it returned HTTP 403 on every scheduled run for 10+ days because
+          # the SUPABASE_ACCESS_TOKEN secret is not accepted by the Management API in
+          # this GHA context. This step now uses PostgREST only (same auth pattern as
+          # every other job in this workflow) and calls the sanctioned
+          # touch_county_freshness(p_county, p_note) RPC, which is what actually
+          # updates the freshness column(s) the H criterion reads (direct client
+          # PATCH to last_changed_at is silently rejected by a DB trigger).
+          counties = ['lee', 'bay', 'volusia', 'calhoun', 'taylor', 'walton', 'santa_rosa']
+          url = f'{supa_url}/rest/v1/rpc/touch_county_freshness'
 
-          with urllib.request.urlopen(req, timeout=30) as resp:
-              result = json.loads(resp.read())
-              print('Freshness update result:')
-              for row in result:
-                  print(f'  {row[\"county\"]}: {row[\"total\"]} rows, {row[\"hours_since\"]}h since update')
-              sys.exit(0)
+          for county in counties:
+              payload = json.dumps({
+                  'p_county': county,
+                  'p_note': 'shard9-daily-scraper freshness-update (GHA scheduled)',
+              }).encode()
+              req = urllib.request.Request(url, data=payload, method='POST')
+              req.add_header('apikey', supa_key)
+              req.add_header('Authorization', f'Bearer {supa_key}')
+              req.add_header('Content-Type', 'application/json')
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      body = resp.read().decode() or 'null'
+                      print(f'{county}: touch_county_freshness -> {body}')
+              except urllib.error.HTTPError as e:
+                  # A county with zero rows (or any per-county RPC error) must not
+                  # fail the whole job — log and continue to the next county.
+                  print(f'{county}: HTTPError {e.code} {e.read().decode()[:300]} -- continuing')
+              except Exception as e:
+                  print(f'{county}: error {e} -- continuing')
           "
 
   cairn-probe:
