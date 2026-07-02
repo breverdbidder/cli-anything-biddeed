@@ -104,7 +104,7 @@ credentialed/JS-capable scraping, out of scope for the time remaining):**
 4. Do not resurrect a bootstrap/seed step in the workflow; if a placeholder is ever needed again,
    it must write to a clearly-separate non-scored staging table, never `multi_county_auctions`.
 
-### lake — brief said 3/10 (partly false); honest score is **5/10** (up from a true baseline of ~2/10)
+### lake — brief said 3/10 (partly false); honest score is **7/10** (up from a true baseline of ~2/10)
 The pre-session "4/10 ad-hoc" reading was itself contaminated (3 fake FC rows inflating
 `auctions_total` while also being unmatched, dragging C/D/E/I down to 78.6%). After removing the
 fakes, the 11 real rows genuinely match/link/card-complete at 100%.
@@ -145,6 +145,14 @@ view to avoid scope creep into other shards' work.
 - `scripts/shard7_lake_e_i_fix.py` — quarantined (refuses to run)
 - `scripts/shard8_lake_real_arcgis_enrichment.py` — new, real ArcGIS enrichment (already executed live)
 - `SHARD8_SESSION_REPORT.md` — this file
+
+## Self-correction
+
+An earlier draft of this report (and the git commit message) miscounted lake's honest
+post-remediation score as 5/10 by miscounting the pass/fail list. Re-verified live twice: lake
+is **7/10** (`C,D,E,G,H,I,J` PASS; `A,B,F` FAIL). Correcting here per Honesty Protocol
+(wrong = "I was wrong") rather than leaving the arithmetic error uncorrected — same class of
+mistake this repo's own shard-6 adversarial review previously caught (7/10 vs 6/10 for manatee).
 
 ## Verification protocol
 Per PARALLEL-FLEET RULES, `gold_standard_loop()`/`gold_standard_certify()` were **not** run this
