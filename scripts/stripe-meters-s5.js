@@ -14,13 +14,21 @@
 import Stripe from 'stripe';
 
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
-if (!STRIPE_KEY) { console.error('FATAL: STRIPE_SECRET_KEY not set'); process.exit(1); }
+async function resolveStripeKey() {
+  if (STRIPE_KEY && /^(sk|rk)_(live|test)_/.test(STRIPE_KEY)) return STRIPE_KEY;
+  console.log('STRIPE_SECRET_KEY env missing/invalid — using Supabase Vault (SSOT)');
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/vault_secret`, { method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_name: 'stripe_secret_key' }) });
+  if (!r.ok) { console.error('FATAL: vault_secret RPC failed', r.status); process.exit(1); }
+  const k = await r.json();
+  if (!k || !/^(sk|rk)_(live|test)_/.test(k)) { console.error('FATAL: no valid Stripe key in env or vault'); process.exit(1); }
+  return k;
+}
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 if (!SUPABASE_KEY) { console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY not set'); process.exit(1); }
 
-const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' });
+const stripe = new Stripe(await resolveStripeKey(), { apiVersion: '2024-06-20' });
 const LIVE = !STRIPE_KEY.startsWith('sk_test_');
 
 const S5_EVENT_NAME = 's5_predict_auction_outcome';
