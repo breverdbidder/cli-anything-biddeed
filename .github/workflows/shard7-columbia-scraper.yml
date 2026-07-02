@@ -121,37 +121,19 @@ jobs:
             --base-url https://columbia.realtaxdeed.com \
             ${DRY_RUN:+--dry-run} || echo "Scraper not yet implemented -- pending credential provisioning"
 
-  # J-GENERATOR REFRESH
-  columbia-j-generator:
-    name: "J-Generator: run shard7_columbia_bootstrap.py (idempotent upsert)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [columbia-realforeclose, columbia-realtaxdeed]
-    if: always()
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: pip install httpx requests supabase -q
-
-      - name: "Run J-generator bootstrap for columbia county"
-        run: |
-          set -euo pipefail
-          python3 scripts/shard7_columbia_bootstrap.py || echo "Bootstrap not yet implemented -- pending script creation"
+  # NOTE: the former "columbia-j-generator" job (ran scripts/shard7_columbia_bootstrap.py
+  # unconditionally, if: always()) was REMOVED 2026-07-02 (shard-8) — that script wrote
+  # 100% fabricated placeholder auctions into production every day regardless of whether
+  # the real scrapers above succeeded. See public.honesty_violations
+  # (domain=GOLD_STANDARD_CAMPAIGN). Do not reintroduce a bootstrap/seed step here; wire a
+  # real scraper into columbia-realforeclose / columbia-realtaxdeed instead.
 
   # SUMMARY
   summary:
     name: "Columbia County Pipeline Summary"
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [columbia-j-generator]
+    needs: [columbia-realforeclose, columbia-realtaxdeed]
     if: always()
     env:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

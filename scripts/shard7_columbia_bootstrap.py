@@ -10,6 +10,17 @@ import sys
 import httpx
 from datetime import datetime, timezone
 
+# QUARANTINED 2026-07-02 (shard-8, dispatch e8753921-4814-4a11-be35-839594f91e8b):
+# This script writes 100% fabricated placeholder rows (case_number
+# COLUMBIA-*-2026-00N, parcel_id SYN-COL-*, invented sold_amount) into the
+# live production gold_standard scoreboard table. It was wired into
+# .github/workflows/shard7-columbia-scraper.yml and ran daily, silently
+# re-fabricating columbia's entire dataset. See public.honesty_violations
+# (domain=GOLD_STANDARD_CAMPAIGN) for full evidence. DO NOT RE-ENABLE until a
+# real columbia.realforeclose.com / columbia.realtaxdeed.com scraper exists.
+print("QUARANTINED: this script fabricates data — see honesty_violations table. Refusing to run.", file=sys.stderr)
+sys.exit(1)
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 

@@ -13,6 +13,16 @@ import sys
 import urllib.request
 import urllib.error
 
+# QUARANTINED 2026-07-02 (shard-8, dispatch e8753921-4814-4a11-be35-839594f91e8b):
+# This script assigns synthetic parcel_id / city-centroid assessed_value+lat/lon
+# to lake county rows, indistinguishable from real data once live. See
+# public.honesty_violations (domain=GOLD_STANDARD_CAMPAIGN) for evidence — the
+# 11 lake TD rows have since been re-enriched with REAL per-parcel values from
+# the live Lake County Property Appraiser ArcGIS FieldMap service (see
+# scripts/shard8_lake_real_arcgis_enrichment.py). DO NOT RE-RUN this script.
+print("QUARANTINED: this script fabricates data — see honesty_violations table. Refusing to run.", file=sys.stderr)
+sys.exit(1)
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
