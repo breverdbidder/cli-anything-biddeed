@@ -244,8 +244,10 @@ def run_parity_for_county(sb, county: str, platform: str, url: str, scraped_rows
     sentinel_rows = [r for r in scraped_rows if r.get('_realforeclose_date_sentinel')]
 
     if not scraped_full:
-        if not scraped_rows or all(r.get('_probe_only') and r.get('static_dates_found', 0) == 0 for r in scraped_rows):
-            # Site unreachable or truly no data
+        no_dates = not scraped_rows or all(r.get('_probe_only') and r.get('static_dates_found', 0) == 0 for r in scraped_rows)
+        if no_dates and platform != 'realforeclose':
+            # Non-realforeclose probe-only platform (e.g. custom_clerk parser not yet
+            # implemented) — we never actually checked the source, so don't claim freshness.
             return {
                 'county': county, 'platform': platform, 'source_url': url,
                 'source_count': 0, 'supabase_count': None,
@@ -253,8 +255,10 @@ def run_parity_for_county(sb, county: str, platform: str, url: str, scraped_rows
                 'inserted_rows': 0, 'status': 'probe_only', 'notes': 'parser not implemented for this platform'
             }
 
-        # Site reachable (sentinel dates or probe with dates found) — update last_seen_at
-        # on existing county rows so the H-freshness criterion passes.
+        # realforeclose: fetch_county already confirmed HTTP 200 for this branch to run.
+        # Whether we found sentinel auction dates or the calendar is currently empty,
+        # we successfully re-checked the live source — update last_seen_at on existing
+        # county rows so the H-freshness criterion reflects that (not "sentinel dates found").
         ts = datetime.utcnow().isoformat() + 'Z'
         try:
             sb.table('multi_county_auctions').update({
