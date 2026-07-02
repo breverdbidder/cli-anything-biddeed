@@ -16,7 +16,7 @@ Only H was failing (119.7h since last freshness stamp — SLA 48h). Root cause: 
 | H | FAIL (119.7h) | **PASS (0.0h)** |
 | A–G, I, J | PASS | PASS (unchanged) |
 
-## manatee — 5/10 → 7/10 (VERIFIED)
+## manatee — 5/10 → 6/10 (VERIFIED; corrected from an earlier arithmetic error in this same report — see Adversarial verification below)
 
 ### Fleet-wide context (not this shard's work, but changes the denominator)
 Mid-session, a concurrent shard (shard-5) shipped `supabase/migrations/20260702_shard5_evaluator_propertyonion_exclusion.sql`, excluding `data_source='propertyonion'` rows from every `pencil_dod_evaluate_county` denominator, fleet-wide. For manatee this dropped `auctions_total` from 1428 to **64** — 1359 of the 1428 rows were PropertyOnion-derived (`case_number` like `PO-xxxxxx`, no real court case number, `data_source='propertyonion'`), a direct violation of the standing HARD GUARDRAIL ("PropertyOnion = litmus ONLY"). I had independently reached the same root-cause diagnosis for C/D via my own audit workflow before this landed (see below) — it was confirmed by a different session's live data before I could act on it myself.
@@ -49,13 +49,24 @@ Current: density=90.5%, far=35.3% (binding constraint, 5 of 16 far-applicable pa
 ### C/D — 4.5% → 92.2% (FAIL, short of 95%)
 Root cause (confirmed independently, then superseded live by the shard-5 fleet fix): PropertyOnion-derived rows. Against the 64-row true scope, 59/64 already carry `parity_status='matched_clean'` from a prior session's `tier1_clerk_litmus_c_fix_20260625` batch (0.85 confidence). The 5 remaining unmatched rows were **all scraped 2026-07-01** (yesterday, after that batch ran, still-open auctions with `sold_amount IS NULL`) — this is not a data-quality problem, it's the parity-matching pipeline needing to run on newly-scraped rows. I did not have the original litmus methodology/script to rerun it myself this session, so I left `parity_status` null on these 5 rather than fabricate a match. **Next session: locate/rerun the `tier1_clerk_litmus` pipeline against manatee's newest scrapes.**
 
-## Final scoreboard (VERIFIED live, `pencil_dod_evaluate_county`, 2026-07-02)
+## Adversarial verification (ULTRALOOP PROTOCOL, ultracode)
+
+Ran an independent refuter workflow against 4 claims before logging to `gold_standard_ultraloop_audit`. 2 survived, 2 were refuted — both refutations were real findings, not false alarms:
+
+- **lafayette H — REFUTED (claim wording, not the metric)**: my claim called the 2 lafayette rows "real (non-synthetic)". They are prior-session bootstrap seed rows (`provenance=pipeline_seed_lafayette_shard1_ffd85d01`, `parcel_id=SYN-LAF-*`) — already disclosed as such earlier in this report, but the terse ultraloop claim text overstated it. H's numeric PASS (0.0h, live) is not in dispute. Logged `survived=false` with the correction.
+- **manatee J — REFUTED, then FIXED**: the refuter found 12 duplicate `bid_decisions` rows (ids 54381–54392, inserted 2026-07-02T00:09:41 by my first, *non-paginated* `shard9_j_generator.py` run, duplicating pre-existing 2026-07-01T14:58:09 rows). Root cause: that first run's own dedup-fetch of *existing* `bid_decisions` rows hit the exact same PostgREST 1000-row cap that motivated building the paginated wrapper in the first place — it silently missed 12 pre-existing rows past position 1000 and re-inserted them. **Fixed**: deleted the 12 duplicates via Management API; re-verified 0 duplicates remain and J still reads 100.0% (64/64) live.
+- **manatee E — SURVIVED**: independently re-queried the evaluator, the DB, and the live ArcGIS endpoint (3 spot-checks); all numbers and the exact-match-only methodology corroborated.
+- **manatee G — SURVIVED**: every specific number in the regression/repair claim (893+3 rows, 23 zone codes, 11-parcel FAR gap breakdown) was independently reproduced from live SQL; no ghost-success, gap explicitly labeled `(unverified FAR)` in the DB itself.
+
+**This adversarial pass is also what caught the 7/10 vs 6/10 arithmetic error below** — I mis-summed the final letter grid in an earlier draft of this report before the workflow finished; recounting A,B,E,F,H,J=PASS (6) vs C,D,G,I=FAIL (4) gives 6/10, not 7/10.
+
+## Final scoreboard (VERIFIED live, `pencil_dod_evaluate_county`, 2026-07-02, post duplicate-cleanup)
 
 | County | A | B | C | D | E | F | G | H | I | J | Score |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | indian_river | P | P | P | P | P | P | P | P | P | P | **10/10** |
 | lafayette | P | P | P | P | P | P | P | P | P | P | **10/10** (was 9/10) |
-| manatee | P | P | F(92.2) | F(92.2) | P(95.3) | P | F(35.3) | P | F(92.2) | P | **7/10** (was 5/10) |
+| manatee | P | P | F(92.2) | F(92.2) | P(95.3) | P | F(35.3) | P | F(92.2) | P | **6/10** (was 5/10) |
 
 ## Handoff for next manatee session
 1. G: find real Manatee LDC FAR values for HM/NC-M/NC-S (11 parcels) — Municode blocks WebFetch (403); try Firecrawl with an API key, or the county's own PDF exports.
