@@ -183,3 +183,117 @@ source; B/F unmeasurable until auctions close) is not closed, only the fabricati
    Two instances found in one 3-county shard is not reassuring about the other ~64 counties.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+---
+
+## Follow-up session (same day, 2026-07-02) — real lake A fix, columbia dead-end confirmed
+
+Continuation of the handoff above. Re-verified live via `pencil_dod_evaluate_county` before doing
+anything (numbers matched the prior session's honest baseline exactly: martin 10/10, columbia 1/10,
+lake 7/10 — no drift between sessions).
+
+### lake A: real fix, shipped
+
+Root cause (VERIFIED, live): `lake.realforeclose.com` is not a functioning foreclosure auction site.
+Its own "Jump To" site directory (present on every RealAuction subdomain, including lake's) lists
+"Lake Taxdeed" but has no "Lake Foreclosure" entry at all — contrast with Martin's directory entry,
+which lists both "Martin Foreclosure" and "Martin Taxdeed". The page itself states *"This feature is
+currently offline."* `pipeline.counties.foreclosure_platform='realforeclose'` for lake was therefore
+stale/wrong, matching the CLAUDE.md exception pattern ("Before assuming any county is standard, check
+pipeline.counties... if foreclosure_platform is not realauction, locate its clerk calendar first") —
+except here the config *claimed* realauction but the live site disproves it.
+
+Real source (VERIFIED via a background research+adversarial-verify workflow, independently
+re-confirmed with fresh `curl` before shipping): Lake County foreclosure sales are held in person at
+the Lake County Courthouse. The Clerk publishes the real calendar at
+`https://foreclosurecalendar.lakecountyclerkfl.gov/default.aspx` (iframed into
+lakecountyclerkfl.gov's "Foreclosure Sales Calendar" page) — plain server-rendered HTML, no JS, no
+auth. 86 real entries were present at scrape time (Jul–Oct 2026), real FL case-number formats
+(`YYYY-CA-NNNNNN` / `YYYY-CC-NNNNNN`), real varied plaintiffs (US Bank Trust, PennyMac, UMB Bank,
+etc.), cross-checked against individual `sale_details.aspx?id=N` detail pages. No dollar amount or
+property address is published on this calendar (unlike RealForeclose-style sites) — those fields are
+left `NULL`, never invented.
+
+Shipped: `scripts/shard8_lake_clerk_foreclosure_scraper.py` (parses the calendar, upserts to
+`multi_county_auctions` with `source_platform='lake_clerk_foreclosure_calendar'`,
+`data_source='lake_clerk_foreclosure_calendar_v1'`, `auction_venue='in_person'` — this DB column is
+constrained to `'online'|'in_person'` only, learned live when the first upsert attempt hit
+`chk_auction_venue`), wired to `.github/workflows/shard8-lake-clerk-foreclosure-scraper.yml` (daily
+cron 08:15 UTC + `workflow_dispatch`). Ran live: **83 distinct real rows upserted** (86 parsed, 3
+were repeat listings of the same case/sale_type that deduplicated on the upsert key).
+
+### Honest trade-off — pass count dropped 7/10 → 3/10, and that is correct, not a regression
+
+```
+BEFORE (this session)                    AFTER (real lake A fix shipped)
+A FAIL (fc=0,td=11)                      A PASS (fc=83,td=11)  ✅ real fix
+B FAIL (null)                            B FAIL (null)          unchanged (0 closed_sold)
+C PASS (100.0, 11/11)                    C FAIL (11.7, 11/94)   ⬇ denominator grew 11→94
+D PASS (100.0)                           D FAIL (11.7)          ⬇ same
+E PASS (100.0)                           E FAIL (11.7)          ⬇ same
+F FAIL (null)                            F FAIL (null)          unchanged (0 closed_sold)
+G PASS (100.0)                           G PASS (100.0)         unchanged
+H PASS (7.4h)                            H PASS (0.0h)          unchanged
+I PASS (100.0, 11/11)                    I FAIL (11.7, 11/94)   ⬇ same
+J PASS (100.0)                           J FAIL (12.8, 12/94)   ⬇ same
+```
+
+This is **not** a regression caused by breaking something that worked — it is the scoreboard
+becoming accurate about a gap that was previously invisible. Before this fix, C/D/E/I/J's 100% was
+100% of an artificially small population (only the 11 tax-deed rows existed at all); 83 real
+foreclosure cases existed in the world but were absent from the database entirely, so the scoreboard
+couldn't see the work still needed on them. Now all 94 real cases are visible, and the honest number
+is that only the 11 tax-deed rows have parcel linkage / card completeness / deal-thesis data — the 83
+foreclosure rows have none, because the clerk calendar (unlike RealForeclose) publishes no property
+address or parcel ID at all, so there is nothing to link from this source alone.
+
+**Not attempted this session (explicitly, to avoid the ArcGIS-centroid-style mistake from earlier
+today):** guessing parcel linkage for the 83 foreclosure cases from defendant name or address
+fuzzy-matching against the property appraiser. That is a real, harder follow-up (likely needs the
+Clerk's official-records/legal-description search per case number, then a real parcel lookup from
+that legal description) — attempting it under time pressure risks exactly the kind of
+low-confidence/guessed-value problem this file already documents twice today. Flagging as the
+concrete next-session target for lake C/D/E/I rather than shipping a shortcut.
+
+### columbia: confirmed dead end, no new data, no action taken
+
+Investigated `columbia.realtdm.com/public/cases/List` (the one *not*-yet-WAF-blocked RealTDM
+platform row in `realauction_subdomains`, `is_active=true` from a 2026-06-18 probe). Live check
+(adversarially re-verified): the endpoint is real and responds `200 OK`, but it is an **unconfigured
+TEST tenant** — page title `realTDM : TEST - Case Search`, clerk name literally `"TEST"` /
+`"Test Clerk"`, and `NO CASES FOUND` on every combination of search filters tried (all 9
+"Active"-family status codes, then all 20 codes across every status group). Zero real Columbia case
+data exists behind this endpoint today. Updated the `realauction_subdomains` row for
+`columbia.realtdm.com` to `is_active=false` with the full finding in `notes`, so this doesn't get
+re-probed as a false lead by a future session. **No auction rows were written for columbia — the
+honest score remains 1/10.** Columbia still needs a full real scraper built from zero (RealForeclose/
+RealTaxDeed WAF-blocked, RealTDM empty-tenant) — no new lead found this session; the
+`columbia.realtaxlien.com` row (`is_active=true`, unprobed) is the only remaining untried lead, noted
+for a future session, not investigated here (scope discipline — one verified new avenue per session,
+not a fishing expedition).
+
+### Verification protocol
+
+Per PARALLEL-FLEET RULES, `gold_standard_loop()` / `gold_standard_certify()` were **not** run this
+session. All numbers above are live `SELECT public.pencil_dod_evaluate_county('<county>')` calls, run
+immediately after the lake write and pasted verbatim (see table above).
+
+### honesty_violations logged this session
+None — no fabrication occurred. The one prior-session pair (`066865c1-...`, `175325ac-...`) remains
+`resolved=false`; the columbia row is still unresolved (still no real scraper), the lake row is now
+partially resolved (A criterion fixed with real data; the B/F gap it also covered is still open,
+unchanged, blocked on auctions actually closing).
+
+### Handoff for tomorrow's session(s)
+1. **lake C/D/E/I**: build real parcel linkage for the 83 foreclosure cases — needs case-number →
+   legal-description → parcel_id, likely via Lake Clerk official-records search, not defendant-name
+   fuzzy matching. Until this ships, C/D/E/I will stay failing (accurately) for lake.
+2. **lake B/F**: still nothing to do until 2026-07-07 (first upcoming sale date); then build an
+   independent outcome-verification scraper.
+3. **columbia**: still needs a scraper built from zero. Untried lead: `columbia.realtaxlien.com`
+   (`is_active=true` per a 2026-05-24 enum note, never probed). RealForeclose/RealTaxDeed/RealTDM are
+   now all confirmed dead ends — do not re-probe them.
+4. **martin**: unaffected, still real 10/10 — re-verified via `pencil_dod_evaluate_county` before and
+   after this session's work (no cross-contamination from lake/columbia changes).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
