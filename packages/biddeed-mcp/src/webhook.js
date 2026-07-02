@@ -50,6 +50,40 @@ async function resolveCustomerId(stripeCustomerId) {
   return rows[0]?.customer_id || null;
 }
 
+// SPRINT3 P0-3 — trial→paid upgrade completion. `stripe_checkout_sessions` rows
+// are written by supabase/functions/biddeed-checkout at session-creation time
+// with metadata (customer_id, tier_id) we trust here — the Checkout Session
+// itself only echoes that same metadata back, so this never trusts anything
+// Stripe didn't get directly from our own checkout-creation call.
+async function processCheckoutCompletion(session) {
+  const sessionId = session.id;
+  const tierId = session.metadata?.tier_id;
+  const customerId = session.metadata?.customer_id;
+  if (!tierId || !customerId) return;
+
+  await sbFetch(`stripe_checkout_sessions?session_id=eq.${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      status: 'complete',
+      completed_at: new Date().toISOString(),
+      stripe_customer_id: session.customer || null,
+      stripe_subscription_id: session.subscription || null,
+    }),
+  });
+
+  await sbFetch(`mcp_api_keys?customer_id=eq.${encodeURIComponent(customerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      tier: tierId,
+      stripe_customer_id: session.customer || null,
+      expires_at: null,
+      is_active: true,
+      active: true,
+      revoked_at: null,
+    }),
+  });
+}
+
 export async function handleStripeWebhook(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
@@ -105,6 +139,14 @@ export async function handleStripeWebhook(req, res) {
         error: err.message,
       }),
     }).catch(() => {});
+  }
+
+  // Additive post-processing — failures here are logged, never affect the
+  // 200 response below (Stripe must not see this as a delivery failure/retry).
+  if (event.type === 'checkout.session.completed') {
+    await processCheckoutCompletion(event.data.object).catch(err => {
+      process.stderr.write(`[stripe/webhook] checkout completion post-processing failed for ${event.id}: ${err.message}\n`);
+    });
   }
 
   res.writeHead(200, { 'Content-Type': 'application/json' });

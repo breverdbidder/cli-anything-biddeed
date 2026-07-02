@@ -6,6 +6,10 @@ import { TIER_RANK, STREAM_GATE } from './constants.js';
 const cache = new Map(); // hash → { record, expiresAt }
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Trial expiry: 7-day read-only grace period before hard cutoff (SPRINT3 P0-3)
+export const TRIAL_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+export const CHECKOUT_URL = 'https://biddeed.ai/biddeed-mcp/start/?checkout=1';
+
 function hashKey(apiKey) {
   return createHash('sha256').update(apiKey).digest('hex');
 }
@@ -21,10 +25,18 @@ export async function validateKey(apiKey) {
   if (!rows.length) throw new AuthError('Invalid API key');
 
   const record = rows[0];
-  if (!record.is_active) throw new AuthError('API key deactivated — contact support@biddeed.ai');
-  if (record.expires_at && new Date(record.expires_at) < new Date()) {
-    throw new AuthError('API key expired — renew at biddeed.ai/dashboard');
+  const now = new Date();
+  if (record.expires_at) {
+    const expiresAt = new Date(record.expires_at);
+    const graceEnd = new Date(expiresAt.getTime() + TRIAL_GRACE_MS);
+    if (now > graceEnd) {
+      throw new AuthError(`Trial expired — upgrade to keep full access: ${CHECKOUT_URL}`);
+    }
+    // Within the 7-day grace window: allow the call through, but flag it so
+    // assertTier() can restrict to free-tier (read-only) streams only.
+    record._trialGrace = now > expiresAt;
   }
+  if (!record.is_active) throw new AuthError('API key deactivated — contact support@biddeed.ai');
 
   cache.set(hash, { record, expiresAt: Date.now() + CACHE_TTL_MS });
 
@@ -41,6 +53,11 @@ export function assertTier(customerRecord, streamId) {
   const required = STREAM_GATE[streamId];
   const customerRank = TIER_RANK[customerRecord.tier] ?? 0;
   const requiredRank = TIER_RANK[required] ?? 0;
+  if (customerRecord._trialGrace && requiredRank > TIER_RANK.free) {
+    throw new AuthError(
+      `Trial expired — read-only grace period, upgrade for full access: ${CHECKOUT_URL}`
+    );
+  }
   if (customerRank < requiredRank) {
     throw new AuthError(
       `Stream ${streamId} requires ${required} tier — current tier: ${customerRecord.tier}. Upgrade at biddeed.ai/upgrade`
