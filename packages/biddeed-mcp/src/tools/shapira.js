@@ -5,6 +5,7 @@ export const schemas = [
   {
     name: 'predict_auction_outcome',
     description: 'Shapira Formula XGBoost+LGBM+CatBoost→RF ensemble. 82.6% accuracy on Gold Standard counties. CERT REQUIRED: county must pass BidDeed 10-letter Gold Standard. Returns: predicted outcome (sell/cancel/postpone), confidence %, max bid, and risk factors. $25/call.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

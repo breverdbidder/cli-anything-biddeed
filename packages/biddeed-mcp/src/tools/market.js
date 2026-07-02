@@ -5,6 +5,7 @@ export const schemas = [
   {
     name: 'get_interest_rate',
     description: 'Current US mortgage interest rates from FRED (Federal Reserve). Returns 30-yr fixed, 15-yr fixed, and 10-yr Treasury. Same FRED source as Investra — free tier.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     inputSchema: {
       type: 'object',
       properties: {
@@ -20,6 +21,7 @@ export const schemas = [
   {
     name: 'get_market_data',
     description: 'National and FL-specific real estate market data: mortgage rates, home price index, vacancy rates. Same FRED source as Investra with FL overlay.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     inputSchema: {
       type: 'object',
       properties: {
@@ -32,6 +34,7 @@ export const schemas = [
   {
     name: 'skip_trace',
     description: 'Owner skip trace — phone, email, additional addresses. Passthrough to REISkip/BatchData at $0.07–$0.15/record (vs Investra $0.98). Pro tier required.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     inputSchema: {
       type: 'object',
       properties: {

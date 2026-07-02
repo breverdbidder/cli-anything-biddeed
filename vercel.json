@@ -14,7 +14,9 @@
     }
   },
   "rewrites": [
-    { "source": "/api/mcp/(.*)", "destination": "/api/mcp" }
+    { "source": "/api/mcp/(.*)", "destination": "/api/mcp" },
+    { "source": "/.well-known/oauth-protected-resource", "destination": "/api/mcp" },
+    { "source": "/.well-known/oauth-protected-resource/api/mcp", "destination": "/api/mcp" }
   ],
   "env": {
     "SUPABASE_URL": "@supabase-url",

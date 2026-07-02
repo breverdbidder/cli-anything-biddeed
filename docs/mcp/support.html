@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BidDeed MCP · Support</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { --navy:#1E3A5F; --orange:#F59E0B; --bg:#020617; --panel:#0F172A; --border:#1E293B; --text:#E2E8F0; --muted:#64748B; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.6}
+  header{padding:28px 24px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#0F172A 0%,#020617 100%)}
+  h1{margin:0;font-size:22px;font-weight:700}
+  .sub{color:var(--muted);font-size:13px;margin-top:6px}
+  nav.crumbs a{color:var(--orange);text-decoration:none;font-size:12px}
+  main{max-width:760px;margin:0 auto;padding:28px 24px 80px}
+  h2{font-size:16px;color:var(--orange);margin-top:32px}
+  table{width:100%;border-collapse:collapse;margin:12px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+  a{color:var(--orange)}
+  code{background:var(--panel);padding:1px 6px;border-radius:4px;font-size:0.9em;font-family:'JetBrains Mono',monospace}
+  footer{max-width:760px;margin:0 auto;padding:24px;color:var(--muted);font-size:12px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<header>
+  <nav class="crumbs"><a href="./index.html">BidDeed MCP Docs</a> / support</nav>
+  <h1>Support</h1>
+  <div class="sub">BidDeed.AI MCP Server · Everest Capital USA</div>
+</header>
+
+<main>
+  <h2>Contact</h2>
+  <table>
+    <tr><th>Channel</th><th>Details</th></tr>
+    <tr><td>Email</td><td><a href="mailto:support@biddeed.ai">support@biddeed.ai</a> — general support, billing, key issues</td></tr>
+    <tr><td>Partnerships</td><td><a href="mailto:partners@biddeed.ai">partners@biddeed.ai</a> — vetted local partner referrals</td></tr>
+    <tr><td>Dashboard</td><td><a href="https://biddeed.ai/dashboard">biddeed.ai/dashboard</a> — manage API keys, tier, watches</td></tr>
+    <tr><td>Issues</td><td><a href="https://github.com/breverdbidder/cli-anything-biddeed/issues">GitHub Issues</a> (tag: <code>biddeed-mcp</code>)</td></tr>
+  </table>
+
+  <h2>Response times</h2>
+  <p>We aim to respond to support email within 1 business day. Auth/billing-blocking issues (invalid key, tier gate errors) are
+  prioritized. For CERT-required tools (<code>predict_auction_outcome</code>) that reject with <code>CERT_REQUIRED</code>, this is
+  expected behavior — see the error message for the exact letter-count gap.</p>
+
+  <h2>Common issues</h2>
+  <table>
+    <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+    <tr><td><code>AUTH_ERROR: Invalid API key</code></td><td>Key revoked, typo, or wrong env var name</td><td>Re-copy key from <a href="https://biddeed.ai/dashboard">dashboard</a>; env var is <code>BIDDEED_API_KEY</code></td></tr>
+    <tr><td><code>Stream sX requires Y tier</code></td><td>Your tier doesn't unlock that revenue stream</td><td>Upgrade at <a href="https://biddeed.ai/upgrade">biddeed.ai/upgrade</a></td></tr>
+    <tr><td><code>CERT_REQUIRED</code> on <code>predict_auction_outcome</code></td><td>County hasn't passed Gold Standard (8+ letters)</td><td>Use <code>underwrite_deal</code> (S3) for uncertified counties</td></tr>
+    <tr><td>OAuth token rejected</td><td>Expired WorkOS session</td><td>Re-authenticate via WorkOS AuthKit in your MCP client</td></tr>
+  </table>
+
+  <h2>Status</h2>
+  <p>Reachability check: <code>GET https://biddeed.ai/api/mcp</code> — a <code>401</code> response (with a
+  <code>WWW-Authenticate</code> header) means the server is up and awaiting credentials; that's expected without a key.
+  Transport: Streamable HTTP.</p>
+
+  <p><a href="./index.html">&larr; Back to docs</a> · <a href="./privacy.html">Privacy Policy</a></p>
+</main>
+
+<footer>
+  &copy; 2026 BidDeed.AI / Everest Capital USA.
+</footer>
+</body>
+</html>

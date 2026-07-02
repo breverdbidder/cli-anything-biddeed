@@ -6,6 +6,7 @@ export const schemas = [
   {
     name: 'search_distressed',
     description: 'Search distressed FL properties: lis pendens, tax delinquent, pre-foreclosure filings. Our advantage over Investra: we add FL-specific lis pendens database + tax cert delinquency status.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -21,6 +22,7 @@ export const schemas = [
   {
     name: 'get_owner_intel',
     description: 'Property owner intelligence: name, mailing address, LLC/trust flag, absentee indicator. Used for pre-foreclosure outreach.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -34,6 +36,7 @@ export const schemas = [
   {
     name: 'get_lien_stack',
     description: 'FL auction lien survival rules. Critical for bid decisions. Returns which liens survive vs are extinguished post-sale per FL FS 197 (tax deed) or FL FS 45 (foreclosure). BidDeed exclusive — Investra has no equivalent.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -47,6 +50,7 @@ export const schemas = [
   {
     name: 'get_rent_estimate',
     description: 'Rent estimate for FL property by zip code using HUD Fair Market Rents. Adds per-room co-living uplift calculation. Better than Investra: we add HUD FMR + auction distress context.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -61,6 +65,7 @@ export const schemas = [
   {
     name: 'analyze_market',
     description: 'County-level auction market analysis: volume trends, avg bid vs judgment, distress rate, absorption. We add auction volume overlay Investra lacks.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -74,6 +79,7 @@ export const schemas = [
   {
     name: 'get_zip_market_data',
     description: 'Zip-code level market data: HUD FMR rents, auction distress rate, median bid, active listings count. Better than Investra: adds auction distress rate overlay.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

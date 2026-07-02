@@ -5,6 +5,7 @@ export const schemas = [
   {
     name: 'watch_auction',
     description: 'Subscribe to auction alerts: 24hr reminder, morning-of notification, and postpone/cancel alerts. BidDeed exclusive — Investra watch_price equivalent but auction-specific. Requires Pro tier subscription.',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

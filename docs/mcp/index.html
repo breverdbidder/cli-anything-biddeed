@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BidDeed MCP · Docs &amp; Tools Reference</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="BidDeed.AI MCP server — 25 tools for Florida foreclosure and tax deed auction intelligence. Quickstart, tool reference, auth.">
+<style>
+  :root {
+    --navy:#1E3A5F; --orange:#F59E0B; --bg:#020617; --panel:#0F172A;
+    --border:#1E293B; --text:#E2E8F0; --muted:#64748B;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.55}
+  header{padding:28px 24px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#0F172A 0%,#020617 100%)}
+  h1{margin:0;font-size:22px;font-weight:700}
+  .sub{color:var(--muted);font-size:13px;margin-top:6px}
+  nav.crumbs a{color:var(--orange);text-decoration:none;font-size:12px}
+  main{max-width:960px;margin:0 auto;padding:28px 24px 80px}
+  h2{font-size:18px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-top:40px}
+  h3{font-size:15px;color:var(--orange);margin-top:24px}
+  code, pre{font-family:'JetBrains Mono','SF Mono',monospace}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;font-size:12.5px}
+  code{background:var(--panel);padding:1px 6px;border-radius:4px;font-size:0.9em}
+  table{width:100%;border-collapse:collapse;margin:12px 0 24px;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.4px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:0.3px}
+  .badge.ro{background:rgba(16,185,129,0.15);color:#10B981}
+  .badge.rw{background:rgba(245,158,11,0.15);color:var(--orange)}
+  .stream-title{color:var(--text);font-weight:600}
+  .price{color:var(--muted);font-size:12px}
+  footer{max-width:960px;margin:0 auto;padding:24px;color:var(--muted);font-size:12px;border-top:1px solid var(--border)}
+  footer a{color:var(--orange)}
+  a{color:var(--orange)}
+</style>
+</head>
+<body>
+<header>
+  <nav class="crumbs"><a href="/cli-anything-biddeed/">breverdbidder/cli-anything-biddeed</a> / mcp</nav>
+  <h1>BidDeed<span style="color:var(--orange)">.AI</span> MCP Server</h1>
+  <div class="sub">25 tools · FL foreclosure &amp; tax deed auction intelligence · Claude, ChatGPT, Cursor, any MCP client</div>
+</header>
+
+<main>
+  <h2>Quickstart</h2>
+
+  <h3>stdio (Claude Desktop / local MCP clients)</h3>
+  <pre>{
+  "mcpServers": {
+    "biddeed": {
+      "command": "npx",
+      "args": ["-y", "biddeed-mcp"],
+      "env": {
+        "BIDDEED_API_KEY": "bd_live_..."
+      }
+    }
+  }
+}</pre>
+  <p>Get an API key at <a href="https://biddeed.ai/dashboard">biddeed.ai/dashboard</a>.</p>
+
+  <h3>Streamable HTTP (Claude web/connectors, remote clients)</h3>
+  <pre>URL: https://biddeed.ai/api/mcp
+Authorization: Bearer bd_live_xxx   (or a WorkOS OAuth access token)</pre>
+  <p>The server speaks MCP over <strong>Streamable HTTP</strong> (single <code>/mcp</code> POST endpoint, no legacy SSE transport). Unauthenticated requests receive
+  <code>401</code> with a <code>WWW-Authenticate</code> header pointing at <code>/.well-known/oauth-protected-resource</code> per RFC&nbsp;9728, so OAuth-aware
+  clients can discover the WorkOS AuthKit authorization server automatically.</p>
+
+  <h2>Authentication</h2>
+  <table>
+    <tr><th>Method</th><th>Header</th><th>Notes</th></tr>
+    <tr><td>API key</td><td><code>Authorization: Bearer bd_live_xxx</code></td><td>Issued per customer; tiered (free / investor / pro / proplus / enterprise)</td></tr>
+    <tr><td>OAuth 2.1 + PKCE</td><td><code>Authorization: Bearer &lt;WorkOS access token&gt;</code></td><td>WorkOS AuthKit is the authorization server. BidDeed MCP is a resource server only — it never issues tokens, only validates them (JWKS + <code>exp</code>/<code>nbf</code>).</td></tr>
+  </table>
+
+  <h2>Tool Reference (25 tools · 7 revenue streams)</h2>
+  <p>Every tool below is annotated with MCP <code>annotations.readOnlyHint</code> / <code>destructiveHint</code>. Nearly all tools are read-only intelligence
+  lookups; the single exception is <code>watch_auction</code>, which creates an alert subscription (non-destructive write).</p>
+
+  <h3>S1 — Discovery <span class="price">$0.05/call · free tier</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>search_auctions</code></td><td><span class="badge ro">read-only</span></td><td>FL foreclosure + tax deed auction calendar</td></tr>
+    <tr><td><code>get_auction_detail</code></td><td><span class="badge ro">read-only</span></td><td>Full detail by case number</td></tr>
+    <tr><td><code>browse_deals</code></td><td><span class="badge ro">read-only</span></td><td>Pre-scored deals ranked by Shapira discount</td></tr>
+    <tr><td><code>get_deposit_requirements</code></td><td><span class="badge ro">read-only</span></td><td>Exact deposit: max($200, 5% × opening_bid)</td></tr>
+    <tr><td><code>find_local_partners</code></td><td><span class="badge ro">read-only</span></td><td>Title companies, attorneys, contractors</td></tr>
+  </table>
+
+  <h3>S2 — Qualification <span class="price">$0.40/call · investor tier</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>search_distressed</code></td><td><span class="badge ro">read-only</span></td><td>Lis pendens, tax delinquent, pre-foreclosure</td></tr>
+    <tr><td><code>get_owner_intel</code></td><td><span class="badge ro">read-only</span></td><td>Property owner intelligence</td></tr>
+    <tr><td><code>get_lien_stack</code></td><td><span class="badge ro">read-only</span></td><td>FL lien survival rules (FS 197 / FS 45)</td></tr>
+    <tr><td><code>get_rent_estimate</code></td><td><span class="badge ro">read-only</span></td><td>HUD FMR + co-living per-room uplift</td></tr>
+    <tr><td><code>analyze_market</code></td><td><span class="badge ro">read-only</span></td><td>County auction market analysis</td></tr>
+    <tr><td><code>get_zip_market_data</code></td><td><span class="badge ro">read-only</span></td><td>Zip-level rents + auction overlay</td></tr>
+  </table>
+
+  <h3>S3 — Fusion <span class="price">$5.00/call · pro tier</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>check_zoning</code></td><td><span class="badge ro">read-only</span></td><td>ZoneWise 771K+ FL parcels</td></tr>
+    <tr><td><code>underwrite_deal</code></td><td><span class="badge ro">read-only</span></td><td>Shapira Formula deal underwriting</td></tr>
+    <tr><td><code>analyze_coliving</code></td><td><span class="badge ro">read-only</span></td><td>Config C 14-suite co-living model</td></tr>
+    <tr><td><code>get_sales_comps</code></td><td><span class="badge ro">read-only</span></td><td>Arm-length vs distressed comps + ARV</td></tr>
+    <tr><td><code>generate_deal_memo</code></td><td><span class="badge ro">read-only</span> (open-world: calls LLM router)</td><td>1-page deal memo (auction + underwriting + zoning + liens)</td></tr>
+    <tr><td><code>get_bid_package</code></td><td><span class="badge ro">read-only</span></td><td>Complete bid package with all data</td></tr>
+    <tr><td><code>get_title_chain</code></td><td><span class="badge ro">read-only</span></td><td>O&amp;E title chain</td></tr>
+  </table>
+
+  <h3>S4 — Monitoring <span class="price">subscription · pro tier</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>watch_auction</code></td><td><span class="badge rw">writes (non-destructive)</span></td><td>Auction alert subscriptions — creates a row in <code>auction_watches</code>; never deletes or overwrites existing data</td></tr>
+  </table>
+
+  <h3>S5 — Shapira Formula <span class="price">$25.00/call · pro tier + CERT required</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>predict_auction_outcome</code></td><td><span class="badge ro">read-only</span></td><td>ML ensemble prediction, Gold Standard counties only</td></tr>
+  </table>
+
+  <h3>S6 — Market Data <span class="price">$0.05/call · free tier</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>get_interest_rate</code></td><td><span class="badge ro">read-only</span> (open-world: FRED)</td><td>Current US mortgage rates</td></tr>
+    <tr><td><code>get_market_data</code></td><td><span class="badge ro">read-only</span> (open-world: FRED)</td><td>National rates + FL auction overlay</td></tr>
+  </table>
+
+  <h3>S7 — Property Intel <span class="price">$0.25/call · investor tier</span></h3>
+  <table>
+    <tr><th>Tool</th><th>Annotations</th><th>Description</th></tr>
+    <tr><td><code>search_properties</code></td><td><span class="badge ro">read-only</span></td><td>FL property search</td></tr>
+    <tr><td><code>get_property_detail</code></td><td><span class="badge ro">read-only</span></td><td>Folio, DOR code, BCPAO, zoning</td></tr>
+    <tr><td><code>skip_trace</code></td><td><span class="badge ro">read-only</span> (open-world: REISkip/BatchData)</td><td>Owner skip trace passthrough</td></tr>
+  </table>
+
+  <h2>Support &amp; Policies</h2>
+  <p><a href="./privacy.html">Privacy Policy</a> · <a href="./support.html">Support</a> · <a href="https://github.com/breverdbidder/cli-anything-biddeed/tree/main/packages/biddeed-mcp">Source (packages/biddeed-mcp)</a></p>
+</main>
+
+<footer>
+  &copy; 2026 BidDeed.AI / Everest Capital USA. Source: <a href="https://github.com/breverdbidder/cli-anything-biddeed/tree/main/packages/biddeed-mcp">GitHub</a>.
+</footer>
+</body>
+</html>

@@ -7,6 +7,7 @@ export const schemas = [
   {
     name: 'check_zoning',
     description: 'ZoneWise zoning lookup — 771K+ FL parcels. Returns zone code, district, FAR, setbacks, max height, permitted uses, and entitlement verdict. BidDeed/ZoneWise exclusive.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -20,6 +21,7 @@ export const schemas = [
   {
     name: 'underwrite_deal',
     description: 'Shapira Formula deal underwriting: calculates max bid, projected returns, and risk score for rental, flip, or BRRRR strategy. Formula: ARV×70% − Repairs − $10K − MIN($25K, 15%×ARV).',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -36,6 +38,7 @@ export const schemas = [
   {
     name: 'analyze_coliving',
     description: 'Config C 14-suite co-living model analysis. Returns per-room configuration, gross revenue potential, OSTDS (septic) capacity flag, and entitlement check. BidDeed exclusive.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -53,6 +56,7 @@ export const schemas = [
   {
     name: 'get_sales_comps',
     description: 'FL property sales comps with arm-length vs distressed split and ARV calculation. Better than Investra: we separate distressed auction sales from arm-length MLS sales for cleaner ARV.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -69,6 +73,7 @@ export const schemas = [
   {
     name: 'generate_deal_memo',
     description: 'Generate 1-page deal memo combining: auction data + Shapira underwriting + zoning verdict + lien stack summary. BidDeed exclusive — Investra cannot produce this.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     inputSchema: {
       type: 'object',
       properties: {
@@ -84,6 +89,7 @@ export const schemas = [
   {
     name: 'get_bid_package',
     description: 'Complete bid package: RealForeclose/RealAuction deep link + deposit calc + Shapira max bid + lien stack + zoning verdict. Everything needed to bid confidently. BidDeed exclusive.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -99,6 +105,7 @@ export const schemas = [
   {
     name: 'get_title_chain',
     description: 'O&E title chain for FL auction properties. Returns chain of title, encumbrances, and title insurance recommendation. Pro Plus tier adds full Acclaim/Harris report.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

@@ -5,6 +5,7 @@ export const schemas = [
   {
     name: 'search_properties',
     description: 'Search FL properties by address, parcel, or county. Returns property records with zoning, auction history, and distress flags. BidDeed adds FL auction calendar + cert badge vs Investra.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -20,6 +21,7 @@ export const schemas = [
   {
     name: 'get_property_detail',
     description: 'Detailed property record: folio/PIN, DOR use code, BCPAO assessment data, zoning code, auction history. Better than Investra: FL-specific folio + DOR code + BCPAO integration.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {

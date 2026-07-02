@@ -34,6 +34,7 @@ export const schemas = [
   {
     name: 'search_auctions',
     description: 'Search FL foreclosure and tax deed auctions. Returns upcoming auctions with opening bids, deposit requirements, and cert badges. Our advantage: real-time Brevard/Duval/Orange auction calendar + Shapira pre-scoring.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -51,6 +52,7 @@ export const schemas = [
   {
     name: 'get_auction_detail',
     description: 'Get full detail on a specific FL auction by case number. Returns property info, opening bid, deposit requirement, plaintiff, judgment amount, and direct bidding links.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -63,6 +65,7 @@ export const schemas = [
   {
     name: 'browse_deals',
     description: 'Browse pre-scored auction deals with Shapira Formula quick-scoring. Returns deals ranked by value (ARV/bid ratio), filtering out obvious losers. Add cert_only=true for Gold Standard counties only.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -79,6 +82,7 @@ export const schemas = [
   {
     name: 'get_deposit_requirements',
     description: 'Calculate exact deposit required for a FL auction. Formula: max($200, 5% × opening_bid). Returns amount, deadline, payment form, and clerk payment link.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -91,6 +95,7 @@ export const schemas = [
   {
     name: 'find_local_partners',
     description: 'Find FL title companies, real estate attorneys, and auction-specific service partners for a county. We add auction-specific vetted partners Investra lacks.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
