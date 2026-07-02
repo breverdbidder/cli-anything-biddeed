@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { validateKey, assertTier, resolveApiKey, AuthError } from './auth.js';
 import { validateOAuthToken, resolveCustomerFromOAuth, isJwtLike } from './oauth.js';
 import { recordBilling } from './billing.js';
+import { captureToolCall } from './posthog.js';
 import { TOOL_STREAM } from './constants.js';
 
 // Tool schemas
@@ -92,8 +93,9 @@ export function createServer(apiKey) {
     // parallel paths; the credential shape (JWT vs opaque bd_ string) decides
     // which validator runs.
     let customerRecord;
+    let credential;
     try {
-      const credential = resolveApiKey(apiKey);
+      credential = resolveApiKey(apiKey);
       customerRecord = isJwtLike(credential)
         ? await resolveCustomerFromOAuth(await validateOAuthToken(credential))
         : await validateKey(credential);
@@ -113,6 +115,8 @@ export function createServer(apiKey) {
     let result;
     let resultSummary = '';
     let toolError = false;
+    let errorClass = null;
+    const startedAt = Date.now();
 
     try {
       result = await handler(args);
@@ -123,7 +127,9 @@ export function createServer(apiKey) {
       result = { error: err.message, tool: name };
       resultSummary = `ERROR: ${err.message.slice(0, 100)}`;
       toolError = true;
+      errorClass = err.name || err.constructor?.name || 'Error';
     }
+    const latencyMs = Date.now() - startedAt;
 
     // Record billing (non-blocking, async)
     recordBilling({
@@ -133,6 +139,19 @@ export function createServer(apiKey) {
       resultSummary,
       county: args.county || null,
       certStatus: name === 'predict_auction_outcome' ? (result?.cert_status || null) : null,
+    });
+
+    // PostHog usage event — independent audit ledger alongside billing_events
+    // (see posthog.js header comment for the reconciliation query). Queued +
+    // batched; never awaited, never allowed to affect the tool response.
+    captureToolCall({
+      credential,
+      toolName: name,
+      tier: customerRecord.tier,
+      latencyMs,
+      county: args.county || null,
+      cacheHit: result?.cache_hit ?? null,
+      errorClass,
     });
 
     return {
