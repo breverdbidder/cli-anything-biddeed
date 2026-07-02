@@ -28,21 +28,34 @@ on:
         type: choice
         options: ['false', 'true']
   schedule:
-    # Nightly at 07:00 UTC — run sequentially per county via separate dispatches
-    - cron: '0 7 * * *'
+    # Rotate one county per day at 07:00 UTC — fixed 2026-07-02 (SHARD-6 honesty audit):
+    # a single '0 7 * * *' cron with no inputs always fell back to the 'hillsborough'
+    # default below, so sarasota/palm_beach/broward/orange/volusia were NEVER actually
+    # scraped by the schedule trigger (verified live: last non-hillsborough dispatch was
+    # 9+ days old). Each weekday now maps to a distinct county via the COUNTY env lookup.
+    - cron: '0 7 * * 0'  # Sun -> hillsborough
+    - cron: '0 7 * * 1'  # Mon -> sarasota
+    - cron: '0 7 * * 2'  # Tue -> palm_beach
+    - cron: '0 7 * * 3'  # Wed -> broward
+    - cron: '0 7 * * 4'  # Thu -> orange
+    - cron: '0 7 * * 5'  # Fri -> volusia
+    - cron: '0 7 * * 6'  # Sat -> hillsborough (extra pass, largest county)
 
 concurrency:
-  group: county-outcome-harvest-${{ github.event.inputs.county || 'scheduled' }}
+  group: county-outcome-harvest-${{ github.event.inputs.county || github.event.schedule || 'scheduled' }}
   cancel-in-progress: false
 
 jobs:
   harvest:
-    name: "Harvest ${{ github.event.inputs.county || 'hillsborough' }} outcomes → B/C/D/F"
+    name: "Harvest ${{ github.event.inputs.county || 'scheduled' }} outcomes → B/C/D/F"
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     env:
-      COUNTY: ${{ github.event.inputs.county || 'hillsborough' }}
+      COUNTY: >-
+        ${{ github.event.inputs.county ||
+            fromJSON('{"0 7 * * 0":"hillsborough","0 7 * * 1":"sarasota","0 7 * * 2":"palm_beach","0 7 * * 3":"broward","0 7 * * 4":"orange","0 7 * * 5":"volusia","0 7 * * 6":"hillsborough"}')[github.event.schedule] ||
+            'hillsborough' }}
 
     steps:
       - name: Checkout
@@ -317,54 +330,15 @@ jobs:
               print(f"ALL TARGET CRITERIA PASS ✅ for {CTY}")
           PYEOF
 
-      # ── Phase 5: Bump H freshness via Management API (bypasses psql auth + REST 522) ──
-      - name: Bump H freshness
-        continue-on-error: true
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          CTY="${{ env.COUNTY }}"
-          python3 - <<PYEOF
-          import json, os, urllib.request, urllib.error
-
-          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
-          CTY   = os.environ.get("COUNTY", "${CTY}")
-          if not TOKEN:
-              print("No SUPABASE_ACCESS_TOKEN — H freshness bump skipped")
-              exit(0)
-
-          def mgmt_query(sql):
-              body = json.dumps({"query": sql}).encode()
-              req  = urllib.request.Request(
-                  "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
-                  data=body,
-                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
-                  method="POST")
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      return json.loads(r.read()), r.status
-              except Exception as e:
-                  return {"error": str(e)}, 0
-
-          # Bypass trigger to allow last_changed_at bump (trigger reverts if content_hash unchanged)
-          sql = f"""DO \$\$ BEGIN
-            SET LOCAL session_replication_role = replica;
-            UPDATE multi_county_auctions
-            SET last_changed_at = NOW()
-            WHERE lower(county) = '{CTY}'
-              AND (last_changed_at IS NULL OR last_changed_at < NOW() - INTERVAL '48 hours');
-          END \$\$"""
-          result, sc = mgmt_query(sql)
-          if "error" in (result or {}):
-              print(f"H freshness bump failed: {result['error']}")
-          else:
-              print(f"H freshness bumped via Management API for {CTY}")
-
-          # Verify
-          verify, _ = mgmt_query(
-              f"SELECT COUNT(*) as fresh FROM multi_county_auctions WHERE lower(county) = '{CTY}' AND last_changed_at > NOW() - INTERVAL '1 hour'")
-          print(f"  Fresh rows: {verify[0]['fresh'] if isinstance(verify, list) else verify}")
-          PYEOF
+      # Phase 5 ("Bump H freshness") removed 2026-07-02 (SHARD-6 honesty audit).
+      # It bypassed trg_freshness_capture via session_replication_role=replica and forced
+      # last_changed_at=NOW() with no underlying data change — a ghost-success generator for
+      # criterion H, not a real scrape. Confirmed live for sarasota: ~992-1000+ rows shared one
+      # identical scraped_at/last_seen_at timestamp with zero corresponding GHA scrape activity
+      # in that window. H must now only advance via genuine row changes captured by the real
+      # trigger (i.e. Phase 3's actual harvest/scrape writes). See
+      # gold_standard_ultraloop_audit (county_slug=sarasota, letter=H, dispatch_id=
+      # 477f6589-379a-4761-b290-c4ed52e45e9b) for full forensic evidence.
 
       # ── Phase 6: Update gold_standard_decisions checkpoint ─────────────────
       - name: Checkpoint gold_standard_decisions
