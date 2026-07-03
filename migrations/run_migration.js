@@ -1,5 +1,6 @@
-const { Client } = require("pg");
-const fs = require("fs");
+import pg from "pg";
+import fs from "fs";
+const { Client } = pg;
 
 const hosts = [
   "aws-0-us-west-2.pooler.supabase.com",
