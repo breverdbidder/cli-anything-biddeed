@@ -83,3 +83,13 @@ jobs:
           git add -A
           if git diff --cached --quiet; then echo "No file changes"; else
             git commit -m "CC GHA-only: issue ${{ matrix.issue }} (run ${{ github.run_id }})"; git push; fi
+      - name: Post run breadcrumb to issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          ATTEMPT="$(grep -o 'attempt=[0-9]*' /tmp/cc.log 2>/dev/null | tail -1 | cut -d= -f2)"
+          ATTEMPT="${ATTEMPT:-unknown}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue comment ${{ matrix.issue }} --repo ${{ github.repository }} \
+            --body "CC GHA-only run finished — attempt ${ATTEMPT}, conclusion **${{ job.status }}**, run: ${RUN_URL}"
