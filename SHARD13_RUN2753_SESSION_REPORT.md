@@ -10,7 +10,7 @@ ultraloop_mode: **native** (Workflow tool — 2 parallel diagnose agents, 3 para
 | County | Before (A B C D E F G H I J) | After | Change |
 |---|---|---|---|
 | polk | 8/10 (C, D fail) | 8/10 (C, D fail) | **C: 14.8%→16.6% (matched_clean 91→102). D: 20.8%→22.6% (matched_any 128→139).** 11 real `tier1_realforeclose_polk` case-number matches applied. Still FAIL <95% — genuine data ceiling, not a bug. |
-| bradford | 4/10 (A fail, B fail, C fail, D fail, E fail, F fail, G pass, H pass, I fail, J pass) | 4/10 (unchanged) | **Honesty fix, zero metric regression.** Reverted fabricated identical assessed_value=145000/market_value=152250 placeholder (root-caused to a hardcoded `county_median` guess constant in `scripts/shard4_run472_main_executor.py`) to NULL on all 4 rows. I was already FAIL (0 of 4) due to missing parcel_id/address/geo, so this was pure data-integrity cleanup, not a score-moving fix. |
+| bradford | 3/10 (G, H, J pass; A B C D E F I fail) | 3/10 (unchanged) | **Honesty fix, zero metric regression.** Reverted fabricated identical assessed_value=145000/market_value=152250 placeholder (root-caused to a hardcoded `county_median` guess constant in `scripts/shard4_run472_main_executor.py`) to NULL on all 4 rows. I was already FAIL (0 of 4) due to missing parcel_id/address/geo, so this was pure data-integrity cleanup, not a score-moving fix. |
 | pinellas | 7/10 (B, C, D fail) | 7/10 (unchanged) | No change. Diagnose + independent adversarial verify both confirmed the residual C/D gap (343/377=91.0%) and B gap (50/132=37.9%) are genuine infrastructure ceilings this session — zero fabricated matches applied. |
 | escambia | 8/10 (C, D fail) | 8/10 (unchanged) | No change. Confirmed structural block: 92% of escambia's auctions are tax-deed, no tax-deed tier1 litmus table exists fleet-wide (independently corroborated by the parallel SHARD-14 RUN2753 session's identical finding for santa_rosa). The only 6 unmatched foreclosure-lane candidates found zero exact matches in `realforeclose_aids`. |
 
@@ -62,7 +62,7 @@ id=3161 escambia/C  survived=true  (confirmed ceiling, no fabrication)
 
 ## Scoreboard status
 
-No county in this shard reached 10/10 this session. polk and pinellas remain 8/10 and 7/10 respectively (C/D and, for pinellas, B are the blockers — all now precisely diagnosed as data-availability ceilings, not bugs). Bradford remains 4/10 (A is genuinely blocked — Bradford has zero tax-deed sales scheduled, confirmed via clerk PDF this morning; B/C/D/E/F/I all cascade from having only 4 total auctions with no independent-source infrastructure yet). Escambia remains 8/10.
+No county in this shard reached 10/10 this session. polk and pinellas remain 8/10 and 7/10 respectively (C/D and, for pinellas, B are the blockers — all now precisely diagnosed as data-availability ceilings, not bugs). Bradford remains 3/10 (A is genuinely blocked — Bradford has zero tax-deed sales scheduled, confirmed via clerk PDF this morning; B/C/D/E/F/I all cascade from having only 4 total auctions with no independent-source infrastructure yet). Escambia remains 8/10.
 
 Per the PARALLEL-FLEET RULES, `gold_standard_loop()`/`gold_standard_certify()` were **not** run this session (other shards were mid-flight on the same run). Per-county `pencil_dod_evaluate_county()` was used throughout, matching the mandated verification protocol.
 
