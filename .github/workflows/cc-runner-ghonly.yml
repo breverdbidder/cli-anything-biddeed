@@ -68,6 +68,7 @@ jobs:
             tail -c 2000 /tmp/cc.log
             BYTES=$(wc -c < /tmp/cc.log)
             echo "attempt=$attempt exit=$CC_EXIT bytes=$BYTES"
+            echo "$attempt" > /tmp/cc_attempt.txt
             if [ "$CC_EXIT" -eq 0 ] && [ "$BYTES" -ge 50 ]; then echo "CC OK"; exit 0; fi
             if grep -qiE 'API Error: 5[0-9][0-9]|server error|overloaded|rate.?limit|timeout' /tmp/cc.log; then
               echo "transient error; retrying in 25s"; sleep 25; continue
@@ -88,7 +89,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
         run: |
-          ATTEMPT="$(grep -o 'attempt=[0-9]*' /tmp/cc.log 2>/dev/null | tail -1 | cut -d= -f2)"
+          ATTEMPT="$(cat /tmp/cc_attempt.txt 2>/dev/null)"
           ATTEMPT="${ATTEMPT:-unknown}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           gh issue comment ${{ matrix.issue }} --repo ${{ github.repository }} \
