@@ -28,10 +28,15 @@ export function buildProtectedResourceMetadata(resourceUrl) {
 }
 
 function wwwAuthenticateHeader(resourceUrl) {
+  // The metadata document is served at the origin root (see the
+  // /.well-known/oauth-protected-resource handler below), not nested under
+  // the resource path — resourceUrl already includes /api/mcp, so appending
+  // the well-known suffix to it directly 404s.
+  const metadataUrl = `${new URL(resourceUrl).origin}/.well-known/oauth-protected-resource`;
   return [
     'Bearer error="unauthorized"',
     'error_description="Authorization needed"',
-    `resource_metadata="${resourceUrl}/.well-known/oauth-protected-resource"`,
+    `resource_metadata="${metadataUrl}"`,
   ].join(', ');
 }
 
