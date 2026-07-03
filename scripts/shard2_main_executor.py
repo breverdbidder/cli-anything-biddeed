@@ -87,6 +87,7 @@ def run_cd_parity():
               AND case_number NOT LIKE 'PO-%'
               AND case_number NOT LIKE 'PO_%'
               AND case_number != ''
+              AND (parity_source IS NULL OR parity_source NOT LIKE 'tier1%')
         """, f'C/D mca_only:{county}')
 
         # matched_divergent court-format → matched_clean
@@ -102,6 +103,7 @@ def run_cd_parity():
               AND case_number NOT LIKE 'PO-%'
               AND case_number NOT LIKE 'PO_%'
               AND case_number != ''
+              AND (parity_source IS NULL OR parity_source NOT LIKE 'tier1%')
         """, f'C/D divergent:{county}')
 
     # Verify
