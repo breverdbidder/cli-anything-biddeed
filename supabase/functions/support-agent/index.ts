@@ -148,9 +148,11 @@ async function lookupMember(memberKey: string): Promise<{ prefix: string; summar
   };
 }
 
-// ── Rate limiting (per session_id, DB-backed — best effort per-IP is not tracked, no ip column) ──
+// ── Rate limiting — session_id is DB-backed (durable across cold starts); IP
+// is an in-memory sliding window (best-effort — resets on cold start, no ip
+// column on support_conversations to persist it durably).
 
-async function isRateLimited(sessionId: string): Promise<boolean> {
+async function isSessionRateLimited(sessionId: string): Promise<boolean> {
   const since = new Date(Date.now() - 60_000).toISOString();
   const { count, error } = await supabase
     .from("support_conversations")
@@ -160,6 +162,19 @@ async function isRateLimited(sessionId: string): Promise<boolean> {
     .gte("created_at", since);
   if (error) return false;
   return (count ?? 0) >= 10;
+}
+
+const ipHits = new Map<string, number[]>();
+const IP_WINDOW_MS = 60_000;
+const IP_MAX_PER_WINDOW = 20;
+
+function isIpRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const hits = (ipHits.get(ip) ?? []).filter((t) => now - t < IP_WINDOW_MS);
+  hits.push(now);
+  ipHits.set(ip, hits);
+  if (ipHits.size > 5000) ipHits.clear(); // bound memory — cold start resets anyway
+  return hits.length > IP_MAX_PER_WINDOW;
 }
 
 // ── Escalation email (Resend, verified sender from vault) ──
@@ -244,7 +259,8 @@ Deno.serve(async (req: Request) => {
     return jsonRes({ error: "session_id and message are required" }, 400);
   }
 
-  if (await isRateLimited(sessionId)) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  if (isIpRateLimited(ip) || (await isSessionRateLimited(sessionId))) {
     return jsonRes({ error: "rate_limited", reply: "You're sending messages too quickly — please wait a moment." }, 429);
   }
 
