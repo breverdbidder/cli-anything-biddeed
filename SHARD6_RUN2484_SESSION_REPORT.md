@@ -150,4 +150,74 @@ other shards may be mid-flight (per instructions); ran per-county
    auctions actually close and get harvested. No further wiring work applies
    until then.
 
+## Continuation (same dispatch_id/chat_session, second pass)
+
+On re-entry, live `pencil_dod_evaluate_county` confirmed the primary session's
+results held with zero regression (brevard still 10/10 GOLD; jackson/alachua/
+sumter unchanged). Re-tested the two blockers from the primary pass directly
+(raw curl to `sumter.realforeclose.com` CALENDAR, WebFetch to both that URL
+and `qpublic.net/fl/alachua/`) — both still return HTTP 403 in this
+environment. No new capability; both remain genuinely blocked, unchanged from
+the primary pass's diagnosis.
+
+**New finding — pasco D ghost-divergence (found + fixed + shipped):** while
+re-verifying, noticed pasco's D (14.9%, matched_any=29) was well above C
+(1.5%, matched_clean=3) — 26 rows classified `matched_divergent`. Investigated
+and found all 26 were on `auction_status='upcoming'` rows with zero backing in
+`tax_deed_outcomes`/`foreclosure_outcomes` (checked by parcel_id, normalized
+case_number, and raw case_number). `refresh_parity_tier1_outcomes()` — the
+only canonical writer of `tier1_*` parity sources — categorically excludes
+`upcoming` rows and only ever emits `tier1_tax_deed_outcome`/
+`tier1_foreclosure_outcome`, so these 26 rows (sourced `tier1_supplementary_
+shard6`/`tier1_realforeclose`) could not have come from it. Traced
+`tier1_supplementary_shard6` to an original label
+(`shard6_loop581_supplementary_litmus`) renamed by a prior blanket migration;
+the originating script is not in the repo and cannot be audited.
+
+Dispatched an independent adversarial refuter (ULTRALOOP workflow
+`wf_8e1c282b-33d`) against the live DB before touching anything. Verdict:
+PARTIALLY_REFUTED — confirmed 22/26 rows have zero traceable backing anywhere,
+and all 26 lack `tier1_verified_at`/`tier1_authoritative` (the bar this same
+session already established for pinellas/clay,
+`20260703_shard10c_pinellas_cd_realforeclose_aids_matches.sql`); the other 4
+match a real listing in `realforeclose_aids` by case_number+parcel_id but that
+table has no outcome/status column and can't back a *divergence* claim, so it
+doesn't clear that bar either. Independently confirmed the smoking gun myself:
+every one of the 26 rows' `parity_divergences` JSON is keyed
+`{"po": ..., "ours": ...}` — the divergence was computed against a
+PropertyOnion snapshot, not against either tier1 outcome table. No live
+`data_source='propertyonion'` row exists for these case_numbers to audit the
+snapshot against. This is the identical PropertyOnion-as-data-source
+laundering anti-pattern already caught and reverted this same day for
+clay/lake/miami_dade/st_lucie (HARD GUARDRAILS #1).
+
+**Fix shipped:** `supabase/migrations/20260703_shard6_pasco_po_divergence_
+ghost_purge.sql` — reverted all 26 rows to `parity_status='mca_only'`,
+`parity_source=NULL`, gated by a live `NOT EXISTS` check (not a hardcoded
+source string) so any row that gains real backing in the future is untouched.
+Applied live via the Management API, logged to `gold_standard_ultraloop_audit`
+(`survived=true`), committed (`f88a3966`) and pushed directly to main after
+`git pull --rebase` (one concurrent shard5 push touched the same shared
+`refresh_parity_tier1_outcomes()` function in the interim for different
+counties — confirmed no conflict, since it only alters future invocations and
+my fix is a direct, gated data UPDATE).
+
+**Before → after (live, re-verified twice):**
+```
+pasco BEFORE: A✓91 B✓100.0 C✗1.5 D✗14.9 E✓100.0 F✓100.0 G✓100.0 H✓ I✓95.4 J✓98.5  -> 8/10
+pasco AFTER:  A✓91 B✓100.0 C✗1.5 D✗1.5  E✓100.0 F✓100.0 G✓100.0 H✓ I✓95.4 J✓98.5  -> 8/10
+```
+Score band unchanged (still FAIL C/D — both were never going to reach 95%
+given only 3 of 195 auctions have ever genuinely closed), but the *reported
+number* is now honest instead of inflated 10x by unbacked data. This is a
+correction, not a gain — logged accordingly, not claimed as a letter flip.
+
+No further action taken on jackson (structural: 2 of 63 ever closed, no
+further fix exists), alachua (E/I/C/D all previously diagnosed as blocked on
+external access or structural ceilings, re-confirmed blocked, no new lever
+found), or sumter (network-blocked, re-confirmed). Did not run
+`gold_standard_loop()`/`gold_standard_certify()` — other shards' commits
+landed on main during this session (`280ae94d` shard5), consistent with
+"other shards may be mid-flight."
+
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
