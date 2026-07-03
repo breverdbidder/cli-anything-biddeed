@@ -35,6 +35,18 @@ def sb_get(path):
         return json.loads(r.read())
 
 
+def enrichment_body(attrs, existing_data_source):
+    """Never relabel an existing data_source (e.g. 'propertyonion') — that would
+    smuggle a PropertyOnion-sourced auction row past the canon exclusion filter
+    (pencil_dod_evaluate_county's `data_source <> 'propertyonion'` population gate)
+    on the strength of an unrelated parcel_id match. Only stamp our source when
+    the row had none."""
+    body = {"parcel_id": attrs["ParcelNumber"], "owner_name": attrs.get("OwnerName")}
+    if not existing_data_source:
+        body["data_source"] = "lake_pa_fieldmap_v1"
+    return body
+
+
 def sb_patch(row_id, body):
     url = f"{SUPABASE_URL}/rest/v1/multi_county_auctions?id=eq.{row_id}"
     req = urllib.request.Request(
@@ -104,7 +116,7 @@ def arcgis_query_by_parcel(parcel_number):
 
 def main():
     rows = sb_get(
-        "multi_county_auctions?select=id,case_number,property_address"
+        "multi_county_auctions?select=id,case_number,property_address,data_source"
         "&county=eq.lake&parcel_id=is.null&order=id"
     )
     limit = os.environ.get("LAKE_LIMIT")
@@ -134,11 +146,7 @@ def main():
             if len(feats) == 1:
                 attrs = feats[0]["attributes"]
                 try:
-                    sb_patch(row["id"], {
-                        "parcel_id": attrs["ParcelNumber"],
-                        "owner_name": attrs.get("OwnerName"),
-                        "data_source": "lake_pa_fieldmap_v1",
-                    })
+                    sb_patch(row["id"], enrichment_body(attrs, row.get("data_source")))
                     matched += 1
                 except Exception as e:
                     errors += 1
@@ -164,14 +172,7 @@ def main():
         if len(exact) == 1:
             attrs = exact[0]["attributes"]
             try:
-                sb_patch(
-                    row["id"],
-                    {
-                        "parcel_id": attrs["ParcelNumber"],
-                        "owner_name": attrs.get("OwnerName"),
-                        "data_source": "lake_pa_fieldmap_v1",
-                    },
-                )
+                sb_patch(row["id"], enrichment_body(attrs, row.get("data_source")))
                 matched += 1
             except Exception as e:
                 errors += 1
