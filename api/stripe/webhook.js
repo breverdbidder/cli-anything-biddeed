@@ -6,7 +6,7 @@
 // pattern as api/mcp.js.
 import { handleStripeWebhook } from '../../packages/biddeed-mcp/src/webhook.js';
 
-export const config = { runtime: 'nodejs20.x', maxDuration: 30 };
+export const config = { runtime: 'nodejs', maxDuration: 30 };
 
 export default async function handler(req, res) {
   await handleStripeWebhook(req, res);

@@ -41,3 +41,4 @@ pipeline_reports/
 # graphify cache — deterministic SHA256 cache, regenerable
 graphify-out/cache/
 .firecrawl/
+.vercel

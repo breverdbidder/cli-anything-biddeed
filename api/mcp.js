@@ -7,7 +7,7 @@
 
 import { handleMcpRequest } from '../packages/biddeed-mcp/src/http.js';
 
-export const config = { runtime: 'nodejs20.x', maxDuration: 60 };
+export const config = { runtime: 'nodejs', maxDuration: 60 };
 
 export default async function handler(req, res) {
   // CORS preflight

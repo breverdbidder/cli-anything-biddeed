@@ -7,11 +7,11 @@
     "url": "https://github.com/breverdbidder/cli-anything-biddeed",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://biddeed.ai/api/mcp"
+      "url": "https://mcp.biddeed.ai/api/mcp"
     }
   ]
 }
