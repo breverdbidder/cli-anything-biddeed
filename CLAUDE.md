@@ -933,6 +933,21 @@ Before any SUMMIT may be marked SHIPPED or commented as complete, Claude Code MU
 This gate exists because on 2026-04-07 SUMMIT #387 (Owner OSINT) committed three files, ran zero SQL, never created the table in Supabase, and self-certified SHIPPED with a checkmark. The downstream classifier was also broken (80% INVESTOR rate from city-name collisions). Sentinel caught it; the AI Architect dismissed Sentinel; only manual Mgmt API verification exposed the truth. This will not happen again.
 
 
+# ── FLEET Lanes: Claude Code vs Gemini (added 2026-07-03) ──
+
+Full doc: `docs/FLEET-LANE-ROUTING.md`
+
+```yaml
+why: CC OAuth (Ariel's Max plan) hits weekly metering limits under fleet load -> 24-48h freezes
+lanes:
+  claude: { workflow: cc-runner-ghonly.yml, scope: "T1 surgical — schema, billing, MCP server, launcher" }
+  gemini: { workflow: gemini-runner.yml, scope: "T2/T3 grunt — scrapers, ETL, doc-gen, data plumbing, bulk file ops" }
+routing: summit_chat_dispatch.target_workflow (pass p_workflow='gemini-runner.yml' to launch_claude_code_session for T2/T3)
+guard_rail: gemini lane NEVER touches supabase/functions/{claude-router,stripe,mcp}, src/mcp, src/launcher — enforced in script + workflow, not just documented
+evidence: public.fleet_lane_pilot (run_id, task, lane, status, completed_at) — one row per gemini-runner.yml run
+secret: gemini_api_key in Supabase vault, fetched via get_vault_secret_mcp() at job start, never persisted
+```
+
 
 ## Design System
 - Read DESIGN.md before any UI work
