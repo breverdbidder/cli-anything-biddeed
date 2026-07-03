@@ -1,86 +1,44 @@
-import pg from "pg";
 import fs from "fs";
-const { Client } = pg;
 
-const hosts = [
-  "aws-0-us-west-2.pooler.supabase.com",
-  "aws-0-us-east-1.pooler.supabase.com",
-  "aws-1-us-east-1.pooler.supabase.com",
-  "aws-1-us-west-2.pooler.supabase.com",
-];
-const ports = [5432, 6543];
-const user = "postgres.mocerqjnksmhcjzxrewo";
+// Executes SQL against the live Supabase project via the Management API
+// (POST /v1/projects/{ref}/database/query, authed with SUPABASE_ACCESS_TOKEN).
+//
+// Replaces the old direct-postgres approach (pg client against the pooler
+// hosts with SUPABASE_DB_PASSWORD): that password is stale/invalid as of
+// 2026-07-03 (confirmed AUTH FAIL against every pooler host/port combo) and
+// the "pg" npm package isn't installed at repo root, so the old path was
+// dead for every session hitting it. The Management API needs no DB
+// password and no extra dependency (fetch is a Node 18+ builtin).
+const PROJECT_REF = "mocerqjnksmhcjzxrewo";
 
 async function main() {
-  const pw = process.env.SUPABASE_DB_PASSWORD;
+  const token = process.env.SUPABASE_ACCESS_TOKEN;
   const file = process.argv[2];
-  if (!pw) { console.error("SUPABASE_DB_PASSWORD not set"); process.exit(1); }
+  if (!token) { console.error("SUPABASE_ACCESS_TOKEN not set"); process.exit(1); }
   if (!file) { console.error("Usage: node run_migration.js <file.sql>"); process.exit(1); }
   if (!fs.existsSync(file)) { console.error("File not found: " + file); process.exit(1); }
 
-  let connected = false, client;
-  for (const host of hosts) {
-    for (const port of ports) {
-      client = new Client({ host, port, user, password: pw, database: "postgres", ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 8000 });
-      try {
-        await client.connect();
-        console.log("Connected: " + host + ":" + port);
-        connected = true; break;
-      } catch (err) {
-        if (err.message.includes("password")) console.log("AUTH FAIL " + host + ":" + port);
-        try { await client.end(); } catch (e) {}
-      }
-    }
-    if (connected) break;
-  }
-  if (!connected) { console.error("All connections failed"); process.exit(1); }
-
   const sql = fs.readFileSync(file, "utf8");
-  
-  // Split on semicolons but handle $$ blocks
-  const stmts = [];
-  let current = "";
-  let inDollar = false;
-  for (const line of sql.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("--") && !inDollar) continue;
-    
-    if (trimmed.includes("$$") && !inDollar) inDollar = true;
-    else if (trimmed.includes("$$") && inDollar) inDollar = false;
-    
-    current += line + "\n";
-    
-    if (trimmed.endsWith(";") && !inDollar) {
-      if (current.trim().length > 5) stmts.push(current.trim());
-      current = "";
-    }
-  }
-  if (current.trim().length > 5) stmts.push(current.trim());
+  console.log("Running migration file: " + file + " (" + sql.length + " chars)");
 
-  console.log("Running " + stmts.length + " statements from " + file);
-  let ok = 0, skip = 0, fail = 0;
-  
-  for (const stmt of stmts) {
-    const preview = stmt.replace(/\n/g, " ").substring(0, 80);
-    try {
-      await client.query(stmt);
-      console.log("  OK: " + preview);
-      ok++;
-    } catch (err) {
-      const msg = err.message;
-      if (msg.includes("already exists") || msg.includes("duplicate")) {
-        console.log("  SKIP: " + preview + " (exists)");
-        skip++;
-      } else {
-        console.log("  FAIL: " + preview);
-        console.log("    → " + msg.substring(0, 120));
-        fail++;
-      }
+  const res = await fetch(
+    `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: sql }),
     }
-  }
+  );
 
-  console.log("\nDone: " + ok + " ok, " + skip + " skipped, " + fail + " failed");
-  await client.end();
-  process.exit(fail > 0 ? 1 : 0);
+  const text = await res.text();
+  if (res.status === 201 || res.status === 200) {
+    console.log("OK — result:");
+    console.log(text);
+    process.exit(0);
+  } else {
+    console.error("FAIL (status " + res.status + "):");
+    console.error(text);
+    process.exit(1);
+  }
 }
 main().catch(e => { console.error(e); process.exit(1); });
