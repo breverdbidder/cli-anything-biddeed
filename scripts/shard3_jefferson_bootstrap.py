@@ -39,6 +39,15 @@ if not KEY:
     print("ERROR: SUPABASE_SERVICE_ROLE_KEY not set", file=sys.stderr)
     sys.exit(1)
 
+print(
+    "QUARANTINED (2026-07-03, shard-8 dispatch 966d999c): this script's underlying rows "
+    "were confirmed 100% fabricated placeholder data (fake parcel_ids, 'Unknown Property' "
+    "address, synthetic parity_source) and have been deleted from production. "
+    "See honesty_violations id add80a91-84e0-46ec-b744-a73396bff9ed. Refusing to run.",
+    file=sys.stderr,
+)
+sys.exit(1)
+
 BASE = f"{SUPABASE_URL}/rest/v1"
 COUNTY = "jefferson"
 COUNTY_SLUG = "jefferson"

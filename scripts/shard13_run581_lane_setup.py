@@ -417,11 +417,18 @@ def process_jefferson() -> dict:
     log(f"Jefferson live scrape: fc_inserted={fc_inserted} td_inserted={td_inserted} [VERIFIED]",
         "INFO", "VERIFIED")
 
-    # Step 3b: Fallback to synthetic seeds if live scrape found nothing
+    # Step 3b: QUARANTINED 2026-07-03 (shard-8 dispatch 966d999c) — this fallback used to
+    # write JEFFERSON_SYNTHETIC_SEEDS (fabricated placeholder rows) whenever the live scrape
+    # returned 0, silently masking the real failure mode (jefferson.realforeclose.com /
+    # jefferson.realtaxdeed.com both return HTTP 403 — a bot wall, not an empty calendar).
+    # The fabricated rows were deleted from production; see honesty_violations id
+    # add80a91-84e0-46ec-b744-a73396bff9ed. Fail loud instead of faking data.
     if fc_inserted == 0 and td_inserted == 0:
-        log("Jefferson: no live auctions found — applying synthetic seeds [INFERRED]", "WARN", "INFERRED")
-        n = seed_synthetic(county, JEFFERSON_SYNTHETIC_SEEDS)
-        total_mca_inserted += n
+        log(f"Jefferson: live scrape found 0 rows (fc_inserted=0 td_inserted=0) — "
+            f"this most likely means the RealAuction bot wall (HTTP 403) blocked the "
+            f"request, NOT that jefferson has zero auctions. Synthetic-seed fallback has "
+            f"been permanently removed; do not re-add it. Needs an authenticated or "
+            f"firecrawl-capable scrape.", "ERROR", "VERIFIED")
 
     # Step 4: Freshen H
     update_h_freshness(county)
