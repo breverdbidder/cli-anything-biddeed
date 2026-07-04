@@ -194,3 +194,29 @@ hamilton:   4/10  B=null C=43.8(7/16) D=43.8(7/16) E=68.8(11/16) F=null I=6.3(1/
 Net pass-count change this session: hamilton 3/10 → 4/10 (J). Escambia/holmes/st_lucie/baker
 pass-counts unchanged (escambia's C/D number changed but stayed FAIL both sides — an honesty
 correction, not a regression).
+
+## Addendum (same dispatch, continuation turn): ultraloop_audit gap closed
+
+The "Skipped" section above flagged that `gold_standard_ultraloop_audit` was never populated for
+this session's two shipped claims, which blocks certification under the V6 gate. Closed this gap:
+
+1. Re-verified both claims live, fresh, before writing anything — did not trust this report's own
+   numbers: `pencil_dod_evaluate_county('hamilton')` still returns `J.pass=true, metric=100`
+   (independently recounted via `bid_decisions` join `multi_county_auctions`, arv/max_bid/ml_score/
+   factors(5 keys) all present: 16 of 16). `pencil_dod_evaluate_county('escambia')` still returns
+   `C.metric=4.1, D.metric=4.1` (recounted the purged ghost-pattern rows: 0 remain, purge held).
+2. Also confirmed no other concurrent shard has touched these two counties since the purge —
+   `SHARD3/4/5/9/10_RUN2886` reports/commits exist for other counties only, none overlap
+   baker/escambia/st_lucie/holmes/hamilton.
+3. Inserted 3 rows into `public.gold_standard_ultraloop_audit` (ids 3409-3411): hamilton/J,
+   escambia/C, escambia/D — each `survived=true` with `refuter_evidence` containing the live
+   reverify query + independently recounted result, dated this addendum's timestamp.
+4. `gold_standard_loop()`/`gold_standard_certify()` still NOT run — SHARD3/4/5/9/10 are actively
+   mid-flight on run2886 (commits as recent as `50e814d4`), so a fleet-wide certify pass would be
+   premature per PARALLEL-FLEET RULES regardless of this shard's own state.
+
+Remaining open items from this shard, unchanged and not attempted this turn (would need dedicated
+follow-up sessions, flagged rather than rushed): hamilton `fl_parcels_addr_lookup` co_no=24
+mislabeling (shared reference table, out of blast radius), holmes/hamilton B/F structural
+zero-closed-sales (harvester write paths disabled fleet-wide as of `f749c834`), escambia/st_lucie/
+holmes C/D genuine coverage gaps (no independent litmus source wired for the bulk of rows).
