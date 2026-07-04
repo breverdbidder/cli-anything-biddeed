@@ -100,6 +100,13 @@ def _sb_request_with_retry(req, timeout: int = 30) -> bytes:
                 log(f"HTTP {e.code} (attempt {attempt+1}/3) — retrying in {delays[attempt]}s", "WARN")
                 time.sleep(delays[attempt])
                 continue
+            if e.code not in (522, 503, 502, 500, 429):
+                # Definitive client error (404/400/etc) -- retrying won't help and this
+                # is a single bad call (e.g. a wrong RPC param name), not evidence the
+                # whole REST API is down. Raise without poisoning _REST_UNAVAILABLE,
+                # which previously caused ONE bad call to silently no-op every other
+                # sb_get/sb_rpc/sb_upsert for the rest of the run.
+                raise
             break
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             last_exc = e
@@ -178,9 +185,20 @@ def log(msg: str, tag: str = "INFO") -> None:
 # ── Step 1: Audit current state ───────────────────────────────────────────────
 def audit_current_state() -> dict:
     log(f"Auditing current {COUNTY} B/C/D/F state...")
-    result = sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": COUNTY})
+    result = sb_rpc("pencil_dod_evaluate_county", {"p_county": COUNTY})
     state  = {}
-    if isinstance(result, list):
+    if isinstance(result, dict):
+        # pencil_dod_evaluate_county returns one jsonb object keyed by letter
+        # (e.g. {"A": {...}, "B": {...}}), not a list of {letter, ...} rows.
+        for letter in ("B", "C", "D", "F", "H"):
+            row = result.get(letter)
+            if isinstance(row, dict):
+                state[letter] = {
+                    "pass":    row.get("pass"),
+                    "metric":  row.get("metric"),
+                    "detail":  row.get("detail"),
+                }
+    elif isinstance(result, list):
         for row in result:
             letter = (row.get("letter") or "").upper()
             if letter in ("B", "C", "D", "F", "H"):
@@ -195,10 +213,10 @@ def audit_current_state() -> dict:
 # ── Step 2: Count existing outcome rows ──────────────────────────────────────
 def count_existing_outcomes() -> tuple[int, int]:
     fc = sb_get("foreclosure_outcomes", {
-        "county_slug": f"eq.{COUNTY}", "select": "id", "limit": "10000",
+        "county": f"eq.{COUNTY}", "select": "id", "limit": "10000",
     })
     td = sb_get("tax_deed_outcomes", {
-        "county_slug": f"eq.{COUNTY}", "select": "id", "limit": "10000",
+        "county": f"eq.{COUNTY}", "select": "id", "limit": "10000",
     })
     log(f"Existing outcomes: foreclosure={len(fc)}  tax_deed={len(td)}")
     return len(fc), len(td)
@@ -294,7 +312,7 @@ def build_outcome_records(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 
         if sale_type in ("foreclosure", "fc"):
             fc_records.append({
-                "county_slug":        COUNTY,
+                "county":              COUNTY,
                 "case_number":        case_num,
                 "parcel_id":          row.get("parcel_id"),
                 "auction_date":       auc_date,
@@ -313,7 +331,7 @@ def build_outcome_records(rows: list[dict]) -> tuple[list[dict], list[dict]]:
             })
         elif sale_type in ("tax_deed", "td", "tax deed"):
             td_records.append({
-                "county_slug":      COUNTY,
+                "county":            COUNTY,
                 "case_number":      case_num,
                 "certificate_number": row.get("certificate_number"),
                 "parcel_id":        row.get("parcel_id"),
@@ -336,12 +354,12 @@ def load_outcomes(fc_records: list[dict], td_records: list[dict]) -> tuple[int, 
     fc_loaded = td_loaded = 0
     for i in range(0, len(fc_records), BATCH):
         n = sb_upsert("foreclosure_outcomes", fc_records[i:i + BATCH],
-                       conflict_cols="county_slug,case_number,auction_date")
+                       conflict_cols="county,case_number,auction_date")
         fc_loaded += n
         log(f"  foreclosure_outcomes batch {i//BATCH+1}: {n}")
     for i in range(0, len(td_records), BATCH):
         n = sb_upsert("tax_deed_outcomes", td_records[i:i + BATCH],
-                       conflict_cols="county_slug,case_number,auction_date")
+                       conflict_cols="county,case_number,auction_date")
         td_loaded += n
         log(f"  tax_deed_outcomes batch {i//BATCH+1}: {n}")
     return fc_loaded, td_loaded
@@ -487,7 +505,7 @@ def scrape_realforeclose_results() -> list[dict]:
             if not case_num:
                 continue
             month_outcomes.append({
-                "county_slug":      COUNTY,
+                "county":            COUNTY,
                 "case_number":      case_num,
                 "parcel_id":        parcel_m.group(1).strip() if parcel_m else None,
                 "auction_date":     target.isoformat(),
@@ -582,9 +600,9 @@ def main() -> int:
     all_rows = sb_get("multi_county_auctions", {
         "county":  f"eq.{COUNTY}",
         "select":  "id,parcel_id,parity_status,sale_type,auction_status,auction_date,"
-                   "sale_date,winning_bid,final_bid,sold_amount,opening_bid,"
-                   "buyer_name,plaintiff,judgment_amount,source_platform,"
-                   "source_url,clerk_url,tier1_sold_amount,certificate_number,case_number",
+                   "sold_amount,opening_bid,"
+                   "plaintiff,judgment_amount,source_platform,"
+                   "source_url,clerk_url,tier1_sold_amount,case_number",
         "limit":   "20000",
     })
     log(f"Total {COUNTY} rows in MCA: {len(all_rows)}")
@@ -593,20 +611,25 @@ def main() -> int:
                    {s.lower() for s in CLOSED_STATUSES}]
     log(f"Closed auctions for outcome pipeline: {len(closed_rows)}")
 
-    fc_records, td_records = build_outcome_records(closed_rows)
-    fc_loaded, td_loaded   = load_outcomes(fc_records, td_records)
-    log(f"Outcomes loaded: fc={fc_loaded}  td={td_loaded}")
-
-    # C/D parity fix (REST fallback if SQL migration was not applied)
-    fix_parity_status(all_rows)
-
-    fixed = fix_tier1_sold_amount(closed_rows)
-    log(f"tier1_sold_amount fixed: {fixed} rows")
+    # DISABLED 2026-07-04 (verified live ghost-success risk, flagged but left unfixed
+    # by SHARD10_RUN2820 as out-of-scope at the time): build_outcome_records()/
+    # load_outcomes() re-package multi_county_auctions' OWN scraped fields as
+    # "confidence_level: verified" rows in tax_deed_outcomes/foreclosure_outcomes,
+    # and fix_parity_status()/fix_tier1_sold_amount() stamp matched_clean / tier1_sold_amount
+    # from nothing more than "row has a parcel_id" or "row already has sold_amount" --
+    # no independent clerk/official-records join at all. That is self-referential
+    # relabeling, not verification, and this workflow's Thursday cron targets `orange`
+    # (in-shard) plus hillsborough/palm_beach/broward/volusia -- it would fabricate C/D/F
+    # gains on the next scheduled run. Only the genuine independent-source path
+    # (scrape_realforeclose_results(), a real HTTP fetch against the county's own
+    # RealAuction site) remains active below.
+    log("SKIPPED: build_outcome_records/load_outcomes/fix_parity_status/"
+        "fix_tier1_sold_amount -- self-referential ghost-success generators, disabled", "WARN")
 
     live_results = scrape_realforeclose_results()
     if live_results:
         live_n = sb_upsert("foreclosure_outcomes", live_results,
-                            conflict_cols="county_slug,case_number,auction_date")
+                            conflict_cols="county,case_number,auction_date")
         log(f"Live scrape loaded: {live_n} additional outcomes")
 
     verdict = final_audit()
