@@ -70,42 +70,18 @@ def run_h_freshness():
 
 
 def run_cd_parity():
-    """Promote court-format mca_only rows to matched_clean (idempotent)."""
-    print('\n=== C/D PARITY PROMOTION ===')
-    for county in COUNTIES:
-        # mca_only → matched_clean (court-format only, not PO)
-        exec_sql(f"""
-            UPDATE multi_county_auctions
-            SET parity_status     = 'matched_clean',
-                parity_source     = 'clerk_official_court_format',
-                parity_confidence = 0.85,
-                parity_checked_at = NOW(),
-                updated_at        = NOW()
-            WHERE county = '{county}'
-              AND parity_status = 'mca_only'
-              AND case_number IS NOT NULL
-              AND case_number NOT LIKE 'PO-%'
-              AND case_number NOT LIKE 'PO_%'
-              AND case_number != ''
-              AND (parity_source IS NULL OR parity_source NOT LIKE 'tier1%')
-        """, f'C/D mca_only:{county}')
+    """Report C/D parity status (idempotent, read-only).
 
-        # matched_divergent court-format → matched_clean
-        exec_sql(f"""
-            UPDATE multi_county_auctions
-            SET parity_status     = 'matched_clean',
-                parity_source     = 'clerk_official_court_format',
-                parity_confidence = 0.80,
-                updated_at        = NOW()
-            WHERE county = '{county}'
-              AND parity_status IN ('matched_divergent', 'matched_any')
-              AND case_number IS NOT NULL
-              AND case_number NOT LIKE 'PO-%'
-              AND case_number NOT LIKE 'PO_%'
-              AND case_number != ''
-              AND (parity_source IS NULL OR parity_source NOT LIKE 'tier1%')
-        """, f'C/D divergent:{county}')
-
+    DISABLED 2026-07-04 (gold-standard-shard14 run2753): this used to blindly
+    promote any mca_only/matched_divergent row with a non-PO case_number to
+    matched_clean with a hardcoded parity_confidence, without ever comparing
+    against PropertyOnion. Confirmed live: okaloosa parity_po_id stayed NULL
+    on every "matched_clean" row it produced — classic ghost-success, reverted
+    in the same session (see git log). Real C/D gains require an actual
+    comparison against propertyonion_listings (or an authorized supplementary
+    litmus source per STANDING AUTHORIZATIONS) — not a blanket status flip.
+    """
+    print('\n=== C/D PARITY STATUS (read-only) ===')
     # Verify
     result = exec_sql("""
         SELECT county,
