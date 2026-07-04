@@ -171,7 +171,7 @@ marketing page — that's why the prior session's harvester logged "login may
 have failed" and "0 AITEM blocks" for 24 straight months: there was no login
 form to fail, the subdomain is dead.
 
-### manatee A: FAIL → PASS (7/10, was 6/10) — VERIFIED, survived re-verification
+### manatee A: FAIL → PASS (8/10, was 7/10 — G was already fixed by the prior commit above) — VERIFIED, survived re-verification
 
 manatee's tax-deed *calendar* had never been ingested at all (td=0, not an
 outcomes-matching gap). Harvested manatee.realtdm.com's live case search
@@ -266,7 +266,7 @@ regression.
 | charlotte | 10/10 (assumed, per original brief) | **8/10** (C/D regressed — NOT this session, flagged) | none by us |
 | highlands | 8/10 | 8/10 (fix attempted, refuted, reverted) | none (net) |
 | volusia | 8/10 | 8/10 (untouched) | none |
-| manatee | 6/10 | **7/10** | A: FAIL→PASS |
+| manatee | 7/10 | **8/10** | A: FAIL→PASS |
 | liberty | 3/10 | 3/10 (untouched, no viable path) | none |
 
 ### Shipped to main, this continuation
