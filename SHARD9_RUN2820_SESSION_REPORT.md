@@ -127,3 +127,68 @@ However, **any address-matching predicate combined with `CO_NO=70`** — leading
 **Sumter E remains genuinely blocked by infra on both attempted paths (qPublic 403, FL GIO ad-hoc query timeout).** No parcel_id was guessed or written. Real unblock would require either browser-automation credentials for qPublic, or a bulk/paginated FL GIO ingestion pass for CO_NO=70 followed by a local address join — both larger asks than a single fix-attempt turn, logged here so the next session doesn't repeat the same two dead ends.
 
 No other DB writes this continuation turn. Live `pencil_dod_evaluate_county` output for all 5 counties confirmed unchanged from the "after" tables above at continuation-turn timestamp 2026-07-04T05:10Z UTC.
+
+## Second continuation turn (2026-07-04, ~13:2x-13:4xZ): closing out the "follow-up commit to come" left by commit a11ab113
+
+Picked up where the walton/santa_rosa continuation commit (a11ab113) left off — that commit explicitly deferred osceola/holmes/sumter to "the ultracode Workflow run for their independent research findings, follow-up commit to come." That workflow's results were never committed. Re-verified live state first (`pencil_dod_evaluate_county` for all 5 counties): walton and santa_rosa match a11ab113's shipped numbers exactly (walton C/D=30.0%, santa_rosa C/D=92.1% via the restored `tier1_realforeclose_santa_rosa` label) — no drift, no other shard touched these rows. Osceola's `auctions_total` had organically grown from 129 to 134 (A moved from fc=0 to fc=5) via the normal scraper cycle, unrelated to any session's writes.
+
+Ran a fresh ultracode Workflow (dynamic, native mode) — 3 parallel read-only diagnose agents (one per osceola/holmes/sumter, each with curl access to the real live Supabase REST API and the public internet, explicitly barred from writing to the DB or fabricating any match/amount) targeting each county's specific remaining gap, followed by an adversarial-refute phase gated on any proposed fix.
+
+**Result: zero fix_proposed findings reached the refute phase — all three counties came back `blocked` with CONFIRMED, curl-verified evidence.** No refuters were needed because no county proposed a C/D/B/F fix (per the diagnose agents' own instructions: do not propose one without a genuinely new, verifiable independent outcome source).
+
+- **osceola** (target: E for 5 unlinked foreclosure rows, and any new B/C/D/F outcome source): Osceola Clerk's BenchmarkWeb case search is real but has a server-enforced CAPTCHA (confirmed via `search.js` wiring a `CaptchaQuestion` endpoint to a play-button handler, not decorative). The Property Appraiser (`property-appraiser.org`) is behind an interactive Cloudflare challenge (403 "Just a moment..."). `osceola.realtaxdeed.com` returns a flat AWS-ELB-layer 403 on every path tried. The source PDF for the 5 unlinked case numbers (`CivilMortgageForeclosuresWeb.pdf`, live, 152KB, all 5 case numbers present verbatim) explicitly disclaims address data by design ("check the legal ad portion of your local newspapers"). E remains genuinely blocked — no address or parcel_id was guessed.
+- **holmes**: `holmesclerk.com` is live and its case listings match our 12 unmatched rows exactly on case number/parcel/date/opening-bid, but it is a **temporal** blocker, not an access blocker — every one of the 12 sale dates is still in the future (2026-07-07 through 2026-10-15) as of today (2026-07-04). There is no results archive or "sold" marker anywhere on the site. Nothing to match yet; re-check after 2026-07-07.
+- **sumter**: independently reconfirmed (third time this campaign) that neither `sumter.realforeclose.com` nor `sumter.realtaxdeed.com` are provisioned (403 on both). `sumterclerk.com` is explicit that tax deed sales are in-person courthouse-steps auctions with cash settlement — there is no online results system to scrape. The Sumter surplus-funds list and the `myfloridacounty.com` official-records index were both checked and ruled out again (surplus ≠ winning bid; the records index has no case_number/address search field). No new B/C/D/F path exists for sumter today.
+
+**One genuine, independently-verified fix shipped anyway**, found as a side effect of the osceola diagnose agent's work and re-verified by me personally before writing (not taken on the subagent's word): 9 of osceola's 12 `realauction_http_v3` tax-deed rows carried `auction_status='upcoming'` for an `auction_date` of **2026-05-19 — 46 days in the past**. Cross-matching those 9 rows' `cert_number`/`parcel_id` against the Clerk's live "Tax Deeds Surplus Funds Available" report (`courts.osceolaclerk.com/reports/TaxDeedsSurplusFundsAvailableWeb.pdf`, fetched independently by me, not just trusted from the agent) confirmed an exact match on all 9 — surplus funds only exist after a sale completes and disburses proceeds, so `auction_status='upcoming'` was factually wrong. I did **not** populate `sold_amount` or `tier1_sold_amount` from this report: "Amt Available" is the statutory surplus (winning bid minus taxes/fees owed), not the winning bid itself, and using it as a stand-in would be fabrication. Shipped a narrowly-scoped, idempotent REST PATCH (`county=eq.osceola AND auction_status=eq.upcoming AND auction_date=eq.2026-05-19 AND parcel_id=in.(<9 exact ids>)` → `auction_status='completed'`), verified live: `content-range: 0-8/9` (all 9 rows matched and updated, none extra).
+
+**This fix does not move any graded letter** — confirmed by re-running `pencil_dod_evaluate_county('osceola')` before and after: identical A/B/C/D/E/F/G/I/J values (H ticked from 3.1h to 0.0h only because the UPDATE touched `last_seen_at`, still PASS either side). B/F key off `sold_amount IS NOT NULL`, not `auction_status`, and C/D key off `parity_source LIKE 'tier1%'`, which no auction_status change can produce. It is reported here purely as an honest, verified data-hygiene fix, not a scoreboard claim — no `gold_standard_ultraloop_audit` row was logged for it since no letter's PASS/FAIL state changed (per the pattern already established by this shard's sumter E-block turns, which also logged nothing when nothing moved).
+
+### SQL VERIFICATION
+
+```
+SELECT public.pencil_dod_evaluate_county('osceola');
+SELECT public.pencil_dod_evaluate_county('holmes');
+SELECT public.pencil_dod_evaluate_county('sumter');
+```
+Timestamp: 2026-07-04T13:3xZ UTC (Supabase REST API with `SUPABASE_SERVICE_ROLE_KEY`, project `mocerqjnksmhcjzxrewo`).
+
+**osceola — before and after this turn's PATCH (unchanged on every graded letter):**
+```json
+{"A":{"pass":true,"metric":5,"detail":"fc=5 td=129"},"B":{"pass":false,"metric":null},"C":{"pass":false,"metric":0.0},"D":{"pass":false,"metric":0.0},"E":{"pass":true,"metric":96.3,"detail":"parcel_linked=129"},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.0},"I":{"pass":false,"metric":0.0,"detail":"card_complete=0 of 134"},"J":{"pass":true,"metric":96.3},"county":"osceola","auctions_total":134}
+```
+**holmes — unchanged:**
+```json
+{"A":{"pass":true,"metric":3},"B":{"pass":false,"metric":null},"C":{"pass":false,"metric":7.7},"D":{"pass":false,"metric":7.7},"E":{"pass":true,"metric":100.0},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":7.0},"I":{"pass":true,"metric":100.0},"J":{"pass":true,"metric":100.0},"county":"holmes","auctions_total":13}
+```
+**sumter — unchanged:**
+```json
+{"A":{"pass":true,"metric":4},"B":{"pass":false,"metric":null},"C":{"pass":false,"metric":0.0},"D":{"pass":false,"metric":0.0},"E":{"pass":false,"metric":90.9},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":4.4},"I":{"pass":false,"metric":0.0},"J":{"pass":false,"metric":0.0},"county":"sumter","auctions_total":11}
+```
+
+### Scoreboard state at close of this turn (all 5 shard counties, live)
+
+| County | A | B | C | D | E | F | G | H | I | J | Score |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| osceola | PASS | FAIL | FAIL | FAIL | PASS | FAIL | PASS | PASS | FAIL | PASS | 5/10 |
+| holmes | PASS | FAIL | FAIL | FAIL | PASS | FAIL | PASS | PASS | PASS | PASS | 6/10 |
+| walton | PASS | PASS | FAIL(30.0%) | FAIL(30.0%) | PASS | PASS | PASS | PASS | PASS | PASS | 8/10 |
+| santa_rosa | PASS | FAIL | FAIL(92.1%) | FAIL(92.1%) | PASS | FAIL | PASS | PASS | PASS | PASS | 6/10 |
+| sumter | PASS | FAIL | FAIL | FAIL | FAIL(90.9%) | FAIL | PASS | PASS | FAIL | FAIL | 3/10 |
+
+### Plan vs actual (this turn)
+
+| Task | Planned | Actual | Deviation |
+|---|---|---|---|
+| Close out the deferred osceola/holmes/sumter workflow findings | Ship any verified fix, honestly report blocks | All 3 counties' target letters (B/C/D/F, +E for osceola) confirmed genuinely blocked with fresh live evidence; shipped one unrelated but real staleness fix (osceola auction_status, 9 rows) found along the way | No graded-letter movement this turn — an honest negative result on the targeted gap, plus one small honest positive on data hygiene |
+| Use ultracode Workflow with adversarial refute per ULTRALOOP PROTOCOL | Diagnose + refute fan-out | Diagnose ran (3 agents); refute phase correctly skipped itself (zero fix_proposed findings to refute) — not a shortfall, the protocol's refute gate is conditional on a proposal existing | none |
+| Ship to main | Yes | Yes — this report update + no schema/migration needed (single-table REST PATCH, same pattern as walton/santa_rosa this shard) | none |
+| Run full gold_standard_loop + certify | Only if no other session mid-flight | Skipped — used per-county `pencil_dod_evaluate_county` per PARALLEL-FLEET RULES, cannot confirm no other shard is mid-flight | per instructions |
+
+### Deviation log
+
+Holmes is now confirmed to have a **hard deadline gate**, not an infra gate: no amount of scraping skill unlocks its C/D/B/F until 2026-07-07 at the earliest (first of the 12 pending sale dates). Worth flagging to whoever schedules future shard dispatches: re-targeting holmes before then is a guaranteed no-op on the campaign's stated goal, though a spot-check after each sale date passes is cheap and should catch real movement the moment it's possible.
+
+Sumter's blocker is now independently confirmed for a third time by a third agent — this is as settled as an UNKNOWN can get before becoming a documented, permanent structural fact: Sumter County has no online tax-deed/foreclosure auction platform at all (physical courthouse-steps sales only). Future sessions should stop re-investigating this and instead treat "no online outcome source exists for Sumter" as CONFIRMED, closing this specific investigative thread permanently. The only way sumter's B/C/D/F could ever move is a manual/in-person data entry pipeline (clerk courthouse attendance) or an OCR pipeline against whatever paper/PDF record the physical sale eventually produces — both out of scope for an autonomous scraping session.
+
+Osceola's C/D/B/F remain blocked on the same root cause as before (zero rows in `foreclosure_outcomes`/`tax_deed_outcomes`), but three of its four candidate scrape targets (BenchmarkWeb case search, Property Appraiser, realtaxdeed.com) are now confirmed CAPTCHA/Cloudflare/ELB-blocked rather than merely "not yet tried" — this closes off the same three dead ends for future sessions rather than leaving them to re-discover the same 403s.
