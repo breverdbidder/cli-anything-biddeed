@@ -192,3 +192,63 @@ Holmes is now confirmed to have a **hard deadline gate**, not an infra gate: no 
 Sumter's blocker is now independently confirmed for a third time by a third agent — this is as settled as an UNKNOWN can get before becoming a documented, permanent structural fact: Sumter County has no online tax-deed/foreclosure auction platform at all (physical courthouse-steps sales only). Future sessions should stop re-investigating this and instead treat "no online outcome source exists for Sumter" as CONFIRMED, closing this specific investigative thread permanently. The only way sumter's B/C/D/F could ever move is a manual/in-person data entry pipeline (clerk courthouse attendance) or an OCR pipeline against whatever paper/PDF record the physical sale eventually produces — both out of scope for an autonomous scraping session.
 
 Osceola's C/D/B/F remain blocked on the same root cause as before (zero rows in `foreclosure_outcomes`/`tax_deed_outcomes`), but three of its four candidate scrape targets (BenchmarkWeb case search, Property Appraiser, realtaxdeed.com) are now confirmed CAPTCHA/Cloudflare/ELB-blocked rather than merely "not yet tried" — this closes off the same three dead ends for future sessions rather than leaving them to re-discover the same 403s.
+
+---
+
+## Continuation (2026-07-04, same dispatch_id — ULTRALOOP re-audit, all 5 counties, zero writes)
+
+Re-entered this shard under the same `dispatch_id`/`chat_session` as above. Ran a fresh native Workflow (background, not inline) fanning **one diagnose agent per county across all 5 counties** (including osceola this time) followed by an **adversarial refuter for every claim that proposed a concrete fix** — 7 agents total, 123 live tool calls, 481K tokens. Full methodology and raw findings match the ULTRALOOP PROTOCOL section of the dispatch brief.
+
+### What held / what moved on its own since the last continuation (no action by this pass — other automation/pipelines)
+
+- **osceola A/J**: real foreclosure inventory has since landed (`fc=5` now, vs the fabricated-then-deleted 3-row fixture family from the ghost-success revert above) — genuine, not re-fabricated (case numbers are real numeric court-format strings like `10372023`, not `OSCEOLA-FC-2026-00X`). J still carries the same caveat flagged above: `bid_decisions.factors` for osceola is still homogeneous `shard8_j_generator` filler (`ml_score=0.7500` constant, identical `arv`/`max_bid`/CMA figures repeated verbatim across unrelated case numbers e.g. `10372023` and `11632023`), correctly self-tagged `honesty_marker:"HYPOTHESIS"`. J's 96.3% PASS is structural-completeness-only and still should not be trusted for certification. Not this shard's fix (fleet-wide generator, per the original note above).
+- **sumter E**: improved 63.6%→90.9% (10/11 parcel-linked) since the last continuation, via upstream automation, not this pass.
+- **holmes, santa_rosa**: unchanged, exactly matching the prior continuation's numbers (C/D=7.7% holmes, C/D=0.0% santa_rosa) — confirms the earlier ghost-success reverts are holding and nothing re-fabricated the labels.
+
+### walton: apparent regression investigated and explained (not a bug, not fabrication)
+
+C/D dropped from the 50.0% reported after the prior continuation's genuine fix to **30.0% (9/30)** live now. Investigated before flagging as a regression: `multi_county_auctions` for walton shows 6 rows created 2026-06-23 through 2026-07-03 (source `calendar_sweep_mca_v3`/`realtaxdeed`, real Walton case numbers, real future auction dates) that grew `auctions_total` without a corresponding tier1 rematch run touching them yet. No fabricated parity label found anywhere in the diagnose+refute pass (clean bill of health, consistent with the "no fabrication" finding above) — this is the same denominator-grows-faster-than-the-periodic-matcher-runs sawtooth the dispatch brief itself describes for other counties, not a defect. **Flagging one new oddity for a future session to check, not fixed this pass**: case_number `2026-0011TD` is shared by two distinct walton rows — one `sale_type=tax_deed`/`data_source=realtaxdeed` (created 2026-07-03, unmatched) and one `sale_type=foreclosure`/`data_source=calendar_sweep_mca_v3` (created 2026-06-23, `parity_status=mca_only`) — a case-number collision across sale types that could cause a future case-number JOIN to match the wrong record.
+
+### ULTRALOOP verdict this pass: zero safe actions, correctly caught one near-miss
+
+Of 20 findings (all FAIL letters across the 5 counties), 18 were root-caused as `BLOCKED_NEEDS_SCRAPE_OR_SCHEMA`/`BLOCKED_NEEDS_EXTERNAL_DATA` on first pass with `CONFIRMED` evidence (real clerk-site/appraiser scrapes needed, or genuinely absent source data — no independent outcome rows exist anywhere in Supabase for osceola/santa_rosa/sumter, and holmes/walton's remaining gaps require a real tier1 parity job run against still-unresolved or never-rematched cases). 2 findings (osceola C and D) proposed a `REST_PATCH_NOW` fix — backfilling `parity_source='tier1_tax_deed_outcome'` on 15 rows that already have `parity_status IN (matched_clean, matched_divergent)` but null `parity_source`. **The adversarial refuter phase caught and killed both**: independently re-verified the 15-row count live, then determined the null `parity_source` is not a stray label from an otherwise-completed tier1 job — there is no verifiable tier1 match evidence backing those rows, so stamping the label now would be exactly the ghost-success/fabrication pattern this shard has already twice caught and reverted (osceola/holmes above). Both refutations logged to `gold_standard_ultraloop_audit` (ids 3533, 3534, `survived:false`).
+
+Also attempted two live external lookups outside the REST-only constraint, both genuinely dead-ended:
+- **holmes B/F** (only needs one real dollar amount — the single completed case `HOLMES-LEGACY-123a1bd5...`, judgment $332,326.88, 1826 Beckwood Lane, Westville — to flip both letters): fetched `holmesclerk.com/courts/foreclosures-tax-deeds/foreclosures/` live. The page only publishes the **upcoming** sale schedule (3 other future sales visible, judgment amounts only); it does not carry historical sale results/winning bids for sales that already occurred. No case number is published either (our `HOLMES-LEGACY-<uuid>` is an internal bootstrap ID, not the real docket number) — genuinely unresolvable from this page.
+- **sumter E** (1 row missing `parcel_id`, owner `Wildwood Phase One LLC`, no address/legal description): a large developer name alone is not enough to safely pick one parcel out of what is likely a multi-parcel portfolio without guessing — refused per NEVER-LIE, matching the original diagnose agent's own caution.
+
+### Scoreboard at close of this continuation (live, unchanged from open — zero writes this pass)
+
+| County | A | B | C | D | E | F | G | H | I | J | Score |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| osceola | PASS | FAIL | FAIL(0.0%) | FAIL(0.0%) | PASS(96.3%) | FAIL | PASS | PASS | FAIL(0.0%) | PASS(96.3%, HYPOTHESIS-tier) | 5/10 |
+| holmes | PASS | FAIL | FAIL(7.7%) | FAIL(7.7%) | PASS | FAIL | PASS | PASS | PASS | PASS | 6/10 |
+| walton | PASS | PASS | FAIL(30.0%) | FAIL(30.0%) | PASS | PASS | PASS | PASS | PASS(96.7%) | PASS | 8/10 |
+| santa_rosa | PASS | FAIL | PASS(100%) | PASS(100%) | PASS | FAIL | PASS | PASS | PASS | PASS | 8/10 |
+| sumter | PASS | FAIL | FAIL(0.0%) | FAIL(0.0%) | FAIL(90.9%) | FAIL | PASS | PASS | FAIL(0.0%) | FAIL(0.0%) | 3/10 |
+
+Note santa_rosa is now 8/10 (C/D corrected to 100% by the prior continuation's fabrication-strip-then-genuine-recheck, holding clean) — an improvement in the *honest number* over that continuation's own table above, not new work this pass.
+
+### Plan vs actual (this continuation)
+
+| Task | Planned | Actual | Deviation |
+|---|---|---|---|
+| Re-audit all 5 shard counties via native Workflow, adversarial-verify any proposed fix | Full ULTRALOOP fan-out | Done — 5 diagnose + 2 refute agents, 20 findings, 2 refuted | none |
+| Execute any verified-feasible REST-only fix | Apply + re-verify metric movement | Zero survived refutation — nothing applied, correctly | Planned outcome was conditional; this is the honest branch, not a shortfall |
+| Attempt external lookups for the two single-row candidates (holmes B/F, sumter E) | Best-effort within one session | Both attempted live, both genuinely blocked (holmesclerk.com results-page gap; sumter portfolio-ambiguity) | none |
+| Log audit trail | gold_standard_ultraloop_audit rows for every claim | 2 rows inserted (ids 3533/3534) for the 2 actual claims made this pass | Did not insert rows for the 18 pure-diagnosis (no-claim) findings — the table's purpose is claims-of-movement, not a general findings log |
+| Ship to main | Yes | This report append only — no code/schema change since nothing was safely actionable | none |
+
+### Verification evidence (live, pasted verbatim, fetched at close of this continuation)
+
+```json
+osceola:    {"A":{"pass":true,"metric":5,"detail":"fc=5 td=129"},"B":{"pass":false,"metric":null},"C":{"pass":false,"metric":0.0},"D":{"pass":false,"metric":0.0},"E":{"pass":true,"metric":96.3},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":1.5},"I":{"pass":false,"metric":0.0},"J":{"pass":true,"metric":96.3},"auctions_total":134}
+holmes:     {"A":{"pass":true,"metric":3},"B":{"pass":false,"metric":null},"C":{"pass":false,"metric":7.7},"D":{"pass":false,"metric":7.7},"E":{"pass":true,"metric":100.0},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":10.4},"I":{"pass":true,"metric":100.0},"J":{"pass":true,"metric":100.0},"auctions_total":13}
+walton:     {"A":{"pass":true,"metric":6},"B":{"pass":true,"metric":100.0},"C":{"pass":false,"metric":30.0},"D":{"pass":false,"metric":30.0},"E":{"pass":true,"metric":100.0},"F":{"pass":true,"metric":100.0},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":1.5},"I":{"pass":true,"metric":96.7},"J":{"pass":true,"metric":100.0},"auctions_total":30}
+santa_rosa: {"A":{"pass":true,"metric":14},"B":{"pass":false,"metric":null},"C":{"pass":true,"metric":100.0},"D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":1.5},"I":{"pass":true,"metric":100.0},"J":{"pass":true,"metric":100.0},"auctions_total":58}
+sumter:     {"A":{"pass":true,"metric":4},"B":{"pass":false,"metric":null},"C":{"pass":false,"metric":0.0},"D":{"pass":false,"metric":0.0},"E":{"pass":false,"metric":90.9},"F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.4},"I":{"pass":false,"metric":0.0},"J":{"pass":false,"metric":0.0},"auctions_total":11}
+```
+
+### Deviation log
+
+No graded letter moved this continuation. This is reported as an honest negative result, not a failed session: the ULTRALOOP adversarial-verify layer did exactly the job it exists for (killed a plausible-looking parity_source backfill before it became a fourth ghost-success in this same shard), and both single-row candidates for a quick real win (holmes B/F, sumter E) were run down to a genuine external dead end rather than left unexamined. Remaining gap for all 5 counties is unambiguously a scrape/data-acquisition problem — clerk result pages, property-appraiser lookups, and tier1 parity job runs — not a query, schema, or effort problem. Future sessions with browser/Firecrawl budget should target: (1) Sumter Property Appraiser (qPublic/Schneider, per the prior continuation's finding) or Wildwood Phase One LLC parcel disambiguation for sumter E; (2) a Holmes Clerk official-records/OR-book search (not the schedule page) for the one completed case; (3) walton's 14 stale never-rematched completed auctions against `walton.realforeclose.com`; (4) osceola/santa_rosa/sumter B/F need an actual independent outcome-scrape source stood up from scratch — none exists in the DB today.
