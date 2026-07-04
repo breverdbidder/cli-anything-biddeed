@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       county:
-        description: 'County slug (hillsborough|sarasota|palm_beach|broward|orange|volusia|highlands|manatee|liberty)'
+        description: 'County slug (hillsborough|sarasota|palm_beach|broward|orange|volusia|highlands|manatee|liberty|osceola|holmes|walton|santa_rosa|sumter)'
         required: true
         type: choice
         options:
@@ -21,6 +21,11 @@ on:
           - highlands
           - manatee
           - liberty
+          - osceola
+          - holmes
+          - walton
+          - santa_rosa
+          - sumter
       months_back:
         description: 'Months of historical results to scrape (default 6)'
         required: false
@@ -226,6 +231,21 @@ jobs:
             liberty)
               echo "RF_FQDN=liberty.realforeclose.com"        >> $GITHUB_ENV
               echo "TD_FQDN=liberty.realtaxdeed.com"          >> $GITHUB_ENV ;;
+            osceola)
+              echo "RF_FQDN=osceola.realforeclose.com"        >> $GITHUB_ENV
+              echo "TD_FQDN=osceola.realtaxdeed.com"          >> $GITHUB_ENV ;;
+            holmes)
+              echo "RF_FQDN=holmes.realforeclose.com"         >> $GITHUB_ENV
+              echo "TD_FQDN=holmes.realtaxdeed.com"           >> $GITHUB_ENV ;;
+            walton)
+              echo "RF_FQDN=walton.realforeclose.com"         >> $GITHUB_ENV
+              echo "TD_FQDN=walton.realtaxdeed.com"           >> $GITHUB_ENV ;;
+            santa_rosa)
+              echo "RF_FQDN=santarosa.realforeclose.com"      >> $GITHUB_ENV
+              echo "TD_FQDN=santarosa.realtaxdeed.com"        >> $GITHUB_ENV ;;
+            sumter)
+              echo "RF_FQDN=sumter.realforeclose.com"         >> $GITHUB_ENV
+              echo "TD_FQDN=sumter.realtaxdeed.com"           >> $GITHUB_ENV ;;
             *)
               echo "::error::Unknown county: $COUNTY"; exit 1 ;;
           esac
