@@ -220,3 +220,54 @@ follow-up sessions, flagged rather than rushed): hamilton `fl_parcels_addr_looku
 mislabeling (shared reference table, out of blast radius), holmes/hamilton B/F structural
 zero-closed-sales (harvester write paths disabled fleet-wide as of `f749c834`), escambia/st_lucie/
 holmes C/D genuine coverage gaps (no independent litmus source wired for the bulk of rows).
+
+## ARCHITECT TRIAGE (dispatch a9e6feb9, 2026-07-04T11:40Z): baker ghost-success found and purged
+
+Issue #10157 DoD (`EXISTS (... WHERE county_slug IN (baker,escambia,st_lucie,holmes,hamilton) AND
+certified)`) still failed after 3 prior engineer GHA attempts on this thread closed with a bare
+"success" run link and no substantive comment. Ran a full architect diagnosis instead of another
+blind retry.
+
+**Finding (CONFIRMED):** live `pencil_dod_evaluate_county('baker')` reported 10/10, but baker had
+**zero** rows, ever, in `gold_standard_ultraloop_audit` — the V6 certify gate treats that as
+UNKNOWN, not PASS, so it couldn't have certified regardless. Investigating why the audit was never
+populated turned up the real problem: baker's apparent A pass (`fc=1 td=1`) was a **ghost-success**.
+The "foreclosure" row (`multi_county_auctions` id `5f7c7c0a-...`, `foreclosure_outcomes` id
+`efa0df48-...`, `bid_decisions` id `17503`) was a byte-for-byte duplicate of baker's one genuine
+tax_deed case `022026XX000002TDAXMX` (same auction_date, address, winning_bid=78000.0 to the
+dollar) — created 28s–2m52s after the real tax_deed row, same session, same `SHARD3-BAKER-V1`
+data_source family. `county_auction_config` confirms baker `fc_method='in_person'` with no
+`fc_url`/`fc_calendar` — there is no scraper that could have produced an independent foreclosure
+record. This also explains baker's earlier `first_certified_at=2026-06-25` /
+`revoked_at=2026-07-02` history (revoked_at matches holmes' revocation to the millisecond — a bulk
+V6-gate-tightening sweep, not a data regression): the original certification was very likely never
+honest either.
+
+**Fix applied (within autonomous authority — same class of action as every other ghost-success
+purge in this repo's history):** deleted all 3 fabricated rows. Re-verified live:
+`pencil_dod_evaluate_county('baker')` now returns honest **9/10** — every letter PASS except
+`A: fc=0 td=1`. Inserted `gold_standard_ultraloop_audit` id 3413 (`baker`/`A`, `survived=false`,
+full refuter evidence) so no future session re-claims this as a pass.
+
+**Attempted real fix, blocked:** tried to source one genuine baker foreclosure case from
+`bakerclerk.com/foreclosures/` (real page, confirmed via WebSearch — Baker County does hold
+in-person courthouse foreclosure auctions). Both the WebFetch tool and a direct `curl` from this
+session got `HTTP 403` (WAF/bot-block). No `FIRECRAWL_API_KEY` is configured in this session to
+route around it. Checked `multi_county_auctions_dedup_archive` for any existing baker foreclosure
+record — the 27 archived rows are all PropertyOnion-sourced (`data_source='propertyonion'`), which
+`HARD GUARDRAILS #1` bans as a data source (litmus only), so none are usable even if one matched.
+
+**Net result:** DoD still FALSE (verified: `SELECT EXISTS (...)` → `false`). Escambia/st_lucie
+genuinely fail C/D (escambia matched_clean=11 of a scoped 266, raw table total is 2330 rows for
+escambia — the evaluator denominator is a filtered/frozen subset, not the raw count; st_lucie
+matched_clean=18/72) — closing either needs real independent-litmus matching work at real scale,
+not a session-length fix. Holmes and hamilton both have **zero** `auction_status='sold'` rows in
+`multi_county_auctions` — B and F are structurally unsatisfiable until the fleet-wide harvester
+write-path bug (still open per `f749c834`) is fixed.
+
+Baker remains the cheapest path to closing this DoD: it needs exactly one letter (A), for a
+one-auction county, vs. multi-letter/multi-county structural work elsewhere. Posted a BLOCKED
+comment on #10157 recommending Firecrawl access (or a manual check) against
+`bakerclerk.com/foreclosures/` as the single concrete next action.
+
+Logged to `public.decision_log` id 95 (`decision_type='triage'`).
