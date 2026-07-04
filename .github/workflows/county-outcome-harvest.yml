@@ -1,13 +1,14 @@
 name: "County Outcome Harvest — Track B/C/D/F"
 # Beta-launch campaign issue #8144
 # Fixes criteria B (verified outcomes), C (parity_clean), D (parity_any), F (tier1_sold), H (freshness)
-# for any of the 6 target counties: hillsborough, sarasota, palm_beach, broward, orange, volusia
+# for any of the target counties: hillsborough, sarasota, palm_beach, broward, orange, volusia,
+# highlands, manatee, liberty (SHARD-3 run2886, added 2026-07-04)
 
 on:
   workflow_dispatch:
     inputs:
       county:
-        description: 'County slug (hillsborough|sarasota|palm_beach|broward|orange|volusia)'
+        description: 'County slug (hillsborough|sarasota|palm_beach|broward|orange|volusia|highlands|manatee|liberty)'
         required: true
         type: choice
         options:
@@ -17,6 +18,9 @@ on:
           - broward
           - orange
           - volusia
+          - highlands
+          - manatee
+          - liberty
       months_back:
         description: 'Months of historical results to scrape (default 6)'
         required: false
@@ -213,6 +217,15 @@ jobs:
             volusia)
               echo "RF_FQDN=volusia.realforeclose.com"        >> $GITHUB_ENV
               echo "TD_FQDN=volusia.realtaxdeed.com"          >> $GITHUB_ENV ;;
+            highlands)
+              echo "RF_FQDN=highlands.realforeclose.com"      >> $GITHUB_ENV
+              echo "TD_FQDN=highlands.realtaxdeed.com"        >> $GITHUB_ENV ;;
+            manatee)
+              echo "RF_FQDN=manatee.realforeclose.com"        >> $GITHUB_ENV
+              echo "TD_FQDN=manatee.realtaxdeed.com"          >> $GITHUB_ENV ;;
+            liberty)
+              echo "RF_FQDN=liberty.realforeclose.com"        >> $GITHUB_ENV
+              echo "TD_FQDN=liberty.realtaxdeed.com"          >> $GITHUB_ENV ;;
             *)
               echo "::error::Unknown county: $COUNTY"; exit 1 ;;
           esac
