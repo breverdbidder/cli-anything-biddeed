@@ -29,6 +29,21 @@ reads/writes here go through PostgREST (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
 Idempotent: only PATCHes rows where parity_status IS NULL or parity_source NOT LIKE
 'tier1%%', so re-running is safe.
 
+KNOWN DEFECT (found by an independent ULTRALOOP adversarial refuter this session, fixed
+by hand for the 16 affected citrus rows -- NOT yet fixed in this script's logic): the
+"already_tier1" skip guard in exact_match_and_promote() matches a case_number against
+ALL of a county's rows regardless of auction_date, then skips re-checking a row once it
+is tier1-tagged. For a case that was continued/rescheduled and appears on more than one
+historical calendar date, this freezes parity_source at whichever date happened to be
+processed FIRST (ascending order), even when a later date in the loop is the row's own
+actual auction_date. The match itself is still genuine (independently re-verified: all
+16 affected citrus cases DO appear on the calendar under their own row's auction_date
+too), but the recorded source date can be a different, earlier continuance date --
+misleading provenance, not a false match. A future run of this script should either (a)
+restrict exact_match_and_promote's mca_rows fetch to the current target's auction_date,
+or (b) always prefer relabeling with the row's own auction_date when the case matches
+under multiple dates, before this defect resurfaces at scale.
+
 Usage: python3 scripts/shard9_run3059_citrus_manatee_cd_parity.py
 """
 import os
