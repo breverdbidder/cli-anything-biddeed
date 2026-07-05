@@ -170,31 +170,41 @@ def harvest_date(subdomain, county_slug, auction_date_mmddyyyy, platform_domain=
         print(f"  PREVIEW non-200 ({status}) {subdomain} {auction_date_mmddyyyy}")
         return []
 
+    # High-volume counties (e.g. pinellas) return >10 items/date paginated via PageDir;
+    # low-volume counties (citrus/martin) always fit on PageDir=0, which is why this
+    # loop went undetected until pinellas: PageDir=0 alone silently truncated to the
+    # first page and every later page (1,2,3,...) was never fetched. Paginate until
+    # the site repeats the prior page's rlist (its own end-of-results signal) or an
+    # empty rlist is returned. Capped at 20 pages/area as a runaway backstop.
     items = []
     for area in ("W", "C"):
-        ts = int(time.time() * 1000)
-        ajax_url = (f"{base}/index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD"
-                    f"&AREA={area}&AUCTIONDATE={urllib.parse.quote(auction_date_mmddyyyy)}"
-                    f"&PageDir=0&doR=0&tx={ts}&bypassPage=0&test=1")
-        try:
-            status, body = fetch(ajax_url, jar, referer=preview_url,
-                                  headers={"X-Requested-With": "XMLHttpRequest"})
-        except Exception as e:
-            print(f"  AJAX AREA={area} fetch failed {subdomain} {auction_date_mmddyyyy}: {e}")
-            continue
-        if status != 200:
-            continue
-        try:
-            data = json.loads(body)
-        except Exception:
-            continue
-        ret_html = data.get("retHTML") or ""
-        if not ret_html:
-            continue
-        decoded = decode_ajax_html(ret_html)
-        parsed = parse_aitem_blocks(decoded, subdomain)
-        items.extend(parsed)
-        time.sleep(0.4)
+        prev_rlist = None
+        for page_dir in range(20):
+            ts = int(time.time() * 1000)
+            ajax_url = (f"{base}/index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD"
+                        f"&AREA={area}&AUCTIONDATE={urllib.parse.quote(auction_date_mmddyyyy)}"
+                        f"&PageDir={page_dir}&doR=0&tx={ts}&bypassPage=0&test=1")
+            try:
+                status, body = fetch(ajax_url, jar, referer=preview_url,
+                                      headers={"X-Requested-With": "XMLHttpRequest"})
+            except Exception as e:
+                print(f"  AJAX AREA={area} PageDir={page_dir} fetch failed {subdomain} {auction_date_mmddyyyy}: {e}")
+                break
+            if status != 200:
+                break
+            try:
+                data = json.loads(body)
+            except Exception:
+                break
+            rlist = data.get("rlist") or ""
+            if not rlist or rlist == prev_rlist:
+                break
+            prev_rlist = rlist
+            ret_html = data.get("retHTML") or ""
+            if ret_html:
+                decoded = decode_ajax_html(ret_html)
+                items.extend(parse_aitem_blocks(decoded, subdomain))
+            time.sleep(0.4)
     return items
 
 
