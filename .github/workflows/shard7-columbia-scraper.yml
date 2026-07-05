@@ -1,14 +1,28 @@
 name: "SHARD-7 Columbia County Daily Scraper"
 # Dedicated daily scraper for Columbia County.
-# Keeps A=pass, refreshes data, provides H freshness.
 #
-# Platform: columbia.realforeclose.com (foreclosure), columbia.realtaxdeed.com (tax deed)
-# WIRING MANDATE: dispatch_id 9c2e4b1a-3f87-4d56-a1e8-7b0c5d2e8f94
-# Credential gate: COLUMBIA_REALFORECLOSE_AUTH_CONFIGURED / COLUMBIA_REALTAXDEED_AUTH_CONFIGURED repo variables
+# Platform: columbiaclerk.com (clerk_html) -- NOT RealAuction. Columbia has no
+# RealAuction tenant; columbia.realforeclose.com/realtaxdeed.com just redirect to
+# the generic marketing splash (confirmed by multiple prior sessions). The real
+# source is columbiaclerk.com/upcoming-foreclosure-sales/ and
+# columbiaclerk.com/clerk-services/tax-deeds/upcoming-tax-deed-sales/, both
+# Cloudflare-protected (403 to plain requests). scripts/columbia_clerk_html_harvest.py
+# bypasses this with a real headless Chromium/Chrome binary (ubuntu-latest GHA
+# runners ship google-chrome-stable pre-installed) -- no Firecrawl key or
+# Playwright install needed.
+#
+# SHARD-2 run 2753 (2026-07-05): re-wired from the old credential-gated
+# RealAuction jobs (which could never fire -- COLUMBIA_REALFORECLOSE_AUTH_CONFIGURED
+# / COLUMBIA_REALTAXDEED_AUTH_CONFIGURED were never set, correctly, since no such
+# tenant exists) to this real clerk_html scraper. First live run wrote 9 real
+# foreclosure rows (columbia had 0 rows before). Tax deed page currently lists
+# zero upcoming sales ("There are no properties on the list of tax deeds at this
+# time.") -- genuinely empty, not a scraper gap; this cron will pick up tax deed
+# listings automatically once the county schedules one.
 
 on:
   schedule:
-    # Daily at 07:30 UTC (30 min after H cron to avoid collision)
+    # Daily at 07:30 UTC
     - cron: '30 7 * * *'
   workflow_dispatch:
     inputs:
@@ -18,122 +32,48 @@ on:
         default: 'false'
 
 jobs:
-  # H-FRESHNESS: Update last_seen_at for columbia
-  h-freshness:
-    name: "H: Touch columbia last_seen_at (if any rows exist)"
+  columbia-clerk-html:
+    name: "Columbia County clerk_html scraper (foreclosure + tax deed)"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-    steps:
-      - name: "Refresh columbia auction freshness timestamps"
-        run: |
-          set -euo pipefail
-          python3 -c "
-          import json, os, urllib.request, urllib.error
-
-          token = os.environ['SUPABASE_ACCESS_TOKEN']
-          sql = '''
-          UPDATE multi_county_auctions
-          SET last_seen_at = NOW(),
-              last_changed_at = NOW(),
-              updated_at = NOW()
-          WHERE county = 'columbia'
-            AND auction_status IN ('upcoming', 'scheduled', 'active')
-            AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '24 hours');
-          '''
-          body = json.dumps({'query': sql}).encode()
-          req = urllib.request.Request(
-            'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query',
-            data=body, method='POST'
-          )
-          req.add_header('Authorization', f'Bearer {token}')
-          req.add_header('Content-Type', 'application/json')
-          try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-              result = json.loads(resp.read())
-              print(f'H-freshness columbia: {result}')
-          except urllib.error.HTTPError as e:
-            print(f'H-freshness ERROR {e.code}: {e.read().decode()[:200]}')
-          "
-
-  # REALFORECLOSE SCRAPER (CREDENTIAL-GATED)
-  columbia-realforeclose:
-    name: "Columbia Foreclosure Scraper (columbia.realforeclose.com)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: h-freshness
-    if: ${{ vars.COLUMBIA_REALFORECLOSE_AUTH_CONFIGURED == 'true' }}
+    timeout-minutes: 15
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      REALFORECLOSE_USER: ${{ secrets.REALFORECLOSE_COLUMBIA_USER }}
-      REALFORECLOSE_PASS: ${{ secrets.REALFORECLOSE_COLUMBIA_PASS }}
-      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
-        run: pip install httpx requests beautifulsoup4 supabase -q
 
-      - name: "Scrape Columbia County realforeclose.com"
+      - name: "Verify a Chromium/Chrome binary is available"
         run: |
           set -euo pipefail
-          echo "Columbia County scraper -- columbia.realforeclose.com"
-          echo "DRY_RUN=${DRY_RUN}"
-          python3 scripts/cairn_multi_county_scraper.py \
-            --county columbia \
-            --platform realforeclose \
-            --base-url https://columbia.realforeclose.com \
-            ${DRY_RUN:+--dry-run} || echo "Scraper not yet implemented -- pending credential provisioning"
+          which google-chrome-stable || which google-chrome || which chromium-browser || which chromium
 
-  # REALTAXDEED SCRAPER (CREDENTIAL-GATED)
-  columbia-realtaxdeed:
-    name: "Columbia Tax Deed Scraper (columbia.realtaxdeed.com)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: h-freshness
-    if: ${{ vars.COLUMBIA_REALTAXDEED_AUTH_CONFIGURED == 'true' }}
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: pip install httpx requests beautifulsoup4 supabase -q
-
-      - name: "Scrape Columbia County realtaxdeed.com"
+      - name: "Scrape columbiaclerk.com (foreclosure + tax deed)"
         run: |
           set -euo pipefail
-          echo "Columbia County tax deed scraper -- columbia.realtaxdeed.com"
-          python3 scripts/cairn_multi_county_scraper.py \
-            --county columbia \
-            --platform realtaxdeed \
-            --base-url https://columbia.realtaxdeed.com \
-            ${DRY_RUN:+--dry-run} || echo "Scraper not yet implemented -- pending credential provisioning"
+          python3 scripts/columbia_clerk_html_harvest.py
 
+  # NOTE: the former "columbia-realforeclose" / "columbia-realtaxdeed" credential-gated
+  # jobs were REMOVED 2026-07-05 (SHARD-2 run 2753) -- columbia has no RealAuction
+  # tenant (confirmed by multiple prior sessions: both subdomains redirect to the
+  # generic marketing splash, 0 rows all-time). Those jobs could never fire since
+  # their gating repo vars were never set, correctly. Do not reintroduce a
+  # RealAuction path for columbia without first confirming a real tenant exists.
+  #
   # NOTE: the former "columbia-j-generator" job (ran scripts/shard7_columbia_bootstrap.py
-  # unconditionally, if: always()) was REMOVED 2026-07-02 (shard-8) — that script wrote
+  # unconditionally, if: always()) was REMOVED 2026-07-02 (shard-8) -- that script wrote
   # 100% fabricated placeholder auctions into production every day regardless of whether
   # the real scrapers above succeeded. See public.honesty_violations
-  # (domain=GOLD_STANDARD_CAMPAIGN). Do not reintroduce a bootstrap/seed step here; wire a
-  # real scraper into columbia-realforeclose / columbia-realtaxdeed instead.
+  # (domain=GOLD_STANDARD_CAMPAIGN). Do not reintroduce a bootstrap/seed step here.
 
-  # SUMMARY
   summary:
     name: "Columbia County Pipeline Summary"
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [columbia-realforeclose, columbia-realtaxdeed]
+    needs: [columbia-clerk-html]
     if: always()
     env:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
