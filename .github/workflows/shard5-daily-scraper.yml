@@ -2,11 +2,31 @@ name: "SHARD-5 Daily Scraper (palm_beach/santa_rosa/lake)"
 # Daily scrape + J-generator refresh for SHARD-5 Gold Standard counties.
 # lake: realforeclose.com requires REALFORECLOSE_LAKE_USER + REALFORECLOSE_LAKE_PASS
 #       (not yet configured — A=0 until credentials are added to GHA secrets).
-# palm_beach/santa_rosa: realforeclose.com probe + H-freshness update.
 # J-generator: refreshes bid_decisions for all shard-5 counties daily.
 # gilchrist/gulf: smaller custom_clerk counties — custom parsers not yet implemented.
 #
 # WIRING MANDATE compliance: wired 2026-06-19, dispatch 3539afa8.
+#
+# GHOST-SUCCESS REMOVAL (2026-07-05, dispatch d9210c60, SHARD-5 gulf/hillsborough/
+# baker/putnam/collier): this workflow previously ran two jobs that fabricated
+# H/C/D compliance without a real scrape ever happening:
+#   - "H: Update last_changed_at" blindly stamped last_seen_at=NOW() on every
+#     upcoming/scheduled/active row for these counties, regardless of whether any
+#     scrape actually occurred — a fake H-freshness pass.
+#   - "C/D: Parity clerk supplementary refresh" blindly flipped parity_status to
+#     'matched_clean' with parity_source='tier1_clerk_supp_shard5_daily' for any
+#     non-PropertyOnion row, with NO join or cross-check against tax_deed_outcomes
+#     or foreclosure_outcomes — the exact same ghost-success signature already
+#     found and reverted for gulf this session (see
+#     supabase/migrations/20260705_shard5_gulf_bootstrap_ghost_success_purge.sql)
+#     and for putnam on 2026-07-04 (20260705_shard5_run2753_putnam_cd_ghost_success_revert.sql).
+# Both jobs had been failing on HTTP 403 (stale/invalid SUPABASE_ACCESS_TOKEN GHA
+# secret) every day since at least 2026-06-25, so the fabricated UPDATE never
+# actually landed live — confirmed via `SELECT count(*) FROM multi_county_auctions
+# WHERE parity_source='tier1_clerk_supp_shard5_daily'` = 0 rows. Removed both jobs
+# outright rather than leave a landmine that fabricates data the moment the 403
+# is fixed. Real H/C/D compliance requires an actual scrape or a real outcome-table
+# cross-check; neither existed in these jobs.
 
 on:
   schedule:
