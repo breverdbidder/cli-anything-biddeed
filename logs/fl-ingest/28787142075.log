@@ -1,0 +1,2 @@
+[diag] SUPABASE_URL set=True prefix='https://mocerqjnksmhcjzxrewo.supaba' key_set=True key_len=219 rc=1
+FATAL: supabase /rest/v1/rpc/fl_ingest_resume_cursor -> None b'HTTP 401: b\'{"message":"Invalid API key","hint":"Double check your Supabase `anon` or `service_role` API key."}\''
