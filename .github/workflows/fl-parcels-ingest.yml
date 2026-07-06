@@ -1,0 +1,49 @@
+name: fl-parcels-ingest
+# FL statewide cadastral -> fl_parcels_stage. OBJECTID-keyset lanes, fail-closed
+# accounting via fl_stage_upsert_batch RPC, ledger = fl_ingest_ranges.
+# Dispatch: SELECT public.fire_workflow_dispatch('breverdbidder/cli-anything-biddeed',
+#   'fl-parcels-ingest.yml','main', jsonb inputs {oid_start,oid_end,lane,auto_continue,max_minutes})
+
+on:
+  workflow_dispatch:
+    inputs:
+      oid_start:
+        description: "exclusive OBJECTID start of lane"
+        required: true
+      oid_end:
+        description: "inclusive OBJECTID end of lane"
+        required: true
+      lane:
+        description: "lane label for fl_ingest_ranges ledger"
+        required: true
+        default: "lane-0"
+      auto_continue:
+        description: "self-redispatch on time budget (true/false)"
+        required: false
+        default: "true"
+      max_minutes:
+        description: "wall-clock budget before self-continue"
+        required: false
+        default: "320"
+
+concurrency:
+  group: fl-parcels-ingest-${{ inputs.lane }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ingest lane
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OID_START: ${{ inputs.oid_start }}
+          OID_END: ${{ inputs.oid_end }}
+          LANE: ${{ inputs.lane }}
+          AUTO_CONTINUE: ${{ inputs.auto_continue }}
+          MAX_MINUTES: ${{ inputs.max_minutes }}
+          GH_REPO: breverdbidder/cli-anything-biddeed
+        run: python3 scripts/fl_parcels_ingest.py
