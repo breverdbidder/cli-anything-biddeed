@@ -121,8 +121,7 @@ def record_range(lo, hi, fetched, accounted, counters, status):
         "accounted": accounted, "staged_new": counters["staged_new"],
         "staged_updated": counters["staged_updated"],
         "dupes_logged": counters["intra_batch_dupes"] + counters["cross_batch_dupes"],
-        "null_pid": counters["null_pid"], "status": status, "lane": LANE,
-        "updated_at": "now()"},
+        "null_pid": counters["null_pid"], "status": status, "lane": LANE},
         prefer="resolution=merge-duplicates")
 
 
