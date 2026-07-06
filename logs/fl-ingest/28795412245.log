@@ -1,0 +1,3 @@
+[diag] SUPABASE_URL set=True prefix='https://mocerqjnksmhcjzxrewo.supaba' key_set=True key_len=219 rc=1
+lane=sw-c range=(2450011,4150011] resume cursor=2450011
+FATAL: supabase /rest/v1/rpc/fl_stage_upsert_batch -> None b'HTTP 500: b\'{"code":"XX000","details":null,"hint":null,"message":"invalid GeoJSON representation"}\''
