@@ -1,8 +1,7 @@
 name: fl-parcels-ingest
 # FL statewide cadastral -> fl_parcels_stage. OBJECTID-keyset lanes, fail-closed
 # accounting via fl_stage_upsert_batch RPC, ledger = fl_ingest_ranges.
-# Dispatch: SELECT public.fire_workflow_dispatch('breverdbidder/cli-anything-biddeed',
-#   'fl-parcels-ingest.yml','main', jsonb inputs {oid_start,oid_end,lane,auto_continue,max_minutes})
+# Worker stdout self-reports to fl_ingest_worker_logs on every run.
 
 on:
   workflow_dispatch:
@@ -34,16 +33,27 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OID_START: ${{ inputs.oid_start }}
+      OID_END: ${{ inputs.oid_end }}
+      LANE: ${{ inputs.lane }}
+      AUTO_CONTINUE: ${{ inputs.auto_continue }}
+      MAX_MINUTES: ${{ inputs.max_minutes }}
+      GH_REPO: breverdbidder/cli-anything-biddeed
     steps:
       - uses: actions/checkout@v4
       - name: Run ingest lane
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          OID_START: ${{ inputs.oid_start }}
-          OID_END: ${{ inputs.oid_end }}
-          LANE: ${{ inputs.lane }}
-          AUTO_CONTINUE: ${{ inputs.auto_continue }}
-          MAX_MINUTES: ${{ inputs.max_minutes }}
-          GH_REPO: breverdbidder/cli-anything-biddeed
-        run: python3 scripts/fl_parcels_ingest.py
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/fl_parcels_ingest.py 2>&1 | tee /tmp/ingest.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_ENV"
+          exit 0
+      - name: Report log to Supabase
+        shell: bash
+        run: |
+          python3 scripts/fl_ingest_report_log.py "${rc}"
+          exit "${rc}"
