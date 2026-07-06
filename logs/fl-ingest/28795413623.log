@@ -1,0 +1,3 @@
+[diag] SUPABASE_URL set=True prefix='https://mocerqjnksmhcjzxrewo.supaba' key_set=True key_len=219 rc=0
+lane=sw-d range=(4150011,5850011] resume cursor=4150011
+LANE COMPLETE sw-d: fetched=1700000 accounted=1700000 range=(4150011,5850011]
