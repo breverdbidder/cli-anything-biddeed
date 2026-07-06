@@ -29,6 +29,9 @@ concurrency:
   group: fl-parcels-ingest-${{ inputs.lane }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   ingest:
     runs-on: ubuntu-latest
