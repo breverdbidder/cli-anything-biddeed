@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 350
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
       OID_START: ${{ inputs.oid_start }}
       OID_END: ${{ inputs.oid_end }}
       LANE: ${{ inputs.lane }}
