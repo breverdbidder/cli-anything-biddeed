@@ -1,0 +1,3 @@
+[diag] SUPABASE_URL set=True prefix='https://mocerqjnksmhcjzxrewo.supaba' key_set=True key_len=219 rc=1
+lane=pilot-brevard range=(279726,634683] resume cursor=285726
+FATAL: supabase /rest/v1/rpc/fl_stage_upsert_batch -> None b"HTTP 520: b'error code: 520\\n'"
