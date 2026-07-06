@@ -45,6 +45,7 @@ jobs:
       AUTO_CONTINUE: ${{ inputs.auto_continue }}
       MAX_MINUTES: ${{ inputs.max_minutes }}
       GH_REPO: breverdbidder/cli-anything-biddeed
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - name: Run ingest lane
