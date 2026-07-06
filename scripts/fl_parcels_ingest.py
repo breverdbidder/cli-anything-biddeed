@@ -21,7 +21,8 @@ FLOOR = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
          "Florida_Statewide_Cadastral/FeatureServer/0/query")
 WINDOW = 2000
 SUB_BATCH = 500
-MAX_RETRIES = 3
+MAX_RETRIES = 5
+RETRY_CODES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SB_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -50,7 +51,7 @@ def http(method, url, headers=None, body=None, timeout=90):
                 return r.status, r.read()
         except urllib.error.HTTPError as e:
             last = f"HTTP {e.code}: {e.read()[:200]!r}"
-            if e.code in (429, 500, 502, 503, 504):
+            if e.code in RETRY_CODES:
                 time.sleep(5 * (attempt + 1))
                 continue
             break
