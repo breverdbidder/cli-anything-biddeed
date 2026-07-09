@@ -65,22 +65,32 @@ def db_query(sql: str) -> list:
         return json.loads(r.read())
 
 
+def sql_lit(v) -> str:
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    return "'" + str(v).replace("'", "''") + "'"
+
+
 def sb_insert(table: str, rows: list) -> int:
+    # SUPABASE_SERVICE_ROLE_KEY is stale (401 on PostgREST as of 2026-07-09, same
+    # root cause as the DB-password staleness documented in migrations/run_migration.js).
+    # Insert via the Management API (SUPABASE_ACCESS_TOKEN) instead — same channel
+    # already used for db_query() reads in this script.
     if not rows:
         return 0
-    url = f"{SB_URL}/rest/v1/{table}"
-    data = json.dumps(rows).encode()
-    req = urllib.request.Request(
-        url, data=data, method="POST",
-        headers={
-            "apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
-            "Content-Type": "application/json", "Prefer": "return=minimal",
-            "User-Agent": "curl/8.5.0",
-        },
+    cols = ["county_slug", "source", "sale_type", "window_start", "window_end",
+            "source_count", "our_count", "match_pct", "status", "notes"]
+    values_sql = ",\n".join(
+        "(" + ", ".join(sql_lit(r.get(c)) for c in cols) + ")" for r in rows
     )
+    sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES\n{values_sql};"
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.status
+        db_query(sql)
+        return 201
     except urllib.error.HTTPError as e:
         log(f"insert {table} failed: {e.code} {e.read().decode()[:300]}", "ERROR", "VERIFIED")
         return e.code
