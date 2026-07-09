@@ -254,3 +254,72 @@ check_coder_health() {
 if [[ -z "${GITHUB_ACTIONS:-}" ]]; then
   check_coder_health
 fi
+
+# ==============================
+# SECURITY SCAN MONITORING (SUMMIT #17 — Copilot Adoption Protocol)
+# ==============================
+check_security_scans() {
+  SINCE_24H=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v-24H '+%Y-%m-%dT%H:%M:%SZ')
+
+  BLOCKED=$(curl -sf "$SB_URL/rest/v1/security_scan_results?blocked=eq.true&created_at=gte.${SINCE_24H}&select=repo,pr_number,semgrep_critical,secrets_leaked" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null || echo "[]")
+
+  BLOCKED_COUNT=$(echo "$BLOCKED" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+  LEAKED_COUNT=$(echo "$BLOCKED" | python3 -c "import json,sys; print(len([r for r in json.load(sys.stdin) if r.get('secrets_leaked')]))" 2>/dev/null || echo "0")
+
+  if [[ "$BLOCKED_COUNT" -gt 0 ]]; then
+    SUMMARY=$(echo "$BLOCKED" | python3 -c "
+import json, sys
+rows = json.load(sys.stdin)
+for r in rows[:8]:
+    print(f\"• {r.get('repo')} PR#{r.get('pr_number')} — critical:{r.get('semgrep_critical',0)} secrets_leaked:{r.get('secrets_leaked')}\")
+" 2>/dev/null)
+    tg_send "🔒 <b>SENTINEL: ${BLOCKED_COUNT} blocked PR(s) in last 24h</b> (${LEAKED_COUNT} with leaked secrets)
+
+${SUMMARY}"
+  fi
+
+  # Check which known src repos are missing security-scan.yml
+  SRC_REPOS=(brevard-bidder-scraper cli-anything-biddeed everest-nexus zonewise-web cliproxy-gateway swimsquad-ai)
+  MISSING=()
+  for r in "${SRC_REPOS[@]}"; do
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GH_PAT:-}" \
+      "https://api.github.com/repos/breverdbidder/${r}/contents/.github/workflows/security-scan.yml" 2>/dev/null)
+    if [[ "$CODE" != "200" ]]; then
+      MISSING+=("$r ($CODE)")
+    fi
+  done
+  if [[ "${#MISSING[@]}" -gt 0 ]]; then
+    echo "⚠️ security-scan.yml missing/unreachable: ${MISSING[*]}"
+  fi
+}
+
+# ==============================
+# SESSION DECISION LOG COVERAGE (SUMMIT #17 — Copilot Adoption Protocol)
+# ==============================
+check_session_log_coverage() {
+  SINCE_7D=$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v-7d '+%Y-%m-%dT%H:%M:%SZ')
+
+  SESSIONS_7D=$(curl -sf "$SB_URL/rest/v1/chat_sessions?started_at=gte.${SINCE_7D}&select=id" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" -H "Prefer: count=exact" 2>/dev/null | \
+    python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+  LOGS_7D=$(curl -sf "$SB_URL/rest/v1/session_decision_logs?session_started=gte.${SINCE_7D}&select=id" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null | \
+    python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+  if [[ "$SESSIONS_7D" -gt 0 ]]; then
+    COVERAGE_PCT=$(python3 -c "print(round(${LOGS_7D} / ${SESSIONS_7D} * 100, 1))" 2>/dev/null || echo "0")
+    echo "📋 Session log coverage (7d): ${LOGS_7D}/${SESSIONS_7D} = ${COVERAGE_PCT}%"
+    if python3 -c "exit(0 if ${COVERAGE_PCT} < 80 else 1)" 2>/dev/null; then
+      tg_send "📋 <b>SENTINEL: session log coverage ${COVERAGE_PCT}%</b> (${LOGS_7D}/${SESSIONS_7D} sessions, last 7d)
+
+Below 80% threshold — CC sessions are not writing session_decision_logs consistently."
+    fi
+  else
+    echo "📋 No chat_sessions in last 7d — skipping coverage check"
+  fi
+}
+
+check_security_scans
+check_session_log_coverage
