@@ -1,0 +1,43 @@
+name: SUMMIT Task
+description: Structured task dispatch for autonomous Claude Code execution (Copilot Adoption Protocol)
+title: "[SUMMIT] "
+labels: ["summit"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: One paragraph — what should exist when this is done.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Checkboxes. Every item must be independently verifiable.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: create / modify / execute — files and actions in scope.
+    validations:
+      required: false
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Budget, time, boundaries (DO_NOT_CHANGE), no-new-deps, etc.
+    validations:
+      required: false
+  - type: textarea
+    id: exit_proof
+    attributes:
+      label: Exit Proof
+      description: Exact commands (curl/DB query/test) that prove the deliverable exists. Required — no exit proof, no SHIPPED claim.
+    validations:
+      required: true
