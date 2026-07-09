@@ -18,6 +18,19 @@ live pencil_dod_evaluate_county() call and stamps a fresh guard row when the cou
 is currently passing 10/10. Counties still blocked on adversarial evidence
 (gold_standard_ultraloop_audit letters C/D — see issue #10978, "C/D LITMUS V2") are
 unaffected by this fix; that gap is out of scope here and tracked separately.
+
+C/D LITMUS V2 wiring (issue #10981, Ariel directive 2026-07-06): in addition to the
+10/10 refresh above, this script now also runs pencil_dod_evaluate_county_v2() (the
+RealAuction-primary / FloridaBidder-fallback hierarchy evaluator added in
+migrations/20260706_cd_litmus_v2_evaluator_surface.sql) for the issue's named
+priority counties and persists a 'calendar_parity_v2_realauction' guard row for
+each. This is deliberately observational, not a C+D pass/fail override: blending a
+count/coverage recount into the same threshold used for every other county's
+row-level cert history would be a NEVER-LIE risk (see the migration's own comment).
+It DOES make the V2 hierarchy load-bearing in the sense that used to be missing:
+executed automatically by the daily production precert pipeline (not just callable
+ad hoc), with results persisted for the next follow-up (row-level
+tier1_realauction_v2 matching) to consume.
 """
 import os
 import httpx
@@ -25,6 +38,14 @@ import httpx
 SUPABASE_ACCESS_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
 REF = "mocerqjnksmhcjzxrewo"
 API = f"https://api.supabase.com/v1/projects/{REF}/database/query"
+
+# Issue #10981 priority counties (C/D-blocked near-golds under the legacy PO-era
+# litmus). Kept in sync with scripts/cd_litmus_v2_realauction_parity.py.
+V2_PRIORITY_COUNTIES = [
+    "duval", "okeechobee", "bay", "desoto", "dixie", "escambia", "hendry",
+    "highlands", "hillsborough", "levy", "palm_beach", "pasco", "polk",
+    "sarasota", "broward", "hamilton",
+]
 
 
 def run_sql(sql: str, timeout: int = 60) -> list:
@@ -83,6 +104,49 @@ def main():
         """)
         refreshed.append((county, calendar_parity_ok, denom_ok))
         print(f"  {county}: calendar_parity={calendar_parity_ok} denominator_integrity={denom_ok}")
+
+    print(f"\n[1b] C/D LITMUS V2 (issue #10981): {len(V2_PRIORITY_COUNTIES)} priority counties, "
+          f"observational guard only")
+    v2_flips = []
+    for county in V2_PRIORITY_COUNTIES:
+        res = run_sql(f"SELECT public.pencil_dod_evaluate_county_v2('{county}') AS r;")
+        v2 = res[0]["r"] if res else {}
+        v2_source = v2.get("v2_hierarchy_source")
+        if v2_source in (None, "propertyonion_tertiary_fallback"):
+            print(f"  {county}: no fresh V2 evidence (<=48h) — skipping guard row")
+            continue
+
+        v2_c_pass = bool(v2.get("C", {}).get("pass"))
+        v2_d_pass = bool(v2.get("D", {}).get("pass"))
+        v2_metric = v2.get("C", {}).get("metric")
+        v2_metric_json = "null" if v2_metric is None else str(v2_metric)
+
+        # Legacy (row-level tier1) C/D for the same county, to log whether V2 would
+        # have flipped a currently-blocked county — evidence only, never applied.
+        legacy_res = run_sql(f"SELECT public.pencil_dod_evaluate_county('{county}') AS r;")
+        legacy = legacy_res[0]["r"] if legacy_res else {}
+        legacy_c_pass = bool(legacy.get("C", {}).get("pass"))
+        legacy_d_pass = bool(legacy.get("D", {}).get("pass"))
+        would_flip = (v2_c_pass or v2_d_pass) and not (legacy_c_pass and legacy_d_pass)
+
+        run_sql(f"""
+            INSERT INTO gold_standard_precert_guards (county_slug, guard_type, passed, detail)
+            VALUES
+              ({county!r}, 'calendar_parity_v2_realauction', {str(v2_c_pass and v2_d_pass).lower()},
+               '{{"source":"gold_standard_precert_guard_refresh","honesty_marker":"VERIFIED",
+                  "v2_hierarchy_source":"{v2_source}","v2_metric":{v2_metric_json},
+                  "v2_c_pass":{str(v2_c_pass).lower()},"v2_d_pass":{str(v2_d_pass).lower()},
+                  "legacy_c_pass":{str(legacy_c_pass).lower()},"legacy_d_pass":{str(legacy_d_pass).lower()},
+                  "would_flip_blocked_county":{str(would_flip).lower()},
+                  "note":"observational only -- does not affect calendar_parity guard or certify()"}}'::jsonb);
+        """)
+        if would_flip:
+            v2_flips.append(county)
+        print(f"  {county}: v2_source={v2_source} v2_metric={v2_metric} "
+              f"v2_c={v2_c_pass} v2_d={v2_d_pass} legacy_c={legacy_c_pass} legacy_d={legacy_d_pass} "
+              f"would_flip={would_flip}")
+
+    print(f"  -> {len(v2_flips)} priority counties would flip C/D under V2 hierarchy: {v2_flips}")
 
     print("\n[2] Running gold_standard_certify()...")
     res = run_sql("SELECT public.gold_standard_certify() AS r;")

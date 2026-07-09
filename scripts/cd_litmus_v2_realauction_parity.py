@@ -87,13 +87,19 @@ def sb_insert(table: str, rows: list) -> int:
 
 
 def get_county_platform_config() -> dict:
-    sql = f"""
-    SELECT county_slug, fc_url, fc_method, td_url, td_method
-    FROM county_auction_config
-    WHERE county_slug IN ({','.join("'" + c + "'" for c in PRIORITY_COUNTIES)})
-    """
+    # county_auction_config.county_slug is inconsistently seeded (e.g. 'palmbeach'
+    # not 'palm_beach') for some multi-word counties -- match underscore-insensitively
+    # so PRIORITY_COUNTIES entries aren't silently dropped to the floridabidder
+    # fallback when a working realauction config actually exists.
+    norm_priority = {c.replace("_", ""): c for c in PRIORITY_COUNTIES}
+    sql = "SELECT county_slug, fc_url, fc_method, td_url, td_method FROM county_auction_config"
     rows = db_query(sql)
-    return {r["county_slug"]: r for r in rows}
+    out = {}
+    for r in rows:
+        key = norm_priority.get(r["county_slug"].replace("_", ""))
+        if key:
+            out[key] = r
+    return out
 
 
 def get_cert_scope_cutoff() -> dict:
@@ -167,6 +173,12 @@ def main():
         log("Missing SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ACCESS_TOKEN", "ERROR", "VERIFIED")
         sys.exit(1)
 
+    # Optional CLI args restrict the run to a subset of PRIORITY_COUNTIES, so a
+    # single invocation can stay well inside a runner's time budget instead of
+    # risking a mid-run kill losing every row (rows are now inserted as they're
+    # computed, not batched to the end -- see sb_insert call below).
+    counties = sys.argv[1:] or PRIORITY_COUNTIES
+
     configs = get_county_platform_config()
     cutoffs = get_cert_scope_cutoff()
     log(f"Loaded config for {len(configs)} counties, {len(cutoffs)} frozen-scope cutoffs", tag="VERIFIED")
@@ -176,7 +188,7 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page(user_agent=UA)
 
-        for county in PRIORITY_COUNTIES:
+        for county in counties:
             cfg = configs.get(county, {})
             cutoff = cutoffs.get(county)
             for sale_type, url_key, method_key in (
@@ -221,12 +233,12 @@ def main():
                     "notes": f"dates_checked={our_dates}",
                 }
                 results.append(row)
-                log(f"  -> source_count={source_count} our_count={our_count} match_pct={match_pct} status={row['status']}", tag="VERIFIED")
+                sc = sb_insert("cd_litmus_parity_v2", [row])
+                log(f"  -> source_count={source_count} our_count={our_count} match_pct={match_pct} status={row['status']} (inserted HTTP {sc})", tag="VERIFIED")
 
         browser.close()
 
-    sc = sb_insert("cd_litmus_parity_v2", results)
-    log(f"Inserted {len(results)} rows -> HTTP {sc}", tag="VERIFIED")
+    log(f"Done: {len(results)} rows inserted this run across {len(counties)} counties", tag="VERIFIED")
 
 
 if __name__ == "__main__":
