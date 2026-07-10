@@ -32,15 +32,15 @@ jobs:
       - name: Run Taylor bootstrap scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_MGMT_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_TOKEN }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_MGMT_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           python3 scripts/shard3_taylor_bootstrap.py
 
       - name: Verify Criterion A passes (fc>0 AND td>0)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python3 - <<'EOF'
           import os, json, urllib.request, sys
@@ -74,7 +74,7 @@ jobs:
       - name: Verify freshness (Criterion H — last_seen within 48h)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python3 - <<'EOF'
           import os, json, urllib.request, sys
@@ -129,4 +129,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Note:** taylor.realforeclose.com and taylor.realtaxdeed.com both" >> $GITHUB_STEP_SUMMARY
           echo "302-redirect to realauction.com. Taylor County does not use online" >> $GITHUB_STEP_SUMMARY
-          echo "auction platforms. Bootstrap rows inserted for pipeline criterion tracking." >> $GITHUB_STEP_SUMMARY
+          echo "auction platforms. Only real rows scraped from taylor.realtdm.com are" >> $GITHUB_STEP_SUMMARY
+          echo "inserted — the placeholder-row fallback was removed 2026-07-10." >> $GITHUB_STEP_SUMMARY

@@ -17,9 +17,11 @@ Platform status (VERIFIED 2026-06-24):
 Bootstrap strategy:
   1. Probe realforeclose/realtaxdeed for live data (they redirect → 0 rows)
   2. Scrape taylor.realtdm.com /public/cases/list for any TDM cases
-  3. Insert bootstrap rows for criterion-A: fc>0 AND td>0
-     (real cases via TDM if found; synthetic bootstrap rows if TDM has no
-     machine-readable data — same pattern as gulf/madison bootstrap)
+  3. Insert only real cases found via TDM. As of 2026-07-10 this no longer
+     falls back to synthetic placeholder rows (case_number="TAYLOR-FC-2026-NNN",
+     property_address="TBD TAYLOR FL") — that fallback was a Honesty Protocol
+     violation (fabricated data counted toward criterion A). The 4 fabricated
+     rows it previously wrote were deleted from production on 2026-07-10.
   4. Update pipeline.counties + realauction_subdomains
   5. Verify via pencil_dod_evaluate_county('taylor')
 
@@ -37,7 +39,6 @@ import os
 import re
 import sys
 import json
-import hashlib
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -70,20 +71,6 @@ NOW = datetime.now(timezone.utc)
 COUNTY = "taylor"
 STATE = "FL"
 
-# Next Tuesday/Thursday from today for auction dates
-def next_weekday(weekday: int) -> datetime:
-    """Return next occurrence of weekday (0=Mon, 1=Tue, 3=Thu)."""
-    days_ahead = weekday - NOW.weekday()
-    if days_ahead <= 0:
-        days_ahead += 7
-    return NOW + timedelta(days=days_ahead)
-
-FC_AUCTION_DATE = next_weekday(1).strftime("%Y-%m-%d")  # next Tuesday
-TD_AUCTION_DATE = next_weekday(3).strftime("%Y-%m-%d")  # next Thursday
-
-# Taylor County clerk URLs (VERIFIED live 2026-06-24)
-FC_CLERK_URL = "https://taylorclerk.com/departments/foreclosure-sales/"
-TD_CLERK_URL = "https://taylorclerk.com/departments/tax-deeds/"
 TDM_BASE_URL = "https://taylor.realtdm.com"
 
 # RealForeclose/RealTaxDeed subdomains (exist but redirect)
@@ -107,10 +94,6 @@ client = httpx.Client(
 def log(msg: str, level: str = "INFO") -> None:
     ts = NOW.isoformat()
     print(f"[{ts}] {level}: {msg}", flush=True)
-
-
-def content_hash(case_number: str, county: str) -> str:
-    return hashlib.sha256(f"{case_number}{county}".encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -289,102 +272,25 @@ def check_existing_rows() -> dict:
 # ---------------------------------------------------------------------------
 # Step 4: Insert bootstrap rows (fc + td) if needed
 # ---------------------------------------------------------------------------
-def build_fc_row(seq: int) -> dict:
-    case_number = f"TAYLOR-FC-2026-{seq:03d}"
-    return {
-        "county": COUNTY,
-        "state": STATE,
-        "case_number": case_number,
-        "sale_type": "foreclosure",
-        "source_platform": "clerk_inperson",
-        "auction_type": "foreclosure",
-        "auction_status": "upcoming",
-        "property_address": "TBD TAYLOR FL",
-        "city": "Perry",
-        "auction_date": FC_AUCTION_DATE,
-        "auction_time": "11:00",
-        "auction_venue": "in_person",
-        "clerk_url": FC_CLERK_URL,
-        "last_seen_at": NOW.isoformat(),
-        "provenance": "bootstrap_shard3_taylor",
-        "content_hash": content_hash(case_number, COUNTY),
-    }
-
-
-def build_td_row(seq: int) -> dict:
-    case_number = f"TAYLOR-TD-2026-{seq:03d}"
-    return {
-        "county": COUNTY,
-        "state": STATE,
-        "case_number": case_number,
-        "sale_type": "tax_deed",
-        "source_platform": "realtdm",
-        "auction_type": "tax_deed",
-        "auction_status": "upcoming",
-        "property_address": "TBD TAYLOR FL",
-        "city": "Perry",
-        "auction_date": TD_AUCTION_DATE,
-        "auction_time": "11:00",
-        "auction_venue": "in_person",
-        "clerk_url": TD_CLERK_URL,
-        "last_seen_at": NOW.isoformat(),
-        "provenance": "bootstrap_shard3_taylor",
-        "content_hash": content_hash(case_number, COUNTY),
-    }
-
-
 def insert_bootstrap_rows(existing: dict) -> dict:
-    log("Step 4: Inserting bootstrap rows for taylor")
-
-    rows_to_insert = []
-
+    """
+    NO-OP as of 2026-07-10. This previously inserted placeholder rows
+    (case_number="TAYLOR-FC-2026-NNN", property_address="TBD TAYLOR FL",
+    no real date/parcel/address) whenever taylor had zero FC or TD rows —
+    a Honesty Protocol violation (fabricated data counted toward criterion
+    A PASS with zero real information behind it). All 4 fabricated rows
+    were deleted from production (multi_county_auctions,
+    provenance=bootstrap_shard3_taylor) on 2026-07-10. This function now
+    fails loudly instead of fabricating: real taylor coverage must come
+    from probe_realauction_platforms() / the TDM scrape above, or from a
+    real courthouse-calendar source, never from placeholder rows.
+    """
+    log("Step 4: bootstrap fallback disabled — will not insert placeholder rows", "WARN")
     if existing["fc_count"] == 0:
-        rows_to_insert.append(build_fc_row(1))
-        rows_to_insert.append(build_fc_row(2))
-        log("  Queued 2 foreclosure bootstrap rows")
-    else:
-        log(f"  FC already has {existing['fc_count']} rows — skipping FC insert")
-
+        log("  fc_count=0 and no real source found this run — leaving unfilled", "WARN")
     if existing["td_count"] == 0:
-        rows_to_insert.append(build_td_row(1))
-        rows_to_insert.append(build_td_row(2))
-        log("  Queued 2 tax_deed bootstrap rows")
-    else:
-        log(f"  TD already has {existing['td_count']} rows — skipping TD insert")
-
-    if not rows_to_insert:
-        log("  No rows to insert — both lanes already populated")
-        return {"inserted": 0, "rows": []}
-
-    insert_headers = dict(HEADERS)
-    insert_headers["Prefer"] = "return=representation,resolution=ignore-duplicates"
-
-    results = []
-    inserted_count = 0
-
-    for row in rows_to_insert:
-        r = httpx.post(
-            f"{BASE}/multi_county_auctions",
-            headers=insert_headers,
-            json=row,
-            timeout=30,
-        )
-        if r.status_code in (200, 201):
-            inserted_count += 1
-            log(f"  Inserted {row['case_number']} ({row['sale_type']}) -> {r.status_code}")
-            results.append({"case_number": row["case_number"], "status": r.status_code})
-        elif r.status_code == 409:
-            log(f"  Duplicate {row['case_number']} — skipping (409)")
-            results.append({"case_number": row["case_number"], "status": "duplicate"})
-        else:
-            log(f"  ERROR inserting {row['case_number']}: {r.status_code} {r.text}", "ERROR")
-            results.append({
-                "case_number": row["case_number"],
-                "status": r.status_code,
-                "error": r.text[:200],
-            })
-
-    return {"inserted": inserted_count, "rows": results}
+        log("  td_count=0 and no real source found this run — leaving unfilled", "WARN")
+    return {"inserted": 0, "rows": []}
 
 
 # ---------------------------------------------------------------------------
