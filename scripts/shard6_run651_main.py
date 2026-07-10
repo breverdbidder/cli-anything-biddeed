@@ -34,6 +34,26 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 
+print(
+    "QUARANTINED (2026-07-10, Gold Standard shard-8 run3534): this script's "
+    "build_outcome_record() (Part 2, B OUTCOME CREATION) has been confirmed to "
+    "fabricate outcome rows for every county it targets. dixie: 21 "
+    "tax_deed_outcomes rows with winning_bid = assessed_value * 0.65, a "
+    "formula-derived placeholder, all sharing the same assessed_value -- "
+    "deleted, see migrations/20260710_gold_standard_shard8_dixie_fabrication_"
+    "revert_completion.sql. lake: 668 foreclosure_outcomes rows keyed by "
+    "PropertyOnion IDs (case_number='PO-<digits>', not a real court case "
+    "number) with winning_bid=0.00 for all 668 rows (the formula's zero-"
+    "fallback path) -- deleted, see migrations/20260710_gold_standard_"
+    "shard8_lake_fabrication_purge.sql. Also deleted: 1 explicitly-named "
+    "'LAKE-TD-SYNTH-SHARD6-001' placeholder tax_deed_outcomes row. Refusing "
+    "to run. If a real independent-outcome harvester is needed for these "
+    "counties, write one that scrapes an actual sale result -- do not revive "
+    "this formula/fallback approach.",
+    file=sys.stderr,
+)
+sys.exit(1)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
