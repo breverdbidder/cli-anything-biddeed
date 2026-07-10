@@ -1,0 +1,85 @@
+session:
+  repo: cli-anything-biddeed
+  dispatch_id: "63b0acb8-5a08-4589-89fe-d5efb54576b5"
+  chat_session: "architect-20260710T080000"
+  shard: "SHARD-6 (monroe, martin, st_lucie, hamilton, glades)"
+  session_started: "2026-07-10T08:00:00Z"
+  note: "interactive turn, not a scheduled 6h GHA run; the brief's loop_run_id 3534 snapshot was already stale (live loop_run_id 3601) by session start"
+
+decisions:
+  - step: 1
+    action: "Verified live DB access before touching anything: PostgREST REST + RPC worked with sandbox env creds (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY); direct psql to the pooler failed password auth (same finding every prior shard session has documented). Found the Supabase Management API (POST /v1/projects/.../database/query, Bearer SUPABASE_ACCESS_TOKEN) works for raw SQL/view definitions, matching shard8's documented workaround."
+    result: "Confirmed working live-DB path for both RPC calls and raw SQL introspection."
+    reason: "Evidence-Before-Claims -- do not assume DB access before testing it."
+  - step: 2
+    action: "Pulled fresh pencil_dod_evaluate_county for all 5 counties instead of trusting the brief's loop_run_id 3534 snapshot, and read today's already-landed commits/migrations touching these counties (shard14 martin/bay/alachua/lake, shard13 marion/pinellas/orange/hamilton, shard8 gilchrist/desoto/polk/hernando/glades -- all from the 00:00Z wave, hours before this session) to avoid duplicating same-day work."
+    result: "monroe 10/10 (unchanged, no action needed). martin 7/10 -- brief said 8/10 (E only); live shows G also now FAILing (100.0%->90.3%), a regression since shard14's 00:00Z pass which didn't touch G. st_lucie 9/10 -- brief said 7/10 (C/D failing); C/D had already been fixed to 100%/100% by an earlier pass today, only I (72/82) remains. hamilton 4/10, glades 1/10 -- both match the exhaustive same-day diagnoses from shard13/shard8, no new landed fixes since."
+    reason: "NEVER-LIE -- act on live state, not a potentially-stale dispatch brief; PARALLEL-FLEET RULES -- do not re-do a sibling shard's just-completed work."
+  - step: 3
+    action: "Root-caused martin's G regression via raw SQL against v_zoning_gold_standard_kpi_v3's definition and parcel_zones/zoning_districts/zone_standards: 3 of 31 density-applicable parcels have NULL max_density_du_acre, all under 2 Martin County LDR districts (R-2B id=11323, PUD-R id=11324)."
+    result: "Searched for primary-source Martin County LDR text (Table 3.12.1) to backfill the real value: library.municode.com returned 403, the elaws.us mirror returned 503. Only reachable source was zoneomics.com (a secondary aggregator, summarized via WebFetch's small model) -- and even that source suggests R-2B's real standard is '1 unit per lawfully-established lot' (not a du/acre figure) and PUD-R has no fixed table density at all (set per individual PUD Zoning Agreement). Declined to write ANY zone_standards value or v_zoning_district_applicability flag on this evidence quality -- would repeat the exact ghost-success pattern this campaign has reverted multiple times for zoning data. Logged as a diagnostic finding (gold_standard_ultraloop_audit) instead, flagged for a future session with real primary-source access."
+    reason: "HARD GUARDRAIL #2 (fail-loud, no ghost success) + G DIAGNOSIS playbook: 'guessed standards = ghost-success, BANNED'."
+  - step: 4
+    action: "Root-caused st_lucie's I gap (72/82, unchanged from brief) by querying which specific 10 rows fail card_complete and why."
+    result: "1 row has no address/parcel_id at all (2024CA000214); 1 row has a placeholder 'TBD' address (26-001); the remaining 7 have real addresses+parcel_ids but were missing lat/lon and (6 of 7) assessed/market_value. Found and queried a real, authoritative source: map.paslc.gov/arcgis/rest/services/PROD/SLCPA_PublicParcels (St Lucie Property Appraiser ArcGIS, PropertyID/ParcelID/SiteAddress/JustMarketValue/geometry fields) -- all 7 PropertyIDs matched exactly on SiteAddress, confirming correct parcel identity (no false-positive risk). Backfilled real market_value + centroid lat/lon for all 7 via PostgREST PATCH."
+    reason: "I playbook: 'address/geo/value enrichment on multi_county_auctions', via the same free/authoritative-GIS-source pattern already proven for bay/duval."
+  - step: 5
+    action: "Checked whether the 7 newly-enriched rows' parcel_ids exist in parcel_zones (required for card_complete's 'zoned parcel' criterion) before claiming any I improvement."
+    result: "Zero of the 7 are zoned. Checked both St Lucie County's own Zoning ArcGIS (slcgis.stlucieco.gov, unincorporated-only -- confirmed via a 0-result bbox scan near one target parcel) and the City of Port St Lucie's own separate Zoning FeatureServer (services1.arcgis.com/YdUP5V6WwzeG8T8r, the correct jurisdiction for 5 of the 7 addresses) -- both return zero zoning polygons at these specific parcel locations. One of the 7 (case 2023CA000239, parcel 5481, unincorporated 'Saint Lucie County' address) DID resolve a real zone ('PUD') from the county's unincorporated layer, but there is no 'unincorporated St Lucie' row in the jurisdictions table at all (only Port St Lucie/Fort Pierce/St Lucie Village exist) -- attaching it would require creating a new jurisdiction record, a bigger structural change than this session's scope, so left undone rather than rushed."
+    reason: "Verification-before-completion -- confirmed the enrichment would NOT flip I to pass before claiming any gain; matches the bay/duval 'zoning-substrate-loading problem, not a scraping problem' precedent exactly."
+  - step: 6
+    action: "Re-ran pencil_dod_evaluate_county for st_lucie after the writes."
+    result: "I unchanged at 87.8% (72 of 82) -- confirms prediction from step 5, no false claim of improvement. The 7 rows' new address/geo/value data is real and on file; per the bay precedent it will auto-resolve to card_complete once st_lucie's zoning substrate loads for Port St Lucie/Fort Pierce, no further backfill needed then."
+    reason: "Evidence-Before-Claims -- ran the actual verify command and read its output rather than assuming the enrichment would move the metric."
+  - step: 7
+    action: "Confirmed glades' A-lane blocker is still live: gh run list on discover-auction-dates.yml shows failure as recently as 2026-07-10T07:29:41Z (30 min before this session), gh run view --log-failed confirms the same 'firecrawl 402' (Payment Required) root cause shard8 found this morning. FIRECRAWL_API_KEY confirmed absent from this session's env too."
+    result: "No change since shard8's diagnosis. Did not attempt any workaround (no key available, and forcing glades auction data via any other path without the discovery workflow would risk fabricating auction records from nothing -- glades genuinely has zero auctions on file, auctions_total=0)."
+    reason: "This is a billing/account action for Ariel, not a code fix -- re-diagnosing without a real key present would not change the outcome."
+  - step: 8
+    action: "Refreshed gold_standard_ultraloop_audit for monroe: all 10 letters' existing survived=true evidence was 12+ days stale (oldest 2026-06-28), past the 7-day SQL CERTIFY GATE window, which would silently block certification for an already-10/10 county. Re-verified live and inserted 10 fresh survived=true rows."
+    result: "POST succeeded; verified via follow-up SELECT -- 10 fresh rows for monroe, all dated this session's timestamp."
+    reason: "Same 'stale-evidence-blocks-certification' pattern shard13 found and fixed for marion -- the single highest-leverage, lowest-risk action available for a county that is otherwise done."
+  - step: 9
+    action: "Inserted diagnostic-finding audit rows for st_lucie I (real enrichment applied, metric honestly unchanged, zoning-substrate root cause) and martin G (root cause found, fix declined for evidence-quality reasons) plus a fresh full re-verification set for st_lucie's other 9 letters."
+    result: "All inserts confirmed via follow-up SELECT."
+    reason: "ULTRALOOP CERTIFY GATE requires evidence rows (not just DB metric state) for future sessions to build on without re-deriving this diagnosis from scratch."
+  - step: 10
+    action: "Did not call gold_standard_loop()/gold_standard_certify() -- confirmed via git log --since '2026-07-10 00:00' that multiple sibling shards (shard14, shard13, shard8, plus wakulla/taylor/franklin/bradford commits) were actively landing work on main throughout this session's window."
+    reason: "PARALLEL-FLEET RULES -- fleet-wide loop/certify is reserved for a session with no other shard mid-flight; per-county pencil_dod_evaluate_county was used for all verification instead, same as every recent sibling shard."
+
+artifacts:
+  - path: "SHARD6_RUN3601_MONROE_MARTIN_STLUCIE_HAMILTON_GLADES_SESSION_REPORT.md"
+    type: "session_report"
+  - path: "gold_standard_ultraloop_audit"
+    type: "db_rows"
+    detail: "24 rows, dispatch_id=63b0acb8-5a08-4589-89fe-d5efb54576b5 (10 monroe refresh, 13 st_lucie refresh+diagnosis, 1 martin G diagnosis) -- verified via REST count header content-range 0-23/24"
+  - path: "multi_county_auctions"
+    type: "db_rows"
+    detail: "7 st_lucie rows PATCHed (latitude, longitude, market_value) -- case_numbers 2023CA002858, 2023CA002350, 2025CA001294, 2025CA002292, 2025CA001088, 2023CA000239, 2025CA002297"
+
+verification:
+  - check: "monroe pencil_dod_evaluate_county == 10/10, unchanged"
+    proof: "live RPC output pasted in session report"
+    status: "CONFIRMED"
+  - check: "martin/hamilton/glades letter statuses unchanged this session (no regressions, no fabricated gains)"
+    proof: "before == after JSON pasted in session report for all 3 counties"
+    status: "CONFIRMED"
+  - check: "st_lucie I metric genuinely unchanged (72/82) despite real enrichment writes"
+    proof: "pencil_dod_evaluate_county re-run after the 7 PATCH writes, still 87.8%"
+    status: "CONFIRMED"
+  - check: "7 st_lucie rows actually enriched with real, sourced data"
+    proof: "PostgREST PATCH responses (return=representation) show latitude/longitude/market_value set, SiteAddress from map.paslc.gov exactly matching each row's existing property_address"
+    status: "CONFIRMED"
+  - check: "glades A-lane blocker still firecrawl-402, not fixed"
+    proof: "gh run view 29076844951 --log-failed shows 'failed: firecrawl 402' at 2026-07-10T07:29:58Z"
+    status: "CONFIRMED"
+  - check: "22 audit rows actually written"
+    proof: "REST re-query by dispatch_id confirms content-range 0-23/24 (10 monroe, 13 st_lucie, 1 martin)"
+    status: "CONFIRMED"
+
+residuals:
+  - "martin G: needs primary-source Martin County LDR Table 3.12.1 text (library.municode.com 403'd, elaws.us mirror 503'd this session) to confirm real max_density_du_acre for R-2B, or confirm R-2B/PUD-R should be marked density_applicable=false in v_zoning_district_applicability instead of assigned a number. Do not guess."
+  - "martin E: 1 structurally-unlinkable 'MULTIPLE PARCEL' case + 1 needing Martin GIS discovery -- already re-attempted and blocked by shard14 this same day (gis.martin.fl.us DNS-fails, FL cadastral FeatureServer timed out); not re-attempted here to avoid duplicating a same-day dead end."
+  - "st_lucie I: needs real zoning-substrate loading for Port St Lucie (services1.arcgis.com/YdUP5V6WwzeG8T8r/.../Zoning) and Fort Pierce jurisdictions -- a real GIS parcel-zones ingestion build, out of this session's scope, same class of work already flagged for bay/duval. The 1 unincorporated-St-Lucie parcel (case 2023CA000239) additionally needs a new 'Unincorporated St Lucie County' jurisdictions row created before it can be zoned (none exists today)."
+  - "hamilton: B/F structurally undefined (zero closed auctions), C/D at genuine ceiling for unredeemed tax-deed certs, E/I blocked by qpublic.schneidercorp.com and hamiltonpa.com both 403ing plain scraping -- matches shard13's same-day exhaustive finding, not re-investigated here."
+  - "glades: A-lane blocked on Firecrawl account billing (HTTP 402, confirmed live again this session) -- escalate to Ariel directly; this also unblocks every other county queued behind the same discover-auction-dates.yml workflow."
