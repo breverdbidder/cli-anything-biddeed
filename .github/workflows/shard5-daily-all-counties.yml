@@ -62,11 +62,13 @@ jobs:
       - name: "Run shard5_highlands_fc_bootstrap.py"
         run: |
           set -euo pipefail
+          pip install requests -q
           python scripts/shard5_highlands_fc_bootstrap.py
 
       - name: "Run shard5_bradford_wakulla_bootstrap.py"
         run: |
           set -euo pipefail
+          pip install requests -q
           python scripts/shard5_bradford_wakulla_bootstrap.py
 
   # ── COLLIER REAL DATA ────────────────────────────────────────────────────────
@@ -92,6 +94,7 @@ jobs:
       - name: "Run shard5_collier_real_data.py"
         run: |
           set -euo pipefail
+          pip install requests -q
           python scripts/shard5_collier_real_data.py
 
   # ── OUTCOMES SCRAPER (B/F) ───────────────────────────────────────────────────
