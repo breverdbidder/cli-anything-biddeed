@@ -2,3 +2,4 @@
 httpx>=0.24.0
 beautifulsoup4>=4.11.0
 lxml>=4.9.0
+pypdf>=4.0.0
