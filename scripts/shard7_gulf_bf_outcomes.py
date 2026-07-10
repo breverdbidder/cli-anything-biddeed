@@ -325,6 +325,10 @@ def build_mca_rows(records: list[dict], source: str) -> list[dict]:
 
 # ── Step 3: Build foreclosure_outcomes rows ────────────────────────────────────
 def build_outcome_rows(records: list[dict], source: str) -> list[dict]:
+    # Columns match the real foreclosure_outcomes schema (verified live
+    # 2026-07-10) — a prior version of this function used invented column
+    # names (sale_amount, high_bid, buyer_type, confidence_level, notes)
+    # that don't exist in the table and caused PGRST204 errors on insert.
     now = datetime.now(timezone.utc).isoformat()
     rows = []
     for rec in records:
@@ -334,19 +338,16 @@ def build_outcome_rows(records: list[dict], source: str) -> list[dict]:
         rows.append({
             "county":            COUNTY,
             "case_number":       cnum,
+            "sale_type":         "foreclosure",
             "parcel_id":         rec.get("parcel_id"),
             "auction_date":      adate,
-            "sale_status":       "sold",
-            "sale_amount":       bid,
-            "high_bid":          bid,
             "winning_bid":       bid,
             "outcome":           "sold",
-            "buyer_type":        "third_party",
+            "winner_type":       "third_party",
             "property_address":  rec.get("property_address") or "",
             "data_source":       source,
             "source_url":        RF_HOST,
-            "confidence_level":  "verified",
-            "notes":             rec.get("source_note", f"Gulf FC via {source}"),
+            "enriched_at":       now,
         })
     return rows
 
@@ -433,7 +434,7 @@ def verify_counts() -> None:
     })
     fo_rows = sb_get("foreclosure_outcomes", {
         "county":  "eq.gulf",
-        "select":  "case_number,sale_amount,data_source",
+        "select":  "case_number,winning_bid,data_source",
         "limit":   "100",
     })
 
@@ -444,7 +445,7 @@ def verify_counts() -> None:
         print(f"  {r.get('case_number')}  sold_amount={r.get('sold_amount')}  tier1={r.get('tier1_sold_amount')}")
     print(f"foreclosure_outcomes WHERE county='gulf': {len(fo_rows)} rows")
     for r in fo_rows:
-        print(f"  {r.get('case_number')}  sale_amount={r.get('sale_amount')}  source={r.get('data_source')}")
+        print(f"  {r.get('case_number')}  winning_bid={r.get('winning_bid')}  source={r.get('data_source')}")
     print("### END SQL VERIFICATION")
 
 

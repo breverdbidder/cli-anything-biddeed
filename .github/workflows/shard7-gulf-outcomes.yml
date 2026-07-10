@@ -3,8 +3,12 @@ name: "SHARD-7 Gulf FC Outcomes Harvester"
 # to satisfy B (verified_outcomes >= 95%) and F (tier1_sold >= 95%) criteria.
 #
 # Gulf County is tiny (pop ~13K, Port St. Joe FL panhandle).
-# gulf.realforeclose.com is the FC platform. Live scrape attempted first;
-# clerk proxy records used as fallback when datacenter IP is blocked.
+# gulf.realforeclose.com is the FC platform. Live scrape only — as of
+# 2026-07-10 the script no longer falls back to fabricated data when the
+# live scrape finds nothing (see scripts/shard7_gulf_bf_outcomes.py header
+# and the fix commit for the prior "clerk proxy records" incident). It
+# fails loudly instead, so this job legitimately fails until a working
+# scrape of gulf's real sold-auction history is built.
 #
 # dispatch_id: 59743e39-a09f-41df-8035-766ce34ad215
 # script: scripts/shard7_gulf_bf_outcomes.py
@@ -13,13 +17,7 @@ on:
   schedule:
     # Daily at 06:00 UTC
     - cron: '0 6 * * *'
-  workflow_dispatch:
-    inputs:
-      force_clerk_fallback:
-        description: 'Skip live scrape — use clerk proxy records directly'
-        required: false
-        default: 'false'
-        type: boolean
+  workflow_dispatch: {}
 
 concurrency:
   group: shard7-gulf-outcomes
@@ -109,7 +107,7 @@ jobs:
           # Count outcome rows (B numerator)
           fo_rows = get('foreclosure_outcomes', {
               'county': 'eq.gulf',
-              'select': 'case_number,sale_amount',
+              'select': 'case_number,winning_bid',
               'limit': '100',
           })
           n_fo = len(fo_rows)
