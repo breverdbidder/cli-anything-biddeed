@@ -16,6 +16,7 @@ No online auction platform — data must be scraped from dixieclerk.com/court-se
 import os
 import sys
 import json
+import html
 import logging
 import argparse
 import re
@@ -102,10 +103,84 @@ def parse_dixie_sales(html: str, sale_type: str) -> list[dict]:
             'property_address': 'DIXIE COUNTY, FL',
             'plaintiff': plaintiff,
             'state': 'FL',
-            'parity_status': 'matched_clean',
             'clerk_url': DIXIE_FC_URL if sale_type == 'foreclosure' else DIXIE_TD_URL,
             'provenance': f'live_source_scrape_{date.today().isoformat()}',
             'data_source': 'dixieclerk.com_shard6_scraper',
+            'source_platform': 'clerk_website',
+        })
+
+    return records
+
+
+def parse_dixie_taxdeed_json(html_text: str) -> list[dict]:
+    """
+    Parse Dixie County tax-deed-sales page.
+
+    VERIFIED 2026-07-10 (Gold Standard shard-8, run3534): the page does NOT
+    render sale records as plain div text (parse_dixie_sales() above matches
+    nothing against it) -- it embeds the full dataset as a Vue component
+    attribute: <tax-deed-sales :taxdeeds="[{...}]">, HTML-entity-encoded JSON.
+    This was the root cause of dixie C/D sitting at 0% despite 31 real sale
+    records being live on the source site. See
+    migrations/20260710_gold_standard_shard8_dixie_real_tax_deed_harvest.sql
+    for the one-time backfill this parser is meant to keep current going
+    forward.
+
+    Only maps a definitive outcome (auction_status='sold'/'redeemed') when
+    the clerk's own status is unambiguous AND the sale date has already
+    passed. Records where status='scheduled' but the sale date is already
+    past are a known data-quality inconsistency on the source site itself --
+    left as 'upcoming' (no sold_amount) rather than guessed, per Honesty
+    Protocol (BLANK > WRONG).
+    """
+    m = re.search(r':taxdeeds="(\[.*?\])"', html_text, re.S)
+    if not m:
+        return []
+    try:
+        raw_records = json.loads(html.unescape(m.group(1)))
+    except json.JSONDecodeError as e:
+        log.warning(f'Could not parse tax deed JSON blob: {e}')
+        return []
+
+    today = date.today()
+    records = []
+    for r in raw_records:
+        parcel = (r.get('parcel') or '').strip()
+        if not parcel:
+            continue
+        case_number = f'DIXIE-SYNTH-{parcel}'
+        try:
+            sale_date = datetime.strptime(r['sale_date'].split(' 11:00')[0].strip(), '%b %d, %Y').date()
+        except (ValueError, KeyError):
+            log.warning(f'Could not parse tax deed sale_date for parcel {parcel}: {r.get("sale_date")!r}')
+            continue
+
+        clerk_status = (r.get('status') or '').strip().lower()
+        is_past = sale_date < today
+        if clerk_status in ('sold', 'redeemed') and is_past:
+            auction_status = clerk_status
+            sold_amount = float(r['sold_amount']) if r.get('sold_amount') else None
+        else:
+            auction_status = 'upcoming'
+            sold_amount = None
+
+        records.append({
+            'county': 'dixie',
+            'case_number': case_number,
+            'sale_type': 'tax_deed',
+            'auction_type': 'tax_deed',
+            'auction_date': sale_date.isoformat(),
+            'auction_status': auction_status,
+            'sold_amount': sold_amount,
+            'opening_bid': float(r['opening_bid']) if r.get('opening_bid') else None,
+            'cert_number': r.get('cert') or None,
+            'cert_holder': (r.get('cert_holder') or '').strip() or None,
+            'parcel_id': parcel,
+            'property_address': 'DIXIE COUNTY, FL',
+            'state': 'FL',
+            'clerk_url': DIXIE_TD_URL,
+            'provenance': f'live_source_scrape_{today.isoformat()}',
+            'data_source': 'dixieclerk_tax_deed_page_live_v1',
             'source_platform': 'clerk_website',
         })
 
@@ -155,11 +230,11 @@ def main():
     else:
         log.warning(f'Foreclosure page returned {r.status_code}')
 
-    # Scrape tax deed sales
+    # Scrape tax deed sales (Vue-embedded JSON -- see parse_dixie_taxdeed_json docstring)
     log.info(f'Fetching Dixie tax deed sales from {DIXIE_TD_URL}')
     r2 = client.get(DIXIE_TD_URL, headers=WEB_HEADERS)
     if r2.status_code == 200:
-        td_records = parse_dixie_sales(r2.text, 'tax_deed')
+        td_records = parse_dixie_taxdeed_json(r2.text)
         log.info(f'Parsed {len(td_records)} tax deed auctions')
         all_records.extend(td_records)
     else:
