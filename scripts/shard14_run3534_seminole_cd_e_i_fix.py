@@ -111,7 +111,7 @@ def rest_patch(path, body, timeout=90):
     return _with_retry(_do)
 
 
-def match_and_fix(county, items, parity_source_label):
+def match_and_fix(county, items, parity_source_label, sale_type, auction_date):
     by_norm = {}
     for it in items:
         cn = norm_case_number(it.get("case_number"))
@@ -119,7 +119,7 @@ def match_and_fix(county, items, parity_source_label):
             by_norm[cn] = it
 
     mca_rows = rest_get(
-        f"multi_county_auctions?county=eq.{county}"
+        f"multi_county_auctions?county=eq.{county}&sale_type=eq.{sale_type}&auction_date=eq.{auction_date}"
         f"&or=(data_source.neq.propertyonion,data_source.is.null)"
         f"&select=id,case_number,parity_status,parity_source,parcel_id,property_address,assessed_value")
 
@@ -180,7 +180,7 @@ def main():
             continue
         try:
             parity, parcel, card = match_and_fix(
-                COUNTY, items, f"tier1:shard14_run3534_seminole_ajax_harvest:{sale_type}:{ad}")
+                COUNTY, items, f"tier1:shard14_run3534_seminole_ajax_harvest:{sale_type}:{ad}", sale_type, ad)
         except Exception as e:
             print(f"  MATCH FAIL {COUNTY} {sale_type} {ad}: {e}")
             continue

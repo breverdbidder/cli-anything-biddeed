@@ -131,7 +131,7 @@ def load_targets():
     return [{"county": COUNTY, "sale_type": st, "auction_date": ad} for (st, ad), _n in ranked], rows
 
 
-def match_and_fix(items, parity_source_label):
+def match_and_fix(items, parity_source_label, sale_type, auction_date):
     by_norm = {}
     for it in items:
         cn = norm_case_number(it.get("case_number"))
@@ -139,7 +139,7 @@ def match_and_fix(items, parity_source_label):
             by_norm[cn] = it
 
     mca_rows = rest_get(
-        f"multi_county_auctions?county=eq.{COUNTY}"
+        f"multi_county_auctions?county=eq.{COUNTY}&sale_type=eq.{sale_type}&auction_date=eq.{auction_date}"
         f"&or=(data_source.neq.propertyonion,data_source.is.null)"
         f"&select=id,case_number,parity_status,parity_source,parcel_id,property_address,assessed_value")
 
@@ -207,7 +207,7 @@ def main():
             continue
         try:
             parity, parcel, card = match_and_fix(
-                items, f"tier1:{DISPATCH_TAG}_ajax_harvest:{sale_type}:{ad}")
+                items, f"tier1:{DISPATCH_TAG}_ajax_harvest:{sale_type}:{ad}", sale_type, ad)
         except Exception as e:
             print(f"  MATCH FAIL {sale_type} {ad}: {e}")
             continue
