@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 """
+DO NOT RUN (2026-07-10, shard7 session): step 3 inserts fabricated bootstrap rows to
+force Letter A green. collier.realforeclose.com/realtaxdeed.com are confirmed dead
+(302-redirect to a deprovisioned realauction.com account) and Collier sales are
+in-person only -- verified via scripts/shard9_collier_realdata_bootstrap.py and synced
+into pipeline.counties (2026-07-10). Running this script would reproduce the exact
+ghost-success fabrication pattern already caught and reverted for okeechobee. Letter A
+should stay FAIL for collier until a real in-person data-collection process exists.
+
 SHARD-5 Letter A Lane Fix: Collier County
 Problem: collier has missing or misconfigured auction lanes (fc=0 or td=0).
 County config: co_no=21, fc_platform=realforeclose, td_platform=realauction

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+DO NOT RUN (2026-07-10, shard7 session): both target URLs are confirmed dead
+(302-redirect to a deprovisioned realauction.com account, verified repeatedly since
+2026-07-03 via scripts/shard9_collier_realdata_bootstrap.py). "Placeholder timestamps"
+UPDATE fallback would fake freshness on non-existent data. Collier sales are in-person
+only; pipeline.counties was synced to this reality on 2026-07-10. Do not run this
+script to force Letter A/H green.
+
 Shard5 Collier Real Data Scraper
 Attempts to pull real auction data from:
   - https://collier.realforeclose.com  (foreclosure auctions)
