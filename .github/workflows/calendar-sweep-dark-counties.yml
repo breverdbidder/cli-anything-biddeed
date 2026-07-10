@@ -22,6 +22,13 @@ on:
         description: 'true = skip upsert, log only'
         required: false
         default: 'false'
+  schedule:
+    # Added 2026-07-10: this workflow had ONLY workflow_dispatch, meaning it
+    # never ran automatically. That is the confirmed root cause of criterion-H
+    # (freshness, SLA 48h) failing for seminole (last real sweep was a manual
+    # dispatch weeks prior) and likely other counties in the 39-county list
+    # above. Runs before the 05:30Z/06:00Z county-specific dispatchers.
+    - cron: '15 5 * * *'
 
 concurrency:
   group: calendar-sweep-dark-counties
