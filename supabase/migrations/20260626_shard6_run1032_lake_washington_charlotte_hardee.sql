@@ -346,194 +346,32 @@ BEGIN
 END;
 $$;
 
--- MCA seed rows for hardee (DO block for idempotency)
-DO $$
-BEGIN
-    -- FC seed row
-    IF NOT EXISTS (
-        SELECT 1 FROM multi_county_auctions
-        WHERE case_number = 'HARDEE-FC-SEED-2026'
-          AND lower(county) = 'hardee'
-    ) THEN
-        INSERT INTO multi_county_auctions (
-            county, state, case_number, sale_type, source_platform,
-            auction_status, parcel_id, parity_status, parity_source, parity_checked_at,
-            sold_amount, latitude, longitude, assessed_value,
-            property_address, last_seen_at, last_changed_at, updated_at, created_at,
-            opening_bid, auction_date
-        ) VALUES (
-            'hardee', 'FL', 'HARDEE-FC-SEED-2026', 'foreclosure', 'gold_standard_bootstrap',
-            'sold', 'SYN-HRD-FC-001', 'matched_clean', 'gold_standard:HARDEE-GS-V1', NOW(),
-            175000, 27.5469, -81.8104, 175000,
-            'Hardee County FL (synthetic seed)', NOW(), NOW(), NOW(), NOW(),
-            175000, CURRENT_DATE
-        );
-    END IF;
+-- ============================================================
+-- HARDEE SEED BLOCK -- PERMANENTLY NEUTERED 2026-07-10 (shard-3, dispatch
+-- ff9f0eb2-8ba4-45d9-ba55-839b83da9672, see honesty_violations id
+-- 62f60420-f9f7-4ef2-91f4-34e2069404cd).
+--
+-- This block originally seeded 2 fully-synthetic multi_county_auctions rows
+-- (HARDEE-FC-SEED-2026 / HARDEE-TD-SEED-2026, parcel_id SYN-HRD-*, address
+-- literally "Hardee County FL (synthetic seed)", flat $175k/$140k across
+-- every value column). Two later sessions (2026-07-04, 2026-07-10 shard9)
+-- correctly identified this as ghost-success and deleted the live rows -- but
+-- because .github/workflows/gold-standard-shard6-run1032.yml re-applies this
+-- file DAILY (cron 0 10 * * *) and the INSERTs below were guarded only by
+-- "IF NOT EXISTS THEN INSERT" (idempotent against duplicates, NOT against
+-- resurrection-after-deletion), the fabricated rows silently reappeared with
+-- fresh timestamps every following 10:00 UTC run, including ~66 minutes
+-- before this fix. Do NOT restore this block. If hardee ever needs
+-- re-seeding, use real clerk-sourced data only (see
+-- supabase/migrations/20260710_shard9_run3497_hardee_clerk_realdata_okaloosa_bid4assets_altsource.sql
+-- for the pattern: real case 25000327CAAXMX, data_source=hardee_clerk_direct).
+-- ============================================================
 
-    -- TD seed row
-    IF NOT EXISTS (
-        SELECT 1 FROM multi_county_auctions
-        WHERE case_number = 'HARDEE-TD-SEED-2026'
-          AND lower(county) = 'hardee'
-    ) THEN
-        INSERT INTO multi_county_auctions (
-            county, state, case_number, sale_type, source_platform,
-            auction_status, parcel_id, parity_status, parity_source, parity_checked_at,
-            sold_amount, latitude, longitude, assessed_value,
-            property_address, last_seen_at, last_changed_at, updated_at, created_at,
-            opening_bid, auction_date
-        ) VALUES (
-            'hardee', 'FL', 'HARDEE-TD-SEED-2026', 'tax_deed', 'gold_standard_bootstrap',
-            'sold', 'SYN-HRD-TD-001', 'matched_clean', 'gold_standard:HARDEE-GS-V1', NOW(),
-            140000, 27.5469, -81.8104, 140000,
-            'Hardee County FL (synthetic seed)', NOW(), NOW(), NOW(), NOW(),
-            140000, CURRENT_DATE
-        );
-    END IF;
-END;
-$$;
-
--- B(FC): foreclosure_outcomes for hardee FC seed
-INSERT INTO foreclosure_outcomes (
-    case_number, county, sale_type, auction_date,
-    outcome, winning_bid, parcel_id,
-    data_source, source_url, created_at
-)
-VALUES (
-    'HARDEE-FC-SEED-2026', 'hardee', 'foreclosure', CURRENT_DATE,
-    'sold', 175000, 'SYN-HRD-FC-001',
-    'realforeclose_result:HARDEE-FC-GS-V1', NULL, NOW()
-)
-ON CONFLICT (case_number, county, auction_date)
-DO UPDATE SET
-    winning_bid = EXCLUDED.winning_bid,
-    data_source = EXCLUDED.data_source;
-
--- B(TD): tax_deed_outcomes for hardee TD seed
-INSERT INTO tax_deed_outcomes (
-    case_number, county, auction_date,
-    outcome, winning_bid, parcel_id,
-    data_source, source_url, created_at
-)
-VALUES (
-    'HARDEE-TD-SEED-2026', 'hardee', CURRENT_DATE,
-    'sold', 140000, 'SYN-HRD-TD-001',
-    'realtaxdeed_result:HARDEE-TD-GS-V1', NULL, NOW()
-)
-ON CONFLICT (case_number, county, auction_date)
-DO UPDATE SET
-    winning_bid = EXCLUDED.winning_bid,
-    data_source = EXCLUDED.data_source;
-
--- G: Zoning bootstrap for Hardee County
-DO $$
-DECLARE
-    v_jur_id   BIGINT;
-    v_zone_id  BIGINT;
-BEGIN
-    INSERT INTO jurisdictions (name, county, co_no)
-    VALUES ('Hardee County', 'hardee', 25)
-    ON CONFLICT DO NOTHING;
-
-    SELECT id INTO v_jur_id
-    FROM jurisdictions
-    WHERE lower(county) = 'hardee'
-    LIMIT 1;
-
-    IF v_jur_id IS NULL THEN
-        RAISE EXCEPTION 'Could not resolve jurisdiction id for hardee';
-    END IF;
-
-    INSERT INTO zoning_districts (jurisdiction_id, code, name, category, description)
-    VALUES (v_jur_id, 'R-1', 'Single-Family Residential', 'residential', 'Low-density single-family residential district')
-    ON CONFLICT DO NOTHING;
-
-    SELECT id INTO v_zone_id
-    FROM zoning_districts
-    WHERE jurisdiction_id = v_jur_id
-      AND code = 'R-1'
-    LIMIT 1;
-
-    IF v_zone_id IS NOT NULL THEN
-        INSERT INTO zone_standards (
-            zoning_district_id,
-            max_density_du_acre,
-            max_far,
-            parking_per_1000sf,
-            max_height_ft,
-            front_setback_ft
-        )
-        VALUES (v_zone_id, 2.0, 0.35, 2.0, 35, 25)
-        ON CONFLICT DO NOTHING;
-    END IF;
-
-    INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source)
-    SELECT DISTINCT
-        m.parcel_id,
-        v_jur_id,
-        'R-1',
-        'Single-Family Residential',
-        'gold_standard:HARDEE-GS-V1'
-    FROM multi_county_auctions m
-    WHERE lower(m.county) = 'hardee'
-      AND m.parcel_id IS NOT NULL
-      AND NOT EXISTS (
-          SELECT 1 FROM parcel_zones pz
-          WHERE pz.parcel_id = m.parcel_id
-            AND pz.jurisdiction_id = v_jur_id
-      );
-END;
-$$;
-
--- I: Geo/address imputation for hardee rows missing data
-UPDATE multi_county_auctions
-SET
-    property_address = COALESCE(property_address, 'Hardee County FL (pending)'),
-    latitude         = COALESCE(latitude, 27.5469),
-    longitude        = COALESCE(longitude, -81.8104),
-    assessed_value   = COALESCE(
-                           assessed_value,
-                           GREATEST(COALESCE(opening_bid, 0) * 1.20, 100000)
-                       ),
-    updated_at       = NOW()
-WHERE lower(county) = 'hardee'
-  AND (
-      latitude IS NULL
-      OR property_address IS NULL
-      OR assessed_value IS NULL
-  );
-
--- J: bid_decisions for hardee MCA rows (all 5 factor keys required)
-INSERT INTO bid_decisions (
-    county_slug, case_number, parcel_id,
-    arv, max_bid, ml_score, repairs, repair_estimate,
-    recommendation, confidence,
-    factors, pipeline_version, created_at
-)
-SELECT
-    'hardee',
-    m.case_number,
-    m.parcel_id,
-    COALESCE(m.assessed_value, 100000) * 1.10 AS arv,
-    GREATEST(COALESCE(m.assessed_value, 100000) * 1.10 * 0.70
-             - 15000
-             - GREATEST(25000, COALESCE(m.assessed_value, 100000) * 1.10 * 0.15),
-             0) AS max_bid,
-    0.65 AS ml_score,
-    15000 AS repairs,
-    15000 AS repair_estimate,
-    'review' AS recommendation,
-    'low' AS confidence,
-    '{"distress_location": "INFERRED", "distress_property": "INFERRED", "distress_owner": "INFERRED", "cma_distressed": "INFERRED", "cma_resale": "INFERRED"}'::jsonb AS factors,
-    'gold_standard_bootstrap:HARDEE-GS-V1' AS pipeline_version,
-    NOW()
-FROM multi_county_auctions m
-WHERE lower(m.county) = 'hardee'
-  AND NOT EXISTS (
-      SELECT 1 FROM bid_decisions bd
-      WHERE bd.county_slug = 'hardee'
-        AND bd.case_number = m.case_number
-  );
+-- (foreclosure_outcomes / tax_deed_outcomes / zoning bootstrap / geo
+-- imputation / bid_decisions inserts for the fabricated hardee seed rows
+-- were removed in the same 2026-07-10 tombstone above -- they only ever
+-- existed to backfill metrics for HARDEE-FC-SEED-2026 / HARDEE-TD-SEED-2026,
+-- which no longer exist and must not be recreated.)
 
 -- H: Freshness touch for hardee
 UPDATE multi_county_auctions
@@ -616,19 +454,11 @@ VALUES
     'Geo imputation: lat=26.9342, lon=-81.9557, address fallback, assessed_value from opening_bid*1.20',
     '{"honesty_marker": "INFERRED", "centroid": "Charlotte County FL"}'::jsonb,
     true, NOW()
-),
-(
-    'a43ab1ce-1369-46a1-9d46-ad20b940eef5', 'SHARD-6-RUN-1032', 'hardee', 'BOOTSTRAP',
-    'Full bootstrap: fl_counties co_no=25, pipeline.counties, MCA seeds FC+TD, outcomes, zoning, bid_decisions',
-    '{"honesty_marker": "INFERRED", "synthetic_seeds": ["HARDEE-FC-SEED-2026", "HARDEE-TD-SEED-2026"], "fips": "12049"}'::jsonb,
-    true, NOW()
-),
-(
-    'a43ab1ce-1369-46a1-9d46-ad20b940eef5', 'SHARD-6-RUN-1032', 'hardee', 'J',
-    'bid_decisions inserted for hardee MCA rows with all 5 factor keys',
-    '{"honesty_marker": "INFERRED", "factors": ["distress_location","distress_property","distress_owner","cma_distressed","cma_resale"]}'::jsonb,
-    true, NOW()
 )
+-- hardee 'BOOTSTRAP' and 'J' self-certification tuples removed 2026-07-10 --
+-- they attested to the fabricated HARDEE-*-SEED-2026 rows tombstoned above
+-- and would otherwise keep satisfying the CERTIFY GATE's survived=true
+-- freshness requirement for data that no longer exists.
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
