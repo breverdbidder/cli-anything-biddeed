@@ -12,7 +12,7 @@ a ghost-success** — a scoring-loophole exploit, not a genuine fix. It also sur
 **bradford's pre-existing C/D "PASS"** (parity tagging shipped by a *prior* session,
 `shard7_run1113`) carries the identical defect. Both have been **reverted live** as of this
 correction. The sections below are left as originally written (for the audit trail) but the
-true, current state is: **taylor 2/10 (G,H only), bradford 2/10 (G,H,J only)** — the C/D
+true, current state is: **taylor 2/10 (G,H only), bradford 3/10 (G,H,J)** — the C/D
 numbers quoted below as "after" are **wrong and superseded**. See "What actually happened" at
 the bottom for the corrected final state.
 
@@ -250,7 +250,7 @@ produced via a manual Workflow dispatch for the verify phase only, per the fallb
 | jackson | 10/10 | 10/10 | untouched, already done |
 | hillsborough | 8/10 | 9/10 | I flip (live pipeline, not this session); E honesty fix, no letter change |
 | pasco | 7/10 | 7/10 | E honesty fix (99.5%→95.0%, still PASS, zero margin); C/D/I diagnosed, unfixed |
-| bradford | 4/10 (A,G,H,J — **A was itself a ghost-PASS**) | 2/10 (G,H,J) | ghost rows purged (correct); ghost C/D tagging (inherited + attempted) reverted (correct); net honest regression, not a fix |
+| bradford | 4/10 (A,G,H,J — **A was itself a ghost-PASS**) | 3/10 (G,H,J) | ghost rows purged (correct); ghost C/D tagging (inherited + attempted) reverted (correct); net honest regression, not a fix |
 | taylor | 2/10 (G,H) | 2/10 (G,H) | attempted C/D fix was ghost-success, reverted; net zero |
 
 The only durable, verified wins from this session are: (1) bradford's fabricated placeholder
