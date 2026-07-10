@@ -270,13 +270,21 @@ def phase_i_property_cards():
         "clay":     285000,
         "nassau":   320000,
         "okaloosa": 310000,
-        "bradford": 145000,
         "flagler":  295000,
     }
+    # bradford EXCLUDED (2026-07-10): this bulk PATCH was fabricating a
+    # constant assessed_value=145000/market_value=152250.0 on every run,
+    # re-corrupting rows nulled out by migration
+    # 20260703_shard13_..._bradford_i_honesty_fix.sql every ~8h. Bradford's
+    # I criterion needs real per-parcel appraiser data, not a county median.
+    # See gold_standard_loop C/D v2 wiring verification session (2026-07-10).
 
     now = datetime.now(timezone.utc).isoformat()
 
     for county in SHARD_COUNTIES:
+        if county == "bradford":
+            log("bradford I: SKIPPED (fabrication guard — no real median source) [VERIFIED]", "INFO", "VERIFIED")
+            continue
         base = county_median.get(county, 200000)
         # Bulk PATCH: only rows where assessed_value IS NULL
         qs = urllib.parse.urlencode({
