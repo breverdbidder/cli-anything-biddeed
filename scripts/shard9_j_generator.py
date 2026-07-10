@@ -50,6 +50,16 @@ COUNTY_CONFIG = {
     # run757 additions (shard9 gold expansion)
     'walton':       {'arv': 520000, 'repair_factor': 0.08, 'location_score': 8.0},  # 30A / DeFuniak Springs
     'santa_rosa':   {'arv': 295000, 'repair_factor': 0.10, 'location_score': 7.0},  # Gulf Breeze / Milton
+    # SHARD-4 run3497 additions — arv derived from live median(assessed_value/market_value)
+    # in multi_county_auctions (st_lucie n=72, highlands n=142), or median JV in
+    # fl_parcels for the county's co_no where MCA has no value sample (madison n=14,363).
+    # baker has neither a multi-row MCA sample nor any fl_parcels rows for co_no=2
+    # (structural FL-GIO gap, see pipeline.counties.notes) — its 85000 is the single
+    # real assessed_value on file, not a statewide median; treat as low-confidence.
+    'st_lucie':     {'arv': 150000, 'repair_factor': 0.12, 'location_score': 6.5},  # Treasure Coast
+    'highlands':    {'arv': 150000, 'repair_factor': 0.13, 'location_score': 6.0},  # Sebring / Avon Park
+    'madison':      {'arv': 75000,  'repair_factor': 0.18, 'location_score': 5.0},  # Rural Big Bend
+    'baker':        {'arv': 85000,  'repair_factor': 0.18, 'location_score': 5.0},  # Rural NE FL, low-confidence (n=1)
 }
 
 SHARD9_COUNTIES = list(COUNTY_CONFIG.keys())
