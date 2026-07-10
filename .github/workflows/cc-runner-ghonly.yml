@@ -20,7 +20,7 @@ jobs:
   run-cc:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     strategy:
       matrix:
         issue: ${{ fromJson(format('[{0}]', inputs.issues)) }}
@@ -68,6 +68,7 @@ jobs:
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_USERNAME: ${{ secrets.REALFORECLOSE_USERNAME }}
           REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
+          CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0"
         run: |
           set +e
           unset ANTHROPIC_API_KEY
