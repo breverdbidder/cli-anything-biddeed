@@ -1,0 +1,57 @@
+name: "Lafayette Clerk Harvest"
+# SHARD dispatch_id: 11df373c-d3d3-4778-b489-2c32d7af5545
+# Lafayette (FL's least populous county) has foreclosure_platform=taxdeed_platform=
+# 'clerk_inperson' in pipeline.counties -- no RealAuction tenant. Sales are held
+# in person on the courthouse steps, but the Clerk's own site publishes structured
+# upcoming-sale cards for both foreclosure and tax-deed online. Verified live
+# 2026-07-10: 1 real foreclosure case (25000056CAAXMX), 0 tax-deed listings
+# (page explicitly states "There are no properties on the list of tax deeds at
+# this time" -- genuine zero, not scraped as fabricated data).
+
+on:
+  schedule:
+    - cron: '50 5 * * *'   # 05:50 UTC daily
+  workflow_dispatch:
+
+jobs:
+  harvest:
+    name: "Harvest lafayette clerk foreclosure + tax deed"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests
+
+      - name: "Run harvester"
+        run: |
+          set -euo pipefail
+          EXIT=0
+          python3 scripts/lafayette_clerk_harvest.py || EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = genuinely zero listings this cycle -- not a failure
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: A/E metric via evaluator RPC"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "lafayette"}')
+          echo "### SQL VERIFICATION: lafayette" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
