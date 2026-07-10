@@ -137,26 +137,6 @@ def build_rows(county: str, sale_type: str, platform: str, scraped: list[dict]) 
     return result
 
 
-def build_placeholder_rows(county: str, sale_type: str, platform: str, n: int = 1) -> list[dict]:
-    """Minimal placeholder rows when scraping returns nothing."""
-    rows = []
-    prefix = county.upper()[:3]
-    st_code = "FC" if sale_type == "foreclosure" else "TD"
-    for i in range(1, n + 1):
-        case_num = f"{prefix}-{st_code}-2026-{i:03d}"
-        rows.append({
-            "county": county,
-            "case_number": case_num,
-            "sale_type": sale_type,
-            "auction_status": "upcoming",
-            "auction_date": TODAY,
-            "data_source": f"{platform}:shard5-bootstrap-v1:placeholder",
-            "last_changed_at": NOW,
-            "parity_status": None,
-        })
-    return rows
-
-
 # ── Supabase insert ───────────────────────────────────────────────────────────
 
 def insert_rows(rows: list[dict]) -> int:
@@ -238,8 +218,7 @@ def main():
         rows = build_rows(county, sale_type, platform, scraped)
 
         if not rows:
-            print(f"  No real rows — inserting placeholder")
-            rows = build_placeholder_rows(county, sale_type, platform, n=1)
+            print(f"  No real rows found — reporting honest zero, no fabricated fallback")
 
         inserted = insert_rows(rows)
         print(f"  Inserted: {inserted} rows")
