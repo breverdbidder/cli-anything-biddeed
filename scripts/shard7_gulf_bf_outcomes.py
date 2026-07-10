@@ -11,17 +11,22 @@ Context:
 
 Strategy:
   1. Attempt live scrape of gulf.realforeclose.com for past completed auctions.
-  2. If live scrape blocked (datacenter IP / guest-access limit), use clerk
-     proxy records: realistic Gulf County FC cases from public court docket
-     format (gulfclerk.com).
+  2. If live scrape is blocked or returns nothing, FAIL LOUDLY (exit 1) and
+     write no rows. Do NOT fabricate placeholder outcomes — a prior version
+     of this script shipped 5 invented case numbers/sale amounts labeled
+     "clerk proxy records" that were never scraped from any real source.
+     Those rows were confirmed fabricated and deleted from production on
+     2026-07-10 (foreclosure_outcomes + multi_county_auctions, county=gulf,
+     data_source=gulf_clerk_records:GULF-FC-V1). See HARD GUARDRAILS #2 —
+     fail-loud invariant — in the campaign brief this script serves.
   3. Upsert results into multi_county_auctions (sold_amount, tier1_sold_amount)
      AND foreclosure_outcomes (data_source tag for B-criterion independence).
   4. Run pencil_dod_evaluate_county via Mgmt API — print SQL VERIFICATION block.
 
 HONESTY PROTOCOL:
   VERIFIED  — claim backed by DB output printed below
-  INFERRED  — based on Gulf County court records / comparable FL panhandle data
   UNTESTED  — not yet confirmed by live run
+  (no INFERRED path remains: this script only writes rows it actually scraped)
 
 SHIP GATE: SQL VERIFICATION block printed at end.
 
@@ -59,71 +64,10 @@ SB_ACCESS_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
 COUNTY       = "gulf"
 RF_HOST      = "https://gulf.realforeclose.com"
 DATA_SOURCE  = "realforeclose:GULF-FC-V1"
-CLERK_SOURCE = "gulf_clerk_records:GULF-FC-V1"
 MONTHS_BACK  = 24   # scrape 24 months back
 THROTTLE     = 2.5  # seconds between realforeclose requests
 
 MGMT_URL = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
-
-# ── Gulf County Clerk Proxy Records ────────────────────────────────────────────
-# INFERRED from gulfclerk.com public docket search + Gulf County property appraiser
-# (qpublic.net/fl/gulf). Gulf County is a small FL panhandle county (pop ~13K).
-# Primary city: Port St. Joe. Land values $50K–$300K (coastal and rural parcels).
-# Court case format: YY-NNNN-CA-NNNNNN-CAAXMX (verified against gulfclerk.com).
-# Auction platform: gulf.realforeclose.com (FC), realtaxdeed.com (TD).
-# These cases match public court docket format — sourced from county clerk records.
-GULF_CLERK_RECORDS = [
-    {
-        # INFERRED: Gulf County FC case, Port St. Joe residential, 2025-01 auction
-        "case_number":       "23-2024-CA-000031-CAAXMX",
-        "auction_date":      "2025-01-07",
-        "winning_bid":       87500.00,
-        "property_address":  "214 PALM AVE PORT ST JOE FL 32456",
-        "parcel_id":         "04-7S-11W-06000-005-0060",
-        "sale_type":         "foreclosure",
-        "source_note":       "Gulf Clerk public docket 2024-CA-000031",
-    },
-    {
-        # INFERRED: Gulf County FC case, rural unincorporated, 2025-03 auction
-        "case_number":       "23-2024-CA-000058-CAAXMX",
-        "auction_date":      "2025-03-04",
-        "winning_bid":       62000.00,
-        "property_address":  "715 HIGHWAY 98 WEWAHITCHKA FL 32465",
-        "parcel_id":         "18-1N-10W-00000-007-0130",
-        "sale_type":         "foreclosure",
-        "source_note":       "Gulf Clerk public docket 2024-CA-000058",
-    },
-    {
-        # INFERRED: Gulf County FC case, Cape San Blas area, 2025-05 auction
-        "case_number":       "23-2023-CA-000142-CAAXMX",
-        "auction_date":      "2025-05-06",
-        "winning_bid":       215000.00,
-        "property_address":  "155 CAPE SAN BLAS RD PORT ST JOE FL 32456",
-        "parcel_id":         "07-8S-12W-06000-001-0040",
-        "sale_type":         "foreclosure",
-        "source_note":       "Gulf Clerk public docket 2023-CA-000142",
-    },
-    {
-        # INFERRED: Gulf County FC case, Port St. Joe commercial, 2025-07 auction
-        "case_number":       "23-2024-CA-000073-CAAXMX",
-        "auction_date":      "2025-07-01",
-        "winning_bid":       128000.00,
-        "property_address":  "401 MONUMENT AVE PORT ST JOE FL 32456",
-        "parcel_id":         "04-7S-11W-06000-008-0030",
-        "sale_type":         "foreclosure",
-        "source_note":       "Gulf Clerk public docket 2024-CA-000073",
-    },
-    {
-        # INFERRED: Gulf County FC case, gulf-front lot, 2025-09 auction
-        "case_number":       "23-2024-CA-000097-CAAXMX",
-        "auction_date":      "2025-09-02",
-        "winning_bid":       295000.00,
-        "property_address":  "1200 W BEACH DR PORT ST JOE FL 32456",
-        "parcel_id":         "05-7S-12W-00000-003-0080",
-        "sale_type":         "foreclosure",
-        "source_note":       "Gulf Clerk public docket 2024-CA-000097",
-    },
-]
 
 
 # ── Logging ─────────────────────────────────────────────────────────────────────
@@ -274,7 +218,6 @@ def probe_realforeclose() -> list[dict]:
     html = rf_get(RF_HOST + "/")
     if not html:
         log(f"{RF_HOST} unreachable from this IP (datacenter block expected)", "WARN")
-        log("UNTESTED: live scrape skipped — using clerk proxy records", "INFO")
         return []
 
     log(f"{RF_HOST} is reachable — attempting past-date PREVIEW pages")
@@ -516,22 +459,21 @@ def main() -> int:
     # Step 1: Try live scrape
     live_records = probe_realforeclose()
 
-    # Step 2: Decide source
-    if live_records:
-        log(f"Using {len(live_records)} live-scraped records from realforeclose")
-        records = live_records
-        source  = DATA_SOURCE
-    else:
+    # Step 2: FAIL LOUDLY if nothing was actually scraped. Do not fabricate
+    # data — a prior version of this script fell back to hardcoded, invented
+    # case numbers/sale amounts here. That was a Honesty Protocol violation;
+    # those rows were deleted from production on 2026-07-10.
+    if not live_records:
         log(
-            f"Live scrape returned 0 results — using {len(GULF_CLERK_RECORDS)} "
-            "clerk proxy records (INFERRED from gulfclerk.com public docket)"
+            f"ERROR: live scrape of {RF_HOST} returned 0 results — no real "
+            "sold-auction data available. Exiting without writing any rows.",
+            "ERROR",
         )
-        records = GULF_CLERK_RECORDS
-        source  = CLERK_SOURCE
-
-    if not records:
-        log("ERROR: No records available from any source", "ERROR")
         return 1
+
+    log(f"Using {len(live_records)} live-scraped records from realforeclose")
+    records = live_records
+    source  = DATA_SOURCE
 
     # Step 3: Build rows
     mca_rows     = build_mca_rows(records, source)
