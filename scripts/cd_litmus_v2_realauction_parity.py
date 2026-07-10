@@ -87,7 +87,14 @@ def sb_insert(table: str, rows: list) -> int:
     values_sql = ",\n".join(
         "(" + ", ".join(sql_lit(r.get(c)) for c in cols) + ")" for r in rows
     )
-    sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES\n{values_sql};"
+    # ux_parity_v2_county_src_sale (unique on county_slug,source,sale_type) means a
+    # plain INSERT 23505s on every re-harvest of a county already seen once -- upsert
+    # so re-running this script actually refreshes the feed instead of silently no-op
+    # failing (root cause of cd_litmus_parity_v2 being stuck at its 2026-07-09 batch).
+    update_cols = [c for c in cols if c not in ("county_slug", "source", "sale_type")]
+    update_sql = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols) + ", fetched_at = now()"
+    sql = (f"INSERT INTO {table} ({', '.join(cols)}) VALUES\n{values_sql}\n"
+           f"ON CONFLICT (county_slug, source, sale_type) DO UPDATE SET {update_sql};")
     try:
         db_query(sql)
         return 201

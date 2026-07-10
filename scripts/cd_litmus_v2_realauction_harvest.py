@@ -203,6 +203,10 @@ def insert_row(county_slug, source, sale_type, window_start, window_end,
             return "'" + v.replace("'", "''") + "'"
         return str(v)
 
+    # ux_parity_v2_county_src_sale (unique on county_slug,source,sale_type) means a
+    # plain INSERT 23505s on every re-harvest of a county already seen once -- upsert
+    # so re-running this script actually refreshes the feed instead of silently no-op
+    # failing.
     run_sql(f"""
         INSERT INTO cd_litmus_parity_v2
           (county_slug, source, sale_type, window_start, window_end,
@@ -211,7 +215,12 @@ def insert_row(county_slug, source, sale_type, window_start, window_end,
           ({sql_val(county_slug)}, {sql_val(source)}, {sql_val(sale_type)},
            {sql_val(window_start)}, {sql_val(window_end)},
            {sql_val(source_count)}, {sql_val(our_count)}, {sql_val(match_pct)},
-           now(), {sql_val(status)}, {sql_val(notes)});
+           now(), {sql_val(status)}, {sql_val(notes)})
+        ON CONFLICT (county_slug, source, sale_type) DO UPDATE SET
+          window_start = EXCLUDED.window_start, window_end = EXCLUDED.window_end,
+          source_count = EXCLUDED.source_count, our_count = EXCLUDED.our_count,
+          match_pct = EXCLUDED.match_pct, fetched_at = EXCLUDED.fetched_at,
+          status = EXCLUDED.status, notes = EXCLUDED.notes;
     """)
 
 

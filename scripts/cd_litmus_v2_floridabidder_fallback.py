@@ -76,6 +76,10 @@ def harvest_one(county_slug, sale_type, our_count):
                 f"real-browser (Playwright) attempt also failed to clear the challenge in-runner 2026-07-06"
         source_count = None
 
+    # ux_parity_v2_county_src_sale (unique on county_slug,source,sale_type) means a
+    # plain INSERT 23505s on every re-harvest of a county already seen once -- upsert
+    # so re-running this script actually refreshes the feed instead of silently no-op
+    # failing.
     run_sql(f"""
         INSERT INTO cd_litmus_parity_v2
           (county_slug, source, sale_type, window_start, window_end,
@@ -83,7 +87,10 @@ def harvest_one(county_slug, sale_type, our_count):
         VALUES
           ({sql_val(county_slug)}, 'floridabidder', {sql_val(sale_type)},
            NULL, NULL, {sql_val(source_count)}, {sql_val(our_count)}, NULL,
-           now(), {sql_val(status)}, {sql_val(notes)});
+           now(), {sql_val(status)}, {sql_val(notes)})
+        ON CONFLICT (county_slug, source, sale_type) DO UPDATE SET
+          source_count = EXCLUDED.source_count, our_count = EXCLUDED.our_count,
+          fetched_at = EXCLUDED.fetched_at, status = EXCLUDED.status, notes = EXCLUDED.notes;
     """)
     print(f"{county_slug}/{sale_type}: floridabidder status={status} (HTTP {status_code})")
 
