@@ -9,9 +9,20 @@ Strategy:
   2. Upsert pipeline.counties config (recorded via fl_counties lane URL fields)
   3. Bootstrap 2 foreclosure + 2 tax_deed rows in multi_county_auctions if lanes are empty
   4. Verify counts by source_platform
+
+QUARANTINED 2026-07-10 (gold-standard shard-2, run3534): this script's "bootstrap"
+rows (DESOTO-FC-2026-*/DESOTO-TD-2026-*, property_address="TBD DESOTO FL") are
+wholesale fabricated data with no real scrape behind them -- confirmed and purged
+live (multi_county_auctions + foreclosure_outcomes/tax_deed_outcomes/bid_decisions/
+parcel_zones mirrors). Do not run. Real desoto ingestion must scrape
+desoto.realforeclose.com / desoto.realtaxdeed.com for actual case data.
 """
-import os
 import sys
+print("QUARANTINED: this script fabricates placeholder desoto rows. Do not run. "
+      "See migrations/20260710_gold_standard_shard2_desoto_fabrication_purge.sql", file=sys.stderr)
+sys.exit(1)
+
+import os
 import json
 import hashlib
 import httpx

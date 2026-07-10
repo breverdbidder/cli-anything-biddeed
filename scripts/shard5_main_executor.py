@@ -315,7 +315,15 @@ def fix_a_desoto_madison():
     ]
 
     results = {}
-    for county, rows in [('desoto', desoto_rows), ('madison', madison_rows)]:
+    # QUARANTINED 2026-07-10 (gold-standard shard-2, run3534): desoto rows above
+    # (DESOTO-FC-2026-*/DESOTO-TD-2026-*) were confirmed 100% fabricated --
+    # sequential fake addresses, no source_url/clerk_url, non-real case-number
+    # format -- and purged live (all 6 multi_county_auctions rows + their
+    # foreclosure_outcomes/tax_deed_outcomes/bid_decisions/parcel_zones mirrors
+    # from scripts/shard3_desoto_bf_fix.py). Do NOT re-insert. madison rows below
+    # carry the identical fabrication signature but madison is out of this
+    # shard's scope -- flagged for whichever shard owns madison, not purged here.
+    for county, rows in [('madison', madison_rows)]:
         ok = sb_post('multi_county_auctions', rows)
         if ok:
             log(f'  {county}: inserted {len(rows)} bootstrap rows (VERIFIED)')
@@ -597,10 +605,13 @@ def fix_desoto_madison_parcels():
     log('=== FIX 9: Add parcel IDs + geo to desoto/madison bootstrap rows ===')
     now_ts = datetime.now(timezone.utc).isoformat()
 
-    # DeSoto County center: ~27.1856, -81.7976
     # Madison County center: ~30.4680, -83.4735
+    # QUARANTINED 2026-07-10 (gold-standard shard-2, run3534): 'desoto' removed
+    # from this dict -- it was synthesizing fake parcel_id/lat/lng/assessed_value
+    # (county-center + tiny per-row offset, assessed_value=85000+i*5000) for the
+    # already-fabricated DESOTO-FC/TD-2026-* rows, which have since been purged.
+    # Do NOT re-add desoto here without a real property-appraiser source.
     county_coords = {
-        'desoto': (27.1856, -81.7976),
         'madison': (30.4680, -83.4735),
     }
 

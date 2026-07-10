@@ -1,7 +1,18 @@
 """
 shard3_desoto_bf_fix.py — Fix desoto H(140.8h→PASS), B(null→PASS), F(null→PASS)
 dispatch_id: fbd9f23a-0bf7-45ff-9c94-b83d828456a8
+
+QUARANTINED 2026-07-10 (gold-standard shard-2, run3534): this script hardcodes
+fake sold amounts ($95000/$62000) and a fabricated address ("5010 ARCADIA HWY")
+with no real source -- a ghost-success generator. Confirmed and purged live
+along with the DESOTO-FC/TD-2026-* rows it depends on. Do not run.
 """
+import sys
+print("QUARANTINED: this script fabricates sold amounts for placeholder desoto "
+      "rows. Do not run. See "
+      "migrations/20260710_gold_standard_shard2_desoto_fabrication_purge.sql",
+      file=sys.stderr)
+sys.exit(1)
 
 import requests
 import os
