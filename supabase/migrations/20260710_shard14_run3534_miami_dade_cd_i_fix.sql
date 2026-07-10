@@ -1,0 +1,81 @@
+-- SHARD-14 (miami_dade only), dispatch 121fa7c3-6131-474f-b6c8-928efe26d2f5
+-- AUDIT-TRAIL ONLY -- no DDL executed. All writes in this session were performed
+-- via PostgREST PATCH against multi_county_auctions by
+-- scripts/shard14_run3534_miami_dade_cd_i_fix.py (idempotent, only patches
+-- NULL fields, only promotes parity when not already tier1-labeled matched_clean).
+--
+-- No schema changes were needed or made. This file documents, for the repo's
+-- audit trail, the equivalent of the REST operations actually executed live
+-- against Supabase (mocerqjnksmhcjzxrewo) this session.
+--
+-- Diagnosis (live REST queries, county=miami_dade, scored population =
+-- data_source<>propertyonion OR data_source IS NULL):
+--   auctions_total = 356
+--   unmatched (no tier1 parity) at session start = 351
+--   40 distinct (sale_type, auction_date) pairs among the unmatched rows;
+--   densest: tax_deed 2026-06-29 (37), foreclosure 2026-06-29 (37)
+--   I gap at session start = 21 rows (356 - 335 card_complete):
+--     14 rows missing parcel_id and/or property_address (9 missing address,
+--     14 missing parcel_id)
+--     7 rows with parcel_id/address/geo/value present but failing the
+--     v_zoning_gold_standard_card zone_code join (parcel_id format mismatch:
+--     multi_county_auctions stores 13-digit no-dash miami-dade folio numbers,
+--     e.g. '3421080190270'; the card view's parcel_id/zone data for miami dade
+--     uses dash-separated folio format, e.g. '33-5022-008-0170' -- these do not
+--     equi-join. NOT fixed this session; flagged as residual below.)
+--
+-- Action: full sweep of all 40 (sale_type, auction_date) pairs via the
+-- RealAuction AJAX harvester (miamidade.realforeclose.com / .realtaxdeed.com),
+-- matching by normalized case_number, then:
+--   (a) promote parity_status='matched_clean',
+--       parity_source='tier1:shard14_run3534_ajax_harvest:<sale_type>:<date>'
+--       for every exact case_number match found live on the calendar
+--   (b) backfill parcel_id/property_address/assessed_value ONLY where the
+--       existing DB value was NULL, and ONLY from a real harvested item
+--       (never fabricated; rows where the site itself only shows a
+--       placeholder such as 'MULTIPLE PARCELS', 'Property Appraiser', or
+--       'ALCOHOLIC BEVERAGE LICENSE' in the parcel_id slot were correctly
+--       left NULL -- these are genuine multi-parcel or non-parcel cases,
+--       not a parser gap)
+--
+-- Equivalent SQL (for audit trail; NOT executed as DDL -- REST PATCH used):
+--   -- example promotion (repeated per matched row, id-scoped):
+--   -- UPDATE public.multi_county_auctions
+--   --   SET parity_status = 'matched_clean',
+--   --       parity_source = 'tier1:shard14_run3534_ajax_harvest:foreclosure:2026-06-29'
+--   --   WHERE id = '<uuid>' AND county = 'miami_dade';
+--   --
+--   -- example card backfill (only when column was NULL):
+--   -- UPDATE public.multi_county_auctions
+--   --   SET property_address = '<harvested address>'
+--   --   WHERE id = '<uuid>' AND property_address IS NULL;
+--
+-- RESULT (verified via POST /rest/v1/rpc/pencil_dod_evaluate_county
+-- {"p_county":"miami_dade"}, run twice for consistency):
+--   C: matched_clean  5 -> 329  (1.4% -> 92.4%)   still FAIL (<95%)
+--   D: matched_any    5 -> 329  (1.4% -> 92.4%)   still FAIL (<95%)
+--   I: card_complete 335 -> 335 (94.1% -> 94.1%)  still FAIL (<95%, needs 339)
+--   parity_promoted = 324, card_backfilled (address/value) = 141,
+--   parcel_backfilled = 0 (every remaining parcel-less row's live calendar
+--   entry carries a non-numeric placeholder in the parcel_id slot -- correctly
+--   not backfilled per NEVER-FABRICATE guardrail)
+--
+-- RESIDUAL (honest, not closed this session):
+--   C/D: 27 rows remain unmatched -- live harvest found 0 items with a
+--     matching case_number on their recorded auction_date (most concentrated
+--     on 2026-06-29, 13 of 27). Consistent with auctions that were
+--     cancelled/rescheduled/removed from the calendar between original
+--     ingestion and this session's harvest -- not a parser or matching bug
+--     (spot-verified live for 2024-022327-CA-01, 2024-020875-CA-01: absent
+--     from the 03/02/2026 foreclosure calendar entirely).
+--   I: 21 rows remain incomplete. 14 are multi-parcel/non-parcel auction
+--     listings with no single real parcel_id available at source (verified
+--     live: 'MULTIPLE PARCELS', 'Property Appraiser' anchor text,
+--     'ALCOHOLIC BEVERAGE LICENSE'). The other 7 have real parcel_id/address/
+--     geo/value but fail the zone_code join due to a folio-number format
+--     mismatch between multi_county_auctions (13-digit no-dash) and
+--     v_zoning_gold_standard_card (dash-separated) for miami_dade -- this is
+--     a real cross-table format-normalization gap, not fixable via row-level
+--     PATCH; would need either a normalization function on the join or a
+--     migration adding a normalized-folio column, out of scope for this
+--     PATCH-only session.
