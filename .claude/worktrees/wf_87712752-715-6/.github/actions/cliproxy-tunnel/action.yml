@@ -1,0 +1,58 @@
+# CLIProxyAPI SSH Tunnel for GitHub Actions
+# Add this step BEFORE any step that needs Gemini/DeepSeek via gateway
+#
+# Required secrets: HETZNER_IP, HETZNER_SSH_KEY, HETZNER_PASSWORD, CLIPROXY_API_KEY
+#
+# Usage in workflow:
+#   - name: Open gateway tunnel
+#     uses: ./.github/actions/cliproxy-tunnel
+#
+# Then any subsequent step can use:
+#   OPENAI_API_BASE=http://127.0.0.1:8317/v1
+#   OPENAI_API_KEY=${{ secrets.CLIPROXY_API_KEY }}
+
+name: "CLIProxyAPI Gateway Tunnel"
+description: "SSH tunnel to Hetzner CLIProxyAPI gateway"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Open tunnel
+      shell: bash
+      run: |
+        apt-get install -y -qq openssh-client sshpass 2>/dev/null || true
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ssh_key }}" > ~/.ssh/hetzner
+        chmod 600 ~/.ssh/hetzner
+        
+        # Try key auth first, fall back to password
+        ssh -fNL 8317:127.0.0.1:8317 \
+          -o StrictHostKeyChecking=no \
+          -o ConnectTimeout=10 \
+          -i ~/.ssh/hetzner \
+          root@${{ inputs.host }} 2>/dev/null || \
+        sshpass -p "${{ inputs.password }}" ssh -fNL 8317:127.0.0.1:8317 \
+          -o StrictHostKeyChecking=no \
+          -o ConnectTimeout=10 \
+          root@${{ inputs.host }}
+        
+        # Verify
+        sleep 2
+        curl -sf http://127.0.0.1:8317/v1/models \
+          -H "Authorization: Bearer ${{ inputs.api_key }}" | \
+          python3 -c "import sys,json;print(f'Gateway: {json.load(sys.stdin)[\"data\"].__len__()} models')" 2>/dev/null || \
+          echo "Gateway tunnel open (models check deferred)"
+
+inputs:
+  host:
+    description: "Hetzner IP"
+    required: true
+  ssh_key:
+    description: "SSH private key"
+    required: true
+  password:
+    description: "SSH password fallback"
+    required: true
+  api_key:
+    description: "CLIProxyAPI gateway key"
+    required: true

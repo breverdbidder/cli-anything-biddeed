@@ -1,0 +1,27 @@
+name: "Summit: Conquer Brevard Municipalities"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  conquer:
+    name: "Conquer Melbourne + Probe All"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install httpx shapely
+      - name: "Execute Municipality Conquest"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/brevard_municipalities_conquest.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: municipality-results
+          path: municipality_results.json
+          retention-days: 90

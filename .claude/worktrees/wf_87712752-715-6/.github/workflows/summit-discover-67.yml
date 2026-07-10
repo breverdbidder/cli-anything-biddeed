@@ -1,0 +1,28 @@
+name: "Summit: Discover 67 FL County GIS Endpoints"
+on:
+  workflow_dispatch: {}
+
+jobs:
+  discover:
+    name: "Discover & Map All Counties"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install httpx
+      - name: "Discover GIS Endpoints"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/discover_and_conquer.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: discovery-results
+          path: discovery_results.json
+          retention-days: 90
