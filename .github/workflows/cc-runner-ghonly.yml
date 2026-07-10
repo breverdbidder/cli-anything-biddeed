@@ -35,6 +35,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python + Playwright dependencies
+        run: |
+          pip install --quiet -r requirements.txt playwright
+          playwright install --with-deps chromium
       - name: Install Claude Code
         run: |
           npm install -g @anthropic-ai/claude-code
@@ -57,6 +65,9 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_USERNAME: ${{ secrets.REALFORECLOSE_USERNAME }}
+          REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
         run: |
           set +e
           unset ANTHROPIC_API_KEY
