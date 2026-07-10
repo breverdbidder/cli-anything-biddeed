@@ -80,19 +80,63 @@
 -- incomplete rows on file. The gap was pure coverage: 4/36/7 case_numbers in
 -- the scored multi_county_auctions population had no bid_decisions row at
 -- all. Reused the exact formula from the proven sumter J-generator (commit
--- e1349b21) with each county's live median(assessed_value, market_value) as
--- the ARV fallback default (martin 239480 n=32, bay 73912 n=114, alachua
--- 150000 n=43 -- all queried live this session, not guessed).
+-- e1349b21), which computes ARV per-row from each row's own assessed_value/
+-- market_value/opening_bid and only falls back to a fixed county default
+-- when a row has NONE of those three. Each county's live
+-- median(assessed_value, market_value) was queried and set as that fallback
+-- (martin 239480 n=32, bay 73912 n=114, alachua 150000 n=43), but a
+-- post-insert audit (prompted by this session's own ULTRALOOP adversarial
+-- refuter, which correctly flagged the fallback numbers as absent from the
+-- inserted rows and initially marked these 3 claims REFUTED) confirms the
+-- fallback was NEVER actually triggered: all 47 new rows across the three
+-- counties carry distinct, real per-row ARVs computed from their own
+-- assessed_value/market_value/opening_bid. Corrected here; see the
+-- ULTRALOOP audit table for the original (misleadingly-worded) claims and
+-- this correction as new evidence.
 --
 --   INSERT INTO bid_decisions (case_number, county_slug, arv, max_bid,
 --     ml_score, factors, ...) -- 4 martin + 36 bay + 7 alachua rows,
 --   fail-loud on parsed>0/inserted=0 (none triggered).
 --
--- VERIFIED (pencil_dod_evaluate_county, before -> after):
+-- VERIFIED (pencil_dod_evaluate_county, before -> after; independently
+-- re-confirmed live by the ULTRALOOP refuter agents, which called the same
+-- RPC themselves rather than trusting these numbers):
 --   martin J: 87.5% (28 of 32) -> 100.0% (32 of 32)   PASS
 --   bay    J: 70.3% (83 of 118) -> 100.0% (118 of 118) PASS
 --   alachua J: 85.1% (40 of 47) -> 100.0% (47 of 47)   PASS
 --   (lake J was already 100.0% -- not touched, see scripts/shard7_lake_j_generator.py)
+--
+-- =====================================================================================
+-- 4) LAKE -- ghost-success purge (LAKE-FC-2026-001/002/003)
+-- =====================================================================================
+-- The ULTRALOOP refuter assigned to the lake-E claim found a pre-existing
+-- contamination unrelated to this session's 6 real matches: case_number
+-- 'LAKE-FC-2026-003' still carried a live parcel_id and was still counted
+-- toward parcel_linked, despite parity_source='reverted_ghost_success_
+-- lake_20260703_not_tier1' -- a PRIOR session's revert flag that was never
+-- followed through to an actual purge. Traced to source:
+-- scripts/shard5_lake_fc_bootstrap.py, whose own docstring reads "Upserts 3
+-- synthetic seed rows to satisfy the A-metric gate" -- LAKE-FC-2026-001/
+-- 002/003, with placeholder addresses ("123 MAIN ST", "456 OAK AVE") and a
+-- fabricated case-number scheme that is not a real FL court case format.
+-- #001/#002 were already inert (parcel_id NULL), but #003 had since
+-- acquired a real-looking ArcGIS-sourced parcel_id/address/geo on top of
+-- the fabricated auction record -- real enrichment data grafted onto a
+-- fake auction, still a ghost success. All three also had duplicate
+-- (2x each) bid_decisions rows dated 2026-06-24, inflating J as well.
+--
+-- Purged live (bid_decisions first, then the auction rows; zero
+-- foreclosure_outcomes/tax_deed_outcomes referenced these case_numbers, so
+-- B/F were never affected):
+--   DELETE FROM bid_decisions WHERE case_number IN
+--     ('LAKE-FC-2026-001','LAKE-FC-2026-002','LAKE-FC-2026-003');   -- 6 rows
+--   DELETE FROM multi_county_auctions WHERE case_number IN
+--     ('LAKE-FC-2026-001','LAKE-FC-2026-002','LAKE-FC-2026-003');   -- 3 rows
+--
+-- VERIFIED (pencil_dod_evaluate_county, before -> after purge):
+--   lake auctions_total: 97 -> 94   A: fc=86->83 (still PASS, plenty of margin)
+--   lake E: 75.3% (73 of 97) -> 76.6% (72 of 94)   still FAIL, but honest
+--   lake J: 100.0% (97 of 97) -> 100.0% (94 of 94)   still PASS, honestly re-based
 --
 -- =====================================================================================
 -- SCOREBOARD (pencil_dod_evaluate_county, end of session vs brief baseline)
@@ -117,10 +161,13 @@
 --     multi-parcel case (KeyValue=MULTIPLE-PARCEL). Structural source-side
 --     gap, left FAIL rather than guessed; I 70.2% FAIL (33/47, bounded by E).
 --     Net: 8/10.
---   lake: brief said 3/10. Live end-state: A,G,H,J PASS; B/F null (zero
---     closed_sold on file -- structurally nothing to verify yet, not a
---     scraper gap); C 13.4%/D 27.8% FAIL (Lake's clerk-calendar source has
---     no RealAuction/RealForeclose litmus counterpart to parity against --
---     a structural gap, flagged for the standing C/D litmus-fallback
---     authorization in a future session); E 75.3% FAIL (up from 69.1%);
+--   lake: brief said 3/10. Live end-state (post ghost-success purge, #4
+--     above): A,G,H,J PASS; B/F null (zero closed_sold on file --
+--     structurally nothing to verify yet, not a scraper gap); C 13.8%/D
+--     28.7% FAIL (Lake's clerk-calendar source has no RealAuction/
+--     RealForeclose litmus counterpart to parity against -- a structural
+--     gap, flagged for the standing C/D litmus-fallback authorization in a
+--     future session); E 76.6% FAIL (up from a corrected 69.9% baseline --
+--     67 of 96 pre-session once the 3 fake seed rows are excluded from
+--     both periods, not the brief's stated 67/97);
 --     I 11.3% FAIL (bounded by E + zoning substrate, same as bay). Net: 4/10.
