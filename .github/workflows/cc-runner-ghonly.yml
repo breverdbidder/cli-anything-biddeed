@@ -82,8 +82,21 @@ jobs:
           git config user.name "cc-ghonly-bot"
           git config user.email "cc@biddeed.ai"
           git add -A
-          if git diff --cached --quiet; then echo "No file changes"; else
-            git commit -m "CC GHA-only: issue ${{ matrix.issue }} (run ${{ github.run_id }})"; git push; fi
+          if git diff --cached --quiet; then echo "No file changes"; exit 0; fi
+          git commit -m "CC GHA-only: issue ${{ matrix.issue }} (run ${{ github.run_id }})"
+          for attempt in 1 2 3 4 5; do
+            if git push; then echo "push OK on attempt $attempt"; exit 0; fi
+            echo "push rejected (attempt $attempt) — likely concurrent shard push to main; rebasing and retrying"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "::error::rebase conflict — aborting rebase, work stays committed locally only (will be lost when runner is torn down)"
+              git rebase --abort
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "::error::push failed after 5 attempts — commit not persisted to origin/main"
+          exit 1
       - name: Post run breadcrumb to issue
         if: always()
         env:
