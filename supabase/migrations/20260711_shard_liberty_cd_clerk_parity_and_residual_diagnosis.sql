@@ -1,0 +1,92 @@
+-- SHARD (run continuation): liberty C/D fix via double-fetch clerk-live parity stamp,
+-- plus fresh-session fabrication re-verification and residual-gap diagnosis for A/B/F/G/I.
+--
+-- FABRICATION RE-CHECK (mandatory given liberty's history -- see
+-- 20260702_shard1b_liberty_full_fabrication_deletion.sql, which deleted a wholesale
+-- synthetic dataset with case_numbers LIKE 'LIBERTY-FC/TD-2026-%'): the single
+-- remaining row (case_number '24-CA-22', sale_type foreclosure) does NOT match that
+-- fabrication signature -- real-format case number, non-round judgment_amount
+-- ($108,683.02), non-sequential parcel_id. VERDICT: REAL, confirmed by two live
+-- fetches of https://libertyclerk.com/courts/foreclosure-sales/ this session
+-- (2026-07-11 05:54:17 UTC and 05:57:11 UTC, 174s apart) -- case_number, sale_date
+-- (07/21/2026), status (active), judgment_amount ($108,683.02), parties (Wilmington
+-- Savings Fund Society VS Trevor Len Lollie, Alfreda Phillips, et al), and address
+-- (20892 NE Burlington rd., Hosford, FL 32334) agree exactly across both fetches and
+-- exactly match the existing DB row. Not a fabrication.
+--
+-- A (fc>=1 AND td>=1): live-fetched https://libertyclerk.com/courts/tax-deeds/ this
+-- session (HTTP 200, 94020 bytes) -- confirms the literal string "no properties on
+-- the list of tax deeds at this time", zero case-number patterns in the page.
+-- Matches the prior session's finding (shard14_run3534_liberty_platform_fix.py).
+-- Liberty genuinely has zero pending tax-deed sales right now. A stays honest FAIL
+-- (fc=1 td=0) -- no fabricated td row inserted.
+--
+-- B/F (verified_outcomes/tier1_sold ratios over closed_sold): the sole auction
+-- (24-CA-22) has auction_date=2026-07-21, still 10 days future as of this session
+-- (2026-07-11). closed_sold=0, both ratios null/FAIL by construction. Cannot be
+-- honestly populated before the sale occurs.
+--
+-- C/D FIX: promoted case 24-CA-22 to parity_status='matched_clean',
+-- parity_source='tier1:liberty_clerk_live_20260711' per the ratified double-fetch
+-- clerk-live precedent (same methodology as
+-- 20260710_shard12_calhoun_taxdeed_lane_acd_fix.sql) -- Liberty has no separate
+-- RealAuction lane to cross-check (liberty.realforeclose.com /
+-- liberty.realtaxdeed.com are unprovisioned RealAuction shells, confirmed by a
+-- prior session), so the clerk's own record is the sole tier1-authoritative source.
+--
+-- E: already passing (parcel_linked=1, unchanged).
+--
+-- G (density/far/pk1000 KPI): v_zoning_gold_standard_kpi_v3 returns zero rows for
+-- liberty. zoning_districts / parcel_zones both empty for jurisdiction_id=893
+-- (Bristol, Liberty's only seeded jurisdiction). Confirmed again live this session
+-- (same result as prior shard14 diagnosis) -- zero rows, not a regression. This is
+-- a full jurisdiction zoning-ingestion gap (Municode + Firecrawl + LLM extraction
+-- pipeline never run for jurisdiction 893), out of scope for a single-parcel/
+-- single-auction shard session per the task's own instructions. Reported as
+-- structurally unmeasurable / blocked, no attempt made to build a partial/one-off
+-- zoning_districts row (would not be a real ordinance-sourced value).
+--
+-- I (card_complete): re-confirmed live this session that the auction row already
+-- carries property_address, latitude/longitude (30.3600103 / -84.8051394),
+-- assessed_value (90150), and market_value (104221) -- nothing missing on the
+-- auction-row side. I additionally requires parcel_id '0261S6W00725000' to resolve
+-- to a zone_code row in v_zoning_gold_standard_card, which returns zero rows for
+-- liberty (same root cause as G: no zoning data loaded for jurisdiction 893). I is
+-- blocked exclusively by the G zoning-data gap, not by any missing auction field.
+--
+-- NOTE (non-blocking, flagged not fixed): assessed_value_source on this row reads
+-- 'fl_parcels_nal_co49_exact_addr_match'. co_no 49 is Osceola per fl_counties, not
+-- Liberty (co_no=39 per fl_counties). This looks like a stale/mislabeled source tag
+-- from whatever prior session populated assessed_value/market_value/lat/lon (not
+-- this session -- those fields were already present, verified via
+-- shard14_run3534_liberty_platform_fix.py output before this migration). The values
+-- themselves are plausible (assessed $90,150 < judgment $108,683.02) and this
+-- session's own attempt to re-verify against FL GIO (services9.arcgis.com
+-- Florida_Statewide_Cadastral/FeatureServer/0) for CO_NO=39 timed out / returned
+-- zero features for this parcel_id format -- inconclusive, not disproven. Left
+-- untouched; flagged as a residual data-provenance question for a future session,
+-- not corrected/guessed here.
+--
+-- pencil_dod_evaluate_county('liberty') before/after (applied live via Supabase
+-- Management API; this file documents the change for replay):
+--   A: fc=1 td=0 (FAIL, unchanged -- genuine zero tax-deed inventory)
+--   B: verified=0 closed_sold=0 (FAIL/null, unchanged -- future auction date)
+--   C: matched_clean=0 (0.0% FAIL) -> matched_clean=1 (100.0% PASS)
+--   D: matched_any=0 (0.0% FAIL)   -> matched_any=1 (100.0% PASS)
+--   E: parcel_linked=1 (100.0% PASS, unchanged)
+--   F: tier1_sold=0 closed_sold=0 (FAIL/null, unchanged -- future auction date)
+--   G: density= far= pk1000= (FAIL/null, unchanged -- zero zoning rows for jurisdiction 893)
+--   H: 17.9h -> 18.0h (PASS, unchanged, within 48h SLA)
+--   I: card_complete=0 of 1 (FAIL, unchanged -- blocked on G's zoning gap, not auction fields)
+--   J: deal_complete=1 (100.0% PASS, unchanged)
+-- liberty 3/10 (E,H,J) -> 5/10 (C,D,E,H,J). A/B/F/G/I remain genuine residual gaps.
+--
+-- dispatch: liberty single-auction diagnosis continuation, 2026-07-11
+
+UPDATE multi_county_auctions
+SET parity_status = 'matched_clean',
+    parity_source = 'tier1:liberty_clerk_live_20260711',
+    parity_checked_at = now(),
+    updated_at = now()
+WHERE lower(county) = 'liberty'
+  AND case_number = '24-CA-22';

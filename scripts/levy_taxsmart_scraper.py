@@ -224,6 +224,33 @@ def _tdo_upsert_sql(rows: list[dict]) -> int:
     return inserted
 
 
+def _fc_upsert_sql(case_numbers: list[str]) -> int:
+    inserted = 0
+    for case_number in case_numbers:
+        sql = f"""
+        INSERT INTO multi_county_auctions (
+            county, state, auction_type, sale_type, case_number, parcel_id,
+            auction_date, property_address,
+            source_platform, data_source, auction_venue, auction_time,
+            last_seen_at, scrape_timestamp
+        ) VALUES (
+            'levy', 'FL', 'foreclosure', 'foreclosure',
+            '{case_number}', NULL,
+            NULL, 'NA, FL NA',
+            'levyclerk_html', 'levyclerk_com_foreclosure_sales', 'in_person', '11:00:00',
+            NOW(), NOW()
+        )
+        ON CONFLICT (county, case_number, sale_type) DO UPDATE SET
+            last_seen_at = NOW(), updated_at = NOW();
+        """
+        try:
+            mgmt_query(sql)
+            inserted += 1
+        except Exception as e:
+            log(f"WARN: FC insert {case_number}: {e}")
+    return inserted
+
+
 def build_mca_row(case: dict) -> dict:
     return {
         "county": "levy",
@@ -285,6 +312,29 @@ def scrape_levy_fc(client: httpx.Client) -> list[dict]:
         return []
 
 
+def build_fc_row(case_number: str) -> dict:
+    return {
+        "county": "levy",
+        "state": "FL",
+        "auction_type": "foreclosure",
+        "sale_type": "foreclosure",
+        "case_number": case_number,
+        "parcel_id": None,
+        "auction_date": None,
+        "property_address": "NA, FL NA",
+        "source_platform": "levyclerk_html",
+        "data_source": "levyclerk_com_foreclosure_sales",
+        "auction_venue": "in_person",
+        "auction_time": "11:00:00",
+        "last_seen_at": NOW,
+        "scrape_timestamp": NOW,
+        "parity_status": None,
+        "parity_source": None,
+        "parity_confidence": None,
+        "parity_checked_at": None,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-id", type=int, default=None, help="Start from ID (default: max-200)")
@@ -313,12 +363,14 @@ def main():
     log(f"  SALE={len(sale_cases)}, SOLD={len(sold_cases)}, other={len(cases)-len(sale_cases)-len(sold_cases)}")
 
     # Also check FC lane
-    scrape_levy_fc(client)
+    fc_cases = scrape_levy_fc(client)
 
     if args.dry_run:
         log("Dry run — no DB writes")
         for c in cases[:5]:
             print(json.dumps(c))
+        for cn in fc_cases:
+            print(json.dumps({"fc_case_number": cn}))
         return
 
     # Insert MCA rows (SALE and SOLD)
@@ -330,6 +382,18 @@ def main():
     outcome_rows = [r for r in (build_outcome_row(c) for c in sold_cases) if r]
     inserted_outcomes = sb_upsert("tax_deed_outcomes", outcome_rows)
     log(f"tax_deed_outcomes upserted: {inserted_outcomes}/{len(outcome_rows)}")
+
+    # Insert FC lane cases found on levyclerk.com (persist letter-A foreclosure
+    # coverage; previously scraped but silently discarded — see
+    # migrations/20260710_gold_standard_shard3_levy_fabrication_purge.sql).
+    if fc_cases:
+        if not SUPABASE_ACCESS_TOKEN:
+            log("ERROR: FC cases found but SUPABASE_ACCESS_TOKEN not set — cannot persist")
+        else:
+            inserted_fc = _fc_upsert_sql(fc_cases)
+            log(f"FC upserted: {inserted_fc}/{len(fc_cases)}")
+            if inserted_fc == 0:
+                raise RuntimeError(f"FAIL-LOUD: parsed {len(fc_cases)} FC cases but inserted 0")
 
     # Update last_seen_at for all levy rows
     if not args.dry_run:
