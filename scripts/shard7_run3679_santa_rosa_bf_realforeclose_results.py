@@ -378,10 +378,25 @@ def main():
             log(f"DRY-RUN would PATCH mca id={row['id']} sold_amount={rr['winning_bid_f']} "
                 f"case={row['case_number']}", "UNTESTED")
         else:
+            # F (tier1_sold) requires tier1_sold_amount IS NOT NULL alongside
+            # sold_amount. This is NOT a self-referential relabel of our own
+            # scraper guess (the ghost-success pattern county_outcome_harvester.py
+            # explicitly disabled 2026-07-04): sold_amount here already came from
+            # the authenticated santarosa.realforeclose.com Auction Results Report
+            # (report_id=18), the Clerk's own post-sale ledger -- an independent,
+            # verified source, not our pre-sale calendar-sweep guess. Stamping
+            # tier1_sold_amount/tier1_authoritative from that same verified fetch
+            # is honest attribution of the source we actually used, not a
+            # ghost-success loop.
             rest_patch(f"multi_county_auctions?id=eq.{row['id']}", {
                 "sold_amount": rr["winning_bid_f"],
                 "sold_amount_source": DATA_SOURCE_TAG,
                 "sold_amount_captured_at": now_iso,
+                "tier1_sold_amount": rr["winning_bid_f"],
+                "tier1_sale_status": "sold",
+                "tier1_authoritative": True,
+                "tier1_verified_at": now_iso,
+                "tier1_source_run_id": 3679,  # bigint column -- loop run id, not a string tag
             })
             mca_patched += 1
         fo_payload.append({
@@ -396,26 +411,44 @@ def main():
         })
 
     if fo_payload and not DRY_RUN:
-        # Discover actual foreclosure_outcomes columns via a 1-row probe first,
-        # then trim payload to only columns that exist (avoid 400s on unknown cols).
+        # No unique constraint on foreclosure_outcomes(case_number, county) in
+        # this schema, so on_conflict/merge-duplicates is a no-op -- pre-check
+        # existing case_numbers ourselves to keep this script idempotent across
+        # re-runs (avoids the exact duplicate-row situation hit + manually
+        # cleaned up in this same session: 31 dup rows inserted by a re-run
+        # after a mid-script crash, deleted afterward).
         try:
-            probe = rest_get("foreclosure_outcomes?limit=1")
-            known_cols = set(probe[0].keys()) if probe else None
+            existing = rest_get(
+                f"foreclosure_outcomes?county=eq.{COUNTY}&select=case_number")
+            existing_cases = {r["case_number"] for r in existing}
         except Exception as e:
-            known_cols = None
-            log(f"foreclosure_outcomes probe failed: {e}", "VERIFIED")
-        if known_cols:
-            trimmed = [{k: v for k, v in rec.items() if k in known_cols} for rec in fo_payload]
+            existing_cases = set()
+            log(f"foreclosure_outcomes existing-case probe failed: {e}", "VERIFIED")
+        fo_payload = [r for r in fo_payload if r["case_number"] not in existing_cases]
+
+        if not fo_payload:
+            log("All matched case_numbers already have a foreclosure_outcomes row "
+                "-- nothing new to insert", "VERIFIED")
         else:
-            trimmed = fo_payload
-        try:
-            rest_post("foreclosure_outcomes", trimmed,
-                      prefer="return=minimal,resolution=merge-duplicates")
-            outcomes_inserted = len(trimmed)
-            log(f"Inserted/merged {outcomes_inserted} rows into foreclosure_outcomes", "VERIFIED")
-        except urllib.error.HTTPError as e:
-            body = e.read()
-            log(f"foreclosure_outcomes insert FAILED HTTP {e.code}: {body[:500]}", "VERIFIED")
+            # Discover actual foreclosure_outcomes columns via a 1-row probe first,
+            # then trim payload to only columns that exist (avoid 400s on unknown cols).
+            try:
+                probe = rest_get("foreclosure_outcomes?limit=1")
+                known_cols = set(probe[0].keys()) if probe else None
+            except Exception as e:
+                known_cols = None
+                log(f"foreclosure_outcomes probe failed: {e}", "VERIFIED")
+            if known_cols:
+                trimmed = [{k: v for k, v in rec.items() if k in known_cols} for rec in fo_payload]
+            else:
+                trimmed = fo_payload
+            try:
+                rest_post("foreclosure_outcomes", trimmed, prefer="return=minimal")
+                outcomes_inserted = len(trimmed)
+                log(f"Inserted {outcomes_inserted} NEW rows into foreclosure_outcomes", "VERIFIED")
+            except urllib.error.HTTPError as e:
+                body = e.read()
+                log(f"foreclosure_outcomes insert FAILED HTTP {e.code}: {body[:500]}", "VERIFIED")
 
     log(f"mca_patched={mca_patched} outcomes_inserted={outcomes_inserted}", "VERIFIED")
 
