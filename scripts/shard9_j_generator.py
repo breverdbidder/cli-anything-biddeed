@@ -60,6 +60,11 @@ COUNTY_CONFIG = {
     'highlands':    {'arv': 150000, 'repair_factor': 0.13, 'location_score': 6.0},  # Sebring / Avon Park
     'madison':      {'arv': 75000,  'repair_factor': 0.18, 'location_score': 5.0},  # Rural Big Bend
     'baker':        {'arv': 85000,  'repair_factor': 0.18, 'location_score': 5.0},  # Rural NE FL, low-confidence (n=1)
+    # SHARD-6 run3645 addition — arv derived from live median(market_value, assessed_value)
+    # across 4,526 real-valued polk multi_county_auctions rows (VERIFIED this session):
+    # SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(market_value,assessed_value))
+    # -> 165478. Central FL (Lakeland/Winter Haven/Haines City) — moderate suburban/rural mix.
+    'polk':         {'arv': 165478, 'repair_factor': 0.11, 'location_score': 6.5},  # Lakeland/Winter Haven area
 }
 
 SHARD9_COUNTIES = list(COUNTY_CONFIG.keys())
