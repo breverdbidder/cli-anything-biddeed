@@ -2,8 +2,29 @@ name: "SHARD-5 Run-1524 Daily — suwannee/osceola"
 # Daily pipeline for run-1524 shard-5 counties: suwannee + osceola.
 # Session: run=1524 (2026-06-28)
 # Runs at 05:00Z daily — before the 07:30Z gold_standard_loop pg_cron job.
-# suwannee: bootstrap A/B/F/G/I
+# suwannee: H-freshness only — see QUARANTINE note below
 # osceola: C/D parity promotion (idempotent — skips already-promoted rows)
+#
+# QUARANTINE (2026-07-11, gold-standard shard-3 session, dispatch
+# b80c4c55-8ad7-41fb-86de-a1b33ecc95d5): the "suwannee-bootstrap" job that ran
+# scripts/shard5_run1524_suwannee_bootstrap.py has been REMOVED from this
+# schedule. That script hardcodes 2 fictitious foreclosure auctions
+# (case_number SUWANNEE-FC-2026-001/002, parcel_id SUW-FC-BOOT-001/002,
+# sold_amount_source="INFERRED:suwannee_bootstrap:run1524") and was already
+# identified and reverted once before (see
+# scripts/shard1_run3534_suwannee_fc_fabrication_revert.py, run3534,
+# 2026-07-10). Because this job kept running nightly at 05:00Z, it silently
+# re-inserted the same fabricated rows every day, undoing that revert (last
+# recurrence: multi_county_auctions created_at=2026-07-11T05:51:30Z, mirrored
+# into bid_decisions ids 139222/139231 by the J-generator at 08:42:10Z same
+# day). This violates HARD GUARDRAILS ("fail-loud invariant... NEVER
+# fabricate"). Purged again live this session; see
+# migrations/20260711_gold_standard_shard3_suwannee_fc_fabrication_repurge_and_quarantine.sql
+# for the full before/after evidence. Do NOT re-add this job without first
+# rewriting shard5_run1524_suwannee_bootstrap.py to scrape a real source
+# (suwannee.realforeclose.com currently returns zero live listings — see
+# scripts/gold_standard_shard11_suwannee_a_i_fix.py's A-lane findings) instead
+# of hardcoding placeholder rows.
 
 on:
   schedule:
@@ -40,29 +61,6 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/shard5_loop472_h_freshness.py
-
-  # ── SUWANNEE BOOTSTRAP (A/B/F/G/I) ──────────────────────────────────────────
-  suwannee-bootstrap:
-    name: "A/B/F/G/I: Suwannee bootstrap — run1524"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: h-freshness
-    if: ${{ github.event.inputs.county == '' || github.event.inputs.county == 'suwannee' }}
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: "Run shard5_run1524_suwannee_bootstrap.py"
-        run: |
-          set -euo pipefail
-          python scripts/shard5_run1524_suwannee_bootstrap.py
 
   # ── OSCEOLA C/D PARITY ───────────────────────────────────────────────────────
   osceola-cd-fix:
