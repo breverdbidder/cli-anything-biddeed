@@ -1,0 +1,92 @@
+-- GOLD STANDARD shard-13: escambia C/D fix (2026-07-11 session)
+-- Fixes/attempts letters C (parity matched_clean %) and D (parity matched_any %).
+-- All other letters (A,B,E,F,G,H,I,J) already PASS at session start and are
+-- untouched by this migration.
+--
+-- Baseline (VERIFIED live via pencil_dod_evaluate_county, session start):
+--   {"A":PASS(35),"B":PASS(100.0),"C":FAIL(matched_clean=258, 77.7%),
+--    "D":FAIL(matched_any=258, 77.7%),"E":PASS(99.7),"F":PASS(100.0),
+--    "G":PASS(100.0),"H":PASS,"I":PASS(98.2, 326/332),"J":PASS(99.7)}
+--   auctions_total=332.
+--
+-- Direct REST query (data_source<>'propertyonion' scope) confirmed the C/D
+-- gap = 74 rows, parity_status IS NULL, all data_source='calendar_sweep_mca_v3':
+--   - 73 rows sale_type='tax_deed' across 5 future dates: 2026-08-05 (10),
+--     2026-09-02 (20), 2026-10-07 (14), 2026-11-04 (10), 2026-12-02 (19).
+--   - 1 row sale_type='foreclosure', auction_date=2026-07-23,
+--     case_number='2025 CA 001478'.
+--
+-- CONTEXT: a prior session's commit (41258467, ~5 min before this one,
+-- scripts/shard_escambia_cd_taxdeed_fix.py) had already probed
+-- escambia.realtaxdeed.com for the same 5 tax_deed dates, promoted 3 rows
+-- (255->258 matched_clean) via exact case_number match, and documented the
+-- remaining 73 as a genuine, non-forced gap (zero overlap on case_number OR
+-- parcel_id vs the live calendar at that time). That script never covered
+-- the 1 foreclosure-lane row (out of its tax_deed-only scope).
+--
+-- THIS SESSION (scripts/shard13_escambia_cd_fix.py, imports harvest_date_paginated
+-- + norm_case_number from scripts/shard8_charlotte_levy_monroe_osceola_madison_cd_fix.py,
+-- same exact-case_number-only matching contract used by every other shard fix
+-- this repo -- no fuzzy/parcel-only forced-match arm):
+--
+-- STEP 1 (tax_deed lane, escambia.realtaxdeed.com): re-probed all 5 gap dates
+-- fresh (calendars can update closer to sale date). Harvested 60-61 live
+-- AITEM records per date (301 total across the 5 dates, 240 distinct case
+-- numbers). Cross-checked against all 73 NULL rows on BOTH normalized
+-- case_number and normalized parcel_id: ZERO overlap on either key, across
+-- every date. Promoted 0 rows. This reconfirms the prior session's finding
+-- with a fresh, independent probe -- the 73 rows remain a genuine residual,
+-- not a matcher bug (sample comparison: our rows use the real
+-- 'YYYY TD NNNNNN' case format e.g. '2024 TD 000802', matching the live
+-- site's own format e.g. '2024 TD 000026' -- format is correct, the specific
+-- case numbers simply are not present in escambia.realtaxdeed.com's current
+-- live listing for these dates).
+--
+-- STEP 2 (foreclosure lane, escambia.realforeclose.com): probed
+-- 2026-07-23 (platform confirmed via existing matched_clean escambia
+-- foreclosure rows' parity_source values, e.g. 'tier1_realforeclose_escambia').
+-- Harvested 2 live AITEM records; exact case_number match found
+-- '2025 CA 001478' present live. Promoted 1 row to matched_clean via REST
+-- PATCH:
+--
+--   PATCH multi_county_auctions?id=in.(5b625a66-ce47-4fbf-8117-6eba653ea331)
+--   SET parity_status='matched_clean',
+--       parity_source='tier1_realforeclose_escambia_shard13';
+--
+-- Idempotent: harvest is read-only; promote only PATCHes rows where
+-- parity_status IS NULL / not already 'matched_clean'.
+--
+-- RESULT: 1 row promoted this session (foreclosure lane). Tax_deed lane
+-- promoted 0 (confirmed genuine gap via exhaustive dual-key check).
+--
+-- Final (VERIFIED live via pencil_dod_evaluate_county, after the above):
+--   {"C":FAIL(matched_clean=259, 78.0%), "D":FAIL(matched_any=259, 78.0%)}
+--   auctions_total=332. All other letters unchanged (still PASS).
+--
+-- HONEST RESIDUAL (73 tax_deed rows, C/D still short of 95% target):
+-- these rows' case numbers (real Escambia Clerk 'YYYY TD NNNNNN' format,
+-- with plausible 17-digit Escambia parcel_ids, sourced via
+-- data_source='calendar_sweep_mca_v3') simply do not appear in
+-- escambia.realtaxdeed.com's live AJAX calendar for their listed auction
+-- dates (08/05, 09/02, 10/07, 11/04, 12/02/2026), checked on both
+-- case_number and parcel_id keys across all 5 dates. Two possible root
+-- causes, neither of which this session can distinguish without a second
+-- independent tax-deed source (e.g. the Escambia Clerk's own tax deed sale
+-- list, not yet probed this session):
+--   (a) these are genuinely scheduled tax-deed cases whose realtaxdeed.com
+--       listing has not yet been published (the platform's forward calendar
+--       is not guaranteed to be fully populated 1-5 months ahead of sale
+--       date for every filed case), or
+--   (b) these specific cases have since been redeemed/cancelled/removed
+--       from the auction calendar between calendar_sweep_mca_v3's original
+--       ingest and this session's live probe.
+-- Per NEVER-LIE and the exact-match-only contract, no forced/fuzzy match was
+-- applied. Recommended next step: re-run scripts/shard13_escambia_cd_fix.py
+-- closer to each sale date as realtaxdeed.com's calendar finalizes, OR
+-- source escambia's own Clerk tax-deed-sale list as a second independent
+-- matcher for this lane.
+--
+-- VERIFICATION (run after applying the above):
+--   SELECT public.pencil_dod_evaluate_county('escambia');
+-- Expected: C.metric=78.0, D.metric=78.0, auctions_total=332,
+-- all other letters unchanged from baseline (still PASS).

@@ -1,0 +1,107 @@
+-- Gold Standard shard-13: madison — Letter A (dual-product coverage) research.
+-- NO DB WRITES in this migration. This file documents a BLOCKED outcome per
+-- the repo's BLANK > WRONG rule: real evidence was found that Madison County
+-- DOES conduct tax deed sales, but no currently-open/upcoming tax_deed
+-- listing exists to harvest, and no verified exact sale DATE could be
+-- obtained for the most recent closed cases. Fabricating a placeholder
+-- tax_deed row (fake case/cert/date) to flip the A boolean was explicitly
+-- prohibited by the task and is NOT done here.
+--
+-- Baseline (CONFIRMED live via pencil_dod_evaluate_county, session start):
+--   {"A":FAIL(0, "fc=5 td=0"),"B":FAIL(null),"C":PASS(100.0),"D":PASS(100.0),
+--    "E":PASS(100.0),"F":FAIL(null),"G":PASS(100.0),"H":PASS(1.7h),
+--    "I":FAIL(80.0,"card_complete=4 of 5"),"J":PASS(100.0)} auctions_total=5
+-- Final (CONFIRMED live via pencil_dod_evaluate_county, after this session --
+--   UNCHANGED, no writes made):
+--   {"A":FAIL(0, "fc=5 td=0"), ...identical to baseline...} auctions_total=5
+--
+-- RESEARCH PERFORMED (all sources are official Madison County Clerk of Court
+-- pages unless noted; fetched live this session 2026-07-11):
+--
+-- 1. https://www.madisonclerk.com/departments-services/property-sales/tax-deed-sales/
+--    VERIFIED (curl HTTP 200, raw HTML grep'd directly, not just WebFetch
+--    summary): page text reads verbatim "There are no properties on the
+--    list of tax deeds at this time." No upcoming tax deed sale is
+--    currently scheduled/published by the Clerk.
+--
+-- 2. https://www.madisonclerk.com/departments-services/property-sales/lands-available/
+--    VERIFIED: same page pattern, verbatim "There are no properties on the
+--    list of lands available at this time." (Lands Available = tax deed
+--    properties that received no bidders and reverted to the county; also
+--    empty.)
+--
+-- 3. Madison County DOES conduct tax deed sales on a real, non-zero basis.
+--    VERIFIED via the Clerk's own published "FY25-26 Madison County Tax
+--    Deed Surplus List" spreadsheet, linked directly from page (1) above:
+--    https://madison-clerk.s3.amazonaws.com/uploads/2025/10/15161426/FY25-26-Madison-County-Tax-Deed-Surplus-List-10-2025.xlsx
+--    (downloaded live, HTTP 200, parsed with openpyxl). Contains 7 REAL,
+--    COMPLETED tax deed sale records with real case numbers, certificate
+--    numbers, parcel IDs, and surplus/overbid amounts:
+--      24-06-TD | cert 21-539  | parcel 28-1N-09-4546-000-000 | surplus $1,888.01
+--      24-09-TD | cert 19-395  | parcel 00-00-00-2164-000-000  | surplus $6,053.41
+--      24-10-TD | cert 14-1014 | parcel 28-1N-09-4941-000-000 | surplus $1,510.50
+--      24-13-TD | cert 20-304  | parcel 04-1N-07-1778-009-000 | surplus $11,102.40
+--      24-16-TD | cert 22-176  | parcel 05-1S-11-1501-032-000 | surplus $8,420.70
+--      25-03-TD | cert 19-1162 | parcel 08-1N-11-6181-0ED-022 | surplus $6,307.84
+--      25-04-TD | cert 19-1161 | parcel 08-1N-11-6181-0ED-021 | surplus $5,216.36
+--      25-07-TD | cert 19-101  | parcel 24-1S-08-0709-004-000 | surplus $23,162.38
+--    (total surplus $63,661.60 across the list). A surplus/overbid list only
+--    exists AFTER a tax deed sale has already been conducted and the winning
+--    bid exceeded the amount owed -- these are closed, historical sales, not
+--    an open auction to harvest as an upcoming listing.
+--    Cross-check (VERIFIED via independent web search, not the clerk site):
+--    parcel 24-1S-08-0709-004-000 (case 25-07-TD) is independently
+--    confirmed by a third-party listing (LoopNet) as real vacant land on
+--    SW Bryan Earnhardt Rd, Madison, FL 32340, 4 acres -- matches the
+--    surplus list's own address text "Vacant - SW Bryan Earnhardt Rd"
+--    exactly. This corroborates the surplus list is real county data, not
+--    a stale/broken export.
+--
+-- 4. WHY NO ROW WAS WRITTEN: multi_county_auctions requires an auction_date
+--    to be meaningful (every existing real tax_deed row in this table, e.g.
+--    wakulla's wakulla_clerk_live rows, carries an exact date sourced from
+--    a specific sale-notice PDF/page). The Madison surplus spreadsheet gives
+--    case/cert/parcel/surplus-amount but NOT the sale date. Madison's public
+--    OCRS court records search (civitekflorida.com/ocrs/county/40) requires
+--    an interactive party-name/document-type/date-range form submission or
+--    login to retrieve the underlying recording date -- not reliably
+--    resolvable from a static fetch in this session. Rather than guess a
+--    date (which would be exactly the fabrication failure mode this task
+--    was scoped to avoid -- see the prior wakulla WAKULLA-PARCEL-000X
+--    incident referenced in the task brief), this is left undone and
+--    reported as BLOCKED.
+--    NOTE: the wakulla fabrication (WAKULLA-PARCEL-0001/2/3, source
+--    'shard5_bootstrap_run338') was checked this session and does NOT exist
+--    in the live DB -- 0 rows match that parcel_id pattern or that
+--    data_source in multi_county_auctions for county='wakulla' (VERIFIED
+--    via REST query). It appears to have already been cleaned up in a
+--    prior session; no action was needed or taken here.
+--
+-- 5. No RealAuction/RealTaxDeed subdomain in use: madison.realtaxdeed.com
+--    and two other guessed subdomain variants all returned generic HTTP 403
+--    (VERIFIED via curl, but treated as INCONCLUSIVE -- RealAuction's
+--    platform returns 403 to unrecognized subdomains generically, this does
+--    NOT prove Madison has no RealAuction presence, it just did not confirm
+--    one). Independent web search for "Madison County Florida tax deed
+--    realauction/realtaxdeed" returned no matching subdomain. Combined with
+--    the Clerk's own page stating sales are "sold on the courthouse steps"
+--    (in-person, not online-platform), INFERRED that Madison does not use
+--    a RealAuction-style online tax deed platform and self-hosts its
+--    listings directly on madisonclerk.com.
+--
+-- CONCLUSION (BLOCKED, not FAILED-by-omission): Letter A cannot honestly be
+-- flipped to PASS this session. Madison County genuinely has ZERO currently
+-- open/upcoming tax_deed auctions (VERIFIED, official clerk page, checked
+-- live) despite genuinely conducting tax deed sales as a normal course of
+-- business (VERIFIED via the FY25-26 surplus list, 7-8 closed sales in the
+-- current fiscal year alone). The correct honest fix is NOT a fabricated
+-- row -- it is either (a) wait/re-check the clerk's tax-deed-sales page on a
+-- cadence until a new sale is posted, or (b) obtain an exact sale date for
+-- one of the 7 already-closed FY25-26 cases via a follow-up interactive
+-- OCRS query or a direct call to the Clerk's office ((850) 973-1500 /
+-- BWashington@MadisonClerk.com) -- both are follow-up actions for a future
+-- session, not fabrication.
+--
+-- VERIFICATION (re-run to confirm current state):
+--   SELECT public.pencil_dod_evaluate_county('madison');
+-- Expected while this remains BLOCKED: A.pass=false, detail="fc=5 td=0".

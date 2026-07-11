@@ -1,0 +1,92 @@
+-- Wakulla County I fix attempt (property card completeness): NO WRITES MADE,
+-- gap fully investigated and documented. Shard-13, run3713 continuation.
+--
+-- TASK: backfill property_address, latitude/longitude, assessed_value for the
+-- 20 real wakulla parcels that now resolve zone_code via v_zoning_gold_standard_card
+-- (per this session's G fix, migration 20260711_shard13_wakulla_g_fabrication_purge_
+-- and_real_gis_zoning.sql), to raise I (card_complete/card_rows >= 95%).
+--
+-- BASELINE (verified live, start of this task): I FAILs, card_complete=0 of 30.
+-- ALL 30 rows have property_address IS NULL, lat/long IS NULL, assessed_value
+-- IS NULL. Ceiling for this session given E's unresolved 7 parcel_ids and G's
+-- 3 unzoned parcels: 20 of 30 rows could theoretically reach card_complete=true
+-- IF real address+lat/long+assessed_value could be sourced for those 20.
+--
+-- RESULT: 0 of 20 rows backfilled. NO DATABASE WRITES MADE THIS TASK.
+--
+-- EVERY avenue tried, all failed, all re-verified live in this session:
+--
+-- 1. qpublic.schneidercorp.com (App=WakullaCountyFL) -- the authoritative Wakulla
+--    Property Appraiser parcel lookup (situs address + just/assessed value).
+--    Tested via: raw curl (with and without browser User-Agent), WebFetch tool,
+--    and a real headless Chromium via Playwright (not just a fingerprint issue --
+--    confirmed all three clients get HTTP 403, while the SAME Chromium instance
+--    reaches https://www.google.com fine, proving this is a durable WAF/IP-range
+--    block on this host specifically, not a client or general egress problem).
+--
+-- 2. search.mywakullapa.com -- the Property Appraiser's own newer search portal,
+--    including deep-linked parcel detail pages indexed by Google
+--    (e.g. /parcel/08148%200000000%20034009, found via web search). Tested via
+--    curl, WebFetch, and Playwright/Chromium -- all three get ECONNRESET /
+--    net::ERR_CONNECTION_RESET on every attempt. Same durable block pattern as #1.
+--
+-- 3. FL GIO Statewide Cadastral ArcGIS FeatureServer (the exact endpoint and field
+--    set used successfully by scripts/ingest_county.py for other counties --
+--    services9.arcgis.com/Gh9awoU677aKree0/.../Florida_Statewide_Cadastral/
+--    FeatureServer/0, fields PARCEL_ID/PHY_ADDR1/PHY_CITY/PHY_ZIPCD/JV/LND_VAL).
+--    Confirmed live: the service itself is reachable (1=1 returnCountOnly succeeds
+--    instantly, 10,831,924 total rows). But `WHERE CO_NO=65` (Wakulla's confirmed
+--    co_no per fl_counties) times out server-side after ~55s and returns a generic
+--    "400 Invalid query parameters" error on every attempt (5 separate retries,
+--    with and without outFields, with and without resultRecordCount) -- this
+--    reproduces the exact pattern documented in fl_counties.total_parcels=0 for
+--    Wakulla (this county was apparently never successfully ingested via this
+--    path). A working alternate probe -- `WHERE PARCEL_ID LIKE '...'` -- returns
+--    FAST (~1s) but ZERO matches for any of the 20 real wakulla parcel_id values
+--    or format variants tried (dash-stripped, zero-padded, un-padded), indicating
+--    this statewide layer's PARCEL_ID format for Wakulla (if present at all)
+--    does not match our multi_county_auctions parcel_id format -- consistent with
+--    Wakulla never having been ingested into this table (total_parcels=0).
+--
+-- 4. Wakulla County Clerk's own tax deed sale case list
+--    (wakullaclerk.org/official_records/tax_deed_sales.php) -- reachable (200),
+--    confirms case status (For Sale / Redeemed / Homestead) for all 24 TXD cases,
+--    but explicitly does NOT publish parcel IDs or property addresses on this
+--    page; directs the public to view files "on our in-house computers during
+--    regular business hours" or to the Property Appraiser's site (blocked, #1/#2).
+--
+-- 5. Free public aggregators found via search (taxsaleresources.com,
+--    taxlienuniversity.com, NETR Online, flpropertycheck.com) -- reachable, but
+--    none publish per-parcel address/value data for free; taxsaleresources.com
+--    explicitly gates "Property Reports" behind a paid trial.
+--
+-- No Firecrawl API key or browser-use CLI was available in this sandbox this
+-- session to escalate past the WAF blocks in #1/#2 (same absence already
+-- documented in the E and G fix attempts earlier this session).
+--
+-- Per HONESTY PROTOCOL and the explicit instruction not to fabricate a parcel_id,
+-- address, coordinate, or value: NO property_address, latitude/longitude, or
+-- assessed_value was written for any of the 20 candidate rows. Writing a
+-- geocoded-from-nothing lat/long or an invented assessed_value would repeat the
+-- exact WAKULLA-PARCEL-000N fabrication failure mode this session was explicitly
+-- told to clean up (and did clean up, in the G fix) -- not repeat it under I.
+--
+-- pencil_dod_evaluate_county('wakulla') before -> after this task (IDENTICAL,
+-- re-verified live twice via fresh RPC calls before and after the investigation):
+--   I: card_complete=0 of 30 (FAIL, metric=0.0) -> card_complete=0 of 30
+--      (FAIL, metric=0.0). NO CHANGE. No regression, no write, no fabrication.
+-- All other letters unchanged from the G-fix migration's documented after-state:
+--   A=PASS(6), B=FAIL(null), C=PASS(100.0), D=PASS(100.0), E=FAIL(76.7),
+--   F=FAIL(null), G=FAIL(0.0), H=PASS(~3.6h), I=FAIL(0.0), J=PASS(100.0).
+--
+-- RESIDUAL for a future session: the two authoritative Wakulla Property
+-- Appraiser hosts (qpublic.schneidercorp.com App=WakullaCountyFL, and
+-- search.mywakullapa.com) are both durably blocked from this sandbox's egress
+-- (WAF 403 / TCP reset) regardless of client (raw curl, WebFetch, real headless
+-- Chromium all fail identically). A session with a working Firecrawl API key
+-- (which proxies through different egress IPs and is designed to bypass exactly
+-- this class of WAF) or with in-office/phone access to the Wakulla Property
+-- Appraiser would very likely resolve the address+value+lat/long for all 20
+-- candidate parcels quickly, since the parcel_ids themselves are already known
+-- and confirmed real (verified via the G fix's ZoningWakulla ArcGIS match).
+-- No database rows changed by this file; committed for audit-trail continuity only.

@@ -1,0 +1,97 @@
+-- SHARD-13 (escambia/wakulla/madison) -- wakulla letter E (parcel linkage) investigation.
+-- NO DATA WRITTEN THIS SESSION. This migration documents a bounded, honest investigation that
+-- concluded without a verifiable fix, per HONESTY PROTOCOL (BLANK > WRONG).
+--
+-- BASELINE (pencil_dod_evaluate_county('wakulla'), verified via REST RPC call before any work):
+--   {"E": {"pass": false, "detail": "parcel_linked=23", "metric": 76.7}, "auctions_total": 30, ...}
+-- 23 of 30 eval-scope rows have real Wakulla-format parcel_id (e.g. '00-00-035-008-06854-000',
+-- '26-4s-02w-022-02204-000'). 7 rows have parcel_id IS NULL. Threshold is >=95% (29/30, i.e. at
+-- most 1 residual gap allowed) -- fixing even 6 of 7 would NOT clear the bar; all 7 (or a
+-- documented-absent substitute) are required.
+--
+-- FABRICATION CHECK (per session brief re: prior wakulla shard5_bootstrap_run338 violation):
+-- queried multi_county_auctions WHERE county='wakulla' AND parcel_id LIKE '%WAKULLA-PARCEL%'.
+-- Result: 0 rows. The previously-reported 'WAKULLA-PARCEL-0001/2/3' fabricated placeholders are
+-- NOT present in the live table today -- either already cleaned up in an earlier session, or
+-- never landed in this table. Nothing to purge this session.
+--
+-- THE 7 NULL-parcel_id ROWS (id, case_number, sale_type, auction_date), all data_source =
+-- 'wakulla_clerk_live', all property_address/owner_name NULL in our table:
+--   9ca03914-a505-4db3-b896-07f43649d3d3  2026-TXD-097  tax_deed     2026-07-08
+--   fd11f784-cd5a-4c02-a618-1f5a42c15d64  23-CA-627     foreclosure  2026-07-09
+--   a28d6b28-029d-4cd3-a090-d88ade8532e0  25-CA-68      foreclosure  2026-07-23
+--   422bc320-240b-451a-9a31-1338e0945963  25-CA-50      foreclosure  2026-07-30
+--   d0444c61-f56e-49f2-94dc-9c7c82b8f059  25-CA-106     foreclosure  2026-07-30
+--   163d5060-bf78-4587-af1b-d5b2caf7caf7  24-CA-130     foreclosure  2026-07-30
+--   72decea5-51f7-497a-8fdd-2c0f4b743d07  24-CA-105     foreclosure  2026-07-30
+--
+-- CASE 2026-TXD-097 -- VERIFIED, genuinely no parcel_id possible:
+-- Fetched https://wakullaclerk.org/official_records/tax_deed_sales.php directly. This case is
+-- listed with status "Redeemed" (the delinquent owner paid off the tax certificate before a deed
+-- was issued, per Fla. Stat. -- "a person may redeem a tax certificate at any time after the
+-- certificate is issued and before a tax deed is issued"). All other July 8/Aug 19 2026 TXD cases
+-- on that page (093-096, 098-122) have a hyperlinked notice PDF; 097 has NO PDF link, consistent
+-- with redemption (no deed ever issued, so no property/parcel notice document exists). This is a
+-- legitimate, documented gap -- not a data problem, the case simply never reaches the stage where
+-- a parcel gets tied to a sale record. Left as NULL, will remain NULL permanently for this case.
+--
+-- CASES 23-CA-627, 25-CA-68, 25-CA-50, 25-CA-106, 24-CA-130, 24-CA-105 -- VERIFIED plaintiff/
+-- defendant only, parcel_id NOT resolved:
+-- Fetched https://wakullaclerk.org/courts/foreclosures.php directly (real page content, not a
+-- search-engine snippet). All 6 case numbers matched exactly with real plaintiff/defendant pairs:
+--   23-CA-627   Movement Mortgage, LLC        vs  Estate of Timothy Blyth, ET AL   (sale 07/09/2026)
+--   25-CA-68    Cadles of West Virginia, LLC   vs  Carolyn Sherrell, ET AL          (sale 07/23/2026)
+--   25-CA-50    Selene Finance, LP             vs  Miranda Storm West, ET AL        (sale 07/30/2026)
+--   25-CA-106   United Wholesale Mort., LLC    vs  Huy Ngoc Nguyen, ET AL           (sale 07/30/2026)
+--   24-CA-130   Lakeview Loan Servicing, LLC   vs  Elizabeth E. Essman, ET AL       (sale 07/30/2026)
+--   24-CA-105   21St Mortgage Corp.            vs  Ciara D. Adams, ET AL            (sale 07/30/2026)
+-- This confirms these are real, live cases (not fabricated), but the foreclosures.php table does
+-- NOT include property address or parcel/tax ID columns -- only case#/plaintiff/defendant/date.
+--
+-- Attempted to cross-reference defendant names against the Property Appraiser (mywakullapa.com /
+-- search.mywakullapa.com / qpublic.schneidercorp.com App=WakullaCountyFL) and the Clerk's official-
+-- records/OCRS case-detail systems (wakullaclerk.com/landmarkweb, civitekflorida.com/ocrs/county/65)
+-- to find each owner's real parcel_id. BLOCKED by this session's sandbox network environment:
+--   - search.mywakullapa.com: TCP connection reset (ECONNRESET) on every request, both via the
+--     WebFetch tool and raw curl from the sandbox shell -- not a 403/bot-page, a hard network-level
+--     reset, confirmed on 2+ distinct URL paths (root and /parcel/<id>).
+--   - qpublic.schneidercorp.com: HTTP 403 Forbidden on every request (bot/WAF block), confirmed on
+--     2 distinct query URL shapes.
+--   - civitekflorida.com/ocrs/county/65: confirmed via research to be a Java/JSF (.xhtml) server-
+--     rendered search app requiring interactive view-state/session tokens -- not drivable via plain
+--     GET/query-string requests; direct search-URL attempts returned 404.
+--   - wakullaclerk.com/landmarkweb: TLS certificate expired on that legacy hostname (confirmed via
+--     WebFetch "certificate has expired" error) -- unreachable.
+--   - This session had NO working browser-automation tool: `firecrawl` CLI is not installed and no
+--     FIRECRAWL_API_KEY is present in the sandbox env; `browser-use` CLI is not installed. Both are
+--     the tools that resolved equivalent blocks in prior shard sessions (e.g. shard8 okaloosa,
+--     20260711_shard8_okaloosa_bid4assets_search_confirmed_absent.sql) -- neither was available here.
+--   - KBForeclosures.com (kbforeclosures.com/search?county=8&q=<name>) WAS reachable and searchable,
+--     but returned "No records found" for Essman, Blyth (and by extension was not further pursued
+--     for the remaining 4 names given the pattern) -- this index does not cover these cases.
+--   - One general WebSearch hit surfaced a THIRD-PARTY AGGREGATOR (officialusa.com, itself
+--     unreachable to verify directly -- DNS ESERVFAIL) claiming parcel_id '000007701410524021' /
+--     24 Brewster Rd / Crawfordville for "Elizabeth E. Essman" (case 24-CA-130's defendant). This
+--     is the single closest candidate found. It was NOT written to the database because: (a) it is
+--     a secondary aggregator, not a primary-source page render, (b) a follow-up search attempting
+--     to corroborate the parcel-number prefix against search.mywakullapa.com returned a conflicting,
+--     apparently-hallucinated address ("57 Eighth Ave") for what should have been the same parcel,
+--     which independently disqualifies the aggregator claim as unreliable rather than confirming it,
+--     and (c) no primary Wakulla PA or Clerk page could be directly rendered to confirm or refute it
+--     in this session. Per HONESTY PROTOCOL, an unverifiable value is not written, however plausible.
+--
+-- RESULT: 0 of 7 rows updated. E remains FAIL at 76.7% (unchanged from baseline -- re-ran
+-- pencil_dod_evaluate_county('wakulla') after the investigation, identical result).
+--
+-- RESIDUAL / NEXT SESSION: this is a tooling gap, not a data-availability gap -- the Clerk's
+-- foreclosures.php page gives clean, verified plaintiff/defendant pairs for all 6 live cases, and
+-- the property appraiser almost certainly has each parcel indexed by owner name (that IS the
+-- intended search flow, per multiple resources: "search by owner name, parcel ID, or address").
+-- A session with a working browser-automation tool (Playwright/browser-use/Firecrawl-browser) should
+-- be able to resolve all 6 in well under an hour by driving search.mywakullapa.com's or qPublic's
+-- owner-name search form directly and reading the rendered parcel_id off each result page. The
+-- 7th (2026-TXD-097) should remain permanently NULL/excluded rationale-documented (redeemed, no
+-- deed issued, no parcel ever attached to a sale record for this case).
+--
+-- No SQL was executed against multi_county_auctions or any other table this session -- this file
+-- is pure documentation of a completed, bounded, honest-null-result investigation.

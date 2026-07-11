@@ -1,0 +1,100 @@
+-- SHARD-13: wakulla + madison, letters B (verified independent sale outcomes) and F (tier1
+-- sold-amount) research task. NO DATA WRITTEN THIS SESSION -- documentation-only migration,
+-- recording a genuine, sourced BLOCKED/UNKNOWN finding per repo NEVER-LIE canon (BLANK>WRONG).
+--
+-- BASELINE (pencil_dod_evaluate_county, verified live via REST RPC before this session):
+--   wakulla: B {pass:false, detail:"verified=0 closed_sold=0", metric:null}
+--            F {pass:false, detail:"tier1_sold=0 closed_sold=0", metric:null}
+--            auctions_total=30, all 30 rows auction_status in (upcoming|scheduled|cancelled),
+--            auction_date range 2026-07-08..2026-08-19, sold_amount NULL on all 30 rows.
+--   madison: B {pass:false, detail:"verified=0 closed_sold=0", metric:null}
+--            F {pass:false, detail:"tier1_sold=0 closed_sold=0", metric:null}
+--            auctions_total=5, all 5 rows auction_status='scheduled',
+--            auction_date range 2026-07-14..2026-08-25 (all future vs today 2026-07-11),
+--            sold_amount NULL on all 5 rows.
+--
+-- PRE-CHECK (fabrication cleanup task from session brief): searched
+-- multi_county_auctions for parcel_id ILIKE '%WAKULLA-PARCEL%' and data_source =
+-- 'shard5_bootstrap_run338' (the specific fabricated placeholder pattern flagged in the session
+-- brief, WAKULLA-PARCEL-0001/2/3). BOTH SEARCHES RETURNED ZERO ROWS. The fabrication described
+-- in the brief is NOT present in the live table today -- already remediated by a prior session.
+-- No cleanup action was needed or taken this session.
+--
+-- RESEARCH PERFORMED (WebFetch + WebSearch + curl, this session, 2026-07-11):
+--
+-- 1. wakullaclerk.org/official_records/tax_deed_sales.php (known upcoming-calendar source,
+--    data_source='wakulla_clerk_live' in our table): re-fetched live. Confirmed CALENDAR-ONLY --
+--    lists 30 tax-deed cases across the 2026-07-08 and 2026-08-19 sale dates with status values
+--    of "For Sale" or "Redeemed" only. NO sold-amount, winning-bidder, or sale-results field
+--    exists anywhere on the page. One case, 2026-TXD-097, is marked "Redeemed" (owner paid off
+--    delinquent taxes before the sale occurred -- statutorily this means the property was NEVER
+--    auctioned, not that it sold). This matches our existing row exactly: case_number
+--    '2026-TXD-097', auction_status='cancelled', sold_amount=NULL -- already correctly excluded
+--    from the closed_sold denominator. No change needed to this row.
+--
+-- 2. madisonclerk.com/departments-services/property-sales/foreclosure-sales/ (known
+--    upcoming-calendar source, data_source='madisonclerk_foreclosure_sales_page') and
+--    madisonclerk.com/tax-deeds/: re-fetched live. Both CALENDAR-ONLY. Foreclosure page lists
+--    the same 5 cases already in our table (25-79-CA cancelled, 21-36-CA/24-62-CA/26-20-CA/
+--    25-128-CA scheduled) with judgment amounts (amount owed at filing) but NO final sale
+--    amount or winning-bidder field. Tax-deeds page states "There are no properties on the list
+--    of tax deeds at this time" and links only a "Tax Deed Surplus or Overbid Funds List" Excel
+--    (surplus amounts from past sales, NOT a general sale-results archive -- and Madison has zero
+--    tax-deed rows in our table today, only foreclosure/CA cases, so this resource is out of
+--    scope for our current 5 rows regardless).
+--
+-- 3. Checked whether either county uses a RealAuction-family online platform (RealForeclose /
+--    RealTaxDeed / RealTaxLien), which for OTHER FL counties typically DOES publish historical
+--    sale-results with sold amounts once an auction closes. Tested wakulla.realtaxdeed.com,
+--    wakulla.realforeclose.com, madison.realtaxdeed.com, madison.realforeclose.com,
+--    madison.realtaxlien.com, madisonfl.realtaxdeed.com, madisonfl.realforeclose.com,
+--    madisonfl.realtaxlien.com via curl with a browser user-agent. Wakulla's two URLs returned
+--    HTTP 200 but rendered the GENERIC RealAuction client-directory marketing page (verified: the
+--    string "wakulla" does not appear anywhere in the fetched HTML -- neither subdomain actually
+--    resolves to county-specific content). Madison's four URL variants all returned HTTP 403
+--    with no county-specific content either. CONCLUSION: neither county is a live RealAuction
+--    client. This is consistent with an independent web search result stating Madison County
+--    "does not have online foreclosure auctions or online tax deed auctions -- both are
+--    in-person only" (courthouse steps). No online results archive exists for either county via
+--    this channel.
+--
+-- 4. Web-searched for third-party/news coverage of the specific case numbers in our table
+--    (e.g. "2026-TXD-097" wakulla, "23-CA-627" wakulla, general "highest bidder" courthouse
+--    coverage) -- no results referencing our specific case numbers or any sale outcome were
+--    found. Only generic process-explainer pages (how a FL tax deed sale works) turned up.
+--
+-- 5. Noted temporal anomaly (INFERRED, not proof of outcome): Wakulla's 2026-07-08 sale date
+--    has technically passed as of today 2026-07-11 (3 days ago), yet the live clerk page (as of
+--    this session's fetch) still shows 17 of those 18 cases as "For Sale" (not updated to any
+--    post-sale status) and our own DB rows for that date are still auction_status='upcoming'.
+--    This is consistent, not contradictory -- it suggests the clerk site has a reporting lag or
+--    the sale has not yet been administratively finalized/published, not that our pipeline missed
+--    a real result. No independent source (courthouse record, news, RealAuction platform) exists
+--    to confirm what physically happened at the courthouse steps on 2026-07-08, so this remains
+--    genuinely UNKNOWN -- not backfilled.
+--
+-- VERDICT (BLOCKED/UNKNOWN, not a pipeline bug): Both wakulla and madison are low-volume rural
+-- counties conducting in-person courthouse-steps sales with STATIC CALENDAR-ONLY clerk web pages
+-- and no online auction platform, no results archive, and no third-party coverage of the specific
+-- case numbers in our table. B (verified independent sale outcomes) and F (tier1 sold-amount)
+-- cannot be honestly computed for either county right now because closed_sold=0 is a genuine,
+-- sourced, temporal fact (nothing has been publicly confirmed as sold yet), not a matching or
+-- coverage gap in our own pipeline. Per HONESTY PROTOCOL and this session's explicit instruction,
+-- NO row was fabricated or force-matched to make B/F computable.
+--
+-- NO SQL EXECUTED. NO ROWS INSERTED OR UPDATED in multi_county_auctions this session.
+--
+-- POST-CHECK (pencil_dod_evaluate_county, re-run live via REST RPC after research, before
+-- writing this file): both counties' B and F are IDENTICAL to baseline above (confirms no
+-- accidental writes occurred during research). auctions_total unchanged (wakulla=30, madison=5).
+--
+-- NEXT SESSION: if this task is revisited, the only viable path to unblock B/F is (a) wait for
+-- the scheduled auction dates to actually occur and re-check the same clerk calendar pages for a
+-- status change away from "For Sale"/"scheduled" (clerk sites for both counties appear to reuse
+-- the pre-sale row rather than publish a distinct post-sale result, so watch for status/field
+-- changes on the SAME case numbers already in our table), or (b) call the clerk's office directly
+-- (Wakulla 850-926-0325/0326, Madison 850-973-1500) for verbal/written confirmation of an actual
+-- sale outcome -- out of scope for an automated pipeline session.
+
+-- (no-op: documentation only, see comments above)
+SELECT 1;
