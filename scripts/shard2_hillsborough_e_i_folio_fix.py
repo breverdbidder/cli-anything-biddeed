@@ -51,15 +51,19 @@ def mgmt_query(sql: str, _retries: int = 6):
     # Supabase's Management API front door (Cloudflare) 403s python's urllib
     # user-agent/TLS fingerprint but accepts curl -- shell out for reliability.
     for attempt in range(_retries):
-        proc = subprocess.run(
-            [
-                "curl", "-s", "-X", "POST", MGMT_URL,
-                "-H", f"Authorization: Bearer {ACCESS_TOKEN}",
-                "-H", "Content-Type: application/json",
-                "-d", json.dumps({"query": sql}),
-            ],
-            capture_output=True, text=True, timeout=60,
-        )
+        try:
+            proc = subprocess.run(
+                [
+                    "curl", "-s", "-X", "POST", MGMT_URL,
+                    "-H", f"Authorization: Bearer {ACCESS_TOKEN}",
+                    "-H", "Content-Type: application/json",
+                    "-d", json.dumps({"query": sql}),
+                ],
+                capture_output=True, text=True, timeout=90,
+            )
+        except subprocess.TimeoutExpired:
+            time.sleep(1.5 * (attempt + 1))
+            continue
         try:
             result = json.loads(proc.stdout)
         except json.JSONDecodeError:
