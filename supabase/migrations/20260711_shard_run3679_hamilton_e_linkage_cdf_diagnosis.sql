@@ -1,0 +1,163 @@
+-- HAMILTON County (run3679 dispatch) — 2026-07-11 session
+-- BEFORE: A=PASS(6) B=FAIL(null) C=FAIL(43.8%) D=FAIL(43.8%) E=FAIL(68.8%) F=FAIL(null)
+--         G=PASS H=PASS I=FAIL(6.3%) J=PASS(100%)  [4/10]
+--
+-- =====================================================================================
+-- 1) E — parcel_id linkage, 4 of 5 NULL foreclosure rows resolved (68.8% -> 93.8%)
+-- =====================================================================================
+-- Source: https://www.hamiltoncountytaxcollector.com/Property/search (live Hamilton
+-- County Tax Collector search, VisualGov platform, POST propertynumber/streetnumber/
+-- streetname/ownername). Genuine tier-1 county government system, NOT a scrape of a
+-- 3rd-party lead-gen site.
+--
+-- Method: exact street-number + street-name match against the property_address already
+-- on each MCA row (same standard as scripts/shard_manatee_e_linkage.py — exact match
+-- only, no fuzzy matching). Each match was additionally cross-verified against the
+-- known plaintiff/defendant name already on record in scripts/
+-- shard11_columbia_clay_lee_hamilton_fixes.py's HAMILTON_FC_AUCTIONS list (independent
+-- corroboration, not just a single-source address match):
+--
+--   2024-CA-19  1658 NW 3RD ST, JASPER FL 32052        -> parcel 2007-000
+--     tax collector owner: "SHAW AMANDA LEIGH" == clerk plaintiff record "Amanda Leigh Shaw"
+--   2023-CA-41  16797 MILL ST, WHITE SPRINGS FL 32096  -> parcel 8282-000
+--     tax collector owner: "WILLIAMS BERNARD & RUBY" == clerk plaintiff record "Ruby T Williams"
+--   2025-CA-37  7123 NW 146 CR, JENNINGS FL 32053      -> parcel 3819-070
+--     tax collector owner: "RICE RUTHANN ELISE" == clerk plaintiff record "Ruthann Elise Rice"
+--   2025-CA-46  520 NW RODMAN LANE, JENNINGS FL 32053  -> parcel 5044-000
+--     tax collector owner: "MURPHY ALLEN & SAMANTHA" == clerk plaintiff record "Allen Murphy"
+--
+-- Applied live via REST PATCH (not SQL — service role has no direct psql/pooler access
+-- in this sandbox, confirmed same constraint as prior shard sessions). Recorded here for
+-- audit trail; the actual mutation already happened via PostgREST before this file was
+-- written.
+--
+-- NOT linked (left NULL, explicitly out of scope): 2025-CA-66. MCA's property_address for
+-- this row is a placeholder ("Ashley Victoria Steward-Ross property, Hamilton County FL"),
+-- not a real street address -- no exact address match possible. Owner-name search on the
+-- tax collector for "STEWARD-ROSS" returned 3 DIFFERENT parcels (4837-015, 4837-016,
+-- 4837-017, all same household, subdivided lots) -- genuinely ambiguous, so per the
+-- exact-match-only guardrail this was left NULL rather than guessed. This is why E stops
+-- at 93.8% (15/16) instead of reaching 95%+: the remaining 1 row has no resolvable real
+-- parcel without contacting the clerk's office directly for the specific lot.
+--
+-- VERIFIED via pencil_dod_evaluate_county('hamilton') after the fix:
+--   E: 68.8% (11/16, FAIL) -> 93.8% (15/16, FAIL) -- real gain, does not cross 95% threshold.
+--
+-- =====================================================================================
+-- 2) C/D — mca_only classification investigated and CONFIRMED CORRECT (not a bug)
+-- =====================================================================================
+-- Investigated why the 6 foreclosure rows carry parity_status='mca_only' despite
+-- parity_source='tier1_hamilton_direct' (a tier1%-prefixed source that would otherwise
+-- look eligible for matched_clean/matched_divergent promotion).
+--
+-- Root cause (VERIFIED, not a bug): public.refresh_parity_tier1_outcomes(p_county) --
+-- the shared canonical parity function -- only classifies rows with
+-- auction_status IN ('redeemed','completed','sold','cancelled','canceled'). All 6
+-- foreclosure rows have auction_status='upcoming' (their sale has not happened yet;
+-- confirmed live against https://hamiltonclerk.com/foreclosures/ on 2026-07-11 -- 2 of
+-- the 6 cases, 2025-CA-46 and 2025-CA-66, are still actively listed with July/August 2026
+-- sale dates; the other 4, 2024-CA-19/2023-CA-41/2021-CA-46/2025-CA-37, have rotated off
+-- the clerk's current listing entirely, meaning their originally-scraped auction_date has
+-- passed with unknown outcome not republished anywhere public). Re-ran
+-- refresh_parity_tier1_outcomes('hamilton') live this session: 0 new matches (case pass
+-- and parcel pass both 0), exactly as expected -- confirms the function is working as
+-- designed, not silently failing.
+--
+-- Also confirmed live: foreclosure_outcomes has 0 rows for hamilton, tax_deed_outcomes has
+-- exactly 7 rows (== the 7 already-redeemed TD certs, already matched_clean). No tier1
+-- outcome record exists for any of the 6 FC cases or the 3 still-upcoming TD certs
+-- (379/597/599) -- consistent with "the case/cert hasn't resolved yet" for all 9, not with
+-- a matcher defect. This is a genuine data-volume/maturity ceiling: with only 16 total
+-- auctions and 9 of them still pending resolution, C/D cannot exceed 43.8% (7/16) until
+-- more Hamilton cases actually close. NOT reclassified to matched_clean -- would be a
+-- fabricated/ghost-success promotion with zero evidentiary basis, explicitly forbidden.
+--
+-- VERIFIED via pencil_dod_evaluate_county('hamilton') before/after refresh_parity_tier1_
+-- outcomes('hamilton') re-run: C/D unchanged at 43.8% (7/16) both times -- idempotent,
+-- no regression, no fabricated gain.
+--
+-- =====================================================================================
+-- 3) B/F — verified-outcome harvest attempted, genuinely blocked (BLANK > WRONG)
+-- =====================================================================================
+-- Checked https://hamiltonclerk.com/foreclosures/ and https://hamiltonclerk.com/
+-- tax-deeds/ (both live, real, already the source for existing tier1_hamilton_direct /
+-- clerk_td data) plus https://hamiltonclerk.com/3776-2/tax-deed-sales-surplus-funds/
+-- (the clerk's own "past sale results" page) for any independently-published sale/
+-- winning-bid amount on a CLOSED case. Result: surplus-funds page returns "No available
+-- properties at this time" (live, verified 2026-07-11) -- the clerk does not currently
+-- publish a closed-sale ledger with dollar amounts for this county. All 16 MCA rows are
+-- either auction_status='redeemed' (7 rows -- by definition no sale occurred, no
+-- sold_amount exists) or auction_status='upcoming' (9 rows -- not yet sold). There are
+-- ZERO rows with auction_status IN ('completed','sold') in hamilton's MCA table --
+-- verified live: `SELECT auction_status, count(*) ... GROUP BY auction_status` returns
+-- only {redeemed:7, upcoming:9}. B and F's structural denominator (closed_sold =
+-- count(sold_amount IS NOT NULL)) is genuinely 0 for this county right now -- both
+-- correctly report metric=null/FAIL, not a bug, not fixable without a sale actually
+-- happening. Not forced to a false pass. Attempted https://www.civitekflorida.com/ocrs/
+-- county/24/ (Hamilton's official court records portal, linked from hamiltonclerk.com/
+-- court-search/) to check the 4 rotated-off FC cases' true disposition -- this is a JSF
+-- (JavaServer Faces) app requiring interactive form/session state that this REST-only,
+-- non-browser sandbox cannot drive; flagged for a future session with browser automation
+-- (firecrawl-browser / Playwright), not fabricated around.
+--
+-- =====================================================================================
+-- 4) I — card completeness investigated, genuinely blocked on real assessed_value/situs
+-- =====================================================================================
+-- I requires property_address + lat/lon + assessed_value(or market_value) + a parcel_id
+-- present in v_zoning_gold_standard_card (zone_code IS NOT NULL). Zoning coverage is
+-- ALREADY complete for all 11 real (non-synthetic) hamilton parcel_ids known before this
+-- session (verified live: all of 2240-000/3139-160/3599-198/3729-650/4071-000/4510-000/
+-- 4712-020/4837-048/4837-067/4908-098/4833-015 already have zone_code='R-1' in
+-- v_zoning_gold_standard_card from an earlier session) -- so I's gap is purely
+-- property_address+lat/lon+assessed_value, all missing on the 10 tax-deed rows (7
+-- redeemed + 3 upcoming).
+--
+-- Sources checked and their result, all live 2026-07-11:
+--   - FL GIO Statewide Cadastral (services9.arcgis.com/.../Florida_Statewide_Cadastral):
+--     CO_NO=24 broad queries reliably error (HTTP 200 body {"error":{"code":400,...}}) or
+--     time out even with a 280s budget and minimal-field/small-page requests -- matches
+--     ingest_county.py's own documented finding ("WHERE CO_NO=X times out on count").
+--     Individual compound queries (CO_NO=24 AND PARCEL_ID='<exact>') DO execute fast and
+--     reliably (no timeout) -- and return ZERO matches for all 15 of hamilton's real
+--     parcel_ids. CONFIRMED (not a network flake): Hamilton's local NNNN-NNN parcel
+--     numbering scheme does not correspond to FL GIO's statewide PARCEL_ID field for this
+--     county -- a real crosswalk gap, not a service outage.
+--   - qpublic.schneidercorp.com/Application.aspx?App=HamiltonCountyFL: HTTP 403
+--     (Cloudflare bot challenge), not scrapable without a real browser session.
+--   - hamiltonpa.com (official county appraiser site): HTTP 403, same block.
+--   - hamiltoncountypropertyappraiser.org: HTTP 200 but is a 3rd-party lead-generation
+--     WordPress site (plugin "Property Search Pro"), NOT the official appraiser system --
+--     explicitly not used as a data source per NEVER-LIE (would not be authoritative even
+--     if scraped).
+--   - hamiltoncountytaxcollector.com/Property/search: live, real, authoritative Hamilton
+--     County government system (used successfully for E-linkage above). Returns owner
+--     NAME + MAILING address (ADDR1/ADDR2) + TAXBILLNO -- but explicitly NOT a situs/
+--     property address (it is the tax bill recipient's mailing address, which for
+--     absentee or rural landowners is frequently a different physical location than the
+--     parcel itself -- e.g. parcel 2240-000's legal description is bare agricultural land,
+--     "NW/4 of NW/4, Section 22" with no structure, while its owner's mailing address is a
+--     residence elsewhere in Jasper). Using this as property_address would misrepresent a
+--     mailing address as a site address -- explicitly avoided per the NEVER-FABRICATE
+--     guardrail. No assessed_value/market_value field is exposed by this endpoint either.
+--     Attempted to find a tax-bill-detail endpoint (by TAXBILLNO) that might expose
+--     assessed value -- no working route found within budget (404 on guessed paths).
+--
+-- Conclusion: I remains genuinely blocked at 6.3% (1/16) this session. No property_address
+-- or assessed_value was fabricated or approximated to force a gain. Residual: this needs
+-- either (a) a real browser session to get past qpublic/hamiltonpa.com's Cloudflare
+-- challenge, or (b) a DOR NAL file request (floridarevenue.com/property/Pages/
+-- DataPortal_RequestAssessmentRollGISData.aspx -- requires an emailed request to
+-- PTOTechnology@floridarevenue.com, not automatable same-session), or (c) direct contact
+-- with the Hamilton County Property Appraiser's office (386-792-2791).
+--
+-- =====================================================================================
+-- AFTER (verified via pencil_dod_evaluate_county('hamilton'), live, this session):
+--   A=PASS(6) B=FAIL(null) C=FAIL(43.8%) D=FAIL(43.8%) E=FAIL(93.8%, up from 68.8%)
+--   F=FAIL(null) G=PASS H=PASS I=FAIL(6.3%) J=PASS(100%)  [4/10, unchanged pass count,
+--   E metric materially improved 68.8%->93.8%, no regressions on any letter]
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents live REST/RPC actions already
+          -- applied at the timestamps cited above (E-linkage PATCH via PostgREST,
+          -- refresh_parity_tier1_outcomes('hamilton') RPC call). No new DDL/schema
+          -- change was required or made this session.
