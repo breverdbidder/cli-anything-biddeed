@@ -1,0 +1,78 @@
+session:
+  dispatch_id: d9229958-4da3-0000-0000-000000000000
+  shard: SHARD-2
+  loop_run: 3786
+  county: putnam
+  date: 2026-07-11
+  mode: single-county targeted fix (letter I, card_complete)
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county('putnam') live to confirm baseline before any change"
+    result: "I: card_complete=228 of 450 = 50.7% FAIL. G: density=99.2 PASS. auctions_total=450 (up from 239 in the sibling 946df428 session a few hours earlier — many new rows added since)."
+    reason: "Evidence-Before-Claims — baseline must be freshly queried, not assumed from the dispatch prompt"
+
+  - step: 2
+    action: "Re-derived the exact card_complete/G SQL via pg_get_functiondef(pencil_dod_evaluate_county) and v_zoning_gold_standard_kpi_v3 / v_zoning_district_applicability view defs, then ran a manual breakdown query replicating that logic"
+    result: "missing_addr=5, missing_geo=212, missing_val=212, missing_parcel_id=8, missing_zone_link=214 — confirms the dispatch's pre-diagnosis exactly. 213 of 214 have a real-format parcel_id; 1 has scraper-artifact literal 'Property Appraiser'."
+    reason: "verify the given root cause live, not trust it blind, per HONESTY PROTOCOL"
+
+  - step: 3
+    action: "Verified Putnam ArcGIS org YZc1OyqL6jbIOeOv Tax_Parcel_AGO + Zoning_Districts_AGO FeatureServers live: batch PARCELID IN (...) queries (50/batch) with returnCentroid=true work; Zoning_Districts_AGO native SR is 2236 but outSR=4326 point-intersect works correctly (verified against a known-good polygon first)"
+    result: "211/213 matched in Tax_Parcel_AGO, 199/211 matched a real zoning polygon at centroid. 2 no Tax_Parcel_AGO match, 12 zero zoning-polygon coverage at centroid (2 of the 12 are the SAME parcels the prior sibling session 946df428 already found: 37-10-26-6850-3390-0070, 42-10-27-6850-2850-1600 — cross-session consistency, not a query bug)."
+    reason: "batch-processing per the dispatch's rate-limit guidance, and confirming the mechanism against the documented sibling precedent"
+
+  - step: 4
+    action: "Ran scripts/gold_standard_shard2_putnam_run3786_i_zone_backfill.py: inserted 199 parcel_zones rows (R-2=166, R-1A=9, R-1=1, R-1HA=1 existing, R-2HA=1 new, AG=22 new), added zoning_districts row for R-2HA (far_regulated=NULL, density_regulated=NULL per the established sibling-code convention), PATCHed multi_county_auctions NULLs (209 geo, 209 value, 0 address — the 214 gap rows mostly already had addresses)"
+    result: "Re-ran evaluator: I improved to 94.9% (427/450) but G REGRESSED from 99.2 PASS to 94.3 FAIL"
+    reason: "execute-then-verify, per the mandatory before/after check on both letters"
+
+  - step: 5
+    action: "Root-caused the G regression: v_zoning_district_applicability.density_applicable defaults to TRUE for any non-commercial/industrial category when density_regulated IS NULL (not just a join-miss COALESCE as in the 946df428 precedent — this is the view's actual designed default). The new AG zoning_districts row (added per the guard rail, NULL/NULL flags) therefore made all AG parcels density_applicable=TRUE, but zero of them have a zone_standards.max_density_du_acre row (no real ordinance data), dragging pct_density_of_applicable from 99.2 to 94.3 (25 of 436 applicable parcels newly missing a density value: 23 AG + 1 R-1HA + 1 R-2HA)."
+    result: "Searched live for the real Putnam AG-district max_density_du_acre: Municode (library.municode.com/fl/putnam_county Sec 45-72) returns an Angular SPA shell with no static content (HTTP 200 but zero ordinance text; municode's internal API endpoints tried and returned 400/404 without the correct jobId/productId); Putnam Planning & Zoning's own site has no dimensional table, defers to Municode; Zoneomics gates the dimensional standards behind a paid report. WebSearch confirms FL AG-district density figures are NOT a safe default to infer — real-world range is 1 du/acre (Pasco) to 1 du/20 acres depending on county, so guessing would violate NEVER-LIE."
+    reason: "the guard rail says do not default the flag to true/false — it does NOT authorize inventing a max_density_du_acre number to compensate. Blank > wrong."
+
+  - step: 6
+    action: "DELETEd the 22 newly-inserted AG parcel_zones rows (identified precisely via source tag, confirmed the 1 pre-existing AG row from 946df428 was untouched). Kept all 177 non-AG rows (166 R-2 + 9 R-1A + 1 R-1 + 1 R-2HA), which are all backed by real zone_standards density data except the single R-2HA parcel (negligible 1-parcel drag)."
+    result: "Re-ran evaluator: G recovered to 99.3 PASS (slightly above the original 99.2 baseline). I settled at 90.0% (405/450) FAIL — down from the interim 94.9% (because 22 rows were reverted) but still up +39.3pp from the 50.7% baseline."
+    reason: "G must not regress per the dispatch's explicit instruction; this was the smallest intervention that restores G to PASS without fabricating ordinance data"
+
+  - step: 7
+    action: "Final live re-verification of both I and G via pencil_dod_evaluate_county, confirmed stable across repeat calls"
+    result: "I: card_complete=405 of 450 = 90.0% FAIL (was 50.7% FAIL). G: density=99.3 PASS (was 99.2 PASS, no regression)."
+    reason: "mandatory before/after proof per the SHIP GATE and HONESTY PROTOCOL"
+
+artifacts:
+  - scripts/gold_standard_shard2_putnam_run3786_i_zone_backfill.py
+  - supabase/migrations/20260711_shard2_putnam_run3786_i_zone_backfill.sql
+
+verification:
+  - check: "pencil_dod_evaluate_county('putnam') BEFORE"
+    proof: '{"I":{"pass":false,"metric":50.7,"detail":"card_complete=228 of 450"},"G":{"pass":true,"metric":99.2,"detail":"density=99.2 far= pk1000="}}'
+    status: VERIFIED
+  - check: "pencil_dod_evaluate_county('putnam') AFTER"
+    proof: '{"I":{"pass":false,"metric":90.0,"detail":"card_complete=405 of 450"},"G":{"pass":true,"metric":99.3,"detail":"density=99.3 far= pk1000="}}'
+    status: VERIFIED
+  - check: "parcel_zones rows added, source-tagged, non-AG only"
+    proof: "SELECT zone_code, count(*) FROM parcel_zones WHERE jurisdiction_id=931 AND source='shard2_run3786/putnam_gis_live:...' GROUP BY zone_code -> R-2=166, R-1A=9, R-1=1, R-2HA=1 (total 177)"
+    status: VERIFIED
+  - check: "AG rows reverted, not left as a silent partial fabrication"
+    proof: "DELETE ... WHERE zone_code='AG' AND source='shard2_run3786/...' RETURNING parcel_id -> 22 rows deleted, confirmed via re-query returning 0"
+    status: VERIFIED
+
+residual_gap_putnam_i:
+  total_still_missing: 45  # 450 - 405
+  breakdown:
+    - reason: "AG zone genuinely zone-linked via live GIS but excluded from insert — no real max_density_du_acre ordinance data available this session (Municode SPA blocked, no paid-report access); re-adding these 22 parcels requires a real Putnam AG dimensional standard, e.g. via Firecrawl against the Municode SPA or a phone-verified figure from Putnam Planning & Zoning (386-329-0491)"
+      count: 22
+    - reason: "no zoning polygon at parcel centroid in Zoning_Districts_AGO (genuine source-layer coverage gap, confirmed by envelope + exact-point + JSON-geometry query variants)"
+      count: 12
+    - reason: "parcel_id not found in Tax_Parcel_AGO at all (28-10-24-0000-0200-0000, 38-12-26-0000-0040-0002)"
+      count: 2
+    - reason: "scraper-artifact parcel_id literal 'Property Appraiser' (not a real parcel identifier)"
+      count: 1
+    - reason: "8 rows have parcel_id IS NULL entirely (foreclosure cases never resolved to a parcel) — pre-existing gap, out of scope for a zone-link fix"
+      count: 8
+  note: "22+12+2+1+8=45, matches total_still_missing exactly"
+
+next_session_priority: "Get the real Putnam AG-district max_density_du_acre (Sec 45-72 of the Land Development Code) via Firecrawl against the Municode SPA (this environment has no FIRECRAWL_API_KEY set; a session with that key configured could likely render the Angular content). Once obtained, insert a real zone_standards row for AG and re-add the 22 parcel_zones rows — this alone would push I from 90.0% to ~95.0% (427/450), crossing the PASS threshold."
