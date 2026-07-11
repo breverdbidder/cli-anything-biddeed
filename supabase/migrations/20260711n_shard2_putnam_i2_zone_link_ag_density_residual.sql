@@ -1,0 +1,113 @@
+-- Putnam County I (property-card completeness) continuation session: NO NET WRITES,
+-- gap fully re-investigated and documented. Same dispatch lineage as commit ae6ab7f9
+-- (earlier today), which moved I from 50.7% -> 90.0% via
+-- scripts/gold_standard_shard2_putnam_run3786_i_zone_backfill.py.
+--
+-- BASELINE (VERIFIED live, start of this task, auctions_total grew to 450 since the
+-- prior run):
+--   I: card_complete=405 of 450 = 90.0% FAIL (need >=95% i.e. >=428/450)
+--   G: density=99.3 PASS (must not regress)
+--
+-- Re-diagnosed live (exact replica of pencil_dod_evaluate_county's live SQL via
+-- pg_get_functiondef): missing_addr=5, missing_geo=3, missing_val=3, missing_parcel=8,
+-- missing_zone_link=37 (union of these = 45 unique gap rows) -- matches the dispatch
+-- brief exactly.
+--
+-- WORK PERFORMED (scripts/gold_standard_shard2_putnam_i2_zone_backfill.py):
+--
+-- 1. Of the 37 missing_zone_link rows: 1 has a scraper-artifact literal parcel_id
+--    'Property Appraiser' (skipped, not fabricated). 36 have real-format parcel_ids.
+--
+-- 2. Batch-queried Putnam ArcGIS org YZc1OyqL6jbIOeOv Tax_Parcel_AGO/FeatureServer/0
+--    by PARCELID for all 36 (plus the addr/geo/val-gap parcel_ids, all of which
+--    overlapped the zone-link set or had NULL parcel_id). 34 of 36 matched (2 not
+--    found: 28-10-24-0000-0200-0000, 38-12-26-0000-0040-0002 -- the same 2 the prior
+--    run also could not match in Tax_Parcel_AGO).
+--
+-- 3. Spatially intersected each matched centroid against Zoning_Districts_AGO
+--    (esriSpatialRelIntersects). 22 of 34 intersected exactly one real zoning polygon
+--    -- and ALL 22 were ZONECLASS='AG'. 12 intersected ZERO zoning polygons at their
+--    centroid (a genuine source-layer coverage gap), including the 2 parcels the
+--    prior session already found with zero coverage
+--    (37-10-26-6850-3390-0070, 42-10-27-6850-2850-1600).
+--
+-- 4. ADVERSARIAL SELF-CATCH (documented, not silently fixed): inserted the 22 real
+--    GIS-verified AG parcel_zones rows, then re-verified G live. G regressed
+--    99.3 -> 94.3 (density=94.3). Root cause (identical to the prior session's AG
+--    finding, re-confirmed live this session):
+--      SELECT * FROM zone_standards zs
+--        JOIN zoning_districts zd ON zd.id = zs.zoning_district_id
+--       WHERE zd.jurisdiction_id = 931 AND zd.code = 'AG';
+--    returns 0 rows. AG already existed as a zoning_districts row for jurisdiction 931
+--    (added by a prior session, far_regulated=NULL, density_regulated=NULL), so it did
+--    NOT trip the "new code" guard rail -- but adding MORE parcels under an
+--    already-existing density-applicable code with zero zone_standards row still widens
+--    the density-NULL denominator in v_zoning_gold_standard_kpi_v3 and drags G down.
+--    This is a refinement of the known failure mode: the guard rail must compare G
+--    before/after for ALL inserted parcels this run, not just newly-created codes.
+--
+-- 5. Searched live for a real Putnam AG-district density figure to close this gap
+--    honestly rather than reverting again:
+--      - WebSearch found the exact Municode section reference
+--        (library.municode.com/fl/putnam_county/.../S45-72AG) but the page returns
+--        HTTP 403 to both WebFetch and direct curl in this sandbox (re-confirmed the
+--        same block the prior session hit).
+--      - No Firecrawl API key or CLI is present in this session's environment
+--        (env has no FIRECRAWL_* var; `which firecrawl` -> not found), so the
+--        browser-render escalation path used successfully elsewhere in this codebase
+--        was not available here.
+--      - realforeclose.com auction detail pages (checked as a possible independent
+--        source for the separate missing_parcel rows, see below) also return HTTP 403
+--        to WebFetch and curl.
+--    No real max_density_du_acre figure was retrievable within session tooling.
+--    Inventing one would violate NEVER-LIE (FL AG-district density figures range from
+--    1 du/acre to 1 du/20 acres depending on county per general web knowledge --
+--    not a safe default).
+--
+-- 6. DECISION: reverted (DELETEd) all 22 AG parcel_zones rows inserted this session
+--    rather than fabricate a density figure to compensate. Re-verified live: G
+--    restored to 99.3 PASS (unchanged from this session's baseline), I remains at
+--    90.0% (405/450, unchanged from this session's baseline). NO NET DATA CHANGE.
+--
+-- 7. missing_parcel (8 rows, parcel_id IS NULL) investigated for cross-reference:
+--      - tax_deed_outcomes / foreclosure_outcomes: 0 matches on case_number.
+--      - property_documents (has case_number + court_case_number + parcel_id
+--        columns): 0 matches on either case_number or court_case_number.
+--      - document_extractions: 0 matches.
+--      - 4 of the 8 rows have a real realforeclose.com source_url (independent from
+--        our own scrape) that might carry a parcel ID on the detail page, but that
+--        host also returns HTTP 403 to WebFetch/curl in this sandbox -- could not be
+--        fetched this session.
+--      - 7 of the 8 share an identical placeholder centroid (29.6271, -81.8029),
+--        confirming these are unresolved/fallback rows with no real geocode, not
+--        rows this session accidentally regressed.
+--    RESULT: 0 of 8 missing_parcel rows resolved. Genuinely unresolvable with tooling
+--    available this session -- reported honestly, not fabricated.
+--
+-- NET RESULT THIS SESSION: I unchanged at 90.0% (405/450). G unchanged at 99.3% PASS
+-- (verified before == after). No DDL/DML persisted (the one DML performed -- the 22
+-- AG parcel_zones inserts -- was fully reverted live in the same session before this
+-- migration was written, per the fail-loud / never-fabricate guardrail).
+--
+-- This migration file is a NO-OP by design (idempotent, applies zero changes) --
+-- it exists purely as the durable record of the live investigation and the
+-- adversarial self-catch, per SHIP GATE requirements. No INSERT/UPDATE/DELETE
+-- statements below because none survived the adversarial re-verification.
+--
+-- RESIDUAL FOR A FUTURE SESSION (unblock requires one of):
+--   a) Firecrawl API key / CLI wired into this environment, to render
+--      library.municode.com/fl/putnam_county Sec 45-72 (AG district dimensional
+--      standards table) past its WAF block.
+--   b) A phone-verified AG max_density_du_acre figure from Putnam County Planning &
+--      Zoning (386-329-0491), entered into zone_standards for zoning_districts.id
+--      matching (jurisdiction_id=931, code='AG').
+--   c) Browser-automation (Playwright/firecrawl-browser) access to
+--      putnam.realforeclose.com auction detail pages, to recover parcel IDs for the
+--      8 missing_parcel rows (4 of which have a realforeclose.com source_url on file).
+--   Once (a) or (b) resolves the AG zone_standards gap, re-run
+--   scripts/gold_standard_shard2_putnam_i2_zone_backfill.py (its guard-rail/revert
+--   logic is unaffected by this change and will simply not trigger a revert since G
+--   will no longer regress) to insert the 22 already-GIS-verified AG parcel_zones
+--   rows for real this time.
+
+SELECT 1; -- no-op placeholder; this migration intentionally makes zero schema/data changes.

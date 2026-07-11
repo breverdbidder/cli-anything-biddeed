@@ -1,0 +1,82 @@
+session:
+  shard: SHARD-2 continuation
+  county: putnam
+  date: 2026-07-11
+  mode: single-county targeted fix (letter I, card_complete) -- continuation of
+    commit ae6ab7f9 (scripts/gold_standard_shard2_putnam_run3786_i_zone_backfill.py)
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county('putnam') live to confirm baseline before any change"
+    result: "I: card_complete=405 of 450 = 90.0% FAIL. G: density=99.3 PASS. auctions_total=450, exactly matching the dispatch brief's stated numbers."
+    reason: "Evidence-Before-Claims — baseline must be freshly queried, not assumed from the dispatch prompt"
+
+  - step: 2
+    action: "Re-derived the exact card_complete SQL via pg_get_functiondef(pencil_dod_evaluate_county) and re-ran the residual breakdown query against the current 450 rows"
+    result: "missing_addr=5, missing_geo=3, missing_val=3, missing_parcel=8, missing_zone_link=37 (union = 45 unique gap rows) -- matches the dispatch brief exactly."
+    reason: "verify the given root cause live per HONESTY PROTOCOL, and to identify which of the 45 rows are new since the prior run (auctions_total grew from 239 at that run's era to 450)"
+
+  - step: 3
+    action: "Of 37 missing_zone_link rows: 1 has scraper-artifact parcel_id 'Property Appraiser' (skipped). Ran the 36 real-format-parcel_id candidates through Tax_Parcel_AGO batch query (returnCentroid=true) then Zoning_Districts_AGO point-intersect, identical method to the prior run"
+    result: "34/36 matched Tax_Parcel_AGO (2 not found: 28-10-24-0000-0200-0000, 38-12-26-0000-0040-0002 -- same 2 the prior run also could not match). 22/34 intersected a real zoning polygon -- and ALL 22 were ZONECLASS='AG'. 12/34 intersected zero zoning polygons (incl. the prior run's known 2: 37-10-26-6850-3390-0070, 42-10-27-6850-2850-1600)."
+    reason: "reuse the proven template method exactly, per the dispatch instruction"
+
+  - step: 4
+    action: "Inserted the 22 real GIS-verified AG parcel_zones rows, re-ran evaluator"
+    result: "G REGRESSED 99.3 -> 94.3 (density=94.3). I improved 90.0 -> 94.9 (427/450) but at G's expense."
+    reason: "execute-then-verify per the mandatory before/after check on both letters"
+
+  - step: 5
+    action: "Root-caused (identical mechanism to the prior session's AG finding, re-confirmed live): SELECT * FROM zone_standards zs JOIN zoning_districts zd ON zd.id=zs.zoning_district_id WHERE zd.jurisdiction_id=931 AND zd.code='AG' returns 0 rows. AG already existed as a zoning_districts row (added by the prior session) so it did NOT trip this run's 'new code' guard-rail check -- exposing a gap in that check: adding MORE parcels to an EXISTING density-applicable code with zero zone_standards still regresses G."
+    result: "Searched live for a real Putnam AG max_density_du_acre figure: WebSearch found the exact Municode section (S45-72AG) but library.municode.com returns HTTP 403 to WebFetch and direct curl (re-confirms the prior session's block). No FIRECRAWL_API_KEY/CLI present in this sandbox env (env grep empty, `which firecrawl` not found) -- the escalation path other sessions used successfully was unavailable here. Also tried realforeclose.com auction detail pages (independent source, for the separate missing_parcel investigation) -- also HTTP 403."
+    reason: "guard rail forbids defaulting flags to compensate, and forbids inventing a density number — BLANK > WRONG"
+
+  - step: 6
+    action: "DELETEd all 22 AG parcel_zones rows inserted this session (scoped by this run's unique source tag 'shard2_i2/...'), confirmed 0 leftover rows, re-ran evaluator"
+    result: "G restored to 99.3 PASS (exactly the pre-session baseline). I settled at 90.0% (405/450) -- exactly the pre-session baseline. NO NET DATA CHANGE."
+    reason: "G must not regress per the dispatch's explicit instruction; smallest intervention that restores G without fabricating ordinance data"
+
+  - step: 7
+    action: "Investigated the 8 missing_parcel rows (parcel_id IS NULL) for any cross-reference: tax_deed_outcomes, foreclosure_outcomes, property_documents (case_number + court_case_number + parcel_id columns), document_extractions -- all queried by case_number"
+    result: "0 matches in any table. 4 of 8 rows have a real realforeclose.com source_url (independent of our own scrape) that might carry a parcel ID on the auction detail page, but that host returns HTTP 403 to WebFetch and curl in this sandbox. 7 of 8 share an identical placeholder centroid (29.6271, -81.8029), confirming these are unresolved fallback rows, not something this session broke."
+    reason: "task step 5 explicitly requires investigating linkability before declaring residual"
+
+  - step: 8
+    action: "Final live re-verification of both I and G via pencil_dod_evaluate_county, and confirmed 0 leftover rows from this session's source tag in parcel_zones"
+    result: "I: card_complete=405 of 450 = 90.0% FAIL (unchanged). G: density=99.3 PASS (unchanged, before==after)."
+    reason: "mandatory before/after proof per SHIP GATE and HONESTY PROTOCOL"
+
+artifacts:
+  - scripts/gold_standard_shard2_putnam_i2_zone_backfill.py
+  - supabase/migrations/20260711n_shard2_putnam_i2_zone_link_ag_density_residual.sql
+
+verification:
+  - check: "pencil_dod_evaluate_county('putnam') BEFORE this session"
+    proof: '{"I":{"pass":false,"metric":90.0,"detail":"card_complete=405 of 450"},"G":{"pass":true,"metric":99.3,"detail":"density=99.3 far= pk1000="}}'
+    status: VERIFIED
+  - check: "pencil_dod_evaluate_county('putnam') AFTER this session"
+    proof: '{"I":{"pass":false,"metric":90.0,"detail":"card_complete=405 of 450"},"G":{"pass":true,"metric":99.3,"detail":"density=99.3 far= pk1000="}}'
+    status: VERIFIED
+  - check: "no leftover parcel_zones rows from this session's DML"
+    proof: "SELECT count(*) FROM parcel_zones WHERE jurisdiction_id=931 AND source LIKE 'shard2_i2%%' -> 0"
+    status: VERIFIED
+  - check: "AG zone_standards gap re-confirmed live (root cause of the block)"
+    proof: "SELECT * FROM zone_standards zs JOIN zoning_districts zd ON zd.id=zs.zoning_district_id WHERE zd.jurisdiction_id=931 AND zd.code='AG' -> 0 rows"
+    status: VERIFIED
+
+residual_gap_putnam_i:
+  total_still_missing: 45  # 450 - 405, unchanged
+  breakdown:
+    - reason: "AG zone genuinely zone-linked via live GIS (22 real, GIS-verified parcels, ZONECLASS='AG') but excluded -- no real max_density_du_acre ordinance data available. Municode Sec 45-72 blocked (HTTP 403, WebFetch + curl both tried); no Firecrawl API key/CLI in this session's environment to escalate."
+      count: 22
+    - reason: "no zoning polygon at parcel centroid in Zoning_Districts_AGO (genuine source-layer coverage gap), includes the 2 already known from the prior session"
+      count: 12
+    - reason: "parcel_id not found in Tax_Parcel_AGO at all (28-10-24-0000-0200-0000, 38-12-26-0000-0040-0002)"
+      count: 2
+    - reason: "scraper-artifact parcel_id literal 'Property Appraiser' (not a real parcel identifier)"
+      count: 1
+    - reason: "8 rows have parcel_id IS NULL entirely -- investigated this session across tax_deed_outcomes/foreclosure_outcomes/property_documents/document_extractions, 0 cross-reference matches found; 4 have a realforeclose.com source_url that could carry a parcel ID but that host returns HTTP 403 to available fetch tools this session"
+      count: 8
+  note: "22+12+2+1+8=45, matches total_still_missing exactly"
+
+next_session_priority: "Identical to the prior session's stated priority, still unresolved: get the real Putnam AG-district max_density_du_acre (Sec 45-72 LDC) via Firecrawl against the Municode SPA (requires FIRECRAWL_API_KEY configured in the environment, absent this session) or a phone-verified figure from Putnam Planning & Zoning (386-329-0491). Once obtained, insert a real zone_standards row for AG (zoning_districts.id for jurisdiction_id=931, code='AG') and re-run scripts/gold_standard_shard2_putnam_i2_zone_backfill.py to insert the 22 already-GIS-verified AG parcel_zones rows for real -- this alone pushes I from 90.0% to ~94.9% (427/450), still just short of the 95% threshold; would additionally need 1 more of the 12 no-polygon or 8 missing-parcel rows resolved to cross 95% (428/450)."

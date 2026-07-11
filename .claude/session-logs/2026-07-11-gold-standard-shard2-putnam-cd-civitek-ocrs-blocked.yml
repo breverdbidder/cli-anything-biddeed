@@ -1,0 +1,101 @@
+session: Gold Standard shard2/6 (putnam) — C/D re-harvest + civitekflorida.com/ocrs/county/54 test
+date: 2026-07-11
+county: putnam
+dispatch: continuation of ab341f1e (shard2-putnam-cd-4-new-dates) and 946df428 (shard6)
+
+context: |
+  Prior session (commit ab341f1e) ran scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py
+  against putnam's 4 new tax_deed dates, promoting 131 rows and moving C/D 36.9% -> 66.0%
+  (166/450 -> 297/450). It flagged 153 residual rows (all sale_type='tax_deed',
+  parity_status IS NULL, data_source='calendar_sweep_mca_v3') across 7 dates, and named
+  civitekflorida.com/ocrs/county/54 as an UNTESTED candidate independent match source.
+
+baseline_verified_live:
+  pencil_dod_evaluate_county_putnam:
+    C: {matched_clean: 297, metric: 66.0, pass: false}
+    D: {matched_any: 297, metric: 66.0, pass: false}
+    auctions_total: 450
+
+step1_ajax_reharvest:
+  script: scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py (UNMODIFIED, run verbatim)
+  command: |
+    python3 scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py \
+      '[{"county":"putnam","sale_type":"tax_deed","auction_date":"2026-06-24"},
+        {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-07-08"},
+        {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-07-22"},
+        {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-05"},
+        {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-12"},
+        {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-19"},
+        {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-26"}]'
+  result_verbatim: |
+    putnam tax_deed 2026-06-24: 38 calendar items -> parity=0 parcel_id=0 card=0
+    putnam tax_deed 2026-07-08: 39 calendar items -> parity=0 parcel_id=0 card=0
+    putnam tax_deed 2026-07-22: HTTP 503 on first attempt, retried successfully:
+      51 calendar items -> parity=0 parcel_id=0 card=0
+    putnam tax_deed 2026-08-05: 32 calendar items -> parity=0 parcel_id=0 card=0
+    putnam tax_deed 2026-08-12: 25 calendar items -> parity=0 parcel_id=0 card=0
+    putnam tax_deed 2026-08-19: 38 calendar items -> parity=0 parcel_id=0 card=0
+    putnam tax_deed 2026-08-26: 36 calendar items -> parity=0 parcel_id=0 card=0
+    TOTALS: parity_promoted=0 parcel_backfilled=0 card_backfilled=0
+  independent_crosscheck: |
+    For each of the 7 dates, independently normalized every residual row's case_number
+    (153 total) and every fresh calendar item's case_number, and confirmed 0/153 residual
+    case numbers appear anywhere on the live calendar for their date. This rules out a
+    matcher/normalization bug (same code matched 131 rows cleanly in the prior session on
+    this exact county) -- it is a genuine calendar-coverage gap: the site has not published
+    new listings for these case numbers since the prior harvest.
+
+step2_civitek_ocrs_test:
+  url: https://www.civitekflorida.com/ocrs/county/54/
+  method: |
+    Playwright headless Chromium (curl/WebFetch cannot execute this app's JSF/PrimeFaces
+    client JS -- confirmed: raw curl POST replication of the tab-change AJAX event returned
+    an empty tab panel, browser JS view-scoped bean init not reproducible via raw HTTP).
+  findings:
+    - "Public (anonymous) access path: reachable, no login required. VERIFIED."
+    - "Disclaimer / I Agree click-through: reachable. VERIFIED."
+    - |
+      Case Search tab: EXISTS, exposes real fields -- Year (required), Court Type
+      (required dropdown: CA/CC/CP/CF/etc.), Sequence# (required), Party Identifier
+      (optional), Branch Location (optional). Putnam's tax-deed case_number format
+      (YYYY-NNNNNNN, e.g. 2019-0014724) decomposes cleanly into Year=2019, Seq=0014724 --
+      query surface IS structurally compatible with our residual case numbers. VERIFIED.
+    - |
+      BLOCKED: search submission gated behind a Cloudflare Turnstile "Verify you are
+      human" checkbox (challenges.cloudflare.com/turnstile/v... confirmed present and
+      required). Per HARD GUARDRAILS, did not attempt to solve/bypass -- this is a
+      legitimate access control, out of scope. VERIFIED.
+  verdict: |
+    Civitek OCRS is a genuinely independent, structurally-compatible source but is not
+    automatable today without solving a Cloudflare challenge. Remains a lever for a
+    *manual* future session (human solves Turnstile once, then batch-queries the 153
+    case numbers) -- not completable by an unattended agent session.
+
+evaluator_after: |
+  Re-ran pencil_dod_evaluate_county('putnam') -- unchanged (as expected, 0 promotions):
+    C: matched_clean=297, metric=66.0, FAIL (unchanged)
+    D: matched_any=297, metric=66.0, FAIL (unchanged)
+  Independent re-query of multi_county_auctions confirms: total=450, matched_clean=297,
+  unmatched=153 -- exact match to session start, zero regression, zero silent writes.
+
+verdict: |
+  0 rows promoted this session. This is a REAL 0-write outcome, not a silent failure --
+  the harvest script's own fail-loud check (parsed>0/promoted=0) fired for all 7 dates,
+  and the independent case-number cross-check confirms the harvester behaved correctly:
+  the 153 residual case numbers genuinely do not exist on the live RealTaxDeed calendar
+  today. C/D remain at 66.0%, unchanged from session start. No fabricated match, zone, or
+  parcel data was written for any residual row.
+
+migration_file: supabase/migrations/20260711o_shard2_putnam_cd_residual_civitek_ocrs_blocked.sql
+
+honesty_tags:
+  - "Baseline/after C,D percentages: VERIFIED via live pencil_dod_evaluate_county('putnam') calls, pasted verbatim."
+  - "0 promotions: VERIFIED via script stdout + independent parity_status GROUP BY re-query (matched_clean=297, unmatched=153, unchanged)."
+  - "153/153 residual case numbers absent from live calendar: VERIFIED via fresh per-date re-fetch + normalized case_number set comparison this session."
+  - "Civitek OCRS Case Search field existence + Cloudflare Turnstile gate: VERIFIED via live Playwright headless browser session (screenshot + HTML captured)."
+  - "No CAPTCHA-solving attempted: this is a boundary compliance statement, not a technical claim."
+
+no_code_changes: true
+files_changed_this_session:
+  - supabase/migrations/20260711o_shard2_putnam_cd_residual_civitek_ocrs_blocked.sql
+  - .claude/session-logs/2026-07-11-gold-standard-shard2-putnam-cd-civitek-ocrs-blocked.yml

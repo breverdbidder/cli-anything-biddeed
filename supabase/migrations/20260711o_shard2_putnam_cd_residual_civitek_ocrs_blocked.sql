@@ -1,0 +1,80 @@
+-- Gold Standard shard-2/6 continuation (putnam), 2026-07-11
+--
+-- DISPATCH: re-run AJAX RealTaxDeed harvest against putnam's 7 tax_deed dates with
+-- parity_status IS NULL rows (153 total), plus investigate civitekflorida.com/ocrs/county/54
+-- as a second independent match source.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('putnam') at session start):
+--   C: matched_clean=297, metric=66.0, FAIL
+--   D: matched_any=297,   metric=66.0, FAIL
+--   auctions_total=450
+--
+-- STEP 1 -- RealTaxDeed AJAX re-harvest (scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py,
+-- UNMODIFIED, run verbatim against putnam subdomain for all 7 in-scope dates):
+--   2026-06-24: 38 calendar items -> 0 promoted (26 residual rows, 0 hits)
+--   2026-07-08: 39 calendar items -> 0 promoted (20 residual rows, 0 hits)
+--   2026-07-22: 51 calendar items -> 0 promoted (27 residual rows, 0 hits) [1st attempt hit
+--               transient HTTP 503, retried successfully]
+--   2026-08-05: 32 calendar items -> 0 promoted (30 residual rows, 0 hits)
+--   2026-08-12: 25 calendar items -> 0 promoted (10 residual rows, 0 hits)
+--   2026-08-19: 38 calendar items -> 0 promoted (30 residual rows, 0 hits)
+--   2026-08-26: 36 calendar items -> 0 promoted (10 residual rows, 0 hits)
+-- TOTAL: parity_promoted=0 parcel_backfilled=0 card_backfilled=0
+--
+-- Independent cross-check (this session, not just the harvester's own match loop): for each
+-- of the 7 dates, fetched the live putnam.realtaxdeed.com AJAX calendar fresh, normalized every
+-- residual row's case_number and every calendar item's case_number, and confirmed 0 of 153
+-- residual case_numbers appear anywhere in the live calendar for their date (0 hits per date,
+-- 0/153 overall). This is a real coverage gap between the RealTaxDeed calendar and the
+-- calendar_sweep_mca_v3 rows already in multi_county_auctions -- not a normalization/matcher bug
+-- (the same normalize+match logic cleanly matched 131 rows in the prior 2026-07-11 session on
+-- this exact county). No new auctions were published to the calendar for these 7 dates since the
+-- prior session; the site's own item counts per date are essentially unchanged.
+--
+-- STEP 2 -- civitekflorida.com/ocrs/county/54 (Putnam's Civitek OCRS instance), UNTESTED in the
+-- prior session, TESTED live this session with a real headless browser (Playwright, not curl --
+-- curl cannot execute the JSF/PrimeFaces client JS this app requires):
+--   1. Public (anonymous) access path -> reachable, no login required.
+--   2. Disclaimer / "I Agree" click-through -> reachable.
+--   3. "Case Search" tab -> DOES exist and DOES expose a real case-number query surface:
+--      fields are Year (required), Court Type (required, dropdown: Circuit Civil (CA), County
+--      Civil (CC), Probate/Guardianship (CP), etc.), Sequence# (required), Party Identifier
+--      (optional), Branch Location (optional). Putnam's tax-deed case numbers in our residual
+--      set (format YYYY-NNNNNNN, e.g. 2019-0014724) decompose cleanly into Year=2019,
+--      Seq=0014724 -- so the query SURFACE is structurally compatible with our data.
+--   4. BLOCKED: the search form is gated behind a Cloudflare Turnstile "Verify you are human"
+--      checkbox widget (confirmed live: challenges.cloudflare.com/turnstile/v... script present,
+--      required before the Search button will submit). Per HARD GUARDRAILS this session
+--      (no fabrication, no scope creep) automated CAPTCHA-solving was NOT attempted -- this is a
+--      legitimate access-control mechanism, not a bug to route around.
+--
+-- CONCLUSION (VERIFIED, not INFERRED): civitekflorida.com/ocrs/county/54 is a genuinely
+-- independent source with the right query shape (year+sequence case-number lookup) but is not
+-- currently automatable without solving a Cloudflare Turnstile challenge, which is out of scope.
+-- It remains a legitimate lever for a *manual* future session (a human clicking through the
+-- Turnstile once per session, then batch-querying the 153 case numbers) but is not something an
+-- unattended agent session can complete today.
+--
+-- RESULT: 0 rows promoted this session. No parity_status/parity_source writes were made to
+-- multi_county_auctions (a real 0-write outcome, not a silent failure -- the harvest script's own
+-- fail-loud check for parsed>0/promoted=0 fired and was reviewed, and the independent cross-check
+-- above confirms it is correct, not a bug).
+--
+-- AFTER (VERIFIED live via pencil_dod_evaluate_county('putnam') re-run at session end, unchanged):
+--   C: matched_clean=297, metric=66.0, FAIL
+--   D: matched_any=297,   metric=66.0, FAIL
+--
+-- This migration file is a documentation-only record per SHIP GATE / HARD GUARDRAILS (no DDL/DML
+-- executed against multi_county_auctions this session -- there is nothing to apply here). No cron
+-- jobs, no gold_standard_loop()/gold_standard_certify() calls, no pencil_dod_evaluate_county
+-- definition changes.
+--
+-- RESIDUAL (blocked, evidence-backed, not resolved):
+--   153 rows, all sale_type='tax_deed', data_source='calendar_sweep_mca_v3', spanning
+--   2026-06-24 (26), 2026-07-08 (20), 2026-07-22 (27), 2026-08-05 (30), 2026-08-12 (10),
+--   2026-08-19 (30), 2026-08-26 (10). Every one of these case_numbers was individually confirmed
+--   absent from the live putnam.realtaxdeed.com calendar for its auction_date this session. The
+--   one candidate independent source (Civitek OCRS) is technically capable but Cloudflare-gated.
+--   No fabricated match, zone, or parcel data was written for any of these rows.
+
+SELECT 1; -- no-op: documentation-only migration, see comment block above for full investigation record
