@@ -1,0 +1,55 @@
+-- SHARD-6 (marion): J criterion — fix false-VERIFIED honesty bug found by
+-- ULTRALOOP adversarial verification of the J backfill in
+-- 20260711090000_shard6_marion_cd_realtaxdeed_and_i_hygiene.sql /
+-- scripts/marion_j_backfill_run3713.py.
+-- dispatch_id: fb80bb9c-7d7d-469f-b3c0-493b5e4f9b3f
+-- Session: architect-20260711T080000, loop run 3713
+--
+-- BUG (found by an independent refuter agent, Workflow tool, 4-agent adversarial
+-- pass over the C/D/I/J claims from this session): the original J backfill used
+-- arv = max(real_per_parcel_assessed_value, county_median * 0.4). For any parcel
+-- whose real assessed_value was below $55,536 (0.4 * the $138,840 marion median --
+-- true for most of the low-value vacant tax-deed lots in this batch, e.g. real
+-- assessed_value $4,299-$29,798), the max() silently discarded the real per-parcel
+-- value in favor of the $55,536 floor. 90 of the 124 backfilled rows hit this floor.
+-- Those same 90 rows were tagged factors.cma_resale.honesty_marker='VERIFIED' with
+-- note text claiming "per-parcel real assessed_value ... used directly" -- FALSE,
+-- since the real value was available but overridden. This is exactly the
+-- "wrong VERIFIED = 3x penalty" failure class the project's HONESTY PROTOCOL exists
+-- to catch, and it was caught the same session it was introduced via the
+-- ULTRALOOP adversarial verify step (logged gold_standard_ultraloop_audit,
+-- letter=J, survived=false, verdict=refuted_bug_found_and_fixed_same_session).
+--
+-- FIX: recompute all 90 affected rows using the real per-parcel assessed_value
+-- directly, floored only at an absolute $25,000 minimum (same floor already used
+-- for genuinely valueless/NULL-assessed rows elsewhere in the same batch, not a
+-- median-derived number), and correct the honesty_marker to VERIFIED only where
+-- the real value is now genuinely used as-is. pipeline_version relabeled
+-- marion_j_backfill_v1_fixed to distinguish from the 34 unaffected rows still
+-- correctly labeled marion_j_backfill_v1 (those never hit the floor bug --
+-- verified: 0 rows remain with arv=55536.00 after this fix).
+--
+-- Applied live 2026-07-11 via PostgREST PATCH (service role), 90/90 rows patched
+-- successfully. VERIFIED post-fix:
+--   SELECT count(*) FROM bid_decisions WHERE pipeline_version='marion_j_backfill_v1' AND arv=55536.00;  -- 0
+--   SELECT count(*) FROM bid_decisions WHERE pipeline_version='marion_j_backfill_v1_fixed';               -- 90
+-- J metric UNCHANGED at 78.3% (deal_complete=432 of 552) -- the fix corrects the
+-- underlying arv/max_bid/factors values and the honesty label, it does not add or
+-- remove any row from the deal_complete count (all required fields remain
+-- non-null). Re-verified live via pencil_dod_evaluate_county('marion') post-fix.
+--
+-- This file documents the fix for reproducibility; the actual correction was
+-- applied via a per-row PATCH driven by scripts/marion_j_backfill_run3713.py's
+-- logic corrected inline (not re-run wholesale, to avoid touching the 34
+-- already-correct rows). No SQL re-run needed / no-op if re-applied (idempotency
+-- check below).
+
+-- Idempotency / drift check only -- if this ever returns >0, the bug has
+-- recurred and needs the same PATCH-based fix re-applied via a script, not a
+-- blind UPDATE (per-row arv values differ; there is no single SQL formula that
+-- reproduces the fix without re-deriving from live multi_county_auctions).
+-- SELECT count(*) FROM bid_decisions WHERE pipeline_version='marion_j_backfill_v1' AND arv=55536.00;  -- expect 0
+
+-- ── VERIFICATION QUERIES ────────────────────────────────────────────────────────
+-- SELECT public.pencil_dod_evaluate_county('marion');
+-- SELECT count(*) FROM bid_decisions WHERE pipeline_version='marion_j_backfill_v1_fixed';  -- expect 90
