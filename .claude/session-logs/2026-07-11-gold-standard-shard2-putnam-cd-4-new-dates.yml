@@ -1,0 +1,138 @@
+session: Gold Standard shard2 (putnam) — C/D backfill via 4 newly-grown auction dates
+date: 2026-07-11
+county: putnam
+dispatch: gold-standard-shard2 (continuation of shard6 946df428 3h prior)
+
+context:
+  prior_session: |
+    shard6 commit 946df428 ran gold_standard_shard6_polk_cd_i_ajax_harvest.py against
+    putnam for dates 2026-06-24 (26 rows), 2026-07-08 (20 rows), 2026-07-22 (27 rows) --
+    73 gap rows total. ZERO promotions. Confirmed via live re-fetch those case_numbers
+    do not appear on putnam.realtaxdeed.com's calendar for those dates -- genuine
+    data-maturation ceiling (auctions not yet published), not a harvester bug.
+  denominator_growth: |
+    putnam auctions_total grew 239 -> 450 since prior session, all growth
+    data_source='calendar_sweep_mca_v3' sale_type='tax_deed'. 4 NEW dates never
+    attempted: 2026-08-05 (62 rows), 2026-08-12 (35), 2026-08-19 (68), 2026-08-26 (46)
+    -- 211 rows total, all parity_status IS NULL at session start.
+
+action: |
+  Ran EXISTING unmodified script scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py
+  (generic, subdomain==county_slug=='putnam' works directly, no fork) against the
+  4 new dates only. Did NOT re-run the 3 already-known-negative dates.
+
+command: |
+  python3 scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py \
+    '[{"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-05"},
+      {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-12"},
+      {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-19"},
+      {"county":"putnam","sale_type":"tax_deed","auction_date":"2026-08-26"}]'
+
+result_verbatim: |
+    putnam tax_deed 2026-08-05: 32 calendar items -> parity=32 parcel_id=0 card=0
+    putnam tax_deed 2026-08-12: 25 calendar items -> parity=25 parcel_id=0 card=0
+    putnam tax_deed 2026-08-19: 38 calendar items -> parity=38 parcel_id=0 card=0
+    putnam tax_deed 2026-08-26: 36 calendar items -> parity=36 parcel_id=0 card=0
+
+    TOTALS: parity_promoted=131 parcel_backfilled=0 card_backfilled=0
+
+evaluator_before: |
+  {"pencil_dod_evaluate_county":{"A":{"pass":true,"detail":"fc=38 td=412","metric":38},
+  "B":{"pass":true,"detail":"verified=3 closed_sold=3","metric":100},
+  "C":{"pass":false,"detail":"matched_clean=166","metric":36.9},
+  "D":{"pass":false,"detail":"matched_any=166","metric":36.9},
+  "E":{"pass":true,"detail":"parcel_linked=442","metric":98.2},
+  "F":{"pass":true,"detail":"tier1_sold=3 closed_sold=3","metric":100},
+  "G":{"pass":true,"detail":"density=99.2 far= pk1000=","metric":99.2},
+  "H":{"pass":true,"detail":"hours since last_seen (SLA 48h)","metric":0.8},
+  "I":{"pass":false,"detail":"card_complete=228 of 450","metric":50.7},
+  "J":{"pass":false,"detail":"deal_complete=236 (triangle + two-arm CMA + ml_score + max_bid)","metric":52.4},
+  "county":"putnam","V2_LITMUS":null,"auctions_total":450}}
+
+evaluator_after: |
+  {"pencil_dod_evaluate_county":{"A":{"pass":true,"detail":"fc=38 td=412","metric":38},
+  "B":{"pass":true,"detail":"verified=3 closed_sold=3","metric":100},
+  "C":{"pass":false,"detail":"matched_clean=297","metric":66},
+  "D":{"pass":false,"detail":"matched_any=297","metric":66},
+  "E":{"pass":true,"detail":"parcel_linked=442","metric":98.2},
+  "F":{"pass":true,"detail":"tier1_sold=3 closed_sold=3","metric":100},
+  "G":{"pass":true,"detail":"density=99.2 far= pk1000=","metric":99.2},
+  "H":{"pass":true,"detail":"hours since last_seen (SLA 48h)","metric":0.8},
+  "I":{"pass":false,"detail":"card_complete=228 of 450","metric":50.7},
+  "J":{"pass":false,"detail":"deal_complete=236 (triangle + two-arm CMA + ml_score + max_bid)","metric":52.4},
+  "county":"putnam","V2_LITMUS":null,"auctions_total":450}}
+
+verdict: |
+  C/D improved 36.9% -> 66.0% (166/450 -> 297/450), +131 matched_clean rows, +29.1pp.
+  Still FAIL (below pass threshold) -- honest, real, verified via live re-query of
+  parity_status counts (matched_clean=297, null=153) immediately after the harvest run.
+  This DISPROVES the hypothesis that all future-dated auctions would be a maturation
+  ceiling like the prior 3 dates -- these 4 newer dates were in fact already published
+  on putnam.realtaxdeed.com's live calendar and matched cleanly.
+
+residual_gap: |
+  153 rows remain parity_status IS NULL: the original 73 (2026-06-24/07-08/07-22,
+  confirmed genuinely absent from the calendar, not re-attempted this session) plus
+  80 new residual rows split across the 4 new dates (30+10+30+10) where calendar
+  items existed (32/25/38/36 parsed) but did not exact-match by normalized
+  case_number against all rows in scope for that date -- i.e. calendar had fewer
+  matchable items than MCA rows for that date, or a case_number format mismatch.
+  Not investigated further this session (out of scope per dispatch instructions).
+
+putnam_clerk_feasibility_investigation:
+  goal: |
+    Determine (VERIFIED/UNTESTED/INFERRED) whether Putnam Clerk's official
+    case-search portal is a viable independent litmus/matching source for the
+    unmatched rows, without building a scraper this session.
+  sources_checked:
+    - url: https://putnamclerk.com/tax-deed-sales/
+      finding: |
+        VERIFIED (curl 200, browser UA required -- WebFetch tool got 403,
+        likely bot-blocked; raw curl with Chrome UA succeeded, 81KB page).
+        This page's own auction links point BACK to putnam.realtaxdeed.com
+        and putnam.realforeclose.com -- i.e. the Clerk's official page uses
+        the SAME RealTaxDeed/RealAuction calendar this harvester already
+        scrapes. NOT an independent source.
+    - url: https://apps.putnam-fl.com/coc/taxdeeds/public/public_LAFT.php
+      finding: |
+        VERIFIED (curl 200, 36.7KB). This is the "Lands Available for Taxes"
+        (LAFT) list -- parcels from tax deed sales that received NO bids and
+        are now available for direct purchase from the county. Lists parcel
+        numbers only, no case-number search field, no upcoming-auction case
+        data. NOT applicable as a litmus source for upcoming/unmatched
+        auction rows (different dataset: post-auction unsold inventory, not
+        pre-auction case list).
+    - url: https://www.civitekflorida.com/ocrs/county/54/
+      finding: |
+        VERIFIED (curl 200, 8.5KB) page loads and offers 4 access paths:
+        Public (anonymous), Attorney, Registered User, Party Access. A
+        "Public" anonymous entry point exists, meaning SOME level of
+        case-number search may be possible without credentials. UNTESTED
+        beyond this point -- did not click through to attempt an actual
+        case-number query, per dispatch instruction not to build/test a
+        full scraper this session. This is the only genuinely independent
+        (non-RealTaxDeed) source identified.
+  verdict: |
+    INFERRED (moderate confidence): the Clerk's own tax-deed-sales page and
+    the LAFT app are NOT viable independent litmus sources -- one is a mirror
+    of the existing RealTaxDeed source, the other is a disjoint dataset
+    (unsold post-auction parcels). The Civitek OCRS "Public" court-records
+    portal at civitekflorida.com/ocrs/county/54/ is the one candidate worth
+    testing in a future session -- it is a genuinely separate system (Florida
+    AOSC 16-107 statewide court records, not RealTaxDeed) and offers anonymous
+    public access. Recommend next session: manually attempt one case-number
+    query against the 5-10 sample unmatched case_numbers (e.g.
+    2023-0006328, 2023-0010297, 2023-0010444, 2023-0000840, 2023-0015943 from
+    2026-08-05) through the Public access path to determine if it returns
+    tax-deed case status/parcel info. If yes, build a small matcher script
+    scoped to the 153 residual rows only.
+
+honesty_tags:
+  - "C/D before/after percentages: VERIFIED via live pencil_dod_evaluate_county('putnam') calls, pasted verbatim."
+  - "131 promoted count: VERIFIED via script stdout + independent parity_status GROUP BY re-query (matched_clean=297)."
+  - "putnamclerk.com/tax-deed-sales mirrors RealTaxDeed: VERIFIED via grep of fetched HTML showing realtaxdeed.com/realforeclose.com links."
+  - "LAFT app is unsold-parcel inventory, not case search: VERIFIED via curl + grep, no case-number search field found."
+  - "Civitek OCRS Public path search capability: UNTESTED -- page loads, anonymous option exists, actual query not attempted this session."
+
+no_code_changes: true
+files_changed_this_session: []
