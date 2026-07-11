@@ -1,0 +1,46 @@
+name: "Gold Standard: Collier Tax-Deed Laserfiche Harvest"
+# Wires scripts/gold_standard_shard1_collier_taxdeed_laserfiche_harvest.py +
+# gold_standard_shard1_collier_taxdeed_insert.py to a recurring executor per the
+# WIRING MANDATE (shipped code that isn't scheduled is dead code).
+#
+# Source: Collier Clerk of Court public Laserfiche WebLink repository
+# (app.collierclerk.com/LFOfficialRecords), \Tax Deeds Public\Sales Lists & Lands
+# Available\{year} SALES\*.pdf. Collier RealAuction lanes are confirmed dead at the
+# ELB/vhost level (verified run3713) and Collier foreclosure sales use a separate
+# Blazor-Server court-events system with no scrapable REST surface — this workflow
+# covers tax_deed only.
+#
+# The insert script is idempotent-by-check (queries existing collier case_numbers
+# before inserting), so safe to re-run on a schedule as new sale-list PDFs are
+# published (new sales appear roughly weekly per the Clerk's "Mondays as needed"
+# cadence).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '30 12 * * *'  # daily 12:30Z
+
+jobs:
+  harvest:
+    name: "Collier tax-deed Laserfiche harvest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pdfplumber
+
+      - name: Harvest Collier tax-deed sale lists
+        run: python scripts/gold_standard_shard1_collier_taxdeed_laserfiche_harvest.py
+
+      - name: Insert new rows (idempotent — skips existing case_numbers)
+        run: python scripts/gold_standard_shard1_collier_taxdeed_insert.py
