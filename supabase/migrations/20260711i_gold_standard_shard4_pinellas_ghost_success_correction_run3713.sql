@@ -1,0 +1,89 @@
+-- GOLD STANDARD shard-4 (run3713): pinellas -- ghost-success correction
+--
+-- This session (dispatch a6223c60-1cb2-4806-8b3b-3866acf91d22) was dispatched to work
+-- pinellas letters I and J, already 8/10 -> 10/10 per an earlier same-day commit
+-- (f5719b68, migration 20260711h_gold_standard_shard4_pinellas_i_j_fix_run3713.sql).
+-- Per the ULTRALOOP protocol, an independent adversarial-verify workflow (Workflow tool,
+-- run wf_62bfd9c3-144, 3 refuter agents) was dispatched to re-check that migration's claims
+-- against LIVE data before accepting the county as closed. It found a real ghost-success bug.
+--
+-- FINDING (VERIFIED live, not a re-read of the prior commit message):
+--   The prior migration's claimed I=PASS(97.7%, card_complete=379/388) partially rested on
+--   a PRE-EXISTING (2026-06-24, source='shard9_pinellas_cdij_fix/synthetic', NOT introduced
+--   by this session) ghost-success bug: 3 parcel_zones rows (ids 817649, 817655, 817700,
+--   jurisdiction_id=635, zone_code='R-1') were keyed literally on garbage strings --
+--   'MULTIPLE PARCELS', 'Property Appraiser', 'SINGLE MEMBER INTEREST' -- instead of real
+--   parcel_ids. Any multi_county_auctions row that scraped one of those same garbage strings
+--   into its own parcel_id column then string-matched that bogus parcel_zones row and
+--   spuriously resolved a zone_code, satisfying the I evaluator's join criterion
+--   (parcel_id IN v_zoning_gold_standard_card WHERE zone_code IS NOT NULL) without a real
+--   parcel match.
+--
+--   17 pinellas auction rows carry one of these 3 garbage parcel_id strings (the prior
+--   migration's text claimed only 6). Of those 17: 4 have property_address IS NULL (fail
+--   card_complete regardless, structurally unfixable -- "MULTIPLE PARCELS"/"SINGLE MEMBER
+--   INTEREST" scrapes with no single underlying address). The other 13 have a real
+--   property_address; of those, 11 already had non-null (placeholder-looking, identical
+--   across all of them: lat=27.9/lon=-82.72/assessed_value=150000) geo/value fields and were
+--   FALSE-PASSING card_complete purely via the bogus zone match; 2 have NULL geo/value and
+--   were already correctly failing.
+--
+-- FIX APPLIED (live, this session):
+--   DELETE FROM parcel_zones WHERE id IN (817649, 817655, 817700);
+--   -- removes the ghost-success join; no fabricated replacement inserted.
+--
+-- RE-VERIFIED (live, pencil_dod_evaluate_county('pinellas'), after the DELETE):
+--   I: pass=false, metric=94.8, detail="card_complete=368 of 388"
+--   A,B,C,D,E,F,G,H,J unchanged and still PASS (H metric drifts with time-since-last-seen,
+--   observed 0.9-1.1h across this session's re-checks, well within the 48h SLA).
+--   pinellas is honestly 9/10, NOT 10/10. gold_standard_scoreboard will reflect this on the
+--   next gold_standard_loop() run (not executed by this session per PARALLEL-FLEET RULES --
+--   other shards were concurrently active).
+--
+-- RESIDUAL (documented, not fabricated): the 13 real-address rows above need a genuine
+-- parcel_id match to legitimately re-pass card_complete. This session attempted two routes
+-- and both failed to produce a trustworthy match, not a fabricated one:
+--   1. fl_parcels (co_no=52, 283,226 real ingested Pinellas DOR cadastral parcels) address
+--      match on house-number + street-name (with and without a phy_city filter) -- zero
+--      reliable hits across all 13 addresses. Likely cause: these are condo/unit addresses
+--      (B307, #303, #209, #B-3, #304, #C suffixes) and the Feb-2026 cadastral snapshot's
+--      PHY_ADDR1 formatting for multi-unit buildings does not line up with the scraped
+--      auction address strings.
+--   2. Live GIS lookup (Pinellas PAO / county GIS / FL GIO statewide ArcGIS FeatureServer) --
+--      maps.pcpao.org and gis.pinellascounty.org do not resolve from this sandbox's network;
+--      the FL GIO statewide FeatureServer (services9.arcgis.com/.../Florida_Statewide_Cadastral)
+--      is reachable but a single simple count query took 55s and still errored. Not reliable
+--      enough in-session to build a trustworthy per-address lookup.
+-- Case numbers left as an honest residual (13): 522025CA004668XXCICI, 522025CA003590XXCICI,
+--   522025CA003098XXCICI, 522025CA002450XXCICI, 522025CC008483XXCOCO, 522019CA002273XXCICI,
+--   522025CA003911XXCICI, 522025CC008981XXCOCO, 522025CC011301XXCOCO, 522022CA000511XXCICI,
+--   522023CC000670XXCOCO, 522024CC007590XXCOCO, 522025CA001106XXCICI.
+-- Plus 4 structurally-unfixable null-address rows: 522025CA003843XXCICI, 522025CA006625XXCICI,
+--   522025CA000532XXCICI, 522023CA006219XXCICI.
+-- Next session needs +1 genuine card_complete pass (369/388=95.1%) to re-cross the threshold --
+-- do NOT re-add a synthetic/garbage-keyed parcel_zones row to get there.
+--
+-- J NARRATIVE CORRECTION (metric unaffected): the same refuter pass checked the prior
+-- migration's J claims independently. The headline metric (deal_complete=388/388=100%) is
+-- real and reconfirmed live. Three narrative details in the prior migration text were wrong
+-- and are corrected here for the record (no data changes needed, evaluator contract does not
+-- require these details):
+--   - "2 rows hit the $50k ARV floor -> SKIP" is understated: actual count is 4 rows
+--     (522025CA001504XXCICI, 522025CC002113XXCOCO, 522026CC001281XXCOCO, 522025CA000404XXCICI).
+--   - "11 of 24 new rows have honesty_marker='INFERRED'" is wrong: all 24/24 do.
+--   - ml_score is not spot-check-varied as implied; it is uniformly 0.72 across all 24 new
+--     rows AND all 388 pinellas bid_decisions rows -- this matches the pre-existing
+--     fleet-wide convention (not introduced this session) but is flagged here as a standing
+--     concern: a genuine Shapira V14 classifier (AUC .78 per CLAUDE.md) should not emit an
+--     identical score for every property. Out of scope to fix in this pinellas-only session;
+--     flagged for whichever session owns the J/ml_score generator fleet-wide.
+--
+-- Logged: gold_standard_ultraloop_audit ids 5662 (survived=false, the refuted original I
+-- claim), 5663 (survived=true, the corrected honest I=FAIL finding), 5664 (survived=true, J
+-- metric reconfirmed with narrative correction). honesty_violations id
+-- 05baea0b-2ac7-4563-9969-478639743e8a (severity=CRITICAL, resolved=true, corrective_action
+-- = this migration).
+--
+-- VERIFICATION (run after applying):
+--   SELECT public.pencil_dod_evaluate_county('pinellas');
+-- Expected: A,B,C,D,E,F,G,H,J pass=true; I pass=false metric=94.8 detail='card_complete=368 of 388'.
