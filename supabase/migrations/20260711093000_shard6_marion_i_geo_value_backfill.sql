@@ -1,0 +1,120 @@
+-- SHARD-6 (marion): I criterion — final address/geo/value gap analysis and
+-- single-row genuine backfill, PLUS honest documentation of the real binding
+-- constraint (zoning-join coverage), which this migration does NOT attempt to
+-- fix (out of scope per this session's guardrails: parcel_zones/zoning tables
+-- are owned by a separate concurrent shard).
+-- dispatch_id: fb80bb9c-7d7d-469f-b3c0-493b5e4f9b3f
+-- Session: architect-20260711T080000, loop run 3713
+--
+-- STARTING STATE (re-verified live via pencil_dod_evaluate_county('marion'),
+-- 2026-07-11, AFTER the prior 20260711090000/090100 migrations in this same
+-- session): I = card_complete=298 of 552 (54.0%). Canon scope re-derived
+-- client-side (lower(county)='marion' AND (data_source<>'propertyonion' OR
+-- tier1_authoritative=true)) = 552 rows, matching the evaluator's own count.
+--
+-- GAP DECOMPOSITION (live query, 2026-07-11):
+--   missing lat/lon:                         231 of 552
+--     - "NO SITUS ..." vacant-land placeholder (not geocodable):   198
+--     - real street address, missing lat/lon:                      32
+--     - NULL address, missing lat/lon:                              1
+--   missing assessed_value AND market_value:  117 of 552
+--   zoning-join (parcel_id/tax_account resolves in
+--     v_zoning_gold_standard_card with zone_code NOT NULL):        299 of 552 (54.2%)
+--
+-- ROOT-CAUSE FINDING (the actual reason I is stuck near 54%, VERIFIED by
+-- direct client-side recomputation of the I predicate row-by-row against the
+-- live v_zoning_gold_standard_card join, not inferred): of the 552 canon rows,
+-- exactly 299 resolve to a marion parcel_id with a real zone_code in
+-- v_zoning_gold_standard_card (marion has only 295 distinct zoned parcels
+-- total in that view — a parcel-ingestion-breadth gap, not an address/geo/
+-- value gap). Cross-tabulating the zoning-resolved set against the
+-- address/geo/value gaps:
+--   - NO SITUS rows (198) that are ALSO zoning-resolved:                0
+--   - missing-value rows (117) that are ALSO zoning-resolved:           1
+--   - real-addr-missing-geo rows (32) that are ALSO zoning-resolved:    1
+--   (same single row in both of the last two cases — see below)
+-- In other words: marion's 295-parcel zoning set is almost entirely DISJOINT
+-- from the auction rows still missing address/geo/value. Backfilling address/
+-- geo/value for the 198 NO-SITUS or 117 missing-value rows would NOT move I,
+-- because those rows still fail the separate zoning-join leg of the I
+-- predicate. This was verified by recomputing card_complete client-side
+-- (298/552, exact match to the live evaluator) before making any change.
+--
+-- THE ONE GENUINE FIX APPLIED: parcel_id 614726 / case 422025CA001791CAAXMX
+-- (id 0267258d-2c62-42db-add9-2aae68d3c3e6) was the ONLY canon row that was
+-- ALREADY zoning-resolved (zone_code present) but still failing card_complete
+-- purely on missing lat/lon + assessed_value. Address on file:
+-- "517 NW 26TH ST, OCALA, FL- 34475".
+--
+-- Source 1 (cross-check): US Census Geocoder (geocoding.geo.census.gov, free,
+-- no API key, benchmark=Public_AR_Current) — 1 match, lon=-82.140739428605,
+-- lat=29.213853812287 (within Marion County FL bounding box).
+--
+-- Source 2 (primary, used for the live write): Marion County Property
+-- Appraiser's own public ArcGIS REST MapServer, discovered via web search and
+-- VERIFIED live this session (HTTP 200, serviceDescription="Parcel and
+-- subdivision boundaries service", copyrightText="Marion County Property
+-- Appraiser"):
+--   https://gis.marionfl.org/public/rest/services/General/Parcels/MapServer
+--   Layer 0 "Parcels" fields include PARCEL, ALT_Key, ASSD_VAL, TOT_VAL,
+--   SITUS_1/2, ZONE1/2/3.
+-- Live query: .../0/query?where=ALT_Key=614726&outFields=PARCEL,ALT_Key,
+--   ASSD_VAL,TOT_VAL,SITUS_1,SITUS_2&f=json
+-- Result: PARCEL="25152-002-00", ALT_Key=614726 (exact match to our
+--   parcel_id), SITUS_1="517 NW 26TH ST" (exact match to our address),
+--   ASSD_VAL=94612.0. Geometry centroid (outSR=4326) = lon=-82.14111258,
+--   lat=29.21406991 — agrees with the independent Census geocode to within
+--   ~0.0005 degrees, cross-validating both sources. Used the GIS centroid
+--   (more precise, county-authoritative parcel geometry) + GIS ASSD_VAL as
+--   the values actually written.
+--
+-- Applied live 2026-07-11 via PostgREST PATCH (service role), 1 row.
+-- VERIFIED post-write: pencil_dod_evaluate_county('marion').I ->
+--   card_complete=299 of 552 (54.2%), up from 298 (54.0%) — a +1 row change,
+--   exactly matching the zoning-join resolve count (299/552), confirming
+--   card_complete now == zoning-join-resolved count i.e. EVERY zoning-resolved
+--   row has complete address/geo/value; the zoning-join leg is the sole and
+--   exact binding constraint on I for marion.
+--
+-- STRUCTURAL FINDING FOR NEXT SESSION (documented, NOT actioned this session
+-- — out of scope: touches parcel_zones/zoning tables, which are explicitly
+-- reserved to a separate concurrent shard per this session's guardrails):
+-- the same gis.marionfl.org/public/rest/services/General/Parcels/MapServer
+-- endpoint DOES resolve parcel_ids outside the current 295-row zoning set and
+-- carries a ZONE1 field with real zoning codes. Spot-check: parcel_id
+-- "8003-0408-08" (one of marion's 244 currently zoning-UNresolved canon rows)
+-- returned ALT_Key=2175702, ZONE1="R1", ASSD_VAL=6779.0 live from this same
+-- endpoint. This means marion's I ceiling is an INGESTION-COVERAGE gap
+-- (only 295 of what appears to be a much larger real parcel/zoning universe
+-- loaded into v_zoning_gold_standard_card), not a data-availability gap —
+-- the source needed to close it already exists and is live. Fixing this
+-- requires a G/zoning-ingestion-breadth pass (load more of
+-- gis.marionfl.org's Parcels layer into parcel_zones / zoning_districts /
+-- zone_standards for marion), which is a materially larger body of work than
+-- this I-only address/geo/value task and was intentionally NOT attempted here.
+--
+-- Also confirmed genuinely unresolvable/out-of-scope this session:
+--   - 198 NO-SITUS vacant-land rows: no street address to geocode, AND (per
+--     the finding above) not in the current zoning set either — even a
+--     geocode would not move I today.
+--   - 116 of 117 missing-value rows: same — not zoning-resolved, so a value
+--     backfill alone would not move I today.
+--   - 31 of 32 real-address-missing-geo rows: same.
+-- None of these were touched this session to avoid burning effort on rows
+-- that provably cannot pass I until the zoning-ingestion-breadth gap above is
+-- separately closed. This is a disclosed, evidence-based scope decision, not
+-- an oversight.
+--
+-- Idempotent: guarded by id + latitude IS NULL so safe to re-run.
+
+UPDATE public.multi_county_auctions
+SET latitude = 29.21406990655849,
+    longitude = -82.14111258183587,
+    assessed_value = 94612.0,
+    updated_at = now()
+WHERE id = '0267258d-2c62-42db-add9-2aae68d3c3e6'
+  AND latitude IS NULL;
+
+-- ── VERIFICATION QUERIES (run after migration) ─────────────────────────────
+-- SELECT public.pencil_dod_evaluate_county('marion');  -- expect I metric=54.2, card_complete=299 of 552
+-- SELECT latitude, longitude, assessed_value FROM multi_county_auctions WHERE id='0267258d-2c62-42db-add9-2aae68d3c3e6';
