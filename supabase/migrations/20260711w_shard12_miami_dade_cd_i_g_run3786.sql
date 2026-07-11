@@ -1,0 +1,134 @@
+-- SHARD-12 (miami_dade), run 3786, dispatch 19fbd0ec-ad81-487d-9007-a82601d91d04
+-- Session: architect-20260711T160000. Ultracode workflow wf_09273ba4-8c7 (3 parallel
+-- research+fix agents + 1 adversarial verifier), all live writes via Supabase
+-- Management API (SUPABASE_ACCESS_TOKEN) / PostgREST -- no direct psql (DB password
+-- in env is stale, confirmed again this session, matches prior-session precedent).
+--
+-- BEFORE (session start, live pencil_dod_evaluate_county('miami_dade')):
+--   A PASS 87 | B PASS 100.0 | C FAIL 92.4 (329/356) | D FAIL 92.4 (329/356)
+--   E PASS 96.1 (342/356) | F PASS 100.0 | G PASS 99.3 | H PASS | I FAIL 94.4 (336/356)
+--   J PASS 100.0
+--
+-- AFTER (live, this migration's timestamp):
+--   A PASS | B PASS | C FAIL 94.9 (338/356) | D FAIL 94.9 (338/356) | E PASS 96.6 (344/356)
+--   F PASS | G PASS 99.3 (recovered after a session-internal regression, see below)
+--   H PASS | I PASS 96.1 (342/356) | J PASS
+--   Net: I flips FAIL->PASS. County now 8/10 (only C/D residual, both 0.3pp from the
+--   339/356 gate). County status NOT certified this session (C/D still short).
+--
+-- ============================================================================
+-- C/D (residual-27 unmatched-parity investigation)
+-- ============================================================================
+-- The 27 unmatched rows were NOT on their claimed RealForeclose/RealTaxDeed PREVIEW
+-- calendar date (verified live via scripts/shard2_run2450_ajax_realforeclose_harvest.py
+-- harvest_date() re-sweep of all 9 distinct dates -- zero matches). Root cause per
+-- case, not a matcher bug: dates were wrong (case since rescheduled/postponed) or the
+-- case is a tax-deed application (YYYYA-NNNNN format) tracked in a separate clerk
+-- system (RealTDM, miamidade.realtdm.com) rather than the RealForeclose/RealTaxDeed
+-- calendar.
+--
+-- 9 of 16 distinct case numbers resolved via real external evidence and promoted to
+-- matched_clean (auction_date corrected where wrong), citing the real source per row:
+--   2024-018474-CA-01 -> RealForeclose AJAX real listing 2026-01-05 (was 2026-04-06)
+--   2024-020257-CA-01 -> RealForeclose AJAX real listing 2026-07-13 (was 2026-05-18)
+--   2024-020679-CA-01 -> RealForeclose AJAX real listing 2026-08-03 (foreclosure row
+--                         only -- the parallel tax_deed-typed row for this case is a
+--                         mis-typed duplicate per the real listing's auction_type field
+--                         and was intentionally left NULL, not promoted)
+--   2024-020875-CA-01 -> RealForeclose AJAX real listing 2026-07-20 (postponed once from
+--                         2026-05-11; was 2026-03-02)
+--   2024-021468-CA-01 -> RealForeclose AJAX real listing 2026-08-24 (foreclosure row
+--                         only, same tax_deed-duplicate situation as above, left NULL)
+--   2024-021491-CA-01 -> RealForeclose AJAX real listing 2026-02-09 (was 2026-04-06)
+--   2025-004963-CA-01 -> RealForeclose AJAX real listing 2026-07-20 (was 2026-03-16)
+--   2025A01003         -> RealTDM clerk system, App# 251873, parcel 27-3003-004-0490,
+--                          status ACTIVE-SOLD BIDDER, sale date confirmed 2026-03-19
+--   2026A00132          -> RealTDM clerk system, App# 252190, parcel 30-4916-000-0609,
+--                          status ACTIVE, sale date corrected to 2026-07-23 (was 2026-05-14)
+--
+-- 10 distinct case numbers (18 of the 27 rows) remain genuinely UNKNOWN after exhaustive
+-- multi-source checking (RealForeclose/RealTaxDeed AJAX 60-week sweep, RealTDM by
+-- case_number and by parcel_id) -- all returned zero hits. Left untouched, parity_status
+-- still NULL. Not fabricated.
+--
+-- ADVERSARIAL FINDING + ORCHESTRATOR RESOLUTION (see gold_standard_ultraloop_audit,
+-- dispatch_id above, letter=C, two rows): the in-workflow refuter flagged these 9
+-- promotions as ghost-success because they lack tax_deed_outcomes/foreclosure_outcomes
+-- backing, citing 20260704_shard4_miami_dade_cd_systemic_ghost_success_revert.sql.
+-- Independently re-checked live, fleet-wide: 2000+ rows across 20+ counties (polk 537,
+-- duval 326, miami_dade 324 pre-existing, putnam 288, palm_beach 187, ...) share the
+-- identical shape (matched_clean, tier1:*ajax_harvest parity_source, no outcome-table
+-- row) -- this is the deliberate, fleet-standard C/D matching method (real calendar-item
+-- listing confirmation), not the 07-04 defect (case-number-FORMAT-only, zero external
+-- confirmation of any kind). B/F already separately gate on verified sale outcomes; C/D
+-- per CANON measures listing parity. The 9 rows were NOT reverted. C/D still FAILs the
+-- 95% gate this session regardless (94.9%, 338/356), so this judgment call does not
+-- affect certification either way -- flagged in the audit table for the AI Architect to
+-- settle the interpretation fleet-wide.
+--
+-- ============================================================================
+-- I (card-completeness backfill)
+-- ============================================================================
+-- Address/parcel group (8 no-address cases): all primary sources (RealForeclose/
+-- RealTaxDeed AID detail pages, Miami-Dade Clerk civil case search) are behind an
+-- authenticated session or CAPTCHA this session's tooling cannot pass; 0 of 8 resolved,
+-- left UNKNOWN, not guessed.
+-- Parcel-only group: 1 of 3 resolved -- 2016-031005-CA-01 -> folio 30-3053-106-0510
+-- (Les Jardins Condo Unit 1 Bldg K), Miami-Dade PA public API cross-checked against an
+-- independent listing citing the same APN. Written to both platform rows. The other 2
+-- (2024-000006-CA-01, 2026-007470-CA-01) left UNKNOWN -- appraiser address-grid lookups
+-- came back negative/inconsistent, not guessed.
+--
+-- Zoning-join group (5 distinct parcels, previously diagnosed in
+-- 20260710_shard13_miami_dade_i_zoning_gap_and_centroid_flag.sql): 3 parcels
+-- (3411350312890, 3022320530001, 2822030633460) had a shared fake-precision centroid
+-- (25.7617, -80.1918) in multi_county_auctions -- corrected to real, distinct,
+-- folio-matched lat/lon via gis.miamidade.gov's Property polygon layer, then real
+-- point-in-polygon zoning lookups performed at the corrected coordinates. The 2
+-- previously GENUINELY_BLOCKED parcels (04-3106-036-0020 Hialeah, 02-4203-004-0810
+-- Miami Beach) resolved via Miami-Dade County's authoritative county-wide "Municipal
+-- Zone" layer (covers incorporated municipalities, unlike the unincorporated-only layer
+-- the prior session checked). 5 parcel_zones rows inserted (ids 834264-834268):
+--   3411350312890 (Miami Gardens)  -> RU-1  (jurisdiction 1056)
+--   3022320530001 (Unincorporated) -> RU-4  (jurisdiction 626)
+--   2822030633460 (Aventura)       -> RMF3  (jurisdiction 902)
+--   04-3106-036-0020 (Hialeah)     -> R-1   (jurisdiction 935)
+--   02-4203-004-0810 (Miami Beach) -> CD-2  (jurisdiction 960)
+-- All independently re-verified live (DB re-query + one direct WebFetch spot-check
+-- against the cited ArcGIS layer, matching the claimed address exactly).
+-- Net: I 336/356 (94.4%) -> 342/356 (96.1%). PASS. (5 inserts x avg 1.2 rows/parcel
+-- due to one case having 2 duplicate multi_county_auctions rows.)
+--
+-- ============================================================================
+-- G (session-internal regression, caught and fixed same session)
+-- ============================================================================
+-- The parcel_zones insert for 02-4203-004-0810 (zone_code='CD-2', jurisdiction 960)
+-- exposed a pre-existing, unrelated data-quality bug: jurisdiction 960's
+-- zoning_districts table contains a mislabeled generic Miami-Dade-County-style code set
+-- (RU-1..RU-4, BU-1..3, IU, AU, PRD) instead of Miami Beach's real municipal zoning
+-- codes -- 'CD-2' was not among them. The resulting LEFT JOIN miss made
+-- v_zoning_gold_standard_kpi_v3 default this parcel to "applicable, no value" for
+-- far/pk1000/density (COALESCE(NULL,true) fallback in the applicability view), crashing
+-- G from 99.3% PASS to 0.0% FAIL (far=50.0, pk1000=0.0) mid-session.
+-- Root-caused live (traced through v_zoning_district_applicability's join logic) and
+-- fixed by inserting one REAL zoning_districts + zone_standards row for the (960,
+-- 'CD-2') gap: Miami Beach Code Sec. 142-306 (Div. 5, "CD-2 Commercial, Medium
+-- Intensity District"), max_far=1.5, max_height_ft=50, confidence_score=0.75
+-- (parking_per_1000sf deliberately left NULL -- not confirmed, not guessed).
+-- Creating a real district row also fixed pk1000 as a side effect: the applicability
+-- view hardcodes pk1000_applicable=false for every real district, so this parcel drops
+-- out of the pk1000 denominator entirely (back to N/A/ignored) instead of counting as
+-- an unmatched 0%.
+-- Live-verified recovery: G 0.0% FAIL -> 99.3% PASS (far 50.0->100.0, density 99.0->99.3,
+-- pk1000 0.0->blank/ignored). Logged in gold_standard_ultraloop_audit, letter=G,
+-- survived=true, with before/after JSON.
+--
+-- ============================================================================
+-- No cron jobs (109/111/115/scoring) touched. No other counties touched. No
+-- PropertyOnion data ingested as a source. gold_standard_ultraloop_audit has 5 rows for
+-- this dispatch_id (C x2, D x1, I x1, G x1).
+
+SELECT 1; -- no-op placeholder: documents live writes already applied via
+          -- api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query
+          -- (SUPABASE_ACCESS_TOKEN) and $SUPABASE_URL/rest/v1 (PostgREST,
+          -- SUPABASE_SERVICE_ROLE_KEY) with before/after evaluator output pasted above.
