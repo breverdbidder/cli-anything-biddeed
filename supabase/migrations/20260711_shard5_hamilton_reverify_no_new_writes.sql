@@ -1,0 +1,101 @@
+-- HAMILTON County (shard-5, dispatch f2a233c6-485e-4148-a691-ec249292470c) — 2026-07-11 session
+-- Follow-up to bff21708 / 20260711_shard_run3679_hamilton_e_linkage_cdf_diagnosis.sql (same-day,
+-- earlier session in this dispatch wave). This session's job: adversarially re-verify that
+-- session's four structurally-blocked claims (C/D/B/F) plus I, and take one more real crack at
+-- a Hamilton-specific ArcGIS FeatureServer per the campaign brief. NO DATA WAS WRITTEN this
+-- session -- this migration exists purely for the audit trail, per campaign protocol requiring
+-- a migration file even when only re-verification (no schema/data change) occurred.
+--
+-- BASELINE (re-verified live via pencil_dod_evaluate_county('hamilton'), matches prior session's
+-- ending state exactly -- confirms zero drift in the ~hours since bff21708):
+--   A=PASS(6) B=FAIL(null) C=FAIL(43.8%) D=FAIL(43.8%) E=FAIL(93.8%) F=FAIL(null)
+--   G=PASS(100.0) H=PASS(1.3h) I=FAIL(6.3%) J=PASS(100.0)  [4/10, UNCHANGED]
+--
+-- =====================================================================================
+-- 1) C/D re-verification: CONFIRMED still structurally blocked, no drift
+-- =====================================================================================
+-- Live query: SELECT case_number,cert_number,auction_status,auction_date,parity_status,
+-- parity_source,sold_amount FROM multi_county_auctions WHERE lower(county)='hamilton'.
+-- Result: same 9 unresolved rows as prior session (6 FC 'upcoming'/mca_only + 3 TD-cert
+-- 'upcoming' with NULL parity). foreclosure_outcomes=0 rows, tax_deed_outcomes=7 rows
+-- (identical counts to prior session -- no new outcome rows appeared).
+--
+-- Live-checked hamiltonclerk.com/foreclosures/ fresh this session: 2025-CA-46 and 2025-CA-66
+-- still listed with real FUTURE sale dates (Aug 12 2026 / Jul 22 2026 respectively) --
+-- genuinely still upcoming, not stale. The other 4 FC cases (2024-CA-19, 2023-CA-41,
+-- 2025-CA-37, 2021-CA-46) remain rotated off the public listing; true disposition still
+-- requires the civitekflorida.com/ocrs/county/24/ portal, which is a JSF (JavaServer Faces)
+-- interactive-session app -- confirmed again this session that WebFetch (stateless GET) cannot
+-- drive it; would need real browser automation (Playwright/firecrawl-browser), which is out of
+-- scope for this REST/WebFetch-only session.
+--
+-- Live-checked hamiltonclerk.com/tax-deeds/ fresh: certs 379/597/599 still shown as "Active for
+-- December 4, 2025 sale" on the clerk's own page (a stale future-tense label for a now-past
+-- date -- the clerk simply has not republished a result for these three). Consistent with the
+-- DB's NULL parity; not a matcher defect.
+--
+-- CONCLUSION: C/D unchanged at 43.8% (7/16). Claim survives adversarial re-check. Not fixed
+-- this session because there is nothing to fix -- 9 real cases have not resolved yet.
+--
+-- =====================================================================================
+-- 2) B/F re-verification: CONFIRMED still genuinely blocked, no drift
+-- =====================================================================================
+-- Live-fetched https://hamiltonclerk.com/3776-2/tax-deed-sales-surplus-funds/ fresh this
+-- session: still returns "No available properties at this time" (identical to prior session's
+-- finding, page unchanged). Live query confirms 0 rows in multi_county_auctions WHERE
+-- lower(county)='hamilton' AND auction_status IN ('completed','sold').
+--
+-- CONCLUSION: B/F unchanged (null/FAIL). Genuine data ceiling for a tiny rural county with
+-- near-zero live sale volume this cycle -- not fabricated around, per NEVER-LIE.
+--
+-- =====================================================================================
+-- 3) I: one new real crack taken per playbook E's "county-hosted ArcGIS FeatureServer"
+--    guidance -- still genuinely blocked, no working new source found
+-- =====================================================================================
+-- Probed for a Hamilton-County-FL-specific ArcGIS FeatureServer distinct from FL GIO
+-- statewide / qpublic / hamiltonpa.com (all already confirmed blocked/gapped by the prior
+-- session). Results, all live this session:
+--   gis.hamiltoncountyfl.us, gis.hamiltonfl.us, www.hamiltoncountyfl.gov, hamiltoncountyfl.us,
+--   maps.hamiltoncountyfl.us, gis.hamiltonclerk.com -> ALL DNS resolution failures (domains do
+--   not exist).
+--   beacon.schneidercorp.com (Schneider Corp's alternate public GIS platform, surfaced via a
+--   fresh web search, distinct URL from qpublic.schneidercorp.com) -> HTTP 403, Cloudflare-
+--   blocked, same WAF as qpublic/hamiltonpa.
+--   qpublic.schneidercorp.com and hamiltonpa.com -> re-verified fresh, still HTTP 403
+--   (unchanged from prior session).
+--   gis.schneidercorp.com/arcgis/rest/services -> 302 redirect to theschneidercorp.com
+--   (corporate marketing site), not a working REST endpoint.
+--   cagis.hamilton-co.org/cagisonline/ -> resolves HTTP 200, but this is Hamilton County OHIO
+--   (Cincinnati metro GIS), a completely different county sharing only the name -- confirmed
+--   irrelevant, explicitly NOT used as a data source (would be a fabrication if used).
+--   An ArcGIS "Experience" web-map viewer surfaced by search (item id
+--   619d96a48c8241cbad905b9e640c157f) -> AGOL item JSON has generic title "Map Viewer", no
+--   tags/description identifying it as Hamilton County FL specific -- not pursued further,
+--   would be guessing.
+--
+-- FIRECRAWL_API_KEY confirmed absent from this session's environment as well (same constraint
+-- as prior session) -- no Cloudflare-bypass path available via Firecrawl either.
+--
+-- CONCLUSION: I remains blocked at 6.3% (1/16) this session. No new working Hamilton-FL GIS
+-- source found within this session's REST/WebFetch-only toolset. Residual for a future session
+-- with real browser automation (Playwright/firecrawl-browser once a key is available) to attempt
+-- a Cloudflare-bypassed session against qpublic.schneidercorp.com/Application.aspx?App=
+-- HamiltonCountyFL, which is the correct/official data source once accessible -- or a DOR NAL
+-- file request per prior session's documented path (c).
+--
+-- =====================================================================================
+-- E: confirmed stable, no regression
+-- =====================================================================================
+-- pencil_dod_evaluate_county('hamilton') live this session returns E metric=93.8 (parcel_
+-- linked=15), exactly matching the state left by bff21708's E-linkage fix. No drift.
+--
+-- =====================================================================================
+-- AFTER (identical to BEFORE — this was a verification-only pass, zero writes):
+--   A=PASS(6) B=FAIL(null) C=FAIL(43.8%) D=FAIL(43.8%) E=FAIL(93.8%) F=FAIL(null)
+--   G=PASS(100.0) H=PASS(1.3h) I=FAIL(6.3%) J=PASS(100.0)  [4/10, UNCHANGED]
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents a live adversarial re-verification
+          -- pass only. No DDL, no data mutation. See gold_standard_ultraloop_audit rows
+          -- (county_slug='hamilton', dispatch_id='f2a233c6-485e-4148-a691-ec249292470c') for
+          -- the structured claim/evidence/survived audit trail.
