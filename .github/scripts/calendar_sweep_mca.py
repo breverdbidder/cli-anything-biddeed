@@ -369,6 +369,13 @@ def scrape_preview_json(auction_date: date) -> list[dict]:
 
 # ── PHASE C: UPSERT → MULTI_COUNTY_AUCTIONS ──────────────────────────────────
 
+_BASE_COLUMNS = [
+    'county', 'case_number', 'auction_date', 'sale_type', 'auction_type',
+    'source_platform', 'auction_status', 'state', 'last_seen_at', 'data_source',
+]
+_OPTIONAL_FIELDS = ('property_address', 'opening_bid', 'parcel_id')
+
+
 def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]]:
     """Batch-upsert cards to multi_county_auctions. Returns (inserted, errors)."""
     import datetime as _dt
@@ -409,27 +416,59 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
     inserted = 0
     errors   = []
     BATCH    = 50
-    # Use on_conflict to specify the upsert key — avoids 409 conflicts
-    upsert_url = f'{REST}/multi_county_auctions?on_conflict=county,case_number,sale_type'
-    prefer_h   = {**SUPA_H, 'Prefer': 'resolution=merge-duplicates,return=minimal'}
+    prefer_h = {**SUPA_H, 'Prefer': 'resolution=merge-duplicates,return=minimal'}
+
+    def _upsert_url(present_optional: tuple) -> str:
+        """
+        Build an upsert URL scoped via columns= to base columns plus only the
+        optional fields present in this sub-batch. PostgREST's columns= param
+        restricts BOTH the INSERT column list and the ON CONFLICT DO UPDATE
+        SET clause to exactly these columns — so an optional field omitted
+        here is left untouched on conflict (no null-wipe of prior enrichment),
+        while it still defaults to NULL correctly on a genuine first INSERT.
+        """
+        cols = ','.join(_BASE_COLUMNS + list(present_optional))
+        return f'{REST}/multi_county_auctions?on_conflict=county,case_number,sale_type&columns={cols}'
+
+    def _row_for_columns(row: dict, present_optional: tuple) -> dict:
+        out = {k: row[k] for k in _BASE_COLUMNS}
+        for f in present_optional:
+            out[f] = row[f]
+        return out
 
     def _upsert_rows(row_list: list[dict]) -> tuple[int, list[str]]:
-        """Try batch upsert; on failure retry each row individually."""
-        try:
-            r = requests.post(upsert_url, json=row_list, headers=prefer_h, timeout=30)
-            if 200 <= r.status_code < 300:
-                return len(row_list), []
-            if len(row_list) == 1:
-                return 0, [f'http {r.status_code} {r.text[:200]}']
-            # Batch failed — retry each row individually
-            ok, errs = 0, []
-            for row in row_list:
-                cnt, e = _upsert_rows([row])
-                ok += cnt
-                errs.extend(e)
-            return ok, errs
-        except requests.RequestException as e:
-            return 0, [str(e)]
+        """
+        Group rows by which optional fields they actually have a value for,
+        then issue one columns=-scoped request per group so absent fields
+        never participate in that request's DO UPDATE SET (and thus never
+        null out a previously-enriched value). Falls back to per-row retry
+        on batch failure.
+        """
+        groups: dict[tuple, list[dict]] = {}
+        for row in row_list:
+            present = tuple(f for f in _OPTIONAL_FIELDS if row.get(f) is not None)
+            groups.setdefault(present, []).append(row)
+
+        ok, errs = 0, []
+        for present_optional, group_rows in groups.items():
+            url = _upsert_url(present_optional)
+            payload = [_row_for_columns(r, present_optional) for r in group_rows]
+            try:
+                r = requests.post(url, json=payload, headers=prefer_h, timeout=30)
+                if 200 <= r.status_code < 300:
+                    ok += len(group_rows)
+                    continue
+                if len(group_rows) == 1:
+                    errs.append(f'http {r.status_code} {r.text[:200]}')
+                    continue
+                # Group failed — retry each row individually (same grouping logic)
+                for row in group_rows:
+                    cnt, e = _upsert_rows([row])
+                    ok += cnt
+                    errs.extend(e)
+            except requests.RequestException as e:
+                errs.append(str(e))
+        return ok, errs
 
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
