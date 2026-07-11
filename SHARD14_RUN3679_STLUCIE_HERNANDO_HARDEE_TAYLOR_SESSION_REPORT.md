@@ -82,6 +82,36 @@ Work:
 
 **Honesty flag:** the E fix (stub resolution) and the second I increment (Perry zoning atlas) were done by a follow-up single agent *without* a separate adversarial refuter subagent — I (the orchestrator) spot-checked the DB persistence and the Census geocode match directly, but this does not substitute for the full fix→refute pipeline the other claims went through. Logged in the audit table with `note: "single-agent verification only... re-verify before certifying"`. **Next-session priority: run an independent refuter pass on taylor/E and taylor/I before treating either as certification-grade.**
 
+---
+
+## ADDENDUM — same-day follow-up (dispatch redispatched, 2026-07-11, ultracode Workflow fan-out)
+
+This exact dispatch_id (`3d0b5885-3261-4cad-8e0a-539d0ac50d45`) was re-fired after the closeout above had already shipped. Rather than repeat completed work, live state was re-verified against `pencil_dod_evaluate_county` (matched the closeout numbers exactly, confirming no drift), and the three concrete "next-session priority" items flagged above were worked via an ultracode Workflow fan-out: one fixer agent + one independent adversarial refuter per item. **All three claims SURVIVED refutation** and are logged in `gold_standard_ultraloop_audit` (ids 5464–5467).
+
+### taylor — 3/10 → 6/10 (+3: C, D, G)
+
+- **G fixed (0.0% → 100.0%)**: `zoning_districts` id=11575 (Perry, RSF-2) had zero `zone_standards` rows. Sourced the real City of Perry Land Development Regulations (municode + live cityofperry.net both blocked by WAF/auth; recovered via a clean 2021 Wayback Machine snapshot of the same official PDF). Section 4.5 (RSF district, pp. 4-15 to 4-18) gives min lot 10,000 sq ft, width 85 ft, setbacks 25/10/15 ft, max coverage 40%, max FAR 1.0, parking 2/unit — all stated directly. Max density 4.36 du/acre is explicitly marked `INFERRED` (derived from the 1-lot-per-10,000-sqft minimum, not a stated du/acre figure) — `confidence_score=0.9`, not 1.0. Refuter independently re-fetched the same archived PDF and verified every value verbatim.
+- **C/D side-effect (80.0% → 100.0%)**: writing the RSF-2 zone_standards row also flipped the 2 remaining unmatched parcels to `matched_clean`/`matched_any` — the evaluator apparently requires a resolved zoning standard for a parcel-zoning link to count as fully matched. Not independently targeted; discovered as a byproduct and confirmed live.
+- **C/D also fixed independently (5th case)**: case `23-597 CA` / `23000597CAAXMX` (US Bank Trust Nat'l Assoc. v. Regina Griffin, 101 Buffalo Dr, Perry FL) already had `parity_status='matched_clean'` but `parity_source IS NULL` — didn't count toward the tier1-filtered metric (see `20260702_shard1_pencil_dod_cd_tier1_filter.sql`). Fixed via a genuinely fresh fetch of the actual court PDF (`taylorclerk.com/uploads/2026/05/23-597-CA.pdf`, distinct from the original scrape) — judgment $92,079.12, address, and parties all matched verbatim. `parity_source`/`parity_checked_at` backfilled with a real citation + HTTP response timestamp.
+- **Live re-verify (this session, independent of the workflow)**: `{"C":{"pass":true,"metric":100.0},"D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},"G":{"pass":true,"metric":100.0},"H":{"pass":true},"J":{"pass":true,"metric":100.0}}` — 6/10. Still failing: A (0, platform genuinely returns no cases), B/F (0 closed, all 5 auctions future-dated), I (40.0%, 2 of 5 — unincorporated Taylor parcels outside the Perry zoning atlas extent, correctly left unzoned rather than guessed).
+
+### hernando — dilution partially clawed back, still 2/10 (no letter flipped yet, real progress on E)
+
+- **E: 36.7% → 81.6%** (18/49 → 40/49 parcel-linked). Root cause of the dilution (26–36 zero-enriched `calendar_sweep_mca_v3` rows from an unrelated concurrent pipeline) confirmed unchanged from the original diagnosis. Fixed via a **newly discovered** source: the Hernando County Property Appraiser has migrated off `hernandopa-fl.us`/`gis.hernandocounty.us` (both now dead/DNS-broken) to `centralgis.hernandocountypa-florida.us`, backed by a public ArcGIS FeatureServer (`services2.arcgis.com/x5zvhhxfUuRDntRe/.../Parcels/FeatureServer/0`). 27 of 36 dilution rows got real `parcel_id`/`assessed_value` (+ Census-geocoded lat/lon where missing); 9 rows left honestly NULL — all share a street-name-only address with no house number, which cannot be disambiguated without guessing. Refuter independently re-queried 6 of the 27 (including 2 letter-block parcel IDs and 1 typo-correction, `AUDOBON`→`AUDUBON`, resolved only via a unique house-number match) and confirmed all 9 blocked rows are genuinely unmatchable, not skipped carelessly.
+- **I: 36.7% → 42.9%** moved as a side effect but still fails — card-complete requires more than parcel_id/value/geo.
+- **C/D/J unchanged at 46.9%**: this enrichment was explicitly scoped to parcel/geo/value only, not parity or deal-triangle data — no claim of movement made or implied for those letters.
+- **Next-session priority, updated**: the 9 remaining street-only-address rows need either a different Hernando PA search mode (e.g. a plat/street index instead of point address match) or should be flagged to whatever pipeline is producing `calendar_sweep_mca_v3` rows to capture house numbers at ingestion. C/D/J for hernando remain fully open — no work was done on parity matching or the deal-triangle generator this round.
+
+### st_lucie / hardee — unchanged, no regression
+
+Both re-verified live and match the original closeout exactly (st_lucie 10/10, hardee 7/10) — confirms the earlier work held and nothing in this round touched their scope.
+
+### Audit trail
+
+4 new rows in `gold_standard_ultraloop_audit` (ids 5464–5467), `ultraloop_mode='fallback'`, all `survived=true`: taylor/G, taylor/C, taylor/D, hernando/E.
+
+No `gold_standard_loop()` or `gold_standard_certify()` run (per-county evaluator only, per guardrail — other shards may be mid-flight). No schema changes; all writes were data rows (`zone_standards`, `multi_county_auctions`) via the Supabase REST API with the service-role key, no migration required.
+
 ## Guardrail compliance
 - No `public.gold_standard_loop()` or `gold_standard_certify()` run this session (other shards may be mid-flight) — per-county `pencil_dod_evaluate_county` used throughout, as directed.
 - No cron jobs 109/111/115/scoring jobs touched.
