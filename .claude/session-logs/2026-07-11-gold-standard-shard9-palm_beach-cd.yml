@@ -1,0 +1,55 @@
+session: gold-standard-shard9-run3679 (palm_beach C/D fix)
+date: 2026-07-11
+county_slug: palm_beach
+goal: "Fix Gold Standard letters C (matched_clean parity >=95%) and D (matched_any parity >=95%)"
+
+root_cause:
+  finding: >
+    county_slug='palm_beach' but the RealForeclose/RealTaxDeed URL subdomain is
+    'palmbeach' (no underscore). pipeline.counties confirms
+    foreclosure_url=https://palmbeach.realforeclose.com,
+    taxdeed_url=https://palmbeach.realtaxdeed.com. Calling the shared AJAX
+    harvester's harvest_date(subdomain, county_slug, ...) with subdomain=
+    'palm_beach' fails with a cert hostname-mismatch error.
+  status: CONFIRMED (live smoke test before full run)
+
+artifact_created:
+  - scripts/gold_standard_shard2_palmbeach_cd_ajax_harvest.py
+  description: >
+    Forked from scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py. Imports
+    scripts/shard2_run2450_ajax_realforeclose_harvest.py's harvest_date() and
+    reuses match_and_fix() verbatim. Hardcodes SUBDOMAIN='palmbeach' while
+    keeping county_slug='palm_beach' for all DB queries/labels. Neither shared
+    file (shard2_run2450_ajax_realforeclose_harvest.py or
+    gold_standard_shard6_polk_cd_i_ajax_harvest.py) was modified.
+
+execution:
+  command: >
+    python3 scripts/gold_standard_shard2_palmbeach_cd_ajax_harvest.py '<71 targets JSON>'
+  targets_count: 71
+  dates_with_zero_items: 0
+  dates_with_items_but_zero_matches:
+    - {sale_type: foreclosure, auction_date: "2025-12-02", parsed: 6}
+    - {sale_type: foreclosure, auction_date: "2026-01-13", parsed: 2}
+  totals:
+    parity_promoted: 187
+    parcel_backfilled: 0
+    card_backfilled: 3
+
+verification:
+  before:
+    C: {pass: false, metric: 68.9, detail: "matched_clean=475"}
+    D: {pass: false, metric: 69.4, detail: "matched_any=478"}
+  after:
+    C: {pass: true, metric: 96.1, detail: "matched_clean=662"}
+    D: {pass: true, metric: 96.5, detail: "matched_any=665"}
+  arithmetic_check: "475 + 187 parity_promoted = 662 matched_clean (exact match)"
+  method: "SELECT public.pencil_dod_evaluate_county('palm_beach') via Supabase Management API, both runs pasted literally in session output"
+
+honesty_tags:
+  - "VERIFIED: before/after evaluator JSON both captured via live Management API query this session"
+  - "VERIFIED: smoke test of harvest_date('palmbeach','palm_beach','07/13/2026',...) returned 11 real items before full batch was run"
+  - "VERIFIED: all 71 dates returned >0 calendar items (0 zero-item dates) -- RealForeclose/RealTaxDeed retained data further back than the ~90-180d rolling window assumption in the task brief; this was an honest surprise, not forced"
+  - "VERIFIED: 2 of 71 dates parsed items but promoted 0 matches -- logged loudly per the fails-loud contract, not swallowed"
+
+result: "C and D both PASS (>=95% threshold). No residual gap on these two letters for palm_beach."
