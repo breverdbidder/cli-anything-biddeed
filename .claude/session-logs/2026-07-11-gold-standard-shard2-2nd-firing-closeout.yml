@@ -1,0 +1,137 @@
+session:
+  shard: SHARD-2 (volusia / palm_beach / putnam)
+  dispatch_id: d820c0b5-6240-4b87-82a4-0a84553fb21d
+  chat_session: architect-20260711T160000
+  date: 2026-07-11
+  mode: ultracode Workflow fan-out (2nd firing of same-day dispatch) --
+    Investigate (3 parallel agents) -> synthesis judge -> Build -> adversarial Verify
+
+pre_session_baseline (queried live before any work, via mgmt_query):
+  volusia: "10/10 GOLD -- A/B/C/D/E/F/G/H/I/J all PASS (C=98.1 D=98.9 I=98.4)"
+  palm_beach: "10/10 GOLD -- A/B/C/D/E/F/G/H/I/J all PASS (C=96.1 D=96.5 I=97.7 J=98.8) -- C/D already
+    fixed by an earlier same-day session (commit 27e89ae0), dispatch brief's stated C=73.6/D=74.1 is stale"
+  putnam: "7/10 -- C=66.0 D=66.0 I=90.0 FAIL, A/B/E/F/G/H/J PASS -- unchanged from the prior same-day
+    session's residual (commit 52aa2f9b), which already exhausted civitekflorida OCRS (Cloudflare
+    Turnstile) and Municode (403, no Firecrawl key) for these three letters"
+
+decisions:
+  - step: 1
+    action: "Confirmed volusia/palm_beach both already 10/10 GOLD with fresh (<24h) gold_standard_ultraloop_audit
+      evidence for all 10 letters each (from the prior same-day session, commit 52aa2f9b). No new work needed
+      there beyond a live regression check, since certification requires 2 consecutive daily 07:30Z 10/10 runs
+      (automatic, not session-triggered) and other shards may be running concurrently against shared code."
+    reason: "avoid redundant work; SHIP-TO-MAIN mandate requires verified metric movement, not busywork"
+
+  - step: 2
+    action: "Dispatched an ultracode Workflow: 3 parallel investigation agents (putnam C/D, putnam I,
+      volusia+palm_beach regression check), each explicitly briefed on what the prior same-day session
+      already tried and told to find genuinely NEW angles only -- not repeat civitekflorida/Municode."
+    reason: "ULTRALOOP PROTOCOL (CLAUDE.md) -- fan out one subagent per failing letter, isolated context,
+      each returns Honesty-Protocol-tagged findings"
+
+  - step: 3
+    action: "putnam C/D investigator tested myfloridacounty.com/orisearch/54 and acclaim.putnamcountyrecorder.com
+      as alternates to civitekflorida. Also proved the mca-vs-live-calendar delta is dataset-wide (matches
+      exactly on all 7 tax_deed dates, not just the 3 originally flagged), strengthening the
+      cancelled/rescheduled/never-published theory."
+    result: "Both new sources REJECTED (VERIFIED by direct inspection) -- they are recorded-document indexes
+      (deed/book/page), not case-status lookups; neither can resolve the 153 residual case_numbers.
+      civitekflorida Turnstile remains the only structurally-compatible source and is still blocked.
+      C/D genuinely unmoved: 66.0%/66.0% (297/450), no DB writes."
+    reason: "BLANK > WRONG -- no automatable path exists in this sandbox; documenting is correct, not a
+      failure to try"
+
+  - step: 4
+    action: "putnam I investigator searched for the Putnam AG zoning density figure via a non-Municode,
+      non-Firecrawl source. Found the Putnam County Comprehensive Plan (Future Land Use Element) hosted
+      directly on putnam-fl.gov, HTTP 200 verified, 139-page genuine PDF, exact quoted text: '1 dwelling
+      unit per 10 acres' for the Agriculture FLU category (PDF p.25/A22)."
+    result: "Flagged INFERRED (not CONFIRMED) -- this is Comp-Plan FLU density, not independently confirmed
+      identical to Municode Sec.45-72AG zoning-code density (still 403-blocked). Synthesis judge approved
+      as buildable given low-risk provenance-tagged insert with confidence_score=0.55."
+    reason: "Florida Land Development Codes are legally required to be consistent with the Comp Plan FLU
+      density -- a defensible proxy value with honest provenance, not a fabrication"
+
+  - step: 5
+    action: "Builder agent inserted zone_standards.max_density_du_acre=0.1 for zoning_district_id=11512
+      (jurisdiction 931 Palatka, code=AG) with full source citation and confidence_score=0.55, committed
+      as 89ccfafa, migration supabase/migrations/20260711q_shard2_putnam_i_ag_density_flu_backfill.sql"
+    result: "G improved 99.3 -> 99.5 (still PASS, no regression). I did NOT move (90.0% unchanged) --
+      this zone_standards insert fills the density gap for the AG zoning_district but adds zero
+      parcel_zones rows, so card_complete count is architecturally unaffected. A separate parcel_zones
+      backfill (the 22 AG parcels reverted by the prior session) is the remaining I lever, still blocked
+      by nothing now since the zone_standards gap that caused the prior G regression is closed -- flagged
+      as the clear next-session priority."
+    reason: "execute-then-verify per SHIP GATE"
+
+  - step: 6
+    action: "Independent adversarial verifier agent re-ran pencil_dod_evaluate_county('putnam') live itself
+      (not trusting the builder's pasted numbers), spot-checked the zone_standards row, re-downloaded and
+      re-extracted the source PDF to confirm the quoted text, and confirmed zoning_districts id=11512 maps
+      to jurisdiction 931 / code AG as claimed."
+    result: "SURVIVED. G_before=99.3 G_after=99.5 (both PASS), I unchanged 90.0% as claimed, evidence real,
+      no scope creep, no duplicate rows."
+    reason: "adversarial survival vote required before any claim counts per ULTRALOOP PROTOCOL"
+
+  - step: 7
+    action: "volusia+palm_beach regression check agent independently re-ran pencil_dod_evaluate_county for
+      both counties live."
+    result: "0.0pp movement on every letter for both counties -- both remain confirmed 10/10 GOLD, no
+      regression from concurrent shard activity."
+    reason: "PARALLEL-FLEET RULES -- shared code paths can regress other shards' work silently"
+
+  - step: 8
+    action: "Inserted gold_standard_ultraloop_audit row (id=5888) for putnam letter G reflecting this
+      session's density-backfill improvement (survived=true, dispatch_id=d820c0b5)."
+    reason: "SQL CERTIFY GATE requires fresh survived=true audit rows per letter within 7 days"
+
+  - step: 9
+    action: "git pull --rebase origin main before push (PARALLEL-FLEET RULES) -- two other shard commits
+      (6302bb10 shard1, 3da2753c shard5) had landed on main during this session's workflow run; rebased
+      clean, no conflicts."
+    reason: "shared main branch, multiple concurrent shard sessions"
+
+artifacts:
+  - supabase/migrations/20260711q_shard2_putnam_i_ag_density_flu_backfill.sql
+  - .claude/session-logs/2026-07-11-gold-standard-shard2-2nd-firing-closeout.yml (this file)
+
+verification:
+  - check: "pencil_dod_evaluate_county('putnam') BEFORE this session (2nd firing)"
+    proof: '{"C":{"pass":false,"metric":66.0},"D":{"pass":false,"metric":66.0},"G":{"pass":true,"metric":99.3},"I":{"pass":false,"metric":90.0}}'
+    status: VERIFIED
+  - check: "pencil_dod_evaluate_county('putnam') AFTER this session (2nd firing)"
+    proof: '{"C":{"pass":false,"metric":66.0},"D":{"pass":false,"metric":66.0},"G":{"pass":true,"metric":99.5},"I":{"pass":false,"metric":90.0}}'
+    status: VERIFIED
+  - check: "pencil_dod_evaluate_county('volusia') -- regression check"
+    proof: "10/10 PASS, 0.0pp movement on every letter vs prior-session baseline"
+    status: VERIFIED
+  - check: "pencil_dod_evaluate_county('palm_beach') -- regression check"
+    proof: "10/10 PASS, 0.0pp movement on every letter vs prior-session baseline"
+    status: VERIFIED
+
+scoreboard_snapshot_at_session_end:
+  volusia: "10/10 GOLD (pass_count=10, gold_standard=true, critical_three_pass=true)"
+  palm_beach: "10/10 GOLD (pass_count=10, gold_standard=true, critical_three_pass=true)"
+  putnam: "7/10 (C, D, I still FAIL; G improved 99.3->99.5, still comfortably PASS)"
+
+next_session_priorities:
+  - "putnam I: with the AG zone_standards gap now closed (this session), the 22 GIS-verified AG parcel_zones
+    rows the prior session reverted (to protect G) can likely be re-inserted safely -- re-verify G does not
+    regress below 95% before landing, since the new density figure is INFERRED not CONFIRMED against the
+    actual zoning ordinance text."
+  - "putnam C/D: genuine ceiling in this sandbox -- civitekflorida OCRS requires a human-solvable Cloudflare
+    Turnstile. No further automatable angle found across two same-day sessions (5 distinct source attempts).
+    Recommend either accepting the ~66% ceiling as documented, or escalating for a session with interactive
+    browser/CAPTCHA-solving capability."
+  - "volusia/palm_beach: both certification-eligible pending the automatic 2-consecutive-daily-07:30Z-run gate
+    (owned by cron, not sessions). No further county-level work needed unless a future regression is detected."
+
+honesty_protocol_compliance:
+  - "Zero fabricated case numbers, zone codes, or parcel geocodes this session."
+  - "putnam I fix explicitly tagged INFERRED (confidence_score=0.55) with full source citation and the
+    specific unconfirmed gap (Comp-Plan FLU density vs zoning-ordinance density) stated plainly."
+  - "putnam C/D: two new candidate sources tested and honestly reported as scope-mismatched (not swept
+    under a vague 'still blocked' claim) -- confirmed via direct inspection of each source's actual
+    search-field capabilities, not assumption."
+  - "All claims adversarially verified live by an independent agent before landing in
+    gold_standard_ultraloop_audit; zero survived=true rows without a fresh independent re-query."
