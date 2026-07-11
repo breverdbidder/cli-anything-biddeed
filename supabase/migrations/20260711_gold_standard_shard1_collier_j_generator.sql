@@ -1,0 +1,46 @@
+-- GOLD STANDARD SHARD-1 (collier) — J (Shapira deal-thesis bid_decisions), 2026-07-11
+-- Data-change record only. The actual insert was executed live via
+-- scripts/gold_standard_shard1_collier_j_generator.py, reusing the exact
+-- Shapira Formula shape already shipped to main in
+-- scripts/gold_standard_shard5_sumter_j_generator.py (arv fallback chain,
+-- tiered repairs, max_bid formula, 5-key factors jsonb). Uses
+-- urllib.request instead of requests/httpx -- neither package is installed
+-- in this sandbox (verified live: `python3 -c "import requests"` raises
+-- ModuleNotFoundError).
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('collier') before
+-- this run): J: deal_complete=0 of 212 auctions_total -> metric 0.0%,
+-- pass=false. bid_decisions had exactly 1 collier row beforehand,
+-- case_number 'PO_1139101' (data_source=propertyonion, NOT one of the 212
+-- collier_clerk_laserfiche rows this script targets -- no collision).
+--
+-- INPUT: 212 collier multi_county_auctions rows (data_source=
+-- 'collier_clerk_laserfiche'), all with case_number + parcel_id populated.
+-- A prior session this same day ran I-enrichment via the FL DOR statewide
+-- cadastral FeatureServer, backfilling assessed_value/market_value for
+-- 204/212 rows and property_address for 95/212 (vacant-land parcels
+-- legitimately have no PHY_ADDR1 in DOR, left null per BLANK > WRONG, not
+-- fabricated). All 212 rows have opening_bid non-null. This J-generator
+-- does not re-enrich I fields -- it reads whatever is on the row and
+-- applies arv = max(assessed_value, market_value), falling back to
+-- opening_bid*1.4, then a $250,000 county-default floor for the rare row
+-- with neither (none occurred in practice: all 212 had opening_bid).
+--
+-- ML_SCORE / LOCATION_SCORE / CONFIDENCE_SCORE = 0.55 / 0.42 / 0.58,
+-- reused verbatim from sumter's constants. Documented reasoning: this is
+-- the established county-agnostic neutral default used across every prior
+-- shard with no county-specific historical bid-outcome calibration data
+-- (same triple confirmed live via grep in gold_standard_shard5_sumter_
+-- j_generator.py, shard14_martin_bay_alachua_j_generator.py,
+-- gold_standard_shard11_union_j_generator.py, shard7_j_generator.py,
+-- shard7_s65_j_generator.py). Collier has no county-specific ml_score
+-- calibration pipeline either, so the same default applies rather than
+-- inventing an unfounded number.
+--
+-- Result (VERIFIED live 2026-07-11): 212 bid_decisions rows inserted for
+-- county_slug='collier' (all 212 new collier_clerk_laserfiche case
+-- numbers; the pre-existing PO_1139101 row was left untouched).
+-- J: 0.0% (0/212) -> 100.0% (212/212), pass=true.
+--
+-- Verification query (paste-in for session log / SHIP GATE):
+SELECT public.pencil_dod_evaluate_county('collier');
