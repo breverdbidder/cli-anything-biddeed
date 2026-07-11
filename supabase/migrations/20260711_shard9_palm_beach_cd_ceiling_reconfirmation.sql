@@ -1,0 +1,100 @@
+-- SHARD-9 run3679: palm_beach C/D ceiling re-investigation (dispatch ddbb047c-3aca-44b8-821a-58a26d127732)
+--
+-- NO FUNCTIONAL CHANGE in this migration. This is a documented, live-verified
+-- re-investigation of the C/D residual gap, correcting the precision of the
+-- prior session's "genuine data ceiling" conclusion and confirming there is
+-- no fixable matcher bug remaining.
+--
+-- CONTEXT: prior sessions (2026-07-03 shard3 commit 831168e0, 2026-07-10
+-- shard5/shard7 migrations in this same directory) all independently landed
+-- on "palm_beach C/D is a genuine data ceiling", but characterized the
+-- unmatched rows loosely as "pre-2023 archive" or "upcoming auctions with no
+-- real counterpart yet" (implying they are simply future-dated and not yet
+-- listed by RealAuction). This session verified that characterization is
+-- only partially accurate.
+--
+-- FRESH LIVE BREAKDOWN (2026-07-11, VERIFIED via direct SQL against
+-- multi_county_auctions, auctions_total=688 matching pencil_dod_evaluate_county):
+--   matched_clean (tier1): completed=178, cancelled=161, redeemed=78, upcoming=58  -> 475 (C)
+--   matched_divergent:     cancelled=2, upcoming=1                                 -> +3
+--   mca_only:              upcoming=45
+--   tier1_only:             upcoming=1
+--   null (unmatched):      upcoming=164
+--   (matched_clean + matched_divergent = 478 = D)
+--   Total unmatched-or-partial = mca_only(45) + null(164) + tier1_only(1) = 210,
+--   ALL with auction_status='upcoming' (zero in completed/cancelled/redeemed) --
+--   this part of the prior sessions' finding IS confirmed.
+--
+-- CORRECTION: within the 164 'null' (fully unmatched) rows, auction_date
+-- distribution is min=2025-05-22, max=2026-09-16, with 151 of 164 (92%)
+-- already PAST CURRENT_DATE (2026-07-11) -- some over a year stale -- despite
+-- auction_status still reading 'upcoming'. This is NOT "not yet listed by
+-- RealAuction because the sale is far in the future" for most of these rows;
+-- it is stale/orphaned rows whose true auction_status was never updated AND
+-- which have no tier1 source counterpart at all. Only the mca_only bucket
+-- (45 rows) is genuinely forward-looking: 43 of 45 have auction_date >=
+-- CURRENT_DATE (up to 2026-09-16), consistent with a real not-yet-listed
+-- ceiling for THAT bucket specifically.
+--
+-- ROOT CAUSE, VERIFIED:
+--   1. public.palm_beach_realtdm_raw has ZERO rows (SELECT count(*) = 0).
+--      This table is referenced only by refresh_palm_beach_parity_v2()'s
+--      tax-deed match branch and by these two 2026-07-10 migration files in
+--      this repo -- no scraper, GHA workflow, or cron job in this repo has
+--      ever populated it. It is dead-on-arrival infrastructure, not a bug in
+--      the matching SQL.
+--   2. public.realforeclose_aids for palm_beach has 215 rows total, with
+--      auction_starts_at spanning ONLY 2026-05-14 to 2026-06-22 -- i.e. this
+--      source table itself only ever covers a ~40-day forward window from
+--      whatever date it was last scraped, and does not reach back to 2025 at
+--      all. It cannot supply a match for any of the 151 past-dated null rows
+--      even in principle.
+--   3. Adversarial check (VERIFIED): ran an EXISTS join from the 164 null
+--      rows against realforeclose_aids on BOTH normalize_case_number(case_number)
+--      equality and parcel_id equality (the exact two match paths used by
+--      refresh_palm_beach_parity_v2) -- zero rows returned on both. There is
+--      no real, already-available match being missed by the matcher logic.
+--   4. Manually re-ran refresh_palm_beach_parity_v2() live this session:
+--      0 rows updated on both paths -- confirms the matcher is fully caught
+--      up against current source data; no backlog exists from the
+--      intermittent cron job 4103 "server restarted" failures (12 of last 15
+--      hourly runs failed with that message, but this is a widespread,
+--      project-wide Postgres-restart artifact affecting dozens of unrelated
+--      cron jobs in the same window, not something specific to job 4103 or
+--      palm_beach -- confirmed via cron.job_run_details aggregated across all
+--      jobids in the last 2 days).
+--   5. The 4 matched_divergent/tier1_only rows were re-checked and match the
+--      shard5 (2026-07-10) findings exactly: 3 already correctly promoted
+--      with real linkage, 1 (502025CC012960XXXASB) correctly left at
+--      tier1_only with no real linkage by any method (case_number, parcel_id,
+--      or outcome-table corroboration) -- re-confirmed, not re-derived.
+--
+-- WHAT WOULD ACTUALLY MOVE C/D (out of scope for this bounded pass, per
+-- session budget rule -- sizing the gap for a future session):
+--   - Populate palm_beach_realtdm_raw for real: requires building a live
+--     scraper against Palm Beach Clerk's tax-deed sale/surplus records (no
+--     such scraper exists in this repo under any name). This is a genuine
+--     "build a scraper from scratch" task, explicitly out of scope today.
+--   - Extend realforeclose_aids coverage backward: RealAuction's own site
+--     does not expose auction history beyond its rolling forward window (this
+--     is consistent with the V2_LITMUS snapshot: source_count=35 vs our
+--     independent count=13 for the 'realauction' primary-source litmus,
+--     match_pct=37.1 -- a hint, not proof, but directionally consistent with
+--     a narrow live listing window rather than a full historical archive).
+--     Historical case outcomes for the 151 past-dated rows would need to come
+--     from a DIFFERENT authoritative source (e.g. Palm Beach Clerk's public
+--     records / case search), which is also not wired in this repo today.
+--
+-- NO SQL CHANGE APPLIED. refresh_palm_beach_parity_v2() and cron job 4103
+-- are left exactly as shipped in the 2026-07-10 migrations. No fabricated
+-- values, no auction_status reclassification (would require real outcome
+-- data we do not have -- reclassifying without it would violate the
+-- fail-loud/no-fabrication rule).
+--
+-- Verification query used to produce the breakdown above (safe to re-run,
+-- read-only):
+--   SELECT COALESCE(parity_status,'null') parity_status, auction_status, count(*)
+--   FROM public.multi_county_auctions
+--   WHERE lower(county)='palm_beach'
+--     AND (data_source IS DISTINCT FROM 'propertyonion' OR tier1_authoritative=true)
+--   GROUP BY 1,2 ORDER BY 1,2;
