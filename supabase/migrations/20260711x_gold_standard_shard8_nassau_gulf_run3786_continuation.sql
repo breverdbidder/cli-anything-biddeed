@@ -1,0 +1,115 @@
+-- GOLD STANDARD shard-8 (nassau, gulf), dispatch 43d85df5-ca99-4b37-8fa0-b36bfc1c401e, CONTINUATION
+-- (2nd firing of the same dispatch, chat_session architect-20260711T160000, 2026-07-11)
+--
+-- This is a documentation-only migration. NO data was written to
+-- multi_county_auctions/tax_deed_outcomes/foreclosure_outcomes this session -- every
+-- avenue investigated either (a) confirmed a genuine, unfixable structural blocker, or
+-- (b) surfaced a real lead that is not yet safe to act on (see NASSAU B below). Per HARD
+-- GUARDRAIL #2 (fail-loud, BLANK > WRONG), an inconclusive lead is documented, not forced
+-- into a write.
+--
+-- Prior firing of this same dispatch (commit 529c7bed, migration
+-- 20260711u_gold_standard_shard8_run3786_nassau_gulf.sql) already applied the real, live
+-- gains available at that time: gulf C/D 0->78.6%, I 28.6->64.3%, nassau E 97.1->100%.
+-- Live re-check at the start of THIS session confirmed those gains held with zero
+-- regression: nassau 8/10 (A/C/D/E/G/H/I/J pass, B/F fail), gulf 4/10 (A/G/H/J pass,
+-- B/C/D/E/F/I fail). This continuation ran a full ULTRALOOP fan-out (3 diagnose agents +
+-- 3 adversarial verify agents, all agent() calls via the Workflow tool, ultraloop_mode=
+-- 'native') against the two open leads flagged in the prior migration's "NEXT STEP" note.
+--
+-- ============================================================
+-- GULF I: the 2 remaining fixable-looking gaps are NOT fixable (honest, verified)
+-- ============================================================
+-- Case 2025-017 (parcel 03426604R) and 2025-023 (parcel 00469000R) were the only 2 of
+-- gulf's 5 card_complete gaps that looked backfillable (both already have parcel_id,
+-- lat/lon, assessed_value, and zone_code=RES via jurisdiction 1010 -- only
+-- property_address was NULL). Queried Gulf County's own authoritative parcel GIS
+-- (arcgis5.roktech.net/arcgis/rest/services/gulf/GoMaps4/MapServer/12, reached via the
+-- county's own gulfcounty-fl.gov -> GIS page, no auth/WAF): both parcels are confirmed
+-- VACANT/unaddressed land (USEDESC='VACANT', USECD='0', HOUSE_NO/STREET/LOC all
+-- null/N/A) -- there is no real street address to backfill. The ADDRESS_1/CITY_NAME/
+-- ZIPCODE fields on these parcels are the OWNER's out-of-county mailing address
+-- (Blountstown FL / Fayetteville GA), not a situs address -- writing those as
+-- property_address would be a fabrication, not a fix. Independently re-verified: polygon
+-- centroid of each parcel matches our stored lat/lon to ~10m (same physical parcel,
+-- confirmed not a coincidental parcel_id string match), and parcel_zones/
+-- v_zoning_gold_standard_card both confirm zone_code='RES' is genuinely already present
+-- for both. property_address=NULL remains correct. gulf I stays at 64.3% (9/14) --
+-- structurally capped by these 2 rows plus the 3 parcel-less blocked foreclosure rows
+-- (unchanged from the prior migration's diagnosis).
+--
+-- Also newly discovered (useful for future Gulf County sessions, not used this session):
+-- arcgis5.roktech.net/.../GoMaps4/MapServer is Gulf County's real, live, unauthenticated
+-- parcel GIS -- layer 12=Parcels (full CAMA), layer 2=Addresses, layer 0=Parcel Report.
+-- gulfpa.com / beacon.schneidercorp.com / qpublic.schneidercorp.com are all hard
+-- Cloudflare-403'd (confirmed live); gulfcountypropertyappraiser.org is a third-party
+-- WordPress lead-gen mockup with no real search -- do not use either again.
+--
+-- ============================================================
+-- NASSAU B: new independent source found (search.ncpafl.com) -- applied to the one
+-- candidate row, result is genuinely inconclusive, NOT a fabricated write
+-- ============================================================
+-- Nassau County Property Appraiser's sales-history search (https://search.ncpafl.com/,
+-- POST /search/adv, plain HTML form + CSRF token, no JS/Cloudflare gate -- confirmed live
+-- and independently reproduced byte-for-byte on a sample row) is a genuinely new,
+-- working, non-PropertyOnion source of real deed/CT sale records (instrument type,
+-- grantor, grantee, price, date). This is the first non-dead avenue found for Nassau B/F
+-- across two separate sessions of investigation.
+--
+-- Nassau currently has exactly ONE row with auction_status='completed' (all others are
+-- upcoming/cancelled): case 452025CA000382CAAXYX, parcel 00-00-31-1800-0256-0052, 724 N
+-- 14TH ST, auction_date 2026-05-07. Searched search.ncpafl.com by address (724 N 14TH
+-- ST) and independently confirmed the STRAP 00-00-31-1800-0256-0052 matches our
+-- parcel_id exactly. Result: the most recent recorded instrument on this parcel is a
+-- Warranty Deed dated 2026-03-31, $440,000, grantor FREDERICK SAMUEL G -> grantee
+-- PONCIN DANIEL L -- an ordinary private arms-length resale, NOT a Certificate of Title
+-- (CT) from the Clerk of Court. No CT/foreclosure-deed has been recorded for this parcel
+-- as of 2026-07-11 (over 2 months after the scheduled 2026-05-07 auction date).
+--
+-- This most plausibly means the foreclosure case was resolved by the borrower selling
+-- (or refinancing) the property before the courthouse sale -- a common, legitimate
+-- outcome that simply is NOT a "sold at foreclosure auction" event. Writing the $440,000
+-- WD price into sold_amount/tier1_sold_amount would misattribute a private sale as an
+-- independent foreclosure-auction outcome -- a canon violation (HARD GUARDRAIL #2). NO
+-- WRITE MADE. nassau B/F remain FAIL (verified=0/closed_sold=0, tier1_sold=0/
+-- closed_sold=0), honest and unchanged.
+--
+-- search.ncpafl.com remains a real, reusable lead: it has no case_number/AID field
+-- (keyed by STRAP + OR book/page only), so scaling it beyond this one hand-checked row
+-- requires a STRAP<->case_number matching pipeline (join our parcel_id, which is already
+-- in NCPAO STRAP format for most nassau rows, to search.ncpafl.com's parcel detail pages
+-- and filter for CT/TD instrument type + grantor='CLERK OF COURT') -- concrete, buildable,
+-- not yet built. Worth a dedicated future session once more nassau auctions reach
+-- 'completed'/past-due status (currently only 1 of 34 has, per live query this session:
+-- 25 upcoming, 8 cancelled, 1 completed).
+--
+-- ============================================================
+-- GULF B/F: re-confirmed dead (fresh today, not a stale repeat)
+-- ============================================================
+-- All 3 blocked gulf foreclosure cases (232024CA000072CAAXMX AID 1499352,
+-- 232019CA000060CAAXMX AID 1501873, 232024CC000157CCAXMX AID 1502134) remain
+-- unreachable: gulf.realforeclose.com AID pages return flat HTTP 403 (AWS ELB WAF,
+-- re-confirmed independently); civitekflorida.com/ocrs/county/23/ is JS-search-gated
+-- with an additional mail-in registration-agreement requirement discovered this session
+-- (gulfclerk.com/download/registration-agreement-to-view-records-online-3/); Florida's
+-- myflcourtaccess.com is e-filing-only with no case search; myfloridacounty.com/
+-- orisearch/23 (Gulf's Official Records index) is real and live but search-by-
+-- party-name-only -- unusable since none of the 3 cases have an owner_name on file;
+-- Gulf Tax Collector's surplus-funds process is tax-deed-only, structurally
+-- inapplicable to these CA/CC foreclosure case types; Firecrawl (which would render the
+-- one remaining lead, floridapublicnotices.com / Column-powered legal notices) is
+-- fleet-wide credit-exhausted (confirmed live: "Insufficient credits to perform this
+-- request"). No data recovered, no fabrication. The Column/floridapublicnotices avenue
+-- is the one still open for a future session with real browser automation (Playwright/
+-- browser-use) rather than curl/WebFetch.
+--
+-- All 4 substantive findings above were independently adversarially verified by a
+-- fresh-context refuter subagent against live sources (re-fetching each cited URL,
+-- re-querying the live DB) -- see public.gold_standard_ultraloop_audit WHERE dispatch_id
+-- = '43d85df5-ca99-4b37-8fa0-b36bfc1c401e' AND created_at > '2026-07-11 22:00:00' (4 new
+-- rows this continuation, all survived=true; 8 prior rows from the first firing).
+
+-- ── VERIFICATION QUERIES (run after migration) ──────────────────────────────────────
+-- SELECT public.pencil_dod_evaluate_county('nassau'); -- expect 8/10 unchanged (B/F fail)
+-- SELECT public.pencil_dod_evaluate_county('gulf');   -- expect 4/10 unchanged (B/C/D/E/F/I fail)
+-- SELECT * FROM public.gold_standard_ultraloop_audit WHERE dispatch_id = '43d85df5-ca99-4b37-8fa0-b36bfc1c401e' ORDER BY created_at;
