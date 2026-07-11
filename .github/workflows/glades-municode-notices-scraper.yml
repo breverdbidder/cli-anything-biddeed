@@ -1,0 +1,40 @@
+name: glades-municode-notices-scraper
+# Gold Standard shard-8 (glades) — A/B/E/F/H unblock, run3713 dispatch 80efff0f.
+# Glades publishes zero auction data via RealAuction/kofile/myfloridacounty/civitek/
+# bid4assets (confirmed dead across 4 prior sessions). It DOES publish real
+# foreclosure + tax deed sale notices via the Clerk's Municode "MuniDocs" Notices
+# repository (library.municode.com, productId=31194) — scripts/glades_municode_notices_scraper.py
+# walks that tree, downloads PDFs/DOCX, and upserts multi_county_auctions +
+# tax_deed_outcomes. Idempotent; re-running only inserts new case_numbers and
+# touches last_seen_at on already-known ones so H (freshness) stays current.
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "40 13 * * *"   # daily 13:40 UTC
+
+concurrency:
+  group: glades-municode-notices-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet requests pypdf python-docx playwright
+          playwright install --with-deps chromium
+
+      - name: Run Glades Municode notices scraper
+        run: python3 scripts/glades_municode_notices_scraper.py

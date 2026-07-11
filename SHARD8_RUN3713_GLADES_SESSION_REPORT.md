@@ -2,78 +2,123 @@
 
 dispatch_id: `80efff0f-d30b-4769-bd15-3f175c136084`
 
-## Status board (BEFORE brief baseline → AFTER, live `pencil_dod_evaluate_county('glades')`, re-verified after every write this session)
+**SUPERSEDES** the earlier same-dispatch report committed at `83d0fbd9` (2026-07-11T08:20Z), which
+concluded A was "structurally blocked" after exhausting RealAuction / kofile / myfloridacounty /
+civitek / bid4assets. That conclusion was correct about those five channels but incomplete — a
+sixth channel existed and was found this pass (see below). Nothing in the earlier report was
+fabricated; it just hadn't found the lever yet.
+
+## Status board (BEFORE brief baseline → AFTER, live `pencil_dod_evaluate_county('glades')`)
 
 | Letter | Before | After | Notes |
 |---|---|---|---|
-| A | FAIL (fc=0 td=0) | FAIL (fc=0 td=0) | **Unchanged, confirmed structurally blocked** — see below. Root blocker for B/C/D/E/F/H/I/J. |
-| B | FAIL (null) | FAIL (null) | Blocked by A (0 closed_sold denominator). |
-| C | FAIL (null) | FAIL (null) | Blocked by A (0 auctions_total denominator). |
-| D | FAIL (null) | FAIL (null) | Blocked by A. |
-| E | FAIL (null) | FAIL (null) | Blocked by A. |
-| F | FAIL (null) | FAIL (null) | Blocked by A (0 closed_sold denominator). |
-| G | PASS (100.0) | PASS (100.0) | Untouched — genuine pass (2 parcels, density-applicable, real substrate from a prior session), not vacuous. Left alone, not failing. |
-| H | FAIL (null) | FAIL (null) | Blocked by A (`last_seen` derives from `multi_county_auctions`, which has zero glades rows). |
-| I | FAIL (null) | FAIL (null) | Blocked by A/E. |
-| J | FAIL (null) | FAIL (null) | Blocked by A. |
+| A | FAIL (fc=0 td=0) | **PASS (metric=1)** | fc=1 td=69. New source: Clerk's Municode MuniDocs "Notices" repository. |
+| B | FAIL (null) | **PASS (100.0)** | verified=3 closed_sold=3, independent `tax_deed_outcomes` rows. |
+| C | FAIL (null) | FAIL (0.0) | No RealAuction/PropertyOnion parity source exists to compare against — genuinely unmeasurable, not a scraper gap. |
+| D | FAIL (null) | FAIL (0.0) | Same as C. |
+| E | FAIL (null) | **PASS (98.6)** | 69/70 rows carry real parcel_id from source PDFs; only the 1 foreclosure row lacks one (genuinely absent in its source doc). |
+| F | FAIL (null) | **PASS (100.0)** | tier1_sold=3/3, promoted by the existing `promote_tier1_from_outcomes()` RPC (not touched/modified, just invoked). |
+| G | PASS (100.0) | PASS (100.0) | Untouched, unchanged — real 2-parcel substrate from a prior session. |
+| H | FAIL (null) | **PASS (0.0h)** | last_seen_at refreshed; daily GHA cron now keeps this current. |
+| I | FAIL (null) | FAIL (0.0 of 70) | Needs lat/long + assessed_value + a much larger zoning substrate than G's 2-parcel base. Out of scope this session — see residual. |
+| J | FAIL (null) | FAIL (0.0) | Fleet-wide 0 (bid_decisions generator doesn't exist yet per the brief). Untouched. |
 
-**No letter metric moved this session.** This is reported honestly per the SHIP-TO-MAIN mandate and HONESTY PROTOCOL — a session that ships nothing but confirms a genuine blocker and closes a real forward-lever gap is not a failed session, but it is not a certification step either.
+**Score: 1/10 → 6/10** (A, B, E, F, G, H passing).
 
-## Why nothing moved: A is a genuine data-availability gap, not a scraper gap
+## The lever: Municode "MuniDocs" Notices repository
 
-`pencil_dod_evaluate_county`'s A clause is `COUNT(*) FILTER (WHERE sale_type IN ('foreclosure','tax_deed')) FROM multi_county_auctions WHERE county='glades'`. Live count: **zero rows exist for glades anywhere in the table** — no PropertyOnion rows either, confirmed by direct query. There is nothing to link, match, or score until at least one real row exists.
+The prior session's five-channel investigation (RealAuction, kofile, myfloridacounty, civitek,
+bid4assets) was real and thorough, but missed that `gladesclerk.com/tax-deeds/` links to
+`library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/...` — Municode's document
+library, which most people associate with codes of ordinances, but Glades Clerk also uses it to
+publish **Notices > Foreclosure Sales** (a continuously-updated single PDF of currently-scheduled
+foreclosure auctions) and **Notices > Tax Deeds > {year} Tax Deed Sales** (one PDF/DOCX per sale
+date, 2021–2025, listing every parcel up for sale that day with parcel ID, minimum bid, and — when
+the Clerk annotates it after the fact — "SOLD \<date\> FOR \$X" or "REDEEMED \<date\>").
 
-Three prior sessions (2026-06-24, 2026-07-05, 2026-07-10) already confirmed RealAuction has no live tenant for Glades (`glades.realforeclose.com` / `glades.realtaxdeed.com` both redirect to the RealAuction marketing homepage) and that `gladesclerk.com/foreclosures` is a static "Coming Soon" placeholder. This session re-verified that with a real headless-Chromium session (Playwright, not just `curl`/WebFetch) — unchanged.
+The tree is an Angular SPA (`ng-app="mcc.library_desktop"`) sitting behind Cloudflare — plain
+`curl`/WebFetch get a 200/403 with an empty shell. A real headless-Chromium session (Playwright)
+renders it and reveals the actual `library.municode.com/api/munidocsToc/*` JSON tree API, gated
+by a simple `x-csrf: 1` request header set by the in-page JS (not a token/cookie — trivial to
+replicate once discovered). The PDF/DOCX blobs themselves are served with **no auth at all** from
+a separate host, `mcclibraryfunctions.azurewebsites.us/api/munidocDownload/{productId}/{nodeId}/{ext}`,
+so bulk downloading is a plain `requests.get()` once node IDs are known from the tree walk.
 
-This session went further and, via an ULTRALOOP-pattern workflow (3 investigator agents + 3 independent adversarial refuters, all `survived=false`, logged to `gold_standard_ultraloop_audit`), hands-on tested every other plausible public-records channel for Glades:
-
-- **kofilequicklinks.com/gladesfl** (the Clerk's own "Search Official Records Online" link) — driven with a real headless browser, every form control enumerated: it is a **book/volume/page paper-index lookup only** (years 1921–1988). There is no document-type or date-range search field at any layer. `clerk_platform_adapters.kofile` correctly stays `needs_build` — but building it would not help Glades, the search capability the pipeline needs simply does not exist on this portal.
-- **myfloridacounty.com/orisearch/22** — has a genuine `documentTypeID`/`instrumentTypeID`/date-range search form, but the POST endpoint is now gated by a **Cloudflare Turnstile CAPTCHA** (confirmed via direct Playwright submission — "Please verify you are human"). Not automated; CAPTCHA-solving is out of scope.
-- **civitekflorida.com/ocrs/county/22** — a JSF/PrimeFaces case-docket search (public/attorney/registered-user tiers) requiring an already-known case number; no JSON/REST API surfaced anywhere in the navigation chain.
-- **bid4assets.com** — searched, zero Glades County listings (unlike several neighboring small counties which do list there).
-
-Conclusion: Glades publishes zero foreclosure/tax-deed auction data through any online channel today. Sales are in-person courthouse-only. Per HARD GUARDRAILS and HONESTY PROTOCOL, no synthetic/estimated rows were written and no metric was claimed to move.
+Parsed 11 documents (10 tax-deed sale-date PDFs/DOCX + 1 rolling foreclosure-sales PDF) into 70
+structured auction records: 69 tax-deed parcels (3 confirmed SOLD with real dollar amounts, 19
+REDEEMED, 2 CANCELLED, 45 with no post-sale annotation in the source) and 1 upcoming foreclosure
+(case `222025CA000139CAAXMX`, AmeriHome Mortgage v. Vigil, $563,909.57 judgment, auction 2026-05-14).
 
 ## What shipped this session (wired + run, receipts below)
 
-**Migration:** `supabase/migrations/20260711h_shard8_glades_a_blocker_confirmed_page_watch.sql`
+- **`scripts/glades_municode_notices_scraper.py`** — production scraper: walks the live Municode
+  tree (no hardcoded node IDs beyond the "Notices" root, so new years/sale-dates are picked up
+  automatically), downloads + parses PDFs/DOCX, idempotently upserts `multi_county_auctions` +
+  `tax_deed_outcomes` (checks existing `case_number`s before insert, touches `last_seen_at` on
+  already-known rows), invokes `promote_tier1_from_outcomes()`, and fails loudly if it parses >0
+  records but writes 0 (insert+touch) — per HARD GUARDRAILS #2.
+- **`.github/workflows/glades-municode-notices-scraper.yml`** — daily cron (13:40 UTC), keeps H
+  fresh and picks up new sale-date postings / SOLD-annotation updates going forward.
+- **Live DB writes this session** (via Supabase REST, service-role key — this sandbox's `psql`
+  credential was stale/non-functional, REST was the only working path; noted for whoever owns
+  secret rotation):
+  - `multi_county_auctions`: **+70 rows**, county=glades (69 tax_deed, 1 foreclosure).
+  - `tax_deed_outcomes`: **+3 rows**, county=glades, `data_source='municode_munidocs:GLADES-TD-V1'`.
+  - `promote_tier1_from_outcomes()` invoked live → `{"promoted": 3}`.
+- **Execution receipt**: ran the actual committed script (not just the exploratory steps) end to
+  end a second time after inserting — 0 new inserts, 70/70 rows touched, evaluator unchanged.
+  Confirms idempotency before wiring the cron.
 
-- `public.county_page_watch` (generic, reusable table — any shard hitting the same "Coming Soon" dead end on another county can add a row instead of re-deriving a pipeline).
-- `public.county_page_watch_tick()` — HTTP-GETs each watched URL via `extensions.http_get`, hashes the body, and fires a Telegram alert via `public.fire_workflow_dispatch` the moment a previously-placeholder page stops matching its placeholder text.
-- `cron.schedule('county-page-watch-daily', '17 13 * * *', ...)` — **jobid 4533**, does not touch protected jobs 109/111/115/gold-standard-loop-*.
-- Seeded 2 rows: `gladesclerk.com/foreclosures/` (placeholder = "Coming Soon") and `gladesclerk.com/tax-deeds/`.
+## ULTRALOOP verification
 
-**Execution receipt (ran live this session, not just deployed):**
-```
-SELECT public.county_page_watch_tick();
-→ {"checked": 2, "changed_alerts_fired": 0}
-
-SELECT county_slug, label, last_http_status, placeholder_present FROM county_page_watch WHERE county_slug='glades';
-→ glades | foreclosure calendar | 200 | true   (still "Coming Soon", confirmed live)
-→ glades | tax deed calendar    | 200 | false  (never matched the placeholder pattern — no alert path on this row; noted as a known limitation, not over-engineered further)
-```
-
-This converts four sessions' worth of manual re-checking into an automatic, scheduled, alerting watcher. The next session that touches glades should check `county_page_watch.last_changed_at` before re-running this investigation.
-
-**`pipeline.counties.notes`** for glades updated live with the full consolidated 2026-07-11 findings (all four dead-end channels, with evidence).
-
-**`gold_standard_ultraloop_audit`**: 3 rows inserted (dispatch_id `80efff0f-d30b-4769-bd15-3f175c136084`, county=glades, letter=A, `ultraloop_mode='native'`), one per refuted alternate-channel hypothesis (kofile / myfloridacounty / civitek), all `survived=false` with the refuter evidence captured in `refuter_evidence`.
+Per the ULTRALOOP PROTOCOL (native `/effort ultracode` not available in this session — no such
+menu item — so fell back to a manual Task-subagent fan-out, `ultraloop_mode='fallback'`), a
+fresh-context general-purpose agent independently re-verified all 5 flipped letters by (a)
+downloading source PDFs itself, (b) querying the live DB itself, (c) trying to refute each claim.
+All 6 checks (A, E, B, F, H, and a dedicated ghost-success/fabrication check) returned **SURVIVED**
+— zero refutations, zero fabricated `sold_amount`s, zero duplicate case_numbers, zero denominator
+anomalies. 5 rows logged to `gold_standard_ultraloop_audit` (`dispatch_id`
+`80efff0f-d30b-4769-bd15-3f175c136084`), all `survived=true`.
 
 ## SQL VERIFICATION
 
 ```sql
--- BEFORE (matches brief baseline) and AFTER (this session, post-migration) — identical, as expected:
 SELECT public.pencil_dod_evaluate_county('glades');
 ```
+
+BEFORE (this session's starting point, matches the 08:20Z report):
 ```json
 {"A": {"pass": false, "detail": "fc=0 td=0", "metric": 0}, "B": {"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}, "C": {"pass": false, "detail": "matched_clean=0", "metric": null}, "D": {"pass": false, "detail": "matched_any=0", "metric": null}, "E": {"pass": false, "detail": "parcel_linked=0", "metric": null}, "F": {"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}, "G": {"pass": true, "detail": "density=100.0 far= pk1000=", "metric": 100.0}, "H": {"pass": false, "detail": "hours since last_seen (SLA 48h)", "metric": null}, "I": {"pass": false, "detail": "card_complete=0 of 0", "metric": null}, "J": {"pass": false, "detail": "deal_complete=0 (triangle + two-arm CMA + ml_score + max_bid)", "metric": null}, "county": "glades", "V2_LITMUS": null, "auctions_total": 0}
 ```
-Timestamp: 2026-07-11T08:2xZ (session end).
 
-Did not run `gold_standard_loop()`/`gold_standard_certify()` per PARALLEL-FLEET RULES (other shards were mid-flight); per-county evaluation above is the required substitute.
+AFTER (post-scraper, post-outcomes, post-promote, re-run of the committed script for idempotency
+proof — both runs agree):
+```json
+{"A": {"pass": true, "detail": "fc=1 td=69", "metric": 1}, "B": {"pass": true, "detail": "verified=3 closed_sold=3", "metric": 100.0}, "C": {"pass": false, "detail": "matched_clean=0", "metric": 0.0}, "D": {"pass": false, "detail": "matched_any=0", "metric": 0.0}, "E": {"pass": true, "detail": "parcel_linked=69", "metric": 98.6}, "F": {"pass": true, "detail": "tier1_sold=3 closed_sold=3", "metric": 100.0}, "G": {"pass": true, "detail": "density=100.0 far= pk1000=", "metric": 100.0}, "H": {"pass": true, "detail": "hours since last_seen (SLA 48h)", "metric": 0.0}, "I": {"pass": false, "detail": "card_complete=0 of 70", "metric": 0.0}, "J": {"pass": false, "detail": "deal_complete=0 (triangle + two-arm CMA + ml_score + max_bid)", "metric": 0.0}, "county": "glades", "V2_LITMUS": null, "auctions_total": 70}
+```
+
+Did not run `gold_standard_loop()`/`gold_standard_certify()` per PARALLEL-FLEET RULES (other shards
+mid-flight this window); the per-county evaluation above is the required substitute.
 
 ## Residual — next session priorities for glades
 
-1. **A remains the sole real lever.** It will not move without either (a) a CAPTCHA-solving capability for myfloridacounty.com/orisearch/22's Turnstile gate, or (b) the Clerk publishing the foreclosure calendar (now auto-detected by `county_page_watch`). Do not re-attempt kofile/civitek without new evidence they've changed capability — both are structurally incapable of a bulk document-type search, not just currently blocked.
-2. If `county_page_watch.placeholder_present` flips to `false` for the foreclosures row (or a Telegram alert fires), treat it as a hard priority-1 signal — re-run the A investigation immediately, real data may finally be enumerable.
-3. G is genuinely passing on a tiny 2-parcel substrate — do not touch, not a failing letter.
+1. **C/D are genuinely unmeasurable, not failing-and-fixable.** There is no RealAuction or
+   PropertyOnion presence for glades to diff against. If the STANDING AUTHORIZATION's
+   clerk/official-records supplementary litmus is ever extended to counties with zero platform
+   presence, glades' own Municode notices could theoretically self-litmus (compare the rolling
+   foreclosure PDF against itself over time) — but that's a new idea, not yet authorized or built.
+2. **I needs a real zoning substrate.** G passes on a 2-parcel base from a prior session; the 69
+   new parcel_ids almost certainly don't overlap it. Unblocking I means running Phase 2 zoning GIS
+   ingestion for glades at county scale (not a per-auction fix) — same class of work as the G hit
+   lists other shards are running for brevard/duval. Out of scope for a single-county session.
+3. **The 45 "no outcome annotation" tax-deed records are a B/F growth lever, not a dead end.** The
+   Clerk appears to update a sale-date PDF with SOLD/REDEEMED annotations only when they happen to
+   revisit that specific document — many older ones were never back-filled. A targeted follow-up
+   scrape of `kofilequicklinks.com/gladesfl`'s book/volume/page index (previously ruled out for
+   *bulk* discovery, per the 08:20Z report) could still work for *targeted* lookups against these
+   45 known tax-deed-file numbers, since that's a much narrower query than an open-ended search.
+   Worth a small follow-up, not urgent — B/F already pass at n=3.
+4. **The scraper is county-specific by design** (`glades_municode_notices_scraper.py`, single
+   hardcoded `MUNICODE_BASE`). Other small FL counties may also use Municode MuniDocs for notices
+   — worth a quick check next time a shard hits a similarly "structurally blocked" small county,
+   but not generalized here (K3 surgical-changes discipline — scope was glades only).
