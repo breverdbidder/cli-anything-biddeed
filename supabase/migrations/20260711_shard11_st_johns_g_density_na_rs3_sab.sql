@@ -1,0 +1,51 @@
+-- Gold Standard shard-11 (st_johns) — G fix: mark density NOT regulated for RS-3 and SAB
+--
+-- VERIFIED evidence (session run3679-b, dispatch 17725211-9941-4675-87d5-14eacc6a6bcb):
+--
+-- RS-3 ("Residential, Single Family"):
+--   St. Johns County LDC Article VI, Table 6.01 "Schedule of Area, Height, Bulk and
+--   Placement Standards" (https://www.sjcfl.us/wp-content/uploads/2024/01/article-vi.pdf,
+--   page VI-2, effective Jan 12 2026) lists Minimum Lot Width/Area, Max Lot Coverage,
+--   FAR, Impervious Surface Ratio, Min Yard Req., and Max Height per zoning district.
+--   There is NO dwelling-units-per-acre column in this table for any single-family
+--   district (RS-E/RS-1/RS-2/RS-3/RG-1 SF/RG-2 SF). Density for single-family zoning
+--   in this LDC is governed structurally by Minimum Lot Area (7,500 sq ft for RS-3,
+--   already captured in zone_standards.min_lot_sqft=7500) plus the "One Dwelling Unit
+--   Per Lot" rule (Sec 6.01.03.D), not by a stated max_density_du_acre figure. FAR is
+--   explicitly "N/A" for RS-3 in the same table (already reflected via far_regulated
+--   defaulting false through v_zoning_district_applicability).
+--   This matches the established pattern already in production for other counties'
+--   single-family districts, e.g. Brevard RU-1-7 "Single-Family Residential District"
+--   and Brevard R-1AA "Single-Family Residential District", both density_regulated=false.
+--
+-- SAB ("South Anastasia Beach (Overlay Area)"):
+--   St. Johns County LDC Article III Part 3.07.00 "South Anastasia Overlay District"
+--   (https://www.sjcfl.us/wp-content/uploads/2024/01/Article-III.pdf, pages III-68 to
+--   III-72, effective June 2 2026). Sec 3.07.03.A explicitly EXCLUDES Single-Family
+--   Dwellings and Two-Family Dwellings from all standards prescribed in this overlay
+--   Part. SAB is an overlay superimposed on an underlying base zoning district (Sec
+--   3.07.02.A) — it does not independently regulate density for the residential parcel
+--   in question (parcel_id 1641610710 / 171 Ridgeway Rd, Saint Augustine — Vacant
+--   Residential per County GIS Parcel_Dissolve layer). The overlay's own Part 3.07.04-07
+--   sections cover impervious coverage (65% for non-SF commercial uses), GFA, yards,
+--   buffers, and fences for the (excluded-for-SF) commercial/multi-family case — no
+--   du/acre figure exists in this Part for any use.
+--   Attempted to resolve SAB's true underlying base zoning district via St. Johns
+--   County GIS (gis.sjcfl.us/portal_sjcgis/rest/services/Zoning_Districts/FeatureServer)
+--   — the only live zoning layer found returns a bare undocumented 2-character DISTRICT
+--   code ("A") with no legend/domain crosswatch to LDC zone codes, and no field
+--   confirming it corresponds to residential zoning at this parcel. Could not reliably
+--   resolve to a real base zone_code without risking a fabricated crosswalk. Reported
+--   as residual (see session report) — this fix only marks the SAB entry itself as
+--   correctly not-independently-density-regulated, consistent with the overlay's own
+--   text; it does NOT invent a base-zone density value.
+--
+-- Net effect: v_zoning_district_applicability.density_applicable becomes false for both
+-- rows, so v_zoning_gold_standard_kpi_v3.pct_density_of_applicable denominator excludes
+-- them (32 applicable -> 30 applicable, 30/30 = 100.0%) instead of counting them as
+-- unfilled numerator gaps (30/32 = 93.8%).
+
+UPDATE zoning_districts
+SET density_regulated = false
+WHERE id IN (11398, 11399)  -- RS-3, SAB — st_johns (jurisdiction_id 1364)
+  AND code IN ('RS-3', 'SAB');
