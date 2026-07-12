@@ -1,0 +1,169 @@
+session:
+  shard: SHARD-14
+  county: putnam
+  date: 2026-07-12
+  dispatch_id: b64fc10b-9ce5-494b-8ba6-505d0f19219c
+  mode: single-county targeted fix (letters C, D, I) -- continuation of shard6/run3679
+    lineage (commits ae6ab7f9, 20260711o civitek-ocrs-blocked) and the standalone
+    G-fix session (dispatch d820c0b5, audit id 5888)
+  ultraloop_mode: native (Workflow tool used for adversarial verification per
+    ULTRALOOP PROTOCOL)
+
+baseline_verified_live:
+  pencil_dod_evaluate_county_putnam:
+    A: {pass: true, metric: 38, detail: "fc=38 td=412"}
+    B: {pass: true, metric: 100.0, detail: "verified=3 closed_sold=3"}
+    C: {pass: false, metric: 66.0, detail: "matched_clean=297 of 450"}
+    D: {pass: false, metric: 66.0, detail: "matched_any=297 of 450"}
+    E: {pass: true, metric: 98.2, detail: "parcel_linked=442 of 450"}
+    F: {pass: true, metric: 100.0, detail: "tier1_sold=3 closed_sold=3"}
+    G: {pass: true, metric: 99.5, detail: "density=99.5 far= pk1000="}
+    H: {pass: true, metric: 7.7, detail: "hours since last_seen"}
+    I: {pass: false, metric: 90.0, detail: "card_complete=405 of 450"}
+    J: {pass: true, metric: 100.0, detail: "deal_complete=450 of 450"}
+    auctions_total: 450
+
+decisions:
+  - step: 1
+    action: "Read prior session logs before touching anything (2026-07-11 civitek-ocrs-blocked,
+      i2-continuation) to avoid duplicating exhausted work"
+    result: "C/D independently confirmed twice already: 153 residual tax_deed case numbers
+      genuinely absent from live RealTaxDeed calendar; Civitek OCRS gated behind an
+      unautomatable Cloudflare Turnstile. I blocked specifically on AG-district density
+      figure (Municode 403, no Firecrawl in that session's env) and 8 parcel-less rows
+      (realforeclose.com 403)."
+    reason: "Evidence-Before-Claims -- read the ledger before re-deriving it"
+
+  - step: 2
+    action: "Checked gold_standard_ultraloop_audit for putnam and found a NEWER row (id=5888,
+      dispatch d820c0b5, 2026-07-11T19:31Z, survived=true) that the i2-continuation session
+      predates: zone_standards id=4462 (zoning_district_id=11512, jurisdiction 931 code AG)
+      now has max_density_du_acre=0.10, sourced from the Putnam Comp Plan FLU PDF"
+    result: "This is exactly the precondition the 2026-07-11 i2 session said was missing
+      before it could safely re-insert the 22 GIS-verified AG parcel_zones rows it had
+      found-but-reverted. Confirmed live: parcel_zones for those 22 parcel_ids = 0 rows
+      (revert was clean, nothing to redo but the insert itself)."
+    reason: "cross-session ledger reading is how this session found a real, low-risk lever
+      instead of re-running an already-exhausted search"
+
+  - step: 3
+    action: "Re-derived the current 45-row I gap from live DB via pencil_dod_evaluate_county's
+      own SQL (pg_get_functiondef), fixing a NULL-propagation bug in a first draft of the
+      listing query (NOT(NULL)=NULL silently drops rows from a WHERE clause -- switched to
+      explicit COALESCE(...,false) boolean flags per column)"
+    result: "addr=5, geo=3, val=3, no_parcel=8, zone_link_gap=45 (37 with parcel_id + 8
+      without) -- exact match to the 2026-07-11 i2 session's breakdown, confirming state
+      is stable across sessions"
+    reason: "verify root cause live per HONESTY PROTOCOL rather than trust a pasted number"
+
+  - step: 4
+    action: "Re-ran the proven Tax_Parcel_AGO -> Zoning_Districts_AGO centroid-intersect
+      method against the 36 real-format zone-link candidates"
+    result: "34/36 matched Tax_Parcel_AGO (2 absent, same 2 as 2026-07-11: 28-10-24-0000-0200-0000,
+      38-12-26-0000-0040-0002). 22/34 intersected a real zoning polygon, ALL 22 ZONECLASS=AG
+      -- identical set to 2026-07-11's reverted insert."
+    reason: "reuse the proven template exactly, per playbook"
+
+  - step: 5
+    action: "Inserted the 22 parcel_zones rows (source tag shard14_run3885/...), re-ran
+      pencil_dod_evaluate_county live"
+    result: "G held at 99.5 (NO regression -- the exact failure mode the 2026-07-11 session
+      hit is now closed by the zone_standards precondition). I improved 90.0 -> 94.9
+      (405 -> 427 of 450). Still FAIL (need 428+), 23 rows genuine residual."
+    reason: "execute-then-verify per SHIP GATE"
+
+  - step: 6
+    action: "Attempted one fresh C/D lever: WebSearched for a Putnam Clerk tax-deed portal
+      distinct from Civitek OCRS and the RealTaxDeed calendar. Found apps.putnam-fl.com
+      (Clerk's own tax-deed app, NOT Cloudflare-gated -- confirmed 200 OK via direct curl,
+      unlike putnamclerk.com/library.municode.com/putnam.realtaxdeed.com which all 403)."
+    result: "Found the LAFT (Lands Available for Tax Deed) list -- 33 case numbers spanning
+      2018-2021. Its 'Auction List' link (public_property_list.php) 302-redirects to the
+      Clerk homepage regardless of session/cookie state -- dead/removed endpoint, not a
+      Cloudflare gate. Compared all 33 LAFT case numbers against putnam's 153 unmatched and
+      297 matched tax_deed case numbers: ZERO overlap (different case-year population, no
+      site defect)."
+    reason: "standing authorization pre-approves adopting a new litmus source if found --
+      tried it in good faith, documented the honest negative rather than force a match"
+
+  - step: 7
+    action: "Ran ULTRALOOP adversarial verification via Workflow tool: 3 independent refuter
+      agents (reproduction, provenance/ghost-success, regression/blast-radius) against the
+      I-letter claim, each with live DB/GIS access and instructed to default to refuted=true
+      on any doubt"
+    result: "3/3 refuted=false. Reproduction: reran all queries + 5/5 fresh ArcGIS
+      spot-checks, all confirmed AG live. Provenance: fetched the Comp Plan PDF directly,
+      confirmed page 24/A22 states verbatim '1 dwelling unit per 10 acres... up to 1
+      dwelling unit per 5 acres with road frontage' -- matches DB value exactly, zero
+      PropertyOnion contamination, zero duplicates. Regression: all 10 letters checked,
+      zero regressions, zero leakage outside putnam/jurisdiction 931, zero out-of-scope
+      writes."
+    reason: "ULTRALOOP PROTOCOL mandatory verify step before any claim ships; certify gate
+      requires a survived=true audit row newer than the metric change"
+
+  - step: 8
+    action: "Logged gold_standard_ultraloop_audit row (letter=I, survived=true) with all
+      three refuters' evidence, wrote migration file, wrote this session log"
+    result: "audit insert HTTP 201 confirmed"
+    reason: "CERTIFY GATE requires an audit row before a letter's improvement counts"
+
+evaluator_after: |
+  Re-ran pencil_dod_evaluate_county('putnam') live, final state this session:
+    A: pass=true metric=38 (unchanged)
+    B: pass=true metric=100.0 (unchanged)
+    C: pass=false metric=66.0 matched_clean=297 of 450 (unchanged -- genuinely blocked,
+       re-verified + one new lever tried and exhausted this session)
+    D: pass=false metric=66.0 matched_any=297 of 450 (unchanged, same root cause as C)
+    E: pass=true metric=98.2 (unchanged)
+    F: pass=true metric=100.0 (unchanged)
+    G: pass=true metric=99.5 (unchanged -- confirmed NOT regressed, adversarially verified)
+    H: pass=true metric=~7.8h (unchanged, natural freshness drift only)
+    I: pass=false metric=94.9 card_complete=427 of 450 (IMPROVED from 90.0/405, +22 rows,
+       adversarially verified survived=true; still short of 95% threshold by 1 row)
+    J: pass=true metric=100.0 (unchanged)
+  Net: putnam remains 7/10 (A,B,E,F,G,H,J pass; C,D,I fail) -- same pass-count as session
+  start, but I moved meaningfully closer to threshold (90.0 -> 94.9) with the improvement
+  adversarially confirmed real, not a ghost-success.
+
+migration_files:
+  - supabase/migrations/20260712_shard14_putnam_i_ag_zonelink_reinsert.sql
+
+honesty_tags:
+  - "Baseline/after A-J percentages: VERIFIED via live pencil_dod_evaluate_county('putnam')
+    calls, pasted verbatim, both by this session directly and independently reproduced by
+    3 refuter agents with no shared context."
+  - "22 parcel_zones AG rows: VERIFIED live GIS data (Tax_Parcel_AGO + Zoning_Districts_AGO,
+    ArcGIS org YZc1OyqL6jbIOeOv), re-confirmed by refuter spot-checks (5+7=12 of 22 parcels
+    independently re-queried against live ArcGIS, 12/12 ZONECLASS=AG)."
+  - "AG density figure 0.10 du/acre: INFERRED (Comp Plan FLU Element, not Municode zoning
+    text itself -- Municode remains 403-blocked), confidence_score=0.55, but the PDF quote
+    was independently fetched and verbatim-confirmed by a refuter agent this session."
+  - "C/D LAFT lever: VERIFIED dead end -- 33 case numbers fetched live, zero overlap with
+    putnam's 153 residual or 297 matched case numbers, confirmed by direct set comparison."
+  - "No regression: VERIFIED via live re-query of all 10 letters + jurisdiction-scoped write
+    audit (only jurisdiction_id=931 received rows) + out-of-scope-table zero-write check,
+    all performed independently by the regression refuter agent."
+
+next_session_priority: |
+  I needs exactly 1 more of these 23 residual rows to cross 95% (428/450): 12 rows have a
+  real Tax_Parcel_AGO match but zero zoning-polygon coverage at centroid (genuine source-
+  layer gap, unresolved across 3 sessions now); 8 rows have parcel_id IS NULL with zero
+  cross-reference in tax_deed_outcomes/foreclosure_outcomes/property_documents/
+  document_extractions (exhausted internally, only remaining lead is realforeclose.com
+  detail pages which are 403-blocked to every fetch tool tried across 3 sessions); 2 parcel_ids
+  are absent from Tax_Parcel_AGO entirely (re-tried with LIKE fuzzy match this session, still
+  absent); 1 is a scraper-artifact bad parcel_id. None of these are quick wins -- the 12
+  no-polygon rows are the most promising if a session can find an alternate/updated Putnam
+  zoning GIS layer, or a phone-verified figure from Putnam Planning & Zoning (386-329-0491)
+  per the standing next-session note.
+  C/D remains genuinely blocked pending either (a) a human solving the Civitek OCRS
+  Cloudflare Turnstile once and batch-querying the 153 residual case numbers, or (b) a new
+  independent source discovery -- apps.putnam-fl.com's Clerk tax-deed app is real and
+  un-gated but its only useful page (LAFT) covers 2018-2021 cases with zero overlap; the
+  live-auction-list link on that same app (public_property_list.php) is dead/redirects to
+  the Clerk homepage regardless of approach tried.
+
+no_regressions: true
+files_changed_this_session:
+  - supabase/migrations/20260712_shard14_putnam_i_ag_zonelink_reinsert.sql
+  - .claude/session-logs/2026-07-12-gold-standard-shard14-putnam.yml
