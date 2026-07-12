@@ -1,0 +1,110 @@
+-- Gold Standard shard-13: lafayette, dispatch e440836a (7th consecutive session
+-- against this county's B/F residual). NO DATA WRITTEN THIS SESSION --
+-- documentation-only migration, recording a genuine, sourced BLOCKED/UNKNOWN
+-- finding per repo NEVER-LIE canon (BLANK>WRONG). audit rows already inserted
+-- live via REST (gold_standard_ultraloop_audit ids 6159-6160).
+--
+-- BASELINE (pencil_dod_evaluate_county('lafayette'), verified live via REST RPC
+-- before this session): 8/10 -- A,C,D,E,G,H,I,J pass; B,F fail.
+--   B {pass:false, detail:"verified=0 closed_sold=0", metric:null}
+--   F {pass:false, detail:"tier1_sold=0 closed_sold=0", metric:null}
+--   auctions_total=2: (1) foreclosure case 25000056CAAXMX, sale scheduled
+--   2026-09-03 (genuinely future, ~2 months out); (2) tax deed Certificate
+--   No. 2022-28 / parcel 0704110000000000501, a pre-sale application notice
+--   originally scheduled 2024-09-12 (real Wayback-archived PDF, added by the
+--   prior b34a2384 session for criterion A -- no outcome data in the notice
+--   itself). Both rows real, zero fabrication, confirmed unchanged before and
+--   after this session.
+--
+-- PRIOR HISTORY: 6 consecutive sessions (2026-07-02, 07-04, 07-10, 07-11
+-- morning, 07-11 evening [b34a2384 3rd firing], 07-11 evening [b34a2384
+-- duplicate re-fire addendum]) already exhausted 8 distinct research avenues:
+-- lafayette.realtaxdeed.com/realforeclose.com probes, Wayback Machine archive
+-- (this is what DID work, for A only), Municode Angular SPA JSON API (401
+-- walls), myfloridacounty.com/orisearch/34 Official Records search (Turnstile
+-- CAPTCHA on submit), Civitek Florida OCRS civitekflorida.com/ocrs/county/34
+-- (same Turnstile family), Lafayette County Tax Collector lafayettetc.com (no
+-- delinquent/DR-513 list published), FY2024 Auditor General AFR full-text
+-- (zero "deed"/"tax certificate" mentions), third-party tax-deed investor
+-- aggregators (no coverage of these specific case numbers).
+--
+-- THIS SESSION (2026-07-12, dispatch e440836a): rather than re-running any of
+-- the 8 already-exhausted avenues, ran one ultracode Workflow
+-- (wf_77199e99-643: 3 discover agents + 3 independent adversarial-verify
+-- agents) targeting 3 avenues genuinely NOT tried by any prior session:
+--
+-- 1. Property Appraiser record-card lookup for parcel 0704110000000000501,
+--    via the county's real GIS platform -- discovered this session to be
+--    Beacon/Schneider Geospatial (beacon.schneidercorp.com, AppID=1396,
+--    LayerID=47258), not a locally-hosted viewer. FL property appraiser
+--    record cards typically carry a sales/transfer-history section that would
+--    independently confirm a completed tax deed transfer + consideration
+--    (sale price). RESULT: every query variant (with and without
+--    KeyValue=0704110000000000501) returned HTTP 403 with a literal
+--    Cloudflare "Attention Required!" / "Sorry, you have been blocked" bot-
+--    management page -- not a CAPTCHA form, a hard block. The site's OTHER
+--    legacy GIS path (lafayettepa.com/GIS/, "Grizzly GIS") loads HTTP 200 but
+--    is a 129-line pure-JS auto-submit shell (gz.floridapa.com/mapserver
+--    backend) with zero static parcel data reachable without a full
+--    JS-executing browser. Independently re-fetched and confirmed by the
+--    adversarial verifier (same 403 body, same sitekey/behavior reproduced).
+--
+-- 2. FL unclaimed-property / tax-deed-surplus channel. FL Statute 197.582
+--    routes unclaimed tax-deed overbid/surplus proceeds to the Bureau of
+--    Unclaimed Property (fltreasurehunt.gov) -- an independent channel that,
+--    if it had a record tied to "Bandit Capital LLC" or this parcel/
+--    certificate, would both confirm the sale occurred AND potentially bound
+--    the sold amount. RESULT: fltreasurehunt.gov returned a WAF rejection
+--    page ("The requested URL was rejected. Please consult with your
+--    administrator") with no search form reachable via WebFetch -- genuinely
+--    un-scriptable without a real browser session, not a lazy non-attempt
+--    (independently re-fetched, identical rejection, matching support-ID
+--    pattern). No county-published surplus/excess-proceeds list exists
+--    either. WebSearches for "2022-28" + Lafayette County and "Bandit
+--    Capital LLC" + Lafayette County both returned zero relevant hits,
+--    re-confirmed independently.
+--
+-- 3. Fresh (same-day) re-fetch of the live clerk tax-deeds and foreclosure-
+--    sales pages, since real time has passed since the 07-11 checks. RESULT:
+--    the tax-deeds page still reads "There are no properties on the list of
+--    tax deeds at this time" (Certificate 2022-28 was never on the LIVE
+--    listing to begin with -- it was recovered only via Wayback archive by
+--    the prior session -- so its continued absence from the live page is
+--    expected, not a new signal). Grep of the full page text for the
+--    certificate number, parcel ID, and "Bandit" returned zero matches. The
+--    foreclosure-sales page confirms case 25000056CAAXMX is still
+--    "scheduled" for 2026-09-03 as expected (genuinely still in the future).
+--    No status change, no sold amount, no winning bidder found anywhere.
+--
+-- All 3 findings were independently adversarially re-verified (own re-fetch
+-- of every cited URL, not trusting the discoverer's quotes) before being
+-- logged. Net verdict: NO actionable new evidence for B or F. This is the
+-- 7th consecutive session to independently reconfirm the same structural
+-- block, now across 9 total distinct research avenues (Beacon/property-
+-- appraiser and FL unclaimed-property being the 2 new ones this session).
+--
+-- NO SQL EXECUTED. NO ROWS INSERTED OR UPDATED in multi_county_auctions,
+-- tax_deed_outcomes, or foreclosure_outcomes this session. Per HONESTY
+-- PROTOCOL, no sold amount, winning bidder, or completed-sale status was
+-- fabricated or force-matched to make B/F computable.
+--
+-- POST-CHECK (pencil_dod_evaluate_county, re-run live via REST RPC after the
+-- workflow, before writing this file): identical to baseline above --
+-- confirms no accidental writes occurred during research. auctions_total
+-- unchanged (2).
+--
+-- RECOMMENDATION (repeats and reinforces the b34a2384 addendum's standing
+-- recommendation, now with 2 additional avenues exhausted): the remaining
+-- paths to unblock B/F -- (a) a real headless-browser session that can pass
+-- Cloudflare's browser-integrity checks on Beacon and still hit the
+-- Turnstile CAPTCHA wall on the Official Records search, or (b) a direct
+-- phone/mail records request to the Lafayette County Clerk (120 W Main St,
+-- Mayo FL, 386-294-1600) or Property Appraiser (386-294-1991) -- are both
+-- explicitly out of scope for an automated pipeline session per current
+-- repo policy (no CAPTCHA-solving). Absent a scope change, further daily
+-- firings of this dispatch against lafayette B/F will reproduce this exact
+-- result. Recommend this dispatch be closed or superseded for lafayette
+-- specifically; A/C/D/E/G/H/I/J remain correctly closed and stable at 8/10.
+
+-- (no-op: documentation only, see comments above)
+SELECT 1;
