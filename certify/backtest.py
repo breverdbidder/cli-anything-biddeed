@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -60,7 +60,7 @@ def _sb_post(path: str, body: dict) -> Any:
 
 def fetch_recent_trails(days: int) -> list[dict]:
     """Fetch distinct (county_slug, final_certify) from last N days."""
-    cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = _sb_get("certify_tier_trail", {
         "created_at": f"gte.{cutoff}",
         "select":     "county_slug,final_certify,gate_verdict,gate_pass_count,gate_letters",
