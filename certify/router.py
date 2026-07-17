@@ -175,7 +175,7 @@ def _run_gate(county_slug: str) -> GateResult:
     Calls pencil_dod_evaluate_county via Supabase RPC.
     Returns GateResult with pass_count and per-letter booleans.
     """
-    rows = _sb_rpc("pencil_dod_evaluate_county", {"county_slug_arg": county_slug})
+    rows = _sb_rpc("pencil_dod_evaluate_county_rows", {"county_slug_arg": county_slug})
 
     letters: dict[str, bool] = {}
     detail: dict[str, dict] = {}
