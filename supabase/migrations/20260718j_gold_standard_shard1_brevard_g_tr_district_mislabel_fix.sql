@@ -1,0 +1,82 @@
+-- Gold Standard shard-1 (brevard) — letter G (zoning density/FAR/parking) fix
+-- Dispatch: c40bb245-4b9f-475a-a7c7-648a09e836c2
+--
+-- CONTEXT: this is a cross-shard regression, not one of this dispatch's
+-- originally-assigned letters. Brevard G was PASS (99.7%) at session start.
+-- A concurrent shard-3 session (dispatch 26f01b9b, commit eac9a614) fixed a
+-- genuine statewide bug in public.v_zoning_district_applicability, which had
+-- hardcoded `false AS pk1000_applicable` for every zoning district in the
+-- state regardless of category. That fix is correct in principle and its
+-- commit message asserts "this can only help, never regress" other
+-- counties' G, reasoning that pk1000 was already floor-0.0 (NULL, skipped by
+-- LEAST()) wherever it mattered. That reasoning was WRONG for brevard: a
+-- previously-NULL (and therefore LEAST()-skipped) pk1000 metric became a
+-- real, computed, sub-threshold number once the view started correctly
+-- treating brevard's "Commercial"-categorized districts as pk1000-
+-- applicable -- flipping G from PASS (density=99.7 far=99.8, pk1000=NULL)
+-- to FAIL (pk1000=77.0), independently reconfirmed live this session.
+--
+-- DIAGNOSIS: sized the gap via v_zoning_gold_standard_kpi_v3 and a
+-- district-level leverage query. Two Unincorporated Brevard County /
+-- Titusville districts covered ~99% of the 3,120-parcel gap:
+--   - TR-1 (Unincorporated Brevard, id 1543): 2,895 parcels
+--   - RMU  (Titusville, id 1623):               204 parcels
+--   (TR-2 id 1544: 9, TR-3 id 1545: 6, UV id 1622: 5, TRC-1 id 9508: 1)
+--
+-- ROOT CAUSE (TR-1/TR-2/TR-3, ids 1543/1544/1545): zoning_districts had
+-- these labeled name='Tourist Resort 1/2/3', category='Commercial', with
+-- zone_standards.source_url IS NULL and ordinance_section IS NULL (no
+-- citation for the populated max_far/max_density_du_acre/setback figures --
+-- an unsourced ingestion artifact, scraped_at 2026-03-04). Verified against
+-- the REAL Brevard County Code of Ordinances (library.municode.com/fl/
+-- brevard_county, Ch. 62, Art. VI, Div. 4, Subdivision IV — "Mobile Home
+-- Residential and Recreational Vehicle Park"):
+--   - Sec. 62-1402 "Single-family mobile home, TR-1 and TR-1-A": permitted
+--     uses are single-family mobile home units, single-family detached
+--     dwellings (600 sqft min), foster homes, group homes level I,
+--     accessory residential uses -- a residential mobile-home
+--     classification, NOT a tourist/commercial one.
+--   - Sec. 62-1404 "Mobile home park, TR-3": also residential (mobile home
+--     park), confirming the TR-series pattern within this subdivision.
+--   - TR-2 is inferred (not independently fetched) to follow the same
+--     residential mobile-home pattern given its position in the same
+--     Subdivision IV alongside TR-1/TR-1-A/TR-3/RVP -- flagged here as
+--     INFERRED rather than VERIFIED for TR-2 specifically.
+-- Our own category='Commercial' label was therefore a data error, not a
+-- reflection of the real ordinance -- this fix corrects that error (using
+-- primary-source evidence), it does not fabricate or guess a new value.
+--
+-- EFFECT: correcting category to 'Residential' removes these 3 districts
+-- (2,910 parcels) from BOTH the FAR-applicable and pk1000-applicable pools
+-- (where they were incorrectly inflating "applicable" counts with unsourced
+-- numbers) and correctly adds them to the density-applicable pool instead
+-- (where they already have a populated, if unsourced, max_density_du_acre
+-- figure -- that pre-existing sourcing gap is NOT touched or fixed by this
+-- migration; it predates this dispatch and is a separate concern).
+--
+-- NOT fixed here (out of scope, flagged for a future session):
+--   - Titusville RMU (204 parcels) and UV (5 parcels) are genuinely
+--     mixed-use districts with real municode source_url citations --
+--     pk1000_applicable=true is CORRECT for them. They still lack a
+--     parking_per_1000sf value and would need real ordinance research
+--     (Titusville LDC Sec. 28-327/28-328) to close for real. Not attempted
+--     this session since the TR fix alone was sufficient to pass G.
+--   - zone_standards.source_url/ordinance_section remain NULL for TR-1/2/3
+--     (max_far, max_density_du_acre, setbacks etc. are unsourced legacy
+--     values, confidence_score=0.75, predating this campaign's
+--     source-citation enforcement). Not re-verified or removed here --
+--     surfacing for a future session per the "guessed values are banned"
+--     principle, since correcting them is a separate, larger research task
+--     than this G-unblock fix.
+--
+-- BEFORE (live RPC, this session, post cross-shard regression):
+--   G FAIL -- density=99.7 far=99.8 pk1000=77.0 (LEAST=77.0)
+-- AFTER (live RPC, re-verified 2026-07-18):
+--   G PASS -- density=99.7 far=99.8 pk1000=98.0 (LEAST=98.0)
+-- Brevard is 10/10 (A-J all PASS) as of this migration.
+
+UPDATE public.zoning_districts
+SET category = 'Residential',
+    name = name || ' (Mobile Home Residential, corrected from mislabeled Commercial/Tourist Resort per Brevard Code Sec 62-1402/62-1404)'
+WHERE id IN (1543, 1544, 1545)
+  AND category = 'Commercial';
