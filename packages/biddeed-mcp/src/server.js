@@ -4,7 +4,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 
 import { validateKey, assertTier, resolveApiKey, AuthError } from './auth.js';
 import { validateOAuthToken, resolveCustomerFromOAuth, isJwtLike } from './oauth.js';
-import { recordBilling } from './billing.js';
+import { recordBilling, checkChargeAllowance, logChargeOutcome } from './billing.js';
+import { computeIdempotencyKey, claimIdempotencyKey, completeIdempotencyKey } from './idempotency.js';
 import { captureToolCall } from './posthog.js';
 import { TOOL_STREAM } from './constants.js';
 
@@ -71,6 +72,181 @@ const HANDLERS = {
   get_property_detail:      properties.get_property_detail,
 };
 
+// GTM-22 Task 3, Failure B guard — isolated so the "unserializable result"
+// path is directly unit-testable (circular refs, BigInt, etc.) without
+// needing a real tool handler to produce one.
+export function serializeToolResult(result) {
+  try {
+    return { ok: true, text: JSON.stringify(result, null, 2) };
+  } catch {
+    return { ok: false, text: null };
+  }
+}
+
+// Test-only hook — lets integration tests substitute a tool handler (e.g. to
+// force an unserializable result or a specific error) without touching the
+// real tool implementations. Mirrors the _resetForTest convention in
+// posthog.js. Never called from the production request path.
+export function _setHandlerForTest(name, fn) {
+  HANDLERS[name] = fn;
+}
+
+// Core call-tool logic, factored out of the SDK request handler so it can be
+// exercised directly in tests (in particular the idempotency triple-fire
+// test — GTM-22 Task 2/3). apiKey is the raw credential (bd_* key or OAuth
+// bearer token); requestId is the JSON-RPC request id from the transport.
+export async function handleToolCall(apiKey, name, args = {}, requestId) {
+  const handler = HANDLERS[name];
+  if (!handler) {
+    return { content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }) }], isError: true };
+  }
+
+  // Auth + tier check — bd_* API key and WorkOS OAuth bearer token are
+  // parallel paths; the credential shape (JWT vs opaque bd_ string) decides
+  // which validator runs.
+  let customerRecord;
+  let credential;
+  const streamId = TOOL_STREAM[name] || 's1';
+  try {
+    credential = resolveApiKey(apiKey);
+    customerRecord = isJwtLike(credential)
+      ? await resolveCustomerFromOAuth(await validateOAuthToken(credential))
+      : await validateKey(credential);
+    assertTier(customerRecord, streamId);
+  } catch (err) {
+    if (err instanceof AuthError || err.isAuthError) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: err.message, code: 'AUTH_ERROR' }) }],
+        isError: true,
+      };
+    }
+    throw err;
+  }
+
+  // GTM-22 Task 2 — idempotency. Derived from API key + tool + JSON-RPC id +
+  // request body, so a client retry (same id, same body) after a 5xx never
+  // bills or re-executes twice. Fails open on infra errors: an idempotency-
+  // store outage must not block legitimate calls, only lose the dedup guarantee
+  // for that one call.
+  const idempotencyKey = computeIdempotencyKey({ credential, toolName: name, requestId, args });
+  let claim;
+  try {
+    claim = await claimIdempotencyKey({ idempotencyKey, customerId: customerRecord.customer_id, toolName: name });
+  } catch (err) {
+    process.stderr.write(`[idempotency] ${name}: ${err.message}\n`);
+    claim = { claimed: true };
+  }
+
+  if (!claim.claimed) {
+    if (claim.cached) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(claim.cached.response, null, 2) }],
+        isError: claim.cached.isError,
+      };
+    }
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: 'Duplicate request already in flight — retry shortly', code: 'DUPLICATE_IN_FLIGHT' }) }],
+      isError: true,
+    };
+  }
+
+  // GTM-22 Task 3, Failure A — do not execute a billable tool unless the
+  // charge/allowance check clears first (free data leak otherwise).
+  let allowance;
+  try {
+    allowance = await checkChargeAllowance({ customerRecord, toolName: name, streamId });
+  } catch (err) {
+    process.stderr.write(`[billing] allowance check failed open for ${name}: ${err.message}\n`);
+    allowance = { ok: true };
+  }
+
+  if (!allowance.ok) {
+    logChargeOutcome({ customerId: customerRecord.customer_id, toolName: name, streamId, outcome: allowance.outcome });
+    const errorResponse = { error: allowance.message, code: 'PAYMENT_REQUIRED' };
+    completeIdempotencyKey({ idempotencyKey, response: errorResponse, isError: true }).catch(() => {});
+    return {
+      content: [{ type: 'text', text: JSON.stringify(errorResponse) }],
+      isError: true,
+    };
+  }
+
+  // Execute tool
+  let result;
+  let resultSummary = '';
+  let toolError = false;
+  let errorClass = null;
+  const startedAt = Date.now();
+
+  try {
+    result = await handler(args);
+    resultSummary = typeof result === 'object'
+      ? (result.count !== undefined ? `count=${result.count}` : Object.keys(result).slice(0, 3).join(','))
+      : String(result).slice(0, 100);
+  } catch (err) {
+    result = { error: err.message, tool: name };
+    resultSummary = `ERROR: ${err.message.slice(0, 100)}`;
+    toolError = true;
+    errorClass = err.name || err.constructor?.name || 'Error';
+  }
+  const latencyMs = Date.now() - startedAt;
+
+  // GTM-22 Task 3, Failure B — build and validate the wire payload BEFORE
+  // charging. Billing for a response that fails to serialize is billing for
+  // nothing the customer ever received. Record-then-commit, not
+  // record-then-hope: nothing below this point is allowed to charge if this throws.
+  const serialized = serializeToolResult(result);
+  if (!serialized.ok) {
+    logChargeOutcome({ customerId: customerRecord.customer_id, toolName: name, streamId, outcome: 'serialization_error' });
+    const errorResponse = { error: 'Internal serialization error', tool: name };
+    completeIdempotencyKey({ idempotencyKey, response: errorResponse, isError: true }).catch(() => {});
+    return { content: [{ type: 'text', text: JSON.stringify(errorResponse) }], isError: true };
+  }
+
+  const response = {
+    content: [{ type: 'text', text: serialized.text }],
+    isError: toolError,
+  };
+
+  // Billing + idempotency completion fire only now that the response is
+  // confirmed serializable — non-blocking w.r.t. the return below, but never
+  // before this point.
+  recordBilling({
+    toolName: name,
+    customerRecord,
+    params: args,
+    resultSummary,
+    county: args.county || null,
+    certStatus: name === 'predict_auction_outcome' ? (result?.cert_status || null) : null,
+  }).then((billingEventId) => {
+    completeIdempotencyKey({ idempotencyKey, response: result, isError: toolError, billingEventId }).catch(() => {});
+  }).catch((err) => {
+    process.stderr.write(`[billing] ${name}: ${err.message}\n`);
+    completeIdempotencyKey({ idempotencyKey, response: result, isError: toolError }).catch(() => {});
+  });
+
+  logChargeOutcome({
+    customerId: customerRecord.customer_id,
+    toolName: name,
+    streamId,
+    outcome: toolError ? 'tool_error' : 'charged',
+  });
+
+  // PostHog usage event — independent audit ledger alongside billing_events
+  // (see posthog.js header comment for the reconciliation query). Queued +
+  // batched; never awaited, never allowed to affect the tool response.
+  captureToolCall({
+    credential,
+    toolName: name,
+    tier: customerRecord.tier,
+    latencyMs,
+    county: args.county || null,
+    cacheHit: result?.cache_hit ?? null,
+    errorClass,
+  });
+
+  return response;
+}
+
 export function createServer(apiKey) {
   const server = new Server(
     { name: 'biddeed-mcp', version: '1.0.0' },
@@ -81,83 +257,9 @@ export function createServer(apiKey) {
     tools: ALL_SCHEMAS,
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args = {} } = request.params;
-
-    const handler = HANDLERS[name];
-    if (!handler) {
-      return { content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }) }], isError: true };
-    }
-
-    // Auth + tier check — bd_* API key and WorkOS OAuth bearer token are
-    // parallel paths; the credential shape (JWT vs opaque bd_ string) decides
-    // which validator runs.
-    let customerRecord;
-    let credential;
-    try {
-      credential = resolveApiKey(apiKey);
-      customerRecord = isJwtLike(credential)
-        ? await resolveCustomerFromOAuth(await validateOAuthToken(credential))
-        : await validateKey(credential);
-      const streamId = TOOL_STREAM[name] || 's1';
-      assertTier(customerRecord, streamId);
-    } catch (err) {
-      if (err instanceof AuthError || err.isAuthError) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: err.message, code: 'AUTH_ERROR' }) }],
-          isError: true,
-        };
-      }
-      throw err;
-    }
-
-    // Execute tool
-    let result;
-    let resultSummary = '';
-    let toolError = false;
-    let errorClass = null;
-    const startedAt = Date.now();
-
-    try {
-      result = await handler(args);
-      resultSummary = typeof result === 'object'
-        ? (result.count !== undefined ? `count=${result.count}` : Object.keys(result).slice(0, 3).join(','))
-        : String(result).slice(0, 100);
-    } catch (err) {
-      result = { error: err.message, tool: name };
-      resultSummary = `ERROR: ${err.message.slice(0, 100)}`;
-      toolError = true;
-      errorClass = err.name || err.constructor?.name || 'Error';
-    }
-    const latencyMs = Date.now() - startedAt;
-
-    // Record billing (non-blocking, async)
-    recordBilling({
-      toolName: name,
-      customerRecord,
-      params: args,
-      resultSummary,
-      county: args.county || null,
-      certStatus: name === 'predict_auction_outcome' ? (result?.cert_status || null) : null,
-    });
-
-    // PostHog usage event — independent audit ledger alongside billing_events
-    // (see posthog.js header comment for the reconciliation query). Queued +
-    // batched; never awaited, never allowed to affect the tool response.
-    captureToolCall({
-      credential,
-      toolName: name,
-      tier: customerRecord.tier,
-      latencyMs,
-      county: args.county || null,
-      cacheHit: result?.cache_hit ?? null,
-      errorClass,
-    });
-
-    return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-      isError: toolError,
-    };
+    return handleToolCall(apiKey, name, args, extra?.requestId);
   });
 
   return server;

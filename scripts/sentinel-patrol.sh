@@ -323,3 +323,79 @@ Below 80% threshold — CC sessions are not writing session_decision_logs consis
 
 check_security_scans
 check_session_log_coverage
+
+# ==============================
+# BILLING CORRECTNESS (GTM-22 Task 3 — issue #12775)
+# ==============================
+# Three independent guards over the biddeed-mcp billing path:
+#   1. charge_failure_rate > 2% over a rolling 15 min window (v_mcp_charge_failure_rate_15m)
+#   2. any v_tool_billing_resolved row with disposition='UNKNOWN' (should always be zero)
+#   3. v_mcp_server_reconcile.status <> 'OK' (declared/billing-map/deployed tool-count mismatch)
+# Each alert debounces on a 10-min bucket via sentinel_runs, same pattern as PATROL_KEY above.
+check_billing_correctness() {
+  BUCKET_KEY="billing_$(date -u '+%Y%m%d%H%M' | cut -c1-11)"
+
+  already_alerted() {
+    local workflow="$1"
+    curl -sf "$SB_URL/rest/v1/sentinel_runs?workflow=eq.${workflow}&diagnosis=like.${BUCKET_KEY}*&select=id" \
+      -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null | \
+      python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0"
+  }
+
+  log_alert() {
+    local workflow="$1" diagnosis="$2"
+    curl -sf -X POST "$SB_URL/rest/v1/sentinel_runs" \
+      -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"workflow\":\"${workflow}\",\"run_id\":0,\"attempt\":1,\"status\":\"alerted\",\"diagnosis\":\"${BUCKET_KEY} — ${diagnosis}\"}" >/dev/null 2>&1
+  }
+
+  # --- 1. charge_failure_rate ---
+  RATE_PCT=$(curl -sf "$SB_URL/rest/v1/v_mcp_charge_failure_rate_15m?select=charge_failure_rate_pct" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null | \
+    python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['charge_failure_rate_pct'] if d else 0)" 2>/dev/null || echo "0")
+  echo "💳 charge_failure_rate (15m): ${RATE_PCT}%"
+  if python3 -c "exit(0 if float(${RATE_PCT:-0}) > 2 else 1)" 2>/dev/null; then
+    if [[ "$(already_alerted charge_failure_rate)" -eq 0 ]]; then
+      tg_send "💳 <b>SENTINEL: charge_failure_rate ${RATE_PCT}%</b> (>2% threshold, rolling 15 min)
+
+biddeed-mcp billing path is blocking/failing charges above threshold. Check mcp_charge_events for outcome breakdown."
+      log_alert charge_failure_rate "${RATE_PCT}%"
+    fi
+  fi
+
+  # --- 2. v_tool_billing_resolved UNKNOWN disposition ---
+  UNKNOWN_COUNT=$(curl -sf "$SB_URL/rest/v1/v_tool_billing_resolved?disposition=eq.UNKNOWN&select=tool_name" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null | \
+    python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+  echo "💳 v_tool_billing_resolved UNKNOWN rows: ${UNKNOWN_COUNT}"
+  if [[ "$UNKNOWN_COUNT" -gt 0 ]]; then
+    if [[ "$(already_alerted billing_unknown_disposition)" -eq 0 ]]; then
+      tg_send "💳 <b>SENTINEL: ${UNKNOWN_COUNT} tool(s) with disposition=UNKNOWN</b> in v_tool_billing_resolved
+
+Every declared MCP tool must resolve to billable/non_billable_*. An UNKNOWN means a tool shipped without a billing disposition."
+      log_alert billing_unknown_disposition "${UNKNOWN_COUNT} UNKNOWN rows"
+    fi
+  fi
+
+  # --- 3. v_mcp_server_reconcile status ---
+  RECONCILE=$(curl -sf "$SB_URL/rest/v1/v_mcp_server_reconcile?select=server_slug,status" \
+    -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" 2>/dev/null)
+  BAD_RECONCILE=$(echo "$RECONCILE" | python3 -c "
+import json, sys
+rows = json.load(sys.stdin)
+bad = [f\"{r['server_slug']}:{r['status']}\" for r in rows if r['status'] != 'OK']
+print(','.join(bad))
+" 2>/dev/null)
+  echo "💳 v_mcp_server_reconcile non-OK: ${BAD_RECONCILE:-none}"
+  if [[ -n "$BAD_RECONCILE" ]]; then
+    if [[ "$(already_alerted mcp_server_reconcile)" -eq 0 ]]; then
+      tg_send "💳 <b>SENTINEL: MCP server reconcile mismatch</b>: ${BAD_RECONCILE}
+
+declared_tool_count / billing_map_tool_count / probed_tool_count disagree. Run a tool-list probe against the live endpoint."
+      log_alert mcp_server_reconcile "${BAD_RECONCILE}"
+    fi
+  fi
+}
+
+check_billing_correctness
