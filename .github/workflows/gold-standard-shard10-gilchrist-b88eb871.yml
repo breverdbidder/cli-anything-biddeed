@@ -1,0 +1,78 @@
+name: "Gold Standard SHARD-10 gilchrist C/D/I/J fix (b88eb871)"
+# Dispatch: b88eb871-d591-4bee-ba54-cd8975d486b5
+# Session: architect-20260718T160000
+# Counties: gilchrist (C/D AJAX harvest + I enrichment + J bid_decisions)
+# glades: C/D structurally blocked (5 consecutive sessions confirm no external litmus)
+# SHIP-TO-MAIN: direct push per PARALLEL-FLEET RULES
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: gold-standard-shard10-gilchrist-b88eb871
+  cancel-in-progress: false
+
+jobs:
+  gilchrist-fix:
+    name: "Gilchrist C/D/I/J fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run gilchrist C/D/I/J fix
+        run: python3 scripts/shard10_gilchrist_cd_i_j_fix_b88eb871.py
+
+      - name: Verify pencil_dod_evaluate_county
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB = os.environ.get("SUPABASE_URL", "").rstrip("/")
+          KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+          if not SB or not KEY:
+              print("No credentials — skipping verify")
+              exit(0)
+
+          hdrs = {
+              "apikey": KEY,
+              "Authorization": f"Bearer {KEY}",
+              "Content-Type": "application/json",
+          }
+
+          def evaluate(county):
+              url = f"{SB}/rest/v1/rpc/pencil_dod_evaluate_county"
+              req = urllib.request.Request(
+                  url, data=json.dumps({"p_county": county}).encode(),
+                  headers=hdrs, method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f"  {county} eval error: {e}")
+                  return {}
+
+          for county in ["gilchrist", "glades"]:
+              result = evaluate(county)
+              if result:
+                  passes = sum(1 for k in "ABCDEFGHIJ"
+                               if isinstance(result.get(k), dict) and result[k].get("pass"))
+                  print(f"{county}: {passes}/10")
+                  print(f"  {json.dumps(result)}")
+              else:
+                  print(f"{county}: EVALUATION FAILED")
+          PYEOF

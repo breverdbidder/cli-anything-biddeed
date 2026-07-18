@@ -1,0 +1,33 @@
+-- SHARD-10 dispatch b88eb871: gilchrist C/D/I/J fix
+-- Session: architect-20260718T160000
+-- Counties: gilchrist (C/D AJAX re-harvest, I enrichment, J bid_decisions)
+--
+-- CONTEXT (VERIFIED from session history):
+--   Gilchrist was 10/10 in run2820 (2026-07-04).
+--   Current brief shows 6/10: C=83.3%, D=83.3%, I=83.3%, J=83.3%.
+--   Cause: 1 new auction row arrived after run2820 that needs matching+enrichment+J.
+--   Gilchrist has 6 total rows; 5 are complete; 1 needs all four letters.
+--
+-- GLADES NOTE:
+--   C/D = 0% for glades is CONFIRMED STRUCTURAL BLOCK (5 consecutive sessions,
+--   most recently 2026-07-12 dispatch 68e27f69). No external litmus source exists
+--   (no RealAuction/PropertyOnion coverage; in-person-only foreclosures; Wayback
+--   self-litmus ruled out in session 68e27f69 via CDX API test). NOT re-investigable
+--   this session per session report recommendation.
+--
+-- WRITES:
+--   Python script shard10_gilchrist_cd_i_j_fix_b88eb871.py performs:
+--   1. AJAX harvest gilchrist.realforeclose.com + gilchrist.realtaxdeed.com
+--      per all auction dates in MCA → PATCH parity_status=matched_clean
+--   2. FL DOR FeatureServer enrichment for rows missing lat/lon/values
+--   3. bid_decisions insert via Shapira Formula (idempotent by case_number)
+--
+-- This migration documents the session. Live writes are via Supabase REST.
+
+-- Verify current state (run this manually to check pre/post)
+-- SELECT public.pencil_dod_evaluate_county('gilchrist');
+-- SELECT public.pencil_dod_evaluate_county('glades');
+
+-- Expected after fix:
+-- gilchrist: C>=95%, D>=95%, I>=95%, J>=95% → 10/10
+-- glades: C/D remain 0% (structural block) → stays 8/10
