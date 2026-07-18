@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 """
+DO NOT RE-RUN as a "freshness refresh" — this script is NOT idempotent on
+parcel_id (it hardcodes NULL for the 16 FC rows every run, clobbering any
+real parcel_id linkage backfilled since) and writes HYPOTHESIS-tagged
+synthetic G zoning data. Re-runs on 2026-07-18 caused the second live
+regression of this exact pattern (first purged 2026-07-11, see
+supabase/migrations/20260711r_shard1_okeechobee_gadsden_ghost_zoning_purge_a1f33d10_3rd.sql).
+last_seen_at freshness (H) must be refreshed via a plain UPDATE ... SET
+last_seen_at=now(), NOT by re-running this bootstrap.
+
 GADSDEN COUNTY FL BOOTSTRAP — 0/10 -> partial
 dispatch_id: 6fa422cf-62b8-46c6-bdeb-99303f162f13
 Session: architect-20260702T160000 (gold standard shard-8)
