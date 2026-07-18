@@ -19,6 +19,17 @@ is currently passing 10/10. Counties still blocked on adversarial evidence
 (gold_standard_ultraloop_audit letters C/D — see issue #10978, "C/D LITMUS V2") are
 unaffected by this fix; that gap is out of scope here and tracked separately.
 
+GTM-22 Phase 1.3 follow-up (2026-07-18, issue #12745 Session 4): pencil_dod_evaluate_county
+gained p_snapshot_at (gold_standard_cert_scope frozen-calendar scoping) and
+gold_standard_loop() was rewired to pass it through per county. This script must
+do the same — it was calling the RPC unscoped, so a county under an active freeze
+(brevard/duval/hillsborough/orange/palm_beach/sarasota/volusia as of this writing)
+got guard rows derived from live data instead of the frozen snapshot, diverging
+from what loop()/certify() actually computed for that county. Confirmed live: with
+the RPC still unscoped, brevard C, orange I, and sarasota C/D/I all disagreed
+between scoped and unscoped evaluation. Fix: look up each county's active
+snapshot_at once and pass it through on every pencil_dod_evaluate_county call.
+
 C/D LITMUS V2 wiring (issue #10981, Ariel directive 2026-07-06): in addition to the
 10/10 refresh above, this script now also runs pencil_dod_evaluate_county_v2() (the
 RealAuction-primary / FloridaBidder-fallback hierarchy evaluator added in
@@ -62,6 +73,19 @@ def run_sql(sql: str, timeout: int = 60) -> list:
 def main():
     print("=== Gold Standard precert guard refresh (all counties) ===")
 
+    scope_rows = run_sql("""
+        SELECT county_slug, snapshot_at FROM gold_standard_cert_scope WHERE active;
+    """)
+    snapshot_at = {r["county_slug"]: r["snapshot_at"] for r in scope_rows}
+    if snapshot_at:
+        print(f"[0] {len(snapshot_at)} counties under active snapshot freeze: {list(snapshot_at)}")
+
+    def evaluate(county: str) -> dict:
+        snap = snapshot_at.get(county)
+        arg = f", {snap!r}::timestamptz" if snap else ""
+        res = run_sql(f"SELECT public.pencil_dod_evaluate_county('{county}'{arg}) AS r;")
+        return res[0]["r"] if res else {}
+
     rows = run_sql("""
         SELECT county_slug
         FROM gold_standard_county_status
@@ -75,8 +99,7 @@ def main():
 
     refreshed = []
     for county in counties:
-        res = run_sql(f"SELECT public.pencil_dod_evaluate_county('{county}') AS r;")
-        gate = res[0]["r"] if res else {}
+        gate = evaluate(county)
         letters = {k: v for k, v in gate.items() if k in "ABCDEFGHIJ"}
         c_pass = bool(letters.get("C", {}).get("pass"))
         d_pass = bool(letters.get("D", {}).get("pass"))
@@ -123,8 +146,7 @@ def main():
 
         # Legacy (row-level tier1) C/D for the same county, to log whether V2 would
         # have flipped a currently-blocked county — evidence only, never applied.
-        legacy_res = run_sql(f"SELECT public.pencil_dod_evaluate_county('{county}') AS r;")
-        legacy = legacy_res[0]["r"] if legacy_res else {}
+        legacy = evaluate(county)
         legacy_c_pass = bool(legacy.get("C", {}).get("pass"))
         legacy_d_pass = bool(legacy.get("D", {}).get("pass"))
         would_flip = (v2_c_pass or v2_d_pass) and not (legacy_c_pass and legacy_d_pass)
