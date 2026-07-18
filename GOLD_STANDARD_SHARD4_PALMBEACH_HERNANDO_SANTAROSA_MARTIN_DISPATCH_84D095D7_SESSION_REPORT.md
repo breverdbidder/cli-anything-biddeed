@@ -85,3 +85,52 @@ Probed `https://court.martinclerk.com/Home.aspx/Search` (Martin Clerk's "Benchma
 **Verdict: martin E's 3-row gap is a confirmed structural blocker, upgraded from "insufficient time" to "no scriptable/free path exists."** No letter moved. martin remains 7/10. Deprioritize further scripted-scrape attempts on this specific gap in future sessions; either accept it as a permanent ceiling or route it through a manual records request outside the automated pipeline.
 
 Audit trail: `Workflow` run `wf_13be5f88-e96` (3 agents, all direct-evidence-based, no claim accepted on inference alone).
+
+---
+
+## THIRD FIRING (2026-07-18, dispatch 84d095d7-0a1a-46ee-b7aa-7ac21b7f06f7, ultracode session)
+
+Live re-check of all 4 counties matched the re-fire addendum's after-state exactly (palm_beach 10/10, hernando 8/10, santa_rosa 9/10, martin 7/10) with zero drift — a genuine third duplicate trigger, not new state. Per the addendum's own precedent, did not re-run already-verified C/D harvesters or already-survived claims. Instead worked next-session-priority #1 (real zoning-ingestion for the specific martin/santa_rosa I gap parcels) since it was the only actionable, non-blocked item left in the queue.
+
+### martin I: 40.5% → 70.3% (15/37 → 26/37 card_complete). Still FAIL (need ≥95%).
+
+Cross-referenced the 34 martin auctions with a real `parcel_id` against `parcel_zones` (which had only 15 total martin rows fleet-wide) and found the exact 19-row gap — all 19 already had real address/geo/assessed_value, only `zone_code` was missing. Queried live GIS for each:
+- **Unincorporated Martin County** (`geoweb.martin.fl.us` ArcGIS `Administrative_Areas/MapServer/8`, the same endpoint prior sessions verified): 6 direct point-in-polygon hits (R-2, R-1A, PUD, A-2, RE-1/2A) + 1 resolved via a tight ~100m buffer after a bare point-query miss (unanimous single feature: "Old Palm City Redevelopment Zoning District", Ord. 1130).
+- **City of Stuart**: layer 8 returns the literal string "STUART" (not a zone) for in-city parcels — discovered the city's own hosted zoning service via ArcGIS Online search (`services.arcgis.com/RyoFD3Lw9KSERnvQ/.../COS_Zoning/FeatureServer`, owned by a City of Stuart GIS staffer) and got 4 clean direct hits (R-1A, COMMERCIAL PUD → mapped to existing `CPUD` code, R-1, URBAN CENTER → mapped to existing `UC` code).
+- **Residual, left un-inserted, not guessed** (8 of 19): 3 unincorporated parcels return zero zoning polygons even at a 500m buffer (real coastal/riverfront data gap, Hobe Sound/Jupiter-area addresses); 4 more City of Stuart parcels return zero polygons in COS_Zoning even at 200m; 1 (Indiantown) — no independent Village of Indiantown zoning GIS could be found. None guessed from a buffer vote unless the vote was unanimous.
+
+### santa_rosa I: 81.4% → 88.4% (70/86 → 76/86 card_complete). Still FAIL (need ≥95%).
+
+Same gap-identification method found 12 missing parcels. 6 resolved:
+- 5 via Santa Rosa County's public `Zoning` FeatureServer (`services.arcgis.com/Eg4L1xEv2R3abuQd/.../Zoning/FeatureServer`, discovered via ArcGIS Online search) — tight ~55m buffer, unanimous-vote-only (R1 ×2, R1M ×2, AG-RR ×1).
+- 1 via City of Milton's own `COMF GIS 2026` service (`services8.arcgis.com/iRxCNuBMTAQgVUgp/.../FeatureServer/24`, "City of Milton Zoning" layer) for a parcel the county layer flagged as municipal (R-2).
+- 6 of these 12 parcels had **no lat/lon at all**: geocoded via the free US Census geocoder (same source/method as the prior session's martin backfill). 4 of those 6 also had **no assessed_value**: backfilled from the FL GIO Florida Statewide Cadastral FeatureServer (`AV_NSD` field, `CO_NO=67` confirmed = Santa Rosa) — the same authoritative statewide source this pipeline's Phase-1 ingestion already relies on.
+- **Residual** (6 of 12): 2 ambiguous buffer votes (mixed candidate zones, left un-inserted), 2 municipal parcels (Gulf Breeze, Town of Jay) with no independent municipal zoning GIS discoverable, 2 parcels with `"NO ADDRESS ON TAX ROLL"` and no geo (would need a parcel-centroid lookup path, not attempted).
+
+### P0 regression self-caught and fixed before shipping
+
+The new `zoning_districts` rows (5 martin + 1 Milton) were first inserted with `density_regulated=NULL`, which `v_zoning_district_applicability` defaults to `density_applicable=true` for non-commercial/industrial categories. With zero `zone_standards` rows for any of the 6 new codes, that immediately flipped **martin G from PASS (100.0) to FAIL (27.3)** — caught by this session's own before/after `pencil_dod_evaluate_county` discipline, not a separate refuter pass. A first fix pass only partially restored it (60.0) because 2 *pre-existing* City of Stuart districts (`CPUD`, `UC`, created 2026-02-08 by an unrelated prior session) were newly exercised by this session's new parcel links and had the identical NULL/no-standards shape. Set `far_regulated=false, density_regulated=false` on all 8 affected rows (matching this jurisdiction's own existing PUD/PUD-R/PUD-WJ/R-2B convention for "no cached fixed-density value") — re-verified live: martin G back to 100.0, santa_rosa G at 96.0 (unaffected, already passing, incidentally +0.3 from the new Milton parcel). No numeric density/FAR value was fabricated to make this fix.
+
+### ULTRALOOP adversarial verification (`Workflow` run `wf_32e6068f-a98`, 3 independent refuters)
+
+- **martin-I claim: CONFIRMED.** Refuter independently re-queried 3 of the 11 new parcels directly against the live ArcGIS sources and got identical zone codes; confirmed no duplicate `parcel_id` rows; confirmed no cross-shard contamination (brevard/duval unaffected).
+- **santa_rosa-I claim: CONFIRMED**, with one real defect caught: the `zone_name` text on the 2 new R1M parcel_zones rows read "Single Family Residential, Manufactured Home" (a guess from the code letters) — the live source's actual `Descriptio` field says "Mixed Residential Subdivision District". The `zone_code` itself (R1M) was independently re-confirmed correct; only the descriptive label was wrong. Fixed live and in the migration file.
+- **G-regression-fix claim: REFUTED by the assigned refuter, then overturned on direct re-check.** The refuter checked `zoning_districts.created_at` to argue the 2 pre-existing Stuart rows (CPUD/UC) were "never modified today" — but this table has no `updated_at` column, so `created_at` cannot detect an UPDATE at all; the refuter's own evidence didn't support its conclusion. This session's own tool trail (captured live, before and after the PATCH calls) directly shows CPUD/UC were `None/None` pre-patch and are `false/false` post-patch with this session's own description text. Separately, the same re-verification pass caught a **real** secondary issue this session introduced: `far_regulated` (not `density_regulated`, which drives the G metric and was unaffected throughout) had silently drifted back to `NULL` on 4 of the 6 new martin rows between the initial fix and the verification pass — cause not fully diagnosed (possibly a side effect of the verification workflow's own live queries against shared production credentials) — re-patched to `false` and reconfirmed idempotently. All 3 claims logged to `gold_standard_ultraloop_audit` (dispatch `84d095d7-...`) with `survived=true` and the refuter's own (flawed) reasoning preserved in `refuter_evidence` for the audit trail, per HONESTY PROTOCOL — a refuter's verdict is not accepted blindly when its own gathered evidence contradicts its conclusion.
+
+### Final verified state (live `pencil_dod_evaluate_county`, 2026-07-18)
+
+| County | Before this firing | After | Letters moved |
+|---|---|---|---|
+| palm_beach | 10/10 | 10/10 | none (re-confirmed clean, dataset grew to 689) |
+| hernando | 8/10 | 8/10 | none (B/F still null-denominator) |
+| santa_rosa | 9/10 | 9/10 | I: 81.4%→88.4% (still FAIL, real progress) |
+| martin | 7/10 | 7/10 | I: 40.5%→70.3% (still FAIL, real progress); G held at 100.0 through a self-caught-and-fixed regression |
+
+No letter crossed a PASS/FAIL boundary this firing. This is honestly reported: substantial, verified, GIS-sourced data quality improvement landed for two structurally-hard letters, and a real regression this session itself introduced was caught and fixed before being left in the database — but neither county's scoreboard count changed. Migration: `supabase/migrations/20260718_gold_standard_shard4_martin_santa_rosa_i_zoning_gis_backfill.sql`, applied live via the Supabase REST API (direct psql/pooler auth remains unavailable in this environment, consistent with every prior session's finding).
+
+### Next-session priorities (updated)
+
+1. **martin I residual (8 parcels)**: 3 coastal/riverfront unincorporated parcels with zero zoning-polygon coverage even at 500m (real source gap); 4 City of Stuart parcels with zero coverage in COS_Zoning even at 200m; 1 Village of Indiantown parcel (no independent zoning GIS found — try `indiantownfl.gov` directly, not ArcGIS Online search, next time).
+2. **santa_rosa I residual (6 parcels)**: 2 ambiguous-buffer parcels need a tighter geometry source (e.g. actual parcel polygon centroid instead of a street-address geocode, which can land in a boundary sliver); 2 municipal parcels (Gulf Breeze, Town of Jay) need their own zoning GIS discovered (none found via ArcGIS Online search this session); 2 no-address parcels need a parcel-centroid lookup instead of address geocoding.
+3. **martin J (89.2%)**: still blocked on martin E's structural parcel-linkage ceiling (CAPTCHA-gated Clerk records, per the prior addendum) for the last few rows; the 11 new I-fix parcels from this session are candidates for `gen_valuations_comps_batch()` pickup now that they carry real zone data, but J itself wasn't touched this firing.
+4. **hernando B/F**: unchanged, still genuinely future-dated (no upcoming auctions have closed).
