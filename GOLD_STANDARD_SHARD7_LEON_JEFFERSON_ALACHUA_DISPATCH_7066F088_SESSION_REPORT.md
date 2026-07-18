@@ -114,8 +114,73 @@ Per the PARALLEL-FLEET RULES, `public.gold_standard_loop()`/`gold_standard_certi
 - `gold_standard_ultraloop_audit` rows: leon/I (id=6830, adversarially verified by an independent Workflow agent, `survived=true`), jefferson/A and jefferson/J (self-verified with live re-fetch + evaluator diff, `survived=true`).
 - A second Workflow agent independently re-checked the jefferson/alachua "blocked" conclusions rather than accepting them at face value — this is what surfaced the new jefferson tax-deed PDF and the alachua `isol.alachuaclerk.org` path documented above.
 
-## Next-session priority queue
+## Next-session priority queue (pre-continuation)
 
 1. **jefferson I**: resolve the Monticello-town-vs-unincorporated jurisdiction question for parcels `05-2S-3E-0000-0012-0000` and `01-1S-3E-0000-0021-0000` (real zoning-map/boundary check, not a guess) to restore I to 3/3.
 2. **alachua C/D/E/I/J**: execute the `isol.alachuaclerk.org` grantee-name → `Owner_Mail_Name` FeatureServer path for the 8-10 placeholder cases.
 3. **jefferson B/F**: will resolve automatically once 8/19/2026 passes and a real sale-results source appears (re-check `jeffersonclerk.com` and the OCRS/ORI paths periodically; do not attempt to bypass the Turnstile CAPTCHA).
+
+---
+
+## Continuation session (2026-07-18, same dispatch re-fired, run4870, ultracode)
+
+This dispatch (`7066f088`) was re-fired later the same day. Live DB state matched the first firing's end-state exactly (leon 10/10, jefferson 7/10, alachua 5/10) confirming no drift/regression. Worked the exact next-session priority queue above, item by item, with `/effort ultracode` Workflow-based adversarial verification per ULTRALOOP PROTOCOL.
+
+### Plan vs actual
+
+| Item | Planned | Actual | Deviation |
+|---|---|---|---|
+| jefferson I | resolve jurisdiction, restore 3/3 | **Done — 33.3%→100.0% (3/3), PASS.** Jefferson now 8/10. | First-draft migration comment mis-cited `zoning_districts.id=3777`; an adversarial refuter caught it (it was actually `zone_standards.id`, real PK is `11069`) — corrected before shipping, re-verified clean. |
+| alachua C/D/E/I/J | execute `isol.alachuaclerk.org` path for 8-10 rows | **1 of 10 rows resolved** (E: 80.4%→82.4%), not the full batch. | The `isol.alachuaclerk.org` path only works when RealForeclose's own AJAX payload carries a non-empty `docid=` cross-reference for that case. Re-harvested all 8 remaining rows live: every one has `docid=&ms=0` (empty) — the Clerk has not cross-referenced a recorded document to those cases. This is the same dead-end the prior firing already found for a different case subset; it is not fabricatable. The one row that *did* move was a previously-discovered-but-never-executed fix (`scripts/shard10_run3645_alachua_e_parcel_backfill.py`, case `01 2024 CA 001683`) found sitting unexecuted in the repo. |
+| jefferson B/F | expect auto-resolve after 8/19/2026 | **No change (correctly still FAIL)** — sale date has not arrived; confirmed no independent verified-outcome source exists yet. | None — as planned. Also checked whether the *already-past* foreclosure sale (`25-CA-164`, `auction_status='sold'`, date 2026-06-25) had a recoverable `sold_amount`; `jeffersonclerk.com`'s foreclosures page is a generic WordPress listing page with no per-case sale-results data — dead end, not pursued further (Turnstile-gated ORI remains the only lead, correctly not bypassed). |
+
+### jefferson — 7/10 → 8/10 (VERIFIED)
+
+**Fix:** Both new tax-deed parcels' unincorporated status was verified live via two independent, real sources (not guessed): (1) US Census Bureau Geocoder `geographies/coordinates` (federal, `layers=Incorporated Places`) returned zero incorporated places for both exact coordinates; (2) Jefferson County Property Appraiser's own ArcGIS zoning layer `JC_CITY_ZONING_view` (the same layer that sourced the original parcel's R-1A zone in the prior shard5/run3786 fix) returned zero intersecting features for both points — i.e. genuinely outside Monticello's city zoning coverage. Both parcels were written to `parcel_zones` under `jurisdiction_id=1259` ("Jefferson County"), `zone_code='A-1'` (Agricultural) — the same pre-existing zoning district already documented in this DB as the county's inferred dominant unincorporated zone, with real (non-null) `max_far=0.10`/`max_density_du_acre=1.00` standards.
+
+Migration: `migrations/20260718_gold_standard_shard7_jefferson_i_zoning_backfill.sql`
+
+**Adversarial verification (2 rounds, independent Workflow/Agent, not the fixer):** Round 1 **REFUTED** (confidence 0.85) — caught a real citation bug: the migration comment's `SELECT zd.*, zs.*` (unaliased) produced a JSON object where the duplicate `id` key silently kept `zone_standards.id` (3777) instead of `zoning_districts.id`; the comment wrongly cited 3777 as the zoning_districts PK, and a direct lookup of `zoning_districts.id=3777` resolves to an unrelated Tavares/Lake-County municipal-code row. The refuter explicitly noted the underlying `parcel_zones` writes and both live geocoding/GIS checks held up regardless. Corrected the citation to the real PK (`zoning_districts.id=11069`, whose `zone_standards` row is id=3777) and re-ran verification. Round 2 **SURVIVED** (confidence 0.97) — all 6 checks (Census geocoder ×2, ArcGIS point-in-polygon ×2, DB id lookups, fresh `pencil_dod_evaluate_county`) independently reproduced exactly. `gold_standard_ultraloop_audit` row logged with both rounds' evidence in `refuter_evidence`, `survived=true`.
+
+### alachua — 5/10 → 5/10 (E incrementally improved, no letter flipped)
+
+**Fix:** Applied a deferred write that a prior session (`scripts/shard10_run3645_alachua_e_parcel_backfill.py`, run3645, 2026-07-10) had already fully evidenced but never executed: case `01 2024 CA 001683` → `parcel_id='02975-002-000'` (`PAUL JEREMY & VIRGINIA`, 10815 NW 199TH AVE, via `isol.alachuaclerk.org` docid=3696062 cross-referenced against Alachua's public ArcGIS `PublicParcel` FeatureServer, `Owner_Mail_Name LIKE '%PAUL%JEREMY%'`, unambiguous single match). Its sibling fix in the same old script (case `01 2025 CA 001356`) had already landed in a prior session; this row alone had been missed.
+
+Migration: `migrations/20260718_gold_standard_shard7_alachua_e_parcel_backfill.sql`
+
+**Adversarial verification:** **SURVIVED** (confidence 0.97) — independent Workflow agent re-ran the live ArcGIS query (reproduced the same 2-row result, same unique match), confirmed the DB write and no parcel_id collision, and reproduced the exact evaluator metric (42/51, 82.4%).
+
+**Remaining 9 alachua gap rows — confirmed genuine dead end this session, not re-attempted without new evidence:** re-harvested the live RealForeclose AJAX payload for all 8 case numbers with `parity_status='matched_clean'` but no parcel_id — every one carries an empty `docid=&ms=0` cross-reference (the Clerk has not linked a recorded document to these cases yet). The 9th (`01 2025 CA 003287`) remains the confirmed `MULTIPLE PARCEL` case, correctly unresolvable to one parcel_id. The 4 rows with `parity_status IS NULL` (`01 2023 CA 004261`, `01 2025 CA 003629`, `01 2025 CA 003919`, `01 2025 CC 001552`) are all `data_source='calendar_sweep_mca_v3'` bare stubs for a future 2026-08-18 auction date — the source has not published case detail yet, same pattern as leon's bare calendar-sweep stubs in the first firing. No further real lead exists for alachua this session without fabrication.
+
+### Verification evidence (live, this continuation session)
+
+```json
+// jefferson — pencil_dod_evaluate_county('jefferson'), post-fix
+{"A":{"pass":true,"metric":1,"detail":"fc=1 td=2"},"B":{"pass":false,"metric":null},
+ "C":{"pass":true,"metric":100.0},"D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},
+ "F":{"pass":false,"metric":null},"G":{"pass":true,"metric":100.0,"detail":"density=100.0 far=100.0"},
+ "H":{"pass":true},"I":{"pass":true,"metric":100.0,"detail":"card_complete=3 of 3"},
+ "J":{"pass":true,"metric":100.0},"auctions_total":3}   // 8/10 (B, F fail — genuine, future sale date)
+
+// alachua — pencil_dod_evaluate_county('alachua'), post-fix
+{"A":{"pass":true,"metric":3},"B":{"pass":true,"metric":100.0},"C":{"pass":false,"metric":92.2},
+ "D":{"pass":false,"metric":92.2},"E":{"pass":false,"metric":82.4,"detail":"parcel_linked=42"},
+ "F":{"pass":true,"metric":100.0},"G":{"pass":true,"metric":97.8},"H":{"pass":true},
+ "I":{"pass":false,"metric":78.4},"J":{"pass":false,"metric":92.2},"auctions_total":51}  // 5/10, unchanged letter composition
+
+// leon — pencil_dod_evaluate_county('leon'), re-verified unchanged
+{"A":{"pass":true},"B":{"pass":true},"C":{"pass":true},"D":{"pass":true},"E":{"pass":true},
+ "F":{"pass":true},"G":{"pass":true},"H":{"pass":true},"I":{"pass":true,"metric":96.4},
+ "J":{"pass":true},"auctions_total":165}  // 10/10, stable
+```
+
+### Ultracode / ULTRALOOP audit trail (this continuation)
+
+- `gold_standard_ultraloop_audit`: jefferson/I (2 rounds — refuted then survived after citation correction) and alachua/E (survived first pass), both logged with full `refuter_evidence` jsonb, `survived=true`.
+- Demonstrates the audit gate working as designed: the refuter caught a real self-inflicted SQL bug (unaliased duplicate-column JSON collision) in the fixer's own citation before it shipped, without touching the correctness of the underlying data write.
+
+### Updated next-session priority queue
+
+1. **alachua C/D/E/I/J**: no further real lead via RealForeclose/isol.alachuaclerk.org this session. Untried options for next session: (a) `qpublic.schneidercorp.com` remains 403/Cloudflare-blocked from Bash — worth a `WebFetch`-based retry (different infra path per the first firing's environment notes); (b) periodically re-harvest the 8 empty-docid cases — the Clerk's cross-reference could appear later as case documents get recorded; (c) the 4 future-auction (`2026-08-18`) bare stubs will self-resolve once the source publishes detail closer to the date, same as leon's pattern.
+2. **jefferson B/F**: unchanged — will resolve once 8/19/2026 passes and a real sale-results source appears. `25-CA-164`'s already-passed 2026-06-25 sale still has no recoverable `sold_amount` (jeffersonclerk.com's foreclosures page is a generic listing page, no per-case results; Turnstile-gated ORI correctly not bypassed).
+3. **leon**: stable at 10/10 — no action needed; certification lands automatically after a second consecutive 10/10 daily 07:30Z run per campaign rules.
