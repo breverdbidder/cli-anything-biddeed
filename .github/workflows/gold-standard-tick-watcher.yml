@@ -1,0 +1,39 @@
+name: Gold Standard Tick Watcher
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check gold_standard_certifications for a fresh cron tick, dispatch CC only if found
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          set -euo pipefail
+          LATEST=$(curl -s "${SUPABASE_URL}/rest/v1/gold_standard_certifications?select=updated_at&order=updated_at.desc&limit=1" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['updated_at'])")
+          echo "Latest gold_standard_certifications.updated_at: $LATEST"
+          LATEST_EPOCH=$(date -u -d "$LATEST" +%s)
+          NOW_EPOCH=$(date -u +%s)
+          AGE=$(( NOW_EPOCH - LATEST_EPOCH ))
+          echo "Age of latest row: ${AGE}s"
+          # Known gold-standard-loop cron ticks: 01:30, 07:30, 13:30, 19:30 UTC daily.
+          # This watcher polls every 20 min; a row younger than 15 min means a tick just landed.
+          if [ "$AGE" -ge 900 ]; then
+            echo "No fresh tick (age >= 900s) — no-op."
+            exit 0
+          fi
+          IN_FLIGHT=$(gh run list --workflow=cc-runner-ghonly.yml --status=in_progress --json databaseId --jq 'length' --repo "${{ github.repository }}")
+          QUEUED=$(gh run list --workflow=cc-runner-ghonly.yml --status=queued --json databaseId --jq 'length' --repo "${{ github.repository }}")
+          if [ "$IN_FLIGHT" != "0" ] || [ "$QUEUED" != "0" ]; then
+            echo "A cc-runner-ghonly.yml run is already in-progress/queued ($IN_FLIGHT in_progress, $QUEUED queued) — skipping dispatch, self-chain already covers this tick."
+            exit 0
+          fi
+          echo "Fresh tick, no in-flight run — dispatching cc-runner-ghonly.yml for issue 12745."
+          gh workflow run cc-runner-ghonly.yml -f issues=12745 --repo "${{ github.repository }}"
