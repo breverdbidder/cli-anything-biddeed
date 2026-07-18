@@ -1,0 +1,91 @@
+session:
+  repo: cli-anything-biddeed
+  dispatch_id: "84d095d7-0a1a-46ee-b7aa-7ac21b7f06f7"
+  chat_session: "architect-20260718T160000"
+  shard: "SHARD-4 (palm_beach, hernando, santa_rosa, martin)"
+  loop_run: 4870
+  session_started: "2026-07-18T16:00:00Z"
+  session_ended: "2026-07-18T16:22:00Z"
+  note: "session_ended is a real timestamp read at close-out, not rounded"
+
+decisions:
+  - step: 1
+    action: "Verified live DB access before touching anything. Direct psql to the pooler (aws-0-us-west-2.pooler.supabase.com:5432/6543) failed with password auth errors using the sandbox SUPABASE_DB_PASSWORD -- same known-stale-password issue documented in prior shard sessions. PostgREST REST/RPC worked with the sandbox SUPABASE_SERVICE_ROLE_KEY for canonical evaluator reads and table writes. The Supabase Management API (https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query with SUPABASE_ACCESS_TOKEN) worked for arbitrary read/write SQL, matching the pattern used in prior sessions -- though it intermittently 403'd with a Cloudflare 'error code 1010' under sustained call volume and recovered on its own after a short pause."
+    result: "Confirmed a working live-DB write path exists; used PostgREST for row-level reads/writes and the Management API for aggregate/diagnostic SQL."
+    reason: "Evidence-Before-Claims -- do not assume SQL access is blocked without testing it directly."
+  - step: 2
+    action: "Pulled live pencil_dod_evaluate_county for all 4 assigned counties before any work, compared against the brief's snapshot numbers."
+    result: "palm_beach had already reached 10/10 since the brief was written. hernando, santa_rosa, martin matched the brief's numbers closely."
+    reason: "The brief is a snapshot; always re-read live state before planning work."
+  - step: 3
+    action: "Read the pencil_dod_evaluate_county function definition directly (pg_get_functiondef) to understand the exact SQL contract for every letter before diagnosing any gap."
+    result: "Confirmed exact thresholds/denominators for C/D (parity_status/parity_source vs auctions_total), E (parcel_id IS NOT NULL), I (address+geo+value+zoned-parcel-in-card), J (bid_decisions with 5 required factor keys)."
+    reason: "Diagnose against the real evaluator contract, not assumptions."
+  - step: 4
+    action: "Diagnosed hernando B/F: queried auction_status/sold_amount breakdown directly, found pipeline.counties.notes already documented an exhaustive 2026-07-10 investigation concluding hernando's realtaxdeed source exposes no post-auction results. Independently re-probed the live realtaxdeed AJAX preview for a now-3-days-past auction date (2026-07-15) to check whether results had since posted."
+    result: "Confirmed closed_sold=0 fleet-wide (all 49 rows auction_status='upcoming'), and confirmed no SOLDTO/results text in the live preview HTML even for a past-due date. B/F remain genuinely blocked, now independently reconfirmed rather than just trusted from the prior note."
+    reason: "Do not just trust a prior session's blocker claim -- re-verify with fresh live data before accepting it, especially since more days have elapsed."
+  - step: 5
+    action: "Diagnosed santa_rosa C/D: found 9 rows with parity_status IS NULL from a recent calendar_sweep_mca_v3 ingest, spanning 3 (sale_type,auction_date) buckets never harvested by the AJAX parity matcher. Ran scripts/shard11_run3534_santa_rosa_cd_harvest.py (existing, proven script) against the live santarosa.realforeclose.com/realtaxdeed.com AJAX calendar for those 3 buckets."
+    result: "All 9 rows exact-case-number matched, parity_status='matched_clean'. C 89.5%->100%, D 89.5%->100%. Live re-verification confirmed."
+    reason: "Reuse the proven harvester pattern already established for this exact county rather than building a new scraper."
+  - step: 6
+    action: "Diagnosed martin C/D: found 6 unmatched rows (5 null-parity, 1 mca_only). Ran the same harvester against martin.realforeclose.com for the 2 relevant dates (2026-07-14, 2026-09-01 foreclosure); the 1 tax_deed date (2026-08-15) returned 0 live calendar items and was left unmatched."
+    result: "5/6 matched, C 83.8%->97.3%, D 83.8%->97.3%."
+    reason: "Same reused pattern; did not fabricate the 6th unmatched row."
+  - step: 7
+    action: "Geocoded 5 of the newly-matched martin rows (real street addresses existed, only lat/lng missing) via the free US Census geocoder, matching the established Duval/Bay I-fix lever. Wrote scripts/shard4_martin_geocode_backfill.py as the reproducible artifact."
+    result: "5/5 rows geocoded and patched with real government address-point coordinates. Confirmed this does not move martin I on its own (structural zoning-ingestion ceiling documented in step 9)."
+    reason: "Real, free, government-sourced data -- never invented -- following the exact precedent already established in this codebase for this class of gap."
+  - step: 8
+    action: "Ran a Workflow fan-out of 7 parallel adversarial refuter subagents (one per claimed fix/blocker: santa_rosa C, santa_rosa D, martin C, martin D, hernando B, hernando F, palm_beach ALL), per the ULTRALOOP PROTOCOL. Each refuter independently re-ran pencil_dod_evaluate_county live and spot-checked underlying rows, defaulting to refuted=true on any doubt."
+    result: "6 of 7 claims survived=true. 1 claim (martin C) was refuted=true: the refuter found the 5 newly-matched martin rows' parity_source literally said 'tier1:shard11_run3534_santa_rosa_ajax_harvest:...' -- a copy-pasted foreign-county label from reusing the santa_rosa script's hardcoded string, even though the underlying match logic was correctly scoped to county='martin' (case numbers, addresses, and row-level data were all genuinely martin's, only the label text was wrong)."
+    reason: "Per the brief's ULTRALOOP PROTOCOL: a claim ships only if it survives an independent refuter whose only goal is to break it. This is exactly the kind of bug that layer exists to catch."
+  - step: 9
+    action: "Fixed the caught mislabeling live: relabeled all 5 martin rows' parity_source to tier1:shard4_84d095d7_martin_ajax_harvest:<sale_type>:<auction_date>, re-derived from each row's real columns. Then spawned a second, independent follow-up refuter (not myself) to re-verify the correction rather than self-certifying my own fix."
+    result: "Follow-up refuter confirmed survived=true: zero remaining santa_rosa references in martin's parity_source, all 5 new labels internally consistent with their real sale_type/auction_date columns, live C/D re-confirmed at 97.3%/36-37, and zero case_number overlap between the 5 martin rows and santa_rosa's full case_number set (ruling out actual data duplication, not just a label typo)."
+    reason: "The verifier of a fix must never be the agent that wrote it, per the ULTRALOOP PROTOCOL's explicit rule."
+  - step: 10
+    action: "Diagnosed the 3 residual gaps I chose NOT to fabricate a fix for: santa_rosa I (13 of 16 gap rows have real parcel_id absent from v_zoning_gold_standard_card, confirmed via ILIKE search -- a real zoning-ingestion coverage gap, not a formatting bug), martin E (3 rows with zero metadata beyond a generic city-level address -- attempted a live martinclerk.com case-search probe, did not yield a scriptable API in the time available), martin I (v_zoning_gold_standard_card has only 15 total rows for the whole county -- a hard structural ceiling, same pattern documented for hernando 2026-07-10), martin J (4 rows need real bid_decisions; read the prior shard12_run1113 martin-fix script and found it used a HYPOTHESIS-tagged assessed_value*1.2 synthetic-ARV fabrication pattern for this exact gap -- declined to repeat it, since that pattern is the likely reason this county's zoning/card data was later partially purged; confirmed via gen_valuations_comps_batch's join requirements that only 1 of 5 affected parcels exists in public.parcels yet, so the real batch generator cannot pick these up until canonicalization catches up)."
+    result: "All 4 residuals documented with cited live evidence in the session report, none fabricated."
+    reason: "HONESTY PROTOCOL / BLANK > WRONG -- a documented, evidenced blocker is worth more than a fabricated pass that gets purged later."
+  - step: 11
+    action: "Wrote 16 rows to public.gold_standard_ultraloop_audit covering all 7 refuted claims (martin C's row documents the 2-pass refute/fix/re-verify) plus a 10-row breakdown of the palm_beach ALL claim (the letter column has a CHECK constraint rejecting 'ALL', so it was split into one row per A-J letter)."
+    result: "Audit trail complete for all 4 counties' touched/reconfirmed letters."
+    reason: "CERTIFY GATE requires survived=true rows per letter within a 7-day window; wrote them immediately after verification rather than deferring."
+  - step: 12
+    action: "Did NOT run public.gold_standard_loop() or public.gold_standard_certify() at close-out."
+    result: "Skipped per the brief's explicit PARALLEL-FLEET RULES (other shards may be mid-flight this session) -- reported per-county pencil_dod_evaluate_county evaluations only, as instructed."
+    reason: "Follow the brief's own concurrency guardrail exactly."
+
+artifacts:
+  - "9 rows updated: public.multi_county_auctions (santa_rosa, parity_status/parity_source promoted to matched_clean via live AJAX harvest)"
+  - "5 rows updated (then re-updated once for the label fix): public.multi_county_auctions (martin, parity_status/parity_source promoted; parity_source corrected from a santa_rosa-mislabeled string to a martin-correct one)"
+  - "5 rows updated: public.multi_county_auctions (martin, latitude/longitude backfilled via US Census geocoder)"
+  - "16 rows inserted: public.gold_standard_ultraloop_audit"
+  - "scripts/shard4_martin_geocode_backfill.py (new, reproducible geocode artifact)"
+  - "GOLD_STANDARD_SHARD4_PALMBEACH_HERNANDO_SANTAROSA_MARTIN_DISPATCH_84D095D7_SESSION_REPORT.md (new)"
+  - "This file"
+
+verification:
+  - check: "santa_rosa C/D live re-evaluation after the harvest"
+    proof: "pencil_dod_evaluate_county('santa_rosa') C: pass=true metric=100.0 matched_clean=86; D: pass=true metric=100.0 matched_any=86 (was 89.5%/89.5% FAIL for both before this session, auctions_total=86 unchanged)"
+    status: PASS
+  - check: "martin C/D live re-evaluation after the harvest + label fix"
+    proof: "pencil_dod_evaluate_county('martin') C: pass=true metric=97.3 matched_clean=36; D: pass=true metric=97.3 matched_any=36 (was 83.8%/83.8% FAIL for both before this session, auctions_total=37 unchanged)"
+    status: PASS
+  - check: "Adversarial refuter fan-out (7 claims) + follow-up re-verify of the martin fix"
+    proof: "Workflow wf_aa327a42-36b: 6/7 survived=true on first pass, martin C refuted=true (provenance mislabel caught with cited SQL evidence). Follow-up agent ac64d2d07231564a6 re-verified the correction: survived=true, zero santa_rosa references remain, labels internally consistent, zero case_number overlap with santa_rosa."
+    status: PASS
+  - check: "hernando B/F genuinely blocked, independently reconfirmed"
+    proof: "Direct SQL: count(*) FILTER (WHERE sold_amount IS NOT NULL)=0 of 49 hernando rows; count(DISTINCT auction_status)=1 ('upcoming'). Live AJAX preview probe of hernando.realtaxdeed.com for auction_date=2026-07-15 (3 days past) contained no SOLDTO/Sold/Winning/Certificate text."
+    status: "BLOCKED, documented, not routed around"
+  - check: "palm_beach 10/10 re-confirmed, no anomalous ratios"
+    proof: "pencil_dod_evaluate_county('palm_beach') all 10 letters pass=true; B=100.0% (within the 95-105% legitimate band per EVALUATOR V6 RULES); refuter independently re-derived B's numerator/denominator from the raw tables and spot-checked 5 sold rows' data_source provenance."
+    status: PASS
+
+deviation_log:
+  - "The brief's directive to 'run the full loop + certify' at close-out was skipped per the brief's own PARALLEL-FLEET RULES (other shards may be mid-flight) -- used per-county pencil_dod_evaluate_county only, as instructed."
+  - "pipeline.counties.notes was NOT updated for santa_rosa/martin as originally intended -- the Supabase Management API intermittently returned Cloudflare 'error code 1010' (403) under sustained call volume during this session and the update was not worth re-attempting further; the full audit trail is captured in this file, the session report, and gold_standard_ultraloop_audit instead. Non-blocking, does not affect any DoD letter."
+  - "One claimed fix (martin C/D provenance) required a live correction mid-session after the adversarial refuter caught a real mislabeling bug -- disclosed in full above rather than silently fixed and re-claimed as clean on the first pass."
+  - "No SQL migration files were created -- all fixes were data-level (UPDATE on existing multi_county_auctions rows via existing/live-harvest scripts), executed live via PostgREST."
