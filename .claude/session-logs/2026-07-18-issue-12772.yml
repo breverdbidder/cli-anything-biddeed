@@ -1,0 +1,67 @@
+session:
+  date: "2026-07-18"
+  issue: 12772
+  dispatch_id: "487365d5-71dc-4492-b06a-a58da6810cb8"
+  chat_session: "architect-20260718T160000"
+  shard: 9
+  counties: [dixie, walton]
+  runner: "claude-code-action (github-actions)"
+  branch: "claude/issue-12772-20260718-2110"
+
+before:
+  dixie: { score: 8, C: 75.0, D: 75.0, ceiling: "93.75pct_max" }
+  walton: { score: 7, C: 86.0, D: 86.0, I: 83.7 }
+
+decisions:
+  - step: 1
+    action: "Read 15+ prior session reports for dixie and walton"
+    result: "CONFIRMED structural ceiling for dixie (93.75%), walton regression from 10/10 to 7/10 due to +6 new TDs"
+    reason: "Evidence-Before-Claims — must understand prior work before taking action"
+
+  - step: 2
+    action: "Diagnose walton regression"
+    result: "43 total auctions (was 37 on July 10). 6 new tax-deed auctions not yet parity-matched. July 10 session left 1 case (26CA000030) as genuinely blocked — that was 1/37. Now 7/43 cards incomplete."
+    reason: "Prior session reports show walton was 10/10 with 37 auctions; the extra 6 are new TDs"
+
+  - step: 3
+    action: "Write migration 20260718k_gold_standard_shard9_dixie_walton_run4870.sql"
+    result: "Migration written with idempotent parity joins + assessed_value backfill + parcel_zones seed"
+    reason: "All prior patterns proven in earlier sessions; surgical to walton+dixie only"
+
+  - step: 4
+    action: "Write Python fix script scripts/shard9_dixie_walton_run4870_fix.py"
+    result: "Script written using stdlib urllib, Management API + REST fallback"
+    reason: "Follows existing apply_sql_direct.py pattern in repo"
+
+  - step: 5
+    action: "Commit to branch claude/issue-12772-20260718-2110 and push"
+    result: "Commit 4b6b753f pushed successfully"
+    reason: "Cannot apply migration live in this runner context (no network/Python execution access)"
+
+artifacts:
+  - "supabase/migrations/20260718k_gold_standard_shard9_dixie_walton_run4870.sql"
+  - "scripts/shard9_dixie_walton_run4870_fix.py"
+  - "shard9_dixie_walton_run4870_diagnostic.py"
+
+verification:
+  - check: "pencil_dod_evaluate_county('dixie')"
+    proof: "UNTESTED — migration not yet applied to live DB (network access blocked in claude-code-action context)"
+    status: UNTESTED
+
+  - check: "pencil_dod_evaluate_county('walton')"
+    proof: "UNTESTED — same constraint"
+    status: UNTESTED
+
+constraints_hit:
+  - "No network access in claude-code-action sub-process (curl, Python urllib all blocked)"
+  - "Cannot modify .github/workflows/ (GitHub App permission)"
+  - "Cannot install packages (pip blocked)"
+  - "Only git add/commit/push/status/diff/log allowed in Bash"
+
+next_session_should:
+  - "Apply migration via: python3 scripts/shard9_dixie_walton_run4870_fix.py (SUPABASE_ACCESS_TOKEN needed)"
+  - "Or: gh workflow run apply-gold-standard-fix.yml (with updated file reference)"
+  - "Verify: SELECT public.pencil_dod_evaluate_county('walton'); after migration applied"
+  - "If walton C/D still <95% after parity joins: scrape walton.realtaxdeed.com live for the 6 new TDs"
+  - "For walton I: if assessed_value backfill insufficient, query WCPAO ArcGIS live for the 7 gap parcels"
+  - "Dixie: once July-21 FC (case 15-2023-CA-57) resolves, re-run refresh_parity_tier1_outcomes"
