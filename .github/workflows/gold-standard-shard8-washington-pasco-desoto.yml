@@ -1,0 +1,276 @@
+name: "Gold Standard SHARD-8 — washington/pasco/desoto (dispatch db449ff0)"
+# dispatch_id: db449ff0-9198-4018-b01c-16dc6ca4b3d4
+# loop_run: 4870
+# chat_session: architect-20260718T160000
+#
+# Targets:
+#   washington (9/10): H FAIL (194.3h, SLA 48h)
+#   pasco (7/10):      C FAIL (82.4%), D FAIL (82.4%), I FAIL (80.0%)
+#   desoto (4/10):     E FAIL (62.5%), G FAIL (null), I FAIL (0%), J FAIL (0%)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'County to fix (or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - washington
+          - pasco
+          - desoto
+          - verify_only
+  schedule:
+    # 08:00Z wave — gold standard 3-wave fleet cadence
+    - cron: '0 8 * * *'
+
+concurrency:
+  group: gold-standard-shard8-washington-pasco-desoto
+  cancel-in-progress: false
+
+jobs:
+  fix-counties:
+    name: "SHARD-8 Fix — washington/pasco/desoto"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      TARGET: ${{ github.event.inputs.target || 'all' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.email "shard8-bot@biddeed.ai"
+          git config user.name "SHARD-8 Gold Standard Bot"
+
+      - name: Capture BEFORE state
+        if: ${{ github.event.inputs.target != 'verify_only' }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          print("=== BEFORE STATE ===")
+          for county in ["washington", "pasco", "desoto"]:
+              body = json.dumps({"p_county": county}).encode()
+              req = urllib.request.Request(
+                  f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                  data=body, headers=H, method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      ev = json.loads(r.read())
+                  passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+                  failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+                  print(f"\n{county}: {len(passed)}/10")
+                  print(f"  PASS={passed}")
+                  print(f"  FAIL={failed}")
+                  for l in "ABCDEFGHIJ":
+                      d = ev.get(l, {})
+                      print(f"  {l}: {'PASS' if d.get('pass') else 'FAIL'} metric={d.get('metric')} [{d.get('detail','')}]")
+              except Exception as e:
+                  print(f"{county}: ERROR {e}")
+          PYEOF
+
+      # ── washington H fix ────────────────────────────────────────────────────
+      - name: Fix washington H (freshness)
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'washington' }}
+        run: |
+          set -euo pipefail
+          echo "=== WASHINGTON H: Freshness fix ==="
+          TOKEN="${SUPABASE_ACCESS_TOKEN}"
+          REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260718_shard8_washington_h_freshness.sql)
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/wash_h.json
+          HTTP=$(curl -sS -o /tmp/wash_h_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/wash_h.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/wash_h_resp.json
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::washington H fix failed HTTP $HTTP"; exit 1; }
+          echo "washington H fix OK"
+
+      # ── pasco C/D fix ────────────────────────────────────────────────────────
+      - name: Fix pasco C/D (parity)
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'pasco' }}
+        run: |
+          set -euo pipefail
+          echo "=== PASCO C/D: Parity fix ==="
+          TOKEN="${SUPABASE_ACCESS_TOKEN}"
+          REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260718_shard8_pasco_cd_parity.sql)
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/pasco_cd.json
+          HTTP=$(curl -sS -o /tmp/pasco_cd_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/pasco_cd.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/pasco_cd_resp.json
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::pasco C/D fix failed HTTP $HTTP"; exit 1; }
+          echo "pasco C/D fix OK"
+
+      # ── pasco I fix ──────────────────────────────────────────────────────────
+      - name: Fix pasco I (property card completeness)
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'pasco' }}
+        run: |
+          set -euo pipefail
+          echo "=== PASCO I: Property card completeness fix ==="
+          TOKEN="${SUPABASE_ACCESS_TOKEN}"
+          REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260718_shard8_pasco_i_parcel_zones.sql)
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/pasco_i.json
+          HTTP=$(curl -sS -o /tmp/pasco_i_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/pasco_i.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/pasco_i_resp.json
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::pasco I fix failed HTTP $HTTP"; exit 1; }
+          echo "pasco I fix OK"
+
+      # ── desoto E/G/I/J fix ──────────────────────────────────────────────────
+      - name: Fix desoto E/G/I/J (parcel linkage, zoning, cards, deal thesis)
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'desoto' }}
+        run: |
+          set -euo pipefail
+          echo "=== DESOTO E/G/I/J: Comprehensive fix ==="
+          TOKEN="${SUPABASE_ACCESS_TOKEN}"
+          REF="mocerqjnksmhcjzxrewo"
+          SQL=$(cat supabase/migrations/20260718_shard8_desoto_e_g_i_j.sql)
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/desoto_egij.json
+          HTTP=$(curl -sS -o /tmp/desoto_egij_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/desoto_egij.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/desoto_egij_resp.json
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::desoto E/G/I/J fix failed HTTP $HTTP"; exit 1; }
+          echo "desoto E/G/I/J fix OK"
+
+      # ── Run comprehensive fix script ─────────────────────────────────────────
+      - name: Run comprehensive fix script (all counties via REST API)
+        if: ${{ github.event.inputs.target == 'all' }}
+        run: |
+          set -euo pipefail
+          echo "=== Running shard8_washington_pasco_desoto_fix.py ==="
+          python3 scripts/shard8_washington_pasco_desoto_fix.py
+
+      # ── Verification ─────────────────────────────────────────────────────────
+      - name: Verify all counties (AFTER state)
+        if: always()
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ.get("SUPABASE_URL", "")
+          SB_KEY = os.environ.get("SUPABASE_KEY", "")
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+
+          print("\n=== AFTER STATE — pencil_dod_evaluate_county ===")
+
+          if SB_KEY:
+              H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+              for county in ["washington", "pasco", "desoto"]:
+                  body = json.dumps({"p_county": county}).encode()
+                  req = urllib.request.Request(
+                      f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                      data=body, headers=H, method="POST"
+                  )
+                  try:
+                      with urllib.request.urlopen(req, timeout=30) as r:
+                          ev = json.loads(r.read())
+                      passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+                      failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+                      star = " ★ GOLD" if len(passed) == 10 else ""
+                      print(f"\n{county}: {len(passed)}/10{star}")
+                      print(f"  PASS={passed}")
+                      print(f"  FAIL={failed}")
+                      for l in "ABCDEFGHIJ":
+                          d = ev.get(l, {})
+                          print(f"  {l}: {'PASS' if d.get('pass') else 'FAIL'} metric={d.get('metric')} [{d.get('detail','')}]")
+                  except Exception as e:
+                      print(f"{county}: ERROR {e}")
+          elif TOKEN:
+              # Fallback: use Management API
+              import urllib.parse
+              REF = "mocerqjnksmhcjzxrewo"
+              MH = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+              for county in ["washington", "pasco", "desoto"]:
+                  sql = f"SELECT * FROM pencil_dod_evaluate_county('{county}');"
+                  body = json.dumps({"query": sql}).encode()
+                  req = urllib.request.Request(
+                      f"https://api.supabase.com/v1/projects/{REF}/database/query",
+                      data=body, headers=MH, method="POST"
+                  )
+                  try:
+                      with urllib.request.urlopen(req, timeout=60) as r:
+                          result = json.loads(r.read())
+                      print(f"\n{county}: {json.dumps(result, indent=2)}")
+                  except Exception as e:
+                      print(f"{county}: Mgmt API error {e}")
+
+          print("\n### SQL VERIFICATION (paste queries to run manually if needed):")
+          for county in ["washington", "pasco", "desoto"]:
+              print(f"  SELECT * FROM pencil_dod_evaluate_county('{county}');")
+          PYEOF
+
+      - name: Run gold_standard_loop close-out (if no other session mid-flight)
+        if: ${{ github.event.inputs.target == 'all' }}
+        continue-on-error: true
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request, time
+
+          SB_URL = os.environ.get("SUPABASE_URL", "")
+          SB_KEY = os.environ.get("SUPABASE_KEY", "")
+          if not SB_KEY:
+              print("No SB_KEY, skipping close-out loop")
+              exit(0)
+
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          print("Running gold_standard_loop()...")
+          req = urllib.request.Request(
+              f"{SB_URL}/rest/v1/rpc/gold_standard_loop",
+              data=b"{}", headers=H, method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  print(f"  gold_standard_loop: HTTP {r.status}")
+          except Exception as e:
+              print(f"  gold_standard_loop ERROR: {e} (non-fatal)")
+
+          time.sleep(5)
+          req = urllib.request.Request(
+              f"{SB_URL}/rest/v1/rpc/gold_standard_certify",
+              data=b"{}", headers=H, method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  print(f"  gold_standard_certify: HTTP {r.status}")
+          except Exception as e:
+              print(f"  gold_standard_certify ERROR: {e} (non-fatal)")
+          PYEOF
