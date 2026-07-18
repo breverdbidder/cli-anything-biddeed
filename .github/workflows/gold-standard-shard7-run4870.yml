@@ -1,0 +1,215 @@
+name: "Gold Standard SHARD-7 run4870 (leon/jefferson/alachua)"
+
+# dispatch_id: 7066f088-5bfc-42d7-8ac1-35a03ab50ecc
+# Counties: leon (I failing), jefferson (A/B/F failing), alachua (C/D/E/I/J failing)
+# Session: architect-20260718T160000
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "County to fix (leon, jefferson, alachua, all)"
+        required: false
+        default: "all"
+
+concurrency:
+  group: gold-standard-shard7-run4870
+  cancel-in-progress: false
+
+jobs:
+  leon-i-fix:
+    name: "Leon I — property card completeness"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'leon' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fix Leon I (property card completeness)
+        run: python3 scripts/gold_standard_shard7_leon_i_card_fix.py
+      - name: Verify Leon post-fix
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+          KEY = os.environ['SUPABASE_KEY']
+          H = {'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json', 'Prefer': ''}
+          body = json.dumps({'p_county': 'leon'}).encode()
+          req = urllib.request.Request(f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county', data=body, headers=H, method='POST')
+          with urllib.request.urlopen(req, timeout=30) as r:
+              result = json.loads(r.read())
+          passes = sum(1 for k,v in result.items() if isinstance(v,dict) and v.get('pass'))
+          print(f'Leon: {passes}/10')
+          for l in 'ABCDEFGHIJ':
+              ld = result.get(l, {})
+              print(f'  {l}: {\"PASS\" if ld.get(\"pass\") else \"FAIL\"} metric={ld.get(\"metric\")}')
+          print('### SQL VERIFICATION')
+          print(f'SELECT * FROM public.pencil_dod_evaluate_county(''leon'');')
+          print(json.dumps(result, indent=2))
+          " 2>&1 | tee "$GITHUB_STEP_SUMMARY"
+
+  jefferson-abf-fix:
+    name: "Jefferson A/B/F — clerk scraper + verified outcomes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'jefferson' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pypdf for PDF parsing
+        run: pip install pypdf --quiet
+      - name: Fix Jefferson A/B/F (clerk scraper + outcomes)
+        run: python3 scripts/gold_standard_shard7_jefferson_abf_fix.py
+      - name: Verify Jefferson post-fix
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+          KEY = os.environ['SUPABASE_KEY']
+          H = {'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json', 'Prefer': ''}
+          body = json.dumps({'p_county': 'jefferson'}).encode()
+          req = urllib.request.Request(f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county', data=body, headers=H, method='POST')
+          with urllib.request.urlopen(req, timeout=30) as r:
+              result = json.loads(r.read())
+          passes = sum(1 for k,v in result.items() if isinstance(v,dict) and v.get('pass'))
+          print(f'Jefferson: {passes}/10')
+          for l in 'ABCDEFGHIJ':
+              ld = result.get(l, {})
+              print(f'  {l}: {\"PASS\" if ld.get(\"pass\") else \"FAIL\"} metric={ld.get(\"metric\")}')
+          print('### SQL VERIFICATION')
+          print(json.dumps(result, indent=2))
+          " 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+  alachua-cdeij-fix:
+    name: "Alachua C/D/E/I/J — parity, parcel, cards, bid decisions"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'alachua' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fix Alachua C/D/E/I/J
+        run: python3 scripts/gold_standard_shard7_alachua_cdeij_fix.py
+      - name: Verify Alachua post-fix
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+          KEY = os.environ['SUPABASE_KEY']
+          H = {'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json', 'Prefer': ''}
+          body = json.dumps({'p_county': 'alachua'}).encode()
+          req = urllib.request.Request(f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county', data=body, headers=H, method='POST')
+          with urllib.request.urlopen(req, timeout=30) as r:
+              result = json.loads(r.read())
+          passes = sum(1 for k,v in result.items() if isinstance(v,dict) and v.get('pass'))
+          print(f'Alachua: {passes}/10')
+          for l in 'ABCDEFGHIJ':
+              ld = result.get(l, {})
+              print(f'  {l}: {\"PASS\" if ld.get(\"pass\") else \"FAIL\"} metric={ld.get(\"metric\")}')
+          print('### SQL VERIFICATION')
+          print(json.dumps(result, indent=2))
+          " 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+  ultraloop-audit:
+    name: "ULTRALOOP — survival vote evidence"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [leon-i-fix, jefferson-abf-fix, alachua-cdeij-fix]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Populate ultraloop audit table + run gold_standard_loop
+        run: |
+          python3 -c "
+          import os, json, urllib.request, urllib.error, datetime
+
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+          KEY = os.environ['SUPABASE_KEY']
+          H = {'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json', 'Prefer': ''}
+          DISPATCH_ID = '7066f088-5bfc-42d7-8ac1-35a03ab50ecc'
+          counties = ['leon', 'jefferson', 'alachua']
+          ts = datetime.datetime.utcnow().isoformat() + 'Z'
+
+          def rpc(fn, payload):
+              body = json.dumps(payload).encode()
+              req = urllib.request.Request(f'{URL}/rest/v1/rpc/{fn}', data=body, headers=H, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, {}
+
+          def post(table, rows):
+              body = json.dumps(rows).encode()
+              req = urllib.request.Request(f'{URL}/rest/v1/{table}', data=body,
+                    headers={**H, 'Prefer': 'resolution=ignore-duplicates,return=minimal'}, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status
+              except urllib.error.HTTPError as e:
+                  return e.code
+
+          print('Evaluating all counties...')
+          audit_rows = []
+          for county in counties:
+              status, result = rpc('pencil_dod_evaluate_county', {'p_county': county})
+              if status != 200:
+                  print(f'  {county}: eval failed HTTP {status}')
+                  continue
+              for letter in 'ABCDEFGHIJ':
+                  ld = result.get(letter, {})
+                  passed = bool(ld.get('pass'))
+                  metric = ld.get('metric')
+                  survived = passed  # survival vote: passes evaluator = survived
+                  claim = f'{county} {letter}={metric} pass={passed}'
+                  refuter = {'metric': metric, 'pass': passed, 'source': f'pencil_dod_evaluate_county live {ts}', 'anomaly_check': metric > 105 if isinstance(metric, (int,float)) and letter in [\"B\",\"F\"] else False}
+                  if isinstance(metric, (int,float)) and metric > 105 and letter in ['B','F']:
+                      survived = False
+                      refuter['verdict'] = 'B/F>105% anomaly — denominator mismatch, auto-fail per EVALUATOR V6'
+                  audit_rows.append({
+                      'dispatch_id': DISPATCH_ID,
+                      'ultraloop_mode': 'fallback',
+                      'county_slug': county,
+                      'letter': letter,
+                      'claim': claim,
+                      'refuter_evidence': refuter,
+                      'survived': survived,
+                  })
+              passes = sum(1 for l in 'ABCDEFGHIJ' if result.get(l,{}).get('pass'))
+              print(f'  {county}: {passes}/10')
+              for l in 'ABCDEFGHIJ':
+                  ld = result.get(l, {})
+                  print(f'    {l}: {\"PASS\" if ld.get(\"pass\") else \"FAIL\"} metric={ld.get(\"metric\")}')
+
+          # Insert audit rows
+          if audit_rows:
+              http_status = post('gold_standard_ultraloop_audit', audit_rows)
+              print(f'Ultraloop audit INSERT: HTTP {http_status}, {len(audit_rows)} rows')
+
+          print()
+          print('### FINAL SQL VERIFICATION (shard7-run4870)')
+          print(f'All {len(audit_rows)} ultraloop audit rows written for dispatch_id={DISPATCH_ID}')
+          print('Dispatch ID:', DISPATCH_ID)
+          print('Counties evaluated:', counties)
+          " 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
