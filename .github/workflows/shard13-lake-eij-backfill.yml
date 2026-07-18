@@ -1,0 +1,69 @@
+name: "SHARD-13 Lake E+I+J backfill"
+# dispatch_id: 61ea7d8f-c9ca-401a-80ec-222b16502886
+# Lake county now has 111 rows (fc=100 from clerk calendar + td=11). The new FC
+# rows need E (parcel linkage), G (zoning), and J (bid_decisions). This workflow
+# runs after the daily lake clerk forecast scraper (shard8-lake-clerk-foreclosure-scraper.yml
+# at 08:15 UTC) to process any new rows added that day.
+#
+# PASS 1: E — owner-name or address ArcGIS match for rows missing parcel_id
+# PASS 2: G — zoning point-in-polygon for newly-linked rows
+# PASS 3: J — bid_decisions upsert for all rows missing them
+#
+# Run: daily 09:00 UTC (after lake clerk scraper at 08:15 UTC)
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log only, no writes)'
+        required: false
+        default: 'false'
+
+jobs:
+  lake-eij-backfill:
+    name: "Lake E+I+J backfill"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install --quiet requests
+
+      - name: Run lake E+I+J backfill
+        run: |
+          set -euo pipefail
+          EXIT=0
+          python3 scripts/shard13_lake_eij_backfill.py || EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = no new work -- not a failure
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: pencil_dod_evaluate_county lake"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "lake"}')
+          echo "### SQL VERIFICATION: lake" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
+          # Extract key metrics
+          E_MET=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('E',{}).get('metric','?'))")
+          G_MET=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('G',{}).get('metric','?'))")
+          I_MET=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('I',{}).get('metric','?'))")
+          J_MET=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('J',{}).get('metric','?'))")
+          echo "::notice::lake E=${E_MET}% G=${G_MET}% I=${I_MET}% J=${J_MET}%"
