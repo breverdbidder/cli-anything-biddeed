@@ -218,7 +218,8 @@ def main():
     args = parser.parse_args()
 
     client = httpx.Client(timeout=30)
-    all_records = []
+    fc_records = []
+    td_records = []
 
     # Scrape foreclosure sales
     log.info(f'Fetching Dixie foreclosure sales from {DIXIE_FC_URL}')
@@ -226,7 +227,6 @@ def main():
     if r.status_code == 200:
         fc_records = parse_dixie_sales(r.text, 'foreclosure')
         log.info(f'Parsed {len(fc_records)} foreclosure auctions')
-        all_records.extend(fc_records)
     else:
         log.warning(f'Foreclosure page returned {r.status_code}')
 
@@ -236,18 +236,23 @@ def main():
     if r2.status_code == 200:
         td_records = parse_dixie_taxdeed_json(r2.text)
         log.info(f'Parsed {len(td_records)} tax deed auctions')
-        all_records.extend(td_records)
     else:
         log.warning(f'Tax deed page returned {r2.status_code}')
 
     # Fail-loud if parsed > 0 and inserted = 0
-    parsed = len(all_records)
+    parsed = len(fc_records) + len(td_records)
     if parsed == 0:
         log.info('No upcoming auctions found for Dixie County')
         print(json.dumps({'county': 'dixie', 'parsed': 0, 'inserted': 0, 'status': 'no_data'}))
         sys.exit(0)
 
-    inserted = upsert_records(all_records, dry_run=args.dry_run)
+    # PostgREST bulk upsert requires every object in one POST to share the
+    # exact same key set (PGRST102: "All object keys must match"). fc_records
+    # and td_records have different shapes (judgment_amount/plaintiff vs.
+    # sold_amount/opening_bid/cert_number/cert_holder) -- root cause of the
+    # 2026-07-18 FAIL-LOUD (parsed=33, inserted=0). Upsert each batch
+    # separately instead of concatenating them.
+    inserted = upsert_records(fc_records, dry_run=args.dry_run) + upsert_records(td_records, dry_run=args.dry_run)
 
     if parsed > 0 and inserted == 0 and not args.dry_run:
         raise RuntimeError(f'FAIL-LOUD: parsed={parsed} but inserted=0 for dixie county')
