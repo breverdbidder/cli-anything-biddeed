@@ -1,0 +1,76 @@
+session:
+  date: "2026-07-18"
+  dispatch_id: "95f77ed6-fc70-4c15-9db4-b9b64bef5d1c"
+  county: holmes
+  shard: 6
+  ultraloop_mode: fallback
+  goal: "Close C/D 5-case gap (61.5% -> 100%), attempt B/F via any newly confirmed source"
+
+baseline:
+  A: {pass: true, metric: 3}
+  B: {pass: false, metric: null, detail: "verified=0 closed_sold=0"}
+  C: {pass: false, metric: 61.5, detail: "matched_clean=8 of 13"}
+  D: {pass: false, metric: 61.5, detail: "matched_any=8 of 13"}
+  E: {pass: true, metric: 100.0}
+  F: {pass: false, metric: null, detail: "tier1_sold=0 closed_sold=0"}
+  G: {pass: true, metric: 100.0}
+  H: {pass: true, metric: 15.1}
+  I: {pass: true, metric: 100.0}
+  J: {pass: true, metric: 100.0}
+  pass_count: "6/10"
+
+final:
+  # identical to baseline -- no multi_county_auctions row was modified this session
+  pass_count: "6/10 (unchanged)"
+
+decisions:
+  - step: 1
+    action: "Fresh re-scrape holmesclerk.com foreclosures/tax-deeds/lands-available pages"
+    result: "Only 4 TD# cases currently listed (2020-349, 2023-330, 2023-509, 2024-185) -- all already matched. None of the 5 gap cases present. Confirms 'rolled off' finding from run3534/shard9 still holds 8 days later."
+    reason: "Rule out stale-scrape as the cause before trying new sources"
+  - step: 2
+    action: "Test FIRECRAWL_API_KEY against api.firecrawl.dev/v1/scrape and /v1/team/credit-usage"
+    result: "remaining_credits=0 of plan_credits=100000, billing_period_end=2026-04-26 (expired). Scrape call failed with 'Insufficient credits'. Contradicts dispatch brief's framing of Firecrawl as a new capability -- same blocker as the 2026-07-11 refire session found."
+    reason: "Brief explicitly asked to use Firecrawl for JS-rendered pages (qPublic, ORI)"
+  - step: 3
+    action: "Probe myfloridacounty.com/orisearch/30 (Holmes ORI doorway) and qpublic.net/holmes"
+    result: "myfloridacounty ORI requires JS search UI (not directly queryable via curl). qpublic.net/holmes returns HTTP 403 with cf-mitigated:challenge (active Cloudflare Turnstile challenge, confirmed via response headers) -- genuinely needs a real browser, which Firecrawl (0 credits) could not provide."
+    reason: "Brief flagged qPublic as untested-not-confirmed-empty in the prior session"
+  - step: 4
+    action: "Reach and interact with Civitek OCRS (Holmes's official-records vendor) live, past the disclaimer page for the first time in this shard's history"
+    result: "Replayed the PrimeFaces AJAX 'Agree' postback via raw HTTP -> reached /ocrs/app/search.xhtml. Loaded the Case Search tab: no Tax Deed docket type exists (only AP/CA/CC/CO/CT/DR/CF/GA/MM/MO/IN/CP/SC/TR). Attempted Person Search by owner surname (SAFFORD, from tax roll) -- raw POST returns the same form with no results grid; the search submit requires client-side JS (PrimeFaces CommandButton widget) that a non-JS HTTP replay cannot trigger."
+    reason: "Deeper attempt than the 2026-07-11 refire, which stopped at the disclaimer and called it 'same gate as myfloridacounty, not independent' without ever loading the search form"
+  - step: 5
+    action: "Discover and query holmescountytaxcollector.com/Property/search (genuinely new source, not attempted by any prior session)"
+    result: "Working POST endpoint (propertynumber field) returns real per-parcel tax-roll history (owner name, TAXBILLNO, STATUS by year) for all 5 gap parcels. Each STATUS=TD bill's detail page (/Property/TaxDeed?...) returns a static, non-data message for every parcel/year tested: 'This parcel is or has been included on a Tax Deed Application, please contact the Tax Collector for its current status.' Confirmed against a known-old 2018 bill too -- the page structurally never exposes disposition, for any parcel."
+    reason: "Brief explicitly asked to try the Property Appraiser/Tax Collector as an alternate independent source"
+  - step: 6
+    action: "Self-check: hypothesized stable owner-name across years = unsold for the 5 gap parcels, then tested the hypothesis against the ONE row with independent completed ground truth"
+    result: "Owner-name change (WOOD->GILLIS) on that parcel occurred in 2021, five years before the case's 2026-06-11 auction_date -- the field is not temporally correlated with auction outcome. Hypothesis disproved before any write was made. No parity_status/sold_amount written on the strength of this signal."
+    reason: "HONESTY PROTOCOL / K1 Think-Before-Coding -- catch a plausible-looking but unverified inference before it becomes a false VERIFIED claim"
+  - step: 7
+    action: "WebSearch for exact case-number strings TD#2023-185, TD#2023-225"
+    result: "Zero indexed pages anywhere reference these case numbers"
+    reason: "Rule out legal-notice archives / newspaper indexing as a last avenue"
+
+artifacts:
+  - path: ".claude/session-logs/2026-07-18-shard6-holmes.yml"
+    type: session_log
+
+verification:
+  - check: "pencil_dod_evaluate_county('holmes') before vs after"
+    proof: "Both calls returned identical 6/10 (A,E,G,H,I,J pass; B,C,D,F fail with same metrics: C/D=61.5, B/F=null). No drift, confirming zero writes to multi_county_auctions this session."
+    status: unchanged
+  - check: "gold_standard_ultraloop_audit rows inserted"
+    proof: "4 rows (ids 6796-6799), dispatch_id=95f77ed6-fc70-4c15-9db4-b9b64bef5d1c, letters C/D/B/F, all survived=true, HTTP 201"
+    status: confirmed
+
+residual_gaps:
+  - "C/D 5-case gap (TD#2020-589, TD#2023-185, TD#2023-225, TD#2023-496, TD#2023-584): structurally blocked. holmesclerk.com notice board is disposition-free and these cases have rolled off it. Civitek OCRS has no Tax Deed docket type and its Person/Case search requires client-side JS the account's zero Firecrawl credits cannot render. Holmes Tax Collector's TaxDeed detail page is confirmed (via direct test, not assumption) to never expose disposition data for ANY parcel. No public web index references these case numbers. This is now the 3rd session (2026-07-10, 2026-07-11, 2026-07-18) to independently confirm this gap, each going one level deeper (script scrape -> disclaimer-only Civitek probe -> full Civitek search-form interaction + new Tax Collector source). Remaining lever: phone/in-person contact with Holmes Clerk (850-547-1100) or Tax Collector, per prior session's conclusion, unchanged."
+  - "B/F (only 1 completed row, sold_amount NULL): no source found this session states a sale/consideration amount for HOLMES-LEGACY-123a1bd5. Tax Collector tax-roll owner-name field tested and found NOT usable as a B/F proxy signal (temporally uncorrelated with auction_date)."
+  - "Firecrawl account is billing-exhausted (0/100,000 credits, period ended 2026-04-26) -- this blocks browser-JS-required paths (qPublic Cloudflare challenge, Civitek OCRS PrimeFaces search submit) for ALL Holmes/gold-standard sessions until refunded. This is an actionable, concrete residual for a human (Ariel) to resolve, not a scraper defect."
+
+honesty_notes:
+  - "Firecrawl was NOT actually a new capability this session despite the dispatch brief's framing -- verified live against /v1/team/credit-usage (0 remaining) before relying on it, rather than assuming it worked."
+  - "Formed and then explicitly disproved a hypothesis (owner-name stability as sold/unsold proxy) before writing any DB claim -- reported as a self-correction, not silently discarded."
+  - "No parity_status, parity_source, sold_amount, or outcome row was written for any of the 5 gap cases or the 1 completed row. All claims in this report are UNTESTED-source-exhausted or VERIFIED-negative, never fabricated."
