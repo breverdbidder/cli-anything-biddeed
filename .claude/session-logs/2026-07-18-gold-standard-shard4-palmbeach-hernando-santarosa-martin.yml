@@ -89,3 +89,35 @@ deviation_log:
   - "pipeline.counties.notes was NOT updated for santa_rosa/martin as originally intended -- the Supabase Management API intermittently returned Cloudflare 'error code 1010' (403) under sustained call volume during this session and the update was not worth re-attempting further; the full audit trail is captured in this file, the session report, and gold_standard_ultraloop_audit instead. Non-blocking, does not affect any DoD letter."
   - "One claimed fix (martin C/D provenance) required a live correction mid-session after the adversarial refuter caught a real mislabeling bug -- disclosed in full above rather than silently fixed and re-claimed as clean on the first pass."
   - "No SQL migration files were created -- all fixes were data-level (UPDATE on existing multi_county_auctions rows via existing/live-harvest scripts), executed live via PostgREST."
+
+re_fire_addendum:
+  fired_at: "2026-07-18T16:00:00Z (same dispatch_id/chat_session as above -- duplicate trigger)"
+  step_1:
+    action: "Re-verified live pencil_dod_evaluate_county for all 4 counties before doing anything, to check whether this was a genuine new dispatch or a duplicate re-fire."
+    result: "All 4 counties matched this report's after-state exactly (palm_beach 10/10 with dataset growth 636->689, hernando 8/10, santa_rosa 9/10, martin 7/10). Confirmed duplicate re-fire, not new work."
+    reason: "Evidence-Before-Claims -- never assume a dispatch is fresh without checking live state first."
+  step_2:
+    action: "Did NOT re-run the C/D harvesters or the original 7-agent refuter fan-out (already applied, verified, and survived above). Used the session instead to make genuine incremental progress on the report's own next-session-priorities queue: probed martin E's blocker (Martin Clerk case search) directly."
+    result: "Found court.martinclerk.com/Home.aspx/Search's case-search form requires solving a server-rendered CAPTCHA (image + audio fallback), with an anti-forgery token, and no query-string/permalink bypass."
+    reason: "Avoid duplicate/wasted live-site calls and duplicate audit rows on already-survived claims; spend the re-fire productively instead of idling or re-doing identical work."
+  step_3:
+    action: "Ran a Workflow fan-out of 3 independent adversarial agents to verify the CAPTCHA finding rather than trusting a single WebFetch summarization: (1) re-fetch the raw HTML directly and confirm the CAPTCHA markup verbatim plus probe for bypass URLs, (2) search for any free/no-login/no-CAPTCHA alternative source for the 3 specific case numbers, (3) reconfirm martin.realforeclose.com's 403 and search for any public RealAuction lookup endpoint."
+    result: "All 3 confirmed: CAPTCHA is real and unavoidable via scripted access, no bypass path exists, no free alternative source exists (Florida Courts E-Filing is counsel-only, CCIS is judiciary-only, myfloridacounty.com routes back to the same CAPTCHA gate, property appraiser lookup is the wrong direction (address->case, not case->address), private aggregators are paid/blocked), and RealAuction 403 reconfirmed with no public API found."
+    reason: "ULTRALOOP PROTOCOL -- do not accept a single agent's page-read as fact; independently verify before writing it into the permanent record."
+  step_4:
+    action: "Deliberately did not attempt to solve the CAPTCHA via browser automation or a solving service."
+    result: "martin E's 3-row gap remains FAIL (91.9%, 34/37), unchanged -- no letter moved this addendum."
+    reason: "The CAPTCHA is a real anti-automation control on the Clerk's own portal, not a scraping bug -- defeating it is out of scope for routine data collection. The legitimate path (manual records request, RecordRequest@martinclerk.com, $1/page) is a human/procurement action, not a coding task."
+
+addendum_artifacts:
+  - "GOLD_STANDARD_SHARD4_PALMBEACH_HERNANDO_SANTAROSA_MARTIN_DISPATCH_84D095D7_SESSION_REPORT.md -- RE-FIRE ADDENDUM section appended"
+  - "This file -- re_fire_addendum section appended"
+  - "No DB writes this addendum -- verification-only, no letter moved, nothing to persist to gold_standard_ultraloop_audit (that table is for claims a letter moved/passed; this addendum's finding is a re-confirmed/upgraded blocker, not a movement)"
+
+addendum_verification:
+  - check: "Duplicate-dispatch detection"
+    proof: "Live pencil_dod_evaluate_county('palm_beach'|'hernando'|'santa_rosa'|'martin') on re-fire matched this report's documented after-state for all 10 letters x 4 counties, with palm_beach's auctions_total visibly growing (636->689) confirming live data continues to accrue while the DoD state stayed stable."
+    status: "CONFIRMED DUPLICATE -- no rework performed"
+  - check: "martin E CAPTCHA blocker, independently verified"
+    proof: "Workflow wf_13be5f88-e96 (3 agents): raw-HTML fetch confirmed captcha form field + /CourtCase.aspx/CaptchaImage + anti-forgery token; GET bypass attempts on CourtCase.aspx/CaseDetail.aspx/Case.aspx/PublicSearch.aspx all returned Access Denied or redirect; alternative-source search found none (E-Filing counsel-only, CCIS judiciary-only, myfloridacounty.com same gate, property appraiser wrong-direction, aggregators paid/blocked); martin.realforeclose.com reconfirmed 403 with no public API found."
+    status: "BLOCKED, upgraded evidence, still not routed around"

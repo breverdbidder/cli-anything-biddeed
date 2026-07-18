@@ -49,6 +49,39 @@ Ran a `Workflow` fan-out of 7 independent adversarial refuter subagents (one per
 ## Next-session priorities (for whichever shard picks these counties up next)
 
 1. **martin/santa_rosa I**: real zoning-ingestion session — jurisdictions/zoning_districts/parcel_zones for the specific unmatched parcels (13 in santa_rosa, all of martin beyond the existing 15). Ordinance-text values only, honesty markers, no guessing (per the G DIAGNOSIS precedent).
-2. **martin E**: Martin Clerk case-detail scrape for 3 case numbers with zero metadata, to recover a real address before parcel-matching.
+2. **martin E**: Martin Clerk case-detail scrape for 3 case numbers with zero metadata, to recover a real address before parcel-matching. **UPDATE 2026-07-18 (re-fire addendum below): confirmed CAPTCHA-gated, not scriptable without a CAPTCHA-solving step — deprioritize scripted-scrape attempts, use a manual records request instead.**
 3. **martin J**: once #1 lands (parcel canonicalization), re-run `gen_valuations_comps_batch()` and the real Shapira/CMA generator for the 4 newly-linked rows — do not fabricate.
 4. **hernando B/F**: revisit only if/when hernando's upcoming auctions actually close (no current action possible — genuinely future-dated data).
+
+---
+
+## RE-FIRE ADDENDUM (2026-07-18, same-day duplicate dispatch)
+
+This exact `dispatch_id` (`84d095d7-0a1a-46ee-b7aa-7ac21b7f06f7`) and `chat_session` (`architect-20260718T160000`) fired a second time. Before doing any work, re-verified live state to check whether this was genuinely new work or a duplicate trigger.
+
+**Finding: duplicate re-fire, not new work.** Live `pencil_dod_evaluate_county` calls for all 4 counties, run fresh, matched this report's after-state exactly:
+
+| County | Live re-check (2026-07-18, re-fire) |
+|---|---|
+| palm_beach | 10/10 (dataset grew 636→689 auctions since the original pass; still clean, no anomalies) |
+| hernando | 8/10 (B/F still null-denominator, unchanged) |
+| santa_rosa | 9/10 (only I fails, 81.4%, unchanged) |
+| martin | 7/10 (E/I/J fail, unchanged) |
+
+Per HONESTY PROTOCOL / BLANK > WRONG, did **not** re-run the C/D harvesters (already applied and verified above — re-running would risk duplicate audit rows and wasted live-site calls for zero metric movement) and did **not** re-run the ULTRALOOP refuter fan-out on already-survived claims. Instead used the remaining session as a genuine incremental step against the next-session-priorities queue above.
+
+### New finding: martin E blocker upgraded from "no time" to confirmed structural
+
+Probed `https://court.martinclerk.com/Home.aspx/Search` (Martin Clerk's "Benchmark" case-search system) directly, then independently re-verified with a `Workflow` fan-out of 3 adversarial agents (one re-fetching raw HTML directly via curl rather than the summarized WebFetch tool, one searching for any free/no-login/no-CAPTCHA alternative statewide or third-party case lookup, one re-confirming the `martin.realforeclose.com` 403).
+
+**CONFIRMED, not fabricated:**
+- The case-search form (`POST CourtCase.aspx/CaseSearch`) requires solving a server-rendered image/audio CAPTCHA (`/CourtCase.aspx/CaptchaImage`, `captcha` form field) plus an anti-forgery token. Directly observed in the raw HTML/JS, not inferred.
+- No query-string or permalink bypass exists — direct `GET CourtCase.aspx` and guessed detail-view paths (`CaseDetail.aspx`, `Case.aspx`, `PublicSearch.aspx`) return "Access Denied" or redirect, not case data.
+- No free alternative source exists for these 3 case numbers: Florida Courts E-Filing Portal is counsel-only, CCIS/flccis is judiciary/law-enforcement-only, myfloridacounty.com routes back to the same CAPTCHA-gated martinclerk.com endpoint, and the Martin County Property Appraiser lookup is address/owner/parcel-indexed — it cannot resolve a case number to owner/legal-description (wrong direction). Private aggregators (UniCourt, etc.) either blocked the fetch or are paid-only.
+- `martin.realforeclose.com` reconfirmed 403 Forbidden (session/auth-gated, matches the documented RealAuction pattern); no public unauthenticated case-lookup endpoint exists anywhere on the RealAuction platform per web search.
+
+**Deliberately did not attempt:** solving the CAPTCHA via browser automation or a CAPTCHA-solving service. This is a real anti-automation control on the Clerk's own portal, not a scraping bug to route around — attempting to defeat it is out of scope for routine data collection. The legitimate path (per the site's own contact info) is a manual records request: `RecordRequest@martinclerk.com`, 772-288-5576, $1/page — a human/procurement action, not a coding task, and out of scope for this session.
+
+**Verdict: martin E's 3-row gap is a confirmed structural blocker, upgraded from "insufficient time" to "no scriptable/free path exists."** No letter moved. martin remains 7/10. Deprioritize further scripted-scrape attempts on this specific gap in future sessions; either accept it as a permanent ceiling or route it through a manual records request outside the automated pipeline.
+
+Audit trail: `Workflow` run `wf_13be5f88-e96` (3 agents, all direct-evidence-based, no claim accepted on inference alone).
