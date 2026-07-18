@@ -1,0 +1,330 @@
+name: Gold Standard SHARD-4 run4870 (palm_beach, hernando, santa_rosa, martin)
+
+on:
+  workflow_dispatch:
+    inputs:
+      county:
+        description: 'County to process (leave blank for all)'
+        required: false
+        default: ''
+        type: string
+      phase:
+        description: 'Phase to run per county (all, cd, e, i, j, bf)'
+        required: false
+        default: 'all'
+        type: string
+      dry_run:
+        description: 'Dry run — no DB writes'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: '0 8 * * *'
+
+concurrency:
+  group: gold-standard-shard4-run4870
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: "Shard-4 run4870: hernando + santa_rosa + martin fixes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet requests httpx
+
+      - name: Configure git
+        run: |
+          git config user.email "shard4-bot@biddeed.ai"
+          git config user.name "SHARD-4 run4870 Gold Standard Bot"
+
+      - name: "Baseline: Evaluate all 4 counties before fixes"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+               'Content-Type': 'application/json', 'Accept': 'application/json'}
+
+          counties = ['palm_beach', 'hernando', 'santa_rosa', 'martin']
+          print('=== SHARD-4 BASELINE EVALUATION ===')
+          for county in counties:
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                                           data=body, method='POST', headers=H)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      ev = json.loads(r.read())
+                  if isinstance(ev, list):
+                      passes = [row.get('letter') for row in ev if row.get('pass')]
+                  elif isinstance(ev, dict):
+                      passes = [k for k,v in ev.items() if isinstance(v,dict) and v.get('pass')]
+                  else:
+                      passes = []
+                  print(f'{county.upper()}: {len(passes)}/10 -> {passes}')
+                  print(json.dumps(ev, indent=2))
+              except Exception as e:
+                  print(f'{county}: ERROR {e}')
+          " 2>&1 | tee /tmp/shard4_baseline.txt
+          cat /tmp/shard4_baseline.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Hernando: B/F verified outcomes harvest"
+        if: ${{ !inputs.county || inputs.county == 'hernando' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
+        run: |
+          python3 scripts/shard4_run4870_hernando_bf_outcomes.py \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/hernando_bf.txt
+          cat /tmp/hernando_bf.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Hernando: Evaluate after B/F fix"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+               'Content-Type': 'application/json', 'Accept': 'application/json'}
+          body = json.dumps({'p_county': 'hernando'}).encode()
+          req = urllib.request.Request(f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                                       data=body, method='POST', headers=H)
+          with urllib.request.urlopen(req, timeout=60) as r:
+              ev = json.loads(r.read())
+          print('HERNANDO AFTER B/F FIX:')
+          print(json.dumps(ev, indent=2))
+          " 2>&1 | tee /tmp/hernando_after.txt
+          cat /tmp/hernando_after.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Santa Rosa: C/D parity fix (AJAX harvest)"
+        if: ${{ !inputs.county || inputs.county == 'santa_rosa' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 scripts/shard4_run4870_santa_rosa_cd_i_fix.py \
+            --phase cd \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/santa_rosa_cd.txt
+          cat /tmp/santa_rosa_cd.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Santa Rosa: I card_complete fix (ArcGIS zoning)"
+        if: ${{ !inputs.county || inputs.county == 'santa_rosa' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 scripts/shard4_run4870_santa_rosa_cd_i_fix.py \
+            --phase i \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/santa_rosa_i.txt
+          cat /tmp/santa_rosa_i.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Santa Rosa: Evaluate after C/D/I fix"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+               'Content-Type': 'application/json', 'Accept': 'application/json'}
+          body = json.dumps({'p_county': 'santa_rosa'}).encode()
+          req = urllib.request.Request(f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                                       data=body, method='POST', headers=H)
+          with urllib.request.urlopen(req, timeout=60) as r:
+              ev = json.loads(r.read())
+          print('SANTA_ROSA AFTER C/D/I FIX:')
+          print(json.dumps(ev, indent=2))
+          " 2>&1 | tee /tmp/santa_rosa_after.txt
+          cat /tmp/santa_rosa_after.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Martin: C/D parity fix (AJAX harvest)"
+        if: ${{ !inputs.county || inputs.county == 'martin' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 scripts/shard4_run4870_martin_cd_e_i_j_fix.py \
+            --phase cd \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/martin_cd.txt
+          cat /tmp/martin_cd.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Martin: E parcel linkage (ArcGIS probe + address match)"
+        if: ${{ !inputs.county || inputs.county == 'martin' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 scripts/shard4_run4870_martin_cd_e_i_j_fix.py \
+            --phase e \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/martin_e.txt
+          cat /tmp/martin_e.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Martin: J bid_decisions generator"
+        if: ${{ !inputs.county || inputs.county == 'martin' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 scripts/shard4_run4870_martin_cd_e_i_j_fix.py \
+            --phase j \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/martin_j.txt
+          cat /tmp/martin_j.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Martin: I card_complete (geo+value+zoning enrichment)"
+        if: ${{ !inputs.county || inputs.county == 'martin' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 scripts/shard4_run4870_martin_cd_e_i_j_fix.py \
+            --phase i \
+            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/martin_i.txt
+          cat /tmp/martin_i.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Martin: Evaluate after C/D/E/I/J fix"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+               'Content-Type': 'application/json', 'Accept': 'application/json'}
+          body = json.dumps({'p_county': 'martin'}).encode()
+          req = urllib.request.Request(f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                                       data=body, method='POST', headers=H)
+          with urllib.request.urlopen(req, timeout=60) as r:
+              ev = json.loads(r.read())
+          print('MARTIN AFTER C/D/E/I/J FIX:')
+          print(json.dumps(ev, indent=2))
+          " 2>&1 | tee /tmp/martin_after.txt
+          cat /tmp/martin_after.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "FINAL: Evaluate all 4 counties after all fixes"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+               'Content-Type': 'application/json', 'Accept': 'application/json'}
+
+          counties = ['palm_beach', 'hernando', 'santa_rosa', 'martin']
+          print('=== SHARD-4 FINAL EVALUATION (dispatch 84d095d7) ===')
+          for county in counties:
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                                           data=body, method='POST', headers=H)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      ev = json.loads(r.read())
+                  if isinstance(ev, list):
+                      passes = [row.get('letter') for row in ev if row.get('pass')]
+                  elif isinstance(ev, dict):
+                      passes = [k for k,v in ev.items() if isinstance(v,dict) and v.get('pass')]
+                  else:
+                      passes = []
+                  print(f'{county.upper()}: {len(passes)}/10 -> {passes}')
+                  print(json.dumps(ev, indent=2))
+              except Exception as e:
+                  print(f'{county}: ERROR {e}')
+
+          print('')
+          print('### SQL VERIFICATION')
+          import datetime
+          print(f'Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()} UTC')
+          " 2>&1 | tee /tmp/shard4_final.txt
+          cat /tmp/shard4_final.txt >> \$GITHUB_STEP_SUMMARY
+
+      - name: "Run gold_standard_certify"
+        if: ${{ !inputs.dry_run }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H = {'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+               'Content-Type': 'application/json', 'Accept': 'application/json'}
+          req = urllib.request.Request(f'{SB_URL}/rest/v1/rpc/gold_standard_certify',
+                                       data=b'{}', method='POST', headers=H)
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  print('certify:', r.status, r.read().decode()[:500])
+          except Exception as e:
+              print('certify error:', e)
+          " 2>&1
+
+      - name: Commit scripts and workflow
+        if: always()
+        run: |
+          set +e
+          git pull --rebase origin main || git pull origin main || true
+          git add scripts/shard4_run4870_*.py
+          git add .github/workflows/gold-standard-shard4-run4870.yml
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "feat: Gold Standard Shard-4 run4870 scripts + workflow (hernando B/F, santa_rosa C/D/I, martin C/D/E/I/J)
+
+          dispatch_id: 84d095d7-0a1a-46ee-b7aa-7ac21b7f06f7
+          issue: #12755
+          counties: palm_beach(10/10 pass), hernando(8/10->target), santa_rosa(7/10->target), martin(5/10->target)
+
+          Scripts:
+          - shard4_run4870_hernando_bf_outcomes.py: harvest tax deed outcomes from realtaxdeed.com
+          - shard4_run4870_santa_rosa_cd_i_fix.py: AJAX parity harvest + ArcGIS zoning linkage
+          - shard4_run4870_martin_cd_e_i_j_fix.py: AJAX harvest + parcel probe + I enrichment + J generator
+          - shard4_run4870_master_coordinator.py: orchestrates all county fixes with ultraloop logging
+
+          Co-authored-by: breverdbidder <breverdbidder@users.noreply.github.com>"
+          git push origin main || true
