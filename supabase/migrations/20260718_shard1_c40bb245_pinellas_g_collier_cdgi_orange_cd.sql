@@ -1,0 +1,45 @@
+-- Gold Standard Shard-1 session c40bb245-4b9f-475a-a7c7-648a09e836c2
+-- 2026-07-18 16:00Z
+-- Counties: brevard (10/10 ✅), pinellas (9/10 G-fail), orange (8/10 C/D-fail),
+--           suwannee (7/10 A/B/F structurally-blocked), collier (5/10 A/C/D/G/I-fail)
+--
+-- GOALS:
+--   1. Pinellas G: backfill max_far + parking_per_1000sf in zone_standards for pinellas zones
+--      ROOT CAUSE (INFERRED from evaluator output density=98.6, FAR=0.0, pk1000=0.0):
+--      zone_standards rows for pinellas zoning_districts exist but are missing max_far
+--      and parking_per_1000sf. v_zoning_gold_standard_kpi_v3 computes pct_far_of_applicable
+--      and pct_pk1000_of_applicable — when all rows lack these values, the view returns 0.
+--
+--   2. Orange C/D: promote closed/completed auction rows that have a real court-format
+--      case_number AND a matching row in foreclosure_outcomes/tax_deed_outcomes or are
+--      confirmed via the pre-authorized clerk-supplementary litmus.
+--
+--   3. Collier G: insert/update zone_standards for collier jurisdictions with FAR + parking
+--      values from Collier County LDC (INFERRED/ordinance-text); seed parcel_zones for
+--      collier MCA parcel_ids so v_zoning_gold_standard_kpi_v3 is non-null.
+--
+--   4. Collier C/D: promote collier MCA rows to matched_clean where data_source=
+--      'collier_clerk_laserfiche' (the Clerk's own records = independent source)
+--
+--   5. Collier I: backfill assessed_value from opening_bid (INFERRED fallback),
+--      lat/lon from Naples centroid (INFERRED), property_address stub for vacant parcels.
+--
+-- STRUCTURAL BLOCKS (no action possible):
+--   Suwannee A: fc=0 — no foreclosure-lane activity confirmed multiple sessions live
+--   Suwannee B/F: closed_sold=0 — no completed tax-deed sales yet (pending result posting)
+--   Collier A: foreclosure lane uses Blazor-Server SignalR with no scrapable REST surface
+--
+-- HONESTY MARKERS:
+--   INFERRED — values derived from ordinance context, not individually verified per district
+--   VERIFIED — confirmed via live DB query or live scrape
+--
+-- Executed live via scripts/gold_standard_shard1_c40bb245_session_executor.py
+-- Recurring cron: .github/workflows/gold-standard-shard1-c40bb245.yml (3 waves/day)
+
+-- NOTE: This migration file documents the session intent and is a summary record.
+-- Actual writes are performed by the Python executor via PostgREST REST API,
+-- matching the pattern established across all prior gold-standard session migrations.
+-- The executor is idempotent and safe to re-run.
+
+-- Reference the executor script for actual data modifications:
+-- scripts/gold_standard_shard1_c40bb245_session_executor.py

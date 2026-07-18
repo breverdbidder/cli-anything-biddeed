@@ -1,0 +1,144 @@
+name: "Gold Standard Shard-1 — brevard/pinellas/orange/suwannee/collier (c40bb245)"
+# dispatch_id: c40bb245-4b9f-475a-a7c7-648a09e836c2
+# Shard assignment: brevard (10/10 ✅), pinellas (9/10 G-fail), orange (8/10 C/D-fail),
+#                   suwannee (7/10 A/B/F structurally-blocked), collier (5/10 A/C/D/G/I-fail)
+#
+# SHIP-TO-MAIN: commits directly to main per gold standard mandate
+# PARALLEL-FLEET: touches ONLY assigned counties
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'County to fix (or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - pinellas
+          - orange
+          - collier
+          - suwannee
+          - verify_only
+  schedule:
+    # Daily at 08:00Z, 16:00Z, 00:00Z — matches 3-wave fleet cadence
+    - cron: '0 8 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: gold-standard-shard1-c40bb245-${{ github.event.inputs.target || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  shard1-executor:
+    name: "Shard-1 Gold Standard — ${{ github.event.inputs.target || 'all' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pdfplumber requests httpx
+
+      - name: Configure git
+        run: |
+          git config user.email "shard1-bot@biddeed.ai"
+          git config user.name "SHARD-1 Gold Standard Bot (c40bb245)"
+
+      - name: Verify-only — evaluate all shard counties
+        if: ${{ github.event.inputs.target == 'verify_only' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"].rstrip("/")
+          SB_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          for county in ["brevard", "pinellas", "orange", "suwannee", "collier"]:
+              body = json.dumps({"p_county": county}).encode()
+              req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                                           data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      ev = json.loads(r.read())
+                  passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+                  failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+                  print(f"{county}: {len(passed)}/10 | PASS={passed} FAIL={failed}")
+                  for l in "ABCDEFGHIJ":
+                      ld = ev.get(l, {})
+                      print(f"  {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} {ld.get('detail','')}")
+              except Exception as e:
+                  print(f"{county}: ERROR {e}")
+          PYEOF
+
+      - name: Run Shard-1 Session Executor
+        if: ${{ github.event.inputs.target != 'verify_only' }}
+        run: |
+          set -euo pipefail
+          echo "=== SHARD-1 EXECUTOR (c40bb245) ==="
+          python3 scripts/gold_standard_shard1_c40bb245_session_executor.py
+          echo "=== EXECUTOR DONE ==="
+
+      - name: Final verification — all shard counties
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import os, json, urllib.request, sys
+
+          SB_URL = os.environ["SUPABASE_URL"].rstrip("/")
+          SB_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          total_score = 0
+          results = {}
+          for county in ["brevard", "pinellas", "orange", "suwannee", "collier"]:
+              body = json.dumps({"p_county": county}).encode()
+              req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                                           data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      ev = json.loads(r.read())
+                  passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+                  failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+                  score = len(passed)
+                  total_score += score
+                  results[county] = {"score": score, "pass": passed, "fail": failed}
+                  star = " ★ GOLD" if score == 10 else ""
+                  print(f"  {county}: {score}/10{star}")
+                  if failed:
+                      print(f"    FAILING: {failed}")
+                  for l in "ABCDEFGHIJ":
+                      ld = ev.get(l, {})
+                      print(f"    {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+              except Exception as e:
+                  print(f"  {county}: ERROR {e}")
+
+          print(f"\n### SQL VERIFICATION — SHARD-1 FINAL")
+          print(f"  Total shard score: {total_score}/50")
+          print(f"  Results: {json.dumps(results, indent=2)}")
+
+          # Check for brevard regression
+          if results.get("brevard", {}).get("score", 0) < 10:
+              print("  ⚠️  REGRESSION: brevard dropped below 10/10!")
+              sys.exit(1)
+          PYEOF
