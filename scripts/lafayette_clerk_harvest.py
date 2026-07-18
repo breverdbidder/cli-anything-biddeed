@@ -28,6 +28,7 @@ Exit codes: 0 = success (>=1 row upserted), 1 = fatal error, 2 = no new rows fou
 import os
 import re
 import sys
+from datetime import datetime, timezone
 
 import requests
 
@@ -89,6 +90,7 @@ def main() -> int:
     }
 
     rows = []
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     fc_url = PAGES["foreclosure"]
     fc_text = fetch_text(fc_url)
@@ -111,6 +113,9 @@ def main() -> int:
             "source_platform": "lafayette_clerk_scrape",
             "data_source": "lafayette_clerk_scrape",
             "source_url": fc_url,
+            "last_seen_at": now_iso,
+            "scraped_at": now_iso,
+            "scrape_timestamp": now_iso,
         })
 
     td_url = PAGES["tax_deed"]
@@ -137,6 +142,9 @@ def main() -> int:
                 "source_platform": "lafayette_clerk_scrape",
                 "data_source": "lafayette_clerk_scrape",
                 "source_url": td_url,
+                "last_seen_at": now_iso,
+                "scraped_at": now_iso,
+                "scrape_timestamp": now_iso,
             })
 
     if not rows:
