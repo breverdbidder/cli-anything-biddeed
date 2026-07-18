@@ -222,7 +222,7 @@ def fetch_arcgis_parcel(parcel_id: str) -> dict | None:
             ENERG0V_PARCELS,
             {
                 "where": f"PARCELNO='{parcel_id}'",
-                "outFields": "PARCELNO,OWNER_NAME",
+                "outFields": "PARCELNO,OWNER_NAME,APPRAISED_VALUE,JUST_VALUE",
                 "returnGeometry": "true",
                 "geometryType": "esriGeometryPolygon",
                 "outSR": "4326",
@@ -241,6 +241,16 @@ def fetch_arcgis_parcel(parcel_id: str) -> dict | None:
         centroid_lon = sum(p[0] for p in flat) / len(flat)
         centroid_lat = sum(p[1] for p in flat) / len(flat)
         attrs = feat.get("attributes", {})
+
+        def _to_num(v):
+            # HOTFIX 2026-07-18: APPRAISED_VALUE/JUST_VALUE are esriFieldTypeString on
+            # this layer (VERIFIED live schema probe), not numeric — must cast, and
+            # treat blank/non-numeric as missing rather than crashing the whole row.
+            try:
+                return float(v) if v not in (None, "", "0") else None
+            except (TypeError, ValueError):
+                return None
+
         return {
             "centroid_lat": centroid_lat,
             "centroid_lon": centroid_lon,
@@ -252,6 +262,12 @@ def fetch_arcgis_parcel(parcel_id: str) -> dict | None:
             # causing ArcGIS to reject the whole query with HTTP 400 "Invalid query
             # parameters", silently zeroing out every parcel match. Fixed to real field name.
             "owner_name": (attrs.get("OWNER_NAME") or "").strip() or None,
+            # HOTFIX 2026-07-18 (next-session priority #1): card_complete also requires
+            # COALESCE(assessed_value, market_value) IS NOT NULL — EnerGov Layer 4 carries
+            # this as APPRAISED_VALUE/JUST_VALUE (VERIFIED live, all 6 gap parcels non-null)
+            # but the prior run never requested or wrote these fields.
+            "assessed_value": _to_num(attrs.get("APPRAISED_VALUE")),
+            "market_value": _to_num(attrs.get("JUST_VALUE")),
         }
     except Exception as e:
         print(f"    EnerGov Parcels error for {parcel_id}: {e}")
@@ -374,6 +390,11 @@ def step2_card_i_enrichment(already_zoned: set) -> dict:
             mca_patch["longitude"] = lon
         if not row.get("property_address") and site_addr:
             mca_patch["property_address"] = site_addr
+        if not row.get("assessed_value") and not row.get("market_value"):
+            if parcel_info.get("assessed_value") is not None:
+                mca_patch["assessed_value"] = parcel_info["assessed_value"]
+            if parcel_info.get("market_value") is not None:
+                mca_patch["market_value"] = parcel_info["market_value"]
 
         if len(mca_patch) > 1:
             sb_patch("multi_county_auctions", f"id=eq.{row['id']}", mca_patch)
@@ -409,6 +430,14 @@ def step2_card_i_enrichment(already_zoned: set) -> dict:
                 print(f"    ERROR inserting parcel_zones for {pid}: {e}")
 
     print(f"  I enrichment: geo_filled={geo_filled} zoned_new={zoned_new}")
+    # HOTFIX 2026-07-18: docstring claimed a parsed>0/inserted=0 fail-loud RuntimeError
+    # that did not actually exist in code (flagged in prior session report as a real,
+    # unfixed bug) — enforcing it for real per HARD GUARDRAILS #2.
+    if gap_rows and geo_filled == 0 and zoned_new == 0:
+        raise RuntimeError(
+            f"FAIL-LOUD: parsed {len(gap_rows)} walton card-gap rows but inserted 0 "
+            f"(geo_filled=0, zoned_new=0) — silent no-op, refusing to report success."
+        )
     return {"geo_filled": geo_filled, "zoned_new": zoned_new, "gap_rows": len(gap_rows)}
 
 
