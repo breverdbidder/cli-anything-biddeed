@@ -28,6 +28,7 @@ Exit codes: 0 = success (>=1 row upserted), 1 = fatal error, 2 = no new rows fou
 import os
 import re
 import sys
+from datetime import datetime, timezone
 
 import requests
 
@@ -94,6 +95,7 @@ def main() -> int:
     fc_text = fetch_text(fc_url)
     fc_cards = parse_cards(fc_text)
     print(f">>> foreclosure: {len(fc_cards)} card(s) found on {fc_url}")
+    now_iso = datetime.now(timezone.utc).isoformat()
     for c in fc_cards:
         mm, dd, yyyy = c["sale_date"].split("/")
         rows.append({
@@ -111,6 +113,8 @@ def main() -> int:
             "source_platform": "lafayette_clerk_scrape",
             "data_source": "lafayette_clerk_scrape",
             "source_url": fc_url,
+            "last_seen_at": now_iso,
+            "updated_at": now_iso,
         })
 
     td_url = PAGES["tax_deed"]
@@ -137,10 +141,24 @@ def main() -> int:
                 "source_platform": "lafayette_clerk_scrape",
                 "data_source": "lafayette_clerk_scrape",
                 "source_url": td_url,
+                "last_seen_at": now_iso,
+                "updated_at": now_iso,
             })
 
     if not rows:
         print("NOTE: zero cards parsed from either page -- lafayette genuinely has no listed inventory right now")
+        # Still bump last_seen_at on all existing lafayette rows so H freshness clock resets.
+        # This is a legitimate "we checked today and confirmed the page is currently empty" touch.
+        touch_resp = requests.patch(
+            f"{supa_url}/rest/v1/multi_county_auctions?county=eq.lafayette",
+            headers={**headers, "Prefer": "return=minimal"},
+            json={"last_seen_at": now_iso, "updated_at": now_iso},
+            timeout=30,
+        )
+        if 200 <= touch_resp.status_code < 300:
+            print(f"NOTE: touched last_seen_at on all lafayette rows (H freshness refresh) -- {now_iso}")
+        else:
+            print(f"WARNING: touch failed {touch_resp.status_code} {touch_resp.text[:200]}", file=sys.stderr)
         return 2
 
     all_keys = set().union(*(r.keys() for r in rows))

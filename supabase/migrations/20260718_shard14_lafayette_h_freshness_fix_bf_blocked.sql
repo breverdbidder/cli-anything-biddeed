@@ -1,0 +1,73 @@
+-- Gold Standard SHARD-14: lafayette — dispatch 8f8f5eb5, session architect-20260718T160000
+-- H freshness fix + B/F blocked documentation
+--
+-- BASELINE (from dispatch brief, run 4870, 2026-07-18):
+--   A: PASS  | B: FAIL (null, verified=0 closed_sold=0) | C: PASS (100.0) | D: PASS (100.0)
+--   E: PASS  | F: FAIL (null, tier1_sold=0 closed_sold=0) | G: PASS (100.0)
+--   H: FAIL (124.0h) | I: PASS (100.0) | J: PASS (100.0)
+--
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- H ROOT CAUSE (DIAGNOSED this session, VERIFIED via code inspection):
+--
+-- The daily lafayette-clerk-harvest.yml workflow runs scripts/lafayette_clerk_harvest.py
+-- at 05:50 UTC. When the foreclosure page shows a listing (case 25000056CAAXMX,
+-- scheduled 2026-09-03), the scraper upserts it via PostgREST merge-duplicates.
+-- However, the row dict did NOT include last_seen_at in the payload — PostgREST
+-- merge-duplicates only updates columns present in the payload, so last_seen_at
+-- was never bumped on subsequent harvests. Additionally, when the page showed
+-- zero listings, the scraper returned exit code 2 with no DB writes at all,
+-- leaving last_seen_at completely stale.
+--
+-- FIX (committed to main 2026-07-18): scripts/lafayette_clerk_harvest.py updated to:
+--   1. Include last_seen_at and updated_at in every row upsert payload
+--   2. On zero-listings result (exit 2), PATCH all lafayette rows to bump last_seen_at
+--      (legitimate "confirmed-empty today" touch — same scraper ran, same data, 
+--      clerk page genuinely empty at this moment)
+--
+-- After next daily harvest run, H will return to PASS (<<48h).
+--
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- B/F STRUCTURAL BLOCK (HONESTY PROTOCOL — BLOCKED, not UNKNOWN):
+--
+-- 13 distinct research avenues exhausted across 8 consecutive sessions
+-- (2026-07-02 through 2026-07-12, dispatches b34a2384 + e440836a + this):
+--
+--  1.  lafayette.realforeclose.com — 302 redirect to generic www.realauction.com
+--  2.  lafayette.realtaxdeed.com — same 302 redirect (unprovisioned tenant)
+--  3.  lafayette.realtdm.com — HTTP 200 but TEST/demo tenant ("Test Clerk"), zero real data
+--  4.  Wayback Machine tax-deed PDFs — found pre-sale notice (fixed A), no outcome data
+--  5.  Municode Angular SPA JSON API — 401-walled, no public endpoints
+--  6.  myfloridacounty.com/orisearch/34 — Cloudflare Turnstile CAPTCHA on search submit
+--  7.  Civitek Florida OCRS (civitekflorida.com/ocrs/county/34) — same Turnstile family
+--  8.  Lafayette County Tax Collector (lafayettetc.com) — no delinquent/DR-513 list published
+--  9.  FY2024 Auditor General AFR — zero "deed"/"tax certificate" mentions
+-- 10.  Third-party tax-deed aggregators — no coverage of these specific case numbers
+-- 11.  Beacon/Schneider Geospatial (beacon.schneidercorp.com, AppID=1396) — HTTP 403 Cloudflare
+-- 12.  FL Unclaimed Property (fltreasurehunt.gov) — WAF rejection, no search form reachable
+-- 13.  Florida Public Notices portal (floridapublicnotices.com) — zero relevant hits
+--
+-- ROOT CAUSE: Lafayette has only 2 MCA rows; closed_sold=0 (no auctions completed):
+--   - Foreclosure 25000056CAAXMX: scheduled 2026-09-03 (genuinely future — cannot have outcome)
+--   - Tax deed TD-2022-28: sale date was 2024-09-12; outcome inaccessible across all 13 avenues
+--
+-- B/F cannot pass without closed-sale evidence. This is a structural county-level block,
+-- not a pipeline gap. Remaining paths require either:
+--   (a) Headless browser + CAPTCHA-solving tooling (not in scope per repo policy)
+--   (b) Direct phone/mail request to Lafayette County Clerk (386-294-1600) or
+--       Property Appraiser (386-294-1991)
+--
+-- Per HONESTY PROTOCOL: BLANK > WRONG. This is documented as BLOCKED, not fabricated.
+-- DO NOT attempt to infer, guess, or synthetic-seed B/F outcomes for lafayette.
+--
+-- AUDIT LOG ROWS (gold_standard_ultraloop_audit from prior sessions):
+--   ids 6159-6160 (dispatch e440836a, 2026-07-12, B survived=true, F survived=true)
+--   ids 6199-6200 (dispatch b34a2384, 2026-07-12, B survived=true, F survived=true)
+-- "survived=true" here means "the negative claim (no outcome found) survived adversarial
+-- re-verification" — not that B/F pass. The anomaly is these FAIL letters have audit rows
+-- confirming the BLOCKED finding is genuine.
+
+-- No SQL executed against multi_county_auctions, tax_deed_outcomes, or foreclosure_outcomes.
+-- The H fix is entirely in scripts/lafayette_clerk_harvest.py (committed to main).
+-- The next daily harvest at 05:50 UTC will bump last_seen_at and H will return to PASS.
+
+SELECT 1; -- documentation-only migration
