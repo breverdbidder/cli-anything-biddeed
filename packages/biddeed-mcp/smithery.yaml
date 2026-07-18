@@ -2,7 +2,7 @@ name: biddeed-mcp
 displayName: BidDeed.AI — FL Foreclosure Intelligence
 description: >
   25-tool MCP server for Florida foreclosure and tax deed investors.
-  Full Investra parity + 8 BidDeed exclusives: Shapira Formula (82.6% accuracy),
+  Full Investra parity + 8 BidDeed exclusives: Shapira Formula (heuristic outcome scoring, calibrated per Gold Standard county),
   zoning lookup (771K+ FL parcels), lien survival rules, co-living analysis,
   bid packages, and deal memos. 7 revenue streams metered per call.
 version: 1.0.0

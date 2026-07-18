@@ -4,7 +4,7 @@ import { get } from '../supabase.js';
 export const schemas = [
   {
     name: 'predict_auction_outcome',
-    description: 'Shapira Formula XGBoost+LGBM+CatBoost→RF ensemble. 82.6% accuracy on Gold Standard counties. CERT REQUIRED: county must pass BidDeed 10-letter Gold Standard. Returns: predicted outcome (sell/cancel/postpone), confidence %, max bid, and risk factors. $25/call.',
+    description: 'Shapira Formula heuristic outcome scoring, calibrated per Gold Standard county on historical discount/size patterns. CERT REQUIRED: county must pass BidDeed 10-letter Gold Standard. Returns: predicted outcome (sell/cancel/postpone), confidence %, max bid, and risk factors. $25/call.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -68,7 +68,9 @@ export async function predict_auction_outcome({ case_number, county, arv, strate
   const soldToThirdParty = outcomes.filter(o => o.outcome === 'sold_to_third_party' || o.outcome === 'sold').length;
   const baseRate = totalOutcomes > 0 ? soldToThirdParty / totalOutcomes : 0.42;
 
-  // Shapira scoring model (simplified — full XGBoost runs server-side at S5 endpoint)
+  // Shapira scoring model — heuristic (discount/size/cert calibration). No XGBoost/LGBM/CatBoost
+  // model call in this endpoint today; V14 XGBoost (72.2% acc / 0.7834 AUC) lives in shapira_models
+  // but is not yet wired here. See docs/ARCHITECTURE.md AUDIT TRAIL.
   const discountScore = Math.min(1, discount * 2);  // high discount = more likely to sell
   const sizeScore = bid > 500000 ? 0.6 : bid < 50000 ? 1.2 : 1.0;  // sweet spot
   const countyScore = isCertified ? 1.1 : 1.0;
@@ -91,7 +93,7 @@ export async function predict_auction_outcome({ case_number, county, arv, strate
       outcome: sellProbability >= 0.5 ? 'SELL_TO_THIRD_PARTY' : 'REVERTS_TO_PLAINTIFF',
       sell_probability_pct: Math.round(sellProbability * 100),
       confidence,
-      accuracy_baseline: '82.6% on Brevard/Duval Gold Standard (500+ verified outcomes)',
+      accuracy_baseline: 'Heuristic scoring, calibrated per-county on historical outcomes (not an ML model prediction)',
     },
     shapira_analysis: {
       opening_bid: bid,

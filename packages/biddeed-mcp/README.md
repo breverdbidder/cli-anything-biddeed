@@ -82,7 +82,7 @@ Production endpoint: `https://biddeed.ai/api/mcp`
 ### S5 Shapira Formula — $25.00/call (Pro tier + CERT required)
 | Tool | Description |
 |------|-------------|
-| `predict_auction_outcome` | XGBoost+LGBM+CatBoost→RF, 82.6% accuracy on Gold Standard counties |
+| `predict_auction_outcome` | Heuristic discount/size scoring, calibrated per Gold Standard county (V14 XGBoost model: 72.2% acc / 0.7834 AUC, not yet wired into this endpoint) |
 
 ### S6 Market Data — $0.05/call (Free tier)
 | Tool | Description |
@@ -99,7 +99,7 @@ Production endpoint: `https://biddeed.ai/api/mcp`
 ## Investra Parity
 
 BidDeed matches all 17 Investra tools plus 8 exclusives:
-- **predict_auction_outcome** — 82.6% accuracy ML ensemble (Investra has no equivalent)
+- **predict_auction_outcome** — heuristic outcome scoring calibrated per Gold Standard county (Investra has no equivalent)
 - **get_bid_package** — Complete package: links + deposit + max bid + lien + zoning
 - **get_deposit_requirements** — FL-specific formula, clerk links
 - **get_lien_stack** — FL FS 197/45 lien survival rules
