@@ -96,13 +96,19 @@ async function main() {
 
   // ── 3. Webhook endpoints (presence/config only, never the signing secret) ──
   console.log('\n--- 3. Webhook endpoints ---');
-  const webhooks = (await stripe.webhookEndpoints.list({ limit: 100 })).data;
-  if (webhooks.length === 0) {
-    console.log('  FLAG: zero webhook endpoints registered in this mode');
+  let webhooks = [];
+  try {
+    webhooks = (await stripe.webhookEndpoints.list({ limit: 100 })).data;
+    if (webhooks.length === 0) {
+      console.log('  FLAG: zero webhook endpoints registered in this mode');
+      failures++;
+    }
+    for (const wh of webhooks) {
+      console.log(`  ${wh.id}: url=${wh.url} status=${wh.status} events=${wh.enabled_events.join(',')}`);
+    }
+  } catch (e) {
+    console.log(`  FLAG: could not list webhook endpoints — ${e.message}`);
     failures++;
-  }
-  for (const wh of webhooks) {
-    console.log(`  ${wh.id}: url=${wh.url} status=${wh.status} events=${wh.enabled_events.join(',')}`);
   }
   console.log('  NOTE: Stripe never returns the signing secret via list/retrieve — cannot confirm it matches STRIPE_WEBHOOK_SECRET from here.');
   console.log('  NOTE: STRIPE_WEBHOOK_SECRET is not present in this repo\'s GitHub Actions secrets (verified separately via `gh secret list`) and webhook.js has no vault fallback for it.');
