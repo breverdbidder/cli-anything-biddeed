@@ -99,9 +99,22 @@ def build_factors(row: dict, arv: float) -> dict:
     }
 
 
+TARGET_CASE_NUMBERS = [
+    "2023CA002935", "2024CA001282", "2025CA000251", "2025CA000634",
+    "2025CA000933", "2025CA001205", "2025CA001392", "2025CA001578",
+    "2025CA001886", "2025CA002017", "2025CA002336", "2025CA002415",
+    "2025CA002823", "2026CA000015",
+]
+
+
 def fetch_lake_auctions() -> list[dict]:
+    """Fetch only the auctions missing a complete bid_decisions row (J-metric gap),
+    not all Lake auctions — avoids re-inserting duplicate rows for case_numbers
+    that already have a complete bid_decisions row (bid_decisions has no unique
+    constraint on case_number, so a blind full-county fetch would duplicate)."""
+    case_list = ",".join(TARGET_CASE_NUMBERS)
     status, body, _ = supabase_request(
-        "multi_county_auctions?county=eq.lake&select=*"
+        f"multi_county_auctions?county=eq.lake&case_number=in.({case_list})&select=*"
     )
     if status != 200:
         print(f"ERROR fetching lake auctions: HTTP {status} — {body}", file=sys.stderr)
