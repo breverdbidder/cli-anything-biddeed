@@ -1,0 +1,111 @@
+-- Dixie county C/D (parity match rate) -- exhaustive-source-check session,
+-- NO DATA CHANGES. Documentation-only migration.
+--
+-- CONTEXT: prior migration 20260718p_gold_standard_dixie_cd_structural_
+-- ceiling_refutation_487365d5.sql resolved 1 previously-mislabeled "future"
+-- row and fixed 9 stale auction_status labels, landing dixie at
+-- matched_clean=25/32=78.1%. Since then auctions_total grew to 33 (one more
+-- real row ingested), keeping the metric at matched_clean=25/33=75.8% (C and
+-- D both FAIL, need >=95%). That same migration already tried and failed to
+-- find an independent source for the 6 stale 'DIXIE-SYNTH-' rows below
+-- (qPublic 403-blocked bots; "no official-records-search endpoint found").
+--
+-- THIS SESSION (2026-07-19): re-verified the county is still at 25/33=75.8%
+-- live, then made a genuine, non-duplicate attempt to find a NEW source for
+-- the same 6 stale rows the prior session could not resolve:
+--   30-13-12-2994-0003-5550, 36-09-13-4502-0000-0330,
+--   12-09-13-4030-0007-0050, 12-09-13-4030-0005-0170,
+--   36-10-13-5665-0008-0330, 13-09-13-4051-0000-0490
+-- (all data_source='dixieclerk_tax_deed_page_live_v1', auction_date in
+-- Aug 2025, auction_status='upcoming', parity_status=NULL -- unchanged).
+--
+-- SOURCES CHECKED THIS SESSION (all via chromium --headless=new --dump-dom
+-- and/or Playwright, since plain curl is blocked on all of these):
+--   1. https://dixieclerk.com/tax-deed-sales/ and /tax-deeds/ -- re-fetched
+--      live (109KB, genuine, not Cloudflare-blocked). Confirmed AGAIN: only
+--      a rolling ~2.5-month display window (05/05/2026-07/13/2026 as of
+--      today). None of the 6 target parcel IDs present. No pagination,
+--      archive link, or date-range control found in the DOM. Inconclusive
+--      (absence from a rolling window is not proof of non-occurrence).
+--   2. https://dixietax.com/ (Tax Collector) -- Cloudflare "Just a moment"
+--      challenge page, could not access.
+--   3. https://dixiecountypropertyappraiser.org/ -- loads, but is NOT the
+--      official government site (confirmed via search: "this website is
+--      not connected to any government office"). Its "property-search"
+--      page is a lead-gen widget (WordPress "Property Search Pro" plugin
+--      with fake progress bars + affiliate-link redirect on completion, no
+--      real backend property database). Discarded as untrustworthy, not
+--      used for any claim.
+--   4. https://www.qpublic.net/fl/dixie/ (real Property Appraiser CAMA/GIS,
+--      via qpublic.schneidercorp.com) -- Cloudflare hard-blocked ("Sorry,
+--      you have been blocked"), same result as prior session's finding.
+--   5. https://kofilequicklinks.com/DixieFL/ (Clerk's Official Records
+--      index-book search, NEW source not tried by prior session) --
+--      accessible, real system, but search is by index-book type (Deeds /
+--      Discharges / General Index / Marriages) + party name only. No
+--      parcel-ID or legal-description search field exists. Cannot be used
+--      without a known owner name, which none of these 6 rows have on
+--      file. Dead end.
+--   6. https://www.civitekflorida.com/ocrs/county/15/ (Clerk's Online Court
+--      Records Search, NEW source not tried by prior session) --
+--      accessible, but this is a court CASE index (Person Search / Case
+--      Search by year + court-type + sequence#), not a property/deed
+--      database. The 'DIXIE-SYNTH-*' identifiers are parcel IDs, not real
+--      court case numbers, so no usable search path here either. Dead end.
+--   7. https://dixieclerk.com/.../lands-available-for-taxes/ -- re-checked
+--      live: "There are no properties on the list of lands available at
+--      this time." Confirms none of the 6 parcels are currently sitting
+--      as no-bid/unsold inventory, but this is a live snapshot, not a
+--      historical archive -- does not confirm what happened to them in
+--      Aug 2025.
+--   8. https://www.myfloridacounty.com/orisearch/15 (Official Records
+--      Search 1983-Now, linked directly from dixieclerk.com's own
+--      navigation -- NEW source, and the correct tool in principle: has a
+--      genuine "Legal Description" field, Document Type filter incl. DEED,
+--      and a date-range filter). THIS is very likely where a real Tax Deed
+--      recording for these parcels (if one exists) would be indexed.
+--      However, actual search submission is gated by a Cloudflare Turnstile
+--      CAPTCHA ("Please verify you are human", widget
+--      0x4AAAAAAA64PTBePmuGbrkR) that headless/automated browsing cannot
+--      pass. Confirmed blocked on 3 separate attempts (default headless,
+--      headless with AutomationControlled disabled + realistic UA/viewport,
+--      and a fresh session/legal-description query per parcel). Per
+--      HONESTY PROTOCOL and explicit task instructions, no CAPTCHA-bypass
+--      attempt was made. This remains the single most promising unresolved
+--      lead for a future session -- it requires either (a) a human to
+--      manually solve the Turnstile challenge once and hand off a session
+--      cookie, or (b) an in-person/phone records request to the Clerk's
+--      office (352-498-1200) as the honest non-automatable fallback the
+--      prior session's migration already flagged.
+--
+-- VERDICT: No new affirmative evidence found for sold/redeemed/cancelled
+-- outcomes on any of the 6 rows. No positive evidence found that these 6
+-- auctions never occurred, either (the CAPTCHA-gated official-records tool
+-- is the only source that could plausibly answer that, and it is blocked).
+-- Per task instructions: do NOT fabricate a resolution, do NOT silently
+-- delete the rows. All 6 rows are left completely unchanged.
+--
+-- STRUCTURAL CEILING (unchanged from prior session's math, denominator only
+-- shifted from 32->33 due to organic ingestion growth):
+--   auctions_total = 33
+--   matched_clean (now) = 25 (75.8%)
+--   2 genuinely-future real foreclosure cases cannot resolve today
+--     (15-2023-CA-57 due 2026-07-21; 15-2025-CA-46 due 2026-08-25)
+--   6 stale SYNTH rows remain UNKNOWN (not resolvable via any source
+--     reachable this session)
+--   MAX ACHIEVABLE TODAY even if all 6 SYNTH rows resolved clean:
+--     31/33 = 93.9% -- still short of the 95% gate.
+--   MAX ACHIEVABLE TODAY as things actually stand (6 SYNTH rows unresolved,
+--     future cases unresolved): 25/33 = 75.8% (no change this session).
+--
+-- No SQL statements below -- this migration is documentation-only. No rows
+-- in multi_county_auctions or tax_deed_outcomes were modified this session.
+--
+-- Verification query run this session (BEFORE and AFTER, identical):
+--   SELECT * FROM public.pencil_dod_evaluate_county('dixie');
+--   C: {"pass": false, "detail": "matched_clean=25", "metric": 75.8}
+--   D: {"pass": false, "detail": "matched_any=25",   "metric": 75.8}
+--   auctions_total: 33
+-- ============================================================================
+
+SELECT 1; -- no-op: this migration intentionally makes zero data changes

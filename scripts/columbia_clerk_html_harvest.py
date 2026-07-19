@@ -44,6 +44,12 @@ FIELD_RE = re.compile(
     r'text-xs">([^<]+)</label>(?:<strong[^>]*>([^<]*)</strong>|<a[^>]*>([^<]*)</a>)'
 )
 
+# Site renders this exact h3 copy inside <article> when a lane genuinely has
+# zero listings (confirmed live on the tax-deed page 2026-07-19). Distinguish
+# this from a parser/selector-drift failure so we never silently swallow a
+# real regression as "0 results" -- see HARD GUARDRAIL #2.
+EMPTY_RE = re.compile(r"There are no (?:properties|.*?) (?:on the list|scheduled)[^<]*", re.I)
+
 
 def find_browser():
     for name in ("chromium", "google-chrome", "google-chrome-stable", "chromium-browser"):
@@ -150,6 +156,17 @@ def main():
     for sale_type, url in PAGES:
         html = dump_dom(browser, url)
         items = parse_listings(html, url)
+        if not items:
+            m = EMPTY_RE.search(html)
+            if m:
+                print(f"{sale_type}: parsed=0 upserted=0 (site confirms genuinely empty: {m.group(0)!r})")
+            else:
+                raise RuntimeError(
+                    f"{sale_type}: parsed=0 and site does NOT show its known "
+                    f"'no listings' copy -- likely selector drift (BLOCK_RE/FIELD_RE "
+                    f"no longer match), not a real empty lane. Refusing to treat as success."
+                )
+            continue
         n = upsert(items, sale_type)
         total_parsed += len(items)
         total_upserted += n

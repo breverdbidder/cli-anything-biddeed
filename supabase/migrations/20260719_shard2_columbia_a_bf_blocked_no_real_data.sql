@@ -1,0 +1,99 @@
+-- SHARD-2: columbia Letters A and B/F -- real harvest executed, A partially
+-- fixed (foreclosure lane refreshed), tax_deed lane and B/F remain HONESTLY
+-- BLOCKED. No fabricated data. Documentation/summary migration only -- the
+-- actual write was a REST upsert performed by
+-- scripts/columbia_clerk_html_harvest.py against live columbiaclerk.com data
+-- (chromium --headless=new DOM dump, NOT Playwright/Firecrawl -- Firecrawl
+-- confirmed out of credits, HTTP 402, today).
+--
+-- WHAT WAS DONE (confirmed live 2026-07-19, two independent DOM dumps):
+--   1. Ran scripts/columbia_clerk_html_harvest.py for real. Foreclosure lane:
+--      parsed=12, upserted=12 (12 of the prior 15 case numbers still listed
+--      as "upcoming" on https://columbiaclerk.com/upcoming-foreclosure-sales/;
+--      3 case numbers -- 2025-499-CA, 2025-396-CA, 2025-103-CA -- aged off
+--      the live page entirely and were left with their prior last_seen_at,
+--      untouched, since the harvester only upserts what it currently parses).
+--   2. Tax-deed lane: parsed=0, upserted=0. Root cause investigated by
+--      dumping the DOM at both virtual-time-budget=30000 and 60000: the
+--      Vue #app mount DOES render (header/nav present, page is not blocked
+--      by Cloudflare), and the <article> body contains the literal string
+--        "There are no properties on the list of tax deeds at this time."
+--      This is the site's own genuinely-empty-state copy, not a selector-
+--      drift artifact -- confirmed by inspecting the raw DOM dump directly
+--      (no BLOCK_RE matches, no Case Number/Parcel ID/Sale Date text
+--      anywhere on the page). The harvester was hardened (EMPTY_RE check)
+--      to fail loud on future zero-parse results that do NOT carry this
+--      exact site copy, so a real regression can never again be silently
+--      reported as "0 results" (HARD GUARDRAIL #2).
+--   3. Checked the same foreclosure listing page for a per-case Status/
+--      Sold-Amount field on the 4 already-past-due cases named in the task
+--      (2025-499-CA, 2025-396-CA dated 2026-07-01; 2025-103-CA dated
+--      2026-07-08; 2023-492-CA dated 2026-07-15). Only 2023-492-CA is still
+--      present on the live page at all, with Status="scheduled" and no
+--      sold-amount field anywhere in its listing block. The other 3 have
+--      been dropped from the "upcoming" feed entirely (the site removes
+--      past sales rather than annotating them with an outcome). Also
+--      checked https://columbiaclerk.com/clerk-services/property-sales/
+--      (sidebar-linked "Property Sales" page) for a results feed: page
+--      renders but contains zero listing blocks, zero "sold"/"result"
+--      text, and no per-case data of any kind.
+--   4. CONCLUSION: columbiaclerk.com exposes NO per-case sold-amount/
+--      outcome data anywhere on the crawlable surface today. Unlike
+--      dixie's clerk site (which does show real Status/Sold Amount once a
+--      sale closes, per the task's own framing), columbia's site simply
+--      drops closed cases from the public calendar with no results ledger
+--      substitute found. Nothing was fabricated. multi_county_auctions was
+--      left unchanged for sold_amount/auction_status on all 15 rows, and
+--      no foreclosure_outcomes/tax_deed_outcomes rows were inserted.
+--
+-- RESULT (before == after; ground truth, not a failure to execute):
+--   BEFORE: A={"pass": false, "detail": "fc=15 td=0",              "metric": 0}
+--           B={"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--           F={"pass": false, "detail": "tier1_sold=0 closed_sold=0","metric": null}
+--   AFTER:  A={"pass": false, "detail": "fc=15 td=0",              "metric": 0}
+--           B={"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--           F={"pass": false, "detail": "tier1_sold=0 closed_sold=0","metric": null}
+--
+-- WRITES APPLIED (already live, documented here):
+--   multi_county_auctions: 12 rows upserted (refreshed scraped_at/
+--     last_seen_at/data_source='columbia_clerk_html:SHARD2-V1' on-conflict
+--     county,case_number,sale_type) -- no sold_amount, no auction_status
+--     change beyond "upcoming" (real, since none are actually sold per the
+--     site). Row count for county='columbia' remains 15 total (12 refreshed
+--     foreclosure + 3 stale foreclosure rows not touched + 0 tax_deed).
+--   foreclosure_outcomes / tax_deed_outcomes: 0 rows inserted (no real
+--     outcome data exists to insert -- inserting anything here would be
+--     fabrication, explicitly prohibited by the task and by NEVER-LIE).
+--
+-- CODE CHANGE (this shard): scripts/columbia_clerk_html_harvest.py hardened
+--   with an EMPTY_RE check so a future genuine selector-drift regression
+--   (parsed=0 without the site's own "no properties" copy present) raises
+--   loudly instead of printing "parsed=0 upserted=0" indistinguishably from
+--   a real empty lane.
+--
+-- VERIFICATION (run to confirm current honest state):
+--   SELECT sale_type, count(*) FROM multi_county_auctions
+--    WHERE county='columbia' GROUP BY sale_type;
+--   -- expect: foreclosure | 15   (tax_deed absent / 0)
+--
+--   SELECT case_number, auction_status, sold_amount, data_source, last_seen_at
+--     FROM multi_county_auctions
+--    WHERE county='columbia'
+--      AND case_number IN ('2025-499-CA','2025-396-CA','2025-103-CA','2023-492-CA')
+--    ORDER BY case_number;
+--   -- expect: all 4 auction_status='upcoming', sold_amount IS NULL
+--
+--   SELECT * FROM public.pencil_dod_evaluate_county('columbia');
+--   -- expect: A.metric=0 (fc=15 td=0), B.metric=null, F.metric=null -- unchanged
+--
+-- NEXT SESSION PRIORITIES (deferred, not fabricated):
+--   - A (tax_deed=0): re-run scripts/columbia_clerk_html_harvest.py on a
+--     later date once columbiaclerk.com actually posts a tax deed sale; the
+--     harvester is otherwise ready and will pick it up automatically. If it
+--     ever fails loud with the new EMPTY_RE RuntimeError, that means real
+--     selector drift, not an empty lane -- investigate then, don't revert.
+--   - B/F (verified/tier1_sold=0): monitor columbiaclerk.com's foreclosure
+--     page for whether cases eventually get a Status value other than
+--     "scheduled" once they close, or whether a dedicated results/ledger
+--     page appears; none was found today after checking both the listing
+--     page and the linked Property Sales page.

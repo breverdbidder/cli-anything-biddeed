@@ -1,0 +1,65 @@
+-- SHARD-2: hendry Letters B and F fix via hendry.realtaxdeed.com Auction
+-- Results Report (report_id=18). Documentation/summary migration -- all
+-- actual writes were already performed against live data by
+-- scripts/shard2_hendry_bf_realtaxdeed_results.py using the Supabase REST
+-- API (PATCH multi_county_auctions, POST tax_deed_outcomes). This file
+-- documents the change for the migration history; it is safe to re-run
+-- (idempotent no-ops on already-populated rows) but is NOT how the writes
+-- were actually applied.
+--
+-- ROOT CAUSE (confirmed live 2026-07-19):
+--   hendry has 17 tax_deed cases (case_number like '25-NN') all dated
+--   auction_date=2026-07-16 (past, relative to "today" 2026-07-19) but
+--   auction_status was stuck at 'upcoming' with sold_amount=NULL for every
+--   row -- pencil_dod_evaluate_county's closed_sold denominator (sold_amount
+--   IS NOT NULL) was 0, so B and F both returned metric=null ("no data").
+--   The other 3 hendry rows are genuinely future foreclosure cases
+--   (2026-08-05, 2026-09-30) and were correctly left untouched throughout.
+--
+-- FIX: hendry.realtaxdeed.com's authenticated "Auction Results Report"
+--   (report_id=18 -- same report_id as santa_rosa's RealForeclose tenant;
+--   RealTaxDeed and RealForeclose share the same RealAuction platform,
+--   confirmed live, not assumed) is the Clerk's OWN post-sale ledger, an
+--   independent source from our pre-sale calendar_sweep_mca_v3 scraper.
+--   Applying the same login -> notice-drain -> report -> paginate pattern
+--   as scripts/shard7_run3679_santa_rosa_bf_realforeclose_results.py, with
+--   the SAME honesty guard (only trust rows whose OWN auction_status field
+--   reads 'Sold'), 10 of the 17 tax_deed cases had real, verifiable sold
+--   results posted. The remaining 7 (25-36, 25-37, 25-38, 25-39, 25-40,
+--   25-41, 25-43) do NOT appear anywhere in the report (checked both via
+--   full date-range dump and per-case Case_Number filter -- records=[] for
+--   all seven) -- results are simply not yet posted for those certificates.
+--   They were left untouched; nothing was fabricated.
+--
+-- RESULT:
+--   BEFORE: B={"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--           F={"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}
+--   AFTER:  B={"pass": true,  "detail": "verified=10 closed_sold=10", "metric": 100.0}
+--           F={"pass": true,  "detail": "tier1_sold=10 closed_sold=10", "metric": 100.0}
+--
+-- WRITES APPLIED (already live, documented here):
+--   multi_county_auctions: 10 rows PATCHed
+--     (sold_amount, sold_amount_source='tier1:realtaxdeed_results_report:hendry',
+--      auction_status='sold', tier1_sold_amount, tier1_sale_status='sold',
+--      tier1_authoritative=true, tier1_verified_at)
+--     case_number IN ('25-99','25-100','25-101','25-102','25-103','25-104',
+--                      '25-105','25-106','25-111','25-42')
+--   tax_deed_outcomes: 10 rows INSERTed
+--     (case_number, county='hendry', auction_date, winning_bid, outcome='sold',
+--      data_source='tier1:realtaxdeed_results_report:hendry', source_url,
+--      enriched_at)
+--
+-- VERIFICATION (run to confirm, expect 10 rows / matching totals):
+--   SELECT county, sold_amount_source, COUNT(*)
+--     FROM multi_county_auctions
+--    WHERE county = 'hendry' AND sold_amount IS NOT NULL
+--    GROUP BY county, sold_amount_source;
+--   -- expect: hendry | tier1:realtaxdeed_results_report:hendry | 10
+--
+--   SELECT COUNT(*) FROM tax_deed_outcomes
+--    WHERE county = 'hendry'
+--      AND data_source = 'tier1:realtaxdeed_results_report:hendry';
+--   -- expect: 10
+--
+--   SELECT * FROM public.pencil_dod_evaluate_county('hendry');
+--   -- expect: B.metric = 100.0, F.metric = 100.0

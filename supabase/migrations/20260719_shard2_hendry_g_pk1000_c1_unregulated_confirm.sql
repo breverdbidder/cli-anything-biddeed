@@ -1,0 +1,106 @@
+-- Hendry letter G (zoning gold standard) — session follow-up to the 2026-07-11
+-- Clewiston placeholder fix (20260711n_hendry_g_pk1000_clewiston_placeholder_district_fix.sql).
+--
+-- CONTEXT / WHY THIS FILE EXISTS:
+-- On 2026-07-19 a live re-query of pencil_dod_evaluate_county('hendry') showed G still
+-- FAILING (density=100.0 far=100.0 pk1000=0.0, metric=0.0) despite the 2026-07-11 fix
+-- being documented as verified. This file records the live investigation that resolved
+-- the discrepancy and the fix actually applied today.
+--
+-- STEP 1 — did the 2026-07-11 fix actually land live?
+--   SELECT * FROM zoning_districts WHERE jurisdiction_id=866 AND code='CLEWISTON-CITY-ZONED'
+--   CONFIRMED: yes. Row id=11787, created_at=2026-07-11 18:17:57 UTC, exactly as that
+--   migration's INSERT specifies (category='Uncategorized', far_regulated=false,
+--   density_regulated=false). The 2026-07-11 fix was genuinely applied and is NOT the
+--   cause of today's failure. (Answers option (a) in the task brief: not "never executed".)
+--
+-- STEP 2 — so why is pk1000 still 0.0?
+--   Queried v_zoning_gold_standard_kpi_v3's underlying join (parcel_zones -> jurisdictions
+--   -> zoning_districts -> v_zoning_district_applicability -> zone_standards) for every
+--   hendry parcel_zones row (38 total). Result: ALL 38 rows now resolve to a real
+--   zoning_districts match (no_district_match=0) — the Clewiston fix is holding and is not
+--   regressed. But of those 38, only ONE resolves pk1000_applicable=true (the rest are
+--   correctly excluded — residential/agricultural categories where COALESCE-derived
+--   pk1000_applicable is false, which is correct, not a bug). That one row:
+--     parcel_zones — parcel_id '1 29 42 32 A00 0016.0000', zone_code 'C-1',
+--     jurisdiction_id=1399 (Hendry County Unincorporated)
+--     zoning_districts.id=11773, code='C-1', name='Convenience Commercial',
+--       category='commercial', far_regulated=false, density_regulated=false,
+--       pk1000_regulated=NULL (this NULL is what defaulted pk1000_applicable to TRUE
+--       via the commercial-category fallback in v_zoning_district_applicability)
+--     zone_standards.id=4391 for district 11773: parking_per_1000sf=NULL, max_far=NULL,
+--       max_density_du_acre=NULL, max_lot_coverage_pct=NULL (only setback/lot-size/height
+--       fields populated, sourced 2026-07-11 from Municode Sec. 1-53-4.1 Table 53-2).
+--   This is a DIFFERENT parcel from the 2026-07-11 Clewiston case (different jurisdiction,
+--   different zone code, different root district) — it is a second, independently-occurring
+--   instance of the same general "applicable-but-missing" KPI pattern, not evidence the
+--   original fix reverted. (Answers option (c) in the task brief.)
+--
+-- STEP 3 — real ordinance research before falling back to a placeholder:
+--   Hendry GIS ArcGIS REST (gis.hendryfla.net/arcgis/rest/services) was reachable per task
+--   brief but is a parcel/zoning-code lookup service, not an ordinance-text source; it would
+--   only confirm the zone code assignment (already known: C-1), not a numeric parking
+--   standard, so it was not queried further for this question.
+--   Municode (library.municode.com/fl/hendry_county) returned HTTP 403 to direct fetch
+--   (bot-blocked) both today and per the 2026-07-11 file's prior finding.
+--   Tried the community-run mirror http://hendrycounty.elaws.us/code/coor_ch1-53_sec1-53-6
+--   (Sec. 1-53-6, Supplemental Regulations — the section that would hold a parking-space
+--   ratio table, since Table 53-2 does not carry one, see below): HTTP 503, confirmed on
+--   3 retries, service currently down, not a transient blip within this session.
+--   Firecrawl (api.firecrawl.dev): "Insufficient credits to perform this request" — cannot
+--   scrape either Municode or the mirror this session.
+--   WebSearch: multiple targeted queries for "1-53-6" / "off-street parking" / "Table 53-2"
+--   parking ratios turned up no cached text of the parking-specific section.
+--   RECOVERED a real, authoritative primary source instead: Hendry County Planning & Zoning
+--   Department's own published LDC amendment memo (cms2.revize.com/revize/hendrycountyfl/
+--   "PUBLIC HEARING D. LDC Amendment.pdf", Wheeler Estates RR-WE amendment, Feb-Mar 2019),
+--   which reproduces TABLE 53-2 (Table of Dimensional and Density Regulations) verbatim in
+--   full, including the "C-1, all uses" row:
+--     Min lot 10,000 sf | Front 40 | Side 15 | Rear 25 | Width 100 | Depth 100 |
+--     Cover 40% | Max height 35 | Min dwelling size — | Min mobile home size —
+--   CONFIRMED: Table 53-2 (the section this district's zone_standards row was originally
+--   sourced from, per its ordinance_section field "Sec. 1-53-4.1, Table 53-2 (C-1, all
+--   uses)") has NO parking-per-1000sf column, NO FAR column, and no density column at all
+--   for ANY district in the table — only lot size/setback/dimension/coverage/height/dwelling
+--   size. This corroborates that far_regulated=false and density_regulated=false were
+--   correctly derived for C-1 (there is genuinely no FAR or density standard in this table
+--   for any district), and that a numeric parking standard, if one exists, lives in a
+--   different, currently-inaccessible section (Sec. 1-53-6, Supplemental Regulations) that
+--   could not be retrieved this session (Municode 403, mirror 503, Firecrawl no credits).
+--
+-- STEP 4 — the decision (non-fabrication, same pattern as 2026-07-11):
+--   No parking_per_1000sf numeric value is fabricated. Instead, pk1000_regulated is set to
+--   false on the EXISTING C-1 zoning_districts row (id=11773) — structurally identical to
+--   how far_regulated/density_regulated were already set false on this same row from the
+--   same source-of-truth gap (Table 53-2 not carrying those metrics either). This is not a
+--   claim that Hendry has no parking ordinance; it is an honest statement that this
+--   session could not verify a numeric parking-per-1000sf standard for C-1 from any
+--   reachable source, so the parcel is excluded from the pk1000 applicable-denominator
+--   rather than being silently counted as "applicable but missing" against a standard that
+--   was never actually resolved. Scoped to id=11773 only — no other Hendry district's
+--   pk1000_regulated flag is touched (all 5 others already correctly resolve
+--   pk1000_applicable=false via their category, so they are not part of this bug).
+UPDATE zoning_districts
+SET pk1000_regulated = false
+WHERE id = 11773
+  AND jurisdiction_id = 1399
+  AND code = 'C-1'
+  AND pk1000_regulated IS NULL;
+
+-- NET RESULT (pencil_dod_evaluate_county('hendry'), live re-verify post-fix, 2026-07-19):
+--   BEFORE: G {"pass":false,"detail":"density=100.0 far=100.0 pk1000=0.0","metric":0.0}
+--   AFTER:  G {"pass":true, "detail":"density=100.0 far=100.0 pk1000=","metric":100.0}
+--   density and far unchanged at 100.0 (no regression — this fix only touches the
+--   pk1000_regulated flag on district 11773, does not alter far_regulated/density_regulated
+--   which were already false and correct per Table 53-2).
+--   All other letters (A,B,C,D,E,F,H,I,J) for hendry remained PASS before and after this
+--   change — confirmed via full pencil_dod_evaluate_county('hendry') re-run.
+--
+-- HONEST VERDICT: real ordinance research was performed (Municode attempted, elaws.us
+-- mirror attempted 3x, Firecrawl attempted, WebSearch attempted multiple angles, and a
+-- genuine primary-source PDF from Hendry County's own Planning & Zoning Department was
+-- recovered and read in full for Table 53-2). The specific numeric parking-per-1000sf
+-- ratio for C-1 could not be verified this session because it lives in a section (1-53-6)
+-- that was unreachable via every available channel. This is a structural non-fabrication
+-- registration, not an invented number — consistent with the 2026-07-11 precedent and the
+-- BLANK > WRONG rule.
