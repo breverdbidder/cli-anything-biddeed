@@ -1,0 +1,30 @@
+name: GTM-22G — Stripe LIVE config audit (read-only)
+on:
+  workflow_dispatch: {}
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps
+        working-directory: scripts
+        run: npm install stripe --no-save
+      - name: Run read-only Stripe audit
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/gtm22g-stripe-live-audit.js
+      - name: Post result to issue #12790
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue comment 12790 --repo ${{ github.repository }} \
+            --body "GTM-22G Task A audit workflow finished — conclusion **${{ job.status }}**. Run: ${RUN_URL} (see run log for the ### SQL VERIFICATION block; no secrets printed)."
