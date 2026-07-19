@@ -1,0 +1,75 @@
+name: "Gold Standard Shard-12: collier G+I fix"
+# Issue #12801 — collier G zone_standards + I auto-resolution
+# dispatch_id: 9d04299e-3c67-4ccf-8550-3e0e3272c0f1
+#
+# Applies zone_standards for all 16 Collier zoning districts under
+# jurisdiction_id=632 (Collier County Unincorporated), then evaluates
+# pencil_dod_evaluate_county('collier') before/after.
+#
+# ROOT CAUSE:
+#   G: density=9.6%, FAR=0%, pk1000=0% — 14/16 districts missing zone_standards
+#   I: 89.6% (190/212) — 22 rows lack zone_code match in v_zoning_gold_standard_card
+#      (G-gated: auto-resolves once zone_standards exist for their codes)
+#
+# HONESTY: zone_standards values sourced from Collier LDC (Ordinance 04-41)
+#   - confidence=0.90: VERIFIED from direct LDC section reference (residential)
+#   - confidence=0.80: INFERRED from LDC pattern (commercial/industrial FAR)
+#   - confidence=0.65: INFERRED (PUD nominal floor, per-document in practice)
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Run once daily at 16:05Z to stay fresh after the 12:30Z tax-deed harvest
+    - cron: '5 16 * * *'
+
+jobs:
+  collier-g-i-fix:
+    name: "Collier G+I zone_standards fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply Collier G zone_standards + evaluate before/after
+        run: python scripts/gold_standard_shard12_collier_g_zone_standards.py
+
+      - name: Final evaluation summary
+        if: always()
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB = os.environ["SUPABASE_URL"]
+          KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+
+          body = json.dumps({"p_county": "collier"}).encode()
+          req = urllib.request.Request(f"{SB}/rest/v1/rpc/pencil_dod_evaluate_county",
+                                       data=body, headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  ev = json.loads(r.read())
+              passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+              failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+              print(f"### SQL VERIFICATION — collier final")
+              print(f"collier: {len(passed)}/10 | PASS={passed} FAIL={failed}")
+              print()
+              for l in "ABCDEFGHIJ":
+                  ld = ev.get(l, {})
+                  status = "PASS" if ld.get("pass") else "FAIL"
+                  print(f"  {l}: {status} metric={ld.get('metric')} detail={ld.get('detail','')}")
+              print()
+              print(f"Full JSON: {json.dumps(ev)}")
+          except Exception as e:
+              print(f"ERROR: {e}")
+          PYEOF
