@@ -42,9 +42,20 @@
 -- firing (jackson's B/F/G audit rows were freshened earlier today by the 2nd firing of this dispatch,
 -- commit 84cc166f -- still within the 7-day certify-gate window, no action needed).
 --
--- All 3 audit rows (ids 7342-7344) carry survived=true -- every claim (both "found new sources" and
--- "still genuinely blocked") was independently re-derived by a separate adversarial-verify agent that
--- re-fetched the load-bearing URLs itself rather than trusting the investigating agent's report.
+-- All 3 workflow-sourced audit rows (ids 7342-7344) carry survived=true -- every claim (both "found new
+-- sources" and "still genuinely blocked") was independently re-derived by a separate adversarial-verify
+-- agent that re-fetched the load-bearing URLs itself rather than trusting the investigating agent's report.
+--
+-- A 4th audit row (id 7345) was added after the workflow closed out: a direct DB-internal cross-check
+-- (v_parity_property_cards for county=dixie) found the exact mechanical cause of the C/D 75.8%=25/33
+-- ceiling -- 8 of 33 rows have parity_status=null, every one of them still auction_status=upcoming; 6 are
+-- tax-deed parcels cross-checked live against dixieclerk.com/tax-deeds/ (not the blocked dixietax.com) and
+-- confirmed genuinely still status="scheduled" on the clerk's own site (~11 months overdue, a known FL
+-- tax-deed pattern), not a scraper/matcher bug. This reframes the ceiling as evaluator-denominator-scoping
+-- (should genuinely-unresolved auctions count against C/D, the way G excludes true zoning N/A districts?)
+-- rather than purely "no data source available" -- flagged for the AI Architect, not changed unilaterally
+-- since pencil_dod_evaluate_county is shared fleet-wide across concurrently-running shards.
+--
 -- Full evidence: GOLD_STANDARD_SHARD2_JACKSON_DIXIE_HENDRY_COLUMBIA_DISPATCH_190AC19F_CONTINUATION_ADDENDUM_2.md
 
 SELECT 1; -- no-op: this migration is a documentation record only

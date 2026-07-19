@@ -109,6 +109,36 @@ honestly as UNTESTED/INFERRED for that sub-claim rather than forced to match. **
 alone already confirms the primary automated path remains closed. Only remaining lead: manual phone/in-person
 records request (Dixie Clerk 352-498-1200 or Tax Collector 352-498-1213), non-automatable, out of scope.
 
+## dixie C/D — precise mechanical root cause found (post-Workflow, orchestrator-driven direct DB+live cross-check)
+
+After the Workflow closed out, a further DB-internal angle was checked (no external blocked site involved):
+queried `v_parity_property_cards` directly for `county=eq.dixie`. Exactly 8 of the 33 rows have
+`parity_status=null` (the other 25 are all `matched_clean` — 25/33 = 75.8%, an exact match to the live
+evaluator). **Every one of the 8 null rows has `auction_status=upcoming`.** 6 of the 8 are tax-deed parcels
+with a `sale_date` in Aug 2025 — roughly 11 months overdue as of today (2026-07-19).
+
+Cross-checked all 6 live against `dixieclerk.com/tax-deeds/` (a *different*, non-Cloudflare-blocked page on
+the same clerk site that already feeds our 100% B/F pass — distinct from the blocked `dixietax.com`). The
+clerk's own embedded JSON data for all 6 still reads **`status:"scheduled"`, `sold_amount:null`** — these
+sales are genuinely stuck/unresolved on the source of truth itself (a known FL tax-deed pattern: pending
+redemption, litigation, or repeated postponement keeps a certificate "scheduled" indefinitely). This is **not**
+a scraper-staleness bug or a fixable matcher defect — our DB's `auction_status=upcoming` accurately reflects
+the clerk's own `status=scheduled`. The remaining 2 nulls are the 2 real foreclosure cases (`15-2023-CA-57`,
+`15-2025-CA-46`), both genuinely future-dated. Arithmetic: 25 clean + 8 genuinely-still-open = 33, an exact
+match.
+
+**This reframes dixie's C/D ceiling**: it is capped by genuinely-unresolved source auctions, not by a
+findable data source or a matcher bug — a materially more precise diagnosis than "structural ceiling" as
+previously stated. It raises a fleet-wide evaluator-scoping question worth flagging to the AI Architect
+(not something to change unilaterally in a county-scoped session, since `pencil_dod_evaluate_county` is
+shared across every county other shards are concurrently working): **should genuinely still-`scheduled`/
+unresolved auctions count against the C/D parity denominator at all**, analogous to how criterion G already
+excludes genuinely-N/A zoning districts from its denominator? If they were excluded the same way, dixie's C/D
+would compute as 25/25 = 100% today — but that is an evaluator-logic decision, not a data-fix, and is
+explicitly out of scope for this session to make unilaterally. Logged as `gold_standard_ultraloop_audit` id
+7345, `survived=true` (self-verified: DB query cross-checked against live site content, exact field matches
+on all 6 parcels, arithmetic reconciles exactly).
+
 ## jackson / hendry — untouched, re-verified live only
 
 Both confirmed 10/10 via fresh `pencil_dod_evaluate_county` calls at session start and end (identical). No
@@ -148,8 +178,16 @@ were inserted directly via PostgREST as in every prior session of this dispatch)
    passes, since a roll update would be unambiguous positive evidence.
 2. **columbia I**: only non-automatable paths remain (manual map cross-reference or a call to Fort White Town
    Hall, (386) 497-2321). Not worth further automated session time.
-3. **dixie C/D**: unchanged — manual phone/in-person only (Dixie Clerk 352-498-1200 / Tax Collector
-   352-498-1213). Do not re-attempt automated sources without a genuinely new lead.
+3. **dixie C/D**: root cause is now mechanically precise, not just "blocked" — 8/33 rows are genuinely
+   `scheduled`/unresolved on the clerk's own site (not a data gap), capping the ceiling. Two independent
+   paths forward: (a) raise the evaluator-denominator-scoping question to the AI Architect (would flip C/D
+   to 100% if genuinely-unresolved auctions were excluded like G excludes N/A zoning districts — a
+   fleet-wide logic change, not county-scoped), or (b) keep periodically re-checking these same 6 tax-deed
+   parcels (cert numbers 2023/425, 2023/1217, 2022/1367, 2023/1457, 2023/471, 2023/427 — all held by FIG 20
+   LLC / Mikon Financial Services) on dixieclerk.com/tax-deeds/ for a status change to sold/redeemed, which
+   would close them without any evaluator change. The manual phone/in-person path (352-498-1200 /
+   352-498-1213) is no longer the *only* option — it was the only lead the pre-existing "matcher/parity
+   audit" framing suggested; now that the exact 8 stuck rows are identified, it's a smaller, checkable list.
 4. **Do NOT chase `columbia.floridatax.us`** as a columbia A/B/F lead — it's a tax-collector portal for
    delinquent-tax certificates, and columbia's 15 tracked cases are 100% foreclosures (`fc=15 td=0`), not
    tax deeds. The dixie-shaped analogy doesn't transfer; flagged here so it isn't re-tried.
