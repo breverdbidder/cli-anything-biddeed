@@ -1,0 +1,69 @@
+session:
+  date: "2026-07-19"
+  dispatch_id: "c7a1fa1a-c246-477c-80b0-aaa93b75e4c0"
+  firing: 2nd
+  county: st_lucie
+  shard: shard-11
+  agent: claude-sonnet-5
+
+decisions:
+  - step: 1
+    action: "Read prior firing commit 42ca4761 + its apply script to understand existing methodology"
+    result: "Confirmed prior firing already fixed C/D/E to PASS via live realforeclose AJAX harvest; I flagged as blocked on SQL access"
+    reason: "Avoid duplicating work, reuse proven live-source methodology per campaign rules"
+  - step: 2
+    action: "Pulled pg_get_functiondef for pencil_dod_evaluate_county and v_zoning_gold_standard_kpi_v3/v_zoning_district_applicability views via Management API"
+    result: "Got exact ground-truth I formula: address+lat/lon+value+parcel_id-in-zoning-card. Also learned G's density/far/pk1000 formula and its applicability-defaulting behavior"
+    reason: "Task explicitly warned prior session's diagnostic SQL had a 3-valued-logic bug; verified formula from source before writing new diagnostics"
+  - step: 3
+    action: "Diagnosed exact 13-row I gap fresh via corrected COALESCE-wrapped SQL"
+    result: "13 rows confirmed, 1 fewer overlap with brief's speculation on 2025CA001086 (parcel_id NULL not present)"
+    reason: "Fail-loud invariant: verify current DB state before acting on task-provided assumptions"
+  - step: 4
+    action: "Queried slcgis.stlucieco.gov ForttPierceZoningFLU and LandUse/Zoning ArcGIS MapServers by parcel_id/folio, cross-checked identity against map.paslc.gov Property Appraiser parcels"
+    result: "5 real zoning matches found (171596,24840,3089,1826,26100); 5 PSL parcels + 1 Fort Pierce condo unit confirmed zero real coverage (verified via both REST spatial query AND client-side shapely point-in-polygon)"
+    reason: "Never fabricate zone_code -- only insert parcel_zones rows backed by a live, citable GIS response"
+  - step: 5
+    action: "Backfilled real assessed_value (2025CA001832=$266,700) and real lat/lon centroid (2024CC002112) from Property Appraiser parcel data"
+    result: "Both confirmed by exact address/value cross-match to existing on-file data"
+    reason: "Same verified-identity pattern the prior firing used"
+  - step: 6
+    action: "Re-harvested stlucie.realforeclose.com live for case 2024CA000214's actual 07/15/2026 auction_date via existing shard2_run2450_ajax_realforeclose_harvest.py"
+    result: "Source itself returns parcel_id='MULTIPLE PARCELS', no address -- confirmed genuine structural gap, not fixable without fabrication"
+    reason: "Task instructed honest residual reporting rather than forcing all 13 rows to pass"
+  - step: 7
+    action: "Re-ran pencil_dod_evaluate_county after zoning inserts; discovered G regressed 96.4%->0.0%(FAIL)"
+    result: "Root-caused to v_zoning_district_applicability defaulting far/pk1000/density_applicable=true for the 3 new zone_codes (PD/R-2/RS-4) with no zoning_districts row, against NULL zone_standards"
+    reason: "Evidence-Before-Claims -- caught this via re-verification, not assumption; would have been a silent SHIP GATE violation otherwise"
+  - step: 8
+    action: "Remediated with real, sourced zoning_districts + zone_standards rows: R-2 (Fort Pierce Sec. 22-25, primary-source .doc) and RS-4 (St Lucie County's own ArcGIS MapServer legend label)"
+    result: "G restored to 95.6% PASS (density_applicable_parcels 226, up from 221 pre-session)"
+    reason: "Could not leave a letter I regressed as FAIL; found real citable sources rather than fabricating numbers or reverting the I-fix"
+  - step: 9
+    action: "Left PD density unset (used by 171596, 26100)"
+    result: "PD zone genuinely has no single fixed density in Fort Pierce's own ordinance -- set per-project via phasing plan"
+    reason: "Fail-loud invariant -- fabricating a number would misrepresent the district, not just be imprecise"
+  - step: 10
+    action: "Logged 3 ULTRALOOP audit rows (dispatch c7a1fa1a, mode=fallback) with full query-level refuter_evidence"
+    result: "All 3 survived=true"
+    reason: "Mandatory per campaign protocol"
+
+artifacts:
+  - path: supabase/migrations/20260719_shard11_2nd_st_lucie_i_zoning_g_standards_fix.sql
+    type: migration (idempotent record of live writes)
+  - path: .claude/session-logs/2026-07-19-gold-standard-shard11-st_lucie-2nd-firing.yml
+    type: session_decision_log
+
+verification:
+  - check: "pencil_dod_evaluate_county('st_lucie') before vs after"
+    proof: "I: 86.0% (80/93) -> 91.4% (85/93), still FAIL. G: 96.4% -> 95.6%, still PASS (regression caught+fixed same session). A/B/C/D/E/F/H/J unchanged, all PASS."
+    status: verified
+  - check: "5 new parcel_zones rows resolve via v_zoning_gold_standard_card for their target case_numbers"
+    proof: "SQL query confirmed now_has_zone=true for 2024CC002112,2025CA000758,2025CC004638,2025CA001832; 76601/2024CA000939 confirmed still false (untouched residual)"
+    status: verified
+  - check: "PSL zoning coverage gap is real, not a query bug"
+    proof: "5/5 PSL points confirmed outside all 287 polygons via both live ArcGIS REST spatial query and independent shapely client-side point-in-polygon join"
+    status: verified
+  - check: "2024CA000214 residual is structural"
+    proof: "Live AJAX re-harvest of stlucie.realforeclose.com 07/15/2026 returned parcel_id='MULTIPLE PARCELS', judgment_amount=825148.51 matching our opening_bid exactly (correct case, unfixable identity)"
+    status: verified
