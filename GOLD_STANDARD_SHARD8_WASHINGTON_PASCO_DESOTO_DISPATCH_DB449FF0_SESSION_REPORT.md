@@ -55,3 +55,43 @@ All numbers above are from live `pencil_dod_evaluate_county(<county>)` calls run
 1. Resolve 23CA362's parcel_id (try a direct DeSoto Property Appraiser owner-name search — Ellen Wigmore — rather than address/section roll, which came up empty) → would flip both E and I to PASS.
 2. Resolve 26-06-TD's parcel under an alternate ID format.
 3. B/F remain genuinely accrual-blocked until a desoto auction actually closes — revisit once auction_status transitions are tracked (out of this session's scope, same gap noted for pasco foreclosure tracking in an earlier session).
+
+---
+
+## Addendum: 2nd firing, same dispatch (db449ff0, chat_session architect-20260718T160000), 2026-07-19
+
+The issue re-fired with an identical brief while the prior session's commits were already on `main` (verified via `git log` before starting — `fee19083` had the report above, plus commits `355e7abd`/`5410b686`/`862fb83e` already shipped). Re-verified live `pencil_dod_evaluate_county` for all three counties before doing anything: washington and pasco confirmed still 10/10 (no regression from the two shards that landed on `main` in between — okeechobee, lafayette). desoto confirmed still 6/10, exactly matching the prior report. Rather than re-do completed work, picked up the prior report's own "Next-session priorities" list for desoto.
+
+### desoto E: 87.5% → 100% PASS
+
+Case 23CA362 (1549 SW WISTERIA ST) had no `parcel_id`. Ultracode workflow (`wf_60c2c2af-950`) resolved it: FL GIO Statewide Cadastral CO_NO=24 exact address+owner match → `parcel_id=123824038800000010`, owner "WIGMORE ELLEN", JV=$191,579. Independently cross-checked against the DeSoto County Clerk's own foreclosure sale-notice PDF (`desotoclerk.com/.../10.8Foreclosure.pdf`), which lists case 23CA362, plaintiff Equity Prime Mortgage vs. defendant Ellen Wigmore at the same address — confirms the case-to-parcel match beyond just an address lookup. Adversarial verifier independently re-fetched the FL GIO endpoint and the clerk PDF itself (not trusting the claim's narrative) and recomputed the centroid from raw polygon geometry (matched to 0.00006°). `survived=true`, audit id 6932.
+
+Migration: `supabase/migrations/20260718230000_gold_standard_shard8_desoto_ei_residual_backfill.sql`. Commit `64ee6c89`.
+
+### desoto I: 75% honest partial (still FAIL) — genuinely blocked, not forced
+
+Two parcels were missing card-completeness fields: 23CA362 (no parcel_id — same row as above) and 26-06-TD (had a parcel_id but no geo/value, and it turned out to be a wrong folio).
+
+- **26-06-TD folio correction + geo/value backfill**: the on-file folio `20-37-25-00529-0000-015A` returned "No Matching Records Found" on the DeSoto Property Appraiser's own GIS search (`desotopa.com/gis`) — a data-entry digit transposition. The real folio is `20-37-25-0059-0000-015A` (verified live on the county site: owner Wideman Thomas, legal "BONANZA PARK PARCEL 15A", 0.5 AC vacant, 2025 Mkt $13,247 / Assessed $10,238). Lat/long were not exposed as decimal degrees by the county site, so cross-verified via the U.S. Census Bureau geocoder on the exact site address — exact match to 11 decimal places, the one fully falsifiable sub-claim in the chain. `survived=true`, audit id 6933. Written in the same migration/commit as E above.
+- **Card-complete still requires a `parcel_zones` row with a known `zone_code`** for both parcels (per `v_zoning_gold_standard_kpi_v3`'s `zc` CTE), which this session could NOT honestly close:
+  - 23CA362's real zoning per the county PA site is **RMF-6** (multi-family) — not one of the RSF-1/2/4/5 single-family tiers already in `zoning_districts` for DeSoto. A follow-up ultracode pass tried to find DeSoto's actual adopted ordinance text for the RMF district (Municode Ch. 20 Art. II Div. 4, confirmed by search-indexed section titles to exist at DeSoto LDR §20-129/20-130 as plain "RMF", with a separate legacy "RMF-M" district) but could not retrieve the numeric dimensional standards: Municode blocked WebFetch with HTTP 403, Firecrawl had zero account credits, the elaws.us mirror 503'd on every fetch, and Wayback Machine only has empty JS-shell captures (Municode is client-rendered). The agent explicitly flagged that "RMF-6" may be a Property Appraiser CAMA-system label rather than the LDR's own codified district name — unconfirmed either way.
+  - 26-06-TD's actual zoning field was never captured in the first pass (only use-code/legal/values), and a follow-up attempt to go back and read it failed for tooling reasons (the interactive JS-driven GIS site needs a real browser session; that specific agent run didn't have one available, unlike the two runs that did).
+  - Per this campaign's own G-work rule ("guessed standards = ghost-success, BANNED") and the repo's standing zoning-research discipline, neither gap was forced — no RMF-6 zone_standards row was fabricated, no zoning code was guessed for 26-06-TD from lot size/use code. I stays honestly at 6 of 8 (75%), not claimed as fixed.
+
+### desoto B/F: reconfirmed accrual-blocked, untouched
+
+`SELECT auction_status, count(*) FROM multi_county_auctions WHERE county='desoto' GROUP BY auction_status` → all 8 rows still `upcoming`. Zero closed sales exist for desoto; both formulas have a zero denominator. Correctly left failing, no writes attempted.
+
+### Final live status this firing
+
+| County | Session start | Session end | Delta |
+|---|---|---|---|
+| washington | 10/10 (unchanged from prior firing) | **10/10** | none — reconfirmed only |
+| pasco | 10/10 (unchanged from prior firing) | **10/10** | none — reconfirmed only |
+| desoto | 6/10 (B/F blocked, E 87.5%, I 75%) | **7/10** | E fixed to PASS; I honestly improved evidence but still FAIL; B/F correctly untouched |
+
+Audit rows this firing: `gold_standard_ultraloop_audit` ids 6932 (E, survived=true), 6933 (I-partial, survived=true — scoped to the geo/value backfill claim only, not a PASS claim). No `gold_standard_loop()`/certify run (protocol: skip if other shards mid-flight; other shards were actively pushing to `main` during this session). No PropertyOnion promotion, no cross-county writes, cron jobs 109/111/115 and gold-standard-loop-* untouched.
+
+### Next-session priority for desoto (only remaining gap)
+
+Obtain DeSoto County's real Chapter 20 Div. 4 RMF ordinance text (a phone/email request to DeSoto County Planning & Zoning, 201 E. Oak Street Suite #204, Arcadia FL 34266, would resolve this faster than repeated scraping — Municode blocks bot fetches and Firecrawl needs credits topped up) and confirm 26-06-TD's zoning field via an agent with an actual browser session. Both are small, well-scoped lookups; once RMF-6 standards exist and 26-06-TD's zone_code is known, two `parcel_zones` rows close the I gap outright (7/8 → 8/8, comfortably over 95%).
