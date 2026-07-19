@@ -30,7 +30,8 @@ jobs:
             -H "Prefer: resolution=merge-duplicates" \
             -d '{
               "task_id": "SUMMIT-P0-67COUNTY",
-              "status": "done"
+              "status": "done",
+              "description": "fl_auctions table + 67-county scraper + daily GHA"
             }')
           echo "nexus_tasks upsert HTTP $CODE"
           cat /tmp/out1.json
