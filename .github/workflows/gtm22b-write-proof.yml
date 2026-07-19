@@ -23,6 +23,11 @@ jobs:
       - name: "nexus_tasks upsert (fl-auction-scraper.yml path)"
         run: |
           set -e
+          VALID_STATUS=$(curl -s "${SUPABASE_URL}/rest/v1/nexus_tasks?select=status&limit=1" \
+            -H "apikey: ${SUPABASE_KEY}" -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else 'blocked')")
+          echo "Using known-valid status value: $VALID_STATUS"
+
           CODE=$(curl -s -o /tmp/out1.json -w "%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/nexus_tasks" \
             -H "apikey: ${SUPABASE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
@@ -30,18 +35,17 @@ jobs:
             -H "Prefer: resolution=merge-duplicates" \
             -d '{
               "task_id": "SUMMIT-P0-67COUNTY",
-              "status": "done",
+              "status": "'"$VALID_STATUS"'",
               "description": "fl_auctions table + 67-county scraper + daily GHA"
             }')
           echo "nexus_tasks upsert HTTP $CODE"
           cat /tmp/out1.json
-          # NOTE: fl-auction-scraper.yml's real payload also sends "issue_number" and
-          # "notes" and "completed_at", none of which exist as columns on the live
-          # nexus_tasks schema (both 400 PGRST204) -- pre-existing bugs in that
-          # workflow's payload, unrelated to this secret migration. Its own code
-          # already tolerates this via `|| echo WARN: ... skipped`. Trimmed to the
-          # columns confirmed to exist (task_id, status) to prove the
-          # SUPABASE_SERVICE_ROLE_KEY auth+write path itself works.
+          # NOTE: fl-auction-scraper.yml's real payload sends "issue_number", "notes",
+          # "completed_at" (nonexistent columns -- PGRST204) and status="done" (fails
+          # nexus_tasks_status_check) -- all pre-existing bugs in that workflow's own
+          # payload, unrelated to this secret migration, and already silently tolerated
+          # via `|| echo WARN: ... skipped` in production. Corrected here to isolate
+          # proof that the SUPABASE_SERVICE_ROLE_KEY auth+write path itself works.
           [ "$CODE" = "200" ] || [ "$CODE" = "201" ] || [ "$CODE" = "204" ] || { echo "FAIL"; exit 1; }
 
       - name: "modal_runs insert + cleanup (nightly-scorer.yml path)"
