@@ -95,3 +95,47 @@ Audit rows this firing: `gold_standard_ultraloop_audit` ids 6932 (E, survived=tr
 ### Next-session priority for desoto (only remaining gap)
 
 Obtain DeSoto County's real Chapter 20 Div. 4 RMF ordinance text (a phone/email request to DeSoto County Planning & Zoning, 201 E. Oak Street Suite #204, Arcadia FL 34266, would resolve this faster than repeated scraping — Municode blocks bot fetches and Firecrawl needs credits topped up) and confirm 26-06-TD's zoning field via an agent with an actual browser session. Both are small, well-scoped lookups; once RMF-6 standards exist and 26-06-TD's zone_code is known, two `parcel_zones` rows close the I gap outright (7/8 → 8/8, comfortably over 95%).
+
+---
+
+## Addendum: 3rd firing, same dispatch (db449ff0, chat_session architect-20260718T160000), 2026-07-19
+
+Re-fired with an identical brief while the prior two firings' commits (`355e7abd`, `5410b686`, `862fb83e`, `64ee6c89`, `d7dda040`) were already on `main`. Reconfirmed live `pencil_dod_evaluate_county` for all three counties via the Supabase Management API before doing anything (Cloudflare 1010-blocks the default urllib User-Agent — worked once a browser-like UA header was set):
+
+| County | Live status (this firing, start) |
+|---|---|
+| washington | **10/10** — A-J all PASS (I=96.8, H=3.4h) — unchanged from prior firing |
+| pasco | **10/10** — A-J all PASS (C/D=95.9, I=96.3, H=9.3h) — unchanged from prior firing |
+| desoto | **7/10** — B FAIL (null, 0 closed sales), F FAIL (null), I FAIL (75.0%) — unchanged from prior firing |
+
+No regression on washington/pasco despite other shards (okeechobee, lafayette, glades/gilchrist, highlands) landing commits to `main` concurrently during this window.
+
+### desoto B/F: reconfirmed accrual-blocked
+
+`SELECT auction_status, count(*) FROM multi_county_auctions WHERE county='desoto' GROUP BY auction_status` → still 8/8 `upcoming`, zero closed sales. Both formulas have a zero denominator. Correctly left untouched, no writes attempted.
+
+### desoto I: pursued the exact "next-session priority" from the 2nd-firing addendum — still genuinely blocked
+
+Ran an ultracode Workflow (`wf_9a8481f7-bd2`) fanning out two independent research agents (RMF ordinance dimensional standards; live parcel-specific zoning for 23CA362 and 26-06-TD), each followed by an independent adversarial verifier instructed to re-fetch the same sources and try to break the claim rather than trust the narrative.
+
+**Result: STILL_BLOCKED on both fronts, survived adversarial re-verification with no fabrication found.**
+
+- **RMF ordinance numeric standards (density/FAR/parking)**: Municode returns HTTP 403 to WebFetch on every node tried (including a freshly-discovered exact node ID for the RMF dimensional-standards table); the `desotocounty-fl.elaws.us` mirror returns HTTP 503 on every DeSoto page (confirmed independently twice — not rate-limiting, genuinely down); Wayback's CDX API (a working alternate path to the previously-assumed "tool-level blocked" `web.archive.org`) returns zero snapshots; Legistar and ordinancewatch.com PDFs fetched but were unparseable/unrelated; the county's own site only proxies to the blocked Municode link, hosts no LDR PDF itself. The verifier flagged and rejected one live risk: a WebSearch AI-synthesized snippet asserted "2 spaces per unit" parking — traced to no quotable source text and explicitly NOT treated as evidence (correctly refused per the campaign's ghost-success ban).
+- **26-06-TD's zone_code**: the county's own zoning lookup mechanism (`desotopa.com/gis/linkPlanningZoning`) is a pure client-side JS redirect unresolvable via curl/WebFetch (no browser-use installed in this environment); Beacon/Schneider Geospatial 403s (Cloudflare); the county's real backing ArcGIS Server (Horner & Shifrin, `skyview.hornershifrin.com`) independently reconfirmed down with the verbatim error "Could not access any server machines" on both `arcgis1` and `arcgis2` REST roots.
+- **New corroborating finding (not previously established)**: "RMF-6" is now **confirmed** (not just inferred) to be a real, codified DeSoto County LDR zoning district — the official DeSoto County Zoning Map PDF (`desotobocc.com/DocumentCenter/View/1956/Zoning-Map-PDF`) legend explicitly lists RMF-6 as one of 24 standard zoning categories, distinct from RMF-8/RMF-12/RMF-M. This resolves the prior session's open question ("CAMA-label vs. codified district") — it is codified — but the numeric dimensional standards for RMF-6 specifically remain unretrieved. 26-06-TD (Bonanza Park, a manufactured-home community per third-party sources — INFERRED, not county-verified) still has no confirmed zone_code at all.
+
+No DB writes made this firing — nothing to apply without either a real ordinance number or a real parcel-level zone_code, and fabricating either would violate the campaign's explicit ghost-success ban. `gold_standard_ultraloop_audit` not written this firing (no positive claim of a letter moving — the audit table's `survived` column is for verified fix claims, and none was made).
+
+### Final live status this firing
+
+| County | Firing start | Firing end | Delta |
+|---|---|---|---|
+| washington | 10/10 | **10/10** | none — reconfirmed only |
+| pasco | 10/10 | **10/10** | none — reconfirmed only |
+| desoto | 7/10 (B/F blocked, I 75%) | **7/10** | none — I pursued hard, genuinely still blocked; RMF-6 codification newly confirmed (useful for next session, doesn't move the metric) |
+
+No `gold_standard_loop()`/certify run — other shards (shard14/10/11 addenda) were actively landing commits to `main` in this same window, per protocol.
+
+### Next-session priority for desoto (unchanged, now narrower)
+
+The only remaining path is a human/phone channel: DeSoto County Planning & Zoning, 863-993-4806, or the county's own "Application for Zoning Verification Letter" (PDF form hosted at `cms3.revize.com`, linked from the county's GIS page) for 26-06-TD's zone_code, plus the same office for RMF-6's Chapter 20 §20-125–131 dimensional standards. All automated paths (Municode, elaws.us mirror, county ArcGIS backend, Beacon, Firecrawl, Wayback) are confirmed dead this session, not merely untried — a 4th firing should not re-attempt the same automated scraping without new tooling (a real headless browser with a residential IP, or Firecrawl credits restored) or the human-channel answer in hand.
