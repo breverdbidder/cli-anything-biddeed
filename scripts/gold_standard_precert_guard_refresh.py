@@ -59,7 +59,7 @@ V2_PRIORITY_COUNTIES = [
 ]
 
 
-def run_sql(sql: str, timeout: int = 60) -> list:
+def run_sql(sql: str, timeout: int = 120) -> list:
     r = httpx.post(
         API,
         headers={"Authorization": f"Bearer {SUPABASE_ACCESS_TOKEN}", "Content-Type": "application/json"},
