@@ -71,6 +71,10 @@ jobs:
           )
           req.add_header('Authorization', f'Bearer {os.environ[\"SUPABASE_ACCESS_TOKEN\"]}')
           req.add_header('Content-Type', 'application/json')
+          # GTM-22B: default Python urllib User-Agent trips Cloudflare bot-fingerprint
+          # block (error code 1010) on api.supabase.com, independent of token validity —
+          # confirmed via in-runner probe, see .github/workflows/gtm22b-token-probe.yml.
+          req.add_header('User-Agent', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
           with urllib.request.urlopen(req, timeout=120) as resp:
               result = json.loads(resp.read())
               print(f'J-generator result: inserted/skipped for shard-5 counties')
