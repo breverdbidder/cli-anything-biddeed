@@ -1,0 +1,77 @@
+-- GTM-22D Task B — close the plaintext vault read for service_role.
+--
+-- STATUS: BLOCKED. VERIFIED (2026-07-19, mocerqjnksmhcjzxrewo) — the statement
+-- below EXECUTES WITHOUT ERROR via the Management API (role=postgres) but has
+-- ZERO effect, confirmed inside a single explicit transaction on one backend
+-- PID via has_table_privilege('service_role', 'vault.decrypted_secrets',
+-- 'SELECT') immediately after the REVOKE. Root cause: pg_class.relacl for
+-- vault.decrypted_secrets is `{supabase_admin=arwdDxtm/supabase_admin,
+-- postgres=r*d*D*x*/supabase_admin, service_role=rd/supabase_admin}` — every
+-- grant on this object, INCLUDING postgres's own, was made BY supabase_admin
+-- (the view owner). PostgreSQL's REVOKE only removes the ACL edge granted BY
+-- the executing role; postgres never granted service_role's SELECT, so
+-- postgres's REVOKE matches zero ACL entries and silently no-ops. postgres is
+-- rolsuper=false and NOT a member of supabase_admin (pg_has_role confirmed
+-- false), so it cannot act as that grantor. This is a platform-level
+-- permission boundary, not a scope or syntax issue — it cannot be worked
+-- around with SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD, or
+-- SUPABASE_SERVICE_ROLE_KEY as available in this session. Executing this
+-- REVOKE requires supabase_admin itself (Supabase Dashboard/support), which
+-- this session does not have.
+--
+-- IMPORTANT SECONDARY FINDING: even if unblocked, this REVOKE alone would
+-- NOT have prevented either 2026-07-19 incident. Both leaks were produced by
+-- an agent running a raw SQL SELECT through postgres-level DB access
+-- (Management API / SUPABASE_ACCESS_TOKEN, or psql / SUPABASE_DB_PASSWORD) —
+-- the same access this migration is being applied through — not through the
+-- Postgres `service_role` role. postgres's own SELECT on decrypted_secrets is
+-- explicitly required to stay (HARD PROHIBITION, and 51+ SECURITY DEFINER
+-- functions depend on it), so an agent with postgres-level credentials can
+-- always run this exact query today, regardless of what service_role's grant
+-- is. The structural fix for the actual incident mechanism is procedural
+-- (Task C: never run a raw vault SELECT from a chat/session context, route
+-- all secret access through the gated accessor functions) — the service_role
+-- grant closure below is a real but secondary hardening step, worth pursuing
+-- via Ariel/Supabase support but not sufficient on its own and not the
+-- binding constraint on either incident that triggered this dispatch.
+--
+-- Left in this migration file (rather than deleted) so the intent is on
+-- record and `supabase db push` / a supabase_admin session can re-apply it
+-- verbatim once executed with sufficient privilege. Do not assume it is live
+-- — verify service_role's grant directly before relying on this being closed.
+--
+-- WHY: two separate agents (Claude Code #12785, chat-side architect) leaked
+-- plaintext credentials into transcripts on 2026-07-19 by doing the "normal"
+-- thing with a secret they held: printing it. Root cause is that
+-- vault.decrypted_secrets hands raw secrets back to any caller holding
+-- service_role, and an agent that holds a raw secret will eventually print
+-- it. The fix is structural: an agent should never be able to pull a raw
+-- secret out of the vault directly. Legitimate secret use goes through
+-- SECURITY DEFINER functions (owned by postgres, which keeps this grant) —
+-- see get_vault_secret_gated / get_vault_secret_mcp / cli_anything_get_secret
+-- / vault_secret and the 49 other SECURITY DEFINER functions in public that
+-- already read decrypted_secrets internally without ever returning it raw
+-- to an interactive caller.
+--
+-- Prerequisite (VERIFIED complete before this file, same session):
+-- 20260719d/e converted the 4 of 8 SECURITY INVOKER functions that were
+-- actually reachable by service_role (eb_set_repo_secret,
+-- handle_commit_workflow_yaml_inline, upsert_staged_file_to_github,
+-- zw_extract_density_one) to SECURITY DEFINER owned by postgres, with
+-- EXECUTE restricted to {postgres, service_role}. The other 4
+-- (cc_release_staged_jobs, po_harvest_drain,
+-- everest_worker_phase2_confirm_and_dispatch,
+-- everest_worker_phase3_confirm_dispatch) are proven invoked ONLY via
+-- pg_cron as postgres and are left as SECURITY INVOKER.
+--
+-- Scope: SELECT only. service_role's DELETE grant on vault.decrypted_secrets
+-- is untouched — out of scope for this dispatch, not requested.
+-- postgres is NOT touched — it must keep SELECT so all 53 SECURITY DEFINER
+-- functions owned by postgres (49 pre-existing + 4 converted above) keep
+-- working.
+--
+-- Rollback (only if this migration is found to break a production path that
+-- Task A's audit missed):
+--   GRANT SELECT ON vault.decrypted_secrets TO service_role;
+
+REVOKE SELECT ON vault.decrypted_secrets FROM service_role;

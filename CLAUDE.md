@@ -821,6 +821,58 @@ anti_patterns:
   - Dismissing gaps as "least relevant" without evidence
 ```
 
+## CREDENTIAL HANDLING (GTM-22D, Jul 19 2026, PERMANENT)
+
+```yaml
+# Root cause of the 2026-07-19 double credential leak (Claude Code #12785 sed
+# regex bug; Claude architect chat pasting everest_gh_pat into shell commands):
+# an agent that holds a raw secret WILL eventually print it. Both leaks were
+# the *normal* way to use the credential, not an exotic failure. The fix is
+# never letting an agent hold the raw value in the first place.
+
+never_do:
+  - "echo, sed, grep, or env-dump anything that could contain a credential value"
+  - "SELECT decrypted_secret FROM vault.decrypted_secrets — from a chat session
+     or any interactive/Management-API context. RETIRED as of GTM-22D. Pulling
+     a secret this way and pasting it into subsequent shell commands is the
+     exact mechanism that caused the 2026-07-19 architect-chat leak."
+  - "paste a fetched secret value into a shell command, log line, or issue/PR comment"
+
+always_do:
+  - "::add-mask::<value> before any step that could surface a secret, even
+     indirectly (e.g. a curl -v that echoes request headers)"
+  - "run any task that needs a credential INSIDE the GHA runner (cc-runner-ghonly.yml
+     env: block), never from a chat session — GitHub Actions masks secrets at
+     execution; the runner's in-runner token probe (#12785) proved zero-exposure
+     handling of the same secret that leaked via sed one step earlier"
+  - "use the sanctioned SECURITY DEFINER accessors for any DB-side secret need:
+     get_vault_secret_gated(token, name) — real gate, requires a capability
+       token matching vault 'fork_heartbeat_token', hard allow-list of
+       returnable names (currently only 'everest_gh_pat')
+     cli_anything_get_secret(name) — real gate, secret-name allow-list
+       (cli_anything_shared_secret / everest_*_pat / cli_anything_*),
+       EXECUTE restricted to postgres+service_role
+     vault_secret(name) — NO internal gate (plain passthrough); safe only
+       because EXECUTE is restricted to postgres+service_role
+     get_vault_secret_mcp(name) — ⚠ OPEN FINDING, not yet fixed: NO internal
+       gate AND EXECUTE is granted to PUBLIC/anon/authenticated/service_role/
+       postgres — functionally equivalent to an unrestricted vault read for
+       anyone with an anon key. Do not treat this function as safe until this
+       grant is tightened. Flagged in GTM-22D closing report as the top
+       follow-up.
+
+known_platform_boundary:
+  - "REVOKE SELECT ON vault.decrypted_secrets FROM service_role cannot be
+     executed by postgres (Management API / psql / supabase CLI all connect
+     as postgres) — the grant's grantor is supabase_admin, which postgres is
+     not a member of and cannot act as. Requires Supabase support or dashboard-
+     level supabase_admin access. Until closed, postgres-level DB access
+     (SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD) can still read
+     vault.decrypted_secrets directly — and per HARD PROHIBITIONS this can
+     never be revoked (51+ SECURITY DEFINER functions depend on it), so the
+     never_do/always_do rules above are the actual control, not a grant."
+```
+
 # ── TeardownWise Agent (added 2026-03-29) ──
 
 ## TeardownWise Config
