@@ -1,0 +1,92 @@
+name: GTM-22B — Supabase-write proof for migrated files (SERVICE_ROLE_KEY)
+
+# Isolates the exact Supabase REST write calls used by nightly-scorer.yml,
+# fl-auction-scraper.yml, and security-scan.yml (all migrated to
+# SUPABASE_SERVICE_ROLE_KEY in this dispatch), so the migration can be
+# verified independently of two unrelated, pre-existing GH_PAT/
+# SUPABASE_ACCESS_TOKEN failures blocking those workflows' own runs.
+# modal_runs / repo_security_grades probes insert a clearly-tagged test
+# row and delete it immediately after confirming the write. nexus_tasks
+# reuses the real production upsert key (merge-duplicates, idempotent).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  write-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: "nexus_tasks upsert (fl-auction-scraper.yml path)"
+        run: |
+          set -e
+          CODE=$(curl -s -o /tmp/out1.json -w "%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/nexus_tasks" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates" \
+            -d '{
+              "task_id": "SUMMIT-P0-67COUNTY",
+              "issue_number": 138,
+              "status": "done",
+              "completed_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+              "notes": "fl_auctions table + 67-county scraper + daily GHA"
+            }')
+          echo "nexus_tasks upsert HTTP $CODE"
+          cat /tmp/out1.json
+          [ "$CODE" = "200" ] || [ "$CODE" = "201" ] || [ "$CODE" = "204" ] || { echo "FAIL"; exit 1; }
+
+      - name: "modal_runs insert + cleanup (nightly-scorer.yml path)"
+        run: |
+          set -e
+          CODE=$(curl -s -o /tmp/out2.json -w "%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/modal_runs" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{
+              "run_type": "gtm22b_write_proof",
+              "tasks_scored": 0,
+              "tasks_updated": 0
+            }')
+          echo "modal_runs insert HTTP $CODE"
+          cat /tmp/out2.json
+          [ "$CODE" = "200" ] || [ "$CODE" = "201" ] || [ "$CODE" = "204" ] || { echo "FAIL"; exit 1; }
+
+          # Clean up the probe row
+          DCODE=$(curl -s -o /tmp/out2d.json -w "%{http_code}" -X DELETE \
+            "${SUPABASE_URL}/rest/v1/modal_runs?run_type=eq.gtm22b_write_proof" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}")
+          echo "modal_runs cleanup DELETE HTTP $DCODE"
+
+      - name: "repo_security_grades insert + cleanup (security-scan.yml path)"
+        run: |
+          set -e
+          CODE=$(curl -s -o /tmp/out3.json -w "%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/repo_security_grades" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            -d '{
+              "repo_name": "gtm22b-write-proof-test",
+              "grade": "N/A",
+              "score": 0,
+              "critical_count": 0,
+              "high_count": 0,
+              "medium_count": 0,
+              "findings_json": []
+            }')
+          echo "repo_security_grades insert HTTP $CODE"
+          cat /tmp/out3.json
+          [ "$CODE" = "200" ] || [ "$CODE" = "201" ] || { echo "FAIL"; exit 1; }
+
+          # Clean up the probe row
+          DCODE=$(curl -s -o /tmp/out3d.json -w "%{http_code}" -X DELETE \
+            "${SUPABASE_URL}/rest/v1/repo_security_grades?repo_name=eq.gtm22b-write-proof-test" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}")
+          echo "repo_security_grades cleanup DELETE HTTP $DCODE"
