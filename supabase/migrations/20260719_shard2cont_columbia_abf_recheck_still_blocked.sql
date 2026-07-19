@@ -1,0 +1,118 @@
+-- SHARD-2 CONTINUATION (dispatch 190ac19f, 2nd firing same day): columbia
+-- Letters A, B, F -- fresh re-check per prior session's "next-session
+-- priorities" #2 (re-run harvester on a later date; check for newly-posted
+-- results). Documentation/summary migration only -- no DB writes changed
+-- any of A/B/F-relevant columns (see RESULT below: before == after).
+--
+-- WHAT WAS DONE (confirmed live 2026-07-19, this firing):
+--   1. Checked FIRECRAWL_API_KEY status with a real scrape call before
+--      falling back to chromium --dump-dom, per instructions. Result:
+--      HTTP 402 "Insufficient credits" -- confirmed still exhausted, not
+--      purchased/escalated without approval. Used chromium --dump-dom
+--      (pre-installed, not Playwright) as before.
+--   2. Re-ran scripts/columbia_clerk_html_harvest.py logic fresh against
+--      both live pages:
+--        - https://columbiaclerk.com/upcoming-foreclosure-sales/ : parsed=12
+--          (same 12 case numbers as the prior firing; one of them,
+--          2023-492-CA, has auction_date=2026-07-15 -- 4 days in the past
+--          relative to today 2026-07-19 -- but Status field on the page
+--          still literally reads "scheduled", no sold-amount field present
+--          anywhere in its block). No change vs prior firing.
+--        - https://columbiaclerk.com/clerk-services/tax-deeds/upcoming-tax-deed-sales/ :
+--          parsed=0. Confirmed via EMPTY_RE match: page still contains the
+--          literal string "There are no properties on the list of tax deeds
+--          at this time." -- genuinely empty lane, same as prior firing, not
+--          selector drift (harvester's own guard did not fire, meaning it
+--          recognized the known empty-state copy).
+--   3. NEW leads investigated this firing (not tried in the prior firing):
+--        a. https://columbiaclerk.com/clerk-services/foreclosures/foreclosure-surplus-listings/
+--           -- a real post-sale ledger ("The properties listed were
+--           previously sold under foreclosure and are not available for
+--           sale."). Parsed all 9 listed cases in full: 2022-271-CA,
+--           2022-199-CA, 2024-193-CA, 2023-18-CC, 24-309-CA, 23-466-CA,
+--           23-448-CA, 24-318-CA, 25-19-CA. ZERO overlap with any of our
+--           15 tracked columbia case numbers (2025-499-CA, 2025-396-CA,
+--           2025-103-CA, 2023-492-CA, 2023-79-CA, 2025-2196-CC, 2025-501-CA,
+--           2026-12-CA, 2025-487-CA, 2026-54-CA, 2025-249-CA, 2025-63-CA,
+--           2025-256-CA, 2025-354-CA, 2025-260-CA). This independently
+--           confirms none of our tracked cases have surplus filings yet --
+--           consistent with none of them having actually sold.
+--        b. columbia.realforeclose.com / columbia.realtaxdeed.com: both
+--           return HTTP 403 to plain curl; DOM-dumped anyway to check for
+--           real content behind Cloudflare. Confirmed BOTH resolve to the
+--           generic RealAuction.com marketing splash page ("Online Auction
+--           Software Solutions - Realauction.com"), not a live tenant --
+--           reconfirms columbia has no RealAuction results-report lane
+--           (unlike hendry/santa_rosa, which do).
+--        c. https://columbiaclerk.com/court-services/court-records/ links to
+--           a real public docket search portal at
+--           https://www.civitekflorida.com/ocrs/county/12/ (Columbia County
+--           OCRS via Civitek, PrimeFaces/JSF app, "Public" anonymous access
+--           tier exists, no login required). This is a genuinely new,
+--           previously-untried lead. Drove it by hand via raw curl +
+--           extracted javax.faces.ViewState tokens (no Playwright/
+--           browser-use CLI available in this sandbox -- verified absent:
+--           `which browser-use` -> not found): successfully clicked through
+--           "Public" -> disclaimer "I Agree" -> arrived at the real search
+--           form (/ocrs/app/search.xhtml, "Person Search" / "Case Search"
+--           tabs confirmed present in the DOM). The "Case Search" tab's
+--           actual input fields are lazy-loaded via a PrimeFaces TabView
+--           AJAX partial-render on tab click; every attempt to replicate
+--           that specific AJAX request via raw curl (multiple parameter
+--           combinations for javax.faces.partial.* / behavior.event) was
+--           rejected server-side with a redirect to
+--           /ocrs/errorpages/exception.xhtml. This requires real browser
+--           JS execution (PrimeFaces client-side widget state) to drive
+--           correctly, which this sandbox does not have installed. NOT
+--           fabricated as a result either way -- no docket data was read
+--           for 2023-492-CA or any other case via this path. Flagged below
+--           as the clearest next-session lead.
+--
+--   4. CONCLUSION: A/B/F remain genuinely blocked today. No independent,
+--      non-PropertyOnion, real post-sale result exists anywhere on
+--      columbiaclerk.com's crawlable-without-JS surface for any of the 15
+--      tracked columbia cases, and the tax-deed lane is still genuinely
+--      empty per the site's own copy. Nothing was fabricated; no
+--      multi_county_auctions row, foreclosure_outcomes row, or
+--      tax_deed_outcomes row was written or altered by this firing.
+--
+-- RESULT (before == after; ground truth re-confirmed, not a failure to act):
+--   BEFORE: A={"pass": false, "detail": "fc=15 td=0",               "metric": 0}
+--           B={"pass": false, "detail": "verified=0 closed_sold=0",  "metric": null}
+--           F={"pass": false, "detail": "tier1_sold=0 closed_sold=0","metric": null}
+--   AFTER:  A={"pass": false, "detail": "fc=15 td=0",               "metric": 0}
+--           B={"pass": false, "detail": "verified=0 closed_sold=0",  "metric": null}
+--           F={"pass": false, "detail": "tier1_sold=0 closed_sold=0","metric": null}
+--
+-- VERIFICATION (run to confirm current honest state):
+--   SELECT sale_type, count(*) FROM multi_county_auctions
+--    WHERE county='columbia' GROUP BY sale_type;
+--   -- expect: foreclosure | 15   (tax_deed absent / 0) -- unchanged
+--
+--   SELECT count(*) FROM multi_county_auctions
+--    WHERE county='columbia' AND sold_amount IS NOT NULL;
+--   -- expect: 0 -- unchanged
+--
+--   SELECT * FROM public.pencil_dod_evaluate_county('columbia');
+--   -- expect: A.metric=0, B.metric=null, F.metric=null -- unchanged from
+--   -- prior firing's documented result
+--
+-- NEXT SESSION PRIORITIES (deferred, not fabricated):
+--   - civitekflorida.com/ocrs/county/12/ (Columbia OCRS public docket search)
+--     is the single most promising untried lead: a real, independent,
+--     non-PropertyOnion, anonymous-access public court docket search that
+--     could show "Certificate of Title"/"Certificate of Sale" filings for
+--     2023-492-CA (or others) if a sale actually closed. Requires a real
+--     JS-executing browser (Playwright, or the browser-use CLI skill --
+--     confirmed NOT installed in this sandbox: `browser-use doctor` ->
+--     "command not found") to drive the PrimeFaces TabView AJAX click for
+--     "Case Search", since raw curl replication of that specific AJAX
+--     partial-request repeatedly triggered a server-side exception page
+--     across several parameter permutations. Whoever picks this up next
+--     should install/enable a real headless browser automation tool first,
+--     not keep trying raw curl against this JSF app.
+--   - A (tax_deed=0): keep re-running the harvester periodically; genuinely
+--     empty again today, same site-owned copy as the prior firing.
+--   - B/F: 2023-492-CA is the closest candidate (4 days past its listed
+--     sale date, still "scheduled" with no result) -- if the civitekflorida
+--     docket lead above is ever completed, check this case number first.
