@@ -157,15 +157,52 @@ def main() -> int:
         for k in all_keys:
             r.setdefault(k, None)
 
+    # Step A: Upsert all rows WITHOUT address/geo/value to avoid overwriting
+    # previously-backfilled enrichment data.  The tax-deed page never publishes
+    # property_address, and lat/lon/assessed_value are not sourced by this
+    # scraper — including them as NULL in a merge-duplicates upsert would
+    # clobber any address/geo data a prior session geocoded.
+    # PostgREST requires every row in a batch to carry the same key set.
+    NEVER_OVERWRITE = frozenset(
+        {"property_address", "latitude", "longitude", "assessed_value", "market_value"}
+    )
+    core_keys = all_keys - NEVER_OVERWRITE
+    rows_core = [{k: r[k] for k in core_keys} for r in rows]
+
     resp = requests.post(
         f"{supa_url}/rest/v1/multi_county_auctions?on_conflict=county,case_number,sale_type",
-        headers=headers, json=rows, timeout=30,
+        headers=headers, json=rows_core, timeout=30,
     )
     if not (200 <= resp.status_code < 300):
         print(f"ERROR: upsert failed {resp.status_code} {resp.text[:300]}", file=sys.stderr)
         return 1
 
-    print(f"\nSUCCESS: upserted {len(rows)} calhoun row(s): {[r['case_number'] for r in rows]}")
+    print(f"\nSUCCESS: upserted {len(rows_core)} calhoun row(s) (core fields only, preserving enrichment)")
+
+    # Step B: PATCH property_address for FC rows that have a real address,
+    # but only if the existing DB row has no address yet (COALESCE semantics).
+    patch_headers = {
+        "apikey": supa_key,
+        "Authorization": f"Bearer {supa_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    for r in rows:
+        addr = r.get("property_address")
+        if not addr:
+            continue
+        patch_resp = requests.patch(
+            f"{supa_url}/rest/v1/multi_county_auctions"
+            f"?county=eq.calhoun&case_number=eq.{requests.utils.quote(r['case_number'])}"
+            f"&property_address=is.null",
+            headers=patch_headers,
+            json={"property_address": addr},
+            timeout=15,
+        )
+        if 200 <= patch_resp.status_code < 300:
+            print(f"  PATCH property_address for {r['case_number']}: OK")
+        else:
+            print(f"  PATCH property_address for {r['case_number']}: {patch_resp.status_code} {patch_resp.text[:100]}")
     return 0
 
 
