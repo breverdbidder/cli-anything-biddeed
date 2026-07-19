@@ -30,17 +30,17 @@ jobs:
             -H "Prefer: resolution=merge-duplicates" \
             -d '{
               "task_id": "SUMMIT-P0-67COUNTY",
-              "status": "done",
-              "completed_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-              "notes": "fl_auctions table + 67-county scraper + daily GHA"
+              "status": "done"
             }')
           echo "nexus_tasks upsert HTTP $CODE"
           cat /tmp/out1.json
-          # NOTE: fl-auction-scraper.yml's real payload also sends "issue_number",
-          # which 400s with PGRST204 (column not found) against the live schema --
-          # a pre-existing bug in that workflow, unrelated to this secret migration.
-          # Its own code already tolerates this via `|| echo WARN: ... skipped`.
-          # Dropped here to prove the SUPABASE_SERVICE_ROLE_KEY auth+write path itself.
+          # NOTE: fl-auction-scraper.yml's real payload also sends "issue_number" and
+          # "notes" and "completed_at", none of which exist as columns on the live
+          # nexus_tasks schema (both 400 PGRST204) -- pre-existing bugs in that
+          # workflow's payload, unrelated to this secret migration. Its own code
+          # already tolerates this via `|| echo WARN: ... skipped`. Trimmed to the
+          # columns confirmed to exist (task_id, status) to prove the
+          # SUPABASE_SERVICE_ROLE_KEY auth+write path itself works.
           [ "$CODE" = "200" ] || [ "$CODE" = "201" ] || [ "$CODE" = "204" ] || { echo "FAIL"; exit 1; }
 
       - name: "modal_runs insert + cleanup (nightly-scorer.yml path)"
