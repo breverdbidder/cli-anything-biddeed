@@ -178,3 +178,72 @@ Both counties' ultraloop_audit rows are fresh (this session) and will remain val
 1. st_lucie I: get raw SQL access (`pg_get_functiondef('pencil_dod_evaluate_county')`) to find the exact `card_complete` formula rather than guessing — currently 86.0%, need ~89/93 to pass.
 2. highlands C/D: re-check the 27-row gap closer to the 08/05–08/19 sale dates, or pursue a Highlands Clerk redemption-status lookup to resolve them definitively (matched vs genuinely redeemed).
 3. Fix the raw `SUPABASE_DB_PASSWORD` / Management API access issue fleet-wide if other shards hit the same block — flagging for the AI Architect since it affects any session needing DDL, not just this one.
+
+---
+
+## ADDENDUM — 2nd firing of dispatch c7a1fa1a (2026-07-19, highlands only, st_lucie out of scope this firing)
+
+Session had live Mgmt API SQL access (`api.supabase.com/v1/projects/.../database/query`) this time —
+used for read-only diagnostics only, no schema changes needed.
+
+### BEFORE (live RPC, re-verified at session start — matches this dispatch's briefed baseline exactly)
+
+```json
+highlands BEFORE: {"A":{"pass":true,"metric":2},"B":{"pass":true,"metric":100.0},"C":{"pass":false,"metric":83.9,"detail":"matched_clean=151"},"D":{"pass":false,"metric":83.9,"detail":"matched_any=151"},"E":{"pass":true,"metric":98.9},"F":{"pass":true,"metric":100.0},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":9.1},"I":{"pass":true,"metric":97.2},"J":{"pass":true,"metric":99.4},"auctions_total":180}
+```
+
+`auctions_total` grew from 178 (prior firing) to 180 — a routine calendar-sweep cron added 2 new
+foreclosure bootstrap rows (`HIGHLANDS-FC-2026-001`, `HIGHLANDS-FC-2026-002`, `parity_status='bootstrap_placeholder'`),
+not something this session or the prior firing caused. Combined with the still-unresolved 27
+tax-deed rows from the prior firing, this made a 29-row null/placeholder-parity gap.
+
+### Work performed
+
+**1. Priority-1 lever (new this firing): 2 realforeclose bootstrap rows.**
+Checked `HIGHLANDS-FC-2026-001` (auction_date 2026-08-11) and `-002` (2026-08-26) against the live
+`highlands.realforeclose.com` calendar (per `pipeline.counties.foreclosure_url`). Result: the
+subdomain's DNS resolves correctly (alias for `r4c-prod-1-2128974757.us-east-1.elb.amazonaws.com`,
+identical RealAuction infra to the confirmed-active `stlucie.realforeclose.com` tenant), but both
+`zaction=AUCTION&Zmethod=PREVIEW` (for both dates, byte-identical 489-line responses) and
+`zaction=USER&zmethod=CALENDAR` 302-redirect off-domain to the generic `realauction.com` marketing
+page rather than serving a real calendar — unlike the `stlucie.realforeclose.com` positive control,
+which returns a real 875-line on-domain calendar. **Conclusion: Highlands is not currently an active
+RealForeclose foreclosure tenant.** Both bootstrap rows are reported UNTESTED/still-pending, left as
+`bootstrap_placeholder`, NOT promoted, NOT fabricated.
+
+**2. Priority-2 lever (re-attempt): fresh live re-harvest of the 27 tax-deed rows.**
+Re-ran `scripts/shard2_run2450_ajax_realforeclose_harvest.py` live against `highlands.realtaxdeed.com`
+for the same 3 sale dates (2026-08-05, 08-12, 08-19). Result: 78 parsed items / 108 distinct live
+case numbers (same order of magnitude as the prior firing's 78-item harvest — the live calendar has
+not materially changed). Cross-checked all 27 remaining gap rows' case_number, parcel_id (exact and
+county-prefix-stripped), and street address (substring) against this fresh live set:
+**0/27 matched on any identifier.** The live case-number range for this window runs 25000389–25000768
+but the entire 25000702–25000755 sub-range is absent except 726/735/736 (already `matched_clean`
+from the prior firing). This is now a **twice-confirmed structural residual** — genuine source-coverage
+gap between `calendar_sweep_mca_v3`-ingested rows and what `realtaxdeed.com` currently publishes for
+these far-future sale dates, not a matcher bug.
+
+### AFTER (live RPC, re-verified at session end)
+
+```json
+highlands AFTER: {"A":{"pass":true,"metric":2},"B":{"pass":true,"metric":100.0},"C":{"pass":false,"metric":83.9,"detail":"matched_clean=151"},"D":{"pass":false,"metric":83.9,"detail":"matched_any=151"},"E":{"pass":true,"metric":98.9},"F":{"pass":true,"metric":100.0},"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":9.1},"I":{"pass":true,"metric":97.2},"J":{"pass":true,"metric":99.4},"auctions_total":180}
+```
+
+**highlands: 8/10 → 8/10 (unchanged this firing).** C/D remain FAIL at 83.9% (matched_clean=151/180,
+need ≥171). No promotions were made because none were honestly justified — 0 genuine matches found
+across both levers investigated. This is the correct, non-fabricated outcome per this campaign's
+own precedent (declining to promote unmatched rows is the expected behavior, not a shortfall).
+
+### ULTRALOOP audit (this firing)
+2 rows inserted into `gold_standard_ultraloop_audit` (`ultraloop_mode='fallback'`), both `survived=true`:
+- letter C, claim = realforeclose bootstrap-row check (DNS + redirect evidence, st_lucie positive control)
+- letter C, claim = tax-deed 27-row re-harvest cross-check (0/27 on case_number/parcel_id/address)
+
+### Residual gap (unresolved, flagged for next session)
+The 27 tax-deed rows and 2 foreclosure bootstrap rows remain genuinely unresolved. Recommended next
+steps, in order of promise: (a) re-check closer to the sale dates (case listings on RealAuction
+platforms are frequently posted 1-3 weeks out, not 5+ weeks out — the 08-19 date is furthest and least
+likely to be posted yet), (b) a Highlands Clerk of Court case-search lookup by case_number directly
+(bypassing RealAuction) to determine if these cases were cancelled/redeemed before ever being
+calendared, (c) monitor `pipeline.counties.foreclosure_url` for highlands — if RealForeclose activates
+a real tenant there, the 2 bootstrap rows become resolvable immediately with no new script needed.
