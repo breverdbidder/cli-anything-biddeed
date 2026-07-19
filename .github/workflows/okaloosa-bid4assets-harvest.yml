@@ -1,0 +1,63 @@
+name: "Okaloosa Bid4Assets Harvest"
+# SHARD-3 (okaloosa) -- Okaloosa's RealAuction tenants (realforeclose/
+# realtaxdeed) have been confirmed dead across 5+ prior sessions (302 to the
+# realauction.com marketing splash). The county migrated to Bid4Assets:
+#   FC: https://www.bid4assets.com/OkaloosaFL/listings
+#   TD: https://www.bid4assets.com/OkaloosaFLTax/listings
+# bid4assets.com is Akamai-blocked on plain HTTP and headless Chromium (403).
+# Headed Chromium under xvfb bypasses the block (verified live 2026-07-19).
+# A single browser context reused across date navigations ALSO trips the
+# block after the first request -- this harvester opens a fresh context per
+# sale-date navigation (see scripts/okaloosa_bid4assets_harvest.py docstring).
+
+on:
+  schedule:
+    - cron: '20 6 * * *'   # 06:20 UTC daily
+  workflow_dispatch:
+
+jobs:
+  harvest:
+    name: "Harvest okaloosa Bid4Assets FC + TD grids"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          pip install --quiet requests playwright
+          python -m playwright install --with-deps chromium
+
+      - name: "Run harvester (headed Chromium under xvfb -- headless is Akamai-blocked)"
+        run: |
+          set -euo pipefail
+          EXIT=0
+          xvfb-run -a python3 scripts/okaloosa_bid4assets_harvest.py || EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = genuinely zero listings this cycle -- not a failure
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: B/C/D/E/F/I metrics via evaluator RPC"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "okaloosa"}')
+          echo "### SQL VERIFICATION: okaloosa" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
