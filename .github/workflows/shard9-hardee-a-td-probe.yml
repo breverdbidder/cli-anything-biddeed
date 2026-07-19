@@ -1,0 +1,59 @@
+name: "SHARD-9 Hardee: Letter-A TD Lane Probe"
+# dispatch_id: 30b3a3ea-d603-4f0f-b1a4-c9f25f233bef
+# Probe hardee.realtaxdeed.com and hardeeclerk.com for real tax_deed auctions
+# to fix letter A (fc=1 td=0 → need td≥1).
+# Issue: #12802 GOLD STANDARD SHARD-9
+
+on:
+  schedule:
+    - cron: '0 8 * * *'    # daily 08:00Z — matches scrape cycle
+  workflow_dispatch:
+
+jobs:
+  hardee-td-probe:
+    name: "Hardee Letter-A: TD Lane Probe + Ingest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx --quiet
+
+      - name: Run TD probe + ingest
+        run: python3 scripts/shard9_hardee_a_td_probe.py
+
+      - name: Verify hardee A letter state
+        run: |
+          python3 << 'PYEOF'
+          import json, os, urllib.request
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          req = urllib.request.Request(
+              f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.hardee&select=case_number,sale_type,auction_status,auction_date&order=sale_type',
+              method='GET'
+          )
+          req.add_header('apikey', SUPABASE_KEY)
+          req.add_header('Authorization', f'Bearer {SUPABASE_KEY}')
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  rows = json.loads(resp.read())
+                  fc_count = sum(1 for r in rows if r.get('sale_type') in ('foreclosure', 'fc'))
+                  td_count = sum(1 for r in rows if r.get('sale_type') in ('tax_deed', 'td', 'taxdeed'))
+                  print(f"hardee total={len(rows)} fc={fc_count} td={td_count}")
+                  print(f"Letter A pass: {fc_count > 0 and td_count > 0}")
+                  for r in rows:
+                      print(f"  {r.get('case_number')} sale_type={r.get('sale_type')} date={r.get('auction_date')}")
+          except Exception as ex:
+              print(f'Verify failed: {ex}')
+          PYEOF
