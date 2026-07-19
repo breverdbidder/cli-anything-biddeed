@@ -1,0 +1,49 @@
+name: "SHARD-2 190ac19f — Hendry B/F Verified Outcomes"
+# Wire: scripts/shard2_190ac19f_hendry_bf_outcomes.py on daily schedule.
+# Letters targeted: B (verified independent outcomes), F (tier1 sold-amount coverage).
+# Source: hendry.realtaxdeed.com AJAX SOLD endpoint (independent of PropertyOnion).
+# Dispatch: 190ac19f-8ae0-465c-be8b-ec314028eb77 (GOLD STANDARD SHARD-2, 2026-07-19)
+
+on:
+  schedule:
+    # Daily at 09:00 UTC (after dixie 05:45 and columbia 07:30 scrape runs)
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard2-hendry-bf-outcomes
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    name: "Hendry Verified Outcomes (realtaxdeed AJAX SOLD)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx
+
+      - name: Run Hendry B/F outcomes harvester
+        run: |
+          set -euo pipefail
+          python3 scripts/shard2_190ac19f_hendry_bf_outcomes.py 2>&1 | tee /tmp/hendry_bf.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## SHARD-2 Hendry B/F Outcomes" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -30 /tmp/hendry_bf.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

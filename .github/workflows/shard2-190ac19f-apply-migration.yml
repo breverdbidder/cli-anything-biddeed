@@ -1,0 +1,134 @@
+name: "SHARD-2 190ac19f — Apply Dixie/Hendry/Columbia Migration"
+# Applies migrations/20260719_gold_standard_shard2_dixie_hendry_columbia.sql
+# Dispatch: 190ac19f-8ae0-465c-be8b-ec314028eb77 (GOLD STANDARD SHARD-2, 2026-07-19)
+#
+# Targets:
+#   dixie C/D: refresh_parity_tier1_outcomes + supplementary litmus promotion
+#   hendry G: backfill pk1000 in zone_standards (pk1000 was 0.0)
+#   columbia A: seed td lane in pipeline.counties (clerk_html platform)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard2-190ac19f-apply-migration
+  cancel-in-progress: false
+
+jobs:
+  apply-migration:
+    name: "Apply Shard-2 190ac19f Migration (dixie/hendry/columbia)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx psycopg2-binary requests
+
+      - name: Apply migration via Management API SQL
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import os, sys, json, urllib.request, urllib.error
+
+          SB_URL = os.environ["SUPABASE_URL"].rstrip("/")
+          KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+
+          migration_file = "migrations/20260719_gold_standard_shard2_dixie_hendry_columbia.sql"
+          with open(migration_file) as f:
+              sql = f.read()
+
+          # Split into individual statements and execute via PostgREST RPC
+          # Use the sql-runner approach: POST to /rpc/exec (if available) or via REST
+
+          # Execute via Supabase Management API SQL endpoint
+          import base64
+          project_ref = SB_URL.replace("https://", "").split(".")[0]
+          mgmt_url = f"https://api.supabase.com/v1/projects/{project_ref}/database/query"
+
+          # Fall back: use psycopg2 with pooler if SUPABASE_DB_PASSWORD is set
+          db_pass = os.environ.get("SUPABASE_DB_PASSWORD", "")
+          if db_pass:
+              import psycopg2
+              # Supabase pooler connection
+              conn_str = (
+                  f"postgresql://postgres.{project_ref}:{db_pass}"
+                  f"@aws-0-us-west-2.pooler.supabase.com:6543/postgres"
+              )
+              print(f"Connecting to Supabase pooler for {project_ref}")
+              try:
+                  conn = psycopg2.connect(conn_str, connect_timeout=30)
+                  conn.autocommit = True
+                  cur = conn.cursor()
+                  # SET statement_timeout = 0 before executing
+                  cur.execute("SET statement_timeout = 0;")
+                  print("statement_timeout set to 0")
+                  cur.execute(sql)
+                  print("Migration applied successfully")
+                  conn.close()
+                  sys.exit(0)
+              except Exception as e:
+                  print(f"psycopg2 error: {e}", file=sys.stderr)
+                  sys.exit(1)
+          else:
+              print("SUPABASE_DB_PASSWORD not set — cannot apply migration via psycopg2")
+              print("Please set SUPABASE_DB_PASSWORD in repository secrets")
+              sys.exit(1)
+          PYEOF
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Verify dixie C/D improvement
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import os, sys, json, urllib.request, urllib.error
+
+          SB = os.environ["SUPABASE_URL"].rstrip("/")
+          KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+
+          def rpc(fn, params):
+              data = json.dumps(params).encode()
+              req = urllib.request.Request(
+                  f"{SB}/rest/v1/rpc/{fn}", data=data, method="POST",
+                  headers={**H, "Content-Type": "application/json", "Prefer": ""}
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return {"error": f"{e.code} {e.read().decode()[:200]}"}
+
+          for county in ["dixie", "hendry", "columbia"]:
+              result = rpc("pencil_dod_evaluate_county", {"p_county": county})
+              print(f"\n=== {county.upper()} ===")
+              print(json.dumps(result, indent=2))
+
+          PYEOF
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## SHARD-2 190ac19f Migration Applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Migration:** \`migrations/20260719_gold_standard_shard2_dixie_hendry_columbia.sql\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Counties:** dixie (C/D litmus), hendry (G pk1000), columbia (A td-lane)" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Dispatch:** 190ac19f-8ae0-465c-be8b-ec314028eb77" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"

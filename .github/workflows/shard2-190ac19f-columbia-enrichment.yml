@@ -1,0 +1,83 @@
+name: "SHARD-2 190ac19f — Columbia E/I/B/F Enrichment"
+# Wire: columbia E/I parcel+card enrichment and B/F outcome harvester.
+# Letters targeted: E (parcel linkage), I (card complete), B (verified outcomes), F (tier1 sold).
+# Source: FL GIO FeatureServer (parcel/geo/assessed) + columbiaclerk.com headless scrape (outcomes).
+# Dispatch: 190ac19f-8ae0-465c-be8b-ec314028eb77 (GOLD STANDARD SHARD-2, 2026-07-19)
+
+on:
+  schedule:
+    # Daily at 08:30 UTC (30 min after columbia clerk scraper at 07:30)
+    - cron: '30 8 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard2-columbia-enrichment
+  cancel-in-progress: false
+
+jobs:
+  ei-enrichment:
+    name: "Columbia E/I Parcel + Property Card Enrichment (FL GIO)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run E/I enrichment
+        run: |
+          set -euo pipefail
+          python3 scripts/shard2_190ac19f_columbia_ei_enrichment.py 2>&1 | tee /tmp/columbia_ei.log
+
+      - name: Summary E/I
+        if: always()
+        run: |
+          echo "## Columbia E/I Enrichment" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -30 /tmp/columbia_ei.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  bf-outcomes:
+    name: "Columbia B/F Outcomes (clerk_html SOLD harvest)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [ei-enrichment]
+    if: always()
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Verify browser available"
+        run: |
+          which google-chrome-stable || which google-chrome || which chromium-browser || which chromium
+          echo "Browser found"
+
+      - name: Run B/F outcomes harvester
+        run: |
+          set -euo pipefail
+          python3 scripts/shard2_190ac19f_columbia_bf_outcomes.py 2>&1 | tee /tmp/columbia_bf.log
+
+      - name: Summary B/F
+        if: always()
+        run: |
+          echo "## Columbia B/F Outcomes" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -30 /tmp/columbia_bf.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
