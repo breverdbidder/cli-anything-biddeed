@@ -616,5 +616,27 @@ def main() -> int:
         return 1
 
 
+def run_i_enrichment():
+    """Run the shard4_run5153 osceola I enrichment after C/D parity is done.
+    Imported and called here so the existing osceola-cd-fix job in
+    shard5-run1524-daily.yml automatically covers letter I without a new workflow.
+    Wired: 2026-07-19 shard4-run5153."""
+    import importlib.util
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location(
+        "i_enrichment",
+        os.path.join(here, "shard4_run5153_osceola_i_enrichment.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        mod.main()
+    except Exception as exc:
+        log(f"I enrichment raised: {exc}", "ERROR", "VERIFIED")
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    cd_exit = main()
+    run_i_enrichment()
+    sys.exit(cd_exit)
