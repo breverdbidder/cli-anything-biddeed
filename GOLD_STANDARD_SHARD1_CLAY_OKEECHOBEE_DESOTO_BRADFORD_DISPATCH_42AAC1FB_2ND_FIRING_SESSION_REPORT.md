@@ -14,9 +14,9 @@ This is a continuation of the same-day 1st firing (`GOLD_STANDARD_SHARD1_CLAY_OK
 | clay | 10/10 | 10/10 | Already gold — confirmed untouched |
 | okeechobee | 9/10 (I fails, 92.6%) | 9/10 (I fails, 94.4%) | No — closer, not flipped |
 | desoto | 7/10 (B/F/I fail) | 8/10 (B/F fail) | No — I flipped this session |
-| bradford | 6/10 (B/E/F/I fail) | 8/10 (B/F fail) | No — E flipped, I improved 0→80% |
+| bradford | 6/10 (B/E/F/I fail) | 7/10 (B/F/I fail) | No — E flipped; I improved 0→80% but did NOT flip (I still fails) |
 
-**Net: 2 letters flipped pass/fail this session (desoto I, bradford E), 2 counties advanced a full point (desoto 7→8, bradford 6→8).** All fixes below are live-verified via `pencil_dod_evaluate_county`, run independently by the orchestrating session immediately after each apply — not self-reported by a subagent.
+**Net: 2 letters flipped pass/fail this session (desoto I, bradford E), 2 counties advanced (desoto 7→8, bradford 6→7).** CORRECTION (caught by an independent live re-check immediately after this report was first drafted): the first draft of this report and its commit messages stated bradford advanced to 8/10 — that was an arithmetic error. Bradford's B, F, **and I** all still fail after this session (only E flipped); the correct score is 7/10, not 8/10. Fixed here per the Honesty Protocol ("I was wrong," not "let me clarify") rather than amending the already-pushed commits. All fixes below are live-verified via `pencil_dod_evaluate_county`, run independently by the orchestrating session immediately after each apply — not self-reported by a subagent.
 
 ## Plan vs Actual
 
@@ -46,7 +46,7 @@ Live queries run by the orchestrating session via the Supabase Management API SQ
 clay:       A✓ B✓(100.0) C✓ D✓ E✓ F✓(100.0) G✓(97.6) H✓ I✓(100.0) J✓(100.0)        — 10/10
 okeechobee: A✓ B✓(100.0) C✓ D✓ E✓(96.3) F✓(100.0) G✓(100.0) H✓ I✗(94.4, 51/54) J✓  — 9/10
 desoto:     A✓ B✗(null)  C✓ D✓ E✓(100.0) F✗(null)  G✓(100.0) H✓ I✓(100.0)      J✓  — 8/10
-bradford:   A✓ B✗(null)  C✓ D✓ E✓(100.0) F✗(null)  G✓(100.0) H✓ I✗(80.0, 4/5) J✓  — 8/10
+bradford:   A✓ B✗(null)  C✓ D✓ E✓(100.0) F✗(null)  G✓(100.0) H✓ I✗(80.0, 4/5) J✓  — 7/10
 ```
 
 ## What Shipped (real, live, on main)
