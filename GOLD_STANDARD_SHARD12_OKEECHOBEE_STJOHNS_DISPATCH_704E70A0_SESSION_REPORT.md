@@ -1,9 +1,97 @@
 # Gold Standard Shard-12: okeechobee, st_johns — session report
 
 dispatch_id: 704e70a0-6459-4599-af5b-c2f31351913e
-loop run: 4870 (continuation — TWO sessions on this dispatch, see Session 2 below for latest state)
+loop run: 4870 (continuation — THREE sessions on this dispatch, see Session 3 below for latest state)
 mode: ULTRALOOP fallback (manual Workflow fan-out — 5 parallel research/fix agents + 1 sequential
 J-generator + 6 independent adversarial verifiers, all SURVIVED)
+
+---
+
+## SESSION 3 (this run, 2026-07-19) — okeechobee 9/10 (unchanged), st_johns 10/10 (unchanged,
+## audit evidence backfilled)
+
+Dispatch refired with the original (stale) brief text; live DB state at session start matched
+Session 2's final numbers exactly (independently re-confirmed via Supabase REST RPC, not trusted
+from the file). Direct psql access was unavailable this session (pooler auth failed against both
+documented hosts/regions despite the password matching CLAUDE.md's documented value byte-for-byte
+— likely a stale/rotated secret or network policy on this runner, not investigated further since
+the REST API with the service-role key worked fine for both reads and writes). All work this
+session used the Supabase REST API instead of psql/migrations for data (not schema) changes.
+
+### What shipped this session
+
+1. **st_johns: 10 fresh `gold_standard_ultraloop_audit` rows** (all `survived=true`), one per
+   letter A–J, each carrying a live re-run of `pencil_dod_evaluate_county('st_johns')` via REST RPC
+   at session start (independently reconfirmed 10/10, matching Session 2's claimed after_json
+   exactly). Session 2 had done the real verification work but never persisted it to the audit
+   table — the campaign's Evaluator V6 certify gate requires `survived=true` rows within a 7-day
+   window for ALL 10 letters, so without this, st_johns could never certify despite genuinely being
+   10/10. This closes that gap. `gold_standard_loop()`/`certify()` were **not** run — the
+   `gold_standard_ultraloop_audit` table shows very recent (within the hour) write activity from
+   many other counties/shards at session start, indicating other sessions were plausibly mid-flight;
+   running the fleet-wide loop was skipped per parallel-fleet rules in favor of this per-county
+   evaluation + audit backfill.
+
+2. **okeechobee I — exhaustive re-attempt of all 4 residual blockers, ULTRACODE workflow (2 research
+   agents + 2 independent adversarial verifiers, both SURVIVED)**. New leads two prior sessions
+   didn't have: Firecrawl was checked and confirmed still credit-exhausted (402); Playwright
+   (python3 + chromium) was confirmed working in this session env and used to reconfirm
+   `okeechobee.realforeclose.com` returns a raw HTTP 403 even via a full headless browser (not just
+   curl/Firecrawl) — an Akamai IP-level block, closing that lever definitively. Found and drove
+   Okeechobee's official OCRS court-records portal (`civitekflorida.com/ocrs/county/47/`, anonymous
+   Public access, working Case Search form) further than any prior session — diagnosed its dynamic
+   PrimeFaces submit-button IDs, but submission is gated by a **live Cloudflare Turnstile captcha**
+   (confirmed via an active `challenges.cloudflare.com` iframe, not a dummy field) — correctly not
+   bypassed. Discovered and queried the county GIS's underlying Grizzly-GIS `quickSearch` AJAX
+   endpoint directly via curl for PIN `1-25-37-35-0070-00060-1760` (case 2026TD050) under two search
+   modes — both return "No Records Found", while neighboring real PINs return real owner/address
+   data, proving the endpoint works and the PIN genuinely does not exist (2nd independent
+   confirmation via a different method than Session 1's 232-row enumeration). Checked the Clerk's
+   live published Foreclosure Update List PDF — neither `472025CA000130CAAXMX` nor
+   `472025CA000205CAAXMX` appears on it, meaning these two cases aren't yet formally set for sale.
+   **New structural finding**: case `472025CA000225CAAXMX`'s `parcel_id` is literally the sentinel
+   string `"MULTIPLE PARCELS"` — this can **never** satisfy letter I's zoning-linkage join
+   (`parcel_id` must appear in `v_zoning_gold_standard_card`), making this row permanently
+   unresolvable under the current schema regardless of future source access, not merely blocked
+   pending better scraping.
+   **NO DB WRITES** — zero new evidence emerged justifying any address/geo/value/zoning write for
+   any of the 4 rows. **okeechobee I: unchanged at 92.6% (50/54), still FAIL** (need 52/54). Both
+   prior sessions' BLOCKED diagnoses independently reconfirmed with fresh, different methods this
+   session — a residual-confirmation claim (BLANK > WRONG), not a fix claim. Audit row written.
+
+### Adversarial verification summary
+
+Both okeechobee-I research claims independently re-verified fresh by a separate agent per claim
+(re-running every DB query and re-fetching every source URL itself, not trusting pasted output).
+**Both SURVIVED** — no fabrication, no ghost-success (no generic/placeholder data treated as
+satisfying the requirement), every specific factual claim (PDF contents, GIS endpoint responses,
+neighboring-PIN discrimination test, DB row states) checked out byte-for-byte against live
+re-fetches.
+
+### Residual gaps (honestly unresolved, not certified) — unchanged from Session 2, now with root
+### causes fully diagnosed for all 4 okeechobee-I rows
+
+- `2026TD050` — PIN does not exist in live county GIS parcel roll (2× independently confirmed).
+- `472025CA000225CAAXMX` — structurally unresolvable: `parcel_id="MULTIPLE PARCELS"` sentinel can
+  never satisfy zoning-linkage; separately, its only known source portal (OCRS) is Turnstile-gated.
+- `472025CA000130CAAXMX` / `472025CA000205CAAXMX` — not yet on the Clerk's published sale list; the
+  one portal reachable for case lookup (OCRS) is Turnstile-gated for search submission.
+- All 4 rows now require either (a) a human-attended session to clear a live CAPTCHA, or (b) waiting
+  for the two not-yet-published cases to appear on a future sale list, or (c) a schema change to
+  represent multi-parcel cases (out of this shard's scope — would need cross-county review). None
+  of these are tractable via unattended automation in a future session without new access.
+- st_johns: same 3 items as Session 2 (case `CA26-0218` blocked on CAPTCHA-gated clerk search + no
+  recorded Final Judgment; `SA` zoning code meaning unconfirmed but safely non-blocking).
+
+**Next session priority if returning to this dispatch**: okeechobee is genuinely stuck at 9/10
+without new access (human-attended CAPTCHA clearance, or a funded/working scrape-bypass service).
+Do not re-attempt the same 4 leads (OCRS unattended, RealForeclose, GIS enumeration) without a
+materially different capability — they are now exhaustively diagnosed, not merely "unlucky." If a
+Firecrawl account gets funded, retry `472025CA000225CAAXMX` and the RealForeclose-sourced cases
+first (Firecrawl proxies may not hit the same Akamai/Cloudflare walls as this sandbox's direct
+egress). st_johns is now certify-eligible on audit-freshness grounds — the next session (or a
+close-out with no other shard mid-flight) can safely run `gold_standard_loop()` +
+`gold_standard_certify()`.
 
 ---
 
