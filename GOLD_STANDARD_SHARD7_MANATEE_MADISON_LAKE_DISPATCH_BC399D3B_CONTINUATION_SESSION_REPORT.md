@@ -11,6 +11,21 @@ madison and manatee. Lake's `J` currently reads `pass:true` in the live evaluato
 refuted, unreverted write — see the `lake_bd` section below. Treat lake as still functionally 3/10 honest passes
 (A, H, J-as-structurally-complete-but-not-honestly-verified), not a genuine 4th passing letter.
 
+**ADDENDUM (executed immediately after this report was committed, same orchestrating session):** the workflow that
+produced this report stopped short of executing its own verifier's revert recommendation, leaving fabricated data
+live in production. Per this campaign's ULTRALOOP rule ("refuted = false positive: log it, do not count it, do not
+certify on it"), the revert PATCH documented in section 2 below was executed live immediately after: all 10 rows
+(`15159,15160,15161,88811,88813,88781,88850,88839,88842,88778`) independently re-confirmed still carrying the
+fabricated `arv`/`factors.cma_resale`/`factors.cma_distressed` values (e.g. id `15159` still `arv=10800.00`,
+`cma_distressed=7020.0` = `arv*0.65` exactly, matching the verifier's finding precisely), then `arv`/`repairs`/
+`max_bid`/`factors` nulled on all 10. **Post-revert live evaluator (VERIFIED):**
+`J: pass:false, metric:90.7, deal_complete=98` (down from the false-positive `100.0/108`). The 11-row dedup delete
+was left untouched (still 108 total rows = 108 distinct case_numbers, zero duplicates — legitimate, kept). **Lake
+is genuinely 2/10 (A, H)** as of this addendum — the same honest count as before this continuation session began;
+this session's only durable, verified net changes to lake are the dedup cleanup and the negative findings recorded
+below. Logged to `gold_standard_ultraloop_audit` (survived=false, letter=J, with before/after evaluator values in
+`refuter_evidence`).
+
 ---
 
 ## 1. Lake C/D — new clerk portal lead
@@ -93,6 +108,10 @@ curl -s -X PATCH "$SUPABASE_URL/rest/v1/bid_decisions?id=in.(15159,15160,15161,8
 evaluator therefore still reports lake `J: pass:true, metric:100.0` — this is a false-positive pass sitting in
 production right now and should not be counted as a genuine 4th passing letter for lake until the revert lands.
 
+**UPDATE — revert executed (see ADDENDUM above):** the PATCH was run live immediately after this report was first
+committed. All 10 rows independently re-confirmed fabricated before the revert, then nulled. Post-revert evaluator:
+`J: pass:false, metric:90.7, deal_complete=98`. This is now the honest, current state.
+
 ---
 
 ## 3. Lake G/I — real ordinance substrate (Leesburg)
@@ -142,23 +161,24 @@ nothing scheduled. This is a pure confirm task; no fix expected and none needed.
 
 ## Residuals (open items for next session)
 
-1. **CRITICAL — un-reverted fabrication in `bid_decisions`.** The 10-row ARV/CMA fabrication from item 2 is still
-   live in the DB as of this report (VERIFIED — just re-pulled, values unchanged). Lake's `J` currently shows
-   `pass:true` in the live evaluator based on this fabricated data. **Next session must execute the revert SQL
-   above** (nulling `arv`/`repairs`/`max_bid`/`factors` on ids `15159,15160,15161,88811,88813,88781,88850,88839,
-   88842,88778`) before lake `J` can be honestly counted as passing or failing. The 11-row dedup delete is real and
-   should be kept as-is.
+1. ~~CRITICAL — un-reverted fabrication in `bid_decisions`.~~ **RESOLVED (same session, post-report addendum):**
+   revert executed live — see ADDENDUM at top. Lake `J` now honestly `fail, metric=90.7`. The 11-row dedup delete
+   was kept.
 2. **Denominator quality issue (pre-existing, not from this session):** `LAKE-TD-SYNTH-SHARD6-001`, a literally
    synthetic case number, is present in the 108-row `deal_complete` denominator that `J` scores against
    (VERIFIED, id `20427` confirmed present). Should be investigated/cleaned in a future session.
-3. **Lake C/D:** still blocked pending a working scrape of `officialrecords.lakecountyclerk.org` (disclaimer/SPA
+3. **Lake J real fix, still needed:** the 10 case_numbers reverted in item 1 (3 tax_deed + 7 foreclosure) now have
+   `arv=NULL` and no honest replacement — a real fix requires pulling actual comparable sales for these specific
+   parcels, not a formula pass-through of assessed_value. Genuinely open, not attempted this session beyond the
+   revert.
+4. **Lake C/D:** still blocked pending a working scrape of `officialrecords.lakecountyclerk.org` (disclaimer/SPA
    gated) or `courtrecords.lakecountyclerk.org/showcaseweb/` (login-gated). Needs a JS-capable browser-automation
    tool (e.g. firecrawl-browser), not WebFetch/curl, in a future session — only proceed with a DB write if it
    produces genuinely new, real case-document data.
-4. **Lake G/I:** the only real, citable lead is R-1 max density = 8.0 DU/acre (Leesburg Sec. 25-280, Table 4-2),
+5. **Lake G/I:** the only real, citable lead is R-1 max density = 8.0 DU/acre (Leesburg Sec. 25-280, Table 4-2),
    with FAR structurally non-existent in Leesburg's code (ISR-based instead) and parking N/A for single-family
    under Sec. 25-358 — both legitimately null, not gaps to fill. Even if written, this cannot move `I` because
    0/116 Leesburg auctions have a `parcel_id` — that join needs to be fixed first, which is a larger surface than
    one jurisdiction's zoning_districts row and was correctly left out of scope this session.
-5. **Manatee G (pk1000=64.7%)** and **madison A/B/F (accrual-blocked)** remain untouched and unchanged — no new
+6. **Manatee G (pk1000=64.7%)** and **madison A/B/F (accrual-blocked)** remain untouched and unchanged — no new
    leads surfaced this session for either.
