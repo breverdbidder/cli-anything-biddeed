@@ -1,0 +1,115 @@
+-- Dixie county C/D (parity match rate) -- continuation session, dispatch
+-- 190ac19f-8ae0-465c-be8b-ec314028eb77, re-fired. NO DATA CHANGES.
+-- Documentation-only migration recording a genuinely NEW investigation lead
+-- (per prior session's next-session-priority #1: "tax-collector deed-
+-- application/certificate-status lookup by cert# -- not yet tried").
+--
+-- BASELINE (re-verified live this session, unchanged from prior session):
+--   SELECT * FROM public.pencil_dod_evaluate_county('dixie');
+--   C: matched_clean=25, metric=75.8 (FAIL, needs >=95)
+--   D: matched_any=25,   metric=75.8 (FAIL, needs >=95)
+--   auctions_total=33
+-- Structural ceiling unchanged: even resolving all 6 stale DIXIE-SYNTH-*
+-- rows clean would only reach 31/33=93.9%, still under 95% (2 further rows
+-- are genuinely-future foreclosure cases: 15-2023-CA-57 due 2026-07-21,
+-- 15-2025-CA-46 due 2026-08-25 -- cannot resolve today regardless).
+--
+-- NEW LEAD THIS SESSION: dixie.floridatax.us (Dixie County Tax Collector's
+-- real portal, "Phenix.net" tax-billing software, NOT the same site as
+-- dixietax.com which is Cloudflare-blocked). This is a genuinely new source
+-- vs. the 8 already-exhausted sources from the prior two sessions (found via
+-- web search, not previously discovered/documented in this repo).
+--
+-- Accessible via plain HTTP POST (ASP.NET WebForms __doPostBack pattern,
+-- EVENTTARGET='ctl00$MainContent$btnSearch', search keyword = parcel ID with
+-- ALL punctuation stripped, e.g. "12-09-13-4030-0005-0170" -> query
+-- "120913403000050170"). All 6 stale parcels found (1 result each):
+--   DIXIE-SYNTH-12-09-13-4030-0005-0170 -> acct 120913-40300005-0170 (EDMONDS LENTON SR)
+--   DIXIE-SYNTH-30-13-12-2994-0003-5550 -> acct 301312-29940003-5550 (MILES PATRICK)
+--   DIXIE-SYNTH-36-09-13-4502-0000-0330 -> acct 360913-45020000-0330 (HOLIDAY JOHN R)
+--   DIXIE-SYNTH-36-10-13-5665-0008-0330 -> acct 361013-56650008-0330 (RATLIFF WANDA J)
+--   DIXIE-SYNTH-13-09-13-4051-0000-0490 -> acct 130913-40510000-0490 (LADU TED)
+--   DIXIE-SYNTH-12-09-13-4030-0007-0050 -> acct 120913-40300007-0050 (HATCHER REALTY SERVICES INC)
+--
+-- FINDING (real, live, 2026-07-19): this portal is the county's live ad-
+-- valorem TAX BILL roll (payment history, current-year charges/paid/due),
+-- NOT a tax-deed-application or certificate-status tracker. It has no
+-- /CertificateSearch, /TaxCertificate, /TaxDeed, or /DelinquentTax endpoint
+-- (all confirmed HTTP 404 this session) and no certificate-number search
+-- field anywhere in the UI (single free-text keyword box only: name/address/
+-- account number). The prior session's next-step hypothesis ("find a
+-- certificate-status lookup tool by cert#") does NOT exist on this site --
+-- a genuine, evidence-based dead end for that specific mechanism, not a
+-- scraper failure.
+--
+-- What the portal DOES show, for all 6 parcels (real, current, live 2026-07-19):
+--   - current tax-roll OWNER NAME is unchanged from before the Aug-2025 sale
+--     date on all 6 (no transfer to the certificate holder or any third-
+--     party high bidder recorded on the roll)
+--   - the 2024 tax-year bill on all 6 was paid by the SAME cert-holder
+--     company already in our DB (Fig 20, LLC / Mikon Financial Services,
+--     Inc) on 05/01/2025 or 04/04/2025 -- standard practice of a cert
+--     holder protecting its lien by paying subsequent delinquent years
+--     while a tax deed application is in progress; consistent with the
+--     sale process having been active, not abandoned
+--   - 3 of 6 (Miles/13828, Ratliff/16182, Ladu/5409) show a "5% CERTIFICATE
+--     SALE" fee and a "REDEMPTION FEE" line item CHARGED but NOT YET PAID,
+--     and 2025 status = "Delinquent" -- i.e. the redemption/deed process is
+--     demonstrably still open/unresolved on these 3
+--   - 3 of 6 (Edmonds/4944, Holiday/15850, Hatcher/4955) show NO redemption-
+--     fee line and $0.00 due for 2025 -- fully current, but this portal
+--     cannot distinguish "redeemed" from "certificate simply never
+--     proceeded to deed for an unrelated reason" from its bill-payment view
+--     alone; no certificate-specific transaction ledger is exposed here
+--
+-- HONESTY DETERMINATION: this evidence is real, new, and informative, but it
+-- does NOT meet the bar for a tax_deed_outcomes-quality disposition (no
+-- explicit 'sold'/'redeemed'/'cancelled' status field exists on this portal
+-- -- only inferential signals from unrelated ad-valorem billing line items).
+-- Writing a tax_deed_outcomes row or flipping auction_status based on this
+-- inference would be exactly the class of fabrication already reverted
+-- twice for dixie this campaign (scripts/shard2_dixie_synth_revert.py,
+-- migrations/20260710_gold_standard_shard8_dixie_fabrication_revert_
+-- completion.sql -- both reverted formula/placeholder-derived "outcomes").
+-- Per HONESTY PROTOCOL (BLANK > WRONG) and this dispatch's explicit
+-- instruction ("do NOT fabricate a resolution"), NO multi_county_auctions
+-- or tax_deed_outcomes rows are modified by this migration.
+--
+-- Also reconfirmed genuinely dead end (independently re-verified, same as
+-- prior session): official.myfloridacounty.com/orisearch/15 (Clerk Official
+-- Records Search) -- search POST still returns the Cloudflare Turnstile
+-- "Please verify you are human" challenge page on a fresh session/cookie
+-- jar, submitting party name "MILES PATRICK". No bypass attempted per task
+-- instructions.
+--
+-- Did NOT re-attempt: qpublic.net/fl/dixie (already Cloudflare-blocked, no
+-- new information available this session), dixietax.com (still HTTP 403).
+-- FL DOR statewide cadastral ArcGIS FeatureServer (services9.arcgis.com/.../
+-- Florida_Statewide_Cadastral/FeatureServer/0) was tried as a secondary
+-- owner-of-record cross-check but attribute queries against it returned
+-- HTTP 400 "Invalid query parameters" / >50s latency consistently across
+-- multiple WHERE-clause formulations -- abandoned as not cost-effective
+-- (the tax-collector evidence above was already obtained independently).
+--
+-- NEXT-SESSION PRIORITY (if pursued further): the only remaining unexplored,
+-- concrete avenue is a phone/in-person records request to the Dixie Clerk's
+-- office (352-498-1200) or Tax Collector's office (352-498-1213) asking
+-- directly "what was the disposition of tax deed certificates 2023/425,
+-- 2023/1217, 2022/1367, 2023/1457, 2023/471, 2023/427" -- this is the
+-- non-automatable fallback already flagged twice now (prior session's
+-- migration 20260719_shard2_dixie_cd_synth_row_source_exhaustion.sql, and
+-- this one). No further web-automatable source is known to exist for this
+-- data. The 93.9% structural ceiling (even with all 6 resolved) also means
+-- a full PASS (>=95%) requires either a policy decision on the 2 genuinely-
+-- future cases' denominator treatment, or new non-SYNTH auction rows being
+-- ingested to grow auctions_total, independent of the SYNTH rows.
+--
+-- Verification query run this session (BEFORE and AFTER this migration,
+-- identical -- confirms zero data drift):
+--   SELECT * FROM public.pencil_dod_evaluate_county('dixie');
+--   C: {"pass": false, "detail": "matched_clean=25", "metric": 75.8}
+--   D: {"pass": false, "detail": "matched_any=25",   "metric": 75.8}
+--   auctions_total: 33
+-- ============================================================================
+
+SELECT 1; -- no-op: this migration intentionally makes zero data changes
