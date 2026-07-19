@@ -1,0 +1,192 @@
+name: "Gold Standard SHARD-8 run5153 — santa_rosa (I) + putnam (C/D/I)"
+# dispatch_id: 4569d5ab-b34d-4b1e-80fb-183b058262db
+# santa_rosa: 9/10 — fix I (card_complete 88.4%→95%+)
+# putnam: 7/10 — fix C/D (65.6%→95%+) and I (94.3%→95%+)
+# SHIP-TO-MAIN mandate: all commits go directly to main
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'County to fix (santa_rosa, putnam, or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - santa_rosa
+          - putnam
+          - verify_only
+  schedule:
+    # Three-wave fleet: 08:00Z, 16:00Z, 00:00Z
+    - cron: '0 8 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: gold-standard-shard8-run5153-${{ github.event.inputs.target || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  shard8-gold-standard:
+    name: "SHARD-8 run5153 Gold Standard — ${{ github.event.inputs.target || 'all' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      TARGET: ${{ github.event.inputs.target || 'all' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx
+
+      - name: Configure git
+        run: |
+          git config user.email "shard8-bot@biddeed.ai"
+          git config user.name "SHARD-8 Gold Standard Bot"
+
+      - name: Before-state evaluation
+        run: |
+          set +e
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          print("=== BEFORE STATE ===")
+          for county in ["santa_rosa", "putnam"]:
+              body = json.dumps({"p_county": county}).encode()
+              req = urllib.request.Request(
+                  f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                  data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      ev = json.loads(r.read())
+                  passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+                  failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+                  print(f"{county}: {len(passed)}/10")
+                  for l in "ABCDEFGHIJ":
+                      ld = ev.get(l, {})
+                      print(f"  {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+                  print(f"  RAW: {json.dumps(ev)}")
+              except Exception as e:
+                  print(f"{county}: ERROR {e}")
+          PYEOF
+
+      - name: Fix santa_rosa I + putnam C/D/I
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'santa_rosa' || github.event.inputs.target == 'putnam' || github.event.inputs.target == '' }}
+        run: |
+          set -euo pipefail
+          echo "=== SHARD-8 run5153 FIX ==="
+          python3 scripts/shard8_run5153_santa_rosa_putnam_fix.py
+          echo "Fix script completed"
+
+      - name: After-state evaluation
+        if: always()
+        run: |
+          set +e
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          print("=== AFTER STATE ===")
+          for county in ["santa_rosa", "putnam"]:
+              body = json.dumps({"p_county": county}).encode()
+              req = urllib.request.Request(
+                  f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                  data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      ev = json.loads(r.read())
+                  passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+                  failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+                  print(f"{county}: {len(passed)}/10 PASS={passed} FAIL={failed}")
+                  for l in "ABCDEFGHIJ":
+                      ld = ev.get(l, {})
+                      print(f"  {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+                  print(f"  RAW: {json.dumps(ev)}")
+              except Exception as e:
+                  print(f"{county}: ERROR {e}")
+          PYEOF
+
+      - name: Commit and push to main
+        if: always()
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No file changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(shard8-run5153): santa_rosa I + putnam C/D/I fixes
+
+dispatch_id: 4569d5ab-b34d-4b1e-80fb-183b058262db
+counties: santa_rosa (I), putnam (C/D/I)"
+          for attempt in 1 2 3 4 5; do
+            if git push; then echo "push OK on attempt $attempt"; exit 0; fi
+            echo "push rejected (attempt $attempt) — rebasing"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "::error::rebase conflict"
+              git rebase --abort
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "::error::push failed after 5 attempts"
+          exit 1
+
+      - name: Close-out — run gold_standard_loop
+        if: ${{ always() && (github.event.inputs.target == 'all' || github.event.inputs.target == '') }}
+        run: |
+          set +e
+          python3 - <<'PYEOF'
+          import os, json, urllib.request, time
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          print("Running gold_standard_loop()...")
+          req = urllib.request.Request(
+              f"{SB_URL}/rest/v1/rpc/gold_standard_loop",
+              data=b"{}", headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  print(f"  gold_standard_loop: HTTP {r.status}")
+          except Exception as e:
+              print(f"  gold_standard_loop ERROR: {e} (non-fatal)")
+
+          time.sleep(5)
+          req2 = urllib.request.Request(
+              f"{SB_URL}/rest/v1/rpc/gold_standard_certify",
+              data=b"{}", headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req2, timeout=120) as r:
+                  print(f"  gold_standard_certify: HTTP {r.status}")
+          except Exception as e:
+              print(f"  gold_standard_certify ERROR: {e} (non-fatal)")
+
+          print("\n### SQL VERIFICATION")
+          print("Timestamp UTC:", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+          print("SELECT public.pencil_dod_evaluate_county('santa_rosa');")
+          print("SELECT public.pencil_dod_evaluate_county('putnam');")
+          PYEOF
