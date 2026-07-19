@@ -74,6 +74,24 @@ SOLD_STATUSES = {"sold", "sold to plaintiff"}
 
 MONEY_RE = re.compile(r"[\d,.]+")
 
+# Legal-caption guard (added 2026-07-19, confirmed live: case 2025-CA-003450-C
+# stored "Carrington Mortgage Services LLCvs. Walker, Velma, United States of
+# America" in property_address -- a plaintiff/defendant caption, not a street
+# address. That FC grid row's Address cell was shaped differently than the
+# normal case, so it caught the case-caption text instead. This is a
+# data-quality guard, not a fail-loud condition -- the row is still real and
+# useful without an address, so we null the address and keep the row.
+CAPTION_RE = re.compile(r"\bvs\.?\b", re.IGNORECASE)
+STREET_NUM_RE = re.compile(r"^\s*\d+\s+\S")
+
+
+def _is_legal_caption(address: str) -> bool:
+    if CAPTION_RE.search(address):
+        return True
+    if "LLC" in address and not STREET_NUM_RE.match(address):
+        return True
+    return False
+
 
 def _req(name: str) -> str:
     v = os.environ.get(name)
@@ -172,6 +190,11 @@ async def scrape_all() -> tuple[list[dict], list[dict], dict]:
                 sold_amount = _parse_money(bid_text) if status_l in SOLD_STATUSES else None
                 opening_bid = _parse_money(bid_text) if sold_amount is None else None
                 clean_address = address.replace("***STAYED***", "").strip()
+                if clean_address and _is_legal_caption(clean_address):
+                    print(f"WARN: FC row {case_number} address cell looks like a "
+                          f"legal caption, not a street address -- nulling: "
+                          f"{clean_address!r}")
+                    clean_address = ""
                 rows.append({
                     "county": "okaloosa",
                     "state": "FL",
