@@ -1,0 +1,68 @@
+session:
+  date: "2026-07-19"
+  dispatch_id: "95f77ed6-fc70-4c15-9db4-b9b64bef5d1c"
+  county: holmes
+  shard: 6
+  ultraloop_mode: fallback
+  goal: "3rd pass on same dispatch_id today -- verify no new lever exists before re-confirming residual"
+  note: >
+    This is an ADDENDUM to .claude/session-logs/2026-07-18-shard6-holmes.yml. That file
+    already documents a full FIX pass + 2 independent VERIFY passes for this exact
+    dispatch_id, all landing on the identical 6/10 conclusion. This session does NOT
+    repeat that investigation. It checks the one variable that could plausibly have
+    changed (Firecrawl account credits) and probes 2 candidate Property Appraiser domains
+    named in this session's brief that the prior sessions had not explicitly tried by name.
+
+baseline:
+  A: {pass: true, metric: 3}
+  B: {pass: false, metric: null, detail: "verified=0 closed_sold=0"}
+  C: {pass: false, metric: 61.5, detail: "matched_clean=8 of 13"}
+  D: {pass: false, metric: 61.5, detail: "matched_any=8 of 13"}
+  E: {pass: true, metric: 100.0}
+  F: {pass: false, metric: null, detail: "tier1_sold=0 closed_sold=0"}
+  G: {pass: true, metric: 100.0}
+  H: {pass: true, metric: 18.6}
+  I: {pass: true, metric: 100.0}
+  J: {pass: true, metric: 100.0}
+  pass_count: "6/10"
+
+final:
+  pass_count: "6/10 (unchanged -- verified byte-identical except H's elapsed-time metric)"
+
+decisions:
+  - step: 1
+    action: "Fresh REST dump of all 13 holmes rows (case_number, auction_status, parity_status, parity_source, sold_amount, tier1_sold_amount, data_source)"
+    result: "Identical to both prior passes today: 8 matched_clean (tier1:holmes_clerk_live_20260710 or _gsc_shard12_run3534), 5 NULL-parity (TD#2020-589/2023-185/2023-225/2023-496/2023-584, all upcoming), 1 completed row (HOLMES-LEGACY-123a1bd5) with sold_amount NULL."
+    reason: "Confirm no drift/regression before attempting anything new"
+  - step: 2
+    action: "Re-check FIRECRAWL_API_KEY credit balance via /v1/team/credit-usage (the one variable that could plausibly change between same-day sessions)"
+    result: "Still remaining_credits=0 of plan_credits=100000, billing_period_end=2026-04-26 (expired). Unchanged from both prior passes today."
+    reason: "Firecrawl is the only structurally-blocked avenue that is account-state-dependent rather than site-structure-dependent -- worth re-checking fresh each pass rather than assuming"
+  - step: 3
+    action: "Probe 2 candidate Holmes County Property Appraiser domains not explicitly named in prior sessions' logs: holmespa.com, hcpafl.com"
+    result: "Both are parked/for-sale placeholder pages (HugeDomains and a generic forsale.min.js template respectively) -- not real Holmes PA sites. Holmes County's actual PA presence is via qpublic.net/holmes, already confirmed 403 (Cloudflare, cf-mitigated:challenge) by the prior 2026-07-18 pass; re-confirmed 403 again this session."
+    reason: "Brief named 'Holmes County Property Appraiser' as a distinct alternate source from qpublic/Tax Collector; needed to check whether a non-qpublic PA domain exists before concluding qpublic is the only option"
+  - step: 4
+    action: "Did NOT re-attempt: myfloridacounty.com/orisearch/30 (confirmed CAPTCHA-gated), Civitek OCRS full-form interaction (confirmed no Tax Deed docket type + PrimeFaces JS-only submit), Holmes Tax Collector TaxDeed detail page (confirmed structurally disposition-free for all parcels/years tested)"
+    result: "N/A -- deliberately skipped per brief's explicit instruction not to repeat already-exhausted identical checks"
+    reason: "These 3 avenues were each tested with real HTTP requests (not assumptions) in the 2026-07-18 pass and are structural site-behavior blocks, not account-state or time-dependent -- re-testing them would not surface new information"
+
+artifacts:
+  - path: ".claude/session-logs/2026-07-19-shard6-holmes-addendum.yml"
+    type: session_log_addendum
+
+verification:
+  - check: "pencil_dod_evaluate_county('holmes') before vs after, this session"
+    proof: "Both calls returned 6/10 (A,E,G,H,I,J pass; B,C,D,F fail), C/D=61.5, B/F=null. H metric ticked from 15.1 -> 18.6 (elapsed time only, expected). No other drift."
+    status: unchanged
+  - check: "gold_standard_ultraloop_audit rows inserted this session"
+    proof: "4 rows (ids 7012-7015), dispatch_id=95f77ed6-fc70-4c15-9db4-b9b64bef5d1c, letters C/D/B/F, all survived=true, HTTP 201"
+    status: confirmed
+
+residual_gaps:
+  - "C/D 5-case gap: unchanged and re-confirmed structurally blocked for a 4th time now (2026-07-10 x2, 2026-07-18, 2026-07-19). Firecrawl account remains billing-exhausted (actionable residual for Ariel: top up or renew Firecrawl plan, expired 2026-04-26). No non-qpublic Holmes PA domain exists (both candidates checked are parked). Remaining lever unchanged from 2026-07-18 conclusion: phone/in-person contact with Holmes Clerk (850-547-1100) or Tax Collector, or a genuine browser-JS-capable session (Playwright/browser-use) to push past Civitek OCRS's PrimeFaces submit and myfloridacounty's CAPTCHA -- neither attempted this pass as out-of-budget for a bounded verification session."
+  - "B/F: unchanged, same single completed row with no sold_amount source found across 3 sessions now."
+
+honesty_notes:
+  - "This session did not fabricate a 3rd from-scratch investigation. It explicitly checked only what could have changed (Firecrawl credits) and what the brief named but prior sessions had not explicitly ruled out by domain name (holmespa.com, hcpafl.com) -- both dead ends, both real checks, not skipped."
+  - "No parity_status, parity_source, sold_amount, or outcome row was written for any of the 5 gap cases or the 1 completed row this session. Zero DB mutations to multi_county_auctions, tax_deed_outcomes, or foreclosure_outcomes."
