@@ -1,0 +1,93 @@
+name: GTM-22B — SUPABASE_ACCESS_TOKEN in-runner probe
+
+# Diagnostic only. Never prints the token. Masks it before any step that
+# could echo it, and only reports derived non-sensitive metadata:
+# HTTP status, token length, first4/last4 chars, token type.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Mask token immediately
+        run: echo "::add-mask::${SUPABASE_ACCESS_TOKEN}"
+
+      - name: Probe Supabase Management API
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, urllib.request, urllib.error
+
+          token = os.environ["SUPABASE_ACCESS_TOKEN"]
+          project_ref = "mocerqjnksmhcjzxrewo"
+
+          # Derived, non-sensitive metadata only — never print `token` itself.
+          token_len = len(token)
+          first4 = token[:4]
+          last4 = token[-4:]
+          token_type = "sbp_ personal access token" if token.startswith("sbp_") else "UNKNOWN prefix"
+
+          print("=== Token metadata (safe) ===")
+          print(f"length={token_len} first4={first4} last4={last4} type={token_type}")
+
+          H = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+          def get(url):
+              req = urllib.request.Request(url, headers=H, method="GET")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      body = r.read()
+                      return r.status, body
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read()
+              except Exception as e:
+                  return None, str(e).encode()
+
+          print("\n=== GET /v1/projects ===")
+          status, body = get("https://api.supabase.com/v1/projects")
+          print(f"HTTP {status}")
+          project_refs = []
+          if status == 200:
+              try:
+                  projects = json.loads(body)
+                  project_refs = [p.get("id") for p in projects]
+                  print(f"project_count={len(projects)}")
+                  print(f"target_ref_present={project_ref in project_refs}")
+                  print(f"all_refs={project_refs}")
+              except Exception as e:
+                  print(f"parse_error={e}")
+          else:
+              print(f"body={body[:500].decode(errors='replace')}")
+
+          print("\n=== GET /v1/projects/{ref} ===")
+          status2, body2 = get(f"https://api.supabase.com/v1/projects/{project_ref}")
+          print(f"HTTP {status2}")
+          if status2 == 200:
+              try:
+                  proj = json.loads(body2)
+                  print(f"name={proj.get('name')} region={proj.get('region')} status={proj.get('status')}")
+              except Exception as e:
+                  print(f"parse_error={e}")
+          else:
+              print(f"body={body2[:500].decode(errors='replace')}")
+
+          print("\n=== GET /v1/organizations (scope check) ===")
+          status3, body3 = get("https://api.supabase.com/v1/organizations")
+          print(f"HTTP {status3}")
+          if status3 == 200:
+              try:
+                  orgs = json.loads(body3)
+                  print(f"org_count={len(orgs)}")
+                  print(f"orgs={[o.get('id') for o in orgs]}")
+              except Exception as e:
+                  print(f"parse_error={e}")
+          else:
+              print(f"body={body3[:500].decode(errors='replace')}")
+
+          print("\n=== VERDICT INPUTS ===")
+          print(f"projects_status={status} project_ref_present={project_ref in project_refs if status==200 else 'N/A'} single_project_status={status2} orgs_status={status3}")
+          PYEOF
