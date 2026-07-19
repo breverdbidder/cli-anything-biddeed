@@ -73,36 +73,25 @@ const HANDLERS = {
   get_property_detail:      properties.get_property_detail,
 };
 
-// GTM-22F — Gold Standard certification gate config. Maps every tool that
-// returns county-scoped auction or parcel data to how its county should be
-// resolved for gating. Strategies:
+// GTM-22H — Gold Standard certification gate config, revised down from the
+// blanket gate shipped in GTM-22F/c3d956d8. Product rule (Ariel, 2026-07-19):
+// GATE where being wrong is legally or financially expensive, BADGE where
+// the data is informational. Only decision-grade outputs a customer acts on
+// with real money are gated here; S1 Discovery and the rest are ungated and
+// stamp `certified` on every row instead (see cert-gate.js badgeRows/
+// badgeCounty, wired into discovery.js/properties.js/qualification.js/
+// market.js/monitoring.js). Do not add S1 Discovery tools back to this map.
+// Strategies:
 //   'county'            — args.county is the scoping input, gate directly.
-//   'county_or_case'     — args.county if present, else resolve via
-//                          args.case_number (case_number-only lookup tools:
-//                          without this, a known case_number bypasses the
-//                          county argument entirely).
 //   'case_optional'      — only gate if args.case_number is present (the
 //                          tool also has a pure-computation path with no DB
 //                          row involved, e.g. underwrite_deal with no
 //                          case_number — nothing county-scoped to gate).
-// Tools absent from this map return no proprietary county-scoped auction/
-// parcel rows (see GTM-22F Task A audit) and are intentionally not gated:
-// get_interest_rate (national FRED data, no county), find_local_partners
-// (static partner directory, not auction/parcel data), skip_trace
-// (third-party passthrough contact data, not BidDeed auction/parcel data).
-// browse_deals and get_market_data take county as *optional* and can return
-// rows spanning multiple counties in one call — those are gated via
-// post-fetch row filtering inside their own handlers instead (no single
-// pre-charge county to block on when no county argument is given).
+// cert_required = true for exactly these 10 tools in v_tool_billing_resolved
+// (GTM-22H Task C) — keep this map and that column in sync.
 const CERT_GATE = {
-  search_auctions:          'county',
-  get_auction_detail:       'county_or_case',
-  get_deposit_requirements: 'county_or_case',
-  search_distressed:        'county',
   get_owner_intel:          'county',
   get_lien_stack:           'case_optional',
-  analyze_market:           'county',
-  get_zip_market_data:      'county',
   check_zoning:             'county',
   underwrite_deal:          'case_optional',
   analyze_coliving:         'county',
@@ -110,11 +99,7 @@ const CERT_GATE = {
   generate_deal_memo:       'county',
   get_bid_package:          'county',
   get_title_chain:          'county',
-  watch_auction:            'county',
   predict_auction_outcome:  'county',
-  search_properties:        'county',
-  get_property_detail:      'county',
-  get_market_data:          'county',
 };
 
 // Resolves the gate outcome for one call. Returns null when the call may
@@ -127,15 +112,6 @@ export async function evaluateCertGate(name, args) {
 
   if (strategy === 'county') {
     return assertCountyCertified(args.county);
-  }
-
-  if (strategy === 'county_or_case') {
-    if (args.county) return assertCountyCertified(args.county);
-    if (args.case_number) {
-      const resolved = await resolveAuctionCounty(args.case_number);
-      return assertCountyCertified(resolved);
-    }
-    return null;
   }
 
   if (strategy === 'case_optional') {

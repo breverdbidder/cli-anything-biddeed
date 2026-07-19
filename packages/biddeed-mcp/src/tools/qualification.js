@@ -1,6 +1,10 @@
 // S2 Qualification tools — $0.40/call, gate: investor tier
 import { get } from '../supabase.js';
 import { LIEN_RULES } from '../constants.js';
+// GTM-22H — search_distressed, analyze_market, get_zip_market_data are
+// ungated (badge only). get_owner_intel and get_lien_stack stay gated
+// centrally in server.js (Task B) and do not use these helpers.
+import { badgeRows, badgeCounty } from '../cert-gate.js';
 
 export const schemas = [
   {
@@ -112,12 +116,14 @@ export async function search_distressed({ county, distress_type = 'all', zip_cod
       ? Math.max(0, (r.judgment_amount || 0) - (r.opening_bid || 0))
       : null,
   })).filter(r => !min_equity || (r.estimated_equity || 0) >= min_equity);
+  const { rows: properties, hasUncertifiedCounties } = await badgeRows(distressed);
 
   return {
     county,
     distress_type,
-    count: distressed.length,
-    properties: distressed,
+    count: properties.length,
+    has_uncertified_counties: hasUncertifiedCounties,
+    properties,
     note: 'Source: BidDeed auction pipeline. For pre-filing lis pendens (not yet in auction), contact support@biddeed.ai for county recorder data access.',
   };
 }
@@ -273,9 +279,11 @@ export async function analyze_market({ county, months = 6, sale_type = 'all' }) 
     acc[r.sale_type] = (acc[r.sale_type] || 0) + 1;
     return acc;
   }, {});
+  const certified = await badgeCounty(county);
 
   return {
     county,
+    certified,
     analysis_window_months: months,
     since_date: since,
     total_auctions: rows.length,
@@ -291,14 +299,16 @@ export async function analyze_market({ county, months = 6, sale_type = 'all' }) 
 }
 
 export async function get_zip_market_data({ zip_code, county }) {
-  const [rentData, marketData] = await Promise.all([
+  const [rentData, marketData, certified] = await Promise.all([
     get_rent_estimate({ zip_code, county, bedrooms: 3, include_coliving: false }),
     analyze_market({ county: county || zip_code, months: 6, sale_type: 'all' }).catch(() => null),
+    badgeCounty(county),
   ]);
 
   return {
     zip_code,
     county,
+    certified,
     rent_estimates: rentData.hud_fmr,
     market: marketData,
     hud_fmr_source: rentData.source,

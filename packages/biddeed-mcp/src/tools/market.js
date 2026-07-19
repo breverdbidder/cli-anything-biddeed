@@ -1,5 +1,7 @@
 // Market data + skip trace tools
 import { get } from '../supabase.js';
+// GTM-22H — get_market_data is ungated (badge only) when a county is given.
+import { badgeCounty } from '../cert-gate.js';
 
 export const schemas = [
   {
@@ -98,11 +100,14 @@ export async function get_market_data({ metrics, county } = {}) {
   ]);
 
   let auctionContext = null;
+  let certified = null;
   if (county) {
     const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-    const rows = await get(
-      `multi_county_auctions?county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}&auction_date=gte.${since}&select=opening_bid,judgment_amount&limit=500`
-    ).catch(() => []);
+    const [rows, isCertified] = await Promise.all([
+      get(`multi_county_auctions?county=ilike.${encodeURIComponent(county.replace(/\s+/g, '%'))}&auction_date=gte.${since}&select=opening_bid,judgment_amount&limit=500`).catch(() => []),
+      badgeCounty(county),
+    ]);
+    certified = isCertified;
 
     if (rows.length) {
       const avgBid = Math.round(rows.reduce((s, r) => s + (r.opening_bid || 0), 0) / rows.length);
@@ -117,6 +122,7 @@ export async function get_market_data({ metrics, county } = {}) {
       mortgage_rates: rates.rates,
       home_price_index: hpi ? { series: 'CSUSHPISA', ...hpi, label: 'Case-Shiller US Home Price Index' } : null,
     },
+    certified,
     fl_auction_context: auctionContext,
   };
 }

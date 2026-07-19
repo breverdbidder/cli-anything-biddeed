@@ -1,17 +1,19 @@
-// GTM-22F — Gold Standard certification delivery gate.
+// GTM-22F/GTM-22H — Gold Standard certification delivery gate + badge.
 //
-// Verifies: certified county passes, uncertified county is blocked with a
-// clean COUNTY_NOT_CERTIFIED payload (no rows), an unfiltered multi-county
-// call (browse_deals) returns only certified-county rows, and the gate
-// fails closed (blocks, does not leak) when v_certified_counties itself is
-// unreachable. Covers one S1 tool, one S3 tool, and S5 per the DoD.
+// Verifies: certified county passes a gated tool, uncertified county is
+// blocked with a clean COUNTY_NOT_CERTIFIED payload (no rows) for GATED
+// tools (check_zoning, predict_auction_outcome — decision-grade, real
+// money), and the gate fails closed (blocks, does not leak) when
+// v_certified_counties itself is unreachable. Covers one S3 tool and S5
+// gated, plus S1 (search_auctions) which GTM-22H explicitly UN-gated —
+// it must reach the handler and badge rows instead of blocking.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.SUPABASE_URL ||= 'https://test.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 
-const { normalizeCountySlug, assertCountyCertified, filterCertifiedRows } = await import('../src/cert-gate.js');
+const { normalizeCountySlug, assertCountyCertified, filterCertifiedRows, badgeRows, badgeCounty } = await import('../src/cert-gate.js');
 const { handleToolCall, _setHandlerForTest } = await import('../src/server.js');
 
 function jsonRes(body, status = 200) {
@@ -133,19 +135,40 @@ test('S1 (search_auctions): certified county reaches the handler', async () => {
   }
 });
 
-test('S1 (search_auctions): uncertified county (seminole) never reaches the handler, zero rows, clean reason', async () => {
+test('S1 (search_auctions): GTM-22H — uncertified county (seminole) still reaches the handler (badge, not gate)', async () => {
   let handlerCalled = false;
-  _setHandlerForTest('search_auctions', async () => { handlerCalled = true; return { count: 99, auctions: [{ leak: true }] }; });
+  _setHandlerForTest('search_auctions', async () => { handlerCalled = true; return { count: 1, auctions: [{ county: 'seminole' }] }; });
   const mocks = mockFetchForTool({ certified: ['duval'], tierRow: { s1_calls_monthly: 50 } });
   try {
-    const res = await handleToolCall('bd_live_gate_key', 'search_auctions', { county: 'seminole' }, 'req-gate-s1-blocked');
-    assert.equal(handlerCalled, false, 'the handler must never execute for an uncertified county');
-    assert.equal(res.isError, true);
-    const body = JSON.parse(res.content[0].text);
-    assert.equal(body.code, 'COUNTY_NOT_CERTIFIED');
-    assert.equal(body.certified, false);
+    const res = await handleToolCall('bd_live_gate_key', 'search_auctions', { county: 'seminole' }, 'req-gate-s1-badge');
+    assert.equal(handlerCalled, true, 'S1 Discovery must never be blocked at the central gate — badge only');
+    assert.equal(res.isError, false);
   } finally {
     mocks.restore();
+  }
+});
+
+test('badgeRows: stamps certified:true|false per row from v_certified_counties and flags uncertified rows', async () => {
+  const original = global.fetch;
+  global.fetch = async () => jsonRes([{ county_slug: 'brevard' }]);
+  try {
+    const rows = [{ county: 'brevard', id: 1 }, { county: 'seminole', id: 2 }];
+    const { rows: badged, hasUncertifiedCounties } = await badgeRows(rows);
+    assert.deepEqual(badged.map(r => r.certified), [true, false]);
+    assert.equal(hasUncertifiedCounties, true);
+  } finally {
+    global.fetch = original;
+  }
+});
+
+test('badgeCounty: fails closed to certified:false when the live view is unreachable', async () => {
+  const original = global.fetch;
+  global.fetch = async () => { throw new Error('network down'); };
+  try {
+    const result = await badgeCounty('brevard');
+    assert.equal(result, false, 'an unverifiable badge must never read as certified:true');
+  } finally {
+    global.fetch = original;
   }
 });
 

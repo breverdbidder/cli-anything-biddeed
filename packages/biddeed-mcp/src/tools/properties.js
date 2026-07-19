@@ -1,5 +1,7 @@
 // Property search + detail tools (S1/S2)
 import { get } from '../supabase.js';
+// GTM-22H — ungated, badge only. See discovery.js header for rationale.
+import { badgeRows, badgeCounty } from '../cert-gate.js';
 
 export const schemas = [
   {
@@ -50,22 +52,26 @@ export async function search_properties({ county, address, parcel_id, zip_code, 
     ? await get(`zoning_assignments?parcel_id=eq.${encodeURIComponent(parcel_id)}&limit=1&select=parcel_id,zone_code,county`).catch(() => [])
     : [];
 
+  const mapped = rows.map(r => ({
+    parcel_id: r.parcel_id,
+    address: r.property_address,
+    county: r.county,
+    auction_status: 'in_auction_pipeline',
+    opening_bid: r.opening_bid,
+    auction_date: r.auction_date,
+    sale_type: r.sale_type,
+    case_number: r.case_number,
+  }));
+  const { rows: properties, hasUncertifiedCounties } = await badgeRows(mapped);
+
   return {
     county,
     search_terms: { address, parcel_id, zip_code },
-    count: rows.length,
-    properties: rows.map(r => ({
-      parcel_id: r.parcel_id,
-      address: r.property_address,
-      county: r.county,
-      auction_status: 'in_auction_pipeline',
-      opening_bid: r.opening_bid,
-      auction_date: r.auction_date,
-      sale_type: r.sale_type,
-      case_number: r.case_number,
-    })),
+    count: properties.length,
+    has_uncertified_counties: hasUncertifiedCounties,
+    properties,
     zoning_match: zoningRows[0] || null,
-    note: rows.length === 0 ? 'Property not in active auction pipeline. It may not be distressed or may be in a county not yet covered.' : null,
+    note: properties.length === 0 ? 'Property not in active auction pipeline. It may not be distressed or may be in a county not yet covered.' : null,
   };
 }
 
@@ -115,10 +121,13 @@ export async function get_property_detail({ parcel_id, county, address, case_num
     '69': 'Ornamentals / Misc Agri',
   };
 
+  const certified = await badgeCounty(a?.county || county);
+
   return {
     found: true,
     parcel_id: a?.parcel_id || parcel_id,
     county: a?.county || county,
+    certified,
     property_address: a?.property_address || address,
     auction_record: a || null,
     zoning: z

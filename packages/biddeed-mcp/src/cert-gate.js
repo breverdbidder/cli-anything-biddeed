@@ -106,3 +106,47 @@ export async function resolveAuctionCounty(caseNumber) {
   ).catch(() => []);
   return rows[0]?.county || null;
 }
+
+// GTM-22H — badge helpers for tools that are NOT gated (S1 Discovery + the
+// other informational county-scoped tools). Certification here is a label,
+// not a delivery block: rows for uncertified counties still return, but
+// every row must carry a machine-readable `certified` flag sourced from the
+// same live v_certified_counties set as the gate above — never a
+// per-tool re-derivation that could drift from it. Fails closed toward
+// ambiguity: a lookup error stamps `certified: false` rather than omitting
+// the field, since an unlabeled row is exactly the "customer mistakes
+// uncertified data for verified" defect this exists to prevent.
+
+// Stamps certified:true|false on every row and reports whether any row in
+// the set is uncertified, so the caller can raise the mandatory top-level
+// flag on multi-row responses.
+export async function badgeRows(rows, countyField = 'county') {
+  if (!rows?.length) return { rows: rows || [], hasUncertifiedCounties: false };
+  try {
+    const certified = await getCertifiedSlugs();
+    let hasUncertifiedCounties = false;
+    const stamped = rows.map(r => {
+      const isCertified = certified.has(normalizeCountySlug(r[countyField]));
+      if (!isCertified) hasUncertifiedCounties = true;
+      return { ...r, certified: isCertified };
+    });
+    return { rows: stamped, hasUncertifiedCounties };
+  } catch (err) {
+    process.stderr.write(`[cert-gate] badge lookup failed: ${err.message}\n`);
+    return { rows: rows.map(r => ({ ...r, certified: false })), hasUncertifiedCounties: true };
+  }
+}
+
+// Single-county badge for tools whose response is one object rather than a
+// row array (get_auction_detail, get_deposit_requirements, analyze_market,
+// watch_auction, etc). Returns null when no county is available to badge.
+export async function badgeCounty(rawCounty) {
+  if (!rawCounty) return null;
+  try {
+    const certified = await getCertifiedSlugs();
+    return certified.has(normalizeCountySlug(rawCounty));
+  } catch (err) {
+    process.stderr.write(`[cert-gate] badge lookup failed for "${rawCounty}": ${err.message}\n`);
+    return false;
+  }
+}

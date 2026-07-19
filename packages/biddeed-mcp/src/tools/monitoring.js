@@ -1,5 +1,8 @@
 // S4 Monitoring tools — subscription, gate: pro tier
 import { get, insert } from '../supabase.js';
+// GTM-22H — watch_auction is ungated (badge only): a customer can watch an
+// auction in any county, certified or not.
+import { badgeCounty } from '../cert-gate.js';
 
 export const schemas = [
   {
@@ -74,10 +77,13 @@ export async function watch_auction({ case_number, county, notify_email, notify_
     alertSchedule.push({ type: 'result', send_at: 'triggered_after_auction' });
   }
 
+  const certified = await badgeCounty(county);
+
   return {
     subscribed: true,
     case_number,
     county,
+    certified,
     property_address: auction.property_address,
     auction_date: auction.auction_date,
     opening_bid: auction.opening_bid,

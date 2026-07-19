@@ -1,22 +1,11 @@
 // S1 Discovery tools — $0.05/call, gate: free tier
 import { get } from '../supabase.js';
 import { getClerkLink } from '../constants.js';
-// GTM-22F — cert_badge annotations and row filtering both read the live,
-// canonical v_certified_counties view (N=2 hysteresis, #12786) via the
-// shared gate module. This replaces a prior 1hr-TTL cache that queried
-// gold_standard_county_status directly with its own ad-hoc 8-letter
-// threshold — a source that could drift from the canonical certification
-// state entirely (no hysteresis) and was never enforced as an actual filter,
-// only a cosmetic badge.
-import { getCertifiedSlugs, normalizeCountySlug as countySlug, filterCertifiedRows } from '../cert-gate.js';
-
-async function getCertifiedCounties() {
-  try {
-    return Array.from(await getCertifiedSlugs());
-  } catch {
-    return [];
-  }
-}
+// GTM-22H — S1 is the conversion funnel and stays ungated: all 67 counties
+// return, certified or not. Every row is stamped `certified` via the shared
+// badge helper, sourced live from v_certified_counties (N=2 hysteresis,
+// #12786) — never gold_standard_county_status directly.
+import { badgeRows, badgeCounty } from '../cert-gate.js';
 
 export const schemas = [
   {
@@ -109,21 +98,21 @@ export async function search_auctions({ county, date_from, date_to, min_bid, max
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
   const cap = Math.min(limit, 100);
-  const [rows, certCounties] = await Promise.all([
-    get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,plaintiff,sale_type,judgment_amount`),
-    getCertifiedCounties(),
-  ]);
+  const rows = await get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,plaintiff,sale_type,judgment_amount`);
+
+  const enriched = rows.map(r => ({
+    ...r,
+    deposit_required: Math.max(200, (r.opening_bid || 0) * 0.05),
+    clerk_link: getClerkLink(r.county),
+  }));
+  const { rows: auctions, hasUncertifiedCounties } = await badgeRows(enriched);
 
   return {
-    count: rows.length,
+    count: auctions.length,
     county,
     date_range: { from: date_from || today, to: date_to || future },
-    auctions: rows.map(r => ({
-      ...r,
-      deposit_required: Math.max(200, (r.opening_bid || 0) * 0.05),
-      clerk_link: getClerkLink(r.county),
-      cert_badge: certCounties.includes(countySlug(r.county)),
-    })),
+    has_uncertified_counties: hasUncertifiedCounties,
+    auctions,
   };
 }
 
@@ -136,7 +125,7 @@ export async function get_auction_detail({ case_number, county }) {
 
   const r = rows[0];
   const deposit = Math.max(200, (r.opening_bid || 0) * 0.05);
-  const certCounties = await getCertifiedCounties();
+  const certified = await badgeCounty(r.county);
 
   return {
     found: true,
@@ -147,7 +136,7 @@ export async function get_auction_detail({ case_number, county }) {
     clerk_link: getClerkLink(r.county),
     realforeclose_search: `https://www.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=${r.auction_date}&county=${r.county}`,
     realauction_search: `https://www.realauction.com/`,
-    cert_badge: certCounties.includes(countySlug(r.county)),
+    certified,
   };
 }
 
@@ -164,34 +153,30 @@ export async function browse_deals({ county, max_bid, cert_only = false, sale_ty
   if (max_bid) filters.push(`opening_bid=lte.${max_bid}`);
   if (sale_type !== 'all') filters.push(`sale_type=eq.${sale_type}`);
 
-  const [rows, certCounties] = await Promise.all([
-    get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${Math.min(limit * 2, 200)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`),
-    getCertifiedCounties(),
-  ]);
+  const rows = await get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${Math.min(limit * 2, 200)}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,sale_type,judgment_amount`);
 
-  // GTM-22F — certification is a hard delivery gate, not an opt-in filter.
-  // browse_deals has no required county (that's the point — it's a
-  // cross-county browse), so there is no single county to pre-charge-gate
-  // on centrally; every row is filtered to certified counties here instead.
-  // cert_only is kept for API back-compat but no longer changes behavior —
-  // uncertified rows are never returned regardless of its value.
-  const scored = rows
-    .filter(r => certCounties.includes(countySlug(r.county)))
-    .map(r => {
-      const fj = r.judgment_amount || 0;
-      const bid = r.opening_bid || 0;
-      const discount = fj > 0 ? (fj - bid) / fj : 0;
-      return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05), cert_badge: true };
-    })
+  // GTM-22H — S1 Discovery is the conversion funnel and stays ungated:
+  // browse_deals defaults to all active counties, badged not blocked.
+  // cert_only remains an opt-in filter (default off) for a customer who
+  // specifically wants only Gold Standard certified inventory.
+  const scoredAll = rows.map(r => {
+    const fj = r.judgment_amount || 0;
+    const bid = r.opening_bid || 0;
+    const discount = fj > 0 ? (fj - bid) / fj : 0;
+    return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05) };
+  });
+  const { rows: badged, hasUncertifiedCounties } = await badgeRows(scoredAll);
+  const scored = badged
+    .filter(r => !cert_only || r.certified)
     .sort((a, b) => b.shapira_discount - a.shapira_discount)
     .slice(0, limit);
 
   return {
     count: scored.length,
     days_ahead,
-    cert_only: true,
-    certified_counties: certCounties,
-    note: 'Results are limited to Gold Standard certified counties (shapira_discount = (final_judgment - opening_bid) / final_judgment × 100. Higher = better deal). Run predict_auction_outcome (S5) for certified prediction.',
+    cert_only,
+    has_uncertified_counties: hasUncertifiedCounties,
+    note: 'shapira_discount = (final_judgment - opening_bid) / final_judgment × 100. Higher = better deal. Add cert_only=true to show only Gold Standard certified counties. Run predict_auction_outcome (S5) for certified prediction.',
     deals: scored,
   };
 }
@@ -205,10 +190,12 @@ export async function get_deposit_requirements({ case_number, county }) {
 
   const r = rows[0];
   const deposit = Math.max(200, (r.opening_bid || 0) * 0.05);
+  const certified = await badgeCounty(r.county);
 
   return {
     case_number,
     county: r.county,
+    certified,
     opening_bid: r.opening_bid,
     deposit_required: deposit,
     deposit_formula: 'max($200, 5% × opening_bid)',
