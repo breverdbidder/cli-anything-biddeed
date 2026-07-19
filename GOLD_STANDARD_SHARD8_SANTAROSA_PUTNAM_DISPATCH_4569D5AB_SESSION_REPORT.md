@@ -339,5 +339,159 @@ Per the brief's Telegram gate ("only if BOTH counties show a full 10/10"),
 **the notification is skipped** — neither county cleared all 10 gates this
 session.
 
+## Addendum 2 — BOTH COUNTIES REACH 10/10 (closing firing)
+
+Picked up exactly where the prior addendum left off: santa_rosa 9/10 (G
+failing), putnam 6/10 (C, D, G failing).
+
+### santa_rosa G: root cause was a wrong applicability flag, not a missing value
+
+The prior addendum correctly identified the residual FAR gap as Gulf Breeze
+`C-1` (`zoning_districts` id=5563, `max_far=NULL`) and flagged it for a
+dedicated ordinance research pass. Ran that pass this firing via a background
+Workflow (research agent + independent adversarial verifier, two separate
+live fetches of the same Gulf Breeze ordinance mirror): **C-1's own ordinance
+division (Div. 8, Sec. 21-161/162/163) has no FAR section at all** — only
+permitted uses, height (35 ft), and setback (15 ft). The district was never
+missing a FAR *value*; `v_zoning_district_applicability`'s generic
+commercial-category heuristic was wrongly flagging it as FAR-*applicable* in
+the first place. Fix: `zoning_districts.far_regulated = false` for id=5563
+(the existing override column built for exactly this situation) — this
+removes the district's one parcel from the FAR denominator instead of
+fabricating a number the ordinance doesn't contain.
+
+That alone shifts G's binding constraint from far (0.0) to density (93.2,
+still <95). Backfilled `max_density_du_acre` for 3 of the 6 remaining Milton,
+FL districts (R-1→5.81, R-1A→4.84, R-U→6.22 du/acre = 43,560/min-lot-area-sqft
+from directly-quoted lot sizes in City of Milton UDC Article 6 Tables
+6.2.1/6.4.1 — the same derivation already used by the pre-existing,
+passing Interlachen R-1A/R-2 rows in this table). The other 3 (Gulf Breeze
+R-C, Jay RM, Jay RM-A) could not be sourced this session (Town of Jay isn't
+on municode; no working mirror had the figures) and were left NULL — not
+needed for PASS since 100/103=97.1% already clears 95%.
+
+**Result: santa_rosa G FAIL(0.0) → PASS(97.1). santa_rosa is now 10/10.**
+
+### putnam G: identical pattern, one district
+
+Same root cause, one district: Palatka `C-2` (`zoning_districts` id=5645).
+Live WebFetch of the ordinance's own schedule of district regulations (Sec.
+94-149(f)) explicitly states **"Maximum Density: Not applicable"** and lists
+height/impervious-surface/yard figures but zero FAR line. Fix:
+`far_regulated=false` for id=5645. The other FAR-applicable district in
+putnam (Interlachen C-2, id=12159) already had `max_far=1.00` filled from a
+prior firing and correctly remains counted.
+
+**Result: putnam G FAIL(50.0) → PASS(99.6).**
+
+### putnam C/D: the "harvest more rows" plan from addendum 1 was wrong — refuted before shipping
+
+Addendum 1 left ~120 unmatched rows as "needs harvest-script scaling." This
+firing re-ran the harvest for all 7 affected auction dates live — the
+RealTaxDeed AJAX calendar returned real, paginated results (36-51 items per
+date) with **zero case-number overlap** against the 141 unmatched rows. Not a
+matching-key bug: these case numbers simply are not on the vendor calendar.
+
+Initial hypothesis: redeemed/cancelled before sale (very common in FL tax
+deed sales). Dispatched an adversarial forensics agent specifically to try to
+confirm or refute this against an independent government source before
+writing any fix. **It refuted the hypothesis**: checked 6 sample case numbers
+against the Putnam Clerk of Court's own tax deed certification system
+(`apps.putnam-fl.com/coc/taxdeeds/public/public_certification.php`) — all 6
+came back live, active, unredeemed, with "Date of Sale" matching our
+`auction_date` exactly. The real root cause is a RealTaxDeed-vendor-side
+calendar coverage gap, not stale data on our side.
+
+Built `scripts/putnam_clerk_certification_cd_fix.py` to close the loop
+properly: verify **all 141** rows (not just the 6-sample) against that same
+Clerk endpoint — confirm the case is found, not shown as redeemed/cancelled,
+and its "Date of Sale" matches our `auction_date` — before promoting.
+**141/141 confirmed** (0 redeemed, 0 mismatched, 0 not-found). Promoted all
+141 to `parity_status='matched_clean'`,
+`parity_source='tier1:clerk_certification_php:putnam:<date>'`.
+
+**Result: putnam C FAIL(68.9%, 312/453) → PASS(100%, 453/453). putnam D
+FAIL(68.9%, 312/453) → PASS(100%, 453/453). putnam is now 10/10.**
+
+### Before/after `pencil_dod_evaluate_county` — literal JSON (this firing)
+
+**santa_rosa — BEFORE (= addendum 1's AFTER):**
+`G: {"pass": false, "detail": "density=93.2 far=0.0 pk1000=100.0", "metric": 0.0}`
+
+**santa_rosa — AFTER (fresh, re-run live):**
+```json
+{"A":{"pass":true,"metric":28},"B":{"pass":true,"metric":100},"C":{"pass":true,"metric":100},
+ "D":{"pass":true,"metric":100},"E":{"pass":true,"metric":96.5},"F":{"pass":true,"metric":100},
+ "G":{"pass":true,"detail":"density=97.1 far= pk1000=100.0","metric":97.1},
+ "H":{"pass":true,"metric":8},"I":{"pass":true,"metric":96.5},"J":{"pass":true,"metric":100},
+ "county":"santa_rosa","auctions_total":86}
+```
+
+**putnam — BEFORE (= addendum 1's AFTER):**
+```json
+{"C":{"pass":false,"metric":68.9,"detail":"matched_clean=312"},
+ "D":{"pass":false,"metric":68.9,"detail":"matched_any=312"},
+ "G":{"pass":false,"detail":"density=99.6 far=50.0 pk1000=100.0","metric":50}}
+```
+
+**putnam — AFTER (fresh, re-run live):**
+```json
+{"A":{"pass":true,"metric":41},"B":{"pass":true,"metric":100},
+ "C":{"pass":true,"detail":"matched_clean=453","metric":100},
+ "D":{"pass":true,"detail":"matched_any=453","metric":100},
+ "E":{"pass":true,"metric":97.6},"F":{"pass":true,"metric":100},
+ "G":{"pass":true,"detail":"density=99.6 far=100.0 pk1000=100.0","metric":99.6},
+ "H":{"pass":true,"metric":6.9},"I":{"pass":true,"metric":96.9},"J":{"pass":true,"metric":99.3},
+ "county":"putnam","auctions_total":453}
+```
+
+### Adversarial verification (4 claims, 1 dispute resolved)
+
+Ran an independent refute-pass workflow (3 agents, none of which wrote any
+fix) against all 4 claims above. 3 of 4 (putnam G, putnam C, putnam D)
+survived cleanly on first pass. The 4th (santa_rosa G) came back
+`survived=false` on one specific point: the refuter claimed the Milton R-U
+density figure's source lot-area (7,000sf) was misattributed and should be
+6,000sf. Rather than accept or dismiss this unilaterally, independently
+re-verified via precise character-column-position analysis of the same
+`pdftotext -layout` output (R-U header at column 38, R-C1 at column 80; "SF:
+7,000sf" aligns at column 39 under R-U, "SF: 6,000sf" aligns at column 79
+under R-C1), then dispatched a **second, fresh tie-breaker agent** with no
+knowledge of either prior verdict, which independently re-derived the same
+column positions from scratch and confirmed the original figure (7,000sf →
+6.22 du/acre) is correct — the first refuter had misread the table's
+two-line column wrap. Logged transparently in `gold_standard_ultraloop_audit`
+(the dispute and its resolution, not just the final verdict) rather than
+silently overridden.
+
+All 4 claims logged to `gold_standard_ultraloop_audit` with `survived=true`
+(ids 7529-7532), dispatch_id=`4569d5ab-b34d-4b1e-80fb-183b058262db`.
+
+### Full 10/10 — Telegram gate
+
+**Both counties now show a full 10/10** on live `pencil_dod_evaluate_county`.
+Per the brief, this clears the "BOTH counties 10/10" gate. `SELECT
+public.gold_standard_loop()` / `gold_standard_certify()` could not be invoked
+this session — the Supabase Management API returned a persistent `403
+(Cloudflare error 1010)` specifically on that RPC across 6 retry attempts
+over several minutes, while ordinary SELECT/UPDATE queries against the same
+API endpoint worked fine throughout (including immediately before and after
+the failed attempts). Per the brief's own fallback instruction ("otherwise
+skip loop and report per-county evaluations"), skipped rather than forced —
+this is an infra/WAF issue, not a data problem, and certification is a
+separate automated gate (10/10 twice consecutively at the daily 07:30Z run)
+this session doesn't control directly.
+
+### Residual / next-session
+
+- santa_rosa: 3 parcels (Gulf Breeze R-C, Jay RM, Jay RM-A) still have no
+  `max_density_du_acre` — not needed for PASS (97.1% > 95%) but genuinely
+  unsourced; a future session with working Firecrawl credit and/or a way to
+  reach Town of Jay's `municipalcodeonline.com` host (not on library.municode.com)
+  could close these for full margin.
+- Global loop/certify invocation blocked by the Management API 403 above —
+  worth flagging to whoever operates that endpoint if it recurs; not a data
+  issue on this session's part.
+
 ---
 dispatch_id: 4569d5ab-b34d-4b1e-80fb-183b058262db
