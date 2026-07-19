@@ -1,0 +1,77 @@
+session:
+  date: "2026-07-19"
+  dispatch_id: "0bdc198c-2485-4497-958a-0a28726cce90"
+  chat_session: "auto-triage-issue-12767-202607190040"
+  role: ARCHITECT (triage, not engineer -- dispatched after 3 exhausted engineer attempts)
+  issue: 12767
+  counties: [highlands, st_lucie]
+  agent: claude-sonnet-5
+
+decisions:
+  - step: 1
+    action: "Read full issue #12767 thread (4 comments): 1st-firing report claimed no DB access (env constraint), attempts 2 and 3 both ended SILENTLY (no comment posted -- a guard-protocol violation in themselves)"
+    result: "No architect diagnosis existed yet for this exact dispatch; prior decision_log entries for sibling issues (#10157, #10161, #11366) established the correct pattern -- verify live state directly, do not trust stale issue-body baselines"
+    reason: "Mandate step 1-2: read thread + decision_log before writing code"
+  - step: 2
+    action: "Confirmed this session DOES have live DB access (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ACCESS_TOKEN in env) unlike the GHA-only 1st firing. Management API (api.supabase.com) returned Cloudflare 403/521 (network-blocked in this environment), but PostgREST REST API (SUPABASE_URL/rest/v1) and RPC calls worked fine throughout."
+    result: "Established a working verification channel before diagnosing further"
+    reason: "Evidence-Before-Claims -- do not repeat the 1st firing's 'no DB access' claim without testing it fresh"
+  - step: 3
+    action: "Queried gold_standard_county_status for true latest-per-letter (not latest-loop_run_id, which was stale for some letters) for both counties"
+    result: "st_lucie was ALREADY 9/10 (only I failing, 91.4%%) thanks to an uncommented 2nd-firing session (commit 2fa50f4f) that fixed C/D/E and made partial I/G progress but never posted to the issue -- explaining the silent-end guard violations on attempts 2/3. highlands was 8/10 (C/D failing, 83.9%%, unchanged from baseline)."
+    reason: "The naive 'latest loop_run_id' query would have under-reported st_lucie's true state by missing per-letter incremental evaluator runs (4973 vs 4974/4975)"
+  - step: 4
+    action: "Found the 6 remaining st_lucie I-failing rows precisely: multi_county_auctions rows with non-null parcel_id that had never been matched into parcel_zones for any of the 4 st_lucie jurisdictions"
+    result: "169213, 76601, 187800, 163015, 56994, 342056026250001 -- all 6 confirmed as real auction rows with real addresses, not synthetic"
+    reason: "Reused the exact methodology the 2nd-firing session already validated (live GIS lookup, identity-confirm via Property Appraiser address/value match) rather than re-deriving a new approach"
+  - step: 5
+    action: "Live-queried map.paslc.gov (Property Appraiser, identity + geometry) then services1.arcgis.com/YdUP5V6WwzeG8T8r Zoning/FeatureServer layer 1 (PZ_ZONING -- City of Port St Lucie's own official zoning service, discovered via ArcGIS Online item metadata since the county's own slcgis.stlucieco.gov Zoning service does not cover incorporated Port St Lucie) via point-in-polygon spatial query against each parcel's centroid"
+    result: "5/5 real zoning matches (PUDx2, RS-2x3); 1 Fort Pierce condo unit matched via the existing ForttPierceZoningFLU MapServer with the same spatial-query technique (condo units share a parent zoning polygon, so AccountNum differs from our parcel_id)"
+    reason: "Never fabricate zone_code -- same guardrail as the 2nd-firing migration"
+  - step: 6
+    action: "Inserted the 6 parcel_zones rows via PostgREST, re-ran pencil_dod_evaluate_county"
+    result: "I moved to PASS (97.8%%, 91/93) but G regressed 95.6%%->93.1%% FAIL -- the exact same side-effect the 2nd-firing session's own migration comment warned about (new parcel-district links against zero zone_standards coverage)"
+    reason: "Caught via re-verification, not assumed safe -- Evidence-Before-Claims"
+  - step: 7
+    action: "Researched and inserted real ordinance-sourced zone_standards for the 2 fixable districts: RS-2 (Port St Lucie, density derived from Sec. 158.073(E)(1)'s 10,000sf min lot: 43560/10000=4.36 du/acre) and R-4 (Fort Pierce Sec. 22-27, stated max 10 du/acre conventional). Left PUD (Port St Lucie, Sec. 158.174(A)) intentionally density-unset -- code states density is set per-project by City Council/Comp Plan, not a fixed figure, same documented pattern as Fort Pierce's PD in the prior migration."
+    result: "G restored to 95.7%% PASS. st_lucie now live-evaluates 10/10 across all letters A-J."
+    reason: "Fail-loud invariant -- do not fabricate a PUD density number to force G higher; the ordinance itself says there isn't one"
+  - step: 8
+    action: "Dispatched an independent subagent (never saw this session's context) to adversarially verify the st_lucie fix: re-run the RPC twice, cross-check all 6 parcel_ids against real multi_county_auctions rows, sanity-check the density math, check for duplicates, check for cross-county contamination"
+    result: "Verdict SURVIVES on all 5 checks -- no refutation found"
+    reason: "ULTRALOOP protocol rule 3: the verifier of a fix is never the agent that wrote it"
+  - step: 9
+    action: "Logged 2 gold_standard_ultraloop_audit rows (I, G) with survived=true and the independent refuter's evidence attached"
+    result: "ids 7025, 7026 written"
+    reason: "Mandatory per campaign protocol; also a precondition (among several) for eventual certification"
+  - step: 10
+    action: "Diagnosed why the literal DoD SQL (EXISTS certified=true for highlands OR st_lucie) is STILL false despite st_lucie now being a genuine live 10/10"
+    result: "Three independent, non-bug reasons: (1) st_lucie's ultraloop_audit ledger is missing fresh (post-2026-07-12) survived=true coverage for letters A/B/F/H/J -- they are PASS but stale in the 7-day audit window gold_standard_certify() requires for ALL 10 letters; (2) certification requires TWO CONSECUTIVE daily 07:30Z gold_standard_loop() runs at 10/10 by explicit design (anti-flapping) -- structurally cannot be satisfied inside one ad-hoc session; (3) highlands remains genuinely 8/10, C/D at 83.9%% (151/180 matched_clean, needs ~20 more real PropertyOnion-litmus/clerk-parity matches) -- confirmed via parity_status breakdown (151 matched_clean, 27 never-checked, 2 bootstrap_placeholder), which is open parity-reconciliation research work, not a defect. Prior same-day session (commit f3ac9a0d) already correctly reported this as unchanged rather than fabricating movement."
+    reason: "Per architect mandate: diagnose across systems before declaring a blocker; this is NOT a human-action-required blocker (no credential/permission/spend/schema gate involved) so no BLOCKED-approval comment was posted -- it is normal multi-day certification cadence plus genuinely unfinished highlands data work"
+  - step: 11
+    action: "Deliberately did NOT run public.gold_standard_loop() or gold_standard_certify()"
+    result: "Left the global scoring loop to the next scheduled run / owning shard close-out"
+    reason: "PARALLEL-FLEET RULES: other shard sessions were concurrently active during this session (evidenced by loop_run_id advancing 4975->5007 without this session calling it, plus 5 other shard commits landing in the same ~20-minute window)"
+
+artifacts:
+  - path: supabase/migrations/20260719b_shard11_architect_triage_st_lucie_gold_run5007.sql
+    type: migration (idempotent record of live writes)
+  - path: .claude/session-logs/2026-07-19-gold-standard-shard11-architect-triage-12767.yml
+    type: session_decision_log
+
+verification:
+  - check: "pencil_dod_evaluate_county('st_lucie') before vs after this session's writes"
+    proof: "Before (matches persisted run 4975, 2026-07-19T00:44:53Z): 9/10, I FAIL 91.4%% (85/93). After (live RPC, adversarially re-confirmed twice by an independent subagent): 10/10, all PASS. I=97.8%% (91/93), G=95.7%% (was 95.6%%, dipped to 93.1%% FAIL mid-session, remediated same session)."
+    status: verified
+  - check: "All 6 new parcel_zones rows correspond to real multi_county_auctions rows, not fabricated identities"
+    proof: "Independent subagent cross-checked all 6 case_number+property_address pairs against multi_county_auctions for county=st_lucie; exact match on all 6"
+    status: verified
+  - check: "Literal DoD SQL for issue #12767 after all writes"
+    proof: "SELECT EXISTS(SELECT 1 FROM gold_standard_certifications WHERE county_slug=ANY('{highlands,st_lucie}') AND certified) => false. gold_standard_certifications rows: highlands certified=false (revoked 2026-07-02), st_lucie certified=false (revoked 2026-07-14, consecutive_gold=0)."
+    status: verified
+  - check: "highlands C/D root cause"
+    proof: "parity_status breakdown for county=highlands (180 rows): matched_clean=151, NULL (never parity-checked)=27, bootstrap_placeholder=2. 151/180=83.9%% matches the live metric exactly. Gap requires ~20 more real matches, not a formula/wiring bug."
+    status: verified
+  - check: "st_lucie certify-readiness gap beyond the 10/10 metric"
+    proof: "gold_standard_ultraloop_audit query for county_slug=st_lucie AND created_at >= 2026-07-12: survived=true letters present = {C,D,E,G,I}; missing fresh coverage for {A,B,F,H,J} (currently PASS but stale in the 7-day certify window)"
+    status: verified
