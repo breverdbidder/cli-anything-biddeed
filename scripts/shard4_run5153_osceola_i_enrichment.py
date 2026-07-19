@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 """
+*** DO NOT RUN step2_parcel_zones_backfill's PD-fallback path (flagged 2026-07-19, same-day
+*** parallel shard-4 session, dispatch ae041d7c-2cfd-4b4b-a5a7-3733e587c53f) ***
+Falling back to zone_code='PD' for any parcel the live GIS layer doesn't resolve (INCORP,
+no-match, or an unrecognized-but-real code like MXD/A-1/C-1/I-1/R-2) is fabrication — the exact
+pattern osceola's G/I letters were already certified-then-REVERTED for twice in this campaign
+(see supabase/migrations/20260704_shard9_osceola_ghost_success_revert.sql and
+20260711t_shard7_osceola_g_i_zoning_veracity_ghost_purge_rebuild.sql). It has NOT been executed
+against the live DB (verified: zero parcel_zones rows exist with a 'shard4_run5153_osceola_i_
+default:' or 'shard4_run5153_osceola_gis_live:' source prefix as of 2026-07-19T16:40Z). A
+same-day parallel session instead extended real, live-GIS-verified coverage only (26->89 rows,
+skipping INCORP/ambiguous/unresolved parcels rather than defaulting them) — see
+GOLD_STANDARD_SHARD4_SEMINOLE_OSCEOLA_SUWANNEE_DISPATCH_AE041D7C_SESSION_REPORT.md. Step 1
+(FL GIO geo/value enrichment) is a separate, real-data code path and is not flagged here.
+
 shard4_run5153_osceola_i_enrichment.py — Osceola criterion I fix.
 
 CONTEXT (run5153, 2026-07-19):

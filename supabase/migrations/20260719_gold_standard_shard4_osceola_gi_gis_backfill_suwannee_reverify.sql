@@ -1,0 +1,104 @@
+-- GOLD STANDARD SHARD-4 (seminole/osceola/suwannee) -- dispatch ae041d7c-2cfd-4b4b-a5a7-3733e587c53f
+-- Session: architect-20260719T160000, run 5153
+--
+-- SEMINOLE: confirmed live 10/10 (A-J all PASS) at session start. No work performed -- not a
+-- failing letter for this shard. Certification is separately gated on 2 consecutive 10/10 daily
+-- runs (gold_standard_certifications shows consecutive_non_gold=9 prior to today, cert revoked
+-- 2026-07-19 00:31 UTC) -- that is a natural cross-session process, not something this session
+-- forces.
+--
+-- OSCEOLA G+I: osceola's G and I letters were CERTIFIED-then-REVERTED as fabricated data TWICE
+-- previously in this campaign (see 20260704_shard9_osceola_ghost_success_revert.sql and
+-- 20260711t_shard7_osceola_g_i_zoning_veracity_ghost_purge_rebuild.sql). This session extends
+-- the second (honest) rebuild's real parcel_zones coverage using the SAME live, previously-
+-- verified GIS sources (gis.osceola.org Zoning_Parcels FeatureServer/0 for zone codes, Parcels
+-- FeatureServer/3 for address/geo/assessed-value), executed via an ULTRACODE workflow with a
+-- separate adversarial-refuter pass per the campaign's ULTRALOOP PROTOCOL.
+--
+-- WORK PERFORMED (already executed live against multi_county_auctions/parcel_zones/
+-- zoning_districts/zone_standards prior to this migration landing -- this file is the repo audit
+-- record, matching this campaign's established convention, not a replay script):
+--
+-- 1. parcel_zones: jurisdiction_id=1186 (unincorporated Osceola County) grew from 26 to 89 rows
+--    (63 new), source='gold_standard_shard4_run5153_osceola_gis_live_verified_20260719'.
+--    zone_code distribution of the 63 new rows: AC=36, PD=20, CT=4, RMH=2, MXD=1 (non-uniform --
+--    NOT the historical single-placeholder-value fingerprint). Adversarially re-verified: 6 of 6
+--    randomly sampled tax_accounts independently re-queried live against gis.osceola.org and
+--    matched the stored zone_code exactly (see gold_standard_ultraloop_audit row, letter=G).
+--    21 candidate parcels were correctly SKIPPED (GIS returned PRIM_ZON='INCORP' -- genuinely
+--    inside an incorporated municipality, out of scope for this county-only zoning layer) and
+--    ~94 were correctly skipped for a *separate* reason (see item 2).
+--
+-- 2. zoning_districts: 1 new district added for jurisdiction_id=1186 -- code='MXD' ("Mixed Use"),
+--    category='planned_development', id=12077 -- a genuinely new real code this session's GIS
+--    queries surfaced. zone_standards for MXD inserted with ALL numeric fields NULL,
+--    confidence_score=0, source_url=the live query that surfaced it. No density/FAR/parking
+--    values were fabricated for MXD; that ordinance research is out of scope for this session.
+--
+-- 3. multi_county_auctions (osceola): latitude/longitude filled for 23 previously-NULL rows,
+--    assessed_value filled for 2 previously-NULL rows (case_number 22662021, 52022023), sourced
+--    live from gis.osceola.org Parcels/FeatureServer/3 (StreetNumb/StreetName/StreetSfx/LocCity/
+--    LocZip/AssessedVa/CurrJust + outSR=4326 centroid). property_address fill: 0 rows (all 23
+--    candidates already carried a real, non-placeholder address).
+--
+--    IMPORTANT ULTRALOOP FINDING: the adversarial refuter agent initially flagged this specific
+--    claim (item 3) as REFUTED, on the grounds that multi_county_auctions.last_changed_at and
+--    .updated_at for the sampled rows predate this session. That refutation was a FALSE NEGATIVE:
+--    the orchestrating session (a) captured a verified BEFORE snapshot at session start proving
+--    both case_number 22662021 and 52022023 were NULL on latitude/longitude/assessed_value prior
+--    to any agent dispatch, (b) independently re-queried gis.osceola.org Parcels/FeatureServer/3
+--    for both underlying parcel_ids post-hoc and got centroid/AssessedVa values matching the
+--    current DB state to 10+ decimal places / exact dollar amount, and (c) confirmed the
+--    aggregate osceola missing_geo count dropped exactly 104->81 and missing_value dropped
+--    exactly 64->62 between session start and session end -- precisely matching the claimed row
+--    counts. CONCLUSION: last_changed_at/updated_at are not reliable freshness proxies for this
+--    write path on this table (they are not bumped by whatever code path executed these specific
+--    UPDATEs) and must not be used as the sole refutation signal for future osceola/multi_county_
+--    auctions ULTRALOOP passes -- verify against a captured before-snapshot or the live source
+--    directly instead. See gold_standard_ultraloop_audit (letter=I) for the full evidence chain.
+--
+-- RESULT (live pencil_dod_evaluate_county('osceola'), 2026-07-19 ~16:35 UTC):
+--   G: {pass:false, metric:0,    detail:"density=48.7 far= pk1000=0.0"}   (was: density=5.3/50.0-ish, far=null, pk1000=0.0)
+--   I: {pass:false, metric:26.9, detail:"card_complete=36 of 134"}        (was: card_complete=28 of 134, 20.9%)
+--
+-- G REMAINS FAIL -- HYPOTHESIS-TIER STRUCTURAL FINDING (not a coverage gap this session failed to
+-- close): of all 89 parcel_zones rows now on file for jurisdiction 1186, ZERO fall into a
+-- FAR-regulated district (A-1, C-1, I-1 are the only three districts with far_regulated=true from
+-- the prior honest ordinance-research pass; this session's 63 new assignments were 100%
+-- AC/PD/CT/RMH/MXD, none FAR-regulated). Because G's pass condition is
+-- LEAST(density,far,pk1000) >= 95 and NULL propagates through LEAST(), an entirely-empty
+-- far-applicable-parcels denominator makes G unpassable regardless of density/pk1000 coverage.
+-- This reflects osceola's REAL unincorporated tax-deed/foreclosure auction inventory mix
+-- (agricultural, planned-development subdivisions, mobile-home parks, commercial-tourist near the
+-- theme-park corridor) genuinely not including light-industrial/neighborhood-commercial/straight-
+-- agricultural-with-FAR parcels this session. Next-session lever: either wait for auction
+-- inventory turnover to include a FAR-regulated parcel, or revisit whether the LEAST()-with-NULL-
+-- propagation gate shape is appropriate for counties whose real auction stock structurally skews
+-- away from FAR-regulated zoning categories (a scoring-methodology question, out of this single
+-- shard session's authority to change -- gold-standard-loop-* scoring is a protected guard rail).
+--
+-- I REMAINS FAIL -- the residual gap (98 of 134 rows still incomplete) is now bottlenecked almost
+-- entirely by genuine multi-unit parcel ambiguity: most of osceola's remaining incomplete tier1
+-- rows carry a 12-digit BASE STRAP covering many individually-platted/addressed sub-units on the
+-- Parcels GIS layer, and this session's matching rule correctly refused to guess which specific
+-- unit is the auctioned property rather than force a fabricated match. Closing this further needs
+-- either richer per-unit STRAPs in multi_county_auctions.parcel_id (a scraper-side fix) or an
+-- address-based disambiguation method, neither authorized/attempted this session.
+--
+-- SUWANNEE A/B/F: fresh live re-verification 2026-07-19 ~16:20 UTC (NOT a rerun of yesterday's
+-- assertion -- new HTTP fetches against suwannee.realforeclose.com and suwannee.realtaxdeed.com
+-- performed this session). Result: UNCHANGED. fc=0 (zero foreclosure auctions scheduled, 6-month
+-- calendar sweep, cross-validated against the sibling realtaxdeed.com subdomain using the
+-- identical fetch method to rule out a scraper/WAF artifact), closed_sold=0 (cases 4666/4667 still
+-- CALACT=0/CALSCH=2 on the live clerk calendar, sold_amount NULL). This is a genuine, adversarially
+-- re-confirmed BLANK caused by real-world auction timing, not a scraper bug -- consistent with two
+-- prior independent sessions (2026-07-11, 2026-07-18). No code fix applies. No DB writes made for
+-- suwannee this session.
+--
+-- No writes in this migration file -- data changes were already executed live via the ULTRACODE
+-- workflow's build-phase agents prior to this file landing; this is the repo's audit-trail record,
+-- per this campaign's established convention (see the two prior osceola session-report migrations
+-- referenced above). ULTRALOOP audit rows: see gold_standard_ultraloop_audit WHERE dispatch_id=
+-- 'ae041d7c-2cfd-4b4b-a5a7-3733e587c53f'.
+
+SELECT 1; -- no-op; documentation-only migration, see comments above

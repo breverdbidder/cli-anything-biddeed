@@ -1,3 +1,24 @@
+-- *** SUPERSEDED — DO NOT APPLY (flagged 2026-07-19, same-day parallel shard-4 session,
+-- *** dispatch ae041d7c-2cfd-4b4b-a5a7-3733e587c53f) ***
+-- This migration was NEVER executed against the live DB (verified live: zero parcel_zones
+-- rows exist with source LIKE 'shard4_run5153_osceola_i_default_pd%'). It must stay that way.
+-- It proposes defaulting zone_code='PD' for every osceola parcel the live GIS layer could NOT
+-- resolve (INCORP / no-match cases) -- i.e. inventing a zoning code rather than leaving it
+-- unassigned. This is the exact fabrication pattern osceola's G/I letters were already
+-- certified-then-REVERTED for TWICE in this campaign (see
+-- supabase/migrations/20260704_shard9_osceola_ghost_success_revert.sql and
+-- supabase/migrations/20260711t_shard7_osceola_g_i_zoning_veracity_ghost_purge_rebuild.sql,
+-- both of which explicitly rejected guessing a zone for unmatched parcels for this reason).
+-- A same-day parallel session (dispatch ae041d7c-2cfd-4b4b-a5a7-3733e587c53f) instead extended
+-- real, live-GIS-verified parcel_zones coverage (26->89 rows, adversarially re-confirmed 6/6
+-- against live gis.osceola.org) and correctly LEFT unmatched/ambiguous parcels unassigned rather
+-- than defaulting them to 'PD'. See GOLD_STANDARD_SHARD4_SEMINOLE_OSCEOLA_SUWANNEE_DISPATCH_
+-- AE041D7C_SESSION_REPORT.md and gold_standard_ultraloop_audit (same dispatch_id) for the full
+-- evidence chain and the resulting (still-honest, still-failing) I metric. Do not run this file
+-- or scripts/shard4_run5153_osceola_i_enrichment.py's PD-fallback path.
+--
+-- Original (superseded) content preserved below for the audit trail.
+--
 -- GOLD STANDARD SHARD-4 (seminole/osceola/suwannee, run5153, 2026-07-19)
 -- County: osceola — criterion I fix (parcel_zones backfill)
 --
