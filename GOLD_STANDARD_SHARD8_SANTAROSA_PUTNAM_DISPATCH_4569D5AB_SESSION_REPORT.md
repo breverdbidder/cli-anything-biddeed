@@ -172,5 +172,172 @@ counties cleared all 10 gates.
    the root cause (missing `far_regulated` data in `zoning_districts`) is
    structurally identical.
 
+## Addendum — G regression caught and fixed (follow-up firing)
+
+**Regressing commit:** `ad98e7074c3dc6e27e2ea9b1cc4a7e64174ba922` (the santa_rosa I
++ putnam C/D/I fix shipped above). That commit's `parcel_zones`/`zoning_districts`
+writes for criterion I regressed criterion G on **both** counties.
+
+### Root cause
+
+`v_zoning_gold_standard_kpi_v3` (which criterion G reads) joins
+`parcel_zones -> zoning_districts ON (jurisdiction_id, code=zone_code) ->
+v_zoning_district_applicability -> zone_standards`. When a `zoning_districts`
+row has no matching `code` for a given `jurisdiction_id`/`zone_code`, or when a
+`zoning_districts` row exists but has **no** `zone_standards` row at all, the
+view's `COALESCE(far_applicable, true)` / `COALESCE(pk1000_applicable, true)` /
+`COALESCE(density_applicable, true)` defaults flip that parcel into "applicable
+with NULL standard" — which counts as a FAIL in the G numerator instead of
+being correctly excluded or correctly satisfied.
+
+- **santa_rosa**: the I-fix inserted 6 new `parcel_zones` rows; 3 of the 6 had
+  `zone_code` values (`R1` Milton, `RM` Jay, `HCD` unincorporated) that did not
+  match any existing `zoning_districts.code` for that jurisdiction, so all
+  three fell into the NULL-standard-defaults-to-FAIL trap.
+- **putnam**: the I-fix inserted 5 new `zoning_districts` rows (ids
+  12159–12163) for the newly-added parcels, but **zero** `zone_standards` rows
+  for any of them — same trap, at the district level instead of the code-match
+  level.
+
+Both are honest regressions: the I-fix agents correctly and honestly disclosed
+"G-letter guard rail confirmed unaffected (still metric=0, no regression)" in
+their own claim text, but "still metric=0" was only true because G was
+*already* failing before their change (density=92.3/98.2, far=0.0,
+pk1000=25.0/50.0) — the guard-rail check compared pass/fail state, not the
+underlying detail numbers, so it missed that the composition of the failure
+got worse (pk1000 dropped from 25.0/50.0, and new NULL-standard rows were
+added to the denominator). This follow-up session fixes those specific new
+gaps with real, sourced ordinance data.
+
+### What each fix script did
+
+- **`scripts/gtm22j_santa_rosa_g_regression_fix.py`**:
+  1. Normalized `parcel_zones.zone_code` `R1` → `R-1` for the Milton parcel
+     (matches pre-existing `zoning_districts` id=11522, Milton UDC Article 6
+     Table 6.2.1 — pure normalization bug, no new district needed).
+  2. Inserted a real `zoning_districts` row for Jay `RM` ("Residential
+     Medium", sourced from the SRCPA Town of Jay Zoning map), distinct from
+     the pre-existing `RM-A` district. No numeric FAR/density/parking
+     standard was found (Jay's ordinance host is a JS-rendered SPA
+     unreachable this session, Firecrawl had zero credits) — left
+     `zone_standards` unpopulated rather than fabricated, category defaults
+     correctly exclude it from far/pk1000.
+  3. Inserted a real `zoning_districts` + `zone_standards` row for
+     unincorporated Santa Rosa `HCD` ("Highway Commercial Development"),
+     sourced from the Santa Rosa County LDC (Sec 2.02, Tables 2.04.02.b /
+     2.05.01.b / 2.06.01.b): `max_density_du_acre=10`, setbacks 50/5/25,
+     height=50, min_lot_width=100. `far_regulated=false` /
+     `pk1000_regulated=false` set explicitly — verified the LDC has no
+     district-wide FAR or parking-per-1000sf standard for HCD (FAR only
+     appears in airport-overlay use-caps; parking is set per land-use type,
+     not per district) — a sourced non-applicability finding, not a silent
+     default.
+
+- **`scripts/gtm22j_putnam_g_regression_fix.py`**: inserted real, sourced
+  `zone_standards` rows for all 5 of the I-fix's new `zoning_districts`
+  (ids 12159–12163, covering Palatka/Crescent City/Interlachen/Pomona
+  Park/Welaka): `max_far=1.00`, `parking_per_1000sf=3.33`,
+  `max_density_du_acre` 5.81/5.81/2.00/5.00 depending on district. Values are
+  derived (e.g. `parking_per_1000sf=3.33` = 1 space per 300 sqft;
+  `max_density_du_acre=5.81` = 43,560/7,500), not guessed placeholders.
+
+Both scripts are idempotent (pre-check before insert/update, never clobber a
+later real value) and scope-guarded to only their county's jurisdiction IDs.
+
+### Before/after `pencil_dod_evaluate_county` — literal JSON (this session)
+
+**santa_rosa — BEFORE this session (regressed state, from ad98e70 session
+report AFTER block above):**
+`G: {"pass": false, "detail": "density=92.3 far=0.0 pk1000=25.0", "metric": 0}`
+
+**santa_rosa — AFTER (fresh, re-run live this session):**
+```json
+[
+  {
+    "pencil_dod_evaluate_county": {
+      "A": { "pass": true, "detail": "fc=58 td=28", "metric": 28 },
+      "B": { "pass": true, "detail": "verified=31 closed_sold=31", "metric": 100 },
+      "C": { "pass": true, "detail": "matched_clean=86", "metric": 100 },
+      "D": { "pass": true, "detail": "matched_any=86", "metric": 100 },
+      "E": { "pass": true, "detail": "parcel_linked=83", "metric": 96.5 },
+      "F": { "pass": true, "detail": "tier1_sold=31 closed_sold=31", "metric": 100 },
+      "G": { "pass": false, "detail": "density=93.2 far=0.0 pk1000=100.0", "metric": 0 },
+      "H": { "pass": true, "detail": "hours since last_seen (SLA 48h)", "metric": 6.4 },
+      "I": { "pass": true, "detail": "card_complete=83 of 86", "metric": 96.5 },
+      "J": { "pass": true, "detail": "deal_complete=86 (triangle + two-arm CMA + ml_score + max_bid)", "metric": 100 },
+      "county": "santa_rosa",
+      "V2_LITMUS": null,
+      "auctions_total": 86
+    }
+  }
+]
+```
+
+**putnam — BEFORE this session (regressed state, from ad98e70 session report
+AFTER block above):**
+`G: {"pass": false, "detail": "density=98.2 far=0.0 pk1000=50.0", "metric": 0}`
+
+**putnam — AFTER (fresh, re-run live this session):**
+```json
+[
+  {
+    "pencil_dod_evaluate_county": {
+      "A": { "pass": true, "detail": "fc=41 td=412", "metric": 41 },
+      "B": { "pass": true, "detail": "verified=3 closed_sold=3", "metric": 100 },
+      "C": { "pass": false, "detail": "matched_clean=312", "metric": 68.9 },
+      "D": { "pass": false, "detail": "matched_any=312", "metric": 68.9 },
+      "E": { "pass": true, "detail": "parcel_linked=442", "metric": 97.6 },
+      "F": { "pass": true, "detail": "tier1_sold=3 closed_sold=3", "metric": 100 },
+      "G": { "pass": false, "detail": "density=99.6 far=50.0 pk1000=100.0", "metric": 50 },
+      "H": { "pass": true, "detail": "hours since last_seen (SLA 48h)", "metric": 5.4 },
+      "I": { "pass": true, "detail": "card_complete=439 of 453", "metric": 96.9 },
+      "J": { "pass": true, "detail": "deal_complete=450 (triangle + two-arm CMA + ml_score + max_bid)", "metric": 99.3 },
+      "county": "putnam",
+      "V2_LITMUS": null,
+      "auctions_total": 453
+    }
+  }
+]
+```
+
+### Claims survived adversarial verification (2 of 2)
+
+Both G-fix claims **survived** independent adversarial re-verification
+(fresh evaluator re-run, independent DB queries, refutation attempts on
+fabrication/scope-leakage/idempotency — see `gold_standard_ultraloop_audit`
+ids 7481/7482 for full refuter evidence):
+
+- **santa_rosa G (survived, still failing)** — pk1000 fixed 25.0→100.0,
+  density improved 92.3→93.2, far remains 0.0 (blocked by one genuine
+  pre-existing out-of-scope parcel, not something this session caused or
+  hid — see below). No regressions on any other letter.
+- **putnam G (survived, still failing)** — far improved 0.0→50.0, density
+  improved 98.2→99.6, pk1000 held at 100.0. No regressions on any other
+  letter.
+
+### Still open (honest residual gaps)
+
+Neither county reaches a full G PASS yet, and neither reaches 10/10 overall:
+
+- **santa_rosa: 9/10** (G still fails, metric=0). Remaining G gap: `far=0.0`
+  is driven by exactly one applicable parcel — Gulf Breeze `C-1`
+  (`zoning_districts` id=5563, `jurisdiction_id`=828, `created_at`=2026-02-08,
+  i.e. it predates this entire GTM-22J session chain by ~5 months) which has
+  `far_regulated=null` (defaults to applicable) and `zone_standards` id=2553
+  with `max_far=NULL`. This is a genuine pre-existing data gap, not caused by
+  either the regressing commit or this fix — confirmed via `created_at`
+  timestamp, independently verified by the adversarial refuter. Needs a
+  dedicated Gulf Breeze ordinance research pass in a future session.
+- **putnam: 6/10** (C, D, G still fail). G's remaining gap: 6 districts
+  (ids 5643/5644/5645/5646/5647/5685, codes C-1A/C-1/C-2/C-3/M-1/PID) still
+  have `max_far=NULL`, capping far at 50.0% instead of 100%. C/D remain at
+  68.9% (312/453), well below the 95% gate — unchanged this session, carried
+  forward from the prior firing's "next-session priorities" (needs further
+  harvest-script scaling, ~120 rows still unmatched).
+
+Per the brief's Telegram gate ("only if BOTH counties show a full 10/10"),
+**the notification is skipped** — neither county cleared all 10 gates this
+session.
+
 ---
 dispatch_id: 4569d5ab-b34d-4b1e-80fb-183b058262db
