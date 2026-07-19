@@ -28,7 +28,7 @@ jobs:
       - name: Run XGBoost Scorer — score + rank tomorrow's tasks
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.BIDDEED_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.BIDDEED_BOT_CHAT_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}

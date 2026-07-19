@@ -37,7 +37,7 @@ jobs:
       - name: Run migration
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           # Apply migration via Supabase REST API (execute SQL)
@@ -68,7 +68,7 @@ jobs:
         id: scrape
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
@@ -138,7 +138,7 @@ jobs:
       - name: Mark done in nexus_tasks
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           curl -s -X POST "${SUPABASE_URL}/rest/v1/nexus_tasks" \
             -H "apikey: ${SUPABASE_KEY}" \
