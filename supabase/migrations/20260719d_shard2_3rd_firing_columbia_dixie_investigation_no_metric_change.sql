@@ -1,0 +1,50 @@
+-- Gold Standard shard-2 (jackson/dixie/hendry/columbia), dispatch 190ac19f-8ae0-465c-be8b-ec314028eb77
+-- 3rd firing, 2026-07-19 ~19:20-19:45 UTC. Documentation-only migration, zero schema/DML changes to
+-- production tables. All writes this session were 3 rows to gold_standard_ultraloop_audit (ids
+-- 7342-7344), inserted directly via PostgREST (see session report), logging fresh workflow-orchestrated
+-- (ultracode: 3 investigate agents + 3 adversarial verify agents) evidence that:
+--
+--   columbia I  (93.3%, needs 15/15): 2 new sources checked for Fort White parcel 04023-000's zoning --
+--               fortwhitefl.com's own Official Zoning Map PDF (real, 7-district, but not georeferenced/
+--               parcel-queryable) and the Columbia County Assessor's own parcel page
+--               (search.ccpafl.com/parcel/04023000166S33, confirms Tax District=CITY OF FORT WHITE but
+--               its own "Zone" field is empty -- also empty on neighbor parcel 04035-000, proving a
+--               systemic county data gap, not a fetch error). No zone_code fabricated. Still FAIL.
+--
+--   columbia A/B/F (0%/null/null): civitekflorida.com Case Search and Person Search both CONFIRMED
+--               (screenshot evidence) to require solving a live Cloudflare Turnstile CAPTCHA before any
+--               query executes -- this is why the prior addendum's fixer thought Playwright/browser
+--               automation was unavailable; it was in fact a genuine CAPTCHA gate, not a tooling gap.
+--               columbiaclerk.com is now also fully HTTP 403 (cf-mitigated: challenge) site-wide.
+--               myfloridacounty.com/orisearch/12 (has the CERT TITLE doctype we need) is Turnstile-gated
+--               on actual search submission, same family as civitek. None of these were bypassed --
+--               solving/bypassing a CAPTCHA is explicitly off-limits. One new non-blocked source tested,
+--               search.ccpafl.com (Columbia County Property Appraiser) -- proven capable of surfacing
+--               historical Certificates of Title, but shows no 2026 ownership transfer yet for the 4
+--               already-past-auction-date cases; honestly flagged as inconclusive (appraiser-roll lag),
+--               not reported as a confirmed no-sale. columbia.floridatax.us (a lead flagged by the
+--               investigating agent as analogous to the dixie tax-collector lead) was checked and ruled
+--               INAPPLICABLE on inspection: columbia's A=0 fc=15/td=0 means these are foreclosure cases,
+--               not tax-deed/certificate cases, so the tax collector's certificate-sale data (which
+--               worked for dixie's tax-deed C/D problem) doesn't apply to columbia's foreclosure-outcome
+--               problem -- flagged here so a future session doesn't re-spend time on it.
+--
+--   dixie C/D  (75.8%, needs 95%): minimal recheck only. dixietax.com reconfirmed Cloudflare-blocked
+--               (403, Turnstile challenge page, unchanged). official.myfloridacounty.com now returns
+--               NXDOMAIN in-sandbox -- independently confirmed genuine (not a sandbox DNS artifact) via
+--               2 external public resolvers (8.8.8.8, 1.1.1.1) -- a different failure mode than the
+--               previously-documented Turnstile gate, honestly flagged UNTESTED/INFERRED for that one
+--               specific host rather than forced to match. Net: unchanged, still genuinely blocked; only
+--               remaining lead is a manual phone/in-person records request (Dixie Clerk 352-498-1200 or
+--               Tax Collector 352-498-1213).
+--
+-- jackson and hendry: re-verified live via pencil_dod_evaluate_county, both still 10/10, untouched this
+-- firing (jackson's B/F/G audit rows were freshened earlier today by the 2nd firing of this dispatch,
+-- commit 84cc166f -- still within the 7-day certify-gate window, no action needed).
+--
+-- All 3 audit rows (ids 7342-7344) carry survived=true -- every claim (both "found new sources" and
+-- "still genuinely blocked") was independently re-derived by a separate adversarial-verify agent that
+-- re-fetched the load-bearing URLs itself rather than trusting the investigating agent's report.
+-- Full evidence: GOLD_STANDARD_SHARD2_JACKSON_DIXIE_HENDRY_COLUMBIA_DISPATCH_190AC19F_CONTINUATION_ADDENDUM_2.md
+
+SELECT 1; -- no-op: this migration is a documentation record only
