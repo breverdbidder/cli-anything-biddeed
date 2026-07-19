@@ -1,0 +1,61 @@
+name: "Hardee Clerk Harvest"
+# GOLD STANDARD shard-9 dispatch_id: 30b3a3ea-d603-4f0f-b1a4-c9f25f233bef
+# Hardee has foreclosure_platform=taxdeed_platform='clerk_inperson' in
+# pipeline.counties -- hardee.realforeclose.com/realtaxdeed.com are both
+# unprovisioned RealAuction tenants (302 to generic splash). Sales are held
+# in person (Wed 11am, 417 W Main St Wauchula), but the Clerk's own site
+# publishes structured upcoming-sale cards for foreclosures online. Verified
+# live 2026-07-19: 1 real foreclosure case (25000327CAAXMX), 0 tax-deed
+# listings (page has no card component rendered at all -- genuine zero).
+# This closes the root cause of criterion-H (freshness, SLA 48h) failing for
+# hardee: last_seen_at had gone stale (220h) because nothing was re-scraping
+# this clerk_inperson source on a schedule -- same failure mode documented
+# for seminole in calendar-sweep-dark-counties.yml.
+
+on:
+  schedule:
+    - cron: '55 5 * * *'   # 05:55 UTC daily
+  workflow_dispatch:
+
+jobs:
+  harvest:
+    name: "Harvest hardee clerk foreclosure + tax deed"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests
+
+      - name: "Run harvester"
+        run: |
+          set -euo pipefail
+          EXIT=0
+          python3 scripts/hardee_clerk_harvest.py || EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = genuinely zero listings this cycle -- not a failure
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: H metric via evaluator RPC"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "hardee"}')
+          echo "### SQL VERIFICATION: hardee" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
