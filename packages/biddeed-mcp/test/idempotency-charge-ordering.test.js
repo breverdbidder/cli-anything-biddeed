@@ -56,6 +56,10 @@ function mockFetch({ tier, streamId }) {
     const urlStr = url.toString();
     const method = opts.method || 'GET';
 
+    if (urlStr.includes('/v_certified_counties')) {
+      return jsonRes([{ county_slug: 'brevard' }, { county_slug: 'duval' }]);
+    }
+
     if (urlStr.includes('/mcp_api_keys')) {
       return jsonRes([{
         key_hash: 'hash-triple-fire',

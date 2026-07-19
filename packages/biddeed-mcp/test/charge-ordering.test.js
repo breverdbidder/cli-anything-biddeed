@@ -26,6 +26,8 @@ function mockFetch(routes) {
 
     if (urlStr.includes('/mcp_api_keys')) return jsonRes([routes.customer]);
 
+    if (urlStr.includes('/v_certified_counties')) return jsonRes(routes.certifiedCounties ?? [{ county_slug: 'brevard' }]);
+
     if (urlStr.includes('/mcp_idempotency_keys')) {
       if (method === 'POST') return jsonRes([{}], 201); // always claims — each test uses a fresh requestId
       if (method === 'PATCH') return jsonRes([{}]);

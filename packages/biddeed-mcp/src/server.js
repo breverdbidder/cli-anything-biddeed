@@ -8,6 +8,7 @@ import { recordBilling, checkChargeAllowance, logChargeOutcome } from './billing
 import { computeIdempotencyKey, claimIdempotencyKey, completeIdempotencyKey } from './idempotency.js';
 import { captureToolCall } from './posthog.js';
 import { TOOL_STREAM } from './constants.js';
+import { assertCountyCertified, resolveAuctionCounty } from './cert-gate.js';
 
 // Tool schemas
 import { schemas as discoverySchemas } from './tools/discovery.js';
@@ -71,6 +72,80 @@ const HANDLERS = {
   search_properties:        properties.search_properties,
   get_property_detail:      properties.get_property_detail,
 };
+
+// GTM-22F — Gold Standard certification gate config. Maps every tool that
+// returns county-scoped auction or parcel data to how its county should be
+// resolved for gating. Strategies:
+//   'county'            — args.county is the scoping input, gate directly.
+//   'county_or_case'     — args.county if present, else resolve via
+//                          args.case_number (case_number-only lookup tools:
+//                          without this, a known case_number bypasses the
+//                          county argument entirely).
+//   'case_optional'      — only gate if args.case_number is present (the
+//                          tool also has a pure-computation path with no DB
+//                          row involved, e.g. underwrite_deal with no
+//                          case_number — nothing county-scoped to gate).
+// Tools absent from this map return no proprietary county-scoped auction/
+// parcel rows (see GTM-22F Task A audit) and are intentionally not gated:
+// get_interest_rate (national FRED data, no county), find_local_partners
+// (static partner directory, not auction/parcel data), skip_trace
+// (third-party passthrough contact data, not BidDeed auction/parcel data).
+// browse_deals and get_market_data take county as *optional* and can return
+// rows spanning multiple counties in one call — those are gated via
+// post-fetch row filtering inside their own handlers instead (no single
+// pre-charge county to block on when no county argument is given).
+const CERT_GATE = {
+  search_auctions:          'county',
+  get_auction_detail:       'county_or_case',
+  get_deposit_requirements: 'county_or_case',
+  search_distressed:        'county',
+  get_owner_intel:          'county',
+  get_lien_stack:           'case_optional',
+  analyze_market:           'county',
+  get_zip_market_data:      'county',
+  check_zoning:             'county',
+  underwrite_deal:          'case_optional',
+  analyze_coliving:         'county',
+  get_sales_comps:          'county',
+  generate_deal_memo:       'county',
+  get_bid_package:          'county',
+  get_title_chain:          'county',
+  watch_auction:            'county',
+  predict_auction_outcome:  'county',
+  search_properties:        'county',
+  get_property_detail:      'county',
+  get_market_data:          'county',
+};
+
+// Resolves the gate outcome for one call. Returns null when the call may
+// proceed (nothing to gate, or the resolved county is certified); returns a
+// ready-to-serialize error payload otherwise. Runs before checkChargeAllowance
+// — never charge a customer for a county we are not going to deliver.
+export async function evaluateCertGate(name, args) {
+  const strategy = CERT_GATE[name];
+  if (!strategy) return null;
+
+  if (strategy === 'county') {
+    return assertCountyCertified(args.county);
+  }
+
+  if (strategy === 'county_or_case') {
+    if (args.county) return assertCountyCertified(args.county);
+    if (args.case_number) {
+      const resolved = await resolveAuctionCounty(args.case_number);
+      return assertCountyCertified(resolved);
+    }
+    return null;
+  }
+
+  if (strategy === 'case_optional') {
+    if (!args.case_number) return null;
+    const resolved = await resolveAuctionCounty(args.case_number);
+    return assertCountyCertified(resolved || args.county);
+  }
+
+  return null;
+}
 
 // GTM-22 Task 3, Failure B guard — isolated so the "unserializable result"
 // path is directly unit-testable (circular refs, BigInt, etc.) without
@@ -146,6 +221,19 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
     }
     return {
       content: [{ type: 'text', text: JSON.stringify({ error: 'Duplicate request already in flight — retry shortly', code: 'DUPLICATE_IN_FLIGHT' }) }],
+      isError: true,
+    };
+  }
+
+  // GTM-22F — Gold Standard certification gate. Must run before the charge
+  // decision (Failure A pattern): never charge a customer for a county we
+  // are not going to deliver. Fails closed inside evaluateCertGate/cert-gate.js.
+  const gateResult = await evaluateCertGate(name, args);
+  if (gateResult) {
+    logChargeOutcome({ customerId: customerRecord.customer_id, toolName: name, streamId, outcome: 'blocked_cert_gate' });
+    completeIdempotencyKey({ idempotencyKey, response: gateResult, isError: true }).catch(() => {});
+    return {
+      content: [{ type: 'text', text: JSON.stringify(gateResult) }],
       isError: true,
     };
   }

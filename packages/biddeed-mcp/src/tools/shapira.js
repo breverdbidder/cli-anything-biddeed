@@ -20,27 +20,18 @@ export const schemas = [
 ];
 
 export async function predict_auction_outcome({ case_number, county, arv, strategy = 'flip' }) {
-  // CERT GATE — county must have Gold Standard passing rows (10-letter system, status='PASS')
+  // GTM-22F — the CERT_REQUIRED gate for this tool now runs centrally in
+  // server.js (evaluateCertGate, before the charge decision) against the
+  // canonical v_certified_counties view. This handler previously reimplemented
+  // its own gate directly against gold_standard_county_status with an ad-hoc
+  // 8-letter threshold and no hysteresis — a source that could disagree with
+  // the certification state used everywhere else. By the time this handler
+  // runs, county is guaranteed certified; certRecord below is informational
+  // context for the response only, not a gate.
   const certRows = await get(
     `gold_standard_county_status?county_slug=eq.${encodeURIComponent(county.toLowerCase())}&status=eq.PASS&order=evaluated_at.desc&limit=20`
   ).catch(() => []);
-
   const certRecord = certRows[0] || null;
-  // Gold Standard = county has 8+ letters passing in the most recent evaluation run
-  const recentRunId = certRecord?.loop_run_id;
-  const passingLetters = recentRunId
-    ? certRows.filter(r => r.loop_run_id === recentRunId).length
-    : 0;
-  const isCertified = passingLetters >= 8;
-
-  if (!isCertified) {
-    return {
-      error: 'CERT_REQUIRED',
-      county,
-      message: `${county} county is not Gold Standard certified. predict_auction_outcome requires ≥8 passing letters. Current: ${passingLetters} letters passing (run ${recentRunId || 'none'}).`,
-      action: 'Certification status updates daily. Use underwrite_deal (S3) for uncertified analysis.',
-    };
-  }
 
   // Fetch auction data
   const rows = await get(
@@ -73,7 +64,7 @@ export async function predict_auction_outcome({ case_number, county, arv, strate
   // but is not yet wired here. See docs/ARCHITECTURE.md AUDIT TRAIL.
   const discountScore = Math.min(1, discount * 2);  // high discount = more likely to sell
   const sizeScore = bid > 500000 ? 0.6 : bid < 50000 ? 1.2 : 1.0;  // sweet spot
-  const countyScore = isCertified ? 1.1 : 1.0;
+  const countyScore = 1.1; // county is guaranteed certified at this point (central gate)
 
   const rawScore = baseRate * discountScore * sizeScore * countyScore;
   const sellProbability = Math.min(0.95, Math.max(0.05, rawScore));

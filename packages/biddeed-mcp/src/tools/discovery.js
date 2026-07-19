@@ -1,33 +1,21 @@
 // S1 Discovery tools — $0.05/call, gate: free tier
 import { get } from '../supabase.js';
 import { getClerkLink } from '../constants.js';
-
-// Certified county cache — 1hr TTL to avoid per-call DB round-trips
-const certCache = { counties: null, expiresAt: 0 };
+// GTM-22F — cert_badge annotations and row filtering both read the live,
+// canonical v_certified_counties view (N=2 hysteresis, #12786) via the
+// shared gate module. This replaces a prior 1hr-TTL cache that queried
+// gold_standard_county_status directly with its own ad-hoc 8-letter
+// threshold — a source that could drift from the canonical certification
+// state entirely (no hysteresis) and was never enforced as an actual filter,
+// only a cosmetic badge.
+import { getCertifiedSlugs, normalizeCountySlug as countySlug, filterCertifiedRows } from '../cert-gate.js';
 
 async function getCertifiedCounties() {
-  if (certCache.counties && certCache.expiresAt > Date.now()) return certCache.counties;
   try {
-    // Gold Standard = county has ≥8 PASS letters in its most recent evaluation run
-    const rows = await get(
-      'gold_standard_county_status?status=eq.PASS&select=county_slug,loop_run_id&order=evaluated_at.desc&limit=2000'
-    ).catch(() => []);
-    const latestRun = {};
-    const passCounts = {};
-    for (const r of rows) {
-      if (!latestRun[r.county_slug]) { latestRun[r.county_slug] = r.loop_run_id; passCounts[r.county_slug] = 0; }
-      if (r.loop_run_id === latestRun[r.county_slug]) passCounts[r.county_slug]++;
-    }
-    certCache.counties = Object.entries(passCounts).filter(([, n]) => n >= 8).map(([s]) => s);
-    certCache.expiresAt = Date.now() + 60 * 60 * 1000;
+    return Array.from(await getCertifiedSlugs());
   } catch {
-    certCache.counties = certCache.counties || [];
+    return [];
   }
-  return certCache.counties;
-}
-
-function countySlug(name) {
-  return (name || '').toLowerCase().replace(/\s+/g, '_');
 }
 
 export const schemas = [
@@ -181,24 +169,29 @@ export async function browse_deals({ county, max_bid, cert_only = false, sale_ty
     getCertifiedCounties(),
   ]);
 
+  // GTM-22F — certification is a hard delivery gate, not an opt-in filter.
+  // browse_deals has no required county (that's the point — it's a
+  // cross-county browse), so there is no single county to pre-charge-gate
+  // on centrally; every row is filtered to certified counties here instead.
+  // cert_only is kept for API back-compat but no longer changes behavior —
+  // uncertified rows are never returned regardless of its value.
   const scored = rows
+    .filter(r => certCounties.includes(countySlug(r.county)))
     .map(r => {
       const fj = r.judgment_amount || 0;
       const bid = r.opening_bid || 0;
       const discount = fj > 0 ? (fj - bid) / fj : 0;
-      const cert_badge = certCounties.includes(countySlug(r.county));
-      return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05), cert_badge };
+      return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05), cert_badge: true };
     })
-    .filter(r => !cert_only || r.cert_badge)
     .sort((a, b) => b.shapira_discount - a.shapira_discount)
     .slice(0, limit);
 
   return {
     count: scored.length,
     days_ahead,
-    cert_only,
-    certified_counties: cert_only ? certCounties : undefined,
-    note: 'shapira_discount = (final_judgment - opening_bid) / final_judgment × 100. Higher = better deal. Run predict_auction_outcome (S5) for certified prediction.',
+    cert_only: true,
+    certified_counties: certCounties,
+    note: 'Results are limited to Gold Standard certified counties (shapira_discount = (final_judgment - opening_bid) / final_judgment × 100. Higher = better deal). Run predict_auction_outcome (S5) for certified prediction.',
     deals: scored,
   };
 }
