@@ -60,4 +60,15 @@ export async function rpc(fn, params = {}) {
   return res.json();
 }
 
-export default { get, insert, patch, rpc };
+// Fetches a raw object from Supabase Storage (e.g. a trained model artifact).
+// Returns the response body as text — callers parse (JSON.parse, etc).
+export async function storageGet(bucket, path) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, { headers: headers() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Supabase storage GET ${bucket}/${path} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.text();
+}
+
+export default { get, insert, patch, rpc, storageGet };

@@ -10,7 +10,7 @@ import { badgeRows, badgeCounty } from '../cert-gate.js';
 export const schemas = [
   {
     name: 'search_auctions',
-    description: 'Search FL foreclosure and tax deed auctions. Returns upcoming auctions with opening bids, deposit requirements, and cert badges. Our advantage: real-time Brevard/Duval/Orange auction calendar + Shapira pre-scoring.',
+    description: 'Discover FL foreclosure and tax deed auctions by county, date, or bid range — the starting point for "find me auctions in <county>" or "what\'s coming up this week". Returns case numbers, opening bids, deposit requirements, and cert badges. $0.05/call. Once you have a case number, call predict_auction_outcome ($25/call, cert-gated) for the full property intelligence report and BID/SKIP verdict on a specific property.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',

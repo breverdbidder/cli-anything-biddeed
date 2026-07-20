@@ -281,6 +281,7 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
     resultSummary,
     county: args.county || null,
     certStatus: name === 'predict_auction_outcome' ? (result?.cert_status || null) : null,
+    modelVersion: name === 'predict_auction_outcome' ? (result?.model_version || null) : null,
   }).then((billingEventId) => {
     completeIdempotencyKey({ idempotencyKey, response: result, isError: toolError, billingEventId }).catch(() => {});
   }).catch((err) => {

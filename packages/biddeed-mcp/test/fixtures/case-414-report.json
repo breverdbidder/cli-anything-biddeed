@@ -1,0 +1,285 @@
+{
+  "cover": {
+    "case_number": "422021CA000414CAAXXX",
+    "county": "marion",
+    "property_address": "14470 SE 91ST TER, SUMMERFIELD, FL- 34491",
+    "verdict": "BID",
+    "investment_grade": "B",
+    "shapira_max_bid": {
+      "value": 89621,
+      "display": "$89,621",
+      "source": "Shapira anchor formula (0.70×value − 0.15×value − $10k − margin buffer)"
+    },
+    "entry_bid": {
+      "value": 71980,
+      "display": "$71,980",
+      "source": "plaintiff_max_bid (disclosed credit-bid floor)"
+    }
+  },
+  "value_estimate": {
+    "low": 93644,
+    "high": 105599,
+    "midpoint": 99621,
+    "anchors": [
+      {
+        "key": "county_clearance_prior",
+        "value": 83426.84276,
+        "source": "county clearance prior (median sold/assessed=0.667, n=159)"
+      },
+      {
+        "key": "judgment_ratio_prior",
+        "value": 85509.14879068761,
+        "source": "county clearance prior (median sold/FJ=0.521, n=36)"
+      },
+      {
+        "key": "prior_arms_length_sale",
+        "value": 75100,
+        "source": "prior sale 2023-03-01 at $75,100"
+      },
+      {
+        "key": "cma_median",
+        "value": 154450,
+        "source": "CMA median of 6 comps (±30% sqft, same zip+DOR-use, sale within 2yr)"
+      }
+    ]
+  },
+  "county_stats": {
+    "county": "marion",
+    "n_sold_to_assessed": 159,
+    "n_sold_to_judgment": 36,
+    "median_sold_to_assessed": 0.66734,
+    "median_sold_to_judgment": 0.5209704659060557,
+    "p25_sold_to_judgment": 0.4316751724437366,
+    "p75_sold_to_judgment": 0.6528110654852788,
+    "confidence": "HIGH",
+    "insufficient": false,
+    "note": null
+  },
+  "transaction_history": {
+    "prior_sale_date": "2023-03-01",
+    "prior_sale_price": {
+      "value": 75100,
+      "display": "$75,100",
+      "source": "prior_sale_price"
+    }
+  },
+  "property_record": {
+    "property_type": "MH - MOBILE - MOBILE HOME RESID",
+    "beds": 3,
+    "baths": 2,
+    "living_area_sqft": 1248,
+    "year_built": 2005,
+    "lot_size_acres": 0.34,
+    "homestead_status": "non-homestead"
+  },
+  "auction_listing": {
+    "case_number": "422021CA000414CAAXXX",
+    "auction_date": "2026-07-20",
+    "plaintiff": "U.S. Bank Trust National Association, as Trustee of Towd Point Master Funding Trust 2022-EBO1-REO",
+    "judgment_amount": {
+      "value": 164134.35,
+      "display": "$164,134.35",
+      "source": "judgment_amount"
+    },
+    "plaintiff_max_bid": {
+      "value": 71980,
+      "display": "$71,980",
+      "source": "owner_observed_rendered_page_2026-07-20T11:56:00Z"
+    },
+    "assessed_value": {
+      "value": 125014,
+      "display": "$125,014",
+      "source": "assessed_value"
+    }
+  },
+  "context_layers": {
+    "ml_model": {
+      "available": true,
+      "model_version": "v14.0",
+      "probability_third_party_purchase": 0.0553,
+      "feature_vector": {
+        "judgment_amount_log1p": 12.008446671307578,
+        "opening_bid_log1p": 0,
+        "market_value_log1p": 11.736189009085015,
+        "assessed_value_log1p": 11.736189009085015,
+        "prior_sale_price_log1p": 11.226589153242802,
+        "beds_f": 3,
+        "baths_f": 2,
+        "sqft_f": 1248,
+        "property_age": 21,
+        "opening_to_market": 0,
+        "judgment_to_market": 1.3129277520917657,
+        "years_since_prior_sale": 3,
+        "has_prior_sale": 1,
+        "is_foreclosure": 1,
+        "is_tax_deed": 0,
+        "has_homestead": 0,
+        "owner_is_estate": 0,
+        "owner_is_entity": 0,
+        "owner_is_lender": 0,
+        "is_diamond": 1,
+        "county_target_enc": 0.42
+      },
+      "county_target_enc": {
+        "value": 0.42,
+        "n": 0,
+        "inferred": true
+      },
+      "caveat": "Probability uses a best-effort feature reconstruction (see feature-vector.js) — the original training-time feature-engineering source is not in this repo. Treat as directional, not exact."
+    }
+  },
+  "zoning": {
+    "section_key": "zoning",
+    "band": "orange",
+    "label": "NO HC EQUIVALENT — THE PAIRING",
+    "matched": true,
+    "state_parcel_id": "4593-018-011",
+    "co_no": 52,
+    "jurisdiction": "SUMMERFIELD",
+    "dor_use_code": "002",
+    "dor_use_meaning": "Mobile home",
+    "dor_just_value": 125014,
+    "land_value": 23428,
+    "land_sqft": 15000,
+    "land_psf": 1.56,
+    "land_share_of_jv": 0.187,
+    "zoning_district": "PENDING",
+    "zoning_coverage_note": "No zoning_assignments row exists for this parcel — coverage for marion is not yet extracted. District rendered PENDING, never inferred.",
+    "conforming_use_read": "Presumptively conforming per DOR use code only — district not yet assigned, confirm before relying on this.",
+    "dor_jv_vs_assessed_divergence": null,
+    "verdict": "Land value $23,428 on 15,000 sqft ($1.56/sqft), 19% of DOR just value."
+  },
+  "cma": {
+    "section_key": "cma",
+    "comps": [
+      {
+        "address": "16890 SE 104TH TER",
+        "sqft": 1248,
+        "year_built": 1970,
+        "sale_price": 50000,
+        "sale_year": 2024,
+        "price_per_sqft": 40.06
+      },
+      {
+        "address": "9465 SE 119TH ST",
+        "sqft": 1248,
+        "year_built": 1989,
+        "sale_price": 168900,
+        "sale_year": 2024,
+        "price_per_sqft": 135.34
+      },
+      {
+        "address": "5360 SE HWY 42",
+        "sqft": 1248,
+        "year_built": 2000,
+        "sale_price": 206300,
+        "sale_year": 2024,
+        "price_per_sqft": 165.3
+      },
+      {
+        "address": "14600 SE 51ST TER",
+        "sqft": 1248,
+        "year_built": 1981,
+        "sale_price": 140000,
+        "sale_year": 2024,
+        "price_per_sqft": 112.18
+      },
+      {
+        "address": "2686 SE 172ND ST",
+        "sqft": 1248,
+        "year_built": 1985,
+        "sale_price": 204000,
+        "sale_year": 2024,
+        "price_per_sqft": 163.46
+      },
+      {
+        "address": "2945 SE 172ND ST",
+        "sqft": 1248,
+        "year_built": 2000,
+        "sale_price": 110000,
+        "sale_year": 2024,
+        "price_per_sqft": 88.14
+      }
+    ],
+    "n": 6,
+    "median_sale_price": 154450,
+    "range": {
+      "min": 50000,
+      "max": 206300
+    },
+    "dispersion_flag": "HIGH",
+    "jv_twin": {
+      "address": "16890 SE 104TH TER",
+      "jv_ratio": 0.77
+    },
+    "note": null
+  },
+  "opinion_of_price_bid_card": {
+    "entry_bid": 71980,
+    "shapira_ceiling": 89621,
+    "value_midpoint": 99621.4978876719,
+    "verdict": "BID"
+  },
+  "judgment": {
+    "judgment_amount": 164134.35,
+    "opening_bid": null,
+    "bid_to_judgment_ratio": null
+  },
+  "red_flags": [
+    {
+      "code": "MH_TITLE",
+      "severity": "risk",
+      "text": "Mobile home — title may be titled as personal property (HSMV) rather than real property; confirm real-property conversion (FL FS 320.0815) before bidding."
+    },
+    {
+      "code": "OCCUPANCY",
+      "severity": "pending",
+      "text": "Pending — no occupancy inspection data available for this property."
+    },
+    {
+      "code": "CONDITION",
+      "severity": "pending",
+      "text": "Pending — no condition/inspection report available; assume as-is, unseen-interior risk."
+    },
+    {
+      "code": "FEDERAL_LIENS",
+      "severity": "pending",
+      "text": "Pending — federal tax lien search not run for this parcel (survives foreclosure if IRS not properly joined, FL FS 45)."
+    }
+  ],
+  "composition": {
+    "auction_intel": {
+      "section_key": "auction_intel",
+      "status": "delivered"
+    },
+    "zoning": {
+      "section_key": "zoning",
+      "status": "delivered (see SECTION ZW)"
+    },
+    "lien_search": {
+      "section_key": "lien_search",
+      "status": "Pending — Title Tier 1 (lien search) not yet live for this county"
+    },
+    "lien_survival": {
+      "section_key": "lien_survival",
+      "status": "Pending — Title Tier 2 (lien survival, Fla. Stat. §197.552/§713.07) not yet live for this county"
+    },
+    "title_search": {
+      "section_key": "title_search",
+      "status": "Pending — Title Tier 3 (title search) not yet live for this county"
+    },
+    "deal_score": {
+      "section_key": "deal_score",
+      "status": "delivered"
+    }
+  },
+  "provenance": {
+    "section": 17,
+    "title": "Provenance & Methodology",
+    "generated_from": "multi_county_auctions (live), fl_parcels (live), zoning_assignments (live), shapira_models v14.0 (Supabase storage)",
+    "model_disclosure": "Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. A single XGBoost v14.0 classifier (72.2% accuracy, 0.7834 AUC, trained 2026-05-27) additionally scores third-party-purchase probability as a directional signal in context_layers.ml_model — this is informational, not the deal verdict driver.",
+    "certification_disclosure": "Delivered under Gold Standard certification gating (v_certified_counties) — this report tool is CERT_REQUIRED and will refuse an uncertified county before any charge is made.",
+    "kpi_coverage": null,
+    "generated_at_field": "stamped by caller at response time (composer.js is deterministic and takes no wall-clock dependency of its own)"
+  }
+}

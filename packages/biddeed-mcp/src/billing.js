@@ -87,6 +87,7 @@ export async function recordBilling({
   resultSummary = '',
   county = null,
   certStatus = null,
+  modelVersion = null,
 }) {
   const streamId = TOOL_STREAM[toolName] || 's1';
   const unitPrice = STREAM_PRICE[streamId] ?? 0;
@@ -115,6 +116,7 @@ export async function recordBilling({
     settled,
     settled_at: settled ? new Date().toISOString() : null,
     cert_status: certStatus,
+    model_version: modelVersion,
     county: county || params.county || null,
     params: safeParams,
     result_summary: String(resultSummary || '').slice(0, 500),

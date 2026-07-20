@@ -1,0 +1,38 @@
+{
+  "version": [2, 0, 0],
+  "learner": {
+    "attributes": {},
+    "feature_names": [],
+    "feature_types": [],
+    "learner_model_param": { "base_score": "5E-1", "boost_from_average": "1", "num_class": "0", "num_feature": "21", "num_target": "1" },
+    "objective": { "name": "binary:logistic", "reg_loss_param": { "scale_pos_weight": "1" } },
+    "gradient_booster": {
+      "name": "gbtree",
+      "model": {
+        "gbtree_model_param": { "num_parallel_tree": "1", "num_trees": "1" },
+        "iteration_indptr": [0, 1],
+        "tree_info": [0],
+        "trees": [
+          {
+            "id": 0,
+            "tree_param": { "num_nodes": "3" },
+            "left_children": [1, -1, -1],
+            "right_children": [2, -1, -1],
+            "split_indices": [0, 0, 0],
+            "split_conditions": [1.0, -0.5, 0.5],
+            "default_left": [true, false, false],
+            "base_weights": [0.0, -0.5, 0.5],
+            "sum_hessian": [1, 1, 1],
+            "loss_changes": [0, 0, 0],
+            "parents": [2147483647, 0, 0],
+            "categories": [],
+            "categories_nodes": [],
+            "categories_segments": [],
+            "categories_sizes": [],
+            "split_type": [0, 0, 0]
+          }
+        ]
+      }
+    }
+  }
+}
