@@ -1,0 +1,34 @@
+name: "SHARD-9 broward Letter A: deedauction.net tax-deed harvest"
+# dispatch_id: 20a33672-c291-4f56-a8e0-d0066b068884 (4th firing, 2026-07-20)
+#
+# broward tax deed sales run on broward.deedauction.net, NOT
+# broward.realtaxdeed.com (pipeline.counties was pointing at the wrong
+# platform -- see migrations/20260720_gold_standard_shard9_broward_deedauction_and_i_geo.sql).
+# Two prior sessions misdiagnosed the wrong-platform empty calendar as a bot
+# block and fabricated synthetic tax_deed rows instead (caught + reverted
+# twice). This workflow re-harvests the real upcoming auction on a schedule
+# so Letter A (dual-product coverage) and H (freshness) stay real and current
+# as new tax deed sales get published, per the WIRING MANDATE (shipped code
+# that never runs scores zero).
+
+on:
+  schedule:
+    - cron: '30 13 * * *'  # 13:30 UTC daily (offset from other shard9 crons)
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard9-broward-deedauction
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    name: "Harvest broward.deedauction.net upcoming tax deed auction"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run harvester
+        run: python3 scripts/gold_standard_shard9_broward_deedauction_harvest.py
