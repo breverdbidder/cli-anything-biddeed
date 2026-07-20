@@ -1,0 +1,133 @@
+name: "MAXBID TEMPORAL SWEEP — first-seen-vs-sale-date forensics"
+# Issue #12854 AMENDMENT (2026-07-20 architect comment): the "morning
+# visibility window" in the original brief was an UNPROVEN HYPOTHESIS based
+# on one observation pair. This workflow builds the empirical evidence
+# instead: every 6h it re-checks Plaintiff Max Bid for every upcoming
+# foreclosure case already on file in multi_county_auctions (next
+# WINDOW_DAYS=7 days), across every county with a foreclosure sale in that
+# window — not just today's sale-day counties. Repeated ticks let
+# mca_maxbid_observations answer, per case: when did a value first appear
+# relative to auction_date, and did it ever change or flip to Hidden.
+#
+# Bounded per §3.3: matrix is built from counties with an actual foreclosure
+# row in the window (evidence-based, not the full 49-county subdomain
+# estate), max-parallel 5, 15-min per-job timeout, continue-on-error so one
+# county's failure never blocks the rest.
+#
+# PROJECT_TO_MCA=true (same non-destructive columns-scoped upsert as the
+# sale_day sweep) so a value disclosed early — days before the sale, per
+# amendment hypothesis (c) — is captured the moment any tick sees it,
+# instead of waiting for a sale-day-only sweep to catch a closed window.
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_to_mca:
+        description: 'true = also project non-hidden values onto multi_county_auctions'
+        required: false
+        default: 'true'
+      window_days:
+        description: 'How many days ahead to sweep'
+        required: false
+        default: '7'
+      county:
+        description: 'Single county slug to run (leave empty for all counties with a foreclosure sale in the window)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 */6 * * *'
+
+concurrency:
+  group: maxbid-temporal-sweep
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. BUILD WINDOW MATRIX ────────────────────────────────────────────────
+  setup:
+    name: "Build window matrix (FL realforeclose, next N days)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      total:  ${{ steps.gen.outputs.total }}
+    steps:
+      - name: "Query MCA for counties with a foreclosure sale in the window + subdomain base_url"
+        id: gen
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SINGLE_COUNTY: ${{ github.event.inputs.county || '' }}
+          WINDOW_DAYS: ${{ github.event.inputs.window_days || '7' }}
+        run: |
+          set -euo pipefail
+          TODAY=$(date -u +%Y-%m-%d)
+          END=$(date -u -d "+${WINDOW_DAYS} days" +%Y-%m-%d)
+
+          MCA_FILTER="auction_date=gte.${TODAY}&auction_date=lte.${END}&source_platform=eq.realforeclose&sale_type=eq.foreclosure&select=county"
+          if [ -n "${SINGLE_COUNTY}" ]; then
+            MCA_FILTER="${MCA_FILTER}&county=eq.${SINGLE_COUNTY}"
+          fi
+
+          MCA_RESP=$(curl -sf \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/multi_county_auctions?${MCA_FILTER}" || echo "[]")
+
+          SLUGS=$(echo "$MCA_RESP" | python3 -c "import json,sys; rows=json.load(sys.stdin); print(','.join(sorted({r['county'] for r in rows if r.get('county')})))")
+
+          if [ -z "$SLUGS" ]; then
+            echo "::notice::No FL foreclosure counties with a sale in [${TODAY}, ${END}] — nothing to sweep"
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+            echo "total=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::Window counties [${TODAY}..${END}]: ${SLUGS}"
+
+          SUB_RESP=$(curl -sf \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/realauction_subdomains?is_active=eq.true&platform=eq.realforeclose&state_code=eq.FL&county_slug=in.(${SLUGS})&select=county_slug,base_url")
+
+          MATRIX=$(echo "$SUB_RESP" | jq -c '{include: [.[] | {
+            county:   .county_slug,
+            base_url: (.base_url | split("/index.cfm")[0])
+          }]}')
+
+          TOTAL=$(echo "$MATRIX" | jq '.include | length')
+          echo "::notice::Matrix: ${TOTAL} counties (foreclosure, window-gated)"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL"   >> "$GITHUB_OUTPUT"
+
+  # ── 2. SWEEP (parallel, bounded) ─────────────────────────────────────────
+  sweep:
+    name: "maxbid_sweep temporal ${{ matrix.county }}"
+    needs: setup
+    if: needs.setup.outputs.total != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests
+
+      - name: "Run maxbid_sweep.py (temporal mode)"
+        env:
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COUNTY_SLUG:                ${{ matrix.county }}
+          BASE_URL:                   ${{ matrix.base_url }}
+          MODE:                       temporal
+          WINDOW_DAYS:                 ${{ github.event.inputs.window_days || '7' }}
+          PROJECT_TO_MCA:              ${{ github.event.inputs.project_to_mca || 'true' }}
+          SWEEP_RUN_ID:                ${{ github.run_id }}
+        run: python .github/scripts/maxbid_sweep.py

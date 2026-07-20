@@ -2,15 +2,25 @@
 """
 maxbid_sweep.py — MAXBID SWEEP (issue #12854)
 
-Captures RealAuction's "Plaintiff Max Bid" field during its early-morning
-public visibility window (field-proven, Marion 2026-07-20: disclosed at
-11:56Z, "Hidden" for all cases by 12:10Z). There is no separate disclosing
-vs hiding endpoint — the PREVIEW page ships zero embedded auction data (it
-is a JS shell); the JSON Zmethod=UPDATE endpoint is the only place any
-consumer, human browser or scraper, ever sees the field. The window is a
-server-side time gate applied uniformly to that one endpoint, so this
-script hits the same endpoint calendar_sweep_mca.py already uses, just on
-an earlier schedule (before the window closes) and scoped to TODAY only.
+Captures RealAuction's "Plaintiff Max Bid" field. There is no separate
+disclosing vs hiding endpoint — the PREVIEW page ships zero embedded
+auction data (it is a JS shell); the JSON Zmethod=UPDATE endpoint is the
+only place any consumer, human browser or scraper, ever sees the field.
+This script hits the same endpoint calendar_sweep_mca.py already uses.
+
+Two modes (MODE env, default 'sale_day'):
+  sale_day  — original behavior: sweep TODAY only. Used by the 10:00 UTC
+              (06:00 ET) cron, scoped to counties with a foreclosure sale
+              TODAY, to capture+project a value before the window (field-
+              proven, Marion 2026-07-20: disclosed 11:56Z, Hidden by 12:10Z)
+              closes for that day's cases.
+  temporal  — AMENDMENT (issue #12854, 2026-07-20 architect comment): the
+              time-based-window hypothesis is UNPROVEN. This mode sweeps
+              every upcoming auction_date already on file in
+              multi_county_auctions for this county (within WINDOW_DAYS,
+              default 7), on a recurring cadence (6h cron), so repeated
+              ticks build an empirical first-seen-disclosed-value-relative-
+              to-sale-date distribution instead of assuming one.
 
 Every capture (value OR "Hidden") appends a row to
 public.mca_maxbid_observations. If PROJECT_TO_MCA=true, a non-hidden value
@@ -19,14 +29,16 @@ same columns-scoped upsert pattern as calendar_sweep_mca.py, so a later
 "Hidden" observation never nulls out an earlier disclosed number.
 
 Env (required): COUNTY_SLUG, BASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-Env (optional):  PROJECT_TO_MCA (default 'false'), SWEEP_RUN_ID
+Env (optional):  MODE (default 'sale_day'), WINDOW_DAYS (default '7',
+                  temporal mode only), PROJECT_TO_MCA (default 'false'),
+                  SWEEP_RUN_ID
 
 Exit codes:
   0 = success (ran to completion; 0 cases for today is not an error)
   1 = fatal error (network/Supabase failure)
 """
 import os, re, sys, json, time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import requests
 
 
@@ -43,6 +55,8 @@ SUPA_URL = _req('SUPABASE_URL').rstrip('/')
 SUPA_KEY = _req('SUPABASE_SERVICE_ROLE_KEY')
 PROJECT_TO_MCA = os.environ.get('PROJECT_TO_MCA', 'false').strip().lower() == 'true'
 SWEEP_RUN_ID = os.environ.get('SWEEP_RUN_ID', '')
+MODE = os.environ.get('MODE', 'sale_day').strip().lower()
+WINDOW_DAYS = int(os.environ.get('WINDOW_DAYS', '7'))
 
 TODAY = date.today()
 REST  = f'{SUPA_URL}/rest/v1'
@@ -54,7 +68,7 @@ SUPA_H = {
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36')
 
-print(f'>>> maxbid_sweep | {COUNTY} | today={TODAY} | project_to_mca={PROJECT_TO_MCA}')
+print(f'>>> maxbid_sweep | {COUNTY} | mode={MODE} | today={TODAY} | project_to_mca={PROJECT_TO_MCA}')
 
 SESSION = requests.Session()
 SESSION.headers.update({
@@ -134,8 +148,8 @@ def _parse_cards(ret_html):
     return out
 
 
-def scrape_today():
-    date_str = TODAY.strftime('%m/%d/%Y')
+def scrape_for_date(target_date):
+    date_str = target_date.strftime('%m/%d/%Y')
     date_enc = date_str.replace('/', '%2F')
     preview_url = f'{BASE_URL}/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE={date_enc}'
 
@@ -146,7 +160,7 @@ def scrape_today():
 
     all_cards = []
     seen = set()
-    ret_html, _ = _get_json_page(TODAY, page_dir=0, do_r=1)
+    ret_html, _ = _get_json_page(target_date, page_dir=0, do_r=1)
     if not ret_html:
         return []
     for case_num, pmb in _parse_cards(ret_html):
@@ -157,7 +171,7 @@ def scrape_today():
 
     for pg in range(2, 16):
         time.sleep(1)
-        ret_html2, _ = _get_json_page(TODAY, page_dir=1, do_r=0)
+        ret_html2, _ = _get_json_page(target_date, page_dir=1, do_r=0)
         if not ret_html2:
             break
         page_cards = _parse_cards(ret_html2)
@@ -169,6 +183,33 @@ def scrape_today():
         all_cards.extend(new)
 
     return all_cards
+
+
+def fetch_target_dates():
+    """
+    sale_day mode: TODAY only (original behavior, unchanged).
+    temporal mode: every distinct auction_date already on file for this
+    county in multi_county_auctions within [TODAY, TODAY+WINDOW_DAYS] —
+    i.e. dates the existing calendar_sweep_mca_v3 pipeline has already
+    confirmed have foreclosure listings, so this never blind-probes a date
+    with nothing to find.
+    """
+    if MODE != 'temporal':
+        return [TODAY]
+    end = (TODAY + timedelta(days=WINDOW_DAYS)).isoformat()
+    url = (f'{REST}/multi_county_auctions?county=eq.{COUNTY}'
+           f'&source_platform=eq.realforeclose&sale_type=eq.foreclosure'
+           f'&auction_date=gte.{TODAY.isoformat()}&auction_date=lte.{end}'
+           f'&select=auction_date')
+    try:
+        r = requests.get(url, headers=SUPA_H, timeout=30)
+        r.raise_for_status()
+        dates = sorted({row['auction_date'] for row in r.json() if row.get('auction_date')})
+        parsed = [datetime.strptime(d, '%Y-%m-%d').date() for d in dates]
+        return parsed or [TODAY]
+    except (requests.RequestException, ValueError) as e:
+        print(f'  ! fetch_target_dates error: {e} — falling back to [TODAY]', file=sys.stderr)
+        return [TODAY]
 
 
 def upsert_observations(rows):
@@ -206,8 +247,17 @@ def project_to_mca(case_number, county, value, observed_at_iso, source_path):
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────
-cards = scrape_today()
-print(f'  {COUNTY}: {len(cards)} cases found for {TODAY}')
+target_dates = fetch_target_dates()
+print(f'  {COUNTY}: mode={MODE}, target dates={[d.isoformat() for d in target_dates]}')
+
+cards = []
+for i, td in enumerate(target_dates):
+    if i > 0:
+        time.sleep(2)
+    day_cards = scrape_for_date(td)
+    print(f'    {td}: {len(day_cards)} cases')
+    cards.extend(day_cards)
+print(f'  {COUNTY}: {len(cards)} cases found across {len(target_dates)} date(s)')
 
 now_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
 observed_at_iso = now_bucket.strftime('%Y-%m-%dT%H:%M:00Z')
