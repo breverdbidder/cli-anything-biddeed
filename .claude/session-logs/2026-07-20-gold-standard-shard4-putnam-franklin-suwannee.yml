@@ -1,0 +1,129 @@
+session:
+  shard: SHARD-4 (putnam / franklin / suwannee)
+  dispatch_id: 6eb17f60-d04c-404c-96f6-b8181e4c302c
+  chat_session: architect-20260720T160000
+  date: 2026-07-20
+  mode: ultracode Workflow fan-out (Research -> adversarial Verify), followed by
+    orchestrator tie-break research + a second bounded Agent call for suwannee parcel matching
+
+pre_session_baseline (queried live before any work, via pencil_dod_evaluate_county):
+  putnam: "10/10 GOLD -- all letters PASS, matches dispatch brief exactly"
+  franklin: "8/10 -- B FAIL (null, 0/0 closed_sold), F FAIL (null, 0/0). All else PASS."
+  suwannee: "7/10 -- A FAIL (fc=0/td=9), B FAIL (null, 0/0), F FAIL (null, 0/0). All else PASS."
+
+decisions:
+  - step: 1
+    action: "psql/pooler direct DB auth unreachable from this sandbox (password auth failed on both
+      us-east-1 and us-west-2 pooler hosts and the direct db.*.supabase.co host). Switched to PostgREST
+      (RPC + REST) for reads and the Supabase Management API SQL endpoint for writes -- same pattern
+      several prior sessions this month used under the same constraint."
+    reason: "no functioning psql credential path this session; Management API + service-role REST both
+      authenticate successfully via SUPABASE_ACCESS_TOKEN / SUPABASE_SERVICE_ROLE_KEY env vars"
+
+  - step: 2
+    action: "Dispatched an ultracode Workflow: 2 parallel research agents (franklin B/F root cause,
+      suwannee A/B/F live re-check), 10 resulting claims each followed by an independent adversarial
+      refuter agent."
+    result: "4/10 claims survived first pass. Refuters correctly killed 2 suwannee 'no-sale' claims for
+      relying on an uncalibrated calendar-widget counter (proven unreliable via a same-session
+      calibration check against a 47-day-old known-past auction) and case numbers absent from the
+      Clerk's own published schedule. They also correctly killed the suwannee realforeclose.com A-claim's
+      framing but in doing so surfaced a genuinely new, larger finding (see step 4)."
+
+  - step: 3
+    action: "2 franklin 'sold' claims (TDA 616-2023, TDA 624-2023) were refuted on the grounds that
+      franklinclerk.com/public-sales/tax-deeds/ contradicts them (still shows status=scheduled).
+      Orchestrator independently fetched that page directly."
+    result: "That page's Vue component is titled 'Upcoming Tax Deed Sales' and its :taxdeeds prop embeds
+      the IDENTICAL raw JSON as the wp-json/kma/v1/taxdeeds feed already known (pre-session) to be
+      stale/never updated post-sale -- i.e. the 'contradicting' source is not independent, it's the same
+      feed. Overturned both refutations on this new evidence; all 4 franklin sold amounts (recorded TAX
+      DEED instruments, OR Book 1449 pages 325/328/331/335, franklin-search.gsacorp.io) written."
+    reason: "HONESTY PROTOCOL requires acting on the strongest available evidence, not the first
+      refutation verdict, when that verdict's own premise can itself be independently checked and found
+      wrong"
+
+  - step: 4
+    action: "Applied franklin B/F write via Supabase Management API: multi_county_auctions.sold_amount +
+      tax_deed_outcomes insert (data_source=franklin_pa_gsacorp_recorded_td:2026-07-20, independent of
+      propertyonion) for TDA 93/616/624/632-2023, then called public.promote_tier1_from_outcomes()
+      (existing function, not modified) once live for immediate F verification."
+    result: "pencil_dod_evaluate_county('franklin'): B null(0/0)->100.0(4/4); F null(0/0)->100.0(4/4).
+      franklin 8/10 -> 10/10. No regression on C/D/E/G/H/I/J (re-verified live, all unchanged PASS)."
+
+  - step: 5
+    action: "Suwannee A-lane refuter surfaced that realforeclose.com is genuinely empty but is also the
+      WRONG venue: suwgov.org/court-services/foreclosures/ states sales are in-person at the courthouse
+      (Brevard-exception pattern) and links a live docx sale list. Orchestrator independently fetched +
+      parsed the raw docx XML: 6 real cases (25-CA-197, 25-CA-170, 26-CA-19, 25-CA-200, 26-CA-2, 26-CA-7,
+      all 2026, dates 7/23-8/27). Dispatched a follow-up Agent to parcel-match the 6 defendants."
+    result: "5/6 resolved via a reverse-engineered unauthenticated Suwannee Property Appraiser API
+      (GET suwannee-search.gsacorp.io/api/livesearch/<name> -> /parcel/<id>); orchestrator independently
+      re-verified 2 of the 5 (Dowdy, Sage) against the live page, exact match. 1/6 (David Thomas) genuinely
+      unresolved -- 3 same-surname candidates, no public docket to disambiguate."
+
+  - step: 6
+    action: "Checked v_zoning_gold_standard_card live for all 5 resolved suwannee parcel_ids before
+      inserting anything."
+    result: "Zero have a zone_code. Inserting the 5 rows would grow suwannee auctions_total 9->14 with
+      zero I-card-complete numerator growth, dropping I 100.0(9/9, PASS)->< 95(9/14, FAIL) -- a real
+      regression on a critical-three letter, not a scoring artifact. Held back the entire insert per the
+      no-regression rule; all 5 parcel matches + the API discovery documented in pipeline.counties.notes
+      and gold_standard_ultraloop_audit (id 7937) so a future session with zoning coverage for these
+      parcels can ship immediately without re-deriving anything."
+    reason: "GOLD STANDARD verification protocol: 'any regression = P0' -- a partial A fix that breaks I
+      is a net loss, not a net gain"
+
+  - step: 7
+    action: "Suwannee B/F (cases 4666/4667) re-checked per the workflow's refuted findings: neither case
+      number appears in the Clerk's own current published TD schedule PDF, and the realtaxdeed.com
+      CALACT counter was shown non-authoritative via a calibration test. No write made -- genuinely
+      unresolved, not a confirmed zero and not a confirmed sale."
+    result: "suwannee B/F unchanged (null, 0/0). Flagged as an open case-number-format question for a
+      future session, distinct from the already-exhausted 'genuine zero' conclusion of the 07-11/07-18
+      sessions."
+
+  - step: 8
+    action: "Logged 4 new gold_standard_ultraloop_audit rows (franklin B id 7935 survived=true, franklin F
+      id 7936 survived=true, suwannee A id 7937 survived=true/not-applied, suwannee B id 7938
+      survived=false) documenting claim + refuter_evidence for each."
+    result: "Verified via SELECT against the table post-insert -- all 4 rows present with correct
+      dispatch_id, matches this session's chat_session."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('putnam') before vs after"
+    proof: "10/10 both times, unchanged -- no work needed or done on putnam this session"
+  - check: "pencil_dod_evaluate_county('franklin') before vs after"
+    proof: "before: B=null(0/0) F=null(0/0), 8/10. after: B=100.0(4/4) F=100.0(4/4), 10/10. C/D/E/G/H/I/J
+      all unchanged PASS -- re-queried live post-write, confirmed no regression."
+  - check: "pencil_dod_evaluate_county('suwannee') before vs after"
+    proof: "unchanged 7/10 both times (A/B/F FAIL) -- deliberate, documented decision to avoid an I
+      regression; not a failed session, a correctly-scoped one."
+  - check: "SELECT ... FROM gold_standard_ultraloop_audit WHERE dispatch_id = this session's dispatch_id"
+    proof: "4 rows present (ids 7935-7938) with claim + refuter_evidence + survived populated"
+
+status_board:
+  putnam: "10/10 GOLD, unchanged"
+  franklin: "8/10 -> 10/10 -- SHIPPED (B, F both real fixes, verified live, no regression)"
+  suwannee: "7/10, unchanged -- A fix fully researched and ready (5/6 parcels matched with real
+    address+value) but correctly NOT shipped this session (would regress I). B/F genuinely unresolved
+    (case-number/schedule discrepancy, needs a future session). Residual fully documented in
+    pipeline.counties.notes and gold_standard_ultraloop_audit id 7937."
+
+next_session_priorities:
+  - "suwannee A: run parcel_zones/zoning-district assignment for the 5 already-matched parcels (Dowdy
+    17-06S-14E-04200-620080, Saavedra 32-03S-13E-08767-000011, Ramirez 07-05S-13E-09108-050440, Sage
+    17-02S-12E-09953-001000, Gleiss 06-04S-15E-00750-000210), then insert all 5 as foreclosure rows
+    (case_number/date/parcel/address/value already in hand, data_source=suwannee_clerk_courthouse_list,
+    parity_status=matched_clean/parity_source=tier1:clerk_fc_direct per the franklin/lafayette single-
+    source-clerk precedent) -- flips A (fc 0->5) without touching C/D/E/I."
+  - "suwannee A residual: David Thomas (case 25-CA-200) still needs disambiguation among 3 same-name
+    appraiser matches -- no public docket exists; may need the Final Judgment via Official Records
+    (myfloridacounty.com, Cloudflare-gated) or a different avenue."
+  - "suwannee B/F: cases 4666/4667 do not appear in the Clerk's current published TD schedule at all --
+    worth checking whether our case_number format (bare '4666') is simply wrong/truncated versus the
+    county's real TD####/YYYY-#### convention, which would also explain the C/D parity numbers looking
+    suspiciously clean (9/9) despite this discrepancy."
+  - "reusable finding: GSA Cadastral platform appraiser sites expose GET /api/livesearch/<query> --
+    likely works unauthenticated for any other county on the same vendor platform, worth checking before
+    assuming a new county's appraiser site needs a headless browser."
