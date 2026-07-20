@@ -21,6 +21,17 @@ import os, re, sys, json, time
 from datetime import date, datetime
 import requests
 
+if __name__ != '__main__':
+    raise ImportError(
+        'calendar_sweep_mca.py is a script, not an importable module -- '
+        'everything below this point is top-level code that performs a live '
+        'scrape + Supabase upsert as a side effect of import. This guard '
+        'exists because a 2026-07-20 session imported this file to reuse '
+        'its STRAP parser and triggered an unintended live scrape (45 real '
+        'lee rows inserted outside the session\'s intended scope). If you '
+        'need a specific function from this file, extract it into a shared '
+        'module instead of importing this script.'
+    )
 
 # ── ENV ──────────────────────────────────────────────────────────────────────
 
