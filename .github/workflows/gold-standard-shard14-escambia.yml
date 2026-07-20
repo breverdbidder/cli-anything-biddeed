@@ -1,0 +1,494 @@
+name: "Gold Standard SHARD-14 — escambia G+C/D fix"
+# dispatch_id: a7bdb48f-8748-4a1c-8539-d996dcda9e73
+# Triggered by issue #12900
+# Current state: 7/10 (A,B,E,F,H,I,J PASS | C,D,G FAIL)
+# Targets: G(9.5%→95%+) via pk1000 residential flag fix, C/D(76.2%→95%+) via realtaxdeed re-probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: 'Mode: full (G+C/D fix) | verify_only | g_only | cd_only'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - verify_only
+          - g_only
+          - cd_only
+  schedule:
+    # Run at 08:00Z, 16:00Z, 00:00Z matching fleet cadence
+    - cron: '0 8 * * *'
+
+concurrency:
+  group: gold-standard-shard14-escambia
+  cancel-in-progress: false
+
+jobs:
+  escambia-fix:
+    name: "Escambia G+C/D fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+      RUN_MODE: ${{ github.event.inputs.run_mode || 'full' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Configure git
+        run: |
+          git config user.email "shard14-escambia-bot@biddeed.ai"
+          git config user.name "SHARD-14 Escambia Gold Standard Bot"
+
+      - name: Baseline evaluation
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+          body = json.dumps({"p_county": "escambia"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county", data=body, headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  ev = json.loads(r.read())
+              passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+              failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+              print(f"BASELINE escambia: {len(passed)}/10 PASS={passed} FAIL={failed}")
+              print(f"BASELINE JSON: {json.dumps(ev)}")
+              for l in "ABCDEFGHIJ":
+                  ld = ev.get(l, {})
+                  print(f"  {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+          except Exception as e:
+              print(f"ERROR: {e}")
+          PYEOF
+
+      - name: Apply G+C/D SQL migration via Management API
+        if: ${{ env.RUN_MODE != 'verify_only' }}
+        run: |
+          set -euo pipefail
+          echo "=== Applying escambia G+C/D fix migration ==="
+          python3 -c "
+          import json, sys
+          with open('migrations/20260720_gold_standard_shard14_escambia_g_cd_fix.sql') as f:
+              sql = f.read()
+          print(json.dumps({'query': sql}))
+          " > /tmp/escambia_migration.json
+          HTTP=$(curl -sS -o /tmp/escambia_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/escambia_migration.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/escambia_resp.json | python3 -m json.tool 2>/dev/null || cat /tmp/escambia_resp.json
+          echo ""
+          if [[ "$HTTP" != "200" && "$HTTP" != "201" ]]; then
+            echo "::warning::Migration returned HTTP $HTTP — checking if it's a non-fatal warning..."
+            # Check if it's a conflict (already applied) vs real error
+            if grep -q '"message"' /tmp/escambia_resp.json; then
+              cat /tmp/escambia_resp.json
+            fi
+          fi
+
+      - name: Run Python fix script (G pk1000 + C/D realtaxdeed probe)
+        if: ${{ env.RUN_MODE != 'verify_only' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          echo "=== Running escambia G+C/D Python fix script ==="
+          python3 scripts/shard14_escambia_g_cd_fix.py
+          echo "=== Fix script complete ==="
+
+      - name: Post-fix evaluation
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+          body = json.dumps({"p_county": "escambia"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county", data=body, headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  ev = json.loads(r.read())
+              passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+              failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+              score = len(passed)
+              print(f"POST-FIX escambia: {score}/10 PASS={passed} FAIL={failed}")
+              print(f"POST-FIX JSON: {json.dumps(ev)}")
+              for l in "ABCDEFGHIJ":
+                  ld = ev.get(l, {})
+                  print(f"  {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+              if score == 10:
+                  print("★ GOLD STANDARD ACHIEVED — escambia 10/10!")
+          except Exception as e:
+              print(f"ERROR: {e}")
+          PYEOF
+
+      - name: G verification — query zoning KPI directly
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          def mgmt_query(sql):
+              TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", SB_KEY)
+              r = urllib.request.Request(
+                  "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+                  data=json.dumps({"query": sql}).encode(),
+                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                  method="POST"
+              )
+              with urllib.request.urlopen(r, timeout=60) as resp:
+                  return json.loads(resp.read())
+
+          print("=== G KPI verification ===")
+          try:
+              result = mgmt_query("""
+              SELECT
+                j.name AS jurisdiction,
+                zd.code,
+                zd.pk1000_applicable,
+                zs.parking_per_1000sf
+              FROM zoning_districts zd
+              JOIN jurisdictions j ON j.id = zd.jurisdiction_id
+              LEFT JOIN zone_standards zs ON zs.zoning_district_id = zd.id
+              WHERE lower(j.county) = 'escambia'
+              ORDER BY j.name, zd.code
+              """)
+              print(f"Zoning districts for escambia ({len(result)} rows):")
+              for r in result:
+                  print(f"  {r}")
+          except Exception as e:
+              print(f"G verification error: {e}")
+
+          print("\n=== Parcel zones G coverage ===")
+          try:
+              result = mgmt_query("""
+              SELECT
+                COUNT(*) FILTER (WHERE zd.pk1000_applicable = true AND zs.parking_per_1000sf IS NOT NULL) AS pk1000_covered,
+                COUNT(*) FILTER (WHERE zd.pk1000_applicable = true) AS pk1000_applicable_total,
+                COUNT(*) AS total_parcel_zones,
+                ROUND(
+                  100.0 * COUNT(*) FILTER (WHERE zd.pk1000_applicable = true AND zs.parking_per_1000sf IS NOT NULL)
+                  / NULLIF(COUNT(*) FILTER (WHERE zd.pk1000_applicable = true), 0), 1
+                ) AS pk1000_pct
+              FROM parcel_zones pz
+              JOIN jurisdictions j ON j.id = pz.jurisdiction_id
+              JOIN zoning_districts zd ON zd.jurisdiction_id = pz.jurisdiction_id AND zd.code = pz.zone_code
+              LEFT JOIN zone_standards zs ON zs.zoning_district_id = zd.id
+              WHERE lower(j.county) = 'escambia'
+              """)
+              print(f"Parcel zones G coverage: {result}")
+          except Exception as e:
+              print(f"Parcel zones query error: {e}")
+          PYEOF
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: C/D verification — parity status breakdown
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          def rest_get(path):
+              req = urllib.request.Request(f"{SB_URL}/rest/v1/{path}", headers=H)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read())
+
+          try:
+              TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", SB_KEY)
+              r = urllib.request.Request(
+                  "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+                  data=json.dumps({"query": """
+                      SELECT
+                          COALESCE(parity_status, 'null') AS parity_status,
+                          sale_type,
+                          COUNT(*) AS cnt
+                      FROM multi_county_auctions
+                      WHERE lower(county) = 'escambia'
+                      AND (data_source <> 'propertyonion' OR data_source IS NULL)
+                      GROUP BY parity_status, sale_type
+                      ORDER BY sale_type, cnt DESC
+                  """}).encode(),
+                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                  method="POST"
+              )
+              with urllib.request.urlopen(r, timeout=60) as resp:
+                  result = json.loads(resp.read())
+              print("C/D parity status breakdown:")
+              for row in result:
+                  print(f"  {row}")
+
+              # Compute C/D metric
+              matched = sum(r["cnt"] for r in result if r["parity_status"] in ("matched_clean", "matched_divergent"))
+              total_non_po = sum(r["cnt"] for r in result)
+              pct = 100.0 * matched / total_non_po if total_non_po > 0 else 0
+              print(f"\nC/D metric estimate: {matched}/{total_non_po} = {pct:.1f}% (need 95%)")
+          except Exception as e:
+              print(f"C/D verification error: {e}")
+          PYEOF
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Ultraloop refuter — independent adversarial check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          """
+          REFUTER: Independent check of G pk1000 fix claims.
+          Goal: break the claim that setting pk1000_applicable=false for residential districts
+          moves G above 95%.
+          
+          Check points:
+          1. How many parcel_zones rows remain with pk1000_applicable=true?
+          2. Of those, what % have parking_per_1000sf NOT NULL?
+          3. Does this match the claimed G metric improvement?
+          4. Are there anomalous cases (commercial parcels incorrectly set to false)?
+          """
+          import os, json, urllib.request
+
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN")
+          if not TOKEN:
+              print("REFUTER: No SUPABASE_ACCESS_TOKEN — skipping refuter")
+              exit(0)
+
+          def mgmt_q(sql):
+              r = urllib.request.Request(
+                  "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+                  data=json.dumps({"query": sql}).encode(),
+                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                  method="POST"
+              )
+              with urllib.request.urlopen(r, timeout=60) as resp:
+                  return json.loads(resp.read())
+
+          print("=== REFUTER: Independent G pk1000 verification ===")
+          try:
+              # Check 1: How many parcel_zones have pk1000_applicable=true?
+              r = mgmt_q("""
+              SELECT
+                zd.pk1000_applicable,
+                COUNT(*) AS parcel_zones_count
+              FROM parcel_zones pz
+              JOIN jurisdictions j ON j.id = pz.jurisdiction_id
+              JOIN zoning_districts zd ON zd.jurisdiction_id = pz.jurisdiction_id AND zd.code = pz.zone_code
+              WHERE lower(j.county) = 'escambia'
+              GROUP BY zd.pk1000_applicable
+              """)
+              print(f"Parcel zones by pk1000_applicable: {r}")
+
+              # Check 2: Of pk1000_applicable=true, what % have parking?
+              r2 = mgmt_q("""
+              SELECT
+                COUNT(*) AS applicable_total,
+                COUNT(*) FILTER (WHERE zs.parking_per_1000sf IS NOT NULL) AS with_parking,
+                ROUND(100.0 * COUNT(*) FILTER (WHERE zs.parking_per_1000sf IS NOT NULL)
+                  / NULLIF(COUNT(*), 0), 1) AS coverage_pct
+              FROM parcel_zones pz
+              JOIN jurisdictions j ON j.id = pz.jurisdiction_id
+              JOIN zoning_districts zd ON zd.jurisdiction_id = pz.jurisdiction_id AND zd.code = pz.zone_code
+              LEFT JOIN zone_standards zs ON zs.zoning_district_id = zd.id
+              WHERE lower(j.county) = 'escambia'
+              AND zd.pk1000_applicable = true
+              """)
+              print(f"PK1000 applicable coverage: {r2}")
+
+              # Check 3: What zone codes are still pk1000_applicable=true?
+              r3 = mgmt_q("""
+              SELECT DISTINCT zd.code, zd.category, zd.pk1000_applicable, zs.parking_per_1000sf
+              FROM parcel_zones pz
+              JOIN jurisdictions j ON j.id = pz.jurisdiction_id
+              JOIN zoning_districts zd ON zd.jurisdiction_id = pz.jurisdiction_id AND zd.code = pz.zone_code
+              LEFT JOIN zone_standards zs ON zs.zoning_district_id = zd.id
+              WHERE lower(j.county) = 'escambia'
+              AND zd.pk1000_applicable = true
+              ORDER BY zd.code
+              """)
+              print(f"Zone codes still pk1000_applicable=true: {r3}")
+
+              # Check 4: Any suspicious codes (residential set to pk1000_applicable=true)?
+              suspicious = [row for row in r3 if row.get("code", "").upper() in
+                            ("LDR", "MDR", "HDR", "HDMU", "SFR", "R-1", "R-2", "R-3", "AGR", "AG")]
+              if suspicious:
+                  print(f"REFUTER WARNING: These residential codes still have pk1000_applicable=true: {suspicious}")
+              else:
+                  print("REFUTER: No residential codes incorrectly left as pk1000_applicable=true")
+
+          except Exception as e:
+              print(f"REFUTER ERROR: {e}")
+          PYEOF
+
+      - name: Update ultraloop audit with survived status
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          """
+          After the fix and refuter have run, update the ultraloop audit rows:
+          - If G metric is now >=95%, mark the G claim as survived=true
+          - If C/D metric improved, mark the C claim as survived=true
+          - If either failed, mark as survived=false
+          """
+          import os, json, urllib.request, time
+
+          SB_URL = os.environ.get("SUPABASE_URL", "")
+          SB_KEY = os.environ.get("SUPABASE_KEY", "")
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+
+          if not SB_URL or not SB_KEY:
+              print("Missing env vars — skipping audit update")
+              exit(0)
+
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          # Get current evaluation
+          body = json.dumps({"p_county": "escambia"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                                        data=body, headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  ev = json.loads(r.read())
+
+              g_pass = ev.get("G", {}).get("pass", False)
+              g_metric = ev.get("G", {}).get("metric", 0)
+              c_metric = ev.get("C", {}).get("metric", 0)
+              d_pass = ev.get("D", {}).get("pass", False)
+
+              print(f"Final eval: G={g_metric}({'PASS' if g_pass else 'FAIL'}) C={c_metric}({('PASS' if ev.get('C',{}).get('pass') else 'FAIL')})")
+
+              # Update audit rows
+              if TOKEN:
+                  update_sql = f"""
+                  UPDATE gold_standard_ultraloop_audit
+                  SET survived = CASE letter
+                      WHEN 'G' THEN {str(g_pass).lower()}::boolean
+                      WHEN 'C' THEN {str(c_metric >= 95).lower()}::boolean
+                      ELSE survived
+                  END,
+                  refuter_evidence = refuter_evidence || jsonb_build_object(
+                      'post_fix_metric_G', {g_metric},
+                      'post_fix_G_pass', {str(g_pass).lower()},
+                      'post_fix_metric_C', {c_metric},
+                      'verification_timestamp', '{__import__('datetime').datetime.utcnow().isoformat()}'
+                  )
+                  WHERE dispatch_id = 'a7bdb48f-8748-4a1c-8539-d996dcda9e73'
+                  AND county_slug = 'escambia'
+                  AND letter IN ('G', 'C');
+                  """
+                  mgmt_req = urllib.request.Request(
+                      "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+                      data=json.dumps({"query": update_sql}).encode(),
+                      headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                      method="POST"
+                  )
+                  with urllib.request.urlopen(mgmt_req, timeout=30) as r:
+                      print(f"Audit update: HTTP {r.status}")
+
+              score = sum(1 for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass"))
+              print(f"\n### SQL VERIFICATION — escambia final")
+              print(f"Score: {score}/10")
+              print(f"JSON: {json.dumps(ev)}")
+              for l in "ABCDEFGHIJ":
+                  ld = ev.get(l, {})
+                  print(f"  {l}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} {ld.get('detail','')}")
+
+          except Exception as e:
+              print(f"Audit update error: {e}")
+          PYEOF
+
+      - name: Run gold_standard_loop if 10/10 achieved
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+
+          # Check current score
+          body = json.dumps({"p_county": "escambia"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                                        data=body, headers=H, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  ev = json.loads(r.read())
+              score = sum(1 for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass"))
+
+              if score == 10:
+                  print("★ ESCAMBIA 10/10 — running gold_standard_loop and certify!")
+                  for fn in ["gold_standard_loop", "gold_standard_certify"]:
+                      try:
+                          req2 = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/{fn}",
+                                                         data=b"{}", headers=H, method="POST")
+                          with urllib.request.urlopen(req2, timeout=120) as r2:
+                              print(f"  {fn}: HTTP {r2.status}")
+                      except Exception as e:
+                          print(f"  {fn} ERROR: {e}")
+              else:
+                  print(f"escambia at {score}/10 — not running loop yet (need 10/10)")
+          except Exception as e:
+              print(f"Score check error: {e}")
+          PYEOF
+
+      - name: Summary report
+        if: always()
+        run: |
+          echo "=== SHARD-14 ESCAMBIA SESSION SUMMARY ==="
+          echo "dispatch_id: a7bdb48f-8748-4a1c-8539-d996dcda9e73"
+          echo "Timestamp: $(date -u)"
+          echo "Run mode: ${{ env.RUN_MODE }}"
+          echo ""
+          echo "For full before/after JSON, see the evaluation steps above."
+          echo "Ultraloop audit rows in gold_standard_ultraloop_audit WHERE dispatch_id='a7bdb48f-8748-4a1c-8539-d996dcda9e73'"
