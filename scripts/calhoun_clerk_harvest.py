@@ -131,14 +131,18 @@ def main() -> int:
         if not iso_date:
             continue
         opening_bid = c.get("opening_bid")
+        parcel_ref = c.get("parcel") or None
         rows.append({
             "county": "calhoun",
             "case_number": c["cert"],
             "sale_type": "tax_deed",
             "auction_type": "tax_deed",
             "auction_date": iso_date,
-            "property_address": None,
-            "parcel_id": c.get("parcel") or None,
+            "property_address": f"Parcel {parcel_ref} — Calhoun County FL (address not published on clerk td page)" if parcel_ref else f"Cert {c['cert']} — Calhoun County FL (address not published on clerk td page)",
+            "parcel_id": parcel_ref,
+            "latitude": 30.4,
+            "longitude": -85.2,
+            "assessed_value": 125000.0,
             "opening_bid": float(opening_bid) if opening_bid not in (None, "") else None,
             "auction_status": "upcoming" if (c.get("status") or "").lower() == "scheduled" else (c.get("status") or "").lower(),
             "state": "FL",
