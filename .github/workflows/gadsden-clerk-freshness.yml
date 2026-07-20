@@ -1,0 +1,55 @@
+name: "Gadsden Clerk Freshness"
+# GOLD STANDARD shard-11, dispatch 52bf028c-78fe-49ad-ae77-284c02a1f201 -- gadsden H
+# (freshness, SLA 48h). ROOT CAUSE: gadsden's real data source is a bespoke
+# clerk-sheet scrape (gadsdenclerk.com, source_platform='custom_clerk') that was
+# never wired to any recurring executor. calendar-sweep-dark-counties.yml (05:15
+# UTC) and calendar-sweep-gap-counties.yml both list gadsden as "covered" but only
+# query realauction_subdomains and hit RealForeclose/RealTaxDeed URLs -- gadsden
+# is not on that platform, so both sweeps silently never touch gadsden's rows.
+#
+# This job re-fetches both live clerk sheets (Foreclosures + Tax_deeds), diffs
+# against multi_county_auctions for county='gadsden' by case_number, and PATCHes
+# last_seen_at (+ any real field changes found) for every row still present on
+# the live sheet. Verified live 2026-07-20: moved gadsden H from FAIL 51.3h ->
+# PASS 0.0h, and caught one real status change (26000012TDC upcoming->redeemed).
+#
+# 06:12 UTC chosen to avoid colliding with the 05:15 UTC dark-counties sweep and
+# the broader 05:30Z-05:55Z county-specific harvester cluster (wakulla 05:40,
+# calhoun 05:45, lafayette 05:50, hardee 05:55).
+
+on:
+  schedule:
+    - cron: '12 6 * * *'   # 06:12 UTC daily
+  workflow_dispatch:
+
+jobs:
+  freshness:
+    name: "Refresh gadsden clerk-sheet freshness"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Run freshness fetch"
+        run: python3 scripts/shard11_gadsden_h_freshness_fetch.py
+
+      - name: "Verify: H metric via evaluator RPC"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "gadsden"}')
+          echo "### SQL VERIFICATION: gadsden H" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
