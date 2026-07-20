@@ -1,0 +1,88 @@
+name: "walton post-auction C/D harvest (shard-13)"
+# Triggered after 2026-07-24 auctions complete so the 6 unmatched walton MCA rows
+# (auction_dates 2026-07-20/23/24) can be matched via realforeclose_aids join.
+#
+# dispatch_id: 4f148647-e529-49e3-995a-b99f4a7713c0
+# gold standard metric targets: C >=95%, D >=95% (currently 86%, 37/43)
+# root cause: 6 unmatched rows are future auctions (confirmed 3rd-firing 2026-07-19)
+# strategy: re-run realforeclose_aids join + EnerGov card enrichment after auctions occur
+
+on:
+  schedule:
+    # Run daily at 14:00 UTC starting 2026-07-24 — after auctions on 07/23 and 07/24
+    # GitHub cron does not support start-date; this runs every day. The script
+    # is idempotent and exits cleanly with INFO log if auctions haven't occurred yet.
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "Force run even if before 2026-07-24"
+        required: false
+        default: "false"
+
+concurrency:
+  group: walton-post-auction-harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    name: "walton C/D post-auction parity harvest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run walton post-auction harvest
+        run: |
+          set -euo pipefail
+          python scripts/walton_post_auction_harvest.py
+
+  evaluate:
+    name: "Evaluate walton metrics post-harvest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [harvest]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: pencil_dod_evaluate_county('walton')
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import os, json, urllib.request
+
+          SB_URL = os.environ['SUPABASE_URL'].rstrip('/')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+
+          county = 'walton'
+          payload = json.dumps({'p_county': county}).encode()
+          url = f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county'
+          req = urllib.request.Request(url, data=payload, method='POST')
+          req.add_header('apikey', SB_KEY)
+          req.add_header('Authorization', f'Bearer {SB_KEY}')
+          req.add_header('Content-Type', 'application/json')
+
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              ev = json.loads(resp.read())
+              passes = sum(1 for k in 'ABCDEFGHIJ' if isinstance(ev.get(k), dict) and ev[k].get('pass'))
+              print(f'{county}: {passes}/10 PASS')
+              for letter in 'ABCDEFGHIJ':
+                  d = ev.get(letter, {})
+                  if isinstance(d, dict):
+                      status = 'PASS' if d.get('pass') else 'FAIL'
+                      print(f'  {letter}: {status} metric={d.get(\"metric\")} {str(d.get(\"detail\",\"\"))[:80]}')
+              print()
+              print('RAW JSON:')
+              print(json.dumps(ev))
+          "
