@@ -23,7 +23,7 @@ had existed.
 | **Supabase `mocerqjnksmhcjzxrewo`** | Data plane: auctions, billing, cert system, dispatch guard, ops log. | Not a place for secrets in row data. |
 | **GitHub Actions** | Dispatch (`cc-runner-ghonly.yml` id 297104962), crons, deploys. Guard table `public.cc_redispatch_guard` + reconciler drive the loop; a brief without a guard row has no retry and no DoD enforcement. | `mcp-vercel-deploy.yml` is dead: no Vercel project exists for biddeed (verified 2026-07-20); Vercel secrets absent. Do not chase it. |
 | **Stripe** | LIVE mode only: 4 products, 2 payment links, S5 meter. No test-mode path exists (known gap). | Not yet carrying real customer traffic. |
-| **npm `biddeed-mcp`** | Intended stdio distribution channel. **Unpublished** (registry 404). `NPM_TOKEN` absent from repo secrets. | Not required for the HTTP surface to go live. Publish is a separate owner decision. |
+| **npm `biddeed-mcp`** | Intended stdio distribution channel. **Unpublished** (registry 404). `NPM_TOKEN` absent from repo secrets. | Not required for the HTTP surface to go live. Publish is a separate owner decision; canonical endpoint and npm name are registered in mcp_server_registry. |
 
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
@@ -46,3 +46,19 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
+
+---
+
+## 7. MACHINE SSOT (Supabase) — this file defers to it for inventory
+
+The queryable inventory layer lives in Supabase and is cron-verified; this file is the
+narrative/topology layer. For component lists, counts, and facts, query — do not restate here:
+
+- `ssot_registry_projects` / `ssot_registry_components` — projects and their 635 cataloged components.
+- `ssot_facts` — verified operating facts with `source_sql` and `verified_at`; trust these over any number in a doc.
+- `mcp_server_registry` — canonical MCP endpoint (`https://mcp.biddeed.ai/api/mcp`), npm package, declared tool count. `is_live` flips true only on an observed MCP handshake, never on a deploy claim.
+- `v_ssot_master` and related views — rollups; per CC_META_PROMPT §2.2, cross-check any rollup against base tables before citing it as proof.
+
+Precedence: for INVENTORY AND COUNTS, Supabase wins over this file. For TOPOLOGY AND
+SERVING MODEL (§1–2), this file wins. A conflict between the two is a finding to report,
+not a thing to silently resolve.
