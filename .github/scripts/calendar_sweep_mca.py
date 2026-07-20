@@ -251,8 +251,10 @@ def _parse_ret_html(ret_html: str, auction_date: date) -> list[dict]:
             pattern = rf'{re.escape(label)}:@F[^@>]*>[^>]*>(?:<a[^>]*>)?(.*?)(?:</a>)?@G'
             m = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
             if not m:
-                # Simpler fallback: label text directly before @F, value up to @G
-                pattern2 = rf'{re.escape(label)}[^@]*@F[^>]*>(.*?)@G'
+                # Simpler fallback: label text directly before @F, value up to @G.
+                # Colon must follow the label immediately — without this anchor,
+                # get_field('Plaintiff') false-matches inside 'Plaintiff Max Bid:@F...'
+                pattern2 = rf'{re.escape(label)}:[^@]*@F[^>]*>(.*?)@G'
                 m = re.search(pattern2, content, re.DOTALL | re.IGNORECASE)
             if m:
                 val = _strip_html(m.group(1).replace('@G', '').replace('@F', '').replace('@B', ''))
@@ -267,6 +269,8 @@ def _parse_ret_html(ret_html: str, auction_date: date) -> list[dict]:
         assessed    = get_field('Assessed Value')
         cert_num    = get_field('Certificate #') or get_field('Certificate Number') or get_field('Cert #')
         opening_bid = get_field('Opening Bid') or get_field('Minimum Bid') or get_field('Opening Amount')
+        plaintiff_v = get_field('Plaintiff')
+        plaintiff_mb = get_field('Plaintiff Max Bid')
 
         # Address: label "Property Address" then value, followed by continuation line(s) with empty label
         addr_parts: list[str] = []
@@ -290,10 +294,12 @@ def _parse_ret_html(ret_html: str, auction_date: date) -> list[dict]:
                     addr_parts.append(line2)
         prop_addr = ', '.join(addr_parts) if addr_parts else None
 
-        # opening_bid: prefer explicit, else judgment amount as proxy
+        # opening_bid and judgment_amount are different fields on the source page —
+        # do not alias one into the other. A "Hidden" value means not yet published,
+        # which is NULL, not 0.
         opening_bid_f = _to_float(opening_bid) if opening_bid and opening_bid.lower() not in ('hidden',) else None
-        if opening_bid_f is None:
-            opening_bid_f = _to_float(judgment)
+        judgment_f = _to_float(judgment) if judgment and judgment.lower() not in ('hidden',) else None
+        plaintiff_max_bid_f = _to_float(plaintiff_mb) if plaintiff_mb and plaintiff_mb.lower() not in ('hidden',) else None
 
         if not case_num and not parcel_id and not cert_num:
             continue
@@ -307,6 +313,9 @@ def _parse_ret_html(ret_html: str, auction_date: date) -> list[dict]:
             'parcel_id':        parcel_id,
             'property_address': prop_addr,
             'opening_bid':      opening_bid_f,
+            'judgment_amount':  judgment_f,
+            'plaintiff':        plaintiff_v,
+            'plaintiff_max_bid': plaintiff_max_bid_f,
             'assessed_value':   assessed,
             'auction_type':     auction_typ,
             'certificate_number': cert_num,
@@ -373,7 +382,10 @@ _BASE_COLUMNS = [
     'county', 'case_number', 'auction_date', 'sale_type', 'auction_type',
     'source_platform', 'auction_status', 'state', 'last_seen_at', 'data_source',
 ]
-_OPTIONAL_FIELDS = ('property_address', 'opening_bid', 'parcel_id')
+_OPTIONAL_FIELDS = (
+    'property_address', 'opening_bid', 'parcel_id',
+    'judgment_amount', 'plaintiff', 'plaintiff_max_bid',
+)
 
 
 def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]]:
@@ -408,6 +420,9 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
             'property_address':  c.get('property_address') or None,
             'opening_bid':       c.get('opening_bid'),          # None if not found
             'parcel_id':         c.get('parcel_id') or None,
+            'judgment_amount':   c.get('judgment_amount'),      # None if not found
+            'plaintiff':         c.get('plaintiff') or None,
+            'plaintiff_max_bid': c.get('plaintiff_max_bid'),    # None if not found or Hidden
         })
 
     if not rows:
