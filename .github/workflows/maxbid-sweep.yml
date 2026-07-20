@@ -1,0 +1,123 @@
+name: "MAXBID SWEEP — Plaintiff Max Bid early-window capture"
+# Issue #12854. RealAuction's "Plaintiff Max Bid" is publicly disclosed only
+# during an early-morning window (field-proven, Marion 2026-07-20: visible
+# at 11:56Z, "Hidden" for all cases by 12:10Z). This runs at 10:00 UTC
+# (06:00 ET) — inside the window with margin before the ~12:10Z close —
+# scoped to counties with a foreclosure sale TODAY, so it never sweeps a
+# county that has nothing to capture.
+#
+# Sale-day gating: matrix is built from multi_county_auctions rows with
+# auction_date = today AND source_platform='realforeclose' AND
+# sale_type='foreclosure', joined against realauction_subdomains for the
+# base_url — i.e. only counties the existing daily calendar sweep already
+# confirmed have a foreclosure sale today.
+#
+# PROJECT_TO_MCA defaults to 'true' (project non-hidden values onto
+# multi_county_auctions). It was 'false' for the first report-only dry run
+# (2026-07-20, see issue #12854 comment) which proved 0 projected updates
+# against that day's already-closed window before being flipped on here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_to_mca:
+        description: 'true = also project non-hidden values onto multi_county_auctions'
+        required: false
+        default: 'false'
+      county:
+        description: 'Single county slug to run (leave empty for all sale-day counties)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 10 * * *'
+
+concurrency:
+  group: maxbid-sweep
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. BUILD SALE-DAY MATRIX ─────────────────────────────────────────────
+  setup:
+    name: "Build sale-day matrix (FL realforeclose, auction_date=today)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      total:  ${{ steps.gen.outputs.total }}
+    steps:
+      - name: "Query MCA for today's foreclosure sale-day counties + subdomain base_url"
+        id: gen
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SINGLE_COUNTY: ${{ github.event.inputs.county || '' }}
+        run: |
+          set -euo pipefail
+          TODAY=$(date -u +%Y-%m-%d)
+
+          MCA_FILTER="auction_date=eq.${TODAY}&source_platform=eq.realforeclose&sale_type=eq.foreclosure&select=county"
+          if [ -n "${SINGLE_COUNTY}" ]; then
+            MCA_FILTER="${MCA_FILTER}&county=eq.${SINGLE_COUNTY}"
+          fi
+
+          MCA_RESP=$(curl -sf \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/multi_county_auctions?${MCA_FILTER}" || echo "[]")
+
+          SLUGS=$(echo "$MCA_RESP" | python3 -c "import json,sys; rows=json.load(sys.stdin); print(','.join(sorted({r['county'] for r in rows if r.get('county')})))")
+
+          if [ -z "$SLUGS" ]; then
+            echo "::notice::No FL foreclosure sale-day counties found for ${TODAY} — nothing to sweep"
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+            echo "total=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::Sale-day counties for ${TODAY}: ${SLUGS}"
+
+          SUB_RESP=$(curl -sf \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/realauction_subdomains?is_active=eq.true&platform=eq.realforeclose&state_code=eq.FL&county_slug=in.(${SLUGS})&select=county_slug,base_url")
+
+          MATRIX=$(echo "$SUB_RESP" | jq -c '{include: [.[] | {
+            county:   .county_slug,
+            base_url: (.base_url | split("/index.cfm")[0])
+          }]}')
+
+          TOTAL=$(echo "$MATRIX" | jq '.include | length')
+          echo "::notice::Matrix: ${TOTAL} counties (foreclosure, sale-day-gated)"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL"   >> "$GITHUB_OUTPUT"
+
+  # ── 2. SWEEP (parallel, bounded) ─────────────────────────────────────────
+  sweep:
+    name: "maxbid_sweep ${{ matrix.county }}"
+    needs: setup
+    if: needs.setup.outputs.total != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests
+
+      - name: "Run maxbid_sweep.py"
+        env:
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COUNTY_SLUG:                ${{ matrix.county }}
+          BASE_URL:                   ${{ matrix.base_url }}
+          PROJECT_TO_MCA:              ${{ github.event.inputs.project_to_mca || 'true' }}
+          SWEEP_RUN_ID:                ${{ github.run_id }}
+        run: python .github/scripts/maxbid_sweep.py
