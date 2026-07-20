@@ -1,0 +1,107 @@
+name: "Gold Standard SHARD-5 Run-5361 (highlands + lee)"
+# dispatch_id: 8acb0c40-fd3b-48a6-b357-fc15c79f973f
+# Session: architect-20260720T160000
+# Targets: highlands C/D (83.9%), lee C/D/E/I
+# seminole: already 10/10 gold, no work
+# SHIP-TO-MAIN: direct push to main
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * *'
+    - cron: '0 16 * * *'
+
+concurrency:
+  group: gold-standard-shard5-run5361
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: "SHARD-5 Run-5361 (highlands + lee)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.email "shard5-run5361-bot@biddeed.ai"
+          git config user.name "SHARD-5 Run-5361 Gold Standard Bot"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/breverdbidder/cli-anything-biddeed.git
+
+      - name: Run SHARD-5 Run-5361 Main Executor
+        run: |
+          set -euo pipefail
+          python3 scripts/shard5_highlands_lee_run5361.py
+
+  verify:
+    name: "Verify SHARD-5 Metrics (highlands + lee + seminole)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: execute
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run pencil_dod_evaluate_county for all 3 counties
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY — cannot verify")
+              exit(0)
+
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+          }
+          COUNTIES = ['seminole', 'highlands', 'lee']
+
+          print("### SQL VERIFICATION — SHARD-5 Run-5361")
+          print(f"Dispatch: 8acb0c40-fd3b-48a6-b357-fc15c79f973f")
+          print(f"Timestamp UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
+          print("")
+
+          def rpc_evaluate(county):
+              url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+              payload = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f"  {county} eval error: {e}")
+                  return None
+
+          for county in COUNTIES:
+              result = rpc_evaluate(county)
+              if result is None:
+                  print(f"{county}: EVALUATION FAILED")
+                  continue
+              print(f"{county}: {json.dumps(result)}")
+
+          PYEOF
