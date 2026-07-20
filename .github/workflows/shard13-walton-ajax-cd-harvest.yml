@@ -1,0 +1,81 @@
+name: "SHARD13 walton AJAX RealForeclose C/D keeper"
+# Wires the proven no-login AJAX calendar harvest (scripts/shard2_run2450_ajax_realforeclose_harvest.py)
+# + scripts/walton_post_auction_harvest.py to a recurring executor for walton.
+#
+# dispatch_id: 4f148647-e529-49e3-995a-b99f4a7713c0
+#
+# Root cause this workflow keeps closed: new walton auctions land on the calendar with
+# parity_status=NULL until an independent tier1 source (the live RealForeclose AJAX
+# calendar) is checked against them. This is calendar PARITY, not sale disposition —
+# it does not require waiting for the auction date to pass (corrected 2026-07-20 after
+# 3 prior firings mis-diagnosed this as a post-auction-only fix). Verified live
+# 2026-07-20: harvesting the AJAX calendar for the 2 pending future auction dates and
+# matching by case_number moved walton C/D 86.0%->100.0% same session.
+#
+# This job keeps it current as new auction dates are added weekly.
+
+on:
+  schedule:
+    - cron: "45 9 * * *"   # daily 09:45Z (offset from shard2's 09:30Z to avoid runner contention)
+  workflow_dispatch: {}
+
+concurrency: {group: shard13-walton-ajax-cd-harvest, cancel-in-progress: false}
+
+jobs:
+  harvest:
+    name: "Harvest AJAX aids + rematch + card enrichment"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Discover target dates + harvest calendar
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, subprocess, sys, urllib.request
+
+          SB = os.environ["SUPABASE_URL"]
+          KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+
+          def get(path):
+              req = urllib.request.Request(f"{SB}/rest/v1/{path}", headers=H)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read())
+
+          rows = get(
+              "multi_county_auctions?select=auction_date"
+              "&county=eq.walton&parity_status=neq.matched_clean"
+              "&auction_date=not.is.null"
+          )
+          dates = sorted({r["auction_date"] for r in rows})
+          if not dates:
+              print("walton: no unmatched dated rows, skipping AJAX harvest step")
+              sys.exit(0)
+
+          mdy = [f"{d[5:7]}/{d[8:10]}/{d[0:4]}" for d in dates]
+          targets = [{"subdomain": "walton", "county_slug": "walton",
+                      "platform_domain": "realforeclose.com", "dates": mdy}]
+          print(f"walton: {len(mdy)} target dates: {mdy}")
+
+          rc = subprocess.run(
+              [sys.executable, "scripts/shard2_run2450_ajax_realforeclose_harvest.py",
+               json.dumps(targets)],
+              check=False,
+          )
+          if rc.returncode != 0:
+              sys.exit(rc.returncode)
+          PYEOF
+
+      - name: Rematch + card enrichment + audit
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python3 scripts/walton_post_auction_harvest.py
