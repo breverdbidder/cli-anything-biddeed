@@ -21,14 +21,17 @@
 --   * "Not regulated" is written as an explicit FALSE boolean with NO zone_standards row
 --     when the ordinance affirmatively states the standard doesn't apply (e.g. Sarasota's
 --     Table VI-203/VI-303 have no FAR row for single/multi-family residential; Table
---     VI-503A/VI-503 explicitly show "none" for CG FAR and CG/CSC density; North Port's
+--     Table VI-503 explicitly shows "none" for CSC density; North Port's
 --     Table 3.3.1.1 shows "-" for Activity Center density; North Port's per-DU parking
 --     standard means no per-1000sf figure applies to residential/AG districts).
 --   * Codes where the research could NOT resolve jurisdiction (PID, RC, RE-2/PUD, RMH --
 --     these are confirmed Sarasota COUNTY zone codes/conventions absent from the City's
 --     own Article VI text) are left completely untouched (booleans AND numerics both
 --     NULL) -- no fabricated data, and flagged here for DB-team follow-up on possible
---     jurisdiction mis-assignment of those parcels.
+--     jurisdiction mis-assignment of those parcels. CG (id=12333) belongs in this same
+--     bucket -- see the CORRECTION note above the CG UPDATE below: it is a legacy
+--     non-implementing City code with no current dimensional table, not a resolved
+--     "not regulated" fact.
 --   * PUD/SKOD suffix combinations on otherwise-real City base zones (RSF-1/PUD,
 --     RSF-2/PUD, RMF-2/PUD, RMF-2/SKOD, RMF-3/SKOD, RSF-2/SKOD) are left NULL
 --     (confidence 0.30-0.35 in research) -- "PUD" and "SKOD" do not exist anywhere in the
@@ -52,10 +55,17 @@ BEGIN;
 -- City of Sarasota (jurisdiction_id = 824)
 -- ============================================================
 
--- CG (id=12333): Sec. VI-501(c)(14) + Table VI-503A -- explicit "none" for FAR and no
--- general residential density row; not-implementing legacy commercial district.
+-- CG (id=12333): CORRECTION 2026-07-21 (ULTRALOOP adversarial refuter caught this) --
+-- the original apply cited a "Table VI-503A" that does not exist in the City of
+-- Sarasota code; only "Table VI-503" exists, and it covers CND/CSD/CRD/CGD/CSC (the
+-- modern implementing commercial districts) -- "CG" is not a column in it. CG is
+-- explicitly flagged in the code's own district list as "Commercial General* --
+-- *non-implementing district that may not be used in future rezonings", the same
+-- legacy-code category as RC/PID/RE-2/RMH, which were correctly left untouched.
+-- Reverted to NULL/NULL for consistency -- do not treat this as a resolved "not
+-- regulated" fact; it is an unresolved legacy-code gap like its siblings.
 UPDATE public.zoning_districts
-SET far_regulated = false, density_regulated = false
+SET far_regulated = NULL, density_regulated = NULL
 WHERE id = 12333;
 
 -- CSC (id=12334): Table VI-503 -- Maximum FAR = 0.75 (confirmed, stable since >=2004);
@@ -246,3 +256,20 @@ SET far_regulated = false, density_regulated = false, pk1000_regulated = false
 WHERE id = 12332;
 
 COMMIT;
+
+-- ============================================================
+-- VERIFICATION (ULTRALOOP: 2 independent adversarial refuters ran against this
+-- migration after it was first applied 2026-07-20T23:02Z. refuter A: SURVIVED --
+-- independently re-derived 5+ figures from primary ordinance PDFs, all matched.
+-- refuter B: REFUTED -- caught a fabricated "Table VI-503A" citation on the CG row
+-- (id=12333) forcing a definitive far/density=false where CG is actually an
+-- unresolved legacy-code gap identical to RC/PID/RE-2/RMH. Corrected live + in this
+-- file 2026-07-21 -- see the CORRECTION note above the CG UPDATE.
+--
+-- pencil_dod_evaluate_county('sarasota') G, before -> first-apply -> corrected:
+--   before:        density=0.0  far=0.0  pk1000=0.0   (FAIL, metric=0)
+--   first apply:   density=74.1 far=99.0 pk1000=0.0   (FAIL, metric=0 -- far inflated)
+--   corrected:     density=74.1 far=96.0 pk1000=0.0   (FAIL, metric=0 -- honest)
+-- G stays honestly FAIL either way (LEAST gate), but the corrected far=96.0 is the
+-- real, cited number -- the 99.0 included 3 parcels that shouldn't have counted.
+-- ============================================================
