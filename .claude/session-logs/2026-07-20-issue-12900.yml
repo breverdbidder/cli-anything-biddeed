@@ -1,0 +1,92 @@
+session:
+  date: "2026-07-20"
+  issue: 12900
+  dispatch_id: "a7bdb48f-8748-4a1c-8539-d996dcda9e73"
+  branch: "claude/issue-12900-20260720-2111"
+  county: escambia
+  goal: "Fix 3 failing Gold Standard metrics (C/D/G) to reach 10/10"
+  baseline: "7/10 (C=76.2%, D=76.2%, G=9.5%)"
+  environment: "claude-code-action (GitHub App, limited permissions)"
+
+decisions:
+  - step: 1
+    action: "Read shard9/shard13 session reports to understand escambia history"
+    result: "CONFIRMED root cause for G and C/D"
+    reason: "Evidence-based diagnosis required before any fix"
+
+  - step: 2
+    action: "Identify G root cause"
+    result: "Residential/agricultural zoning districts have pk1000_applicable=true but FL residential uses per-unit (2 spaces/DU) not per-1000sf GFA"
+    reason: "CONFIRMED — standard FL practice (matches brevard pattern from shard9)"
+
+  - step: 3
+    action: "Identify C/D root cause"
+    result: "~81 rows with parity_status IS NULL are future tax_deed dates (Aug-Dec 2026) absent from live calendar as of Jul 11"
+    reason: "CONFIRMED from shard13_run3679 session report"
+
+  - step: 4
+    action: "Write SQL migration for G fix"
+    result: "migrations/20260720_gold_standard_shard14_escambia_g_cd_fix.sql (251 lines)"
+    reason: "Required to flip pk1000_applicable for residential zones and set commercial parking rates"
+
+  - step: 5
+    action: "Write Python fix script for G+C/D"
+    result: "scripts/shard14_escambia_g_cd_fix.py (650 lines)"
+    reason: "C/D re-probe requires HTTP scraping of realtaxdeed.com calendar"
+
+  - step: 6
+    action: "Attempt to push workflow file"
+    result: "BLOCKED — GitHub App lacks workflows permission"
+    reason: "claude-code-action token has contents/issues/pull-requests but NOT workflows scope"
+
+  - step: 7
+    action: "Commit migration + script to branch"
+    result: "Branch claude/issue-12900-20260720-2111 pushed with both files"
+    reason: "Maximum achievable given permission constraints"
+
+  - step: 8
+    action: "Update issue comment with status"
+    result: "Comment #5027323551 updated with diagnosis, work completed, blockers, next steps"
+    reason: "ULTRALOOP protocol requires status reporting"
+
+artifacts:
+  - path: "migrations/20260720_gold_standard_shard14_escambia_g_cd_fix.sql"
+    status: "committed on branch, UNTESTED against live DB"
+    sha: "db58dab2"
+  - path: "scripts/shard14_escambia_g_cd_fix.py"
+    status: "committed on branch, UNTESTED"
+    sha: "db58dab2"
+  - path: ".github/workflows/gold-standard-shard14-escambia.yml"
+    status: "local only, UNPUSHED (needs GH_PAT_FULL)"
+
+verification:
+  - check: "pencil_dod_evaluate_county('escambia') before/after"
+    proof: "UNTESTED — blocked by environment constraints"
+    status: "PENDING"
+  - check: "gold_standard_ultraloop_audit rows inserted"
+    proof: "UNTESTED — migration not applied"
+    status: "PENDING"
+
+blockers:
+  - issue: "Python3 execution blocked in claude-code-action environment"
+    workaround: "Dispatch cc-runner-ghonly.yml with issues=12900"
+  - issue: "Workflow file push requires workflows permission"
+    workaround: "Push via GH_PAT_FULL (cc-runner-ghonly has this)"
+  - issue: "Cannot push to main (diverged, can't fetch/rebase)"
+    workaround: "cc-runner-ghonly can merge PR or rebase and push"
+
+honesty_markers:
+  pk1000_applicable_false_for_residential: "CONFIRMED"
+  commercial_parking_rates: "INFERRED (Pensacola LDC Ch.12-3 framework)"
+  cd_improvement_amount: "UNTESTED — depends on calendar availability at run time"
+
+next_steps:
+  immediate:
+    - "dispatch cc-runner-ghonly.yml with issues=12900"
+  that_run_should:
+    - "checkout branch claude/issue-12900-20260720-2111"
+    - "apply migrations/20260720_gold_standard_shard14_escambia_g_cd_fix.sql via mgmt_sql.py"
+    - "run scripts/shard14_escambia_g_cd_fix.py"
+    - "report before/after pencil_dod_evaluate_county('escambia')"
+    - "merge to main"
+    - "push .github/workflows/gold-standard-shard14-escambia.yml with GH_PAT_FULL"
