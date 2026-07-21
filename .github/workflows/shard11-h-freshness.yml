@@ -1,10 +1,24 @@
-name: "SHARD-11 H-Freshness: jackson + marion"
+name: "SHARD-11 H-Freshness: jackson"
 # dispatch_id: shard11-run1524-h-freshness
 # Trigger-safe H-freshness: disables trg_freshness_capture, stamps NOW() on all
-# jackson + marion rows, then re-enables.
+# jackson rows, then re-enables.
 # Matches desoto/baker/flagler/madison/columbia pattern.
 # H evaluator: max(COALESCE(last_changed_at, last_seen_at, scraped_at, ...)) <= 48h
-# jackson + marion added run1524: courthouse-only counties, no live scraper, needs 12h stamp to hold H
+# jackson added run1524: courthouse-only county, no live scraper, needs 12h stamp to hold H
+#
+# marion REMOVED 2026-07-21 (dispatch 0ddd603c-68ec-45c0-86b8-3b643c98faf3 re-fire,
+# ULTRALOOP adversarial audit, 2/2 refuters CONFIRMED): this cron was blanket-stamping
+# last_seen_at/last_changed_at/updated_at on all 2021 marion rows every 12h regardless
+# of whether any real content changed. The genuine content-tracking columns
+# (last_changed_at pre-stamp, scrape_timestamp, scraped_at) show marion's real auction
+# data has not moved since 2026-07-10 -- ~10 days stale, not <9h as this cron made the
+# evaluator believe. This is a ghost-pass of the H SLA gate, not a legitimate freshness
+# signal, and directly contradicts the Gold Standard campaign's own HONESTY PROTOCOL.
+# marion H must be earned by a real scraper/cron for its underlying auction data before
+# any future session re-adds it here. jackson is left untouched (out of this shard's
+# scope; the same anti-pattern concern applies to jackson and to the desoto/baker/
+# flagler/madison/columbia counties referenced above -- flagged for architect review,
+# not modified here).
 
 on:
   schedule:
@@ -13,7 +27,7 @@ on:
 
 jobs:
   h-freshness:
-    name: "H-Freshness (trigger-safe): jackson + marion"
+    name: "H-Freshness (trigger-safe): jackson"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -53,11 +67,11 @@ jobs:
               last_seen_at    = NOW(),
               last_changed_at = NOW(),
               updated_at      = NOW()
-          WHERE county IN ('jackson', 'marion');
+          WHERE county = 'jackson';
           ALTER TABLE multi_county_auctions ENABLE TRIGGER trg_freshness_capture;
           SELECT county, COUNT(*) AS cnt, MAX(last_changed_at) AS max_ts
           FROM multi_county_auctions
-          WHERE county IN ('jackson', 'marion')
+          WHERE county = 'jackson'
           GROUP BY county ORDER BY county;
           """
 
@@ -76,7 +90,7 @@ jobs:
                   'updated_at': now_iso
               }).encode()
               req2 = urllib.request.Request(
-                  f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(jackson,marion)',
+                  f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.jackson',
                   data=body2, method='PATCH'
               )
               req2.add_header('apikey', SUPABASE_KEY)
@@ -98,7 +112,7 @@ jobs:
             echo "SUPABASE_DB_PASSWORD not set — skipping psql fallback"
             exit 0
           fi
-          SQL="SET session_replication_role = 'replica'; UPDATE multi_county_auctions SET last_seen_at=NOW(), last_changed_at=NOW(), updated_at=NOW() WHERE county IN ('jackson','marion'); SET session_replication_role = 'origin'; SELECT county, COUNT(*), MAX(last_changed_at) FROM multi_county_auctions WHERE county IN ('jackson','marion') GROUP BY county;"
+          SQL="SET session_replication_role = 'replica'; UPDATE multi_county_auctions SET last_seen_at=NOW(), last_changed_at=NOW(), updated_at=NOW() WHERE county = 'jackson'; SET session_replication_role = 'origin'; SELECT county, COUNT(*), MAX(last_changed_at) FROM multi_county_auctions WHERE county = 'jackson' GROUP BY county;"
           # Try transaction pooler (port 6543)
           if PGPASSWORD="$DB_PASS" psql "postgresql://postgres.mocerqjnksmhcjzxrewo:$DB_PASS@aws-0-us-west-2.pooler.supabase.com:6543/postgres" -c "$SQL" 2>&1; then
             echo "psql pooler: success"
@@ -115,7 +129,7 @@ jobs:
           SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
           SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
           req = urllib.request.Request(
-              f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=in.(jackson,marion)&select=county,last_changed_at&order=county&limit=5',
+              f'{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.jackson&select=county,last_changed_at&order=county&limit=5',
               method='GET'
           )
           req.add_header('apikey', SUPABASE_KEY)
