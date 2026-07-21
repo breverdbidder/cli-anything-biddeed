@@ -52,7 +52,8 @@ jobs:
 
           rows = get(
               "multi_county_auctions?select=auction_date"
-              "&county=eq.walton&parity_status=neq.matched_clean"
+              "&county=eq.walton"
+              "&or=(parity_status.is.null,parity_status.neq.matched_clean)"
               "&auction_date=not.is.null"
           )
           dates = sorted({r["auction_date"] for r in rows})
