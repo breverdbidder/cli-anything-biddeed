@@ -1,0 +1,134 @@
+name: "Gold Standard — Shard-9 flagler+hendry — run 5668"
+# dispatch_id: 3b5b09ef-3e13-4b7d-9a0b-de29ee79adf8
+# Executes the hendry C/D/E/I/J fix + flagler B/F reconfirmation for this session.
+# Wired per WIRING MANDATE: every scraper you ship MUST be wired to an executor.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_flagler:
+        description: 'Run flagler B/F reconfirm'
+        default: 'true'
+        type: boolean
+      run_hendry:
+        description: 'Run hendry C/D/E/I/J fix'
+        default: 'true'
+        type: boolean
+  schedule:
+    # Run once at 08:00Z on 2026-07-21 (the session day)
+    # Subsequent runs via workflow_dispatch only
+    - cron: '0 8 21 7 *'
+
+concurrency:
+  group: shard9-flagler-hendry-5668
+  cancel-in-progress: false
+
+jobs:
+  hendry-fix:
+    name: "hendry C/D/E/I/J fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: ${{ github.event.inputs.run_hendry != 'false' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT_FULL }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -q httpx xgboost numpy scikit-learn
+
+      - name: Run hendry C/D/E/I/J fix
+        run: |
+          set -euo pipefail
+          python scripts/shard9_hendry_cdeij_fix_5668.py
+
+      - name: Evaluate hendry post-fix
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          url = os.environ['SUPABASE_URL']
+          key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          headers = {'apikey': key, 'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
+          req = urllib.request.Request(
+              f'{url}/rest/v1/rpc/pencil_dod_evaluate_county',
+              data=json.dumps({'county_slug_arg': 'hendry'}).encode(),
+              headers=headers, method='POST'
+          )
+          with urllib.request.urlopen(req, timeout=60) as r:
+              ev = json.loads(r.read())
+          print('hendry FINAL:', json.dumps(ev))
+          passes = sum(1 for k in 'ABCDEFGHIJ' if isinstance(ev, dict) and ev.get(k, {}).get('pass'))
+          print(f'hendry: {passes}/10')
+          "
+
+  flagler-reconfirm:
+    name: "flagler B/F structural ceiling reconfirm"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ github.event.inputs.run_flagler != 'false' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run flagler B/F reconfirmation
+        run: |
+          set -euo pipefail
+          python scripts/shard9_flagler_bf_reconfirm_5668.py
+
+  evaluate-both:
+    name: "Final evaluation — flagler + hendry"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [hendry-fix, flagler-reconfirm]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Run final evaluations
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+
+          url = os.environ['SUPABASE_URL']
+          key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          headers = {'apikey': key, 'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
+
+          print('=== FINAL EVALUATION — dispatch 3b5b09ef ===')
+          for county in ['flagler', 'hendry']:
+              req = urllib.request.Request(
+                  f'{url}/rest/v1/rpc/pencil_dod_evaluate_county',
+                  data=json.dumps({'county_slug_arg': county}).encode(),
+                  headers=headers, method='POST'
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      ev = json.loads(r.read())
+                  print(f'{county}: {json.dumps(ev)}')
+                  if isinstance(ev, dict):
+                      passes = sum(1 for k in 'ABCDEFGHIJ' if ev.get(k, {}).get('pass'))
+                      print(f'{county}: {passes}/10 PASS')
+                      for letter in 'ABCDEFGHIJ':
+                          d = ev.get(letter, {})
+                          status = 'PASS' if d.get('pass') else 'FAIL'
+                          print(f'  {letter}: {status} metric={d.get(\"metric\")} {d.get(\"detail\",\"\")}')
+              except Exception as e:
+                  print(f'{county}: ERROR {e}')
+          "
