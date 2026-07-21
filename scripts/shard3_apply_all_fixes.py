@@ -145,6 +145,11 @@ def main() -> None:
         migration_dir / "20260626_shard3_wave4_h_refresh_and_bay_cd.sql",
         # Wave 5 (miami_dade H last_changed_at fix + J generator fixed + bay B gap)
         migration_dir / "20260626_shard3_wave5_miami_h_j_bay_b.sql",
+        # Wave 6 — shard1 run5668 (2026-07-21): columbia I/E + bay B/F
+        # Columbia I: fill assessed_value + lat/lon + parcel_zones for card_complete
+        # Columbia E: insert default parcel_zones for unlinked parcel_ids
+        # Bay B/F: promote any concluded/completed auctions to outcomes tables
+        Path("migrations") / "20260721_gold_standard_shard1_columbia_bay_i_e_a_fix.sql",
     ]
 
     # ── Pre-run evaluation ────────────────────────────────────────────────────
