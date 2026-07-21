@@ -29,7 +29,20 @@ SB_KEY = (
     or ""
 )
 
-SHARD_COUNTIES = ["orange", "dixie", "citrus", "suwannee", "okaloosa"]
+# suwannee QUARANTINED 2026-07-21 (dispatch dd349c48, gold-standard-shard9 run5668):
+# this generator hardcodes every `factors` value to a literal boolean `True` (see FACTORS
+# below) instead of computing real per-property distress/CMA scores, and uses a single
+# constant ml_score per county rather than a real Shapira V14 model output. Confirmed live
+# via pencil_dod_evaluate_county + direct bid_decisions query: 259 duplicate rows had piled
+# up for suwannee's 9 real cases (ml_score=0.74 constant across all of them, 49 distinct
+# insert timestamps from this cron re-running twice daily with no dedup). Purged live this
+# session; removing suwannee here stops the twice-daily 08:05/16:05 UTC cron from silently
+# re-fabricating it (same recurrence-after-purge failure class as the suwannee-bootstrap FC
+# quarantine, migrations/20260711_gold_standard_shard3_suwannee_fc_fabrication_repurge_and_quarantine.sql).
+# orange/dixie/citrus/okaloosa are OUT OF SCOPE for this shard and are left untouched here —
+# they carry the same fabrication pattern and need the identical purge+quarantine treatment,
+# but that is those counties' owning shard's call, not this session's.
+SHARD_COUNTIES = ["orange", "dixie", "citrus", "okaloosa"]
 DRY_RUN = "--dry-run" in sys.argv
 
 FACTORS = {

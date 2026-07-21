@@ -1,0 +1,67 @@
+-- Gold Standard shard (hillsborough/glades/suwannee, dispatch dd349c48-30e9-467f-bc75-717fac90014d,
+-- loop run 5668, chat_session architect-20260721T160000): J ghost-success purge, cross-county
+-- reproduction of an existing hillsborough finding.
+--
+-- ROOT CAUSE: the campaign's own adversarial audit log (gold_standard_ultraloop_audit) already
+-- refuted hillsborough's raw pencil_dod_evaluate_county J=100% (891/891) TODAY at 2026-07-21T00:58Z
+-- (audit id 8234, run 5668) as fabricated: ml_score is a single constant (0.7785) across all 891
+-- rows, distress_owner='unknown' for 773 of them, cma_resale=arv exactly, cma_distressed=arv*0.65 by
+-- a fixed formula (not comparable-sales analysis), and 891 rows were bulk-inserted in a 1.9-second
+-- window. The refuter flagged this pattern as present in 16 other "currently-certified" counties
+-- including brevard (6685/6690 rows, 99.9% synthetic) -- a fleet-wide issue.
+--
+-- This session independently re-derived the SAME pattern live (not trusting the pre-existing audit
+-- row) by directly querying bid_decisions for glades and suwannee (joined by case_number, since
+-- bid_decisions has no county column):
+--
+--   glades:   70 bid_decisions rows (matches all 70 glades auctions 1:1). ml_score constant 0.55
+--             across every row regardless of wildly different property values ($8K tax-deed parcel
+--             vs a foreclosure ARV of $90K -- impossible for a real per-property model).
+--             pipeline_version=NULL. All 70 rows share ONE created_at timestamp
+--             (2026-07-11T11:32:40.881252Z) -- a single bulk synthetic insert, not per-property
+--             scoring. factors.distress_owner=0.55 (== ml_score, formulaic), distress_location=0.42
+--             and distress_property=0.5 constant across all rows.
+--   suwannee: 259 bid_decisions rows for only 9 distinct case_numbers (up to ~29x duplication per
+--             case). ml_score constant 0.74 across every row. factors are literal booleans
+--             ({"cma_resale": true, "cma_distressed": true, "distress_owner": true, ...}) -- not
+--             computed dollar/score values at all. 49 distinct created_at timestamps spanning
+--             pipeline_version in (run338_shard28_v1, run338_shard28_v3, run338_shard28_v4),
+--             confirming a twice-daily cron kept re-inserting duplicates with no dedup.
+--
+-- Traced the suwannee recurrence to .github/workflows/gold-standard-shard28-run338.yml (cron
+-- '5 8 * * *' and '5 16 * * *') -> scripts/shard28_run338_j_generator.py, whose FACTORS dict
+-- hardcodes every key to literal `True` instead of computing real distress/CMA values -- this is
+-- the exact same "existence-check-only, not real analysis" pattern the hillsborough refuter found.
+-- SHARD_COUNTIES in that script covered ["orange","dixie","citrus","suwannee","okaloosa"]; edited
+-- live this session to drop "suwannee" only (those other 4 counties belong to other shards per
+-- PARALLEL-FLEET RULES and were NOT touched -- they carry the identical fabrication pattern and
+-- need the same purge+quarantine treatment from whichever shard owns them).
+--
+-- ACTIONS TAKEN LIVE (via PostgREST, this file documents for replay; direct psql is blocked from
+-- this sandbox by design per CREDENTIAL HANDLING -- REST/RPC with the service-role key is the
+-- sanctioned path):
+--   1. DELETE FROM bid_decisions WHERE case_number IN (<all 70 glades case_numbers>);  -- 70 rows
+--   2. DELETE FROM bid_decisions WHERE case_number IN (<all 9 suwannee case_numbers>); -- 259 rows
+--   3. Edited scripts/shard28_run338_j_generator.py: SHARD_COUNTIES drops "suwannee".
+--
+-- pencil_dod_evaluate_county() re-verified live immediately after the purge, both counties:
+--   glades   J: pass=true, metric=100.0, deal_complete=70  ->  pass=false, metric=0.0, deal_complete=0
+--   suwannee J: pass=true, metric=100.0, deal_complete=9   ->  pass=false, metric=0.0, deal_complete=0
+--   (hillsborough J was NOT touched this session -- already correctly logged as refuted/FAIL by the
+--   existing 2026-07-21T00:58Z audit row; regenerating it is a fleet-wide ~16-county decision beyond
+--   this session's safe scope and is flagged as a residual item, not attempted here.)
+--
+-- Net: both glades and suwannee move from their dispatch-brief raw counts (8/10, 7/10) to one fewer
+-- real PASS each (J), because J was never real to begin with. Per HARD GUARDRAILS #2 (fail-loud,
+-- never fabricate) and the campaign's own ghost-success ban, this is the same class of mandatory
+-- HONEST regression already established by the suwannee FC bootstrap purge
+-- (migrations/20260711_gold_standard_shard3_suwannee_fc_fabrication_repurge_and_quarantine.sql) and
+-- the levy/dixie fabrication purges -- not discretionary.
+--
+-- RESIDUAL for a future session: build a REAL J generator (genuine per-property Shapira V14
+-- ml_score + gen_valuations_comps_batch two-arm CMA, not a hardcoded constant/boolean stub) for
+-- glades and suwannee, and audit the other ~16 counties flagged by the hillsborough refuter
+-- (including brevard) for the same fabrication pattern.
+--
+-- No SQL statements below -- all writes were performed live via PostgREST DELETE requests filtered
+-- on case_number, not a transactional SQL script. This file is the audit-trail record only.
