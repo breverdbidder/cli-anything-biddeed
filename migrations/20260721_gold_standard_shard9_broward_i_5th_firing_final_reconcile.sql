@@ -1,0 +1,56 @@
+-- GOLD STANDARD shard-9 (dispatch 20a33672), 5th firing, broward Letter I lane.
+-- FINAL RECONCILIATION NOTE (no DDL/DML in this file -- audit trail only).
+--
+-- Before this session: I FAIL, card_complete=608 of 652 (93.3%).
+-- After this session:  I PASS, card_complete=623 of 652 (95.6%).
+--   (confirmed live via SELECT public.pencil_dod_evaluate_county('broward'))
+--
+-- This session's own migrations (base + correction + correction2) directly
+-- fixed 11 rows:
+--   CACE-16-002149 (503925081030 gap-parcel value+geo), CACE-22-015602
+--   (514120150370 gap-parcel value+geo), CACE-20-018707 (6303 Bay Club Dr ->
+--   494212AK1970, value + RMM-25 zone), COCE-25-001068 attempted but BLOCKED
+--   by a real unique constraint (not counted as fixed), TD-53487/TD-53740/
+--   TD-53741 (Pembroke Pines R-1B/PUD/R-MF), TD-53732 (Fort Lauderdale RS-8),
+--   TD-53676 (North Lauderdale RM-16), TD-53726 (Lauderhill RM-18), TD-53743
+--   (Deerfield Beach RM-15).
+--
+-- A SEPARATE, CONCURRENT process (source='broward_county_unincorp_beta',
+-- NOT this session's work -- no migration in this dispatch used that source
+-- string or jurisdiction_id 628 for these parcels) independently inserted
+-- parcel_zones rows for the 4 deferred Coral Springs TD- rows
+-- (TD-53637/53649/53650/53710) at 2026-07-21 01:12:01 UTC, mid-session,
+-- assigning them zone_code='R-1' under jurisdiction_id=628 ("Broward County
+-- (Unincorporated)"). This is FACTUALLY QUESTIONABLE -- Coral Springs is an
+-- incorporated municipality, not unincorporated county land, and 'R-1' is a
+-- generic fallback code, not these parcels' real zoning (verified this
+-- session via BCPA landCalcZoning: RD-8/RM-20, not R-1). This session did NOT
+-- cause this write and does NOT revert it (out of the I-lane's scope, and
+-- reverting a concurrent process's write mid-flight risks a race with
+-- whatever pipeline produced it) -- but it IS the reason 4 of the "29
+-- remaining failing rows" predicted by this session's own migrations turned
+-- out to already be passing by the time of the final re-check. Flagged here
+-- as a P1 finding: `broward_county_unincorp_beta` (609 total rows as of this
+-- check, spanning 2026-06-23 to 2026-07-21, an ongoing/scheduled pipeline, not
+-- a one-off) should be audited for jurisdiction-assignment correctness --
+-- incorporated-municipality parcels should not be silently defaulted to the
+-- unincorporated-county jurisdiction with a generic R-1 code. Verified this
+-- does NOT threaten letter G: jurisdiction 628's R-1 district already carries
+-- a real max_density_du_acre=4.00 (from a prior firing, sourced from
+-- bcgishub.broward.org), so these particular rows are density-conforming
+-- even though the jurisdiction/zone_code assignment itself is questionable.
+--
+-- Final verified state (SQL VERIFICATION):
+--   SELECT public.pencil_dod_evaluate_county('broward');
+--   I: pass=true, metric=95.6, detail="card_complete=623 of 652"
+--   G: pass=true, metric=100.0 (unchanged, no regression from this session's
+--      8 new zoning_districts/zone_standards/parcel_zones rows -- verified via
+--      v_zoning_gold_standard_kpi_v3: parcels 677->685, density_applicable
+--      677->682, density_na 0->3, pct_density_of_applicable stayed 100.0)
+--   Timestamp: 2026-07-21T01:3x UTC (this session)
+--
+-- 29 rows remain genuinely incomplete, all documented with a specific
+-- structural reason in the base migration's header comment (ambiguous
+-- multi-unit condo addresses with no unit number, literal placeholder
+-- parcel_ids, no parcel_id at all, a real unique-constraint collision, and
+-- Plantation's Cloudflare-blocked GIS + Firecrawl-out-of-credits block).
