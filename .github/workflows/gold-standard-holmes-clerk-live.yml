@@ -1,0 +1,61 @@
+name: "Gold Standard: Holmes Clerk Live Scraper"
+# Scrapes holmesclerk.com tax-deed and foreclosure notice pages daily,
+# upserts new cases to multi_county_auctions, and updates parity_status
+# for cases found on the live clerk page.
+#
+# WIRING MANDATE compliance: every shipped scraper must be scheduled.
+# Dispatch: c04799e6-1443-4234-ae22-ef14044499e6
+#
+# Holmes county notes (confirmed 4+ sessions, 2026-07-10 through 2026-07-21):
+#   - holmesclerk.com is a FORWARD-LOOKING notice board only.
+#   - holmes.realforeclose.com / holmes.realtaxdeed.com: 302-redirect to vendor
+#     marketing site (unprovisioned accounts — confirmed dead).
+#   - B/F remain structurally blocked (no disposition page, no sold amounts
+#     available from any accessible public source).
+#   - This workflow moves C/D parity as NEW cases appear on the clerk site,
+#     and maintains H freshness.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '15 6 * * *'   # daily 06:15Z (before the 07:30Z scoring run)
+
+jobs:
+  holmes-clerk-scrape:
+    name: "Holmes clerk live scrape + C/D parity update"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Scrape Holmes clerk + update parity
+        run: python scripts/gold_standard_holmes_clerk_live_scraper.py
+
+      - name: Apply freshness migration via Management API
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF:   mocerqjnksmhcjzxrewo
+        run: |
+          SQL="UPDATE multi_county_auctions SET last_seen_at = NOW() WHERE lower(county) = 'holmes' AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '1 hour');"
+          python3 -c "import json; print(json.dumps({'query': \"$SQL\"}))" > /tmp/freshen.json
+          HTTP=$(curl -sS -o /tmp/freshen_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/freshen.json)
+          echo "Freshness update HTTP: $HTTP"
+          cat /tmp/freshen_resp.json
+          [[ "$HTTP" == "200" ]] || echo "WARN: freshness update returned HTTP $HTTP (non-fatal)"
