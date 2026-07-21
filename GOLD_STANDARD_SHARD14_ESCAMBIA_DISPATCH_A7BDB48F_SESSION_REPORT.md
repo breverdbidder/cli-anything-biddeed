@@ -5,22 +5,84 @@ chat_session: `architect-20260720T160000`
 county: escambia (sole shard target)
 mode: ultracode (Workflow-orchestrated research + adversarial verify for G)
 
+**NOTE: this dispatch fired twice** (commit `a78c2607` on 2026-07-20 21:22Z, then
+a second firing ~3.5h later, same dispatch_id/chat_session). The second firing
+verified the first firing's shipped state live (matched it exactly), then
+continued from its documented "next-session leads" rather than repeating
+completed work. Both firings' before/after are recorded below as one
+continuous session.
+
 ## Before/after (pencil_dod_evaluate_county, VERIFIED live)
 
-| Letter | Before | After | Status |
-|---|---|---|---|
-| A | PASS (43) | PASS (43) | unchanged |
-| B | PASS (100.0) | PASS (100.0) | unchanged |
-| **C** | **FAIL (76.2, matched_clean=259)** | **FAIL (79.4, matched_clean=270)** | **improved, still fails 95% threshold** |
-| **D** | **FAIL (76.2, matched_any=259)** | **FAIL (79.4, matched_any=270)** | **improved, still fails 95% threshold** |
-| E | PASS (99.7) | PASS (99.7) | unchanged |
-| F | PASS (100.0) | PASS (100.0) | unchanged |
-| G | FAIL (9.5) | FAIL (9.5) | unchanged — see below |
-| H | PASS | PASS | unchanged |
-| I | PASS (95.9) | PASS (95.9) | unchanged |
-| J | PASS (97.4) | PASS (97.4) | unchanged |
+| Letter | Firing 1 start | Firing 1 end | Firing 2 end | Status |
+|---|---|---|---|---|
+| A | PASS (43) | PASS (43) | PASS (43) | unchanged |
+| B | PASS (100.0) | PASS (100.0) | PASS (100.0) | unchanged |
+| **C** | **FAIL (76.2, matched_clean=259)** | **FAIL (79.4, matched_clean=270)** | **FAIL (80.6, matched_clean=274)** | **improved twice, still fails 95% threshold** |
+| **D** | **FAIL (76.2, matched_any=259)** | **FAIL (79.4, matched_any=270)** | **FAIL (80.6, matched_any=274)** | **improved twice, still fails 95% threshold** |
+| E | PASS (99.7) | PASS (99.7) | PASS (99.7) | unchanged |
+| F | PASS (100.0) | PASS (100.0) | PASS (100.0) | unchanged |
+| G | FAIL (9.5) | FAIL (9.5) | FAIL (9.5) | unchanged — see below |
+| H | PASS | PASS | PASS | unchanged |
+| I | PASS (95.9) | PASS (95.9) | PASS (95.9) | unchanged |
+| J | PASS (97.4) | PASS (97.4) | PASS (97.4) | unchanged |
 
-Scoreboard: 7/10 → 7/10 (C/D real gains, no letter regressed).
+Scoreboard: 7/10 → 7/10 → 7/10 (C/D real gains both firings, no letter regressed).
+
+## Firing 2 — C/D residual re-probe (real gain)
+
+Re-ran the idempotent `scripts/shard14_run5361_escambia_cd_fix.py` against the
+live RealAuction calendar ~3.5h after firing 1. The `08/05/2026` tax_deed slot
+had grown from 60 to 61 live items since the last probe; 4 new exact
+case_number matches appeared that were not present before (2024 TD
+002003/002039/001979/004747). Promoted `matched_clean` live via REST PATCH.
+C/D moved 79.4% → 80.6% (270 → 274). No new migration file needed (data-only
+change via the existing idempotent script, same pattern as firing 1). Logged
+to `gold_standard_ultraloop_audit` ids 8170/8171 (survived=true).
+
+Residual: 66 tax_deed rows remain genuinely unmatched — same root cause as
+firing 1 (RealAuction's live TD certificate list for these far-future dates
+diverges from our calendar-sweep source; likely upstream substitution/
+redemption before the sale posts, not a matcher bug).
+
+## Firing 2 — G R-NC retry (real finding, correctly did not ship a number)
+
+Firing 1 left an explicit next-session lead: retry the R-NC (Pensacola)
+citation with a working fetch path (Firecrawl credits or non-SPA source).
+Dispatched a 1-research-agent ultracode Workflow using WebFetch directly
+(no Firecrawl dependency). Result: **still no primary source reachable**
+(Municode 403, cityofpensacola.com 403 on every path tried, Wayback Machine
+blocked outright by the WebFetch tool implementation itself) — refuted for
+lack of independent confirmation, consistent with firing 1.
+
+**New structural finding** (upgrades the diagnosis, doesn't resolve it): a
+WebSearch surfaced Zoneomics (secondary source, not treated as confirmed) show
+Pensacola LDC Sec. 12-3-7(5)b (the R-NC district's own regulations) contains
+**no numeric parking ratio at all** — it cross-references Chapter 12-4, which
+is organized **by land use** (bank 1/300sf, general retail 1/300sf =
+3.33/1,000sf, restaurant 1/100sf, ~80 categories) in Sec. 12-4-1(2), not by
+zoning district. Sec. 12-4-3 — the section firing 1's candidate actually cited
+— is titled "Parking Lots" and covers physical design standards (stall
+dimensions, surfacing), not ratio numbers. The original 3.33/1,000sf figure
+appears to be a real code value (general retail use) misattributed to the
+wrong section and reframed as a district-wide ratio that does not exist in
+Pensacola's code.
+
+This means **R-NC has the identical structural problem as HDMU/HC-LI/Com**
+(unincorporated county, DSM Ch.1 Art.3 Sec.3-1.2): Escambia's
+`zone_standards.parking_per_1000sf` schema models one value per **district**,
+but both governing ordinances (Pensacola LDC and county DSM) regulate parking
+by **land use**, not district. There is no single defensible per-district
+value for any of the 4 remaining pk1000-blocking districts (R-NC, HDMU,
+HC/LI, Com) without a "representative use" judgment call — a schema/
+architecture decision, not something further research can resolve. Logged to
+`gold_standard_ultraloop_audit` id 8177 (survived=false, refuted).
+
+**This closes out the "retry R-NC" lead as exhausted** — the residual
+next-session work for G is now purely the architectural question from firing
+1's report (extend `zone_standards` for use-indexed parking, or have a human
+deliberately document a representative-use mapping per district), not further
+citation-hunting.
 
 ## C/D — real fix, shipped
 
@@ -98,24 +160,35 @@ All 6 claims (2 survived for C/D methodology note, 4 rejected for G) logged to
 `gold_standard_ultraloop_audit` per the ULTRALOOP CERTIFY GATE — G remains
 correctly UNKNOWN/FAIL, not falsely marked passing.
 
-### Next-session leads for G
-1. Retry R-NC with a working Firecrawl key or a non-SPA Pensacola source
-   (e.g. a direct city PDF of Ch. 12-4) — the value may be real, just
-   currently unconfirmable.
-2. The real fix for HDMU/HC-LI/Com is a schema question, not a research
-   question: either (a) extend `zone_standards` to support use-indexed
-   parking tables (bigger lift, correctly out of scope for a single-county
-   surgical session), or (b) have a human/architect decide and document an
-   explicit "predominant permitted use per district" mapping so a single
-   representative ratio can be cited defensibly (e.g. Com → retail 3/1,000sf,
-   HC/LI → light-industrial 1/1,000sf) — this is a judgment call that should
-   be made deliberately, not slipped in as if it were extracted fact.
+### Next-session leads for G (superseded by firing 2 — see below)
+1. ~~Retry R-NC with a working Firecrawl key or a non-SPA Pensacola source~~
+   — **done in firing 2, exhausted.** WebFetch also hit 403 on every direct
+   path and Wayback is blocked by the tool itself; the underlying finding is
+   now that R-NC has no district-level ratio to find at all (see firing 2
+   section above).
+2. The real fix for R-NC **and** HDMU/HC-LI/Com is a schema question, not a
+   research question: either (a) extend `zone_standards` to support
+   use-indexed parking tables (bigger lift, correctly out of scope for a
+   single-county surgical session), or (b) have a human/architect decide and
+   document an explicit "predominant permitted use per district" mapping so
+   a single representative ratio can be cited defensibly (e.g. Com → retail
+   3/1,000sf, HC/LI → light-industrial 1/1,000sf, R-NC → general retail
+   3.33/1,000sf per the now-located Sec. 12-4-1(2) table) — this is a
+   judgment call that should be made deliberately by the architect, not
+   slipped in as if it were extracted fact. **All 4 remaining districts now
+   have this same one blocker; no further per-district research is left to
+   do without that decision.**
 
 ## Verification protocol executed
-- `pencil_dod_evaluate_county('escambia')` run before and after the C/D fix —
-  pasted above, real DB query, no rounding/estimation.
+- `pencil_dod_evaluate_county('escambia')` run before and after each fix in
+  both firings — pasted above, real DB query, no rounding/estimation.
 - No `gold_standard_loop()` / `gold_standard_certify()` run this session
   (per PARALLEL-FLEET RULES, other shards were mid-flight) — per-county
   evaluation only, as instructed.
-- Committed and pushed directly to `main` (no side branch, no PR) — commit
-  `a78c2607`.
+- Firing 1: committed and pushed directly to `main` — commit `a78c2607`.
+- Firing 2: C/D promotion applied live via REST PATCH using the existing
+  idempotent script (no code change, no new migration needed); this report
+  update committed and pushed directly to `main` — no side branch, no PR.
+- All firing-2 claims logged to `gold_standard_ultraloop_audit`
+  (ids 8170, 8171 survived=true for C/D; id 8177 survived=false for the
+  refuted G R-NC retry) per the ULTRALOOP CERTIFY GATE.
