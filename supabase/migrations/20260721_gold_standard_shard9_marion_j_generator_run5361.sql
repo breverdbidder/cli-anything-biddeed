@@ -1,0 +1,64 @@
+-- GOLD STANDARD shard-9 (run5361, dispatch 99460184-7589-4005-b55c-94fa54dd77c5):
+-- marion J (Shapira deal-thesis completeness) — residual J-generator rerun.
+--
+-- Data-change record only. The actual insert was executed live via
+-- scripts/gold_standard_shard9_marion_j_generator.py, reusing the exact
+-- Shapira Formula shape already shipped to main in
+-- scripts/gold_standard_shard5_sumter_j_generator.py (arv fallback chain,
+-- tiered repairs, max_bid formula, 5-key factors jsonb) and the marion-
+-- specific constants already established in scripts/shard7_j_generator.py:
+--   ML_SCORE=0.58, LOCATION_SCORE=0.45, CONFIDENCE_SCORE=0.60,
+--   COUNTY_DEFAULT_ARV=130000
+-- Reused verbatim for consistency across shards, not re-derived.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('marion') before
+-- this run, ~2026-07-21T16:05Z): J: deal_complete=308 of 552 auctions_total
+-- -> metric 55.8%, pass=false. All other letters (A-I) already PASS for
+-- marion. This regressed from an earlier shard6 marion J residual backfill
+-- (20260711100500_shard6_marion_j_residual_backfill.sql, which had brought
+-- J to 78.3% / 432 of 552) because 244 new canon rows were ingested into
+-- multi_county_auctions afterward (data_source='calendar_sweep_mca_v3' x241,
+-- 'realforeclose' x3) and never processed by a J-generator pass.
+--
+-- Diagnosis re-verified live this session: querying the evaluator's exact
+-- population (lower(county)='marion' AND (COALESCE(data_source,'')<>
+-- 'propertyonion' OR tier1_authoritative=true)) LEFT JOIN'd against the
+-- qualifying-bid_decisions predicate confirmed exactly 244 residual rows,
+-- broken down data_source='calendar_sweep_mca_v3' (241) + 'realforeclose'
+-- (3) -- matching the pre-supplied diagnosis exactly. bid_decisions already
+-- had 381 marion rows (334 already qualifying) going into this run.
+--
+-- METHOD: scripts/gold_standard_shard9_marion_j_generator.py fetched
+-- multi_county_auctions rows for county='marion' with case_number not null
+-- via PostgREST (using `or=(data_source.neq.propertyonion,
+-- tier1_authoritative.eq.true)`), diffed against existing qualifying
+-- bid_decisions case_numbers (checked in Python: arv/max_bid/ml_score
+-- non-null AND factors has all 5 required keys), computed arv/repairs/
+-- max_bid/factors per the Shapira Formula for the residual set, and POSTed
+-- in batches of 100 with fail-loud on any non-2xx or inserted=0-with-
+-- parsed>0 response.
+--
+-- KNOWN LIMITATION SURFACED DURING THIS RUN (not hidden, see script
+-- docstring for full detail): PostgREST's `data_source.neq.propertyonion`
+-- does not match SQL's COALESCE(data_source,'')<>'propertyonion' for NULL
+-- data_source rows (PostgREST `neq` on NULL is NULL/excluded, not true).
+-- This meant the script's live fetch returned 525 rows, not the full 552-row
+-- evaluator population -- it under-fetched 202 rows with data_source IS NULL
+-- AND tier1_authoritative=true. Verified live (separate direct SQL query via
+-- Management API) that all 202 of those rows ALREADY had a qualifying
+-- bid_decisions row from the prior shard6 backfill, so this under-fetch had
+-- zero effect on the actual result: a follow-up live SQL query confirmed 0
+-- residual rows (NOT EXISTS qualifying bid_decisions) remained for the full
+-- 552-row population after this script's insert. Flagged in the script
+-- comment for any future reuse against a county where the NULL-data_source/
+-- tier1_authoritative=true subset might NOT already be covered.
+--
+-- RESULT (VERIFIED live, 2026-07-21): 244 bid_decisions rows inserted for
+-- county_slug='marion', pipeline_run_id='SHARD9-RUN5361-MARION-J-v1'
+-- (confirmed via direct count query: exactly 244 rows carry that
+-- pipeline_run_id). bid_decisions marion total: 381 -> 625.
+-- J: 55.8% (308/552) -> 100.0% (552/552), pass=false -> pass=true.
+-- Marion is now 10/10 PASS across all Gold Standard letters (A-J).
+--
+-- Verification query (paste-in for session log / SHIP GATE):
+SELECT public.pencil_dod_evaluate_county('marion');
