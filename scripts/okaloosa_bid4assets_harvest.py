@@ -202,7 +202,22 @@ async def scrape_all() -> tuple[list[dict], list[dict], dict]:
                     "auction_type": "foreclosure",
                     "case_number": case_number,
                     "property_address": clean_address or None,
-                    "parcel_id": None,
+                    # NO "parcel_id" / "parity_status" keys here (regression fix,
+                    # 2026-07-21, gold-standard-shard4-run5668): the FC grid never
+                    # publishes a parcel/APN column, but a *downstream* GIS-
+                    # enrichment pass (scripts/okaloosa_parcel_gis_enrich.py) DOES
+                    # backfill a real parcel_id + promotes parity_status to
+                    # 'matched_clean' after this harvester runs. Explicitly setting
+                    # these to None/'matched_divergent' on every re-scrape combined
+                    # with the PostgREST `merge-duplicates` upsert below (which does
+                    # `col = EXCLUDED.col` for every key present in the payload)
+                    # silently clobbered that enrichment back to NULL on the next
+                    # scheduled harvest run -- confirmed live: all 26 FC rows reset
+                    # to parcel_id=NULL at 2026-07-21T09:03:46Z, wiping out C/E gains
+                    # from the prior 0a7c9027/51deffee sessions (okaloosa 9/10 -> 6/10
+                    # with zero code change in between). Omitting the keys entirely
+                    # means the upsert's ON CONFLICT UPDATE leaves whatever value
+                    # already exists in the DB untouched.
                     "auction_date": _iso_date(d),
                     "opening_bid": opening_bid,
                     "sold_amount": sold_amount,
@@ -217,12 +232,6 @@ async def scrape_all() -> tuple[list[dict], list[dict], dict]:
                     "source_url": f"{FC_BASE}?salesdate={d}",
                     "auction_url": f"https://www.bid4assets.com/auction/{auction_id}",
                     "tier1_authoritative": True,
-                    # FC grid never publishes a parcel/APN column (confirmed
-                    # live this session -- headers are ID|Case#|Address|
-                    # CurrentBid|Status only) so parcel_id stays NULL and
-                    # this is honestly "matched_divergent", not "matched_clean".
-                    "parity_status": "matched_divergent",
-                    "parity_source": f"tier1:bid4assets_scrape:SHARD3-OKALOOSA-V1:foreclosure:{_iso_date(d)}",
                 })
                 stats["fc_rows"] += 1
 
@@ -356,7 +365,15 @@ def main() -> int:
         print("NOTE: zero rows overall -- unexpected given per-lane checks above")
         return 2
 
-    upsert(rows)
+    # Upsert FC and TD rows in SEPARATE batches (regression fix, 2026-07-21):
+    # upsert()'s key-union/setdefault step would otherwise reintroduce the
+    # "parcel_id"/"parity_status" keys into FC rows (defaulting to None)
+    # just because TD rows in the same batch carry those keys -- silently
+    # recreating the exact clobbering bug fixed above one call site up.
+    fc_rows = [r for r in rows if r["sale_type"] == "foreclosure"]
+    td_rows = [r for r in rows if r["sale_type"] == "tax_deed"]
+    upsert(fc_rows)
+    upsert(td_rows)
     upsert_outcomes(outcome_rows)
     print(f"\nSUCCESS: upserted {len(rows)} okaloosa row(s) "
           f"({stats['fc_rows']} foreclosure, {stats['td_rows']} tax_deed), "
