@@ -1,0 +1,70 @@
+name: "Liberty County B+F Post-Auction Outcome Harvester"
+# Scrapes libertyclerk.com for post-sale outcomes for case 24-CA-22 (auction date 2026-07-21).
+# Runs at 12:00 UTC daily (post 11:00 AM ET courthouse auction time) to capture same-day results.
+# Writes to foreclosure_outcomes (B criterion independent source) and updates MCA tier1_sold_amount (F criterion).
+#
+# County exception: Liberty does NOT use RealAuction. Canonical source: libertyclerk.com
+# Criterion A (td>=1): also checks tax deed page — reports td_count, cannot fix without real listings.
+#
+# Dispatch: shard-13, 2026-07-21, dispatch_id 429059b7-5c3d-47d5-bb91-caea03de0bd7
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # daily 12:00 UTC — after 11 AM ET courthouse sales
+    - cron: '0 15 * * *'   # daily 15:00 UTC — second check (clerk may post late)
+    - cron: '0 9 * * *'    # daily 09:00 UTC — next-day check for prior day's results
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (parse only, no DB writes)'
+        required: false
+        default: 'false'
+
+jobs:
+  harvest:
+    name: "Scrape liberty clerk for B+F outcomes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Scrape liberty clerk + write outcomes"
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+            python3 scripts/liberty_bf_outcome_scraper.py --dry-run
+          else
+            python3 scripts/liberty_bf_outcome_scraper.py
+          fi
+
+      - name: "SHIP GATE — verify B/F metrics"
+        if: github.event.inputs.dry_run != 'true'
+        continue-on-error: true
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set +e
+          DB_URL="postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres"
+          echo "### SQL VERIFICATION — liberty B+F post-auction harvest"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          # Install psql
+          sudo apt-get install -y --no-install-recommends postgresql-client 2>/dev/null || true
+          if command -v psql &>/dev/null; then
+            psql "$DB_URL" -c "SET statement_timeout = 0; SELECT letter, pass, metric, detail FROM pencil_dod_evaluate_county('liberty') ORDER BY letter;" 2>&1
+            echo ""
+            psql "$DB_URL" --csv -t -c "
+              SELECT 'fc_outcomes' AS metric, COUNT(*) AS value FROM foreclosure_outcomes WHERE county_slug = 'liberty' AND data_source NOT ILIKE '%propertyonion%'
+              UNION ALL SELECT 'mca_sold', COUNT(*) FROM multi_county_auctions WHERE lower(county) = 'liberty' AND tier1_sold_amount IS NOT NULL
+              UNION ALL SELECT 'mca_total', COUNT(*) FROM multi_county_auctions WHERE lower(county) = 'liberty'
+            " 2>&1
+          else
+            echo "psql not available — using REST fallback (may 522)"
+          fi
