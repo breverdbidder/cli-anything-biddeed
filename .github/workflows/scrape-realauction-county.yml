@@ -38,7 +38,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python deps
-        run: pip install --quiet requests
+        run: |
+          pip install --quiet requests beautifulsoup4 playwright
+          playwright install --with-deps chromium
 
       - name: Look up county in realauction_subdomains registry
         id: registry
@@ -85,7 +87,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           COUNTY_SLUG: ${{ github.event.inputs.county_slug }}
           BASE_URL: ${{ steps.registry.outputs.base_url }}
           PLATFORM: ${{ steps.registry.outputs.platform }}
