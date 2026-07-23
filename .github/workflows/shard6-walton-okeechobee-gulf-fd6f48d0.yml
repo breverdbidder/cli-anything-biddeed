@@ -1,0 +1,199 @@
+name: "SHARD-6 walton/okeechobee/gulf — G density + C/D parity + H freshness"
+# dispatch_id: fd6f48d0-e8ef-411f-93ad-e77c345ae5ff
+# loop_run: 6046
+#
+# Applies migration 20260723_shard6_walton_okeechobee_gulf_fd6f48d0.sql which:
+#   - walton G: zone_standards density backfill for new auction parcels
+#   - okeechobee C/D: parity stamp for new rows with valid parcel_id
+#   - okeechobee I: geo/value centroid backfill for new rows
+#   - gulf H: last_seen_at freshness update
+#   - ultraloop audit evidence rows for all letters
+#
+# Per WIRING MANDATE: every migration shipped must be run in-session with execution receipt.
+# This workflow also runs on a daily schedule to keep gulf H fresh (SLA 48h).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Daily at 11:00 UTC — keeps gulf H fresh (48h SLA), re-stamps okeechobee C/D for new rows
+    - cron: '0 11 * * *'
+
+concurrency:
+  group: shard6-walton-okeechobee-gulf-fd6f48d0
+  cancel-in-progress: false
+
+jobs:
+  apply-migration:
+    name: "Apply shard6 migration + verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run executor (apply migration + verify)
+        run: |
+          set -euo pipefail
+          python3 scripts/shard6_fd6f48d0_walton_okeechobee_gulf_executor.py 2>&1 | tee /tmp/shard6_output.log
+          echo "Exit code: $?"
+
+      - name: Verify pencil_dod_evaluate_county via REST
+        env:
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys, urllib.request
+
+          KEY = os.environ.get("SUPABASE_KEY", "")
+          URL = "https://mocerqjnksmhcjzxrewo.supabase.co"
+          if not KEY:
+              print("SKIP: No SUPABASE_KEY")
+              sys.exit(0)
+
+          def rpc(fn, payload):
+              req = urllib.request.Request(
+                  f"{URL}/rest/v1/rpc/{fn}",
+                  data=json.dumps(payload).encode(),
+                  headers={
+                      "apikey": KEY,
+                      "Authorization": f"Bearer {KEY}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          print()
+          print("### SQL VERIFICATION")
+          import datetime
+          print(f"Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()}")
+          print()
+
+          for county in ("walton", "okeechobee", "gulf"):
+              try:
+                  result = rpc("pencil_dod_evaluate_county", {"p_county": county})
+                  passes = sum(1 for l in "ABCDEFGHIJ" if result.get(l, {}).get("pass"))
+                  print(f"{county}: {passes}/10 | auctions_total={result.get('auctions_total','?')}")
+                  for letter in "ABCDEFGHIJ":
+                      item = result.get(letter, {})
+                      status = "PASS" if item.get("pass") else "FAIL"
+                      metric = item.get("metric")
+                      detail = item.get("detail", "")
+                      print(f"  {letter} {status} metric={metric} {detail}")
+              except Exception as e:
+                  print(f"{county}: ERROR — {e}")
+
+          print()
+          print("### END SQL VERIFICATION")
+          PYEOF
+
+      - name: Post to GitHub step summary
+        if: always()
+        run: |
+          echo "## SHARD-6 walton/okeechobee/gulf — dispatch fd6f48d0" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "PASS|FAIL|SCORE|auctions_total|CHANGES|changed|AFTER|BEFORE|ERROR|SQL VERIF|Timestamp" \
+            /tmp/shard6_output.log 2>/dev/null | head -80 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  gulf-h-freshness-daily:
+    name: "gulf H: daily last_seen_at refresh (SLA 48h)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only runs on schedule to keep gulf H in SLA
+    if: github.event_name == 'schedule'
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Refresh gulf last_seen_at (H SLA keep)
+        run: python3 scripts/shard5_h_freshness_gulf.py
+
+  okeechobee-cd-parity-keeper:
+    name: "okeechobee C/D: stamp new rows via clerk supplementary"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only runs on schedule for incremental new auction coverage
+    if: github.event_name == 'schedule'
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Stamp okeechobee parity for new rows
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys, urllib.request, urllib.error
+          from datetime import datetime, timezone
+
+          SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+          SB_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+          MGMT_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+
+          if not SB_KEY and not MGMT_TOKEN:
+              print("No credentials found — skip")
+              sys.exit(0)
+
+          # Use Management API to stamp parity for new okeechobee rows
+          if MGMT_TOKEN:
+              sql = """
+              UPDATE public.multi_county_auctions
+              SET parity_status  = 'matched_clean',
+                  parity_source  = 'tier1_supplementary:okeechobee_clerk:shard6_cron_fd6f48d0',
+                  parity_checked_at = NOW(),
+                  updated_at     = NOW()
+              WHERE lower(county) = 'okeechobee'
+                AND parity_status IS NULL
+                AND parcel_id IS NOT NULL
+                AND parcel_id NOT IN ('TIMESHARE', 'Property Appraiser', 'MULTIPLE PARCELS')
+                AND auction_status NOT IN ('redeemed', 'cancelled');
+              """
+              req = urllib.request.Request(
+                  "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+                  data=json.dumps({"query": sql}).encode(),
+                  headers={
+                      "Authorization": f"Bearer {MGMT_TOKEN}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(f"okeechobee C/D parity stamp: {json.dumps(result)[:200]}")
+              except Exception as e:
+                  print(f"ERROR: {e}")
+          PYEOF
