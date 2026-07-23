@@ -1,0 +1,79 @@
+name: "SHARD-13 pasco C/D + I keeper"
+# dispatch_id: 8c8052cf-60cc-40f8-b049-64523016bdcd  loop: run6046
+#
+# Root cause this workflow keeps closed:
+#   - New pasco auction rows are ingested daily via background scrapers (both
+#     foreclosure from pasco.realforeclose.com and tax-deed from pasco.realtaxdeed.com).
+#   - New rows land with parity_status=NULL, pulling C/D below the 95% threshold each
+#     time the denominator grows faster than the harvester re-runs.
+#   - New rows also lack parcel_zones entries, pulling I below 95%.
+#
+# Fix: run the proven shard13_run6046_pasco_cd_i_fix.py daily to:
+#   1. Harvest ALL unmatched pasco foreclosure dates from pasco.realforeclose.com
+#   2. Harvest ALL unmatched pasco tax-deed dates from pasco.realtaxdeed.com
+#   3. Backfill parcel_zones for any rows with parcel_id but no zone entry (via FL GIO)
+#
+# Wiring mandate compliance: scheduled here + manual trigger for immediate one-time run.
+# The script is idempotent (harvest dedupes on AID, parity promotes only non-matched rows,
+# parcel_zones inserts are guarded by NOT EXISTS).
+
+on:
+  schedule:
+    - cron: "30 8 * * *"   # daily 08:30Z (offset from main gold-standard-loop to avoid contention)
+  workflow_dispatch:         # manual trigger — run immediately for the run6046 session fix
+
+concurrency: {group: shard13-pasco-cd-i-keeper, cancel-in-progress: false}
+
+jobs:
+  pasco-cd-i-fix:
+    name: "pasco C/D parity + I card-completeness keeper"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Run pasco C/D + I fix (shard13_run6046)"
+        run: python3 scripts/shard13_run6046_pasco_cd_i_fix.py
+
+      - name: "Verify: pencil_dod_evaluate_county('pasco')"
+        if: always()
+        run: |
+          python3 << 'PYEOF'
+          import json, os, urllib.request
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+
+          def rpc(fn, params):
+              req = urllib.request.Request(
+                  f'{SUPABASE_URL}/rest/v1/rpc/{fn}',
+                  data=json.dumps(params).encode(), method='POST')
+              req.add_header('apikey', SUPABASE_KEY)
+              req.add_header('Authorization', f'Bearer {SUPABASE_KEY}')
+              req.add_header('Content-Type', 'application/json')
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  return json.loads(r.read())
+
+          result = rpc('pencil_dod_evaluate_county', {'county_slug_arg': 'pasco'})
+          print(f'### SQL VERIFICATION')
+          print(f'-- pencil_dod_evaluate_county(pasco) at ' + __import__('datetime').datetime.utcnow().isoformat() + 'Z')
+          print(json.dumps(result, indent=2))
+
+          if isinstance(result, list):
+              passing = [r['letter'] for r in result if r.get('pass')]
+              failing = [r['letter'] for r in result if not r.get('pass')]
+              score = len(passing)
+              print(f'\npasco: {score}/10 — passing={passing} failing={failing}')
+              if score == 10:
+                  print('GOLD STANDARD: 10/10 PASS')
+              else:
+                  print(f'REMAINING FAILURES: {failing}')
+          PYEOF
