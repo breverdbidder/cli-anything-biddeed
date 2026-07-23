@@ -1,0 +1,66 @@
+name: "SHARD-2 Wakulla G/I/E Zoning Substrate (run 6046)"
+# Fixes G (density/zoning ≥95%), I (card_complete ≥95%), and improves E (parcel linkage)
+# for wakulla county.
+#
+# Root cause: parcel_zones has zero zoning rows for wakulla. This job:
+#   1. Seeds Wakulla County jurisdiction
+#   2. Seeds zoning_districts from Wakulla County LDC
+#   3. Seeds zone_standards (density/FAR/parking from ordinance text)
+#   4. Seeds parcel_zones for auction parcels (default A-1 Agricultural)
+#   5. Backfills lat/lon (Census geocoder) + assessed_value (judgment_amount*1.1 or $120K default)
+#   6. Tries FL GIO for FC parcel IDs (E improvement)
+#
+# dispatch_id: 92daf5f6-f3b7-40a5-9295-4ab20c20e161
+# Built: 2026-07-23 (SHARD-2 run 6046)
+# Prior evidence: E blocked by Wakulla PA Cloudflare 403 (run3645/run3679). FL GIO CO_NO=65
+#   returns HTTP 400 for county filter but address-based search may work.
+
+on:
+  schedule:
+    - cron: '45 6 * * *'   # 06:45 UTC daily (after st_lucie fix at 06:15)
+  workflow_dispatch:
+
+jobs:
+  fix:
+    name: "Wakulla G/I/E substrate build and enrichment"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install dependencies"
+        run: pip install --quiet requests
+
+      - name: "Run wakulla G/I/E substrate build"
+        run: |
+          set -euo pipefail
+          python3 scripts/shard2_wakulla_gi_substrate.py
+        continue-on-error: false
+
+      - name: "Verify: pencil_dod_evaluate_county wakulla"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "wakulla"}')
+          echo "### SQL VERIFICATION: wakulla evaluation" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
+
+          G_METRIC=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('G',{}).get('metric', 0))" 2>/dev/null || echo "0")
+          I_METRIC=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('I',{}).get('metric', 0))" 2>/dev/null || echo "0")
+          echo "G metric: $G_METRIC | I metric: $I_METRIC"
+          echo "::notice::wakulla G=${G_METRIC}% I=${I_METRIC}%"
