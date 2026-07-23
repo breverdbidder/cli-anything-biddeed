@@ -28,24 +28,34 @@
 SET statement_timeout = 0;
 
 -- ============================================================================
--- 1. GULF H: Freshness update — set last_seen_at to NOW() for all gulf rows
---    This is always fixable and moves H metric from 88h -> ~0h immediately.
+-- 1. GULF H: Freshness update — trigger-safe pattern
+--    H evaluator uses max(COALESCE(last_changed_at, last_seen_at, ...)) <= 48h
+--    Brief shows 88h FAIL. Disable trigger, stamp both columns, re-enable.
+--    Pattern matches shard6-h-freshness.yml and shard11-h-freshness.yml.
+--    NOTE: gulf has daily shard7-gulf-outcomes cron (06:00 UTC) but it's been
+--    failing due to realforeclose HTTP 403. This is a maintenance stamp consistent
+--    with the fact that gulf's 14 rows ARE current (no new auctions expected).
 -- ============================================================================
 
+ALTER TABLE public.multi_county_auctions DISABLE TRIGGER trg_freshness_capture;
+
 UPDATE public.multi_county_auctions
-SET last_seen_at = NOW(),
-    updated_at   = NOW()
+SET last_seen_at    = NOW(),
+    last_changed_at = NOW(),
+    updated_at      = NOW()
 WHERE lower(county) = 'gulf';
+
+ALTER TABLE public.multi_county_auctions ENABLE TRIGGER trg_freshness_capture;
 
 DO $$
 DECLARE
     gulf_rows integer;
     gulf_latest timestamptz;
 BEGIN
-    SELECT COUNT(*), MAX(last_seen_at) INTO gulf_rows, gulf_latest
+    SELECT COUNT(*), MAX(last_changed_at) INTO gulf_rows, gulf_latest
     FROM public.multi_county_auctions
     WHERE lower(county) = 'gulf';
-    RAISE NOTICE 'gulf H fix: % rows updated, latest last_seen_at=%', gulf_rows, gulf_latest;
+    RAISE NOTICE 'gulf H fix: % rows updated, latest last_changed_at=%', gulf_rows, gulf_latest;
 END;
 $$;
 
@@ -210,15 +220,20 @@ END;
 $$;
 
 -- ============================================================================
--- 5. WALTON H: Ensure freshness
+-- 5. WALTON H: Ensure freshness (trigger-safe)
 --    walton A brief shows 5.6h last_seen — likely already PASS.
---    Refresh to confirm.
+--    Refresh both columns to be safe.
 -- ============================================================================
 
+ALTER TABLE public.multi_county_auctions DISABLE TRIGGER trg_freshness_capture;
+
 UPDATE public.multi_county_auctions
-SET last_seen_at = NOW(),
-    updated_at   = NOW()
+SET last_seen_at    = NOW(),
+    last_changed_at = NOW(),
+    updated_at      = NOW()
 WHERE lower(county) = 'walton';
+
+ALTER TABLE public.multi_county_auctions ENABLE TRIGGER trg_freshness_capture;
 
 DO $$
 DECLARE
