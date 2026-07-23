@@ -1,0 +1,51 @@
+name: "GOLD STANDARD SHARD-7 run6046: desoto + taylor B/F/I fix"
+# Wires scripts/shard7_run6046_desoto_taylor_bf_i_fix.py
+# Target letters: B, F (both counties) + I (taylor)
+# dispatch_id: 52e79d90-814a-4fb3-b0c9-7e1a7bde8f49
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Daily at 09:00 UTC — after the 06:00 UTC taylor daily scraper runs
+    - cron: '0 9 * * *'
+
+concurrency:
+  group: shard7-run6046-desoto-taylor
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    name: "DeSoto + Taylor: B/F investigation + Taylor I enrichment"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx beautifulsoup4 requests
+
+      - name: Run shard7 run6046 desoto+taylor fix
+        run: |
+          set -euo pipefail
+          python3 scripts/shard7_run6046_desoto_taylor_bf_i_fix.py 2>&1 | tee /tmp/shard7_run6046.log
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## SHARD-7 run6046: desoto + taylor B/F/I fix" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -60 /tmp/shard7_run6046.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
