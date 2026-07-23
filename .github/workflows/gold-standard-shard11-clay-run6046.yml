@@ -1,0 +1,158 @@
+name: "Gold Standard SHARD-11 — clay C/D/I fix (run 6046)"
+# dispatch_id: 9787c8ea-bb47-465b-bebc-0eb7f4fc3f05
+# clay: 7/10 -> target 10/10
+# Failing: C/D (93.3%, matched=140/150) + I (93.3%, card_complete=140/150)
+# Root cause: new rows ingested after 2026-07-18 session that pushed clay to 10/10.
+# Fix: AJAX harvest new dates from clay.realforeclose.com + parcel_zones backfill.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Action to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - cd_parity
+          - property_card
+          - verify_only
+  schedule:
+    # Run at 08:00Z, 16:00Z, 00:00Z to match 3-wave fleet cadence
+    - cron: '0 8 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: gold-standard-shard11-clay-${{ github.event.inputs.target || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  clay-cdi-fix:
+    name: "SHARD-11 clay C/D/I fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Baseline evaluation
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+          body = json.dumps({"p_county": "clay"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county", data=body, headers=H, method="POST")
+          with urllib.request.urlopen(req, timeout=30) as r:
+              ev = json.loads(r.read())
+          passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+          failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+          print(f"clay BEFORE: {len(passed)}/10 | PASS={passed} FAIL={failed}")
+          for letter in "ABCDEFGHIJ":
+              ld = ev.get(letter, {})
+              print(f"  {letter}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+          PYEOF
+
+      - name: Run clay C/D/I fix script
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'cd_parity' || github.event.inputs.target == 'property_card' || github.event_name == 'schedule' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/shard11_run6046_clay_cdi_fix.py
+
+      - name: Final verification
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+          body = json.dumps({"p_county": "clay"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county", data=body, headers=H, method="POST")
+          with urllib.request.urlopen(req, timeout=30) as r:
+              ev = json.loads(r.read())
+          passed = [l for l in "ABCDEFGHIJ" if ev.get(l, {}).get("pass")]
+          failed = [l for l in "ABCDEFGHIJ" if not ev.get(l, {}).get("pass")]
+          score = len(passed)
+          star = "★ GOLD" if score == 10 else ""
+          print(f"clay AFTER: {score}/10 {star}")
+          print(f"  PASS={passed} FAIL={failed}")
+          for letter in "ABCDEFGHIJ":
+              ld = ev.get(letter, {})
+              print(f"  {letter}: {'PASS' if ld.get('pass') else 'FAIL'} metric={ld.get('metric')} detail={ld.get('detail','')}")
+
+          ### SQL VERIFICATION block (per SHIP GATE mandate)
+          print("\n### SQL VERIFICATION")
+          print(f"  SELECT public.pencil_dod_evaluate_county('clay');")
+          print(f"  -> score={score}/10 passed={passed} failed={failed}")
+          print(f"  -> C: {ev.get('C',{}).get('metric')} D: {ev.get('D',{}).get('metric')} I: {ev.get('I',{}).get('metric')}")
+
+          if score < 10:
+              print(f"\n  ⚠️  clay still has {10-score} failing letters: {failed}")
+          else:
+              print(f"\n  ✅ clay is GOLD (10/10)")
+          PYEOF
+
+      - name: Write ultraloop audit row
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+          SB_URL = os.environ["SUPABASE_URL"]
+          SB_KEY = os.environ["SUPABASE_KEY"]
+          H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
+               "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal"}
+
+          body = json.dumps({"p_county": "clay"}).encode()
+          req = urllib.request.Request(f"{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county", data=body,
+              headers={"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}, method="POST")
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  ev = json.loads(r.read())
+          except Exception as e:
+              print(f"evaluate error: {e}")
+              ev = {}
+
+          now = datetime.now(timezone.utc).isoformat()
+          audit_rows = []
+          for letter in ["C", "D", "I"]:
+              ld = ev.get(letter, {})
+              passed = bool(ld.get("pass"))
+              audit_rows.append({
+                  "dispatch_id": "9787c8ea-bb47-465b-bebc-0eb7f4fc3f05",
+                  "ultraloop_mode": "fallback",
+                  "county_slug": "clay",
+                  "letter": letter,
+                  "claim": f"clay {letter} metric={ld.get('metric')} passed={passed}",
+                  "refuter_evidence": json.dumps({"evaluator_output": ld, "verified_at": now}),
+                  "survived": passed,
+              })
+
+          if audit_rows:
+              body = json.dumps(audit_rows).encode()
+              req = urllib.request.Request(f"{SB_URL}/rest/v1/gold_standard_ultraloop_audit", data=body,
+                  headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      print(f"ultraloop_audit insert: {r.status}")
+              except Exception as e:
+                  print(f"ultraloop_audit insert error: {e} (non-fatal)")
+          PYEOF
