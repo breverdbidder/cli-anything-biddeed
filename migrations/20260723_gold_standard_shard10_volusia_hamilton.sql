@@ -28,7 +28,6 @@ WHERE EXISTS (
     WHERE mca.county = 'hamilton'
       AND mca.parcel_id = pz.parcel_id
 )
-AND pz.zoning_district_id IN (10680, 10681, 10682, 10683, 10684, 10685)
 AND (
     pz.source ILIKE '%synthetic%'
     OR pz.source ILIKE '%beta%'
@@ -69,6 +68,7 @@ SET
     parity_status      = CASE WHEN property_address IS NOT NULL AND LENGTH(TRIM(property_address)) >= 5
                                THEN 'matched_clean'
                                ELSE 'matched_any' END,
+    parity_source      = 'tier1_supplementary:HAMILTON-SHARD10-V1',
     parity_scope       = 'shard10_run6046_hamilton',
     parity_confidence  = CASE WHEN property_address IS NOT NULL AND LENGTH(TRIM(property_address)) >= 5
                                THEN 0.92

@@ -907,6 +907,7 @@ def phase5_hamilton_cd() -> dict:
             f"id=eq.{row['id']}",
             {
                 "parity_status": new_status,
+                "parity_source": "tier1_supplementary:HAMILTON-SHARD10-V1",
                 "parity_scope": "shard10_run6046_hamilton",
                 "parity_confidence": confidence,
                 "parity_checked_at": now_iso,
