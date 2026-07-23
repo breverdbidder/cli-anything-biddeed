@@ -1,0 +1,65 @@
+name: Gold Standard SHARD-8 (gadsden, highlands) — dispatch 740368a6
+
+on:
+  schedule:
+    - cron: '30 8 * * *'   # 08:30 UTC daily — after the 08:00Z fleet wave scrape cycle
+  workflow_dispatch: {}
+
+concurrency:
+  group: gold-standard-shard8-gadsden-highlands
+  cancel-in-progress: false
+
+jobs:
+  apply-fixes:
+    name: "Run highlands C/D/I/J fix script + verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run shard8_run6046_highlands_cdij_fix.py
+        run: python3 scripts/shard8_run6046_highlands_cdij_fix.py
+
+      - name: Verify — pencil_dod_evaluate_county for gadsden + highlands
+        continue-on-error: true
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, urllib.error, datetime
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          BASE = f'{SUPABASE_URL}/rest/v1'
+          H = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}', 'Content-Type': 'application/json'}
+
+          summary = ['## SHARD-8 (gadsden, highlands) Verification',
+                     f'**Timestamp:** {datetime.datetime.now(datetime.timezone.utc).isoformat()}', '',
+                     '| County | Pass | Total | Letters |', '|--------|------|-------|---------|']
+
+          for county in ['gadsden', 'highlands']:
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(f'{BASE}/rpc/pencil_dod_evaluate_county', data=body, method='POST')
+              for k, v in H.items():
+                  req.add_header(k, v)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      ev = json.loads(resp.read())
+                      letters = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and ev[l].get('pass')]
+                      summary.append(f"| {county} | {len(letters)} | 10 | {' '.join(letters)} |")
+              except Exception as ex:
+                  summary.append(f'| {county} | ERR | ERR | {str(ex)[:60]} |')
+
+          print('\n'.join(summary))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(summary) + '\n')
+          PYEOF
