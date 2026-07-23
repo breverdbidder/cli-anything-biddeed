@@ -1,0 +1,90 @@
+session:
+  repo: cli-anything-biddeed
+  issue_number: 13505
+  summit_number: 13505
+  dispatch_id: e1b98987-617e-4804-aac8-3c21bfbb3933
+  session_started: "2026-07-23T16:00:00Z"
+  session_ended: "2026-07-23T16:47:00Z"
+
+decisions:
+  - step: 1
+    action: "Baseline all three counties live via pencil_dod_evaluate_county before touching anything"
+    result: "levy 9/10 (A fail), jackson 7/10 (C/D/I fail), sarasota 5/10 (C/D/G/I/J fail) -- confirmed the brief's numbers, sarasota's C/D was actually worse live (37.2%) than the brief stated (54.0%) due to ongoing calendar-sweep growth"
+    reason: "NEVER-LIE / evidence-before-claims -- do not trust a written brief's numbers without re-querying"
+  - step: 2
+    action: "Investigate levy A (foreclosure lane fc=0) with tools not available to the 2026-07-11 session that first diagnosed it (Firecrawl, then Playwright+Chromium after Firecrawl returned 402)"
+    result: "levyclerk.com foreclosure page unchanged (no sales). levy.agverso.com rendered live via Playwright -- confirmed it is the Levy County PUBLIC LIBRARY catalog (Auto-Graphics OPAC), not a court-records system. Corrected pipeline.counties.notes so no future session revisits this dead lead."
+    reason: "close out an ambiguous prior lead with a definitive answer instead of leaving it open indefinitely"
+  - step: 3
+    action: "Jackson C/D: reuse scripts/shard6_run3025_2nd_dispatch_jackson_cd_parity.py with 2 new targets not in its original list"
+    result: "86.3%->100% PASS, 10/10 promoted"
+    reason: "SEARCH-FIRST mandate -- reused proven script rather than rebuilding"
+  - step: 4
+    action: "Launch a background Workflow (5 parallel agents: jackson I, sarasota C/D/G/I/J) with adversarial verification per ULTRALOOP PROTOCOL"
+    result: "3/5 survived (sarasota C/D, I, J), 2/5 refuted (jackson I -- honest effort, no letter movement; sarasota G -- blocked by a transient DB outage mid-session)"
+    reason: "user opted into ultracode this turn; ULTRALOOP PROTOCOL mandates fan-out + adversarial survival vote for claimed letter movement"
+  - step: 5
+    action: "Re-attempt sarasota G myself after the outage cleared, using the workflow's diagnostic groundwork"
+    result: "discovered the original hit list (ranked by parcel_count: R-1 North Port 108, AC-10 69, etc.) was scoped wrong -- v_zoning_district_applicability flags ALL of those districts pk1000_applicable=false. True denominator is 32 county-wide parcels, mostly orphaned zone codes with no zoning_districts row at all. Backfilled the 2 properly-catalogued applicable districts I could honestly source (CG, CSC -- Sarasota County UDC general-commercial rate via zoneomics.com mirror), moved G 0.0%->18.8% (still FAIL)"
+    reason: "a mis-scoped hit list would have wasted further session time chasing districts structurally excluded from the metric"
+
+artifacts:
+  - type: script
+    path: "scripts/gold_standard_shard6_run5361_sarasota_cd_parity_calendar_harvest.py"
+    note: "new -- adapts the jackson C/D pattern for sarasota's 29-date gap"
+  - type: sql_script
+    path: "shard_j_generator_sarasota_20260723.sql"
+    note: "new -- extends the county-agnostic shard28 J generator for sarasota"
+  - type: db_write
+    detail: "multi_county_auctions: 10 jackson rows (lat/lon/assessed_value/parcel_id), 208 sarasota rows (parity_status/parity_source)"
+  - type: db_write
+    detail: "parcel_zones: 46 new sarasota rows (scgov_arcgis=24, northport_gis_arcgis=19, cos_zoning_arcgis=3)"
+  - type: db_write
+    detail: "bid_decisions: 341 new sarasota rows"
+  - type: db_write
+    detail: "zone_standards: 2 sarasota rows updated/inserted (CG new, CSC confirmed) parking_per_1000sf=4.00"
+  - type: doc
+    path: "pipeline.counties.notes (levy row)"
+    note: "corrected agverso.com finding"
+  - type: session_report
+    path: "GOLD_STANDARD_SHARD5_LEVY_JACKSON_SARASOTA_DISPATCH_E1B98987_SESSION_REPORT.md"
+
+verification:
+  - check: "jackson C/D moved to 100%"
+    proof: "pencil_dod_evaluate_county('jackson') C/D: matched_clean=73, matched_any=73, both metric=100 pass=true"
+    status: VERIFIED
+  - check: "sarasota C/D moved to 98.2%"
+    proof: "pencil_dod_evaluate_county('sarasota') C/D: matched_clean=335, metric=98.2 pass=true -- independently re-run by adversarial verifier agent, exact match"
+    status: VERIFIED
+  - check: "sarasota I moved to 92.1%"
+    proof: "pencil_dod_evaluate_county('sarasota') I: card_complete=314 of 341, metric=92.1 -- adversarial verifier confirmed 46 parcel_zones row timestamps + reproduced 4 residual-blocker ArcGIS 0-feature results independently"
+    status: VERIFIED
+  - check: "sarasota J moved to 100%"
+    proof: "pencil_dod_evaluate_county('sarasota') J: deal_complete=341, metric=100 pass=true -- adversarial verifier confirmed all 341 rows via to_regclass that no comps infra exists, fallback banding disclosed not hidden"
+    status: VERIFIED
+  - check: "sarasota G moved to 18.8%"
+    proof: "v_zoning_gold_standard_kpi_v3 pk1000_applicable_parcels=32, pct_pk1000_of_applicable 0.0->18.8 after CG backfill; self-verified via before/after query, not routed through workflow's verify stage (the workflow's own G attempt never wrote anything due to a DB outage)"
+    status: VERIFIED
+  - check: "jackson I did NOT move (honest negative result)"
+    proof: "pencil_dod_evaluate_county('jackson') I: card_complete=61 of 73, metric=83.6, unchanged before/after -- adversarial verifier independently confirmed and traced the real blocker (zone_code match absent for all 10 fixed parcels in parcel_zones)"
+    status: VERIFIED
+  - check: "no other shard's counties touched"
+    proof: "all writes scoped to county='levy'/'jackson'/'sarasota' in WHERE clauses; git pull --rebase run before every push"
+    status: VERIFIED
+  - check: "gold_standard_loop/certify correctly skipped"
+    proof: "gh run list --status in_progress showed 7 other GOLD STANDARD shard sessions mid-flight at session start (shards 1,2,3,7,9,10,12)"
+    status: VERIFIED
+
+tasks_completed: 5
+tasks_failed: 0
+
+deviations:
+  - "sarasota C/D denominator was worse live (37.2%, 341 total) than the stale written brief (54.0%, 187 total) due to ongoing calendar-sweep ingestion between brief-authoring and session start -- re-baselined from live data, not the brief"
+  - "jackson I effort was genuine and evidence-backed but did not move the letter itself (only a side-effect on E) -- reported as refuted per the adversarial verify contract rather than claimed as a win"
+  - "sarasota G's first hit list (ranked by raw parcel_count) targeted districts later found to be structurally excluded from the pk1000 denominator -- corrected mid-session before any ordinance research was spent on them"
+  - "Firecrawl was out of credit (402) for the entire session -- all web research used WebFetch/WebSearch/curl/Playwright instead"
+
+blockers:
+  - "sarasota G cannot reach 95% without new zoning_districts+zone_standards rows for 10 orphaned zone codes (RSF-4, RE-1, RE-2, CT, RSM-9, SAPD, CN, G, MP, OUE-1 -- 25 of the 32 applicable parcels) -- requires per-code Sarasota County ordinance research, flagged as next-session priority, not attempted this session to avoid rushed/guessed values"
+  - "jackson I: 2 rows (322025CC000895CCAXMX, 322025CA000120CAAXMX) have no address/legal_description to match against any parcel source; all 12 target parcels (including the 10 successfully enriched) still lack a zoning-substrate zone_code match, which is I's real gate for jackson"
+  - "levy A: confirmed genuine dead end for the second time (2026-07-11 and 2026-07-23) -- no scheduled foreclosure sales exist and no alternative source has case data"
