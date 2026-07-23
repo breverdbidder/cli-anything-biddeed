@@ -1,0 +1,58 @@
+name: Gold Standard SHARD-12 lee — run 6046 (E/G/I fix)
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Phase to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - migration
+          - arcgis_backfill
+          - verify
+
+concurrency:
+  group: gold-standard-shard12-lee-run6046
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx requests
+
+      - name: Configure git
+        run: |
+          git config user.email "shard12-bot@biddeed.ai"
+          git config user.name "SHARD-12 Lee Run-6046 Bot"
+
+      - name: Run Lee run-6046 executor (G fix + E/I ArcGIS backfill + verify)
+        run: |
+          set -euo pipefail
+          python3 scripts/shard12_lee_run6046_executor.py
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Final verification
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 scripts/shard12_lee_verify_and_closeout.py
