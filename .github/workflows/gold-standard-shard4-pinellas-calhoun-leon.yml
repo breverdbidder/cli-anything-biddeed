@@ -1,0 +1,91 @@
+name: "Gold Standard Shard-4: pinellas / calhoun / leon"
+# dispatch_id: d88f924a-fe76-4639-84ea-e585fdbf62c3
+# Shard-4 session: verify current state, attempt calhoun B/F, populate ultraloop audit
+# - pinellas: 10/10 (stable, verify only)
+# - calhoun:  8/10 (B/F blocked — all auctions upcoming; attempt ORI form POST)
+# - leon:     10/10 (stable since 2026-07-18, verify only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no DB writes)'
+        required: false
+        default: 'false'
+        type: string
+
+jobs:
+  shard4-master:
+    name: "Shard-4 Master: pinellas / calhoun / leon"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet requests
+
+      - name: Verify Supabase credentials
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+          SB_URL = os.environ['SUPABASE_URL']
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          print(f'SUPABASE_URL: {SB_URL}')
+          print(f'SUPABASE_SERVICE_ROLE_KEY set: {bool(SB_KEY)}')
+          # Quick ping
+          req = urllib.request.Request(
+              f'{SB_URL}/rest/v1/multi_county_auctions?county=eq.calhoun&select=id&limit=1',
+              headers={'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}'},
+          )
+          with urllib.request.urlopen(req, timeout=10) as r:
+              print(f'DB ping status: {r.status}')
+              rows = json.loads(r.read())
+              print(f'calhoun rows sampled: {len(rows)}')
+          "
+
+      - name: Run Shard-4 Master Script
+        run: |
+          python3 scripts/shard4_pinellas_calhoun_leon_master.py
+
+      - name: Final verification — pencil_dod_evaluate_county
+        run: |
+          python3 -c "
+          import os, json, urllib.request, time
+
+          SB_URL = os.environ['SUPABASE_URL']
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          HEADERS = {
+              'apikey': SB_KEY,
+              'Authorization': f'Bearer {SB_KEY}',
+              'Content-Type': 'application/json',
+          }
+
+          print('=== FINAL VERIFICATION ===')
+          for county in ['pinellas', 'calhoun', 'leon']:
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(
+                  f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                  data=body, headers=HEADERS,
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  passes = [l for l in 'ABCDEFGHIJ' if isinstance(result.get(l), dict) and result[l].get('pass')]
+                  fails = [l for l in 'ABCDEFGHIJ' if l not in passes]
+                  print(f'{county.upper()}: {len(passes)}/10  PASS={passes}  FAIL={fails}')
+                  print(json.dumps(result, indent=2))
+              except Exception as e:
+                  print(f'{county}: ERROR {e}')
+              time.sleep(2)
+          "
