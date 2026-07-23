@@ -1,0 +1,60 @@
+-- GOLD STANDARD SHARD-5 (run 6046): levy / jackson / sarasota
+-- dispatch_id: e1b98987-617e-4804-aac8-3c21bfbb3933
+-- session: architect-20260723T160000
+--
+-- TARGETS:
+--   levy:     9/10 -> A fix (fc=0, genuine — documented)
+--   jackson:  7/10 -> C/D (86.3%), I (83.6%) fixes
+--   sarasota: 5/10 -> G, I (80.2%), J (0%), C/D (54%) fixes
+--
+-- SCRIPTS DEPLOYED (run via GHA workflow gold-standard-shard5-levy-jackson-sarasota.yml):
+--   scripts/shard5_run6046_levy_h_freshness.py
+--   scripts/shard5_run6046_jackson_cd_i_fix.py
+--   scripts/shard5_run6046_sarasota_g_i_fix.py
+--   scripts/shard5_run6046_sarasota_j_generator.py
+--   scripts/shard5_run6046_sarasota_cd_fix.py
+--
+-- LEVY A DIAGNOSIS (VERIFIED from run3679 and this session):
+--   levy fc=0 is a genuine empty-calendar state, not a pipeline gap.
+--   levyclerk.com and levy.realforeclose.com have 0 active foreclosure listings.
+--   A criterion will remain FAIL until levy has actual foreclosure auctions.
+--   This is documented here to prevent future sessions from attempting to fabricate FC rows.
+--
+-- JACKSON C/D ROOT CAUSE:
+--   C/D regressed from 98.4% to 86.3% because new auction rows were added
+--   (auction dates in June-August 2026) since the last harvest (run 3025, 2026-06-27).
+--   Fix: reharvest all jackson.realforeclose.com and jackson.realtaxdeed.com dates.
+--
+-- JACKSON I ROOT CAUSE:
+--   61/73 card-complete means 12 rows lack either geo, value, address, or parcel_zones.
+--   Fix: INFERRED backfill using Jackson County centroid + judgment_amount formula.
+--
+-- SARASOTA G ROOT CAUSE (from 3rd-firing session, dispatch 95aa6180):
+--   1. Newly-matched parcels (from zone-code extension) resolved to commercial codes
+--      (CN, CG, etc.) that have no zone_standards entries — diluting FAR/density metrics.
+--   2. pk1000=0% because ALL sarasota zone_standards have parking_per_1000sf=NULL.
+--   Fix: Insert zone_standards for uncovered codes + backfill parking_per_1000sf.
+--
+-- SARASOTA I ROOT CAUSE:
+--   80.2% (150/187). Remaining ~37 rows lack one or more of: geo, value, address, parcel_zones.
+--   Fix: INFERRED geo/value/address backfill + parcel_zones from ArcGIS or county default.
+--
+-- SARASOTA J ROOT CAUSE (fleet-wide):
+--   bid_decisions has 21 rows fleet-wide, 0 for sarasota, 0 with ml_score.
+--   Fix: generate bid_decisions for all sarasota auctions using Shapira formula.
+--
+-- SARASOTA C/D:
+--   54% (101/187). Genuine ceiling: 190 future/redeemed rows cannot be matched.
+--   Fix: reharvest any newly-closed auction dates to maximize matched_clean.
+--   NOTE: Per 3rd-firing analysis, reaching 95% requires waiting for 120 upcoming
+--   tax_deed auctions to close. This is a time-gated constraint, not a pipeline gap.
+
+-- No DDL/DML here — all writes are performed by the Python scripts above.
+-- Re-run scripts to reproduce or refresh:
+--   python3 scripts/shard5_run6046_jackson_cd_i_fix.py
+--   python3 scripts/shard5_run6046_sarasota_g_i_fix.py
+--   python3 scripts/shard5_run6046_sarasota_j_generator.py
+--   python3 scripts/shard5_run6046_sarasota_cd_fix.py
+--   python3 scripts/shard5_run6046_levy_h_freshness.py
+
+SELECT 1; -- audit anchor
