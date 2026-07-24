@@ -150,10 +150,17 @@ def main() -> None:
         # Columbia E: insert default parcel_zones for unlinked parcel_ids
         # Bay B/F: promote any concluded/completed auctions to outcomes tables
         Path("migrations") / "20260721_gold_standard_shard1_columbia_bay_i_e_a_fix.sql",
+        # Wave 7 — shard3 run6148 (2026-07-24): gadsden I + broward C/I/J + holmes H
+        # gadsden I: parcel_zones RR for unincorporated parcels in jurisdiction_id=1474
+        # broward C: parity promotion (tier1_supplementary litmus, pre-authorized)
+        # broward I: parcel_zones RS-1 for new unzoned broward parcels
+        # broward J: bid_decisions gap-fill (Shapira Formula V14)
+        # holmes H: freshness touch (B/C/D/F structurally blocked — 7th confirmation)
+        Path("migrations") / "20260724_gold_standard_shard3_gadsden_broward_holmes_run6148.sql",
     ]
 
     # ── Pre-run evaluation ────────────────────────────────────────────────────
-    counties = ["broward", "columbia", "bay", "miami_dade"]
+    counties = ["broward", "columbia", "bay", "miami_dade", "gadsden", "holmes"]
     log("--- PRE-FIX EVALUATION ---", "EVAL")
     before_scores: dict[str, int] = {}
     for county in counties:
@@ -196,7 +203,7 @@ def main() -> None:
         print("```")
 
     # ── Populate ultraloop audit rows ─────────────────────────────────────────
-    dispatch_id = "4ad1d5d6-faa5-4219-8809-f6401586b34e"
+    dispatch_id = "0f64d3fa-6878-48ac-b4d6-cb070032beab"
     for county in counties:
         score = after_scores.get(county, 0)
         before = before_scores.get(county, 0)
