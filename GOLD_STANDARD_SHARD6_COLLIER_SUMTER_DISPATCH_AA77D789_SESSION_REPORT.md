@@ -161,3 +161,86 @@ WHERE dispatch_id='aa77d789-bbfc-4546-a02e-73e41c1aa44c' ORDER BY created_at;
    D29A024 — no property_address available from any source tried (own scrape, clerk PDF, qpublic,
    FL GIO). Would need a manual case-file lookup or a headless-browser session capable of getting past
    qpublic's bot wall.
+
+---
+
+## REFIRE ADDENDUM (same dispatch aa77d789, ultracode ULTRALOOP workflow, 2026-07-24 ~09:40-09:55Z)
+
+The dispatch fired a second time. Live-verified via `pencil_dod_evaluate_county` before touching anything:
+DB state was unchanged from the AFTER block above (collier 8/10, sumter 9/10, no drift/regression from
+other shards). Rather than re-derive already-closed work, ran a fresh ULTRALOOP workflow (fan-out
+research on genuinely untried angles only + independent adversarial refuter) against the three residuals
+flagged above.
+
+**collier G — Naples R1-7.5 density: SHIPPED.** A materially different angle (per residual note #1's own
+instruction not to repeat the lot-size-inversion) — City of Naples Comprehensive Plan Future Land Use
+Element states a *direct* max density for the "Low Density Residential" FLUE category (0-6 du/net acre,
+comp plan pages F.L.U.E. 5 and 17), and the comp plan's own annexation conversion table (F.L.U.E. 25)
+states directly "RSF-4 → R1-7.5 → Low Density Residential" — a third, independent textual link the
+researching agent hadn't even cited. **Adversarial refuter independently re-fetched the PDF and both
+City of Naples ArcGIS REST layers itself**, redid the zoning→FLUE spatial crosswalk properly (all 18
+R1-7.5 polygons citywide, area-weighted overlap, not the original's 2 cherry-picked vertex points) —
+97.3% of R1-7.5 area falls within Low Density Residential — and returned `survived=true`. Confidence:
+CONFIRMED (1.0). Logged to `gold_standard_ultraloop_audit` id 9303.
+
+```sql
+-- BEFORE (this refire, fresh query)
+collier.G: {"pass":false,"detail":"density=98.8 far=0.0 pk1000=","metric":0.0}
+-- AFTER (this refire, fresh query, post-write)
+collier.G: {"pass":false,"detail":"density=100.0 far=0.0 pk1000=","metric":0.0}
+```
+
+G stays FAIL — correctly gated by the unrelated, already-diagnosed C-4/C-5 FAR structural gap (schema
+limitation, out of scope for this fix) — but the density sub-metric is now fully closed (100.0), leaving
+FAR as the sole remaining density-adjacent gap for this letter.
+
+Migration: `supabase/migrations/20260724v_gold_standard_shard6_collier_naples_r1_75_density_refire.sql`
+(applied live via Supabase REST with the service-role key; `zone_standards` row id 911,
+`zoning_district_id=6470`).
+
+**sumter I — still blocked, honestly reconfirmed.** Tried three genuinely new source categories not in
+the exhausted list: Sumter County Property Appraiser's own site (sumterpa.com — redirects to the same
+already-blocked qPublic), Sumter County's own GIS infrastructure separate from FL GIO statewide
+(gis.sumtercountyfl.gov ArcGIS FeatureServer — returned live HTTP 500 server error on every query,
+and gisweb.sumtercountyfl.gov's web adaptor reported "could not access any server machines" — a genuine
+outage, not a workaround-able block), and Sumter Clerk official/court records search portals
+(myfloridacounty.com, civitekflorida.com — both are JS/form-POST driven with no case-number or
+parcel-ID search field; a staging mirror 403'd). No new data found. Correctly reported as
+`found_new_data=false` — no write attempted, no fabrication. This is an access-limitation finding (the
+county GIS being down means the question is unresolved, not confirmed-vacant), distinct from a clean
+dead end; worth retrying once gis.sumtercountyfl.gov's FeatureServer is back up, or with a
+headless-browser-capable session that can submit the myfloridacounty.com/civitekflorida.com forms.
+
+**collier A — reconfirmed dead, bounded 5-min ping only** (per instruction not to re-investigate
+without a new signal). Response codes shifted (403/404 instead of 302/401 seen in the 4th prior check)
+but the functional state is unchanged: no usable public/anonymous auction data feed on any of the three
+known endpoints. `collierclerk.com`'s old ShowCase app path appears to be gone entirely (site is now
+WordPress-based); its own `/foreclosure-sales/` page redirects somewhere but was out of scope for this
+bounded check per the residual note's instruction. No new external signal found.
+
+### Updated final scoreboard (this refire)
+
+- **collier: 8/10 → 8/10** (A, G still failing; G density sub-metric closed 98.8→100.0, FAR remains the
+  sole blocker).
+- **sumter: 9/10 → 9/10** (I still failing, genuinely blocked — reconfirmed via 3 new source attempts,
+  none fabricated).
+
+### Ultraloop audit trail (this refire)
+
+```
+SELECT id, county_slug, letter, survived, created_at FROM gold_standard_ultraloop_audit
+WHERE id = 9303;
+```
+1 new row: collier G Naples-density-v2 (survived=true, mode=native).
+
+### Residual work for next session (updated)
+
+1. **collier G**: only the C-4/C-5 FAR schema gap remains (density sub-metric now 100.0). Needs a
+   (district, use-type) grain change to `zone_standards`/`v_zoning_gold_standard_kpi_v3` to close
+   honestly — an architecture change affecting a shared, fleet-wide view; do not attempt without
+   confirming no other shard is mid-flight on that view.
+2. **collier A**: 5th confirmed dead end. Do not re-investigate without a new external signal.
+3. **sumter I**: 6th session hitting this wall — but now with a specific unblock condition: retry once
+   `gis.sumtercountyfl.gov/sumtergis/rest/services/DevelopmentServices/DevServices_Parcel2/FeatureServer/0`
+   stops 500ing, or with a session that can drive the JS/form-POST search on
+   myfloridacounty.com/orisearch/60 or civitekflorida.com/ocrs/county/60.
