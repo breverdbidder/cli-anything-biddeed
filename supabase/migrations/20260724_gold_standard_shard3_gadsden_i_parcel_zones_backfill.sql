@@ -1,0 +1,101 @@
+-- Gold Standard shard-3 continuation (dispatch 0f64d3fa) -- gadsden county, letter I
+-- (card_complete: property_address + lat/lon + assessed_value + zone_code all present)
+--
+-- BEFORE (verified via pencil_dod_evaluate_county('gadsden') at session start):
+--   I: pass=false, card_complete=13 of 23, metric=56.5  (need >=22/23=95.7%)
+--   All 23 rows already had property_address + lat/lon + assessed_value.
+--   Entire gap was zone-linkage: 10 parcels had ZERO parcel_zones rows.
+--
+-- RESEARCH (new angle per dispatch brief: Gadsden County's own GIS/property-appraiser
+-- portal, not previously tried):
+--   1. gadsdenpa.com (official Gadsden County Property Appraiser site) is Cloudflare-
+--      protected (403 to curl/WebFetch). Firecrawl had zero credits this session
+--      ("Insufficient credits" from api.firecrawl.dev). A Wayback Machine snapshot
+--      (2026-07-20) of gadsdenpa.com confirmed the site's own "GIS Maps" links point
+--      to qpublic.schneidercorp.com (AppID=814) -- but qPublic itself is also
+--      Cloudflare-blocked to all available tools in this session (403 on curl,
+--      WebFetch, and beacon.schneidercorp.com/maps.schneidercorp.com aliases; a 2023
+--      Wayback snapshot of the qPublic map viewer is a JS-app shell with no inline
+--      ArcGIS REST URLs, since the actual parcel/zoning data loads via async JS calls
+--      Wayback never captured). This confirms the correct real-world source but it
+--      remains genuinely inaccessible this session -- NOT the same failure mode as
+--      the prior dead-ends (Quincy-WA false lead, empty Chattahoochee Wayback, FDOT
+--      HTTP 499, Zoneomics paywall) but still a dead end for now.
+--   2. Found via ArcGIS Online public search: the Apalachee Regional Planning Council
+--      (ARPC, org account "ARPCmaps") hosts a live, PUBLIC, parcel-level Gadsden
+--      County FLUM (Future Land Use) FeatureServer at
+--      services8.arcgis.com/N3lCn6dEKCL6LidU/arcgis/rest/services/Gadsden_FLUM
+--      with a Gadsden_Parcels layer (PARCELNO field) plus 15 separate polygon layers
+--      per land-use category (Ag1, Ag2, Ag3, Commercial, Industrial, Municipal,
+--      RuralRes, etc.), each carrying a real ZONE/Zone_full attribute.
+--      NOTE: this is the SAME source already used (and cited in its `source` column)
+--      for the 13 already-passing unincorporated-Gadsden parcel_zones rows:
+--      source = 'gadsden_flum_arcgis_layer_lastedit_20190114+ldc_ch4_wayback_20201020_verified_20260719'
+--      -- confirming this is a previously-vetted, legitimate source, not a new
+--      unverified one.
+--   3. Also found gis.arpc.org/server/rest/services/Counties/Gadsden_GIS/MapServer, a
+--      dedicated ArcGIS Server (not just ArcGIS-Online-hosted) with a real
+--      "Municipal_Boundaries_2021" layer (layer 0, CITY field) giving definitive
+--      jurisdiction (Quincy vs Chattahoochee vs unincorporated) for any point, plus
+--      per-municipality FLUM layers (Chattahoochee_FLUM, Quincy_FLUM) -- confirmed via
+--      field inspection to carry ONLY a generic "Category"/"Id" FLUM field, no zoning
+--      district code. Searched the full ARPCmaps catalog (193 items): a real,
+--      queryable ZONING DISTRICT layer (as opposed to FLUM) exists ONLY for the Town
+--      of Havana (Havana_Zoning_Districts_WFL1 / "--_View_Layer"). No such layer
+--      exists for Quincy or Chattahoochee anywhere in ARPC's or ArcGIS Online's public
+--      catalog.
+--
+-- RESULT: point-in-polygon queried all 10 gap coordinates against Gadsden_FLUM's
+-- Gadsden_Parcels layer (parcel match) + all 15 category polygons + the ARPC
+-- Municipal_Boundaries_2021 CITY layer:
+--   - 8 of 10 fall inside a municipal boundary (4 Chattahoochee, 4 Quincy) and are
+--     tagged ZONE='municipal' in the FLUM Municipal layer -- this means "defer to the
+--     city's own zoning", NOT itself a zoning district code. Neither Quincy nor
+--     Chattahoochee has a real parcel-level zoning-district GIS layer accessible this
+--     session (only FLUM, which uses different, non-zoning category names like
+--     LowRes/MedRes/Commercial/Central_Business -- mapping these onto the existing
+--     zoning_districts codes (R-1/R-2/R-3/C-1/C-2/M-1 for Quincy; R-1/R-1MH/R-2/R-3
+--     for Chattahoochee) would require guessing, which is exactly the fabrication
+--     this campaign has already rejected once (DOR_UC-as-zoning-proxy). NOT DONE.
+--   - 2 of 10 fall OUTSIDE any municipal boundary (confirmed via the Municipal
+--     Boundaries "NO MATCH" result) and land inside the Gads_RuralRes FLUM polygon,
+--     which carries ZONE='RR' / Zone_full='Rural Residential' -- this maps cleanly
+--     and non-speculatively onto the EXISTING zoning_districts.code='RR' row already
+--     used for jurisdiction_id=1474 (Unincorporated Gadsden County), the same code
+--     already backing all 13 previously-passing rows. INSERTED below.
+--
+--   Parcel 3-26-2N-5W-0000-00424-0500 (case 25000901CA): HIGH confidence -- exact
+--     PARCELNO match in Gadsden_Parcels layer at the given lat/lon, AND independently
+--     confirmed RR-only (not municipal) via the ARPC Municipal_Boundaries_2021 layer.
+--   Parcel 3-19-2N-3W-1559-00000-0030 (case 25000942CA): MEDIUM confidence -- the
+--     zone polygon match (RR) and the "not in any municipality" result are both real,
+--     independent spatial facts about that exact coordinate, but the Gadsden_Parcels
+--     layer returned a DIFFERENT neighboring PARCELNO (3-19-2N-3W-0000-00243-0100) at
+--     the same point (likely a stale/different-vintage subdivision-lot vs.
+--     parent-parcel numbering mismatch in that dataset, not a location error -- our
+--     own DB's lat/lon for this parcel was supplied directly by the dispatcher, not
+--     geocoded by us). Flagged with lower confidence in `source` and in the
+--     ultraloop_audit row; NOT silently upgraded to high confidence.
+--
+-- AFTER (verified via pencil_dod_evaluate_county('gadsden') post-insert, same session):
+--   I: pass=false, card_complete=15 of 23, metric=65.2  (STILL FAILS -- need >=22/23)
+--
+-- HONEST CEILING: 8 of 10 gap parcels (all Quincy/Chattahoochee municipal parcels)
+-- remain unresolved because no real zoning-district GIS/API source for those two
+-- cities exists that is reachable from this session (qPublic/Beacon/Schneider Corp
+-- Cloudflare-blocked; Firecrawl out of credits; ARPC's own catalog has FLUM only, not
+-- zoning, for these two cities). This session cannot reach 22/23 (95.7%). Best
+-- achieved: 15/23 (65.2%), a real +2-row / +8.7pp gain over the 13/23 (56.5%)
+-- baseline, with zero fabricated zone codes.
+
+INSERT INTO public.parcel_zones (parcel_id, tax_account, jurisdiction_id, zone_code, zone_name, source)
+VALUES
+  ('3-26-2N-5W-0000-00424-0500', NULL, 1474, 'RR', 'Rural Residential',
+   'gadsden_flum_arcgis_layer_verified_20260724_point_in_polygon_exact_parcel_match'),
+  ('3-19-2N-3W-1559-00000-0030', NULL, 1474, 'RR', 'Rural Residential',
+   'gadsden_flum_arcgis_layer_verified_20260724_point_in_polygon_NOTE_parcels_layer_returned_diff_parcelno_at_same_coord_zone_polygon_match_only')
+ON CONFLICT DO NOTHING;
+
+-- No zoning_districts / zone_standards changes required: zone_code 'RR' already
+-- exists for jurisdiction_id=1474 (Unincorporated Gadsden County), ordinance-sourced
+-- in a prior session.
