@@ -1,0 +1,117 @@
+-- Gold Standard shard-7 dixie, dispatch ea6af08a-62cb-4bdb-b69d-224fbfac7d47:
+-- 5th independent same-day pass on C/D (separate Workflow-tool fan-out, fresh
+-- worktree, no shared context with the 4 prior same-day sessions that already
+-- landed commits eaf5732d, e654f76a, 9bc83b1e and the 4th-pass migration
+-- 20260724g_shard4_dixie_cd_4th_pass_corroboration.sql). Documentation-only:
+-- this pass closes off ONE genuinely new angle (a distinct case-docket search
+-- vs. official-records document search) with a definitive negative result,
+-- then CORROBORATES all 4 prior sessions' conclusions. Kept short per K3
+-- Surgical Changes -- see those 4 files for the full investigation record.
+--
+-- BASELINE AT SESSION START (VERIFIED live via pencil_dod_evaluate_county
+-- ('dixie'), byte-identical to all 4 prior same-day sessions and to the
+-- dispatch brief):
+--   auctions_total=33
+--   A: PASS fc=2 td=31 | B: PASS verified=12 closed_sold=12 (100.0)
+--   C: FAIL matched_clean=25 (75.8%)
+--   D: FAIL matched_any=25 (75.8%)
+--   E: PASS parcel_linked=32 (97.0) | F: PASS tier1_sold=12 closed_sold=12 (100.0)
+--   G: PASS density=100.0 far=100.0 (100.0) | H: PASS 7.7h (SLA 48h)
+--   I: PASS card_complete=32 of 33 (97.0) | J: PASS deal_complete=33 (100.0)
+--
+-- GENUINELY NEW ANGLE THIS PASS (not on the exhausted list, one-sentence
+-- rationale per dispatch instruction): the brief specifically flagged that
+-- a Circuit Court civil CASE DOCKET (docket entries e.g. "final judgment
+-- satisfied" / "sale confirmed") is a different data class than an OFFICIAL
+-- RECORDS document/deed search, and asked whether Dixie exposes a docket
+-- lookup independent of civitekflorida.com/ocrs (already Turnstile-gated at
+-- the search-submit step per migration 20260724e) or myfloridacounty.com's
+-- Official Records portal (already Turnstile-gated, migration
+-- 20260724_shard4_dixie_cd_ca57_postsale_reinvestigation.sql). Neither prior
+-- session had directly asked "does the Clerk's own court-services page point
+-- to a SEPARATE case-docket tool distinct from those two?" -- this pass did.
+--
+-- INVESTIGATION (live, this session):
+--   1. Live fetch of https://dixieclerk.com/departments-services/
+--      court-services/ (the parent hub page, not the foreclosure-sales leaf
+--      page already checked 4x). Result: the page's ONLY case/docket search
+--      resource is an outbound link labeled "Court Records Search" pointing
+--      to civitekflorida.com -- i.e. Dixie does NOT run a separate in-house
+--      docket tool. It also lists Official Records search (1920-1983 and
+--      1983-present) as a distinct, separate product -- confirming docket
+--      search and document search are indeed different products on this
+--      site, but both funnel to the same two already-exhausted external
+--      systems. Page explicitly tells visitors to call (352) 498-1200 for
+--      case-specific questions the online search can't answer -- a phone/
+--      in-person request, already flagged out-of-scope for automation in
+--      the 2026-07-18 refutation migration.
+--   2. Live fetch of https://www.myfloridacounty.com/ori/index.do (the
+--      platform's own product-index landing page, one level up from the
+--      county-scoped /orisearch/15 URL checked in prior sessions). Result:
+--      confirms MyFloridaCounty offers exactly 3 products (Child Support,
+--      Traffic Citations, Official Records) and explicitly states it only
+--      "directs users to the Clerk's website to search official records" --
+--      no separate case-docket/case-status product exists on this platform
+--      at any URL depth. This closes the "is there an un-gated docket tool
+--      hiding one level up from /orisearch/15" question definitively: no.
+--
+-- CONCLUSION: no third, previously-unconsidered case-docket system exists
+-- for Dixie County. The county's court-case-lookup surface is exactly the 2
+-- systems already exhausted (civitekflorida.com/ocrs -- Turnstile-gated at
+-- search-submit; myfloridacounty.com/orisearch -- Turnstile-gated at
+-- search-submit), both confirmed again this pass at the hub/index level
+-- rather than the leaf-page level already checked 4 times. This is a
+-- genuine, honest dead end -- NOT a repeat of an already-exhausted probe,
+-- but a closure of the one remaining "is there a system we haven't found
+-- yet" question the dispatch brief posed. No foreclosure_outcomes row was
+-- inserted for 15-2023-CA-57 (still 0 rows, VERIFIED live this session) and
+-- no data changed for the 6 DIXIE-SYNTH-* rows (no new angle found or
+-- attempted, correctly skipped per dispatch instruction).
+--
+-- STRUCTURAL CEILING MATH (recomputed, unchanged from all 4 prior sessions
+-- today):
+--   auctions_total = 33 (VERIFIED)
+--   matched_clean = 25 (VERIFIED) -> C = 75.8% FAIL, D (matched_any) = 75.8% FAIL
+--   Scenario A -- if ONLY the 2 non-synthetic foreclosure cases resolved
+--     cleanly (15-2025-CA-46 + 15-2023-CA-57): 27/33 = 81.8% -- still below
+--     the 95% gate.
+--   Scenario B -- if ALL 8 unmatched rows resolved cleanly (2 foreclosure +
+--     6 synth tax-deed): 33/33 = 100.0%.
+--   Practical near-term ceiling (excluding 15-2025-CA-46, genuinely future
+--     until 2026-08-25): 32/33 = 97.0%, ABOVE the 95% gate -- this is the
+--     number that would actually be achievable if the 7 currently-stuck
+--     rows (6 synth + CA-57) ever got a real, independently-sourced
+--     disposition. Identical to the ceiling computed by all 4 prior
+--     sessions today.
+--   Actual, current, VERIFIED state: 25/33 = 75.8%, unchanged. This is the
+--   5th consecutive independent same-day session to reach this exact
+--   number via genuinely fresh live evidence.
+--
+-- Audit rows logged this session: gold_standard_ultraloop_audit, dispatch
+-- ea6af08a-62cb-4bdb-b69d-224fbfac7d47, letters C and D, survived=true (see
+-- REST INSERT executed alongside this migration).
+--
+-- This file is documentation-only. No data-changing SQL follows.
+-- ============================================================================
+
+-- Verification query (re-runnable) confirming 15-2023-CA-57's unchanged state:
+-- SELECT case_number, auction_status, parity_status, sold_amount, winning_bidder
+-- FROM public.multi_county_auctions
+-- WHERE lower(county)='dixie' AND case_number='15-2023-CA-57';
+-- Expected: auction_status='sold', all outcome/parity fields NULL
+
+-- Verification query confirming zero fabricated foreclosure_outcomes rows:
+-- SELECT count(*) FROM public.foreclosure_outcomes WHERE case_number='15-2023-CA-57';
+-- Expected: 0
+
+-- Verification query confirming the 6 synth rows remain unmatched:
+-- SELECT case_number, auction_status, auction_date, parity_status
+-- FROM public.multi_county_auctions
+-- WHERE lower(county)='dixie' AND case_number LIKE 'DIXIE-SYNTH%'
+--   AND (parity_status IS NULL OR parity_source NOT LIKE 'tier1%')
+-- ORDER BY case_number;
+-- Expected: exactly 6 rows, all auction_status='upcoming', Aug-2025 dates
+
+-- Verification: SELECT * FROM public.pencil_dod_evaluate_county('dixie');
+-- Expected C: matched_clean=25 (75.8%) FAIL, unchanged
+-- Expected D: matched_any=25 (75.8%) FAIL, unchanged
