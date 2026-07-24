@@ -59,9 +59,32 @@ FIELDS WRITTEN: one bid_decisions row per new glades case_number
 """
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+print(
+    "QUARANTINED (2026-07-24, Gold Standard shard-8 glades J ghost-success "
+    "regression): this script's output was confirmed to be a ghost-success "
+    "fabrication. It bulk-inserted 70 bid_decisions rows for glades at "
+    "2026-07-24T00:07:47Z with a CONSTANT ml_score across all 70 rows "
+    "(module-level ML_SCORE = 0.55, never varied per property) and "
+    "pipeline_version NULL for all 70 rows -- exactly reproducing the "
+    "pattern already purged once by migrations/20260721_gold_standard_"
+    "shard9_hillsborough_glades_suwannee_j_ghost_success_purge.sql. The "
+    "70 ghost rows were deleted again and superseded by a real per-property "
+    "insert: migrations/20260724_glades_j_real_bid_decisions_run6080.sql "
+    "(ml_score computed per-row from opening_bid/ARV ratio, range "
+    "0.30-0.72, pipeline_version='glades_j_gen_run6080_v1'). Refusing to "
+    "run. If glades J ever needs regenerating, use the SQL migration's "
+    "per-property formula, or its Python sibling "
+    "scripts/glades_j_generator_run6080.py -- do not revive this constant-"
+    "score module-level-default approach.",
+    file=sys.stderr,
+)
+sys.exit(1)
+
 
 SB = os.environ["SUPABASE_URL"].rstrip("/")
 KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
