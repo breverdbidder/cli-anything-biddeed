@@ -1,0 +1,183 @@
+name: "Gold Standard Shard-7: sumter E/F fix (loop 6080)"
+# Runs the sumter F (tier1_sold_amount via FL DOR NAL) and E (parcel probe)
+# fixes for Gold Standard campaign dispatch a3c9a3be (loop run 6080).
+#
+# Issue: https://github.com/breverdbidder/cli-anything-biddeed/issues/13683
+# Dispatch ID: a3c9a3be-ebc2-4233-a784-3b405076bc63
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_e_probe:
+        description: "Skip E parcel probe (set true if already confirmed blocked)"
+        required: false
+        default: "false"
+        type: string
+
+jobs:
+  sumter-f-fix:
+    name: "sumter F: FL DOR NAL tier1_sold_amount fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Run sumter F NAL probe + fix"
+        run: python3 scripts/sumter_f_nal_fix.py
+
+      - name: "Verify F metric via pencil_dod_evaluate_county"
+        run: |
+          python3 -c "
+          import json, os, urllib.request, urllib.parse
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          sql = \"SELECT public.pencil_dod_evaluate_county('sumter') AS result\"
+          payload = json.dumps({'query': sql}).encode()
+          req = urllib.request.Request(
+              f'https://api.supabase.com/v1/projects/{REF}/database/query',
+              data=payload,
+              headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+              method='POST'
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              data = json.loads(resp.read().decode())
+          print('=== pencil_dod_evaluate_county(sumter) CURRENT STATE ===')
+          print(json.dumps(data, indent=2, default=str))
+          "
+
+  sumter-e-probe:
+    name: "sumter E: fresh parcel probe for case 2025-CA-000255"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ inputs.skip_e_probe != 'true' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Probe fresh sources for sumter 2025-CA-000255 parcel"
+        run: python3 scripts/sumter_e_parcel_fresh_probe.py
+
+  log-ultraloop-audit:
+    name: "Log ultraloop audit rows"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [sumter-f-fix]
+    if: always()
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: "Insert ultraloop audit rows (E, F)"
+        run: |
+          python3 -c "
+          import json, os, urllib.request
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          
+          # Log audit entries for this session
+          audit_rows_sql = '''
+          INSERT INTO public.gold_standard_ultraloop_audit
+            (dispatch_id, ultraloop_mode, county_slug, letter, claim, refuter_evidence, survived)
+          VALUES
+            (
+              'a3c9a3be-ebc2-4233-a784-3b405076bc63',
+              'fallback',
+              'sumter',
+              'F',
+              'FL DOR NAL probe ran for TD-5028/5031/5036 — see workflow run for whether QUAL_CD=11 records found',
+              '{\"source\": \"fl_dor_statewide_cadastral\", \"method\": \"NAL_sale_history_QUAL_CD_11\", \"status\": \"probe_ran\"}'::jsonb,
+              NULL
+            ),
+            (
+              'a3c9a3be-ebc2-4233-a784-3b405076bc63',
+              'fallback',
+              'sumter',
+              'E',
+              '2025-CA-000255 fresh probe: new angles attempted — wildwood GIS, sumter GIS ops, FL DOR city search, clerk direct',
+              '{\"case_number\": \"2025-CA-000255\", \"entity\": \"Wildwood Phase One LLC\", \"status\": \"new_angles_probed\", \"previous_sessions\": 4}'::jsonb,
+              NULL
+            )
+          ON CONFLICT DO NOTHING;
+          '''
+          
+          payload = json.dumps({'query': audit_rows_sql}).encode()
+          req = urllib.request.Request(
+              f'https://api.supabase.com/v1/projects/{REF}/database/query',
+              data=payload,
+              headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+              method='POST'
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  data = json.loads(resp.read().decode())
+                  print('Audit rows inserted:', json.dumps(data, default=str))
+          except Exception as e:
+              print(f'Audit insert note: {e}')
+          "
+
+  final-verification:
+    name: "Final verification: pencil_dod_evaluate_county(sumter)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [sumter-f-fix, sumter-e-probe, log-ultraloop-audit]
+    if: always()
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: "Run full sumter evaluation"
+        run: |
+          python3 -c "
+          import json, os, urllib.request
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          
+          sql = \"SELECT public.pencil_dod_evaluate_county('sumter') AS result\"
+          payload = json.dumps({'query': sql}).encode()
+          req = urllib.request.Request(
+              f'https://api.supabase.com/v1/projects/{REF}/database/query',
+              data=payload,
+              headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+              method='POST'
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              data = json.loads(resp.read().decode())
+          
+          print('=== SUMTER FINAL EVALUATION (LOOP 6080) ===')
+          rows = data if isinstance(data, list) else data.get('data', [data])
+          for row in rows[:1]:
+              result = row.get('result', row)
+              if isinstance(result, str):
+                  result = json.loads(result)
+              print(json.dumps(result, indent=2, default=str))
+              
+              # Count passes
+              letters = 'ABCDEFGHIJ'
+              passes = sum(1 for l in letters if result.get(l, {}).get('pass', False))
+              print(f'')
+              print(f'PASS COUNT: {passes}/10')
+              for l in letters:
+                  info = result.get(l, {})
+                  status = 'PASS' if info.get('pass') else 'FAIL'
+                  metric = info.get('metric', 'null')
+                  detail = info.get('detail', '')
+                  print(f'  {l}: {status} metric={metric} [{detail}]')
+          "
