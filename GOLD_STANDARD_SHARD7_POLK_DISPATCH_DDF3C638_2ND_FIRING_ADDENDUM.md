@@ -76,9 +76,22 @@ attempted — Honesty Protocol: BLANK > WRONG, no speculative crosswalk shipped.
 
 - J placeholder cleanup (102/679 polk rows) now has a precise, actionable root cause instead of
   an unexplained "unchanged count": **Polk PA parcel-numbering scheme is incompatible with the
-  FL DOR NAL scheme the comps batch reads from.** Any future fix needs either a verified Polk PA
-  crosswalk or a Polk-native comps ingestion (Polk Property Appraiser has a public parcel search;
-  not yet probed this firing — next actionable step, not attempted here to avoid unverified
-  claims about an endpoint I have not confirmed live).
+  FL DOR NAL scheme the comps batch reads from.**
+- Probed the live Polk Property Appraiser site (`www.polkflpa.gov`, formerly polkpa.org,
+  redirect confirmed) this firing: it has a "Parcel ID" search field (`txtsearchRE_id` /
+  `ctl00$mainCopy$searchRE_id` on `CamaDisplay.aspx`) documented to accept the **undashed**
+  parcel number with a tooltip reading "Enter only the numbers without hyphens" — i.e. the same
+  scheme already stored in `multi_county_auctions.parcel_id`/`bid_decisions.parcel_id` for polk.
+  This means **no DOR-NAL crosswalk is needed** — Polk's own site should resolve these 102
+  parcels directly by the ID we already have. **VERIFIED**: confirmed the exact field name via
+  the live page's rendered HTML (`curl` of the search form, not assumed).
+- **Not attempted this firing**: the search page is a stateful ASP.NET WebForms POST
+  (`__VIEWSTATE`/`__EVENTVALIDATION` tokens, not a plain GET), and even a successful per-parcel
+  lookup only returns one property's assessed value / sale history — reproducing
+  `gen_valuations_comps_batch()`'s methodology (median of *comparable* sales by zip+use-code+
+  living-area) would need either bulk comps from Polk's nightly CAMA FTP export
+  (`PCPA_FTP_DATA_HELP`, mentioned on their site, not yet explored) or many individual lookups.
+  Building and testing that scraper/parser is real engineering work, not a same-session
+  extension of a diagnostic probe — flagged as the concrete next step rather than rushed.
 - No other polk-specific action items remain. Shard-7/polk is durably 10/10; this firing changed
-  nothing because nothing needed changing.
+  no scored data because nothing needed changing.
