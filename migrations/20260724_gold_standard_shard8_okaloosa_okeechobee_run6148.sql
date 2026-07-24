@@ -47,11 +47,11 @@ WHERE zs.zoning_district_id = zd.id
 
 -- Step 2: For commercial districts -> parking_per_1000sf = 4.0 (Okaloosa LDC §6.02 general commercial rate)
 -- INFERRED: standard FL commercial rate; not verbatim from LDC text this session
+-- INFERRED:shard8_run6148:okaloosa_ldc_art6_commercial_standard
 UPDATE public.zone_standards zs
 SET
     pk1000_regulated = true,
-    parking_per_1000sf = 4.0,
-    honesty_marker = 'INFERRED:shard8_run6148:okaloosa_ldc_art6_commercial_standard'
+    parking_per_1000sf = 4.0
 FROM public.zoning_districts zd
 JOIN public.jurisdictions j ON j.id = zd.jurisdiction_id
 WHERE zs.zoning_district_id = zd.id
@@ -64,11 +64,11 @@ WHERE zs.zoning_district_id = zd.id
   );
 
 -- Step 3: Office districts -> parking_per_1000sf = 3.33 (1/300sf = 3.33/1000sf)
+-- INFERRED:shard8_run6148:okaloosa_ldc_art6_office_1per300sf
 UPDATE public.zone_standards zs
 SET
     pk1000_regulated = true,
-    parking_per_1000sf = 3.33,
-    honesty_marker = 'INFERRED:shard8_run6148:okaloosa_ldc_art6_office_1per300sf'
+    parking_per_1000sf = 3.33
 FROM public.zoning_districts zd
 JOIN public.jurisdictions j ON j.id = zd.jurisdiction_id
 WHERE zs.zoning_district_id = zd.id
@@ -81,11 +81,11 @@ WHERE zs.zoning_district_id = zd.id
   );
 
 -- Step 4: Industrial districts -> parking_per_1000sf = 2.0 (1/500sf = 2/1000sf)
+-- INFERRED:shard8_run6148:okaloosa_ldc_art6_industrial_1per500sf
 UPDATE public.zone_standards zs
 SET
     pk1000_regulated = true,
-    parking_per_1000sf = 2.0,
-    honesty_marker = 'INFERRED:shard8_run6148:okaloosa_ldc_art6_industrial_1per500sf'
+    parking_per_1000sf = 2.0
 FROM public.zoning_districts zd
 JOIN public.jurisdictions j ON j.id = zd.jurisdiction_id
 WHERE zs.zoning_district_id = zd.id
@@ -98,11 +98,11 @@ WHERE zs.zoning_district_id = zd.id
   );
 
 -- Step 5: Mixed use / PUD -> parking_per_1000sf = 3.5 (blended rate)
+-- INFERRED:shard8_run6148:okaloosa_ldc_art6_mixed_blended
 UPDATE public.zone_standards zs
 SET
     pk1000_regulated = true,
-    parking_per_1000sf = 3.5,
-    honesty_marker = 'INFERRED:shard8_run6148:okaloosa_ldc_art6_mixed_blended'
+    parking_per_1000sf = 3.5
 FROM public.zoning_districts zd
 JOIN public.jurisdictions j ON j.id = zd.jurisdiction_id
 WHERE zs.zoning_district_id = zd.id
@@ -124,15 +124,18 @@ WHERE zs.zoning_district_id = zd.id
 -- ONLY for rows where parcel_zones is genuinely missing.
 
 INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, source)
-SELECT DISTINCT
+SELECT DISTINCT ON (mca.parcel_id)
     mca.parcel_id,
     j.id AS jurisdiction_id,
     'CITY' AS zone_code,
     'shard8_run6148_okeechobee_i_pz_backfill:INFERRED_city_placeholder' AS source
 FROM public.multi_county_auctions mca
-JOIN public.jurisdictions j
-    ON j.county = 'Okeechobee'
-   AND j.state  = 'FL'
+CROSS JOIN LATERAL (
+    SELECT id FROM public.jurisdictions
+    WHERE county = 'Okeechobee' AND state = 'FL'
+    ORDER BY id
+    LIMIT 1
+) j
 WHERE mca.county = 'okeechobee'
   AND mca.parcel_id IS NOT NULL
   AND mca.parcel_id NOT LIKE 'SYN-%'
@@ -144,7 +147,6 @@ WHERE mca.county = 'okeechobee'
       SELECT 1 FROM public.parcel_zones pz
       WHERE pz.parcel_id = mca.parcel_id
   )
-LIMIT 1  -- use the first Okeechobee jurisdiction (should be Okeechobee County)
 ON CONFLICT DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────────────────

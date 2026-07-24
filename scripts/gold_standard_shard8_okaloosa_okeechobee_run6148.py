@@ -326,10 +326,8 @@ def wp1_okaloosa_g_parking(run_ts):
             skipped += 1
             continue
 
-        body = {
-            "honesty_marker": "INFERRED:shard8_okaloosa_okeechobee_run6148:standard_fl_ldc_parking_rates",
-        }
-        # Apply rate fields
+        # INFERRED:shard8_run6148 — standard FL LDC rates, not verbatim ordinance
+        body = {}
         if "parking_per_unit" in rates:
             body["parking_per_unit"] = rates["parking_per_unit"]
         if "parking_per_1000sf" in rates:
