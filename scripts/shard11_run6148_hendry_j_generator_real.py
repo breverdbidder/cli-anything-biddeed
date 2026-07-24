@@ -45,8 +45,15 @@ COUNTY = "hendry"
 NEED_FACTOR_KEYS = {"distress_location", "distress_property", "distress_owner", "cma_distressed", "cma_resale"}
 # Confirmed-fabricated tags found live this session: all 20 existing rows carry
 # this single tag with byte-identical arv/max_bid/ml_score/factors.
-FABRICATED_PIPELINE_VERSIONS = {"v14.0_heuristic_shard2"}
-REPAIR_TAG = "hendry_j_generator_run6148_shapira_v14_real"
+# v1 of this real generator is included here too: an adversarial refuter caught
+# it silently mis-scoring distress_owner for real estate-sale owners --
+# fl_parcels.own_name uses the unpunctuated convention ("CABRERA ELBA
+# RODRIGUEZ EST") but v1's regex only matched "EST." with a literal period, so
+# 4 of 32 genuine estate owners fell through to the neutral 0.35 default
+# instead of the correct 0.55 estate-flagged score. v1's output needs the same
+# forced-reprocess treatment as the original fabricated tag.
+FABRICATED_PIPELINE_VERSIONS = {"v14.0_heuristic_shard2", "hendry_j_generator_run6148_shapira_v14_real"}
+REPAIR_TAG = "hendry_j_generator_run6148_shapira_v14_real_v2"
 
 # Real per-county trained target-encoding rate from shapira_models v14 metrics.json
 # (hendry IS in the 45-county training corpus, no fallback needed).
@@ -88,7 +95,7 @@ def log1p(v):
 
 def owner_flags(owner_name):
     own = (owner_name or "").upper()
-    is_estate = bool(re.search(r"\b(ESTATE|TRUST|HEIRS?|DECEASED|DECD)\b|\bEST\.", own))
+    is_estate = bool(re.search(r"\b(ESTATE|TRUST|HEIRS?|DECEASED|DECD|EST)\b|\bEST\.", own))
     is_entity = bool(re.search(r"\b(LLC|INC|CORP|LP|HOLDING|PROPERTIES|REALTY|SERVICES)\b", own))
     is_lender = bool(re.search(r"\b(BANK|MORTGAGE|FANNIE|FREDDIE|HUD|FHA|LENDER|FINANCIAL|SERVICING)\b", own))
     return is_estate, is_entity, is_lender
