@@ -156,7 +156,11 @@ def extract_cards(html):
             elif label == 'Opening Bid:':     c['opening_bid_text'] = value or None
             elif label == 'Parcel ID:':
                 a = dta_td.select_one('a')
-                c['parcel_id_text'] = (a.get_text(strip=True) if a else value) or None
+                raw_pid = (a.get_text(strip=True) if a else value) or None
+                # When a county hasn't linked a parcel, RealAuction renders a
+                # "Property Appraiser" link (site nav, not a parcel ID) in this cell.
+                # Real parcel IDs always contain a digit; link-label text never does.
+                c['parcel_id_text'] = raw_pid if raw_pid and any(ch.isdigit() for ch in raw_pid) else None
             elif label == 'Property Address:':
                 if value: addr_parts.append(value)
             elif label == '' and value and i > 0:
