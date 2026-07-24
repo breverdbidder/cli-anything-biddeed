@@ -1,0 +1,136 @@
+name: "SHARD-10 run 6253 — Alachua I+J+C/D+H Fix"
+# Gold Standard Alachua county improvement for loop run 6253.
+# Population grew 51→56 since last session (2026-07-21).
+# 
+# Jobs:
+#   apply-migration:  Apply SQL migration (I/J/H backfill + ultraloop audit)
+#   cd-harvest:       C/D parity harvest via RealForeclose AJAX for past auction dates
+#   evaluate:         pencil_dod_evaluate_county('alachua')
+#
+# Structural blocks NOT fixed here (verified by multiple prior sessions):
+#   - 9 rows with RealForeclose placeholder "Property Appraiser" in Parcel ID
+#   - 4 rows with auction_date=2026-08-18 (future, not yet held)
+#   - qpublic.schneidercorp.com: HTTP 403 Cloudflare
+#   - alachuaclerk.org: login + CAPTCHA
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (do not write to DB)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: shard10-alachua-run6253
+  cancel-in-progress: false
+
+jobs:
+  apply-migration:
+    name: "Apply I+J+H SQL migration"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install httpx -q
+      - name: Apply alachua I+J+H migration via Supabase Management API
+        run: |
+          set -euo pipefail
+          python3 mgmt_sql.py -f migrations/20260724_alachua_shard10_run6253_ij_fix.sql
+
+  cd-harvest:
+    name: "C/D: RealForeclose AJAX harvest for alachua"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [apply-migration]
+    if: always() && github.event.inputs.dry_run != 'true'
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run C/D parity harvest
+        run: |
+          set -euo pipefail
+          python3 scripts/alachua_shard10_run6253_cd_harvest.py || echo "WARN: C/D harvest failed, continuing"
+
+  evaluate:
+    name: "Evaluate alachua metrics"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [apply-migration, cd-harvest]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Run pencil_dod_evaluate_county for alachua
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import os, json
+          import urllib.request
+
+          supa_url = os.environ['SUPABASE_URL']
+          supa_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+
+          county = 'alachua'
+          payload = json.dumps({'p_county': county}).encode()
+          url = f'{supa_url}/rest/v1/rpc/pencil_dod_evaluate_county'
+          req = urllib.request.Request(url, data=payload, method='POST')
+          req.add_header('apikey', supa_key)
+          req.add_header('Authorization', f'Bearer {supa_key}')
+          req.add_header('Content-Type', 'application/json')
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  ev = json.loads(resp.read())
+                  passes = sum(1 for k in 'ABCDEFGHIJ' if isinstance(ev.get(k), dict) and ev[k].get('pass'))
+                  print(f'{county}: {passes}/10 PASS')
+                  for letter in 'ABCDEFGHIJ':
+                      d = ev.get(letter, {})
+                      if isinstance(d, dict):
+                          status = 'PASS' if d.get('pass') else 'FAIL'
+                          print(f'  {letter}: {status} metric={d.get(\"metric\")} {d.get(\"detail\",\"\")}')
+                  print(f'FULL JSON: {json.dumps(ev)}')
+          except Exception as e:
+              print(f'{county}: evaluation error: {e}')
+
+          # Also check counts
+          headers = {
+              'apikey': supa_key,
+              'Authorization': f'Bearer {supa_key}',
+              'Prefer': 'count=exact'
+          }
+          
+          # Total rows
+          req2 = urllib.request.Request(
+              f'{supa_url}/rest/v1/multi_county_auctions?county=eq.alachua&limit=0',
+              headers=headers
+          )
+          with urllib.request.urlopen(req2, timeout=15) as r:
+              cr = r.headers.get('Content-Range', '')
+              print(f'Total alachua MCA rows: {cr}')
+
+          # parcel_zones
+          req3 = urllib.request.Request(
+              f'{supa_url}/rest/v1/parcel_zones?select=parcel_id&limit=0',
+              headers={**headers, 'Content-Range': ''}
+          )
+          # bid_decisions count
+          req4 = urllib.request.Request(
+              f'{supa_url}/rest/v1/bid_decisions?county_slug=eq.alachua&limit=0',
+              headers=headers
+          )
+          with urllib.request.urlopen(req4, timeout=15) as r:
+              cr4 = r.headers.get('Content-Range', '')
+              print(f'Alachua bid_decisions count: {cr4}')
+          "
