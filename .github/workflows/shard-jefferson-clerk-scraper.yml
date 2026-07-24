@@ -8,13 +8,15 @@ name: "SHARD Jefferson County Clerk Foreclosure/Tax-Deed Scraper"
 #   https://www.jeffersonclerk.com/clerk-services/property-sales/foreclosures/
 #   https://www.jeffersonclerk.com/clerk-services/property-sales/tax-deed-sales/
 #
-# Built 2026-07-03 (scripts/shard_jefferson_clerk_scraper.py, commit 6cfd51c1)
-# but never wired to any scheduler -- Gold Standard shard-8 (run3534,
-# 2026-07-10) found it committed and unexecuted since. This workflow closes
-# that WIRING MANDATE gap. Jefferson is a small rural county (pop ~14K) with
-# sparse, intermittent auction activity -- both lanes were genuinely empty
-# (0 scheduled sales) when this was wired, verified live 2026-07-10. Weekly
-# cadence is appropriate; daily would just be noise for a county this small.
+# Wired 2026-07-10 (shard-8 run3534). Updated 2026-07-20 (shard-12 issue #12859):
+#   - Tax deed PDF parser added (format observed 2026-07-15 Pending-Tax-Deed-Sales.pdf)
+#   - Verified outcome rows now written to foreclosure_outcomes/tax_deed_outcomes
+#     when past-sale PDFs with High Bid amounts are published
+#   - B/F auto-resolution: scraper self-resolves letters B and F as soon as the
+#     clerk publishes results PDFs post-sale (next expected: 2026-08-19 tax deeds)
+#
+# Cadence: weekly Monday 08:30 UTC until 2026-08-19 passes, then first Monday
+# after (2026-08-24) should capture the tax deed results.
 
 on:
   schedule:
@@ -59,11 +61,26 @@ jobs:
           RESP=$(curl -sf \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            "${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.jefferson&select=case_number,sale_type,auction_date&limit=10")
+            "${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.jefferson&select=case_number,sale_type,auction_date,auction_status,tier1_sold_amount&limit=10")
           COUNT=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$RESP")
+          FC_OUT=$(curl -sf \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/foreclosure_outcomes?county=eq.jefferson&select=case_number,outcome,winning_bid,data_source")
+          FC_OUT_COUNT=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$FC_OUT")
+          TD_OUT=$(curl -sf \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/tax_deed_outcomes?county=eq.jefferson&select=case_number,outcome,winning_bid,data_source")
+          TD_OUT_COUNT=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$TD_OUT")
           echo "### SQL VERIFICATION: jefferson auctions" >> "$GITHUB_STEP_SUMMARY"
           echo '```sql' >> "$GITHUB_STEP_SUMMARY"
-          echo "SELECT case_number, sale_type, auction_date FROM multi_county_auctions WHERE county='jefferson' LIMIT 10;" >> "$GITHUB_STEP_SUMMARY"
-          echo "-- sample rows: $RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo "SELECT case_number, sale_type, auction_date, auction_status, tier1_sold_amount FROM multi_county_auctions WHERE county='jefferson' LIMIT 10;" >> "$GITHUB_STEP_SUMMARY"
+          echo "-- MCA rows: $RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo "-- foreclosure_outcomes rows: $FC_OUT" >> "$GITHUB_STEP_SUMMARY"
+          echo "-- tax_deed_outcomes rows: $TD_OUT" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::jefferson: $COUNT sample rows verified present"
+          echo "::notice::jefferson: $COUNT MCA rows, $FC_OUT_COUNT FC outcomes, $TD_OUT_COUNT TD outcomes"
+          if [ "$FC_OUT_COUNT" -gt "0" ] || [ "$TD_OUT_COUNT" -gt "0" ]; then
+            echo "::notice::LETTER B/F: verified outcome rows present — metrics may have moved"
+          fi
