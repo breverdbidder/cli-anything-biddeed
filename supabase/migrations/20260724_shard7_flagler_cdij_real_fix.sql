@@ -1,0 +1,93 @@
+-- GOLD STANDARD shard-7 (dispatch ea6af08a-62cb-4bdb-b69d-224fbfac7d47), county=flagler,
+-- letters C, D, I, J. No schema change -- documents live DATA fixes applied via the
+-- scripts listed below (run directly against production Supabase, not through this
+-- migration file), matching this campaign's established provenance-only-migration
+-- convention (see 20260724_shard3_santa_rosa_j_ghost_success_purge_real_fix.sql).
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('flagler') at session start):
+--   C=FAIL(90.5, matched_clean=134/148)  D=FAIL(90.5, matched_any=134/148)
+--   I=FAIL(92.6, card_complete=137/148)  J=FAIL(94.6, deal_complete=140/148)
+--
+-- C/D FIX: scripts/shard9_flagler_cd_ajax_harvest.py against the 3 live-calendar
+-- (sale_type, auction_date) pairs diagnosed this session: tax_deed/2026-08-11 (8
+-- case_numbers), foreclosure/2026-07-31 (1), foreclosure/2026-08-14 (2). All 11
+-- exact-matched by normalized case_number against the live RealTaxDeed/RealAuction
+-- AJAX calendar and were PATCHed to parity_status='matched_clean',
+-- parity_source='tier1:shard9_flagler_ajax_harvest:<sale_type>:<date>'. Stretch-goal
+-- attempt against the 3 remaining unmatched rows (tax_deed/2025-08-12, ~1yr overdue)
+-- returned 24 live calendar items for that date but none matched those 3 case
+-- numbers -- correctly left unmatched rather than forced. Result: matched_clean
+-- 134 -> 145/148 (98.0%), C and D both now PASS (>=95% threshold).
+--
+-- I FIX (partial): scripts/gold_standard_shard7_flagler_i_geocode.py geocoded 9
+-- flagler rows (the 8 tax_deed TDC rows above + case 2025 CA 000767) via the free
+-- US Census Bureau geocoder (Public_AR_Current benchmark), all 9 verified against
+-- the geocoder's own matchedAddress zip echo before being trusted. First pass hit
+-- transient Supabase REST 5xx/timeout errors on 7 of 9 PATCHes; retry logic added
+-- and a full re-run succeeded 9/9. HOWEVER this did not move the I metric:
+-- card_complete also requires an exact parcel_id (or tax_account) match against
+-- v_zoning_gold_standard_card, and live SQL investigation this session established
+-- that flagler's parcel_zones table only covers 262 parcels total -- of the 8
+-- tax_deed lots' 20-digit STRAP parcel_ids, only 3 (26-007/034/040 TDC) share a
+-- 12-digit township-range-section-block PREFIX with a zoned parcel, but none matches
+-- the full parcel_id exactly (each 12-digit prefix group in parcel_zones covers
+-- different specific lots than the ones on these auctions). The other 5 (26-012/
+-- 046/050/058/063 TDC) have zero rows under any prefix in parcel_zones at all. Case
+-- 2025 CA 000767's parcel also has no zoning coverage. This is a genuine, verified
+-- flagler zoning-ingestion coverage gap, not a formatting bug -- overwriting these
+-- rows' real parcel_id with a different (wrong) zoned parcel's ID to force the join
+-- would be fabrication (misattributing zoning data to the wrong parcel) and was
+-- correctly not done. card_complete remains 137/148 (92.6%), I remains FAIL.
+-- Residual: case 2025 CC 000553 also has a garbage parcel_id ("Property Appraiser",
+-- a scraping artifact) and null property_address from a prior session's harvest;
+-- its auction_date (2026-07-10) is now in the past, and a live-calendar re-harvest
+-- for that date returned 3 items but none matched this case_number -- left untouched
+-- rather than guessed. Case 2022 CA 000405 has no parcel_id at all and was not
+-- resolved by this session's harvest re-run either -- also a named residual.
+--
+-- J FIX: scripts/gold_standard_shard7_flagler_j_generator_real.py, forked from
+-- scripts/shard3_run6080_santa_rosa_j_generator_real.py (the latest, twice-adversarially-
+-- verified real-XGBoost pattern in this repo). Scope: only the 8 tax_deed TDC case
+-- numbers above, VERIFIED live to be the only flagler case_numbers with zero existing
+-- bid_decisions rows (new auctions the J pipeline hadn't reached yet). Real per-property
+-- ml_score via live XGBoost inference against shapira_models v14.0 (cv_auc_mean 0.7785,
+-- storage bucket shapira-models, path v14/2026-05-27-180308/, confirmed still current
+-- and downloaded fresh this session). county_target_enc: flagler IS one of the 45
+-- counties in the v14 training corpus's county_target_encoding_map -- VERIFIED by
+-- downloading and parsing metrics.json directly this session (the dispatch brief's
+-- assumption that flagler was "almost certainly NOT" in the corpus was WRONG; flagler's
+-- real trained rate is 0.7409638554216867, used directly rather than any fallback).
+-- ARV computed strictly from real assessed_value (all 8 target rows have one; none had
+-- to be skipped). distress_owner: multi_county_auctions.owner_name is null on all 148
+-- flagler rows (verified) -- fl_parcels.own_name join by parcel_id was attempted as the
+-- real per-row fallback, same technique as santa_rosa's script, but returned zero
+-- matches for these 8 specific parcel_ids (verified) -- all 8 rows honestly fall back
+-- to the 0.35 baseline (no signal available), not a fabricated non-zero constant.
+-- distress_location computed via real haversine distance to the median lat/lon
+-- centroid of flagler's own 148 geocoded auction rows (29.6469, -81.2088), computed
+-- live via SQL percentile_cont this session. Result: 6 distinct ml_score values across
+-- the 8 rows (0.1623-0.2371) -- genuine per-property variance, not a constant/bucket.
+-- deal_complete: 140 -> 148/148 (100.0%), J now PASS.
+--
+-- OUT-OF-SCOPE FINDING (flagged, NOT fixed this session -- task scope was exactly the
+-- 8 zero-row cases): a live audit of flagler's other 140 pre-existing bid_decisions
+-- rows found the SAME fabrication pattern purged for santa_rosa in commit 6a5a5cb0:
+-- 75 rows tagged pipeline_version='shard3_inferred_v1' carry a CONSTANT ml_score of
+-- exactly 0.5000 across every row, with constant distress_owner=0.3/distress_location=
+-- 0.4/distress_property=0.4 regardless of the property (honestly self-tagged
+-- _honesty_marker:'INFERRED' in the factors JSON -- not claimed to be real ML output).
+-- 69 rows with null pipeline_version carry only 2 distinct bucketed ml_score values
+-- (0.62/0.74) with constant distress_owner=0.55/distress_location=0.5/
+-- distress_property=0.5. Both groups satisfy pencil_dod_evaluate_county's letter-J
+-- key-presence check (structural JSON key existence only) while being non-differentiated
+-- placeholder data. Repairing these 140 rows was outside this session's assigned scope
+-- (J's gap was exactly 1 row) and is logged here as a named residual for a future
+-- shard-7 flagler session, per this campaign's fail-loud-invariant / no-silent-fix rule.
+--
+-- AFTER (VERIFIED live via pencil_dod_evaluate_county('flagler') post-fix):
+--   C=PASS(98.0, matched_clean=145)  D=PASS(98.0, matched_any=145)
+--   I=FAIL(92.6, card_complete=137/148, unchanged -- genuine residual, see above)
+--   J=PASS(100.0, deal_complete=148/148)
+--
+-- No cron jobs (109/111/115/gold-standard-loop-*) modified. No schema DDL in this file.
+SELECT 1;
