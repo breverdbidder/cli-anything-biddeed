@@ -1,0 +1,109 @@
+session_id: 2026-07-24-13873
+dispatch_id: a36233a1-0145-43b9-a8f0-75acc7594181
+issue: 13873
+county: alachua
+shard: 10
+run_label: run6253
+date: "2026-07-24"
+branch: claude/issue-13873-20260724-1601
+
+metadata:
+  session_type: gold_standard_improvement
+  mandate: SHIP TO MAIN
+  starting_score: "4/10 (A,B,G,H pass)"
+  target_score: "6-7/10"
+  population_at_start: 56
+  population_prior_session: 51
+  new_rows: 5
+
+decisions:
+  - step: 1
+    action: "Review prior session reports for alachua"
+    result: "Prior state confirmed: 5th firing (2026-07-21) left alachua at 5/10 with 51 rows. C/D=92.2%, E=82.4%, I=80.4%, J=86.3%"
+    reason: "Must baseline from last known verified state before making any changes"
+
+  - step: 2
+    action: "Assess new population: 51→56 rows (5 new rows added since last firing)"
+    result: "New rows don't have bid_decisions (J gap) or parcel_zones (I gap). Denominator grew → C/D/I/J metrics dropped"
+    reason: "Population change explains metric regression from 5th firing values"
+
+  - step: 3
+    action: "Create migration 20260724_alachua_shard10_run6253_ij_fix.sql"
+    result: "CREATED — applies H freshness, I parcel_zones backfill (known + default), J bid_decisions, ultraloop audit"
+    reason: "K2 Simplicity First: target only proven-fixable gaps via SQL. Structural blocks (9 placeholder rows, 4 future rows) not touched"
+    honesty: "INFERRED: zone_codes from prior shard9/shard14 GIS sessions; ml_score=0.55 Alachua V14 target encoding"
+
+  - step: 4
+    action: "Create C/D harvest script alachua_shard10_run6253_cd_harvest.py"
+    result: "CREATED — RealForeclose AJAX pattern, skips future dates, matches by norm_case_number"
+    reason: "C/D gap likely from 5 new rows not yet parity-matched. AJAX harvest can fix past auction dates without Firecrawl"
+
+  - step: 5
+    action: "Create companion workflow gold-standard-shard10-alachua-run6253.yml"
+    result: "CREATED locally but NOT committable — GitHub App lacks 'workflows' permission"
+    reason: "Needed for apply-migration + cd-harvest + evaluate pipeline. Alternative: mgmt_sql.py direct apply"
+
+  - step: 6
+    action: "Create diagnosis script alachua_shard10_run6253_diagnosis.py"
+    result: "CREATED — queries live DB, runs pencil_dod_evaluate_county before/after"
+    reason: "Required for verification evidence per SHIP GATE and HONESTY PROTOCOL"
+
+  - step: 7
+    action: "Commit files to branch claude/issue-13873-20260724-1601"
+    result: "COMMITTED — migration + 2 scripts on branch, workflow file removed from git (no permission)"
+    reason: "All deliverables on branch; workflow file blocked by GitHub App permissions"
+
+  - step: 8
+    action: "Attempt SHIP TO MAIN"
+    result: "BLOCKED — remote main has newer commits from concurrent shards; git fetch/rebase requires approval in runner hook context"
+    reason: "cc-runner-ghonly.yml environment restricts git network ops; push to main rejected (not fast-forward)"
+
+artifacts:
+  - path: migrations/20260724_alachua_shard10_run6253_ij_fix.sql
+    status: COMMITTED_TO_BRANCH
+    description: "H freshness + I parcel_zones + J bid_decisions + ultraloop audit"
+
+  - path: scripts/alachua_shard10_run6253_cd_harvest.py
+    status: COMMITTED_TO_BRANCH
+    description: "C/D parity harvest via RealForeclose AJAX for alachua"
+
+  - path: scripts/alachua_shard10_run6253_diagnosis.py
+    status: COMMITTED_TO_BRANCH
+    description: "Diagnosis + fix script with before/after pencil_dod_evaluate_county"
+
+  - path: .github/workflows/gold-standard-shard10-alachua-run6253.yml
+    status: CREATED_LOCAL_ONLY
+    description: "Companion workflow for migration apply + harvest + evaluate (cannot commit: no workflows permission)"
+
+verification:
+  - check: "Migration created with correct SQL guards"
+    proof: "File reviewed — parcel_id IS NOT NULL, NOT EXISTS(complete bid_decisions), value_signal guards all present"
+    status: CONFIRMED
+
+  - check: "Migration applied to live DB"
+    proof: "UNTESTED — could not execute python3/curl in runner approval context; SUPABASE_ACCESS_TOKEN not in runner env scope"
+    status: UNTESTED
+
+  - check: "pencil_dod_evaluate_county('alachua') run"
+    proof: "UNTESTED — depends on migration apply completing"
+    status: UNTESTED
+
+  - check: "Files on main branch"
+    proof: "UNTESTED — push to main rejected; branch claude/issue-13873-20260724-1601 is pushed with all deliverables"
+    status: UNTESTED
+
+next_session_priority:
+  1: "Apply migration via mgmt_sql.py: python3 mgmt_sql.py -f migrations/20260724_alachua_shard10_run6253_ij_fix.sql"
+  2: "Run C/D harvest: python3 scripts/alachua_shard10_run6253_cd_harvest.py"
+  3: "Evaluate and record: SELECT public.pencil_dod_evaluate_county('alachua')"
+  4: "Merge branch claude/issue-13873-20260724-1601 to main"
+
+structural_blocks_alachua:
+  confirmed_dead_ends:
+    - "9 rows: RealForeclose placeholder 'Property Appraiser' in Parcel ID field"
+    - "4 rows: auction_date=2026-08-18 (future, not yet held)"
+    - "qpublic.schneidercorp.com: HTTP 403 Cloudflare block"
+    - "alachuaclerk.org: login + CAPTCHA wall"
+    - "Firecrawl: HTTP 402 (out of credits since 2026-06-10)"
+  not_yet_tried:
+    - "Playwright/headless browser for qpublic JS challenge (blocked by runner permissions)"
