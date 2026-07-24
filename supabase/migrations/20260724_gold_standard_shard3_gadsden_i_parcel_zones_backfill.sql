@@ -99,3 +99,122 @@ ON CONFLICT DO NOTHING;
 -- No zoning_districts / zone_standards changes required: zone_code 'RR' already
 -- exists for jurisdiction_id=1474 (Unincorporated Gadsden County), ordinance-sourced
 -- in a prior session.
+
+-- ============================================================================
+-- SESSION 2 CONTINUATION (same dispatch 0f64d3fa, later same day 2026-07-24)
+-- ============================================================================
+-- BEFORE (re-verified via pencil_dod_evaluate_county('gadsden') at this session's
+-- start): I: pass=false, card_complete=15 of 23, metric=65.2 -- matches the prior
+-- session's AFTER state exactly (13/23 -> 15/23 backfill above already applied).
+-- 8 gap parcels remain: parcel_zones re-queried directly for all 10 original
+-- dispatch parcel_ids -- confirmed only the same 2 RR rows above exist; the other
+-- 8 (4 Chattahoochee, 4 Quincy addresses) still have ZERO parcel_zones rows.
+--
+-- JURISDICTION CONFIRMATION (per dispatch instruction to not assume from mailing
+-- text): re-queried all 8 remaining coordinates against the already-vetted ARPC
+-- gis.arpc.org/server/rest/services/Counties/Gadsden_GIS/MapServer/0
+-- (Municipal_Boundaries_2021, CITY field) -- confirms all 8 are genuinely inside a
+-- municipal boundary (4 CITY='Chattahochee', 4 CITY='Quincy'), i.e. their mailing
+-- addresses were NOT misleading; they are truly municipal, not unincorporated.
+--   23000820CA / 2-03-3N-6W-0000-00342-0200 -> Chattahoochee (municipal)
+--   26000007TDC / 1-33-4N-6W-0080-00006-0050 -> Chattahoochee (municipal)
+--   25000696CA / 2-03-3N-6W-0000-00213-2300 -> Chattahoochee (municipal)
+--   25000545CA / 1-33-4N-6W-0000-00431-0400 -> Chattahoochee (municipal)
+--   25000148CA / 3-07-2N-3W-0730-00000-1711 -> Quincy (municipal)
+--   25000942CA (already RR, not in this batch)
+--   26000009TDC / 3-11-2N-4W-0000-00242-0500 -> Quincy (municipal)
+--   26000010TDC / 3-12-2N-4W-0980-0000L-0050 -> Quincy (municipal)
+--   26000011TDC / 3-08-2N-3W-0780-0000A-0150 -> Quincy (municipal)
+--
+-- NEW ANGLE RESEARCHED THIS SESSION (per dispatch: Gadsden County's own
+-- GIS/property-appraiser portal, plus Quincy/Chattahoochee official .gov sites --
+-- not the prior session's Municode-only or org-search-only checks):
+--
+--   1. gadsdenpa.com -- STILL Cloudflare-blocked (403 to curl + WebFetch), same as
+--      prior session. Firecrawl STILL "Insufficient credits" this session (fresh
+--      curl to api.firecrawl.dev/v1/scrape confirmed same error). No change.
+--
+--   2. gadsdencountypropertyappraiser.org (NEW candidate domain, found via web
+--      search) -- reachable (HTTP 200, not Cloudflare-blocked) but on inspection is
+--      a WordPress lead-gen / "Property Search Pro" plugin site with a fake
+--      "Analyzing Property Data... Connecting to public databases" spinner and pure
+--      SEO filler text describing GIS capabilities in the abstract. NO iframe, NO
+--      ArcGIS reference, NO real map embed anywhere in the page source. This is NOT
+--      an official Gadsden County government site. REJECTED as a source (would be
+--      fabrication-adjacent to trust it).
+--
+--   3. City of Quincy's own ArcGIS org, found via a NEW search path this session
+--      ("City of Quincy Planning and Zoning Map Application", owner=quincyadmin,
+--      cityofquincy.maps.arcgis.com, webmap id d32dfe93058640d38f4b6bbd5b74fc3d) --
+--      has a real "Zoning" FeatureServer layer
+--      (services3.arcgis.com/jl3zLujxj5OMMkmC/arcgis/rest/services/Planning_View/
+--      FeatureServer/2, fields ZoneCode/ZoneDescription, 60 features). BUT: point-
+--      in-polygon queries for all 5 Quincy coordinates returned zero features, and
+--      re-projecting a real vertex from that layer's own geometry (native SR wkid
+--      102749) to EPSG:4326 via Esri's own GeometryServer landed at
+--      (-119.84, 47.21) -- Grant County, WASHINGTON STATE, not Florida. Independently
+--      confirmed via the same org's Addressing_View layer: sample address rows have
+--      City='QUINCY', Zip='98848' (Quincy, WA zip code; FL zips start with 3, WA
+--      with 9). CONCLUSION: this ArcGIS org is Quincy, WASHINGTON's real municipal
+--      GIS, not Quincy, FLORIDA's -- the SAME false-lead category the dispatch brief
+--      already told us to reject (prior session found this via org-search; this
+--      session independently re-found and re-confirmed it via a webapp-title search,
+--      landing on the identical trap through a different path). REJECTED, not used.
+--      myquincy.net itself (the real Quincy FL city site, confirmed via its own
+--      "404 West Jefferson Street, Quincy, FL 32351" address on Wayback captures) is
+--      Cloudflare-blocked live (403) and has NO Wayback capture of its
+--      /building-planning/page/maps or /building-planning/pages/maps subpage (404 on
+--      the only crawled variant) -- so we cannot even confirm what myquincy.net's
+--      own maps page actually links to. Genuinely unreachable, not fabricated.
+--
+--   4. Historical PDF: Wayback has a real, city-published
+--      "City of Quincy Zoning Map" PDF (Zoning 6-12.dgn, revised 5/15/2012,
+--      www.myquincy.net/i/wp-content/uploads/2012/12/Quincy-Zoning-Map-12-18-12.pdf,
+--      captured 2015-09-23) -- inspected directly (Read tool rendered it). It is a
+--      real color-coded zoning map with a legend (R-1, R-2, C-1, C-2, M-1, AG, etc.)
+--      but only labels a handful of major roads (Pat Thomas Pkwy/SR 267, Walsh
+--      Road, County US 90) -- it does NOT label Love St, Joe Adams Rd, Pavillion
+--      Dr, Williams St, or Carver St (our 5 target Quincy streets). Assigning a
+--      zone by eyeballing an unlabeled colored region on a 2012 raster scan would be
+--      a guess, not a verified match -- REJECTED per the no-fabrication rule, not
+--      used for any INSERT.
+--
+--   5. Historical JPG: Wayback has "Chattahoochee-Zoning-Map.jpg" from chattgov.org
+--      (2017 upload, captured 2021-04-26) -- real file but only 124x96 pixels
+--      (Exif-confirmed), illegible at any zoom. REJECTED, not used.
+--
+--   6. Re-searched the full ARPCmaps ArcGIS Online catalog (33 zoning/Quincy/
+--      Chattahoochee-tagged items this session, broader query than prior session's
+--      193-item full-catalog pass) -- re-confirms: a real, queryable ZONING DISTRICT
+--      layer exists ONLY for Havana. "County Zoning Look Up" web map (a new item
+--      title not previously checked) turned out to be Calhoun County's FLUM system
+--      (Calhoun_FLUM2 FeatureServer), not Gadsden -- checked and rejected.
+--
+--   7. Regrid (app.regrid.com/us/fl/gadsden/quincy) -- page loads (HTTP 200) but its
+--      API requires a paid access token ("An access token is required", HTTP 401)
+--      and the public web page itself requires login to view any parcel/zoning
+--      detail (confirmed via WebFetch summary of the page). REJECTED, no free path.
+--
+--   8. qPublic/Beacon/Schneider Corp (qpublic.schneidercorp.com,
+--      maps.schneidercorp.com, beacon.schneidercorp.com) -- STILL Cloudflare 403 to
+--      all available tools this session, same as prior session. No change.
+--
+-- AFTER (re-verified via pencil_dod_evaluate_county('gadsden'), end of this
+-- session, NO new INSERTs made):
+--   I: pass=false, card_complete=15 of 23, metric=65.2  -- UNCHANGED from session
+--   start. Zero new rows added.
+--
+-- HONEST CEILING (confirmed, two consecutive sessions on this dispatch): 15/23
+-- (65.2%) is this campaign's genuine ceiling for gadsden letter I as of 2026-07-24
+-- given currently-reachable data sources. The remaining 8 Quincy/Chattahoochee
+-- municipal parcels cannot be resolved without either (a) Cloudflare-bypass access
+-- to gadsdenpa.com/qPublic/Beacon (blocked to curl, WebFetch, and Firecrawl -- which
+-- is separately out of credits), or (b) a live, currently-inaccessible parcel-level
+-- zoning-district GIS layer for these two specific cities that this session could
+-- not locate despite exhausting: county PA site, county PA site clone-lookalikes,
+-- both cities' official .gov sites and their linked resources, Municode (previously
+-- checked), the full ARPC regional-planning-council ArcGIS catalog, Wayback Machine
+-- captures (both live-site and historical-document), Regrid, and a Washington-state
+-- ArcGIS org that shares Quincy's name but is not Quincy, FL. Does NOT reach
+-- 22/23=95.7%. Letter I remains FAILING. No fabricated zone codes, parcel_ids, or
+-- coordinates were introduced by this session.
