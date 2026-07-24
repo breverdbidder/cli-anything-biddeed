@@ -80,7 +80,16 @@ def _sb_headers(prefer: str = "") -> dict:
 
 
 def sb_get(table: str, params: dict) -> list:
-    qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
+    # BUGFIX (run6148, verified live 2026-07-24): quote() with default `safe`
+    # re-encodes the literal "(", ")", "," in PostgREST's or=(...) syntax and
+    # the already-percent-encoded %25 wildcard inside it, turning
+    # or=(parity_status.is.null,parity_source.not.like.tier1%25) into
+    # or=%28...%2C...tier1%2525%29 -- PostgREST cannot parse the double-
+    # encoded operator syntax and the filter silently matches 0 rows. This
+    # made step1's rematch a permanent no-op (confirmed: gap_rows=0 reported
+    # even with 18 real null-parity walton rows live in the DB). Keep PostgREST
+    # operator characters unescaped; only percent-encode what actually needs it.
+    qs = "&".join(f"{k}={urllib.parse.quote(str(v), safe='(),.*%')}" for k, v in params.items())
     req = urllib.request.Request(f"{SB_URL}/rest/v1/{table}?{qs}", headers=_sb_headers())
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
