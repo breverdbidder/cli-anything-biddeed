@@ -1,0 +1,106 @@
+session:
+  shard: SHARD-5 (volusia only)
+  dispatch_id: ee5042ee-dd47-457e-9595-31f87ada4ef7
+  chat_session: architect-20260724T160000
+  date: 2026-07-24
+  mode: ultracode Workflow fan-out (8 parallel independent fact-checker agents), per
+    ULTRALOOP PROTOCOL "verifier of a fix is never the agent that wrote it" rule
+
+pre_session_baseline: "Dispatch brief listed volusia at 9/10 with G FAIL (metric=1.6,
+  density=4.0 far=1.6 pk1000=1.6). That brief snapshot predates this exact dispatch's
+  own prior firing: git log showed commits e6f8d151 and 2785a8ae already on origin/main
+  (same dispatch_id ee5042ee, run6253), the second claiming 'G FAIL->PASS
+  (97.3/100.0/100.0), volusia now 10/10'. Live SELECT public.pencil_dod_evaluate_county(
+  'volusia') confirmed the claim: all 10 letters PASS, G density=97.3 far=100.0
+  pk1000=100.0. gold_standard_scoreboard was stale (last snapshot 17:59:13Z, before the
+  18:24:31Z fix landed) -- not a real regression, just an unrefreshed periodic snapshot."
+
+decisions:
+  - step: 1
+    action: "Did not re-do the G fix (already shipped and live-verified by the prior
+      firing of this same dispatch). Instead treated the session's job as closing the
+      one real gap: gold_standard_ultraloop_audit's existing survived=true row for G/I
+      (created 2026-07-24T18:24:31Z) was logged by the SAME session that wrote the fix
+      -- violating the campaign's own ULTRALOOP rule that the verifier must not be the
+      implementer. This county+letter also has a documented 2-strike fabrication
+      history (2026-06-23 hardcoded 'Synthetic R-1 (Beta)' district, purged 2026-07-20
+      as GHOST_SUCCESS), which raised the bar for trusting a same-session self-audit."
+    reason: "SHIP GATE / Sentinel-agreement principle: a claim resting only on its own
+      author's audit row is not independently verified, especially on a letter with a
+      track record of being gamed on this exact county."
+
+  - step: 2
+    action: "Pulled the two migrations behind the fix (20260724_gold_standard_shard5_
+      volusia_g_unincorporated_county.sql, 20260724_gold_standard_shard5_volusia_g_
+      remaining_municipalities.sql) and extracted 8 concrete, independently reproducible
+      citations (exact api.municode.com jobId/nodeId/productId URLs or direct PDF URLs)
+      spanning Deltona, Daytona Beach, Orange City, New Smyrna Beach, Pierson, and
+      DeLand -- mixing high-confidence 'VERIFIED' claims (to catch outright fabrication)
+      with lower-confidence 'NOT independently re-checked' claims (single-researcher-
+      sourced, highest real risk) and the one district (Daytona Beach RDD2, FAR=10.0)
+      with an unusually high value worth a sanity check."
+    result: "8-agent Workflow.parallel() fan-out, each agent blind to the others,
+      instructed to fetch the live source itself and refute if unsupported. Result:
+      6/8 CONFIRMED verbatim (exact quoted ordinance text matched the claimed density/
+      FAR values, including the high FAR=10.0 for Daytona RDD2 which turned out to be
+      genuinely correct, not a data-entry error), 1/8 PARTIAL (Deltona C-1 parking=
+      4.44/1000sf is the correct general-retail-use rate but reaches C-1 via a
+      use-category cross-reference rather than a C-1-specific stated figure), 1/8
+      MISMATCH-on-wording (Pierson MH-2 density=3 is lot-size-derived --
+      43,560/14,520=3.0 -- the same disclosed derivation method used throughout the
+      migration for small-lot districts, not literally printed as 'du/ac' in that
+      section). Zero instances of the fabrication signature from the two prior
+      incidents (single hardcoded value applied regardless of real jurisdiction)."
+    verification:
+      check: "8 independent live source re-fetches (curl w/ browser User-Agent, since
+        api.municode.com and deland.org both 403 plain WebFetch)"
+      proof: "Full agent transcripts in workflow run wf_48066891-2bc; verdicts logged"
+      status: "6 CONFIRMED / 1 PARTIAL / 1 MISMATCH-on-wording / 0 UNREACHABLE, 0
+        fabrication signatures"
+
+  - step: 3
+    action: "Logged 2 new gold_standard_ultraloop_audit rows (ids 9650-9651) for
+      letters G and I, dispatch_id ee5042ee, ultraloop_mode=native, survived=true,
+      written from THIS session (not the implementing session) with the 8-sample
+      re-fetch evidence attached in refuter_evidence jsonb. This satisfies the SQL
+      certify gate's requirement for a survived=true audit row per letter from an
+      independent verifier."
+    result: "Rows inserted successfully (201). Re-ran pencil_dod_evaluate_county(
+      'volusia') a final time post-audit-write: unchanged, still 10/10 PASS
+      (A=99 B=100.0 C=96.8 D=97.6 E=100.0 F=100.0 G=97.3 H=0.0 I=95.5 J=100.0)."
+      verification:
+        check: "SELECT public.pencil_dod_evaluate_county('volusia') run twice this
+          session (start and end), both showed 10/10 PASS with identical metrics"
+        proof: "See SQL VERIFICATION block in closing issue comment"
+        status: "PASS, stable, no regression"
+
+  - step: 4
+    action: "Did not run public.gold_standard_loop() or gold_standard_certify() per
+      the PARALLEL-FLEET RULES guardrail (other shards mid-flight); did not touch any
+      county outside volusia per shard ownership. No further work queued -- volusia is
+      genuinely 10/10 with independent verification now on record for every letter
+      within the 7-day certify-gate window (A/B/C/D/E/F/H/J from 2026-07-19 sessions,
+      G/I from today, both the implementer's row AND this session's independent row)."
+    reason: "Shard scope is volusia only; SHIP-TO-MAIN MANDATE prohibits inventing
+      work outside the assigned scope, and the standing certify-gate rule requires
+      audit freshness, which this session restored for the two most recently-touched
+      letters."
+
+artifacts:
+  - path: .claude/session-logs/2026-07-24-gold-standard-shard5-volusia-adversarial-reverify.yml
+    type: session_decision_log
+  - workflow_run_id: wf_48066891-2bc
+    type: adversarial_verification_transcript
+
+next_session_priorities:
+  - "None outstanding for volusia -- county is 10/10 with fresh independent audit
+    coverage on every letter. Certification itself (2 consecutive 10/10 daily 07:30Z
+    gold_standard_loop runs) is an automated process outside this session's control;
+    no action needed, just let the daily loop run."
+  - "If a future session touches Deltona C-1 or Pierson-style small-municipality
+    districts again, note the 2 minor caveats found here: (1) use-category parking
+    ratios reached via cross-reference should ideally cite the specific district's
+    permitted-use list, not just the general rate; (2) lot-size-derived density values
+    are a disclosed, consistent methodology in this campaign -- not a defect, but
+    should be labeled 'derived' vs 'stated' for future adversarial passes to route
+    around false MISMATCH flags like the Pierson one here."
