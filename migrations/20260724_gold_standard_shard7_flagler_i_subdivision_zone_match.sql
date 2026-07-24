@@ -22,13 +22,28 @@
 -- section "07-11-31" with parcels that ALREADY carry a real, county-sourced
 -- zone_code (SFR-3, from palmcoast_gis_uldc_2026-07-19 / Shard3-gold-standard /
 -- FL_GIO_DOR_UC — genuine GIS/DOR data, not fabricated). 4 of the 6 match at
--- the more specific subdivision-code level (0711317001/7023/7032/7058); the
--- other 2 (7004, 7064) match at the section level only. SFR-3 is the modal
--- real zone code for section 07-11-31 (24 of 51 real rows) and is present at
--- every matched subdivision, so it is used consistently across all 6.
+-- the more specific subdivision-code level (0711317001/7023/7032/7058); one
+-- (7004) matches at the section level only. SFR-3 is the modal real zone code
+-- for section 07-11-31 (24 of 51 real rows) and is present at every matched
+-- subdivision, so it is used consistently across all 6.
 -- honesty_marker: INFERRED (same-subdivision/same-section real-zoning neighbor
 -- match — stronger evidence than a county-wide default, but still inferred,
 -- not a direct per-parcel GIS lookup).
+--
+-- CORRECTION (added after adversarial verification, same session): the
+-- original version of this comment claimed 7064 also matched only at the
+-- section level. That was WRONG — an independent refuter agent found genuine
+-- pre-existing SFR-3 rows for parcel_id 0711317064002300150 and
+-- 0711317064002300160 (source=Shard3-gold-standard-2026-06-24, created
+-- 2026-06-24, a month before this fix), i.e. an exact-subdivision-level
+-- neighbor DID exist for 7064. The search that produced the original comment
+-- only checked dashed-format keys (e.g. "07-11-31-7064-"); these existing
+-- rows use the raw-digit format, so the search missed them. Re-verified this
+-- independently (not just trusting the refuter) via direct SQL against
+-- parcel_zones. The zone_code value used (SFR-3) is unaffected and, if
+-- anything, better supported than originally documented — only the
+-- methodology narrative was inaccurate. Per Honesty Protocol: I was wrong
+-- about this specific claim; logged here rather than silently corrected.
 --
 -- The remaining 3 rows (sections 27-11-31 x2, 30-12-29 x1) have ZERO existing
 -- parcel_zones rows anywhere in those sections — no real neighbor evidence
