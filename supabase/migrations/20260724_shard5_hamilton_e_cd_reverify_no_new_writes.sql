@@ -1,0 +1,114 @@
+-- HAMILTON County (shard-5, gold-standard-shard5-run3679) — 2026-07-24 session
+-- Follow-up to 20260711_shard_run3679_hamilton_e_linkage_cdf_diagnosis.sql and
+-- 20260711_shard5_hamilton_reverify_no_new_writes.sql. This session's assignment: push E
+-- (parcel linkage, 93.8%/15/16) to 16/16, and C/D (parity, currently 50%/8/16 -- already
+-- improved from the 43.8%/7/16 documented on 2026-07-11 by an intervening session's
+-- 2025-CA-46 reharvest match) further if any new real evidence exists. RESULT: no new
+-- writes -- both gaps remain genuinely blocked. Migration filed per campaign protocol
+-- (a file is required even for reverify-only sessions, matching the precedent of
+-- 20260711_shard5_hamilton_reverify_no_new_writes.sql).
+--
+-- BASELINE (live, pencil_dod_evaluate_county('hamilton'), this session):
+--   A=PASS(6) B=FAIL(null) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16) E=FAIL(93.8%,15/16)
+--   F=FAIL(null) G=PASS(100.0) H=PASS(~20.6h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+--
+-- =====================================================================================
+-- 1) E — parcel_id linkage: still 15/16, genuinely blocked, one new lead found and
+--    exhausted (not a fabrication)
+-- =====================================================================================
+-- The single NULL-parcel row is id=09081529-84af-4e0c-9ebf-e49f0b241ace, case 2025-CA-66
+-- (property_address placeholder "Ashley Victoria Steward-Ross property, Hamilton County
+-- FL"). Re-fetched https://hamiltonclerk.com/foreclosures/ live this session (2026-07-24)
+-- and it now publishes a real legal description for this case that the 2026-07-11 session
+-- did not have: "21st Mortgage Corp. vs. Ashley Victoria Steward-Ross, Lot 6 Horse Country
+-- I at Oak Woodlands, Judgment $184,852.59, Sale Date July 22, 2026" (NOTE: this sale date
+-- is already in the past relative to today 2026-07-24, but the MCA row's auction_date is
+-- 2026-08-05 -- a discrepancy between the clerk's live page and our DB value; not corrected
+-- in this migration since correcting auction_status/auction_date is outside this session's
+-- assigned letters and would need independent confirmation of what actually happened,
+-- flagged here as a residual for a future B/F-focused session).
+--
+-- Attempted to resolve "Lot 6 Horse Country I at Oak Woodlands" to a real parcel_id via:
+--   - hamiltoncountytaxcollector.com/Property/search -- POST-only form, HTTP 500 on
+--     stateless GET/WebFetch (same constraint documented 2026-07-11, unchanged).
+--   - qpublic.schneidercorp.com/Application.aspx?App=HamiltonCountyFL -- HTTP 403
+--     (Cloudflare), re-verified live, unchanged from prior sessions.
+--   - beacon.schneidercorp.com/Application.aspx?AppID=817&LayerID=14544&PageTypeID=2&
+--     PageID=6409 -- a NEW, more specific Hamilton-configured Beacon URL surfaced via
+--     publicrecords.netronline.com/state/FL/county/hamilton (distinct from the generic
+--     AppID=1074 URL tried 2026-07-11) -- also HTTP 403 (Cloudflare), same WAF block.
+--   - hamiltonpa.com -- HTTP 403, re-verified live, unchanged.
+--   - myfloridacounty.com/orisearch/24 (Hamilton's official-records portal, linked from
+--     hamiltonclerk.com/official-record-search/) -- confirmed this session to be a
+--     JS/session-driven search form (party-name / legal-description / instrument-number
+--     fields, no direct queryable URL pattern) -- same class of blocker as the
+--     civitekflorida.com JSF portal already documented 2026-07-11 (requires real browser
+--     automation, not stateless WebFetch).
+--   - General web search for "Horse Country I at Oak Woodlands" Hamilton County parcel and
+--     for "Steward-Ross" + parcel: surfaced ONE tangential unverified candidate (parcel
+--     "4837-130" on "NW Bur Oak Pl., Jennings FL" in the general "Oak Woodlands"
+--     subdivision, from a 3rd-party land-listing aggregator) but with ZERO confirmation
+--     that this is the same "Horse Country I" phase/lot as case 2025-CA-66's Lot 6, and
+--     from a non-authoritative source (land listing site, not county records). Per the
+--     NEVER-FABRICATE guardrail, this candidate was explicitly NOT written to parcel_id --
+--     using it would be exactly the "plausible-looking value from a non-citable source"
+--     pattern this campaign exists to prevent.
+--
+-- CONCLUSION: E remains blocked at 93.8% (15/16). Real new information surfaced (the "Lot 6
+-- Horse Country I at Oak Woodlands" legal description) but every path to convert it into a
+-- verified parcel_id is either Cloudflare-blocked (qpublic/beacon/hamiltonpa) or requires
+-- interactive browser session state this sandbox cannot drive (myfloridacounty.com official
+-- records, tax collector POST form). Residual for a future session with real browser
+-- automation (Playwright/firecrawl-browser): resolve "Lot 6 Horse Country I at Oak
+-- Woodlands" via myfloridacounty.com/orisearch/24 legal-description search, or via a
+-- Cloudflare-bypassed beacon.schneidercorp.com session using the Hamilton-specific
+-- AppID=817/LayerID=14544 URL found this session.
+--
+-- =====================================================================================
+-- 2) C/D — parity re-verified, unchanged since baseline improved to 50% by an
+--    intervening session; no new outcome data exists to promote further
+-- =====================================================================================
+-- Live query this session (multi_county_auctions WHERE lower(county)='hamilton'):
+-- 8 rows matched_clean (7 redeemed tax-deed certs + case 2025-CA-46, the latter matched by
+-- an intervening 2026-07-18 session per parity_source
+-- 'tier1:hamilton_shard_run_2025ca46_clerk_fc_direct_reharvest:2026-07-18' -- not touched
+-- or re-verified in depth this session, out of scope). Remaining 8 rows: 5 FC cases
+-- (2021-CA-46, 2025-CA-66, 2024-CA-19, 2023-CA-41, 2025-CA-37) all parity_status='mca_only',
+-- auction_status='upcoming' (real future/pending sale dates per hamiltonclerk.com/
+-- foreclosures/, re-verified live), plus 3 TD certs (379/597/599) with parity_status=NULL,
+-- auction_status='upcoming'.
+--
+-- Re-verified live https://hamiltonclerk.com/tax-deeds/ this session: certs 379 (parcel
+-- 3729-650), 597 (parcel 4837-048), 599 (parcel 4837-067) still explicitly listed as
+-- "Active/Upcoming" for the Dec 4, 2025 sale -- confirms the DB's synthesized case_number
+-- 'HAM-TD-CERT-<n>' labels correctly wrap the REAL clerk-published cert numbers (379/597/
+-- 599) and parcel numbers match exactly, field-for-field, against the live clerk table --
+-- so the synthesized case_number is not itself a matching defect; it is a correct internal
+-- label for a real cert. No real/different cert identifier exists that the synthesized
+-- label should be replaced with.
+--
+-- Ran public.refresh_parity_tier1_outcomes('hamilton') live this session (the shared
+-- canonical matcher, not modified): returned (case,7,0) (parcel,0,0) -- identical shape to
+-- the 2026-07-11 re-run, 0 NEW matches. Confirmed live: foreclosure_outcomes has 0 rows for
+-- hamilton (unchanged), tax_deed_outcomes has exactly 7 rows (unchanged) -- no new outcome
+-- record has been published for any of the 5 remaining FC cases or 3 TD certs since the
+-- 2026-07-11 session. This is the same structural ceiling as before: 8 of 16 Hamilton
+-- auctions have not yet resolved (real future sale dates or a clerk page that has not
+-- republished a result), so C/D cannot be pushed past 50% without fabricating a match.
+-- Not reclassified -- would be a ghost-success promotion with zero evidentiary basis.
+--
+-- CONCLUSION: C/D unchanged at 50.0% (8/16) both before and after this session's re-run of
+-- refresh_parity_tier1_outcomes. No regression, no fabricated gain, no drift since the
+-- intervening 2026-07-18 session's legitimate 2025-CA-46 match.
+--
+-- =====================================================================================
+-- AFTER (verified via pencil_dod_evaluate_county('hamilton'), live, this session --
+--   IDENTICAL to BEFORE, confirming zero drift and zero regression):
+--   A=PASS(6) B=FAIL(null) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16) E=FAIL(93.8%,15/16)
+--   F=FAIL(null) G=PASS(100.0) H=PASS(~20.7h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents a live research + re-verification
+          -- pass only. No DDL, no data mutation -- every candidate value found this session
+          -- (parcel "4837-130" for 2025-CA-66) failed the citable-source bar and was
+          -- correctly withheld per NEVER-FABRICATE / BLANK > WRONG.

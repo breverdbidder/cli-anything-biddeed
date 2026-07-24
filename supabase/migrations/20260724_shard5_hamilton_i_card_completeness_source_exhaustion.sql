@@ -1,0 +1,124 @@
+-- HAMILTON County (shard-5, gold-standard-shard5-run3679) — 2026-07-24 session
+-- ASSIGNMENT: letter I (property-card completeness), currently FAIL at 31.3% (5 of 16).
+-- Same completeness logic as pinellas: property_address NOT NULL, lat/lng (or po_lat/po_lng)
+-- NOT NULL, assessed_value/market_value NOT NULL, AND parcel_id resolves to a zone_code row
+-- in v_zoning_gold_standard_card.
+--
+-- RESULT: no new writes. Genuinely blocked — every real, citable data source for the 10
+-- incomplete tax-deed rows was either already exhausted by prior sessions (documented in
+-- 20260711_shard_run3679_hamilton_e_linkage_cdf_diagnosis.sql,
+-- 20260711_shard5_hamilton_reverify_no_new_writes.sql, and
+-- 20260724_shard5_hamilton_e_cd_reverify_no_new_writes.sql) or newly re-confirmed dead this
+-- session. Filed per campaign protocol (a file is required even for reverify/exhaustion-only
+-- sessions).
+--
+-- =====================================================================================
+-- BASELINE (live, pencil_dod_evaluate_county('hamilton'), this session, before any action):
+--   I: card_complete=5 of 16 (31.3%, FAIL)
+-- =====================================================================================
+--
+-- 1) ROW-LEVEL DIAGNOSIS (live query against multi_county_auctions + v_zoning_gold_standard_card)
+-- ---------------------------------------------------------------------------------------
+-- 5 COMPLETE (all foreclosure rows with a real street address, a lat/lng, an assessed_value,
+--   and a parcel_id present in v_zoning_gold_standard_card with zone_code='R-1'):
+--   2021-CA-46 (4833-015), 2023-CA-41 (8282-000), 2024-CA-19 (2007-000),
+--   2025-CA-37 (3819-070), 2025-CA-46 (5044-000)
+--   NOTE (flagged, not corrected here — out of this session's letter-I scope and would
+--   require the same source access that's blocked below): 3 of these 5 "complete" rows
+--   (4833-015, 2007-000, and the still-parcel-NULL 2025-CA-66 row below) share the exact
+--   generic coordinate pair (30.5182, -82.9513) across genuinely different properties. This
+--   is very likely a county-level fallback centroid, not a real per-parcel geocode, but the
+--   evaluator's I logic only checks NULL/NOT NULL so it does not affect the 31.3% score.
+--   Left unchanged rather than risk a worse fabrication (overwriting with another unverified
+--   guess) — residual for a future session with a working geocoding source.
+--
+-- 1 FAIL on zone only (2025-CA-66): parcel_id is NULL (case has no resolved parcel at all;
+--   see the E-letter research trail in 20260724_shard5_hamilton_e_cd_reverify_no_new_writes.sql
+--   for the exhaustive, still-unresolved attempt to identify "Lot 6 Horse Country I at Oak
+--   Woodlands" — same blocker, not re-litigated here).
+--
+-- 10 FAIL on address+lat+lng+value (all tax-deed rows, case_number pattern
+--   HAM-TD-CERT-<n>): 3139-160, 3599-198, 3729-650, 4071-000, 4510-000, 4712-020, 4837-048,
+--   4837-067, 4908-098, 2240-000. ALL 10 already have a zone_code='R-1' row in
+--   v_zoning_gold_standard_card (verified live), so zone linkage is NOT the blocker for any
+--   of them — only address/lat/lng/value are missing. Fixing all 10 would take I from
+--   31.3% (5/16) to 100% (15/16 + the 1 zone-blocked row -> still <100% but well over the
+--   >=95% pass bar), i.e. this is the single highest-leverage gap in the county. No real
+--   source was found this session to fix any of the 10.
+--
+-- =====================================================================================
+-- 2) SOURCE-BY-SOURCE ATTEMPT LOG (this session, 2026-07-24)
+-- =====================================================================================
+-- a) hamiltonpa.com (official Hamilton County Property Appraiser) -- re-verified live via
+--    curl with a standard browser User-Agent: HTTP 403 on both the root page and /GIS.aspx.
+--    Same Cloudflare block documented 2026-07-11 and 2026-07-03. UNCHANGED.
+-- b) qpublic.schneidercorp.com/Application.aspx?App=HamiltonCountyFL -- HTTP 403 via WebFetch,
+--    re-confirmed live. Same block as prior sessions. UNCHANGED.
+-- c) beacon.schneidercorp.com (both the generic AppID=1074 URL from 2026-07-11 and the more
+--    specific AppID=817/LayerID=14544 URL surfaced 2026-07-24 earlier today) -- HTTP 403,
+--    re-verified live this session on the AppID=1074 variant. UNCHANGED.
+-- d) hamiltoncountypropertyappraiser.org -- NEW candidate surfaced this session via web
+--    search. Fetched live: explicitly self-labeled "not affiliated with any government
+--    office in Hamilton County or the State of Florida," an independent/informational
+--    mirror site with a non-functional placeholder search form ("Analyzing Property
+--    Data...", "Connecting to public databases" -- no real backend). Correctly NOT used as
+--    a source -- would violate the independent-authoritative-source bar even if it returned
+--    plausible-looking numbers.
+-- e) Firecrawl scrape (api.firecrawl.dev/v1/scrape) on the qpublic search URL -- HTTP 402
+--    "Insufficient credits," confirmed via direct API call with the session's
+--    FIRECRAWL_API_KEY. Firecrawl CLI binary also not present in this sandbox
+--    (`firecrawl: command not found`). Not usable this session regardless of target URL.
+-- f) FL GIO Statewide Cadastral FeatureServer (services9.arcgis.com/Gh9awoU677aKree0/.../
+--    Florida_Statewide_Cadastral/FeatureServer/0/query), CO_NO=24 (Hamilton, confirmed via
+--    fl_counties table) -- this is the SAME authoritative, no-auth-required source our own
+--    ingest_county.py already uses for other counties, so a real lead. Extensively tested
+--    live this session:
+--      - Narrow, highly-selective queries (e.g. PARCEL_ID LIKE '3729%', LIKE '4833%')
+--        return HTTP 200 fast (~1s) but with ZERO features for every prefix tried that
+--        matches our DB's parcel_id format (e.g. "3729-650", "4833-015") -- strong evidence
+--        Hamilton's PARCEL_ID field in this statewide layer uses a different numbering
+--        format than our stored parcel_id values, not simply a missing-row problem.
+--      - Any query that needs to scan CO_NO=24 without a highly selective secondary
+--        predicate (a plain "CO_NO = 24" full pull, a PHY_CITY='JASPER' filter, a
+--        min/max OBJECTID statistics query) times out server-side after 20-90s, repeatedly,
+--        across 15+ retries at multiple timeout lengths (20s/25s/35s/80s/90s) and via both
+--        httpx and curl clients. One single lucky success returned a 5-row sample with
+--        geometry early in the session, but was not reproducible for the full CO_NO=24 pull
+--        needed to discover the real PARCEL_ID format and cross-reference our 10 target
+--        parcels -- 2 dedicated background fetch attempts (500-row and 1000-row page sizes,
+--        15 retries/page) both stalled indefinitely on page 2 of the pull and were killed
+--        after ~5 minutes each to respect session cost/time budget.
+--    CONCLUSION: this is a real, citable authoritative source in principle, but it is not
+--    reliably queryable for Hamilton in this session, and even the calls that did succeed
+--    could not resolve our 10 target parcel_ids to any FL GIO PARCEL_ID (0 features on every
+--    tested prefix). Not fabricated around. Flagged as the single most promising residual
+--    lead for a future session with either a more reliable network path to this ArcGIS
+--    service, or a first step of pulling a small unfiltered CO_NO=24 sample (retrying until
+--    the service cooperates) purely to learn Hamilton's real PARCEL_ID format before
+--    attempting a targeted match.
+-- g) hamiltoncountytaxcollector.com/Property/search -- not re-tested this session (already
+--    confirmed POST-only / HTTP 500 on stateless GET twice before, 2026-07-11 and earlier);
+--    no new angle available without real browser automation.
+-- h) myfloridacounty.com/orisearch/24 -- not re-tested this session; already confirmed
+--    JS/session-driven search form, same class of blocker as civitekflorida.com.
+--
+-- =====================================================================================
+-- 3) NO FABRICATION: nothing written
+-- =====================================================================================
+-- Per BLANK > WRONG and the INDEPENDENT SOURCE RULE, no address, lat/lng, or assessed_value
+-- was invented for any of the 10 tax-deed rows or the 1 zone-blocked foreclosure row. The
+-- generic county centroid (30.5182, -82.9513) already present on 3 rows was NOT propagated
+-- to the other 10 rows even though doing so would have trivially flipped their lat/lng
+-- NOT NULL check to true -- that is exactly the "reuse a generic county-level fallback
+-- centroid as if it were a real geocode" pattern this campaign brief explicitly instructs
+-- must be treated as missing, not counted as complete.
+--
+-- =====================================================================================
+-- AFTER (verified via pencil_dod_evaluate_county('hamilton'), live, this session --
+--   IDENTICAL to BEFORE, confirming zero drift, zero regression, zero fabricated gain):
+--   I: card_complete=5 of 16 (31.3%, FAIL) -- UNCHANGED
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents a live research pass only. No DDL,
+          -- no data mutation. Every candidate source was either already-blocked (re-verified
+          -- unchanged) or newly tested and confirmed non-viable this session. BLANK > WRONG.

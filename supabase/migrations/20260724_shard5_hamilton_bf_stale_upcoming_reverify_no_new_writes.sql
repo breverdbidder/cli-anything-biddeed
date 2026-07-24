@@ -1,0 +1,138 @@
+-- HAMILTON County (shard-5, gold-standard-shard5-run3679) -- 2026-07-24 session (2nd
+-- firing this date). Assignment: letters B (verified independent outcomes) and F (tier1
+-- sold amount), both FAIL with metric=null because closed_sold=0 (no sold_amount on any
+-- row). Lead to chase: 3 tax-deed certs (HAM-TD-CERT-379/597/599) share auction_date
+-- 2025-12-04 (~8 months in the past as of 2026-07-24) but are still auction_status=
+-- 'upcoming' -- hypothesis was that this is a stale status and a real, publicly-recorded
+-- sale result exists.
+--
+-- NOTE ON TASK PREMISE: task description said "4 of the 10" TD rows are stale-upcoming.
+-- Live count this session: exactly 3 (HAM-TD-CERT-379, -597, -599), not 4. The other 7
+-- are auction_status='redeemed' (confirmed correct -- matches 7 existing
+-- tax_deed_outcomes rows, all outcome='redeemed'). No 4th non-redeemed TD row exists.
+--
+-- =====================================================================================
+-- BASELINE (live, pencil_dod_evaluate_county('hamilton'), this session, START):
+--   A=PASS(6) B=FAIL(null, verified=0 closed_sold=0) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16)
+--   E=FAIL(93.8%,15/16) F=FAIL(null, tier1_sold=0 closed_sold=0) G=PASS(100.0)
+--   H=PASS(~20.9h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+-- (Identical to the BEFORE/AFTER baseline already recorded by this same date's earlier
+-- migration 20260724_shard5_hamilton_e_cd_reverify_no_new_writes.sql -- confirms zero
+-- drift between the two sessions run today.)
+--
+-- =====================================================================================
+-- RESEARCH TRAIL (all live fetches this session, 2026-07-24)
+-- =====================================================================================
+--
+-- 1) https://hamiltonclerk.com/tax-deeds/ (WebFetch, live) -- re-confirmed the exact same
+--    facts as the prior 20260724 session:
+--      Cert 379 (parcel 3729-650, Lot 16 Lake Forest Plantation, applicant IDE
+--        Technologies Inc., opening bid $1,579.44): status "Active/Upcoming"
+--      Cert 597 (parcel 4837-048, Lot 9 South Lake Shore I at Oak Woodlands, applicant
+--        FIG 20 LLC FBO SEC PTY, opening bid $9,652.42): status "Active/Upcoming"
+--      Cert 599 (parcel 4837-067, Lot 28 South Lake Shore I at Oak Woodlands, applicant
+--        DCR Unlimited Inc., opening bid $4,139.73): status "Active/Upcoming"
+--      Cert 99 (parcel 2240-000): explicitly listed as "REDEEMED 11-26-2025" (matches
+--        our existing tax_deed_outcomes row -- not one of the 3 stale-status certs).
+--    Page has NO winning-bidder or winning-bid field populated for any of the 3, and NO
+--    links to a "results", "minutes", or "sale results" archive page anywhere on the site
+--    -- confirmed by direct fetch of the site's full nav (see #2). This page is a static
+--    pre-sale notice listing that has not been refreshed to reflect the 2025-12-04 sale
+--    having occurred -- exactly the staleness hypothesized in the task brief, but the
+--    staleness itself does not produce a real sale-result value to write.
+--
+-- 2) https://hamiltonclerk.com/ full nav fetch (live) -- enumerated every tax-deed-related
+--    link on the site: "Current Tax Deed Sales" (= #1 above), "Tax Deed Sales - Surplus
+--    Funds" (https://hamiltonclerk.com/3776-2/tax-deed-sales-surplus-funds/), "Tax Deeds"
+--    landing page, "Recording/Tax Deed Fees", "List of Lands Available for Taxes". No
+--    "minutes" or "sale results" page exists on this site at all.
+--
+-- 3) https://hamiltonclerk.com/3776-2/tax-deed-sales-surplus-funds/ (WebFetch, live) --
+--    page explicitly reads "No available properties at this time." Zero surplus-fund
+--    entries for any cert, including 379/597/599. A surplus-funds entry would only exist
+--    post-sale if the winning bid exceeded the judgment amount, so its absence is
+--    consistent with (but does not prove) "not yet sold" -- it is not conclusive proof
+--    either way, so it was NOT used as a basis to write any outcome.
+--
+-- 4) https://hamiltonclerk.com/official-record-search/ + https://www.myfloridacounty.com/
+--    orisearch/24 (WebFetch, live) -- re-confirmed this is a JS/session-driven search form
+--    (Party Name / Legal Description / Document Type / Instrument Number / Date Range),
+--    with NO documented URL-parameter query pattern for stateless GET access -- identical
+--    blocker already documented in the prior 2026-07-11 and 2026-07-24 sessions. Would
+--    require real interactive browser automation (Playwright/firecrawl-browser), which is
+--    a legitimate future-session path but was not available/attempted this session beyond
+--    what WebFetch can do statelessly.
+--
+-- 5) https://hamiltoncountyfl.com/tax-deeds/ (WebFetch, live) -- HTTP 403 (Cloudflare/WAF),
+--    same class of block as hamiltonpa.com, qpublic.schneidercorp.com, and
+--    beacon.schneidercorp.com already documented in prior sessions.
+--
+-- 6) WebSearch for "IDE Technologies" / "FIG 20 LLC" / "DCR Unlimited" + Hamilton County
+--    deed 2025/2026 -- surfaced only the SAME pre-sale applicant listings already known
+--    (plus two unrelated redeemed certs from the same applicants on different parcels).
+--    Zero evidence of a post-sale deed, certificate of title, or resale for parcels
+--    3729-650, 4837-048, or 4837-067.
+--
+-- 7) https://www.hamiltoncountytaxcollector.com/Property/TaxCertificates (WebFetch, live)
+--    -- confirmed no certificate-status lookup tool exists on this page (informational
+--    only), consistent with the 2026-07-11/07-24 sessions' finding that the tax
+--    collector's parcel search is a stateless-GET-hostile POST form.
+--
+-- 8) WebSearch for floridapublicnotices.com Hamilton County tax deed notices -- returned
+--    only the same 3 pre-sale certificate notices already known; the site's own search UI
+--    (https://floridapublicnotices.com/) is JS-driven with no documented query-string
+--    pattern, so a targeted fetch could not be constructed. Direct guess at a query URL
+--    (?county=Hamilton&category=Tax+Deed) returned HTTP 404, confirming the guessed
+--    pattern is wrong rather than revealing data.
+--
+-- 9) WebSearch for Hamilton County's tax-deed online auction platform (RealAuction /
+--    GovEase / LienHub) -- no evidence Hamilton uses any of these; GovEase's own live
+--    auction listing page does not mention Hamilton County FL. Consistent with Hamilton
+--    running a small, in-person/clerk-managed sale with no online-platform results
+--    archive -- there is no "Purchase Previous Results" equivalent to check for this
+--    county.
+--
+-- =====================================================================================
+-- CONCLUSION -- changed=false, B and F remain genuinely blocked
+-- =====================================================================================
+-- Every reachable path (clerk tax-deeds page, clerk surplus-funds page, clerk official-
+-- records search, county appraiser/GIS site, tax collector site, GovEase, floridapublic
+-- notices, general web search for the 3 known applicant names) was re-checked live this
+-- session and returned either (a) the identical stale pre-sale data already on file, (b)
+-- an explicit "no data" page, or (c) a Cloudflare/WAF block or JS-session-only form this
+-- sandbox cannot drive statelessly. No independent, citable source publishes a winning
+-- bid, sold status, or Certificate of Title for HAM-TD-CERT-379/597/599 as of 2026-07-24.
+-- The clerk's still-"Active/Upcoming" status is almost certainly stale (per the task's own
+-- hypothesis, which this session's research supports) but staleness of the SOURCE PAGE is
+-- not itself evidence of a real dollar sale amount -- writing sold_amount from the
+-- Active/Upcoming page's opening-bid figures would be exactly the "plausible-looking value
+-- from a non-independent, non-outcome source" fabrication this campaign exists to prevent
+-- (opening bid != winning bid; and even if it were, it is not an independent post-sale
+-- record). Per BLANK > WRONG and the INDEPENDENT SOURCE RULE, no value is written.
+--
+-- This finding is consistent with, and does not contradict, the same-day
+-- 20260724_shard5_hamilton_e_cd_reverify_no_new_writes.sql migration's C/D conclusion
+-- (these same 3 certs are also the 3 of the 8 remaining parity_status=NULL rows blocking
+-- C/D past 50%) -- B/F and C/D share the identical root blocker: no post-sale result has
+-- been published anywhere reachable for the 2025-12-04 Hamilton tax deed sale.
+--
+-- Residual for a future session: if real browser automation (Playwright/firecrawl-browser)
+-- becomes available, drive myfloridacounty.com/orisearch/24 with a legal-description or
+-- party-name search for "IDE Technologies Inc", "FIG 20 LLC", "DCR Unlimited Inc" +
+-- Hamilton County within a Nov-2025-to-present date range to check for a recorded Tax Deed
+-- / Certificate of Title. Absent that, calling the clerk's office directly
+-- (386-792-1288) is the only remaining channel, which is outside this agent's tooling.
+--
+-- =====================================================================================
+-- AFTER (verified via pencil_dod_evaluate_county('hamilton'), live, this session --
+--   IDENTICAL to BEFORE, confirming zero drift, zero regression, zero fabricated gain):
+--   A=PASS(6) B=FAIL(null, verified=0 closed_sold=0) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16)
+--   E=FAIL(93.8%,15/16) F=FAIL(null, tier1_sold=0 closed_sold=0) G=PASS(100.0)
+--   H=PASS(~20.9h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents a live research + re-verification
+          -- pass only. No DDL, no data mutation -- no candidate sold_amount value found
+          -- this session cleared the INDEPENDENT SOURCE bar, so none was written to
+          -- multi_county_auctions.sold_amount/tier1_sold_amount or to
+          -- tax_deed_outcomes/foreclosure_outcomes.
