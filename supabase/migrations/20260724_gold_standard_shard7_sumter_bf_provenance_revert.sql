@@ -1,0 +1,121 @@
+-- ============================================================
+-- Gold Standard shard-7 (sumter) — B/F provenance audit + revert
+-- Dispatch: a3c9a3be-ebc2-4233-a784-3b405076bc63
+-- Session: 2026-07-24
+-- ============================================================
+--
+-- BACKGROUND (do not re-discover, already fully diagnosed by orchestrator +
+-- this session, see GOLD_STANDARD_SHARD14_SUMTER_DISPATCH_8EE11DD1_REFIRE_ADDENDUM.md):
+--
+--   multi_county_auctions rows for sumter, sale_type='tax_deed':
+--     TD-5028 (G03A014): sold_amount=199886.87
+--     TD-5031 (D20G135): sold_amount=206872.70
+--     TD-5036 (J34A003): sold_amount=49924.56
+--   all with sold_amount_captured_at = 2026-07-10T16:25:36Z (exact same instant
+--   tax_deed_outcomes rows were inserted with outcome='SOLD', winning_bid=NULL,
+--   data_source='sumterclerk_official:surplus_funds_list_proves_sale').
+--
+--   This session independently re-derived and CONFIRMED (to the penny) that:
+--     sold_amount == opening_bid + surplus_from_clerk_CSV
+--   e.g. TD-5028: 199886.87 == 13515.69 (opening_bid, per
+--   scripts/shard1_run3534_sumter_td_case_backfill.py, itself matched live
+--   against multi_county_auctions.opening_bid on 2026-07-10T10:54:35Z, ~5.5h
+--   BEFORE sold_amount was written) + 186371.18 (surplus, independently
+--   re-fetched this session from the live Google Sheets CSV at
+--   https://docs.google.com/spreadsheets/d/1uW4muYX69nJvSNPqLt93jf0IYcNWxzpA3HEjUxIZoz4/export?format=csv
+--   — matches scripts/shard10_run3645_sumter_bf_outcomes.py's independently
+--   fetched figure exactly).
+--
+--   scripts/shard10_run3645_sumter_bf_outcomes.py (committed 2026-07-10T16:38:53Z,
+--   13 minutes AFTER sold_amount was already set by some undocumented mechanism)
+--   explicitly considered and REJECTED this exact "opening_bid + surplus"
+--   derivation as fabrication ("would require fabricating the actual winning
+--   bid ... would misrepresent an unverified number as a sale price"), and
+--   deliberately wrote only a tax_deed_outcomes row with winning_bid=NULL.
+--
+--   Later, commit 75efb91d (2026-07-21, dispatch 0d80d0ce) promoted
+--   sold_amount -> tier1_sold_amount directly for these 3 rows, its own
+--   migration docstring admitting "sold_amount = opening_bid from clerk page"
+--   (at the time believed to be opening_bid ALONE) tagged INFERRED, driving
+--   F to a false PASS. That promotion has separately already been superseded
+--   by this migration's revert of the underlying sold_amount field.
+--
+-- THIS SESSION'S VERDICT (statutory research, Fla. Stat. 197.582, primary text
+-- fetched live from leg.state.fl.us/statutes, quoted directly):
+--
+--   "(2)(a) If the property is purchased for an amount in excess of the
+--   statutory bid of the certificateholder, the surplus must be paid over and
+--   disbursed by the clerk... If the opening bid included the homestead
+--   assessment pursuant to s. 197.502(6)(c), that amount must be treated as
+--   surplus and distributed in the same manner."
+--
+--   This means surplus = winning_bid - statutory_bid_of_certificateholder,
+--   PLUS potentially a homestead-assessment component reclassified INTO the
+--   surplus bucket even though it was part of the opening bid. Therefore
+--   "winning_bid = opening_bid + surplus" is NOT a statutorily guaranteed
+--   exact identity in all cases -- it only holds if no homestead-assessment
+--   component is present. homestead status for all 3 Sumter parcels
+--   (tax_deed_outcomes.homestead) is NULL/unknown in our DB -- we cannot rule
+--   out this exact edge case for these exact 3 parcels.
+--
+--   Additionally (evidentiary, not just statutory): the only source for the
+--   $13,515.69 / $16,506.04 / $4,559.56 opening_bid figures is
+--   https://www.sumterclerk.com/2026/3/tax-deed-sale, which now returns
+--   HTTP 404 (re-confirmed live this session) with no Wayback Machine
+--   snapshot available (cdx API returned zero snapshots). WebSearch results
+--   citing this page were self-contradictory (one result attributed TD-5028's
+--   opening bid as $4,559.56, which is actually TD-5036's figure) -- not
+--   trustworthy as independent re-verification of the underlying figures.
+--
+--   VERDICT: HYPOTHESIS, not CONFIRMED. The arithmetic on today's live CSV
+--   fetch matches the already-live sold_amount exactly, but the derivation's
+--   legal exactness cannot be confirmed for these specific 3 parcels
+--   (homestead status unknown) and the opening_bid inputs cannot be
+--   independently re-verified from a second live source (original page 404,
+--   no archive). Per the dispatch's explicit instruction, when the derivation
+--   cannot be independently confirmed as exact, sold_amount must be reverted
+--   to NULL to restore an honest FAIL state rather than leave an unverifiable
+--   value in production.
+--
+-- ACTION TAKEN (applied live via mgmt_sql.py before this file was committed):
+--
+--   UPDATE multi_county_auctions
+--   SET sold_amount = NULL, sold_amount_captured_at = NULL
+--   WHERE lower(county) = 'sumter'
+--     AND case_number IN ('TD-5028', 'TD-5031', 'TD-5036');
+--
+-- NOT touched: tax_deed_outcomes rows for these 3 cases remain as-is
+-- (outcome='SOLD', winning_bid=NULL, data_source=
+-- 'sumterclerk_official:surplus_funds_list_proves_sale') -- this is honest
+-- housekeeping proving a sale occurred via independent clerk evidence, is NOT
+-- PropertyOnion-derived (canon-compliant), and is not itself the B/F metric
+-- mover (B/F additionally require multi_county_auctions.sold_amount /
+-- tier1_sold_amount, which are the fields reverted above).
+--
+-- RESULT: B FAIL(null, verified=0 closed_sold=0), F FAIL(null, tier1_sold=0
+-- closed_sold=0) -- both honestly blocked, consistent with the shard10
+-- script's original (correct) refusal to fabricate a winning bid.
+--
+-- UNRESOLVED (flagged, not blocking): the exact origin of the undocumented
+-- write at sold_amount_captured_at=2026-07-10T16:25:36Z remains only
+-- partially explained. scripts/shard1_run3534_sumter_td_case_backfill.py
+-- (committed 2026-07-10T10:54:35Z, ~5.5h earlier) established opening_bid
+-- values in multi_county_auctions via case_number backfill matching, but
+-- did NOT write sold_amount. No committed script/migration between that
+-- commit and 16:25:36Z performs the sold_amount write. The writer combined
+-- opening_bid (already in the DB) with the clerk's surplus CSV figure to
+-- produce sold_amount = opening_bid + surplus, 13 minutes before shard10's
+-- script documented explicitly declining to do exactly that. This is most
+-- consistent with an uncommitted/undocumented ad-hoc agent action from that
+-- session rather than any script preserved in repo history. Full origin
+-- could not be conclusively identified this session.
+
+-- No SQL to apply here (the corrective UPDATE was already run live above).
+-- This migration file exists purely as the auditable record per Ship Gate
+-- and CANON requirements. Re-running the UPDATE is idempotent/no-op-safe if
+-- ever needed again:
+UPDATE multi_county_auctions
+SET sold_amount = NULL, sold_amount_captured_at = NULL
+WHERE lower(county) = 'sumter'
+  AND case_number IN ('TD-5028', 'TD-5031', 'TD-5036')
+  AND sold_amount IS NOT NULL;
