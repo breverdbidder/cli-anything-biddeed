@@ -1,0 +1,46 @@
+-- Gold Standard shard-5 (pinellas/madison/hamilton), dispatch 8d7de4ab-5fc4-4b09-b83d-a31544402c4d
+-- RE-FIRE of the same dispatch_id / chat_session already fully worked and shipped this same
+-- day (see 20260724_shard5_pinellas_i_real_parcel_geo_zone_fix.sql,
+-- 20260724b_shard5_pinellas_i_g_regression_correction.sql, and the three hamilton/madison
+-- no-op research-trail migrations from the earlier firing, commit 5426f5f0).
+--
+-- STEP 1 -- LIVE RE-VERIFICATION (pencil_dod_evaluate_county, all three counties, this firing):
+--   pinellas: 10/10, all letters PASS -- IDENTICAL to the prior firing's close-out. No drift.
+--   madison:  7/10 (A,B,F FAIL)       -- IDENTICAL. No drift.
+--   hamilton: 4/10 (B,C,D,E,F,I FAIL) -- IDENTICAL. No drift.
+-- No redundant fix work performed on pinellas (already 10/10; re-doing a PASS is not this
+-- campaign's job and would burn session budget for zero metric movement).
+--
+-- STEP 2 -- ONE NEW LEAD ATTEMPTED THIS FIRING: the prior session's "next-session-priorities"
+-- flagged that a real browser (Playwright/browser-use) rather than raw curl/WebFetch might get
+-- past the Cloudflare block on beacon.schneidercorp.com / qpublic.schneidercorp.com for
+-- Hamilton. Tested live this session with headless Chromium (playwright 1.61.0), realistic
+-- desktop UA, domcontentloaded + 3-5s settle wait, against both the generically-guessed
+-- AppID=1073 URL and the real AppID=817/LayerID=14544/PageID=6409 URL surfaced by crawling
+-- hamiltonpa.com's own "PROPERTY SEARCH" link this session:
+--   https://beacon.schneidercorp.com/Application.aspx?AppID=1073&LayerID=25046&PageTypeID=2
+--   https://beacon.schneidercorp.com/Application.aspx?AppID=817&LayerID=14544&PageTypeID=2&PageID=6409
+--   https://qpublic.schneidercorp.com/Application.aspx?AppID=1073&LayerID=25046&PageTypeID=2
+-- RESULT: all three return HTTP 403, title "Just a moment...", a Cloudflare managed-challenge
+-- interstitial that headless Chromium cannot clear (no JS-challenge solve, no browser
+-- fingerprint pass) even with the correct, real AppID discovered live this session. This closes
+-- out the "try real browser automation" lead as ATTEMPTED AND FAILED, not merely untried --
+-- ruling it out for future sessions absent a different technique (e.g. an authenticated
+-- residential-proxy/anti-detect browser service, or a manual/phone channel).
+-- www.hamiltonpa.com itself now resolves HTTP 200 (was 403 in the 2026-07-11/07-03 checks) --
+-- but this is only the WordPress marketing site; its own "PROPERTY SEARCH" nav link routes
+-- straight back to the still-blocked Beacon endpoint above, so this does NOT unblock any of
+-- E/I/C/D. No new parcel data obtained. No writes made.
+--
+-- STEP 3 -- MADISON FOLLOW-UP CHECK: prior firing flagged case 21-36-CA disappeared from
+-- madisonclerk.com/foreclosure-sales with its outcome unknown. Re-fetched live this session
+-- (Playwright, full page text): 21-36-CA remains absent from the page. Four cases are
+-- currently listed, all STATUS=SCHEDULED with no results/sold-amount field for any of them:
+-- 24-62-CA (07/28/2026), 26-20-CA (08/05/2026), 25-128-CA (08/25/2026), 25-79-CA (09/08/2026,
+-- previously 07/14). The site still publishes zero historical/results archive -- B/F remain
+-- genuinely blocked by an unreachable-outcomes problem, not a coverage gap in our scraper.
+-- (These 4 cases' parcel IDs, addresses, and judgment amounts are already correctly captured
+-- in our existing 5 madison rows, consistent with C/D/E/I already PASSing at 100%.)
+--
+-- NO FABRICATION: zero rows inserted/updated for hamilton or madison this firing. BLANK > WRONG.
+SELECT 1;
