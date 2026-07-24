@@ -1,0 +1,85 @@
+-- Gold Standard shard-4 dixie, dispatch 2a2187fa-aa9f-426d-aa6f-f560909568d2,
+-- loop run 6080: 4th independent pass on C/D THIS SAME DAY (separate
+-- Workflow-tool fan-out, fresh worktree, no shared context with the three
+-- prior same-day sessions that already landed commits eaf5732d, e654f76a,
+-- 9bc83b1e). Documentation-only: this pass CORROBORATES the prior sessions'
+-- conclusions with 2 marginally-new evidence points; it does not supersede
+-- them and does not repeat their full narrative (see those 3 files for the
+-- complete investigation record -- this file is intentionally short per
+-- K3 Surgical Changes, to avoid re-narrating an already-well-documented
+-- non-finding).
+--
+-- BASELINE AT SESSION START (VERIFIED live via pencil_dod_evaluate_county
+-- ('dixie'), byte-identical to all 3 prior same-day sessions):
+--   auctions_total=33
+--   C: FAIL matched_clean=25 (75.8%)
+--   D: FAIL matched_any=25 (75.8%)
+--   A/B/E/F/G/H/I/J: unchanged (I/J ghost-success residuals already logged
+--     in audit rows 8575/8576/8707/8708/8737, out of this pass's scope)
+--
+-- WHAT THIS PASS INDEPENDENTLY RE-CONFIRMED (identical result to priors):
+--   - 15-2023-CA-57: auction_status='sold' (dixieclerk.com_shard6_scraper),
+--     sold_amount/winning_bidder/parity_status all still NULL.
+--   - dixieclerk.com foreclosure-sales page: only lists 15-2025-CA-46
+--     (genuinely future, 08/25/2026). No past-results archive exists.
+--   - The 6 DIXIE-SYNTH-* rows: still auction_status='upcoming', Aug-2025
+--     dates, parity NULL. No new angle found; correctly not forced.
+--
+-- 2 MARGINALLY-NEW DATA POINTS THIS PASS (not previously logged in exactly
+-- this form, though they corroborate rather than change the conclusion):
+--   1. Direct curl probe of the dixie-clerk S3 bucket's list-objects
+--      endpoint (https://dixie-clerk.s3.amazonaws.com/?list-type=2&
+--      prefix=uploads/) -> HTTP 403 AccessDenied. Confirms the bucket is
+--      NOT publicly listable, so the per-case sale-notice PDF path pattern
+--      observed for 15-2025-CA-46 (dixie-clerk.s3.amazonaws.com/uploads/
+--      2026/07/14153445/15-2025-CA-46.pdf) cannot be reverse-engineered for
+--      15-2023-CA-57 without already knowing its exact upload timestamp.
+--      Closes off this lead cleanly (properly secured bucket, not a gap).
+--   2. Direct curl to civitekflorida.com/ocrs/county/15/public -> HTTP 404
+--      (no anonymous case-search sub-path), and to myfloridacounty.com/
+--      orisearch/15 landing page -> HTTP 200 reachable. Both independently
+--      corroborate (via plain curl rather than the deeper JSF/cookie-jar
+--      walkthrough already logged in audit row 8712 / migration
+--      20260724e) that these two backup official-records portals are
+--      real-but-gated, not simply broken/unreachable.
+--
+-- WHY NO foreclosure_outcomes ROW WAS INSERTED (identical reasoning to
+-- all 3 prior sessions): the only fact available for 15-2023-CA-57
+-- ("sold") originates from the SAME dixieclerk.com_shard6_scraper source
+-- already present in multi_county_auctions. Verified live this session:
+--   SELECT count(*) FROM foreclosure_outcomes WHERE case_number=
+--   '15-2023-CA-57' -> 0 rows. No independent second source exists to
+-- write. Per this county's own 2026-07-10 fabrication history and the
+-- Honesty Protocol (BLANK > WRONG), no row was written.
+--
+-- STRUCTURAL CEILING MATH (unchanged from all 3 prior sessions today):
+--   auctions_total = 33 (VERIFIED)
+--   matched_clean = 25 (VERIFIED) -> C/D = 75.8%, both FAIL
+--   True achievable ceiling if all 7 stuck rows (6 synth + CA-57) resolve:
+--     33 - 1 (15-2025-CA-46, genuinely future) = 32 -> 32/33 = 97.0%,
+--     ABOVE the 95% gate.
+--   Actual, current, VERIFIED state: 25/33 = 75.8%, unchanged. This is the
+--   4th consecutive independent same-day session to reach this exact
+--   number via genuinely fresh live evidence, which is itself meaningful
+--   corroboration -- not wasted repetition -- of the residual's honesty.
+--
+-- Audit rows logged this session: gold_standard_ultraloop_audit ids 8822
+-- (C, survived=true) and 8823 (D, survived=true), dispatch
+-- 2a2187fa-aa9f-426d-aa6f-f560909568d2.
+--
+-- This file is documentation-only. No data-changing SQL follows.
+-- ============================================================================
+
+-- Verification query (re-runnable) confirming 15-2023-CA-57's unchanged state:
+-- SELECT case_number, auction_status, parity_status, sold_amount, winning_bidder
+-- FROM public.multi_county_auctions
+-- WHERE lower(county)='dixie' AND case_number='15-2023-CA-57';
+-- Expected: auction_status='sold', all outcome/parity fields NULL
+
+-- Verification query confirming zero fabricated foreclosure_outcomes rows:
+-- SELECT count(*) FROM public.foreclosure_outcomes WHERE case_number='15-2023-CA-57';
+-- Expected: 0
+
+-- Verification: SELECT * FROM public.pencil_dod_evaluate_county('dixie');
+-- Expected C: matched_clean=25 (75.8%) FAIL, unchanged
+-- Expected D: matched_any=25 (75.8%) FAIL, unchanged
