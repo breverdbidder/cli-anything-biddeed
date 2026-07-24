@@ -1,0 +1,64 @@
+-- Gold Standard shard-5 osceola, dispatch ac5f5206-a862-494e-a345-f6b0eb4cbd09
+-- 2nd firing this run (loop 6080), 2026-07-24
+--
+-- CONTEXT: this exact dispatch already ran once today (commits 478c781b/529decfb/6d302230),
+-- moving G density 7.7->97.4 and I 35.8->78.4. This session re-verified live state matched
+-- that report (no drift), then found the reported I=78.4% rested partly on a pre-existing
+-- data-integrity bug from a DIFFERENT, earlier session (2026-07-20T06:03:59Z), not introduced
+-- today. Documented here for auditability; the actual DDL/DML below was executed live via the
+-- Supabase Management API during the session (mgmt_sql.py), not via `supabase db push` (pooler
+-- auth confirmed stale again this session, consistent with prior sessions' notes).
+--
+-- FINDING 1 (ghost-success purge): scripts/shard4_run5153_osceola_i_enrichment.py's own docstring
+-- (2026-07-19) explicitly flags its PD-fallback path ("shard4_run5153_osceola_i_default:INCORP_or_nomatch")
+-- as fabrication and states it was "verified NOT executed" as of 2026-07-19T16:40Z. It WAS executed
+-- the next day anyway (407 parcel_zones rows inserted 2026-07-20T06:03:59Z), assigning a blanket
+-- PD zone_code to parcels gis.osceola.org's live Zoning_Parcels layer returns PRIM_ZON='INCORP' for
+-- (i.e. inside a municipality, not unincorporated jurisdiction 1186 -- PD is not a real designation
+-- for these parcels). Live re-query at session start reconfirmed 0/21 sampled parcels resolve to PD.
+-- 12 of the previously-reported 105/134 "card_complete" osceola rows for criterion I rested on this
+-- fake linkage. Purged; true I baseline corrected 78.4% (105/134) -> 69.4% (93/134). G unaffected
+-- (all 407 rows were already zone_code='PD' with density_regulated=false/far_regulated=false from
+-- today's earlier session's own fix, confirmed before/after: density stayed 97.4%).
+--
+-- Purge already executed live:
+--   DELETE FROM parcel_zones WHERE source = 'shard4_run5153_osceola_i_default:INCORP_or_nomatch';
+--   (407 rows deleted)
+--
+-- FINDING 2 (real fixes, ULTRACODE workflow wf_0b9ac007-46a, adversarially verified): 4 of the 5
+-- rows this uncovered as newly-unresolved (full 18-digit-style parcel IDs, not the genuinely
+-- ambiguous truncated ones) resolved to a single unambiguous REAL zone code via the correct
+-- municipal GIS authority (Kissimmee's own ArcGIS Zoning_Districts layer for parcels inside
+-- Kissimmee city limits; Saint Cloud's own ArcGIS Zoning FeatureServer for the one St. Cloud
+-- parcel) -- NOT Osceola County's unincorporated-only layer, which correctly returns INCORP for
+-- all of these. The 5th (parcel 192529000002250000, case 38582021) genuinely straddles 3 Kissimmee
+-- districts (AI/RA-1/OS) per exact polygon intersection -- correctly left unresolved rather than
+-- writing a fabricated single code.
+--
+-- Real inserts already executed live:
+--   INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source) VALUES
+--     ('192529124700010570', 957, 'SRPUD', 'Short Term Rental Planned Unit Development', 'ac5f5206_osceola_kissimmee_gis_live_verified'),
+--     ('22252900U001240000', 957, 'T3',    'T3 (Edge)',                                  'ac5f5206_osceola_kissimmee_gis_live_verified'),
+--     ('2225291050000J0015', 957, 'T3',    'T3 (Edge)',                                  'ac5f5206_osceola_kissimmee_gis_live_verified'),
+--     ('262630061300011440', 894, 'R-3',   'Multi-Family Dwelling District',             'ac5f5206_osceola_stcloud_gis_live_verified');
+--
+-- Plus geo/value backfill (FL GIO Florida_Statewide_Cadastral, CO_NO=59, exact PARCEL_ID match)
+-- and 2 clerk-docket-sourced addresses (independently corroborated, see session addendum) applied
+-- to multi_county_auctions via targeted UPDATEs (COALESCE-guarded, no overwrite of existing data).
+--
+-- SIDE EFFECT (honest, not reverted): adding real T3/SRPUD/R-3 zoning coverage exposed that
+-- Kissimmee's zoning_districts table has zero real per-district density/FAR/parking standards
+-- ingested (its 49 existing rows are Municode table-of-contents artifacts, not zone codes) and
+-- St. Cloud's zoning_districts table is empty. This moved G's density SUB-METRIC 97.4% -> 88.1%
+-- and revealed FAR at 0.0% (previously unmeasured/null) -- G's overall pass/fail and reported
+-- "metric" were already 0 either way (bound by pk1000=0.0, unchanged), so this is a detail-level
+-- regression only, not a pass/fail regression. Flagged as next-session priority below.
+--
+-- RESULT: I 69.4% (true baseline) -> 72.4% (97/134). Still FAIL (needs 95% / 128 of 134).
+-- G: still FAIL (pk1000=0.0 remains the binding, structurally-blocked constraint, re-confirmed
+-- unchanged this session -- Osceola LDC Table 4.7.8 parking is use-keyed, not zone-keyed, with
+-- no CT/CR-specific override; writing one number would be fabrication, declined for the third time).
+--
+-- No schema/DDL changes. This file is a documentation-only record of live DML already applied
+-- via mgmt_sql.py, per repo convention of committing a migration file alongside live changes.
+SELECT 1; -- no-op: DML already applied live this session, see comments above
