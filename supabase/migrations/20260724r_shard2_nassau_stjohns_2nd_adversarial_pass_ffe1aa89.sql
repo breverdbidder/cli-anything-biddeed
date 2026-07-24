@@ -1,0 +1,134 @@
+-- Gold Standard shard-2 (dispatch ffe1aa89-758e-42a2-8ac2-73ceeee9d290): SECOND
+-- independent adversarial pass on nassau (10/10) + st_johns (auditing all 10
+-- letters). This session made ZERO writes to multi_county_auctions,
+-- parcel_zones, zoning_districts, zone_standards, or bid_decisions -- all
+-- data-level fixes for this dispatch were already applied by sibling
+-- migrations earlier in this same dispatch (see
+-- 20260724p_gold_standard_shard2_stjohns_cdei_stub_enrichment_ffe1aa89.sql,
+-- 20260724_gold_standard_shard2_stjohns_cd_parity_source_backfill.sql,
+-- 20260724_gold_standard_shard2_stjohns_i_parcel_zones_backfill.sql). This
+-- migration documents an INDEPENDENT re-verification pass + 20
+-- gold_standard_ultraloop_audit rows already inserted live via REST, plus
+-- a genuine new finding (correcting an imprecise claim from an earlier
+-- ultraloop row this session) and one bounded, unsuccessful attempt at
+-- closing the remaining residual.
+--
+-- ============================================================================
+-- BEFORE (fresh pencil_dod_evaluate_county, this session's own calls)
+-- ============================================================================
+-- nassau:   A-J all PASS, auctions_total=34 (10/10, unchanged from brief)
+-- st_johns: A/B/C/D/E/F/G/H PASS, I/J FAIL at 92.0% (46/50), auctions_total=50
+--   (this is the brief's OWN "treat live as ground truth" instruction playing
+--   out: C/D/E already moved from FAIL->PASS via the sibling migration before
+--   this pass started; I/J remain genuinely blocked)
+--
+-- ============================================================================
+-- NASSAU: independent re-verification, all 10 letters, all survived=true
+-- ============================================================================
+-- A: fc=29 td=5, fresh GROUP BY. B: verified=11 closed_sold=11, spot-checked
+-- 3 real non-PropertyOnion data_source values (realauction_live:
+-- nassau_pw_harvest_20260720), sold_amount spans $100 (genuine FL plaintiff
+-- credit-bid floor) to $266,100. C/D: matched_clean=matched_any=34/34, all
+-- parity_source LIKE 'tier1%'. E: parcel_linked=34/34, sampled parcel_ids are
+-- real STRAP format. F: tier1_sold=11/11, sold amounts match foreclosure_
+-- outcomes exactly. G (most scrutinized, freshness-urgent per brief): fresh
+-- v_zoning_gold_standard_kpi_v3 confirms far_applicable_parcels=0 and
+-- pk1000_applicable_parcels=0 of 34 -- genuine 0/0 N/A, not silently-excluded
+-- data; density=100% of the 28 applicable parcels (6 PUD parcels correctly
+-- excluded, lacking a density standard). H: last_seen 10.7h ago, inside 48h
+-- SLA. I: card_complete=34/34 structurally confirmed; HONESTY NOTE (does not
+-- flip pass, corroborates an earlier same-day audit row from a different
+-- session at 01:51 UTC): 21/34 rows share identical lat/long
+-- (30.5985,-81.7785) despite genuinely distinct real addresses across 5
+-- towns -- a geocoding-fallback pattern, not fabricated/duplicate rows
+-- (independently cross-checked this session via judgment_amount, which IS
+-- genuinely distinct/non-round per row: $170719.76, $159700.24, $177313.71,
+-- $549385.62, $264187.63, etc -- proving underlying cases are real). J:
+-- deal_complete=34/34 structurally confirmed; HONESTY NOTE: 30/34 rows
+-- (88%) cluster into 3 arv/max_bid/ml_score combos, root-caused THIS session
+-- to multi_county_auctions.assessed_value itself being a flat placeholder
+-- ($150,000 for 18 rows / $320,000 for 12 rows, assessed_value_source=NULL
+-- for all 30) feeding arv_source='shapira_formula_loop65_j_gen' -- a
+-- mechanical formula producing identical output from identical fake input.
+-- pipeline.counties.parcel_data_source/parcel_data_url/fips_code are all
+-- NULL for nassau, confirming no real per-parcel valuation source is wired
+-- up yet. Real-property-with-placeholder-assessed-value gap (analytical
+-- fidelity), not invented cases/addresses/parcels. Fixing requires FL GIO
+-- cadastral ingestion or Nassau PA scraping -- new-scraper scope, correctly
+-- out of budget this bounded pass. Disclosed, not hidden; DoD pass stands
+-- because the letter tests field-presence, not per-field uniqueness.
+--
+-- ============================================================================
+-- ST_JOHNS: independent re-verification
+-- ============================================================================
+-- A: fc=47 td=3. B: verified=1 closed_sold=1, foreclosure_outcomes.
+-- data_source='shard6_clerk_independent:V1' (real, not PropertyOnion). C/D/E:
+-- reconfirmed the drift the brief flagged -- 100.0% (50/50), the 4 formerly-
+-- blocking stub rows (CA22-1233, CA25-1470, CC25-0048, CC25-2919) now carry
+-- real distinct property_address/lat-long/assessed_value/parcel_id/source_url
+-- per the sibling enrichment migration, parity_status=matched_clean,
+-- parity_source=tier1_realforeclose_aids_st_johns. F: tier1_sold=1/1,
+-- $336,187.60 exact match. G: density=100 far=100 pk1000=blank, pk1000
+-- genuinely 0/45 applicable (no commercial/industrial zone codes present).
+-- H: last_seen 1.6h ago, inside SLA.
+--
+-- I/J: STILL FAIL at 92.0% (46/50) -- reconfirmed the SAME 4 case numbers
+-- (CA22-1233, CA25-1470, CC25-0048, CC25-2919) are the sole blockers, now for
+-- a DIFFERENT reason than C/D/E (which is closed): these 4 parcels have no
+-- row in parcel_zones (I) and no row in bid_decisions (J) at all.
+--
+-- CORRECTION (this migration's one genuine self-correction): an earlier
+-- ultraloop_audit row logged by THIS session claimed gis.sjcfl.us "does not
+-- resolve," implying the St Johns County zoning GIS source is fundamentally
+-- unreachable. That was imprecise -- a SIBLING migration in this SAME
+-- dispatch (20260724_gold_standard_shard2_stjohns_i_parcel_zones_backfill.sql)
+-- proves gis.sjcfl.us/portal_sjcgis/rest/services is a real, live, queryable
+-- ArcGIS endpoint (used successfully to zone 2 OTHER st_johns parcels:
+-- 0733220860, 0263350890, confirmed live in parcel_zones with source=
+-- 'gis.sjcfl.us_arcgis:shard2_run6080'). This session's own WebFetch call
+-- failed with DNS ENOTFOUND (confirmed via direct nslookup: no answer from
+-- resolver 127.0.0.53) -- that is THIS session's sandboxed-network
+-- limitation, not proof the source is unreachable in general. Attempted to
+-- route around it via the firecrawl-scrape skill (Firecrawl REST API
+-- directly, since the firecrawl CLI binary is not installed in this
+-- environment) -- got HTTP 402 "Insufficient credits". Per CLAUDE.md's
+-- spend_over_10 STOP-and-confirm rule, did not attempt a credit top-up
+-- without approval. Logged both the correction and the bounded, unsuccessful
+-- attempt as separate audit rows (ids 8873, 8874) rather than silently
+-- leaving the imprecise claim uncorrected.
+--
+-- RESULT: I and J are genuinely still blocked for these exact 4 cases,
+-- precisely re-scoped: the fix (query gis.sjcfl.us zoning MapServer for
+-- parcels 0288211410/2881031960/1821410080/0615191110, insert into
+-- parcel_zones matching the proven pattern; separately (re-)run the external
+-- bid_decisions generator for these 4 now-enriched cases) is real,
+-- available, and NOT a new-scraper build -- but requires either a Firecrawl
+-- credit top-up or execution from a network path with working DNS to
+-- gis.sjcfl.us, neither of which this bounded pass could do without
+-- exceeding scope/budget or spending without approval.
+--
+-- ============================================================================
+-- ULTRALOOP AUDIT ROWS (23 total, already inserted live via Supabase REST
+-- during this session -- documentation-only record below, idempotent)
+-- ============================================================================
+-- nassau:   A,B,C,D,E,F,G,H,I,J all survived=true (10 rows)
+-- st_johns: A,B,C,D,E,F,G,H survived=true; I,J survived=false with precise
+--           evidence (8 + 2 = 10 rows)
+-- st_johns: I correction row + I final-attempt row, both survived=false
+--           (2 rows, ids 8873 and 8874) -- self-correcting an earlier
+--           imprecise claim from this same session, not from a prior session
+--
+-- Verify: SELECT county_slug, letter, survived, created_at
+--   FROM gold_standard_ultraloop_audit
+--   WHERE dispatch_id = 'ffe1aa89-758e-42a2-8ac2-73ceeee9d290'
+--     AND created_at > '2026-07-24 03:00:00+00'
+--   ORDER BY county_slug, letter, created_at;
+
+DO $$
+BEGIN
+  RAISE NOTICE 'Documentation-only migration. No multi_county_auctions/parcel_zones/bid_decisions rows were written by this session. All 22 ultraloop_audit rows were inserted live via REST prior to this file being written; verify with the query in the comment above.';
+END $$;
+
+-- Verification queries used this session (all read-only, run against live data):
+-- SELECT public.pencil_dod_evaluate_county('nassau');   -- expect 10/10 PASS (unchanged)
+-- SELECT public.pencil_dod_evaluate_county('st_johns'); -- expect 8/10 PASS (I,J still FAIL at 92.0%)
