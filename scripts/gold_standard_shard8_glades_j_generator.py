@@ -73,14 +73,26 @@ print(
     "pipeline_version NULL for all 70 rows -- exactly reproducing the "
     "pattern already purged once by migrations/20260721_gold_standard_"
     "shard9_hillsborough_glades_suwannee_j_ghost_success_purge.sql. The "
-    "70 ghost rows were deleted again and superseded by a real per-property "
-    "insert: migrations/20260724_glades_j_real_bid_decisions_run6080.sql "
+    "70 ghost rows were deleted again and superseded by "
+    "migrations/20260724_glades_j_real_bid_decisions_run6080.sql "
     "(ml_score computed per-row from opening_bid/ARV ratio, range "
     "0.30-0.72, pipeline_version='glades_j_gen_run6080_v1'). Refusing to "
-    "run. If glades J ever needs regenerating, use the SQL migration's "
-    "per-property formula, or its Python sibling "
-    "scripts/glades_j_generator_run6080.py -- do not revive this constant-"
-    "score module-level-default approach.",
+    "run.\n\n"
+    "UPDATE (same day, dispatch 30de9e54, 2nd firing): that 'real' "
+    "replacement was ALSO adversarially refuted and purged. It failed its "
+    "own stated validation bar (dup_do=19/70, i.e. distress_owner==ml_score "
+    "for 19 rows via a zero-opening-bid formula collision) and its "
+    "cma_distressed/cma_resale fields are a flat ARV*0.85 / ARV*1.12 "
+    "multiplier for every row -- not real comparable-sales data, the same "
+    "class of fabrication (formula-derived CMA, single-timestamp bulk "
+    "insert) already established as disqualifying by the 2026-07-21 "
+    "hillsborough purge. scripts/glades_j_generator_run6080.py has the "
+    "identical formula and is quarantined too. Do NOT reapply "
+    "migrations/20260724_glades_j_real_bid_decisions_run6080.sql as-is. A "
+    "genuine fix requires wiring bid_decisions generation through the real "
+    "gen_valuations_comps_batch two-arm CMA pipeline and an actual Shapira "
+    "V14 model ml_score -- not a hand-written SQL/Python formula in either "
+    "of these files.",
     file=sys.stderr,
 )
 sys.exit(1)

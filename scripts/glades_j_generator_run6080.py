@@ -62,6 +62,25 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+print(
+    "QUARANTINED (2026-07-24, dispatch 30de9e54, 2nd firing): this script's "
+    "SQL sibling migrations/20260724_glades_j_real_bid_decisions_run6080.sql "
+    "was applied live and adversarially refuted in the same session. It "
+    "failed its own stated validation bar (dup_do=19/70 -- distress_owner=="
+    "ml_score via a zero-opening-bid formula collision) and its "
+    "cma_distressed/cma_resale fields (identical formula in this script: "
+    "arv*0.85 / arv*1.12, see below) are a flat ARV multiplier for every "
+    "row, not real comparable-sales data -- the same class of fabrication "
+    "(formula-derived CMA, single-timestamp bulk insert) the 2026-07-21 "
+    "hillsborough purge already established as disqualifying. The 70 rows "
+    "this pattern produces were purged. Refusing to run. A genuine fix "
+    "requires wiring bid_decisions generation through the real "
+    "gen_valuations_comps_batch two-arm CMA pipeline and an actual Shapira "
+    "V14 model ml_score -- not a hand-written formula in this file.",
+    file=sys.stderr,
+)
+sys.exit(1)
+
 SB = os.environ["SUPABASE_URL"].rstrip("/")
 KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or ""
 if not KEY:

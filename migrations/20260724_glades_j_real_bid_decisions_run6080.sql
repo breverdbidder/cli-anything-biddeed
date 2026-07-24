@@ -2,6 +2,24 @@
 -- Dispatch: 30de9e54-a2f4-40ae-a8fa-da5988c9d667
 -- Session: architect-20260724T000000
 --
+-- SUPERSEDED / DO NOT REAPPLY (2026-07-24, dispatch 30de9e54, 2nd firing):
+-- this migration was applied live and then adversarially REFUTED in the
+-- same dispatch. It fails its own stated validation bar below
+-- (dup_do=19/70, not 0 — distress_owner==ml_score via a zero-opening-bid
+-- formula collision), and its cma_distressed/cma_resale fields are a flat
+-- ARV*0.85 / ARV*1.12 multiplier for every row, not real comparable-sales
+-- data — the same class of fabrication (formula-derived CMA, single-
+-- timestamp bulk INSERT) that migrations/20260721_gold_standard_shard9_
+-- hillsborough_glades_suwannee_j_ghost_success_purge.sql already
+-- established as disqualifying for this exact county. The 70 rows this
+-- produced were purged again the same session. See
+-- GOLD_STANDARD_SHARD6_GLADES_DISPATCH_30de9e54_2ND_FIRING_ADDENDUM.md for
+-- the full adversarial-refutation record. A genuine J fix requires wiring
+-- bid_decisions generation through the real gen_valuations_comps_batch
+-- two-arm CMA pipeline and an actual Shapira V14 model ml_score, not a
+-- hand-written SQL formula. This file is left in place as a historical
+-- record only; do not run it again as-is.
+--
 -- CONTEXT: Prior glades bid_decisions (70 rows, 2026-07-11T11:32:40Z) were
 -- correctly purged 2026-07-21 (migration
 -- 20260721_gold_standard_shard9_hillsborough_glades_suwannee_j_ghost_success_purge.sql)
