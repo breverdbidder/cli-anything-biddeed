@@ -1,0 +1,122 @@
+session:
+  shard: SHARD-4 (pasco, suwannee), 2nd firing today (same dispatch)
+  dispatch_id: 2c5b3c77-d296-4c59-b08d-ede8091f9752
+  chat_session: architect-20260724T160000
+  date: 2026-07-24
+  mode: >
+    Live DB check first (Evidence-Before-Claims). Discovered this exact dispatch
+    had already completed its work ~90 minutes earlier in the same wave (commit
+    f2018e5f + docs commit 10aa573b): pasco flipped 9/10->10/10 (I fixed), suwannee
+    recovered a same-day regression back to 8/10 (C/D/I/J), and suwannee B/F were
+    already confirmed structurally blocked by 4 independent multi-channel research
+    passes across 2 shards earlier the same day (2026-07-11, 07-20, and 3x on
+    07-24). Rather than re-running the already-exhausted B/F web sweep a 5th time
+    (violates cost-discipline / one-attempt-per-approach), ran an ultracode
+    Workflow (4 parallel agents + 1 synthesis agent) to independently
+    adversarially re-verify the prior firing's shipped fixes before closing out.
+
+pre_session_baseline: >
+  Task brief (identical text, loop run 6253) claimed pasco 9/10 (I FAIL 94.7%)
+  and suwannee 4/10 (B/C/D/F/I/J FAIL). Live pencil_dod_evaluate_county
+  immediately showed this was stale: pasco already 10/10, suwannee already 8/10
+  (only B/F failing) -- both from the prior firing of this same dispatch, not
+  from this brief.
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county for both counties live via mgmt_sql.py
+      before trusting the dispatched brief."
+    result: "pasco 10/10, suwannee 8/10 (B/F fail, closed_sold=0). Matched
+      git history (commit f2018e5f) exactly."
+  - step: 2
+    action: "Read git log, the prior firing's session log
+      (.claude/session-logs/2026-07-24-gold-standard-shard4-pasco-suwannee.yml),
+      and the sibling shard-8 suwannee session logs (1st/2nd/3rd firings) before
+      deciding what new work, if any, was legitimate."
+    result: "Confirmed suwannee B/F have been exhaustively checked 4 distinct
+      times today (2026-07-24) across 2 shards via RealTaxDeed/RealForeclose AJAX,
+      suwgov.org, myfloridacounty.com/orisearch, LandmarkWeb (DNS-unreachable),
+      and FL legal-notice aggregators (defunct paper of record) -- all
+      structurally negative, not time-dependent. Re-running this sweep a 5th
+      time same-day would be duplicate low-value work."
+  - step: 3
+    action: "Queried summit_chat_dispatch for sibling shard state (same 16:00Z
+      wave) to determine whether gold_standard_loop()/certify() could safely run
+      per PARALLEL-FLEET RULES."
+    result: "9 of 10 siblings from the 16:00Z wave still state='dispatched'
+      (mid-flight). Correctly skipped fleet-wide loop/certify, same as the prior
+      firing."
+  - step: 4
+    action: "Dispatched an ultracode Workflow: 4 parallel agents (fresh live
+      metrics re-check for both counties; adversarial spot-check of the 6
+      surviving pasco I cross-walk rows against street-level neighbor
+      comparables; adversarial spot-check of suwannee case 4713's full enrichment
+      chain incl. bid_decisions; sibling-shard mid-flight gate check) followed by
+      a synthesis agent."
+    result: "All 4 checks SURVIVED. Zero new fabrication found beyond the one row
+      (Aquarius, case 51-2026-CA-000777-CAAX-WS) the prior firing had already
+      caught and reverted itself. No regression, no improvement, no new suwannee
+      row. Certify gate confirmed NO (siblings mid-flight)."
+  - step: 5
+    action: "Logged 4 new gold_standard_ultraloop_audit rows (pasco/I,
+      suwannee/B,F,J) documenting this independent 2nd-pass confirmation, applied
+      live, confirmed via RETURNING id (9578-9581)."
+    result: "Rows confirmed present."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('pasco') fresh vs. prior firing's claim"
+    proof: "Identical: A=129 B=100.0 C=97.3 D=97.3 E=97.7 F=100.0 G=100.0 H=0.0
+      I=97.0 J=100.0, all pass=true. 10/10, no drift."
+  - check: "pencil_dod_evaluate_county('suwannee') fresh vs. prior firing's claim"
+    proof: "Identical: A=4 (PASS) B=null (FAIL, verified=0/closed_sold=0) C=100
+      (PASS) D=100 (PASS) E=100 (PASS) F=null (FAIL, tier1_sold=0/closed_sold=0)
+      G=100 (PASS) H=0.0 (PASS) I=100 (PASS) J=100 (PASS). 8/10, no drift, still
+      14-row denominator."
+  - check: "Adversarial spot-check of pasco I's 6 surviving cross-walk rows"
+    proof: "All 6 SURVIVED -- assessed_value within normal intra-block variance
+      vs. real street-level neighbor comparables pulled live from fl_parcels
+      (e.g. Kaloko Rd row's $269,045 shared with 3+ literal neighboring units;
+      Wedgewood Dr row correctly disambiguated from an unrelated same-named
+      condo complex in a different city). Lat/lon confirmed within Pasco County
+      bounds for all 6. No ghost-fill duplicate-signature pattern found."
+  - check: "Adversarial spot-check of suwannee case 4713 full enrichment chain"
+    proof: "SURVIVED -- parcel_id/zone_code/lat-lon/assessed_value/market_value
+      all populated and plausible (lat/lon within Suwannee bounds; value
+      non-outlier vs. 8-case tax-deed-batch siblings); bid_decisions row exists
+      with arv/max_bid/ml_score + all 5 required factor keys; parity_source
+      genuinely tier1-prefixed."
+  - check: "Sibling shard mid-flight gate"
+    proof: "9/10 siblings from the 2026-07-24 16:00:00 UTC wave still
+      state='dispatched' in summit_chat_dispatch. gold_standard_loop()/
+      gold_standard_certify() correctly NOT run."
+  - check: "gold_standard_ultraloop_audit rows this pass"
+    proof: "ids 9578 (pasco/I), 9579 (suwannee/B), 9580 (suwannee/F), 9581
+      (suwannee/J), all survived=true, dispatch_id=2c5b3c77-d296-4c59-b08d-ede8091f9752."
+
+status_board:
+  pasco: "10/10 (A-J all PASS), re-confirmed via independent adversarial 2nd
+    pass, zero new problems found. All 10 letters have a survived=true
+    ultraloop_audit row within the last 7 days -- certify-eligible whenever a
+    future close-out runs with no sibling shards mid-flight."
+  suwannee: "8/10 (A,C,D,E,G,H,I,J PASS; B,F FAIL), re-confirmed unchanged.
+    B/F remain genuinely blocked on real-world auction timing -- do NOT
+    re-attempt the web-source sweep again before 2026-07-28 (25-CA-170 sale
+    date) or 2026-08-06 (7-case tax-deed batch) without new evidence. The
+    5-channel negative search history (RealTaxDeed/RealForeclose AJAX,
+    suwgov.org, myfloridacounty.com/orisearch, LandmarkWeb DNS-block, FL
+    legal-notice aggregators) is now exhaustively documented across 2 shards
+    and 5 sessions -- treat as closed pending a real-world sale date passing."
+
+next_session_priorities:
+  - "suwannee: do not re-open before 2026-07-28 or 2026-08-06 without new
+    evidence, except to re-verify the 14-row denominator hasn't grown (a new
+    calendar-sweep row is the only thing that can regress C/D/I/J again)."
+  - "pasco: 10/10 and certify-eligible (all-letter audit evidence fresh within
+    7 days). The next session that finds NO sibling shards mid-flight should
+    run gold_standard_certify() -- this session correctly could not, 9/10
+    siblings were still dispatched."
+  - "This shard has no further legitimate work available in this firing. Two
+    consecutive sessions (this dispatch, 90 minutes apart) reached the
+    identical conclusion via independent methods (original fix + independent
+    adversarial re-verification) -- treat as stable, do not re-fire a 3rd time
+    today without new evidence or a new dispatch."
