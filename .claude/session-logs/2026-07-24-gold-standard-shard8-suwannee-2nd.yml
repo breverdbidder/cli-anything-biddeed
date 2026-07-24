@@ -1,0 +1,113 @@
+session:
+  shard: SHARD-8 (suwannee only), 2nd firing today
+  dispatch_id: 15bb3eb1-ecb1-4e92-b2a9-684b372f0d1d
+  chat_session: architect-20260724T000000
+  date: 2026-07-24
+  mode: live DB verification first (task brief was stale -- A/J already fixed by an earlier
+    session today) + ultracode Workflow (2 parallel investigate agents, adversarial-refuter
+    gate for any positive claim) targeting the two remaining failing letters, B and F.
+
+pre_session_baseline: "Task brief claimed 6/10 (A FAIL fc=0, J FAIL 0.0). Live
+  pencil_dod_evaluate_county('suwannee') immediately showed this was stale: A and J were
+  already PASS (commits be0fd55f/7daa017f, same date, earlier session). Verified live rather
+  than trusting either the brief or the commit messages: A=4 (fc=4/td=9,PASS),
+  J=100.0(13/13,PASS), C/D/E/G/H/I unchanged at 100.0 with denominator now 13 (up from 9).
+  Actual starting point for this session: 8/10, only B and F failing."
+
+decisions:
+  - step: 1
+    action: "Did not trust the dispatched brief's stated county state, and did not trust an
+      Explore subagent's recon summary either (it fabricated-sounding specifics that turned
+      out to be real but needed independent confirmation) -- ran
+      SELECT public.pencil_dod_evaluate_county('suwannee') live via the Supabase Management
+      API before making any plan."
+    reason: "HONESTY PROTOCOL / Evidence-Before-Claims: a stale brief plus an unverified
+      subagent report are exactly the two failure modes that produce false completions."
+
+  - step: 2
+    action: "Reviewed git history for suwannee migrations/scripts/session-logs (git log
+      --oneline) and the gold_standard_ultraloop_audit table for suwannee to see what had
+      already been tried on B/F. Found 5+ prior independent sessions (2026-07-11 through
+      2026-07-24 session 1) all converging on the same conclusion for cases 4666/4667: no
+      posted sale result, genuinely unresolved, not a scraper bug."
+    reason: "Avoid re-spending session budget re-deriving an already-settled negative finding
+      (ULTRALOOP token guardrail: max one deep workflow per letter per session, and cost
+      discipline generally)."
+
+  - step: 3
+    action: "Queried multi_county_auctions directly for all 13 suwannee rows to find any
+      genuinely NEW lever not covered by prior sessions. Found one: case 25-CA-197
+      (auction_date 2026-07-23, one day before this session) was only inserted by TODAY's
+      1st session and had never been checked for a posted result."
+    result: "Scoped this session narrowly to: (a) check 25-CA-197 for a sale result, (b)
+      attempt the still-open David Thomas (25-CA-200) A-residual disambiguation, rather than
+      re-running the already-exhausted 4666/4667 checks."
+
+  - step: 4
+    action: "Dispatched an ultracode Workflow: 2 parallel investigate agents (25-CA-197 sale
+      result; 25-CA-200 disambiguation), each instructed to report VERIFIED/UNTESTED/INFERRED
+      and never fabricate a number. Verify phase would adversarially refute any positive
+      (sale_result_found=true) claim before it could be written -- neither agent returned a
+      positive claim, so no refuter was triggered."
+    result: "25-CA-197: investigating agent flagged what looked like a case_number/defendant
+      mismatch (197 vs 170) against the county's authoritative docx list. No sale result found
+      either way. 25-CA-200: confirmed the correct disambiguation tool
+      (myfloridacounty.com/orisearch/61) but submission is blocked by a Cloudflare Turnstile
+      CAPTCHA -- a tooling limitation, not resolved."
+
+  - step: 5
+    action: "Independently re-queried multi_county_auctions directly (not trusting the
+      investigate agent's characterization) for cases 25-CA-197 and 25-CA-170 to check the
+      flagged mismatch myself."
+    result: "No bug: the DB already has the correct pairing (25-CA-170=Saavedra, sale 7/28
+      future; 25-CA-197=Dowdy, sale 7/23 past). The mismatch was in my own workflow prompt
+      (which had assumed 25-CA-197=Saavedra based on an earlier, less careful read), not in
+      the data. Caught before anything was changed."
+    reason: "The ULTRALOOP pattern (own claims get independently re-derived, not just
+      accepted) caught an error in my OWN framing, not just a subagent's -- worth recording as
+      evidence the adversarial-check discipline works both directions."
+
+  - step: 6
+    action: "Logged 2 new gold_standard_ultraloop_audit rows (B, F; survived=true) documenting
+      this session's specific new finding, applied live via Supabase Management API, then
+      independently re-selected them back to confirm the insert landed before proceeding."
+    result: "2 rows confirmed present (created_at 2026-07-24 01:49:38 UTC)."
+
+  - step: 7
+    action: "Re-ran pencil_dod_evaluate_county('suwannee') fresh (not reused from step 1) as
+      the final closing check, per Evidence-Before-Claims ('already checked' != re-verified)."
+    result: "Identical to step 1: 8/10, B and F still FAIL, no regression on the other 8. No
+      DB rows in multi_county_auctions were touched this session -- correctly so, since no
+      genuine sale result exists yet for anything in the 13-row set."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('suwannee') at session start vs session end (2 separate
+      live RPC calls, ~90 minutes apart)"
+    proof: "start: A=4(fc=4/td=9,PASS) B=null(0/0,FAIL) C=100.0(13,PASS) D=100.0(13,PASS)
+      E=100.0(13,PASS) F=null(0/0,FAIL) G=100.0(PASS) H=1.5(PASS) I=100.0(13/13,PASS)
+      J=100.0(13/13,PASS), 8/10.
+      end: identical to start on all 10 letters (H metric drifted 1.5->1.6, immaterial, SLA is
+      48h) -- confirms no regression and no fabricated progress."
+  - check: "gold_standard_ultraloop_audit rows for dispatch_id=15bb3eb1-ecb1-4e92-b2a9-684b372f0d1d
+      created this session"
+    proof: "2 rows (suwannee/B survived=true, suwannee/F survived=true), created_at
+      2026-07-24 01:49:38.184525+00, independently re-SELECTed to confirm persistence."
+
+status_board:
+  suwannee: "8/10, unchanged this session (A,C,D,E,G,H,I,J PASS; B,F FAIL). Correctly did not
+    force a false PASS -- no closed sale exists yet anywhere in the 13-row auction set. Next
+    real B/F lever is the 08/06/2026 tax-deed batch (7 rows) and the 07/28-08/27 foreclosure
+    dates (2 rows still upcoming: 25-CA-170 Saavedra, 26-CA-2/26-CA-7), once those pass and
+    have time to record -- consistent with what the 1st session today already flagged."
+
+next_session_priorities:
+  - "suwannee B/F: once 25-CA-170 (Saavedra, 7/28) or the 8/6 tax-deed batch pass, re-check for
+    posted results -- these are now the nearest real dates, closer than the stuck 4666/4667
+    pair. Do not re-check 4666/4667 or 25-CA-197/Dowdy again without new evidence (6
+    independent sessions now agree there's nothing there)."
+  - "suwannee A residual: David Thomas (25-CA-200) disambiguation needs a session with
+    interactive/browser-automation tooling capable of clearing a Cloudflare Turnstile
+    challenge at myfloridacounty.com/orisearch/61 (party name 'Thomas, David', doc types Lis
+    Pendens + Final Judgment + Certificate of Title, 2025 book/page range). Not a data gap --
+    a tooling gap. Ramirez (26-CA-19) remains a genuinely vacant/no-situs parcel, not
+    resolvable via address."
