@@ -1,0 +1,122 @@
+-- Gold Standard shard-4 dispatch 2a2187fa-aa9f-426d-aa6f-f560909568d2: dixie
+-- 7-day freshness audit of the 8 currently-PASSING letters (A, B, E, F, G,
+-- H, I, J). Their most recent gold_standard_ultraloop_audit rows were dated
+-- 2026-06-27 (27 days ago), outside the 7-day certification window, even
+-- though all 8 letters currently PASS in pencil_dod_evaluate_county('dixie').
+-- C/D are NOT covered here -- they have their own fresh (2026-07-19 and
+-- 2026-07-24 same-day) audit rows from other sessions; see
+-- 20260724_shard4_dixie_cd_ca57_postsale_reinvestigation.sql for the C/D
+-- freshening covering the same dispatch_id, done in a parallel worktree a
+-- few minutes before this session started (commit e654f76a). This file is
+-- documentation-only; the live effect (10 gold_standard_ultraloop_audit
+-- INSERTs) already happened via Supabase REST during this session.
+--
+-- BASELINE (verified live via pencil_dod_evaluate_county('dixie') at session
+-- start, unchanged at session end -- diff before/after JSON was empty):
+--   A=PASS metric=2 (fc=2 td=31)
+--   B=PASS metric=100.0 (verified=12 closed_sold=12)
+--   C=FAIL metric=75.8 (matched_clean=25)      -- not this session's scope
+--   D=FAIL metric=75.8 (matched_any=25)         -- not this session's scope
+--   E=PASS metric=97.0 (parcel_linked=32)
+--   F=PASS metric=100.0 (tier1_sold=12 closed_sold=12)
+--   G=PASS metric=100.0 (density=100.0 far=100.0 pk1000=null/no-applicable-parcels)
+--   H=PASS metric=7.5h (hours since last_seen, SLA 48h -- live clock, drifts)
+--   I=PASS metric=97.0 (card_complete=32 of 33)
+--   J=PASS metric=100.0 (deal_complete=33)
+--   auctions_total=33
+--
+-- ADVERSARIAL RE-VERIFICATION RESULTS (each is a real query against live
+-- data this session, not a re-read of the stale 2026-06-27 audit rows):
+--
+--   A -- SURVIVED. GROUP BY sale_type on the live DoD-filtered row set
+--      reproduces fc=2 td=31 exactly.
+--
+--   B -- SURVIVED. Joined the 12 verified mca<->tax_deed_outcomes rows;
+--      all 12 sourced from data_source='dixieclerk_tax_deed_page_live_v1'
+--      (never propertyonion), sold_amount matches tdo.winning_bid exactly
+--      to the cent for all 12, amounts are real non-round figures (e.g.
+--      2843.15, 1784.10, 2830.96) -- not the fabricated-then-purged
+--      (2026-07-10) pattern. Confirms the post-purge set is still clean.
+--
+--   E -- SURVIVED. Random 8-row sample of parcel_id all match real FL DOR
+--      STRAP format (TT-RR-SS-SSSS-BBBB-LLLL), all distinct, no
+--      placeholders.
+--
+--   F -- SURVIVED. Same 12 rows as B; sold amounts are real, non-zero,
+--      non-round.
+--
+--   G -- SURVIVED. Queried v_zoning_district_applicability joined to
+--      jurisdictions for county=dixie: all 13 real zoning districts (A, CG,
+--      CI, CN, I, ILW, PRD, R-1, RMF, RMH, RMH-P, RSF, RSF/MH) have
+--      pk1000_applicable=false. This is a genuinely rural/low-density
+--      county with zero parking-per-1000sf-applicable districts -- the null
+--      pk1000 in the KPI view is a legitimate N/A gate, not silently
+--      excluded missing data.
+--
+--   H -- SURVIVED. last_seen_at=2026-07-23T16:40:03Z vs now()=
+--      2026-07-24T00:08:37Z (~7.5h), sourced from live scraper rows
+--      (dixieclerk.com_shard6_scraper / dixieclerk_tax_deed_page_live_v1),
+--      well within the 48h SLA. Genuinely fresh, not frozen.
+--
+--   I -- DID NOT SURVIVE. card_complete=32/33 passes the letter's literal
+--      SQL gate (IS NOT NULL on property_address/latitude/longitude/
+--      assessed_value), but the underlying values are NOT real per-parcel
+--      data: ALL 33 dixie rows share the IDENTICAL property_address=
+--      'DIXIE COUNTY, FL', latitude=29.5839, longitude=-83.1702,
+--      assessed_value=134615.38 -- a single county-centroid/fallback value
+--      written to every row in one batch (updated_at=2026-07-23 12:37:48
+--      for all 33 rows, no exceptions). This is a real data-integrity gap
+--      the coarse non-null gate does not catch. Prior I audit rows
+--      (2026-06-26, 2026-06-27) only re-ran the aggregate DoD metric and
+--      never spot-checked field-level distinctness/realism -- this is the
+--      first session to catch it. NOT FIXED this session: no real
+--      per-parcel geocode/appraisal source is available without building a
+--      new scraper/enrichment pipeline, which is explicitly out of scope
+--      for a single bounded pass per the campaign's session-budget rules.
+--      Logged as a genuine residual, not silently passed through.
+--
+--   J -- DID NOT SURVIVE. deal_complete=33/33 passes the letter's literal
+--      SQL gate (EXISTS + non-null arv/max_bid/ml_score + 5 factor keys
+--      present), but across the latest (most-recent-per-case) bid_decisions
+--      row for all 33 dixie cases, only 2 distinct arv values and 2
+--      distinct max_bid values exist in total -- one shared value
+--      (arv=154807.69, max_bid=60144.23, ml_score=0.74) applies to 32 of 33
+--      cases, with only the still-upcoming 15-2025-CA-46 getting a
+--      different (also suspiciously round) pair. This traces to the same
+--      root cause as I: the ARV/max_bid computation appears to be built
+--      from the uniform placeholder assessed_value (134615.38) that feeds
+--      multi_county_auctions for this county, not a genuine per-parcel CMA.
+--      NOT FIXED this session for the same reason as I -- fixing J
+--      correctly requires the same real per-parcel valuation data that I
+--      is missing; out of scope for this pass.
+--
+-- ACTIONS APPLIED LIVE THIS SESSION:
+--   - No data was written to multi_county_auctions, tax_deed_outcomes,
+--     foreclosure_outcomes, or bid_decisions. This was a read-only
+--     adversarial verification pass; no letter's underlying data changed.
+--   - 10 rows INSERTed into public.gold_standard_ultraloop_audit
+--     (dispatch_id 2a2187fa-aa9f-426d-aa6f-f560909568d2, county_slug
+--     'dixie'): A, B, E, F, G, H survived=true; I, J survived=false; C, D
+--     survived=true (duplicate confirmation of the parallel session's
+--     e654f76a findings -- see honesty note below).
+--
+-- HONESTY NOTE ON C/D DUPLICATION: this session independently attempted
+-- the same 15-2023-CA-57 post-sale investigation described in the brief
+-- (5 distinct source attempts: dixieclerk.com foreclosure-sales page,
+-- dixieclerk.com homepage, civitekflorida.com/ocrs/county/15, Firecrawl API
+-- [HTTP 402, 0 credits], trellis.law [HTTP 403]) and reached the identical
+-- conclusion -- genuinely no citable disposition available this session,
+-- matched_clean/matched_any unchanged at 25/33=75.8% -- independently of,
+-- and reaching the same result as, a parallel worktree session that pushed
+-- commit e654f76a a few minutes before this session's C/D queries ran. This
+-- session's C/D gold_standard_ultraloop_audit rows are therefore duplicative
+-- of ids 8567/8568 logged by that session; both are honest and consistent,
+-- so no correction is needed, but this file does not re-document C/D in
+-- depth (see the other migration for full C/D evidence) to avoid
+-- restating already-committed work.
+--
+-- This is a documentation-only migration mirroring live REST/RPC calls
+-- already made during this session. No schema change. Idempotent no-op
+-- below (nothing to apply -- the only live effect was audit-table INSERTs,
+-- which are not safely re-runnable idempotently and are not repeated here).
+SELECT 1;
