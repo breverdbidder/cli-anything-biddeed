@@ -26,20 +26,47 @@
 -- reads the reasserted auction_status='upcoming' and nulls the just-set
 -- tier1_sold_amount back out, producing an F flap every sweep cycle.
 --
--- The durable fix has two parts:
---   1) (this migration) one-time data correction: sync auction_status/
---      auction_date on case 25-100 to the real outcome, then re-run
---      promote_tier1_from_outcomes() so tier1_sold_amount is set again.
---   2) (code fix, same session) .github/scripts/calendar_sweep_mca.py now
---      looks up each case's existing DB state before upserting and skips
---      re-writing auction_status/auction_date for any row already terminal
---      (sold/closed/redeemed/canceled/third_party/struck_to_plaintiff) or
---      already carrying a non-null tier1_sold_amount/sold_amount -- so a
---      stale calendar page can no longer re-flag a verified-closed auction
---      as upcoming. This is a fleet-wide robustness fix (calendar_sweep_mca
---      runs for ~39 counties), not hendry-only, but was required to make
---      hendry F durable and was validated against hendry live data before
---      shipping (see session report for the full evidence chain).
+-- CORRECTION (same session, after this migration's UPDATE statements were
+-- first applied live and re-verified): the auction_status/auction_date sync
+-- below reverted a 3rd time within ~3 minutes, with last_seen_at and
+-- scrape_timestamp UNCHANGED, proving calendar_sweep_mca.py was NOT the
+-- culprit (its fix, part 2 below, is still shipped as an independently
+-- valid robustness improvement for a different, lower-frequency script, but
+-- it does not resolve hendry F). Traced via gha_dispatch_log to a
+-- DIFFERENT, higher-frequency pipeline instead:
+-- .github/scripts/scrape_realauction_county.py (workflow
+-- scrape-realauction-county.yml), dispatched for hendry/tax_deed/
+-- auction_date=2026-07-30 multiple times per day. That script's own header
+-- documents "in-scraper status canonicalization (no after-update SQL
+-- fixes)" -- it is tier1-authoritative and is CORRECTLY re-canonicalizing
+-- case 25-100 to LISTED/upcoming, because Hendry RealTaxDeed's own
+-- PREVIEW/calendar page for 2026-07-30 still lists the case, while a
+-- SEPARATE results-report page (already harvested into tax_deed_outcomes)
+-- shows it sold 2026-07-16 for $7,100. This is a genuine conflict between
+-- two live pages on the county's own site, not a bug in our pipeline --
+-- the UPDATE below is therefore NOT a durable fix and will be overwritten
+-- by the next legitimate scrape of that auction_date regardless of how many
+-- times it is reapplied. Left in this migration only as an accurate record
+-- of what was tried; F should be treated as genuinely BLOCKED (not fixed)
+-- pending resolution of the source conflict -- BLANK > WRONG. See the
+-- session report addendum and gold_standard_ultraloop_audit (letter=F,
+-- survived=false, the corrective row) for the full evidence chain.
+--
+-- What actually shipped this firing:
+--   1) (this migration, non-durable) one-time data correction attempt: sync
+--      auction_status/auction_date on case 25-100 to the real outcome, then
+--      re-run promote_tier1_from_outcomes(). Kept for audit-trail accuracy;
+--      do not treat as resolving F.
+--   2) (code fix, durable, independently valid) .github/scripts/
+--      calendar_sweep_mca.py now looks up each case's existing DB state
+--      before upserting and skips re-writing auction_status/auction_date
+--      for any row already terminal (sold/closed/redeemed/canceled/
+--      third_party/struck_to_plaintiff) or already carrying a non-null
+--      tier1_sold_amount/sold_amount. Fleet-wide robustness fix
+--      (calendar_sweep_mca runs for ~39 counties) for the same failure
+--      class in a different, lower-frequency script -- validated against
+--      hendry live data, but does not resolve hendry F (different culprit
+--      script, see above).
 --
 -- I: case 25-111 (parcel "3 34 43 01 010 0356-001.0", W Alverdez Ave,
 -- Clewiston) carries zone_code='CLEWISTON-CITY-ZONED', which an
