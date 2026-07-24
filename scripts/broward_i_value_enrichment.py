@@ -112,11 +112,11 @@ urllib.parse_quote = _up.quote
 
 def main():
     rows = sb_get(
-        "multi_county_auctions?select=case_number,parcel_id,property_address"
+        "multi_county_auctions?select=case_number,parcel_id,property_address,data_source"
         "&county=eq.broward&assessed_value=is.null&market_value=is.null"
-        "&data_source=eq.realforeclose"
+        "&or=(data_source.eq.realforeclose,data_source.is.null)"
     )
-    print(f"Fetched {len(rows)} realforeclose rows missing both values.")
+    print(f"Fetched {len(rows)} realforeclose/null-source rows missing both values.")
 
     enriched = []
     misses = []

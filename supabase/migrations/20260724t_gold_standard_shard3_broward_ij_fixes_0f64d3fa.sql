@@ -1,0 +1,106 @@
+-- GOLD STANDARD shard-3, dispatch 0f64d3fa-6878-48ac-b4d6-cb070032beab, county=broward.
+-- Historical record of I and J letter fixes applied live this session via
+-- REST/Management-API calls (this file documents what was executed; it is
+-- NOT re-run by `supabase db push` verbatim re-execution of the value/geocode
+-- enrichment, since those used existing Python scripts against live BCPA/
+-- Census endpoints -- this migration captures the resulting schema/data
+-- shape for the historical record, per SHIP GATE requirement).
+--
+-- BEFORE (VERIFIED via pencil_dod_evaluate_county('broward') at session start):
+--   I: card_complete=619 of 664 (93.2%) FAIL (need >=631, i.e. >=95%)
+--   J: deal_complete=628 of 664 (94.6%) FAIL (need >=631)
+--   C: matched_clean=632 (95.2%) PASS -- already fixed earlier this session by a
+--      different mechanism (refresh_broward_parity_v1()), NOT touched here.
+--
+-- AFTER (VERIFIED via pencil_dod_evaluate_county('broward') fresh re-run):
+--   I: card_complete=637 of 664 (95.9%) PASS
+--   J: deal_complete=643 of 664 (96.8%) PASS
+--   C: matched_clean=632 (95.2%) PASS -- unchanged, confirmed still passing.
+--
+-- WHAT WAS DONE (in order):
+--
+-- 1. scripts/broward_i_value_enrichment.py -- broadened the existing filter
+--    from `data_source=eq.realforeclose` to
+--    `or=(data_source.eq.realforeclose,data_source.is.null)` (the 12
+--    val-only-missing rows in the live gap list all had data_source=NULL,
+--    not 'realforeclose' -- same BCPA endpoint, same real data, just a
+--    stale filter). Ran the script against live web.bcpa.net:
+--      Enriched 12 rows with real assessed_value/market_value
+--      (justValue / taxableAmountCounty from BCPA), 21 rows genuinely
+--      un-lookupable (6-digit truncated folios, "TIMESHARE",
+--      "Property Appraiser", "MULTIPLE PARCELS" placeholders, or no BCPA
+--      record) -- left NULL, not fabricated.
+--
+-- 2. Zone linkage for the 2 explicitly-named zone-only-missing I rows
+--    (CACE-25-007347 parcel 494319CM1120 Fort Lauderdale; CACE-25-008008
+--    parcel 494111140580 Tamarac) -- BCPA landCalcZoning gave real codes
+--    RMH-60 (Residential Multifamily High Rise/High Density) and R-3
+--    (Multi-Family Residential) respectively. Neither code existed yet in
+--    zoning_districts for those jurisdictions, so both were inserted
+--    (ordinance-pattern-consistent with each city's existing ULDR/LDC
+--    naming, e.g. Fort Lauderdale ULDR already has RMM-25 "Residential
+--    Multifamily Mid Rise/Medium High Density" using the identical naming
+--    scheme), then parcel_zones rows were inserted pointing at them.
+--
+-- 3. scripts/gold_standard_shard3_broward_i_geocode.py (NEW, this session,
+--    modeled directly on the proven scripts/gold_standard_shard11_leon_i_geocode.py
+--    pattern) -- backfilled latitude/longitude via the free US Census
+--    Bureau Geocoder (geocoding.geo.census.gov, Public_AR_Current
+--    benchmark) for the 22 rows that had a clean address but no lat/lon.
+--    Every result verified against the geocoder's own matchedAddress echo
+--    (zip check for the 19 addresses with a stored zip; Broward-County
+--    bounding-box sanity check for the 3 bare-street TD-* tax-deed rows
+--    with no city/zip). Outcome: 18 real geocodes written, 1 rejected on
+--    zip mismatch (CACE-25-011263, left NULL), 3 TD-* rows had no Census
+--    match at all (left NULL) -- no fallback/placeholder lat-lon was ever
+--    written (this campaign's documented failure mode, e.g. the fake
+--    26.1224/-80.1373 broward fallback, was explicitly NOT repeated).
+--
+-- 4. Zone linkage for 9 more rows that (after steps 1-3) had real
+--    address+value+geo but were still missing zone_code resolution via
+--    v_zoning_gold_standard_card. Real BCPA landCalcZoning per parcel:
+--      494220CB0750 Oakland Park       -> PUD  (new zoning_districts row)
+--      494108AB0140 Tamarac            -> R-3  (reused row from step 2)
+--      494124130840 Lauderdale Lakes   -> RS-4 (new zoning_districts row;
+--                                                 996 had only chapter/
+--                                                 article codes, no zone
+--                                                 codes at all before this)
+--      484208060720 Coconut Creek      -> PUD  (code already existed)
+--      484229160580 Coconut Creek      -> PUD  (code already existed)
+--      494119240400 Sunrise            -> RS-7 (code already existed)
+--      504006CK0390 Weston             -> MF-1 (new zoning_districts row;
+--                                                 821 had ZERO zoning_districts
+--                                                 rows at all before this)
+--      494122280055 Lauderhill         -> RM-18 (code already existed)
+--      514035141360 Miramar            -> RM1  (new zoning_districts row)
+--
+--    Two rows were deliberately left unresolved: CACE-23-021250 (Cooper
+--    City) and COWE-25-067830 (Parkland) -- neither city has ANY row in
+--    the jurisdictions table for Broward county. Per fail-loud rules, no
+--    jurisdiction was fabricated to force these through; they remain in
+--    the I gap list for a future session that seeds those 2 jurisdictions
+--    properly.
+--
+-- 5. scripts/gold_standard_shard9_broward_alachua_j_generator_real.py --
+--    run as-is (no code change), county-agnostic real Shapira V14 XGBoost
+--    generator. Downloaded the production model
+--    (shapira_models.model_version='v14.0', storage_bucket shapira-models,
+--    storage_path v14/2026-05-27-180308/{model.json,features.json}) to
+--    /tmp/shapira and ran it. For broward: auctions_filtered=664,
+--    incomplete_for_J=109 (pre-existing gap, larger than the 36 named in
+--    the dispatch -- the evaluator's deal_complete definition is stricter
+--    than the fixed enumerated list), skipped_no_real_value=21 (rows with
+--    no comp AND no assessed/market value -- correctly left incomplete
+--    per the script's own docstring, not forced), rows_to_write=88
+--    (15 inserted + 73 updated). This is what moved J from 628 to 643.
+--
+-- No cron 109/111/115 jobs were touched. No gold_standard_loop() or
+-- gold_standard_certify() was invoked. No other county's rows were
+-- touched. C's mechanism (refresh_broward_parity_v1()) was not re-run or
+-- modified.
+
+-- This file is a historical record only; all data changes above were
+-- already applied live via REST/Management-API calls in this session
+-- before this file was written, per SHIP GATE requirement #1 (execute,
+-- not just commit). No further DDL/DML is required from this file.
+SELECT 1;
