@@ -395,7 +395,10 @@ def fix_parity_status(all_rows: list[dict]) -> tuple[int, int]:
             chunk = ids[i:i + BATCH]
             id_filter = "in.(" + ",".join(str(x) for x in chunk) + ")"
             result = sb_patch("multi_county_auctions", f"id={id_filter}",
-                               {"parity_status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
+                               {"parity_status": status,
+                                "parity_source": f"tier1_platform_scrape:{COUNTY}_outcome_harvester",
+                                "parity_checked_at": datetime.now(timezone.utc).isoformat(),
+                                "updated_at": datetime.now(timezone.utc).isoformat()})
             loaded += result
         return loaded
 
