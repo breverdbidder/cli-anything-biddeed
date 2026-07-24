@@ -56,8 +56,16 @@ the tier1-authoritative source for this auction_date and is **correctly** re-can
 2026-07-30 still lists the case**, while a **separate results-report page** (the one already
 harvested into `tax_deed_outcomes`) shows it sold on 2026-07-16 for $7,100.
 
-**This is a genuine conflict between two live pages on the county's own website — not a bug in our
-pipeline.** Forcing the DB to one side via ad-hoc SQL is exactly the after-update-fix anti-pattern
+**INFERRED, not directly viewed** (the live preview page returns HTTP 403 to a plain fetch —
+confirming its exact current content requires the scraper's own authenticated Playwright session,
+which this session did not re-run to avoid triggering an uncontrolled live scrape mid-investigation).
+This conclusion rests on process-of-elimination evidence: `tax_deed_outcomes` is a real, verified
+row; `calendar_sweep_mca.py` is ruled out by unchanged `last_seen_at`/`scrape_timestamp`; the only
+other write path touching this row is `scrape_realauction_county.py`'s `tier1_card_upsert_rpc`,
+dispatched at the right time and documented to write exactly the canonicalized status it scrapes
+live. The most likely explanation is a genuine conflict between two live pages on the county's own
+website — not a bug in our pipeline — but this has not been confirmed by directly reading the
+preview page's current HTML. Forcing the DB to one side via ad-hoc SQL is exactly the after-update-fix anti-pattern
 that script's own header warns against, and it will keep getting overwritten by the next
 legitimate scrape regardless of how many times it's reapplied. Per BLANK > WRONG, **F is correctly
 left FAIL (90%, tier1_sold=9/10)** pending real resolution of the source conflict (e.g. confirming
