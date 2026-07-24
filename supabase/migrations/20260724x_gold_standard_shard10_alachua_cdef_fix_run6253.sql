@@ -1,0 +1,88 @@
+-- 20260724x_gold_standard_shard10_alachua_cdef_fix_run6253.sql
+--
+-- Gold Standard shard-10 (dispatch a36233a1-0145-43b9-a8f0-75acc7594181, loop
+-- run 6253) — alachua: F fix, E ghost-parcel purge, C/D live re-verification.
+--
+-- BEFORE (live, 2026-07-24): A,B,G,H pass (4/10). C=83.9 D=83.9 E=85.7 F=87.5
+-- AFTER  (live, 2026-07-24): A,B,C,D,F,G,H pass (7/10). E=76.8 (honest
+-- correction, was ghost-inflated) I=71.4 J=83.9 (both genuinely blocked, see
+-- below)
+--
+-- === F: phantom sold_amount removed ===
+-- case 01 2025 CA 002830 carried sold_amount=174416.2 with auction_date
+-- 2026-08-27 (34 days in the future of this session) and NO backing outcome
+-- (foreclosure_outcomes row exists for this case, data_source
+-- "realforeclose:alachua:shard5_run581", but winning_bid IS NULL). Live
+-- re-harvest of alachua.realforeclose.com's own AJAX calendar for 8/27/2026
+-- (scripts/shard2_run2450_ajax_realforeclose_harvest.py) confirms the case is
+-- still genuinely listed upcoming with no sale-result field at all -- ruling
+-- out a hendry-style genuine dual-source conflict (there is no second live
+-- source claiming this case already sold). The value 174416.2 does not match
+-- judgment_amount/opening_bid/assessed_value/market_value on the same row
+-- either, so it isn't a simple column-aliasing bug. Nulled sold_amount (and
+-- sold_amount_source, already NULL) rather than fabricating a tier1_sold
+-- value to match it.
+--   UPDATE multi_county_auctions SET sold_amount=NULL, sold_amount_source=NULL
+--   WHERE county='alachua' AND case_number='01 2025 CA 002830';
+--
+-- === E: ghost parcel_id purge (honest correction, not a "fix" that helps) ===
+-- Found parcel_id='Property Appraiser' (RealForeclose's own link-text
+-- placeholder, not a real ID -- see scripts/shard14_run121fa7c3_alachua_e_i_diagnosis.py)
+-- literally stored on 6 alachua rows, meaning E's has_parcel count (48) was
+-- silently inflated by 6 ghosts before this fix. Root cause: these rows
+-- predate the _clean_parcel() validation added to .github/scripts/
+-- calendar_sweep_mca.py in commit 8e13f266 ("v3.0"); because the sweep's
+-- columns= upsert scoping only writes fields present in the current scrape
+-- (never force-nulls an absent field), the stale pre-v3.0 garbage was never
+-- cleared by any subsequent (correctly-behaving) sweep run.
+--   - case 01 2024 CA 001683: RESTORED to the previously real-verified value
+--     '02975-002-000' (scripts/shard10_run3645_alachua_e_parcel_backfill.py,
+--     ArcGIS PublicParcel FeatureServer unique match on grantee name from a
+--     recorded judgment) -- this fix had silently reverted to the ghost
+--     placeholder since that script ran; re-applied, not re-derived.
+--   - case 01 2025 CA 002830: parcel_id nulled (ghost); latitude/longitude
+--     also nulled -- 29.6516/-82.3248 is a shared county-centroid fallback
+--     value (confirmed carried by 40 separate alachua rows, i.e. not a real
+--     per-property geocode; flagged already by the prior diagnosis script).
+--     property_address and assessed_value kept (row-unique values, i.e. real
+--     scraped data, not part of the same fallback).
+--   - cases 01 2025 CA 001634, 01 2025 CA 003156, 01 2023 CA 004261,
+--     01 2024 CC 005935: parcel_id nulled (ghost, no real replacement found
+--     this session -- BLANK > WRONG, not fabricated).
+-- Net effect: E metric moved 85.7% -> 76.8% (43/56). This is a REGRESSION in
+-- the reported number and an IMPROVEMENT in its truthfulness -- the pre-fix
+-- 85.7% was never real. Residual: 13 rows genuinely lack parcel_id, of which
+-- 7 were live-reconfirmed this session as having NO clerk cross-reference
+-- document yet (isol.alachuaclerk.org docid empty on RealForeclose's own AJAX
+-- payload) and 1 (01 2025 CA 003287) is a confirmed multi-parcel case with no
+-- single correct parcel_id assignable without fabrication -- both dead ends
+-- per the existing diagnosis, not re-litigated further this session.
+--
+-- === C/D: live re-verification against alachua's own RealForeclose calendar ===
+-- 9 rows had parity_status IS NULL (6) or a non-tier1 parity_source
+-- ('realforeclose_aids_patch', 3) -- both fail the evaluator's
+-- `parity_source LIKE 'tier1%'` predicate for C/D regardless of match
+-- quality. Forked scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py (in
+-- turn forked from shard11/leon, shard2/palmbeach, shard4/leon -- the
+-- established, previously-shipped-and-never-reverted pattern for this exact
+-- fix class) as scripts/gold_standard_shard10_alachua_cd_ajax_harvest_run6253.py,
+-- re-harvested alachua.realforeclose.com's live AJAX calendar for each
+-- target row's own auction_date (2026-08-11, 2026-08-18, 2026-08-27,
+-- 2026-09-01 -- all confirmed live 2026-07-24), exact-matched by normalized
+-- case_number, and promoted the 9/9 matches (all target cases genuinely
+-- present on the live calendar) to parity_status='matched_clean',
+-- parity_source='tier1:shard10_run6253_alachua_ajax_harvest:<sale_type>:<date>'.
+-- No PropertyOnion data touched (canon-compliant; RealForeclose is the
+-- primary source these rows were already scraped from, re-confirmed live).
+--
+-- === J: confirmed genuinely blocked for the same 6 rows still missing a
+-- real parcel_id (of the 9 pre-existing J gap rows, 3 -- 01 2025 CA 003156,
+-- 01 2023 CA 004261, 01 2024 CC 005935 -- have no parcel_id AND no
+-- assessed_value/market_value, so scripts/gold_standard_shard9_broward_alachua_j_generator_real.py's
+-- real_arv() has no real ARV input to use; the other 6 J-gap rows are the
+-- same 6 still-unlinked-E rows). Not run this session (would be a confirmed
+-- no-op) -- flagged as residual, blocked on real parcel/value enrichment,
+-- not run against fabricated inputs.
+--
+-- Idempotent verification (safe to re-run):
+SELECT public.pencil_dod_evaluate_county('alachua');
