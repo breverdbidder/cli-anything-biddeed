@@ -1,0 +1,94 @@
+name: "SHARD-9 run6148 Daily Maintenance (escambia)"
+# Gold Standard maintenance for escambia — dispatch_id 1a7d03e0-6c1f-4240-822d-185fd0fe77dd
+#
+# 2026-07-24 session: I 90.1%->99.2% (PASS), J 90.9%->100% (PASS), C/D 77.7%->81.6%
+# (still FAIL, 67 rows genuinely blocked on future RealTaxDeed sale dates). This cron
+# re-runs the same idempotent scripts daily so:
+#  - C/D keeps closing as the 5 pending tax-deed sale dates (08/05, 09/02, 10/07,
+#    11/04, 12/02/2026) approach and RealAuction's live cert list converges further
+#  - I and J stay at PASS as new auction rows are added by the scraper cycle
+#    (both scripts are idempotent gap-finders — they only touch rows still missing
+#    data, never re-touch already-complete rows)
+
+on:
+  schedule:
+    - cron: '30 13 * * *'  # 13:30 UTC daily (offset to avoid conflicts with other shard crons)
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard9-escambia-run6148-daily
+  cancel-in-progress: false
+
+jobs:
+  cd-harvest:
+    name: "C/D: RealAuction/RealTaxDeed re-harvest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/shard_escambia_cd_run20260724.py
+
+  i-geocode:
+    name: "I: geocode + parcel_zones backfill for new gap rows"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [cd-harvest]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/shard_escambia_i_geocode_backfill_20260724.py
+
+  j-backfill:
+    name: "J: bid_decisions coverage for new gap rows"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [cd-harvest]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/escambia_j_backfill_20260724.py
+
+  evaluate:
+    name: "Evaluate escambia metrics"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [cd-harvest, i-geocode, j-backfill]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Run pencil_dod_evaluate_county for escambia
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import os, json, urllib.request
+
+          supa_url = os.environ['SUPABASE_URL']
+          supa_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+
+          payload = json.dumps({'p_county': 'escambia'}).encode()
+          url = f'{supa_url}/rest/v1/rpc/pencil_dod_evaluate_county'
+          req = urllib.request.Request(url, data=payload, method='POST')
+          req.add_header('apikey', supa_key)
+          req.add_header('Authorization', f'Bearer {supa_key}')
+          req.add_header('Content-Type', 'application/json')
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              ev = json.loads(resp.read())
+              passes = sum(1 for k in 'ABCDEFGHIJ' if isinstance(ev.get(k), dict) and ev[k].get('pass'))
+              print(f'escambia: {passes}/10 PASS')
+              for letter in 'ABCDEFGHIJ':
+                  d = ev.get(letter, {})
+                  if isinstance(d, dict):
+                      status = 'PASS' if d.get('pass') else 'FAIL'
+                      print(f'  {letter}: {status} metric={d.get(\"metric\")} {str(d.get(\"detail\",\"\"))[:60]}')
+          "
