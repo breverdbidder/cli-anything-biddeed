@@ -1,0 +1,222 @@
+name: "Gold Standard SHARD-8 suwannee — J generator + A/B/F probe"
+# dispatch_id: 15bb3eb1-ecb1-4e92-b2a9-684b372f0d1d
+# session: architect-20260724T000000
+# WIRING MANDATE: J generator runs daily. A/B/F probe runs daily.
+# SHIP-TO-MAIN: direct push, no PRs.
+#
+# suwannee current state (loop run 6080):
+#   A FAIL: fc=0, td=9 — genuine ceiling (realforeclose.com has 0 active FC listings)
+#   B FAIL: verified=0, closed_sold=0 — all auctions are 2026-08-06 (future)
+#   C PASS: 100.0% (matched_clean=9)
+#   D PASS: 100.0% (matched_any=9)
+#   E PASS: 100.0% (parcel_linked=9)
+#   F FAIL: tier1_sold=0, closed_sold=0 — same timing ceiling as B
+#   G PASS: 100.0% (density=100.0, far=100.0)
+#   H PASS: freshness covered by this workflow
+#   I PASS: card_complete=9/9
+#   J FAIL: bid_decisions purged 2026-07-21 (fabricated constant ml_score=0.74 + boolean factors)
+#
+# This workflow's jobs:
+#   1. j-generator: build REAL bid_decisions for suwannee (computed per-property scores)
+#   2. a-bf-probe: re-probe FC calendar + TD results + touch H freshness
+#   3. verify: run pencil_dod_evaluate_county('suwannee') + report
+
+on:
+  schedule:
+    # 09:00 UTC daily — offset from main 08:00Z wave to avoid parallel DB load
+    - cron: '0 9 * * *'
+    # Second window at 17:00 UTC for afternoon update
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Phase to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - j_generator
+          - a_bf_probe
+          - verify_only
+
+concurrency:
+  group: gold-standard-shard8-suwannee
+  cancel-in-progress: false
+
+jobs:
+  # ── Job 1: REAL J Generator ───────────────────────────────────────────────────
+  j-generator:
+    name: "J Generator — suwannee (REAL per-property scores)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >
+      github.event_name == 'schedule' ||
+      github.event.inputs.phase == 'all' ||
+      github.event.inputs.phase == 'j_generator'
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run suwannee REAL J generator
+        run: |
+          set -euo pipefail
+          python3 scripts/gold_standard_shard8_suwannee_j_generator.py
+
+  # ── Job 2: A probe + B/F results probe + H freshness ─────────────────────────
+  a-bf-probe:
+    name: "A probe (FC calendar) + B/F probe (TD results) + H freshness"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: j-generator
+    if: >
+      always() && (
+        github.event_name == 'schedule' ||
+        github.event.inputs.phase == 'all' ||
+        github.event.inputs.phase == 'a_bf_probe'
+      )
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run suwannee A+B/F probe
+        run: |
+          set -euo pipefail
+          python3 scripts/gold_standard_shard8_suwannee_a_bf_probe.py
+
+  # ── Job 3: Verify metrics ─────────────────────────────────────────────────────
+  verify:
+    name: "Verify — pencil_dod_evaluate_county('suwannee')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [j-generator, a-bf-probe]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Evaluate suwannee metrics
+        run: |
+          set -euo pipefail
+          python3 - << 'PYEOF'
+          import os, json, urllib.request, urllib.error
+          from datetime import datetime, timezone
+
+          SB_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co').rstrip('/')
+          SB_KEY = (os.environ.get('SUPABASE_SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_KEY') or '')
+          COUNTY = 'suwannee'
+          NOW = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+          def sb_call(path, data=None, method='GET', params=None):
+              url = f'{SB_URL}/rest/v1/{path}'
+              if params:
+                  url += '?' + '&'.join(f'{k}={v}' for k, v in params.items())
+              body = json.dumps(data).encode() if data else None
+              m = method if data else 'GET'
+              req = urllib.request.Request(url, data=body, method=m)
+              req.add_header('apikey', SB_KEY)
+              req.add_header('Authorization', f'Bearer {SB_KEY}')
+              req.add_header('Content-Type', 'application/json')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f'  REST {path} failed: {e}')
+                  return None
+
+          print(f'### SQL VERIFICATION — SHARD-8 SUWANNEE VERIFY')
+          print(f'Timestamp UTC: {NOW}')
+          print(f'county: {COUNTY}')
+          print()
+
+          # J sanity check via REST
+          bd_rows = sb_call('bid_decisions', params={
+              'county_slug': f'eq.{COUNTY}',
+              'select': 'case_number,arv,max_bid,ml_score,factors',
+              'limit': '500',
+          }) or []
+          j_complete = 0
+          factor_keys = {'distress_location', 'distress_property', 'distress_owner', 'cma_distressed', 'cma_resale'}
+          for r in bd_rows:
+              if r.get('arv') is None or r.get('max_bid') is None or r.get('ml_score') is None:
+                  continue
+              f = r.get('factors') or {}
+              if isinstance(f, str):
+                  try: f = json.loads(f)
+                  except: continue
+              if all(isinstance(f.get(k), (int, float)) for k in factor_keys):
+                  j_complete += 1
+          print(f'bid_decisions total: {len(bd_rows)}')
+          print(f'J-complete (arv+max_bid+ml_score+5 factor keys with numeric values): {j_complete}')
+
+          mca_rows = sb_call('multi_county_auctions', params={
+              'county': f'eq.{COUNTY}',
+              'select': 'count',
+          }) or []
+          mca_count = int(mca_rows[0].get('count', 0)) if mca_rows else 0
+          print(f'multi_county_auctions total: {mca_count}')
+          j_pct = round(100.0 * j_complete / max(1, mca_count), 1) if mca_count > 0 else 0
+          print(f'J coverage: {j_pct}%')
+          print()
+
+          # Run evaluator — try both param name variants
+          ev = None
+          for param_name in ['p_county', 'county_name']:
+              try:
+                  req = urllib.request.Request(
+                      f'{SB_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                      data=json.dumps({param_name: COUNTY}).encode(),
+                      method='POST'
+                  )
+                  req.add_header('apikey', SB_KEY)
+                  req.add_header('Authorization', f'Bearer {SB_KEY}')
+                  req.add_header('Content-Type', 'application/json')
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      ev = json.loads(r.read())
+                  if isinstance(ev, list):
+                      ev = ev[0] if ev else {}
+                  if ev:
+                      print(f"pencil_dod_evaluate_county('{COUNTY}') [param={param_name}]:")
+                      print(json.dumps(ev, indent=2))
+                      break
+              except Exception as e:
+                  print(f'  evaluator with {param_name} failed: {e}')
+
+          if ev:
+              passes = 0
+              for letter in 'ABCDEFGHIJ':
+                  d = ev.get(letter) or ev.get(letter.lower()) or {}
+                  if isinstance(d, dict) and d.get('pass'):
+                      passes += 1
+              print(f'\nsuwannee: {passes}/10 PASS')
+          PYEOF
