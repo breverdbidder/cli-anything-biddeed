@@ -1,0 +1,75 @@
+-- GOLD STANDARD shard-6, county=polk (dispatch e9951859-29fe-4c2e-aa04-ca05ced1d0c7).
+--
+-- IMPORTANT CONTEXT CORRECTION: the dispatch brief for this session claimed a baseline of
+-- 9/10 with only I failing (card_complete=614/679=90.4%) and asked this session to fix I via
+-- geo/value backfill + parcel_zones gap repair. A FRESH live pencil_dod_evaluate_county('polk')
+-- call at the very start of this session (BEFORE any change) showed that baseline was STALE:
+-- a prior same-day session (commit 02189947, scripts/gold_standard_shard6_polk_run3679_i_geo_
+-- value_zone_fix.py, already on main) had ALREADY fixed I (99.9%, card_complete=694/695).
+-- No action was needed or taken on I this session.
+--
+-- What the fresh live check actually found: the denominator had grown from 679 to 695 rows
+-- (auction feed keeps ingesting new polk auctions), which diluted C and D below their 95%
+-- pass threshold even though the ABSOLUTE count of matched rows was unchanged:
+--   C: FAIL matched_clean=659/695=94.8%   (was PASS at 659/679=97.1% in the stale brief)
+--   D: FAIL matched_any=659/695=94.8%     (was PASS at 659/679=97.1% in the stale brief)
+--   I: PASS card_complete=694/695=99.9%   (matches prior session's claimed fix, held)
+--   A/B/E/F/G/H/J: all PASS, unchanged.
+--
+-- DIAGNOSIS (VERIFIED via direct SQL breakdown of parity_status/parity_source for the 695
+-- eval-scope rows): 36 rows had parity_status IS NULL (never matched to any tier1 source),
+-- clustering into 3 groups by (sale_type, auction_date):
+--   - foreclosure 2026-07-23 (5 rows: 2 completed, 3 upcoming)
+--   - foreclosure 2026-07-24 (7 rows, upcoming -- TODAY relative to this session)
+--   - tax_deed    2026-08-20 (24 rows: 18 upcoming, 6 redeemed)
+-- These are simply auctions that arrived via calendar_sweep_mca_v3 (and one clerk-supplementary
+-- batch) after the last AJAX harvest pass covered these specific dates -- not a structural bug.
+--
+-- FIX: reused scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py VERBATIM (no code changes
+-- -- this script already existed from the prior same-day session and is exactly the right tool:
+-- it hits polk's live RealAuction/RealTaxDeed AJAX calendar for a given (sale_type, date),
+-- matches by normalized case_number, and PATCHes parity_status='matched_clean' / parity_source=
+-- 'tier1:shard6_run3645_ajax_harvest:<sale_type>:<date>' for exact matches only):
+--   python3 scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py '[
+--     {"county":"polk","sale_type":"foreclosure","auction_date":"2026-07-23"},
+--     {"county":"polk","sale_type":"foreclosure","auction_date":"2026-07-24"},
+--     {"county":"polk","sale_type":"tax_deed","auction_date":"2026-08-20"}]'
+-- RESULT (VERIFIED, script stdout):
+--   polk foreclosure 2026-07-23: 5 calendar items  -> parity=5
+--   polk foreclosure 2026-07-24: 9 calendar items  -> parity=7
+--   polk tax_deed    2026-08-20: 50 calendar items -> parity=19
+--   TOTALS: parity_promoted=31
+--
+-- RESIDUAL (honest, not fabricated): 5 case_numbers remain parity_status IS NULL --
+-- 00044-2026, 00045-2026, 00048-2026, 00049-2026, 00050-2026 (all tax_deed, auction_date
+-- 2026-08-20). VERIFIED via a direct standalone call to harvest_date('polk','polk',
+-- '08/20/2026', platform_domain='realtaxdeed.com'): the live calendar for that date returns
+-- exactly 50 case_numbers and these 5 are genuinely absent from that list (most likely
+-- cancelled/withdrawn/removed-from-sale on the live RealTaxDeed calendar since the row was
+-- ingested by calendar_sweep_mca_v3). No case number, parcel_id, or parity value was
+-- fabricated to cover this gap; left unmatched.
+--
+-- VERIFIED via pencil_dod_evaluate_county('polk') -- BEFORE vs AFTER, this session:
+--   A: PASS(fc=538 td=157) -> PASS(fc=538 td=157)         F: PASS(100.0) -> PASS(100.0)
+--   B: PASS(100.0)         -> PASS(100.0)                 G: PASS(100.0) -> PASS(100.0)
+--   C: FAIL(94.8, 659/695) -> PASS(99.3, matched_clean=690)  H: PASS -> PASS
+--   D: FAIL(94.8, 659/695) -> PASS(99.3, matched_any=690)    I: PASS(99.9, 694/695) -> PASS(99.9, 694/695) [unchanged, pre-existing]
+--   E: PASS(99.9, 694/695) -> PASS(99.9, 694/695) [unchanged]  J: PASS(97.7, 679/695) -> PASS(97.7, 679/695) [unchanged]
+--   9/10 -> 10/10 (only letters that moved this session: C and D; I was already passing
+--   at session start due to the prior same-day session's fix).
+--
+-- Environment: all writes this session went through the Supabase Management API
+-- (POST /v1/projects/mocerqjnksmhcjzxrewo/database/query) for raw SQL reads and PostgREST
+-- (scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py, using SUPABASE_SERVICE_ROLE_KEY)
+-- for the actual parity_status/parity_source PATCHes -- no direct psql/pooler access available
+-- in this sandbox (matches every prior shard session's note).
+--
+-- ULTRALOOP audit: 3 rows inserted into public.gold_standard_ultraloop_audit
+-- (dispatch_id e9951859-29fe-4c2e-aa04-ca05ced1d0c7, county_slug='polk', letters C/D/I,
+-- survived=true for all three -- C and D as newly-fixed claims with before/after proof, I as
+-- an "already passing, no action taken, dispatch brief was stale" honesty correction).
+
+SELECT 1; -- no-op placeholder: this migration documents the diagnosis and fix for repo
+          -- history. The actual writes were 31 REST PATCH calls performed by
+          -- scripts/gold_standard_shard6_polk_cd_i_ajax_harvest.py (pre-existing script,
+          -- unmodified, reused verbatim this session) against multi_county_auctions.
