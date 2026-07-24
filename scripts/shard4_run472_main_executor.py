@@ -278,12 +278,25 @@ def phase_i_property_cards():
     # 20260703_shard13_..._bradford_i_honesty_fix.sql every ~8h. Bradford's
     # I criterion needs real per-parcel appraiser data, not a county median.
     # See gold_standard_loop C/D v2 wiring verification session (2026-07-10).
+    #
+    # okaloosa EXCLUDED (2026-07-24): same bug pattern as bradford — this
+    # bulk PATCH was fabricating a constant assessed_value=310000/
+    # market_value=325500.0 on every daily cron run (gold-standard-shard4-
+    # run472.yml, 08:05 UTC) for any okaloosa row with assessed_value IS
+    # NULL. Confirmed 19/57 okaloosa rows carried this exact fabricated pair
+    # (created 2026-07-05..2026-07-23). Purged in
+    # supabase/migrations/20260724_shard9_okaloosa_i_fabrication_purge.sql.
+    # okaloosa's I criterion needs real per-parcel appraiser data, not a
+    # county median. NOTE: clay/nassau/flagler still have this same
+    # fabrication bug live in this dict as of this fix — out of scope for
+    # this work-package (owned by other shards), flagged as residual honesty
+    # gap, NOT fixed here.
 
     now = datetime.now(timezone.utc).isoformat()
 
     for county in SHARD_COUNTIES:
-        if county == "bradford":
-            log("bradford I: SKIPPED (fabrication guard — no real median source) [VERIFIED]", "INFO", "VERIFIED")
+        if county in ("bradford", "okaloosa"):
+            log(f"{county} I: SKIPPED (fabrication guard — no real median source) [VERIFIED]", "INFO", "VERIFIED")
             continue
         base = county_median.get(county, 200000)
         # Bulk PATCH: only rows where assessed_value IS NULL
