@@ -162,3 +162,49 @@ commit> origin/main` confirmed before ending the session).
   VERIFIED; the "runs inside the actual GHA container" fact specifically is UNTESTED).
 - `26-TD-04`'s disappearance from the current pending PDF possibly indicating redemption/cancellation:
   **INFERRED** (plausible explanation, not confirmed against a cancellation notice).
+
+## Addendum: 7th firing (same dispatch_id, ~1h15m later, chat_session architect-20260724T160000)
+
+This dispatch was re-delivered to a fresh session ~1h after the 6th firing above shipped. Rather than
+duplicate work, this firing did targeted re-verification + one incremental research angle:
+
+1. **Re-verified live state: unchanged, 8/10.** `pencil_dod_evaluate_county('jefferson')` re-run
+   independently — identical to the ending state above (H metric moved 0.1→1.2hrs as expected, nothing
+   else changed). **VERIFIED**.
+2. **Confirmed the evaluator is NOT buggy.** Read the live function source
+   (`supabase/migrations/20260702_shard3_pencil_dod_f_scope_fix.sql`, the latest B/F-touching
+   migration): `closed_sold` = `count(*) FILTER (WHERE sold_amount IS NOT NULL)`, not
+   `auction_status='sold'`. Case `25-CA-164` has `auction_status='sold'` (someone/something updated the
+   status field) but `sold_amount IS NULL` — genuinely missing data, not an evaluator defect. This
+   confirms the 6th firing's diagnosis was correct, not something it overlooked. **VERIFIED**.
+3. **Upgraded one Honesty Protocol tag from UNTESTED to VERIFIED.** The 6th firing's queued
+   `workflow_dispatch` (run `30108929102`) completed after that firing closed: job succeeded, log
+   confirms `jefferson: 3 MCA rows, 0 FC outcomes, 0 TD outcomes`. The merged pipeline now has a
+   confirmed successful in-runner execution, not just an equivalent direct-execution proof.
+4. **One genuinely new escalation angle found, adversarially refuted as an honest negative
+   (ULTRALOOP fan-out, `gold_standard_ultraloop_audit` id 9545, `survived=true`):** Jefferson County's
+   official records index at `myfloridacounty.com/orisearch/33` — a real, separate search portal from
+   the pending-sales PDF calendar (linked from jeffersonclerk.com → Official Records), capable in
+   principle of surfacing a recorded Certificate of Title with the sale consideration. Blocked by a
+   Cloudflare Turnstile CAPTCHA (`sitekey 0x4AAAAAAA64PTBePmuGbrkR`), independently reproduced by the
+   refuter agent. The property appraiser's qPublic secondary path is also Cloudflare-403-blocked. No
+   dollar amount was fabricated; this refines the escalation path (below) with a concrete URL instead
+   of a generic "paid API or manual CAPTCHA" note. **VERIFIED** (portal exists, is CAPTCHA-gated) /
+   **UNTESTED** (whether a document exists behind it, since it couldn't be reached).
+5. **Confirmed `26-TD-04` residual unchanged** (still absent from the current pending-sales PDF, ~1hr
+   after the 6th firing's check). No new information; not pursued further (out of B/F scope, as before).
+6. **Operational finding (not fixed, out of shard scope):** 54 distinct `.claude/worktrees/wf_*`
+   directories are tracked in git on `main` (`git ls-tree HEAD .claude/worktrees`), left over from
+   Workflow-tool `isolation: worktree` runs across the fleet that were never cleaned up before commit.
+   This is the source of the `fatal: No url found for submodule path ...` / `exit code 128` warning seen
+   on every GHA checkout fleet-wide (including this firing's confirmation run) — it does not fail the
+   job, just adds a warning per run. Flagging for whichever session owns shared repo hygiene; not
+   touched here since other shards' worktrees may still be in active use and this is outside
+   PARALLEL-FLEET RULES' jefferson-only scope.
+
+**Updated escalation status:** the two out-of-session-authority options remain (paid court-records API,
+or a manual/interactive-browser CAPTCHA solve at `myfloridacounty.com/orisearch/33` searching Party
+Name "Bank of New York" or a direct records request to `publicrecords@jeffersoncountyfl.gov` / (850)
+342-0287 citing case 25-CA-164) — now with a specific, real target instead of a generic placeholder.
+No metric moved this firing (correctly — nothing new reached the DB); the deliverable is diagnostic
+confirmation + a sharper escalation path.
