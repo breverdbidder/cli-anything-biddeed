@@ -1,0 +1,73 @@
+name: "Wakulla Tax Deed Outcomes Harvest"
+# Gold Standard shard-3 (jackson/wakulla) -- dispatch da3fde1c-5c12-4786-bbda-4ea2708ee2e1, loop run 6253
+# Wakulla B/F: wakullaclerk.org's own tax-deed calendar never shows post-sale results, so
+# sold_amount/tier1_sold_amount stayed NULL for every past sale (B/F metric=null,
+# closed_sold=0). Root cause was a missing scraper, not accrual. Wakulla's Clerk records tax
+# deed sales as recorded "DEED" documents (grantor "WAKULLA COUNTY CLERK OF COURT") in its
+# LandmarkWeb official-records search (www.wakullaclerk.com/landmarkweb) with the winning bid
+# in the Consideration field. This job sweeps that index and backfills
+# multi_county_auctions.sold_amount + an INDEPENDENT tax_deed_outcomes row per case.
+# Verified live 2026-07-10 (session backfill): moved wakulla B/F from null/null -> 100.0/100.0
+# (17/17; 2026-TXD-097 has no recorded deed -- confirmed absent, no bidder at auction, not a
+# gap). This job keeps future sales (next batches 2026-07-30, 2026-08-19) covered automatically.
+
+on:
+  schedule:
+    - cron: '50 5 * * *'   # 05:50 UTC daily, after wakulla-td-parcel-harvest (05:40Z)
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Start date mm/dd/yyyy (default: 30 days ago)"
+        required: false
+      end_date:
+        description: "End date mm/dd/yyyy (default: today)"
+        required: false
+
+jobs:
+  harvest:
+    name: "Harvest wakulla tax deed outcomes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests
+
+      - name: "Run harvester"
+        run: |
+          set -euo pipefail
+          EXIT=0
+          if [ -n "${{ github.event.inputs.start_date }}" ]; then
+            python3 scripts/wakulla_landmarkweb_outcomes_harvest.py \
+              --start "${{ github.event.inputs.start_date }}" \
+              --end "${{ github.event.inputs.end_date || '' }}" || EXIT=$?
+          else
+            python3 scripts/wakulla_landmarkweb_outcomes_harvest.py || EXIT=$?
+          fi
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = nothing new to write (all caught up) -- not a failure
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: B/F metrics via evaluator RPC"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "wakulla"}')
+          echo "### SQL VERIFICATION: wakulla B/F" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
