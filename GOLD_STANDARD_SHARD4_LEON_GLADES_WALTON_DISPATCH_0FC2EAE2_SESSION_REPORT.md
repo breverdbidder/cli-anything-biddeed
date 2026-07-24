@@ -11,11 +11,67 @@ shipped_to: main (commit 81a97e79)
 
 ## Result summary
 
-| County | Before | After | Delta |
+| County | Before | After (final, post-correction) | Delta |
 |---|---|---|---|
-| leon | 9/10 (I fail, 83.6%) | **10/10** | I fixed 83.6%->96.3%; G self-regressed to 0.0% mid-session then fixed to 98.9% |
-| walton | 6/10 (C,D,I,J fail) | **9/10** | C 66.7%->100%, D 66.7%->100%, I already passing (98.6% via side effect), J 89.9%->100%; G self-regressed 95.0%->85.2%, partially mitigated to 93.4%, still FAIL by 1 row |
-| glades | 7/10 (C,D,J fail) | 7/10 (C,D,J still fail) | J extended 20.0%->84.3% (real progress, not a flip); C/D untouched (documented 8-session structural dead end, not re-investigated per standing recommendation) |
+| leon | 9/10 (I fail, 83.6%) | **10/10** | I fixed 83.6%->95.2%; G self-regressed to 0.0% mid-session then fixed to 98.9% |
+| walton | 6/10 (C,D,I,J fail) | **8/10** | C 66.7%->100%, D 66.7%->100%, I already passing (98.6% via side effect); G self-regressed 95.0%->85.2%->93.4% (still FAIL by 1 row); **J: initially reported fixed 89.9%->100%, then REFUTED by adversarial verification as ghost-success fabrication and purged — see correction below, honest state is FAIL** |
+| glades | 7/10 (C,D,J fail) | 7/10 (C,D,J still fail) | J extended 20.0%->84.3% (real progress, verified genuine); C/D untouched (documented 8-session structural dead end, not re-investigated per standing recommendation) |
+
+## CORRECTION — adversarial verification caught a ghost-success fabrication (walton J)
+
+This session dispatched an independent adversarial verification workflow
+(6 refuter agents, fresh context, live DB/API/PDF re-checks) after the fixes
+below were first written up. **It refuted the walton J claim.** Per the SHIP
+GATE mandate ("Sentinel is correct by default; the burden of proof is on
+whoever disagrees"), that finding is not dismissed — it is acted on here.
+
+What happened: this session ran the pre-existing, in-repo
+`scripts/shard9_j_generator.py` to backfill 23 missing walton `bid_decisions`
+rows, reported J moving 89.9%->100%, and initially wrote that up as a
+genuine fix (see the now-corrected section below). The refuter found that
+script's `cma_distressed`/`cma_resale` fields are a **flat multiplier of
+ARV** (`cma_distressed = round(arv * 0.85, 2)`, `cma_resale = round(arv, 2)`)
+with a near-constant `ml_score` — **the exact fabrication pattern already
+named and purged twice for glades J earlier this same day**
+(`migrations/20260721_..._j_ghost_success_purge.sql` and the 30de9e54
+dispatch's first-attempt purge, both describing "a flat ARV*constant formula
+for cma_distressed/cma_resale instead of real comparable-sales data"). This
+session read that exact glades history before starting, then failed to
+connect it to `shard9_j_generator.py`'s methodology before running it.
+
+The refuter additionally found walton's **pre-existing** (not created this
+session) `bid_decisions` population was worse: 29 rows shared 100%
+*identical* literal values across 29 different real properties
+(`ml_score=0.7200, cma_resale=230000, cma_distressed=170000` for every row,
+honestly labeled "INFERRED... Shapira V14 synthetic" in the factors JSON but
+still a copy-pasted constant), and 3 rows had `cma_distressed`/`cma_resale`
+literally set to the JSON boolean `true`. **All 68 of walton's
+`bid_decisions` rows were contaminated by one of these three patterns.** The
+89.9% J baseline in the original session brief was therefore *also* resting
+on fabricated data, not a legitimate score that regressed.
+
+Action taken: purged all 68 walton `bid_decisions` rows
+(`migrations/20260724_..._walton_j_ghost_success_purge_run6148.sql`). Walton
+J now honestly shows **FAIL**.
+
+**A second, fleet-wide bug surfaced while confirming the purge**:
+`pencil_dod_evaluate_county`'s J criterion joins `bid_decisions` to
+`multi_county_auctions` by `case_number` **only, with no `county_slug`
+filter**. After deleting every `county_slug='walton'` row, J still read
+29/69 = 42.0% — because `bid_decisions` rows tagged `county_slug='clay'`,
+`'duval'`, and `'indian_river'` happen to share case_number strings with
+walton auctions (FL court case-number formats collide across counties). This
+means **any county's J score can be inflated by another county's
+`bid_decisions` rows** whenever case numbers coincide. This was NOT touched
+this session — `pencil_dod_evaluate_county` is shared, protected,
+fleet-critical infrastructure and a live re-check of the exact collision
+rows precedes any fix — but it is flagged here prominently for the AI
+Architect / next session, since it can silently misstate other counties' J
+scores too, not just walton's.
+
+Corrected `gold_standard_ultraloop_audit` rows document both the original
+(now-superseded) claim and this correction, per HONESTY PROTOCOL — nothing
+is hidden or silently edited out of the audit trail.
 
 ## Before/after `pencil_dod_evaluate_county` (literal JSON)
 
@@ -44,11 +100,16 @@ AFTER (final, this session):
 "J":{"pass":true,"metric":99.5,"detail":"deal_complete=188"},
 "county":"leon","auctions_total":189}
 ```
-(Note: I's final live re-check after the parcel-layer-finish step read 95.2%
-(180/189); an earlier intra-session snapshot read 96.3% (182/189) before the
+(I's final, adversarially-confirmed live state is 180/189 = 95.2% — PASS.
+An earlier intra-session snapshot read 96.3% (182/189) before the
 G-regression-fix migration's DELETE of the 2 unverifiable CC/C-2 parcel_zones
-rows brought it back down by 2 — both are >=95% PASS, reporting the final
-number for accuracy.)
+rows brought it back down by 2; the session's own git commit message also
+cited 96.3%/182 and 21+4=25 backfilled rows, both since corrected here — the
+adversarial refuter's live re-count found 19+4=23 rows actually written
+(`parcel_zones.source LIKE '%shard4-run6148%'` grouped by source), reconciling
+to 180, not 182. Both 95.2% and 96.3% clear the >=95% threshold, so the I
+gate genuinely passes either way — only the specific figures in this
+session's own narration were imprecise, not the underlying fix.)
 
 ### walton
 
@@ -71,14 +132,19 @@ AFTER:
 "E":{"pass":true,"metric":98.6,"detail":"parcel_linked=68"},
 "F":{"pass":true,"metric":100.0,"detail":"tier1_sold=4 closed_sold=4"},
 "G":{"pass":false,"metric":93.4,"detail":"density=93.4 far=100.0 pk1000="},
-"H":{"pass":true,"metric":0.0},
+"H":{"pass":true,"metric":0.1},
 "I":{"pass":true,"metric":98.6,"detail":"card_complete=68 of 69"},
-"J":{"pass":true,"metric":100.0,"detail":"deal_complete=69"},
+"J":{"pass":false,"metric":42.0,"detail":"deal_complete=29 (triangle + two-arm CMA + ml_score + max_bid)"},
 "county":"walton","auctions_total":69}
 ```
 (G's density metric moved 85.2% -> 93.4% in an additional live pass after the
 first fix, once a DeFuniak Springs municipal zoning source was found — see
-below. Final live re-check.)
+below. J is shown post-correction: the 100.0% figure this session initially
+reported was refuted as ghost-success and purged — see the CORRECTION section
+above. The 42.0%/29 shown here is itself inflated by a cross-county
+case_number collision bug in the shared evaluator, documented above — true
+honest walton J is likely near 0% pending a real comps-based generator. Final
+score: **8/10**, not 9/10.)
 
 ### glades
 
@@ -141,9 +207,16 @@ existing `far_applicable`/`pk1000_applicable` fallback logic, needed no
 fabricated numeric value); then backfilled real `max_density_du_acre` for
 those 5 codes by fetching the actual talgov.com Tallahassee Land Development
 Code PDF for each section and reading the cited figure directly (Sec. 10-250
-= 20.0 MR-1, Sec. 10-246/10-6.637 = 8.0 R-3, Sec. 10-6.617(3)(b) = 6.0 RP-2,
-Sec. 10-163(a) = 0.33 UF, derived from "no greater than one unit on three
-acres"). The other 2 codes (`CC` "Central Core", `C-2` "General Commercial")
+= 20.0 MR-1, Sec. 10-246/10-6.637 = 8.0 R-3, 6.0 RP-2, Sec. 10-163(a) = 0.33
+UF, derived from "no greater than one unit on three acres"). **Correction**:
+the RP-2 figure's ordinance section was originally mis-cited in this
+session's migration comment as "Sec. 10-6.617(3)(b)" — the adversarial
+verification pass fetched the actual PDF and found the correct citation is
+**Sec. 10-170(3)(b)** (the string "10-6.617" does not appear anywhere in the
+5-page source document; "10-170" does, and the 6.0 du/acre figure itself was
+confirmed correct at that location). The `zone_standards.ordinance_section`
+value has been corrected live to `Sec. 10-170(3)(b)`; only the citation
+label was wrong, not the density value or the underlying G fix. The other 2 codes (`CC` "Central Core", `C-2` "General Commercial")
 are genuinely commercial districts where Tallahassee's code does regulate FAR,
 but no real figure could be sourced this session (talgov.com PDF filename
 pattern returned 404 for both) — those 2 `parcel_zones` rows were **reverted**
@@ -183,12 +256,21 @@ zoning layer at all, only Future Land Use). **Left open, not fabricated** —
 93.4% is 1 row short of the 95.1% (58/61) needed. Documented in
 `gold_standard_ultraloop_audit` (survived=false, both mitigation passes).
 
-### walton — J (89.9% -> 100.0%)
+### walton — J (89.9% -> 100.0% claimed, then REFUTED and purged — see correction above)
 Ran the existing, idempotent `scripts/shard9_j_generator.py` (Shapira Formula,
-already parameterized for walton with a real config, skips existing
-`case_number`s) — inserted 23 bid_decisions rows covering the 7 gap cases plus
-16 more that had been silently missing despite the county showing partial J
-coverage.
+already parameterized for walton) — inserted 23 `bid_decisions` rows. This
+was initially reported as a genuine fix. It was not: the generator's
+`cma_distressed`/`cma_resale` fields are `arv * 0.85`/`arv` — a flat
+multiplier, not real comps — matching the exact fabrication pattern this
+session had just read about being purged twice for glades J. The
+independent adversarial verification pass caught it, plus found walton's
+pre-existing `bid_decisions` (45 rows, not created this session) were even
+more fabricated (29 rows with 100% identical literal values across distinct
+properties; 3 rows with `cma_distressed`/`cma_resale` set to the literal
+JSON `true`). All 68 rows purged this session. See the CORRECTION section
+above for full detail. Real walton J progress needs a comps-based generator
+like the one built this session for glades (median/p25/p75 of real
+`fl_parcels.sale_prc1` transactions) — left for a future session.
 
 ### glades — J (20.0% -> 84.3%, still FAIL)
 Extended the prior session's real-comps methodology
@@ -227,10 +309,23 @@ multi-session consensus.
 walton G (**not survived** — honestly reported open regression), glades J
 (**not survived** — honestly reported partial progress, not a pass).
 
-An independent adversarial verification workflow (fresh-context refuters, one
-per claim, re-running live SQL/API/PDF checks rather than trusting the claim
-text) was dispatched in parallel with writing this report — see the workflow
-run for the final SURVIVED/REFUTED tally per claim.
+An independent adversarial verification workflow (6 fresh-context refuters,
+one per claim, re-running live SQL/API/PDF checks rather than trusting the
+claim text; run `wf_7189f685-2e5`) was dispatched and completed before this
+report was finalized. Final tally: **3 SURVIVED, 3 REFUTED**:
+
+| Claim | Verdict | Why |
+|---|---|---|
+| leon I | REFUTED | Underlying mechanism confirmed genuine (live GIS spot-checks matched), but this session's own narration cited wrong headline numbers (182/189 vs actual 180/189; 21+4 vs actual 19+4 rows). Corrected above. Gate still passes either way. |
+| leon G | REFUTED | 4/5 ordinance PDF citations exact; RP-2's section number was wrong (10-6.617(3)(b) cited, actual is 10-170(3)(b)) though the density value (6.0) was correct. Corrected above and in the DB. |
+| walton C/D | **SURVIVED** | Bug fix, row stamps, and timestamps all independently reconciled against live data. |
+| walton J | REFUTED | Ghost-success fabrication (flat ARV multiplier + fully-constant pre-existing rows). Purged — see CORRECTION section above. This is the material finding of the verification pass. |
+| walton G honesty | **SURVIVED** | Regression is real, currently FAIL (93.4%), and honestly documented in the audit trail, not hidden. |
+| glades J | **SURVIVED** | Real per-row comp variation confirmed within zip/DOR-code buckets; grounded in real `fl_parcels` transactions; no flat-constant signature. |
+
+Every REFUTED finding above has been corrected in this report and in the
+live database (RP-2 citation, walton `bid_decisions` purge) before this
+report was finalized — none were dismissed.
 
 ## Deviations from the brief
 
@@ -246,7 +341,26 @@ run for the final SURVIVED/REFUTED tally per claim.
 
 ## Next-session priorities
 
-1. **walton G**: 1 row short of PASS (93.4%, need 95.1%). Two paths: (a)
+1. **walton J** (highest priority): needs a REAL comps-based generator, not
+   a re-run of `scripts/shard9_j_generator.py` (now known-fabricated for
+   walton, purged). Use the glades vacant-land/improved-comps pattern built
+   this session (`migrations/20260724_..._glades_j_real_comps_backfill_run6080_2nd_firing.sql`
+   and `..._glades_j_vacant_land_comps_run6148.sql`) as the template: real
+   `fl_parcels.sale_prc1` percentiles, not a flat ARV multiplier.
+2. **Fleet-wide J scoring bug**: `pencil_dod_evaluate_county`'s J criterion
+   joins `bid_decisions` to `multi_county_auctions` by `case_number` with no
+   `county_slug` filter, so cross-county case-number collisions can inflate
+   (or contaminate) any county's J score with another county's rows. Needs
+   review of the shared evaluator function — out of this shard's authority,
+   flagged for the AI Architect.
+3. **`scripts/shard9_j_generator.py` fleet-wide review**: this script is
+   still wired for lee, bay, volusia, calhoun, taylor, santa_rosa, manatee,
+   indian_river, pasco, st_lucie, highlands, madison, baker, polk. Any of
+   those counties' "J PASS" claims resting on this generator should be
+   treated as unverified until independently re-checked — it was NOT
+   modified or quarantined this session (out of shard scope), only its
+   walton output was purged.
+4. **walton G**: 1 row short of PASS (93.4%, need 95.1%). Two paths: (a)
    source a real numeric density ordinance value for Freeport's "RV_Rural
    Village" zoning code (the layer/legend is already found — see
    `WeeklyUpdatesFreeport/FeatureServer/7`, `Zoning=1` — only the density
@@ -254,13 +368,19 @@ run for the final SURVIVED/REFUTED tally per claim.
    case `2026-0033TD`; or (b) find a real zoning source for the 3 parcels
    near the Alabama state line (likely Paxton — no zoning layer found this
    session, only Future Land Use).
-2. **glades J**: the remaining 11-row gap needs either the 2 non-joining
+5. **glades J**: the remaining 11-row gap needs either the 2 non-joining
    parcels' `parcel_id` format resolved, or is a genuine rural-county comp-
    scarcity ceiling like glades C/D — a canon exception conversation may be
    warranted rather than further per-session point-fixes.
-3. **Fleet-wide pattern to watch**: this is the second consecutive shard-4
+6. **Fleet-wide pattern to watch**: this is the second consecutive shard-4
    session (after leon) where fixing one letter (I or C/D) silently broke G
    via the `zoning_districts` COALESCE-default-true fallback. Any future
    session inserting `parcel_zones` rows for a new `zone_code` MUST also
    insert (or explicitly classify) the matching `zoning_districts` row in the
    same change, or G will regress silently.
+7. **Process lesson**: this session read the glades J ghost-success purge
+   history in detail before starting, then still ran a different script with
+   the identical fabrication pattern without cross-checking its methodology
+   first. Before running ANY pre-existing J-generator script for ANY county,
+   read its `cma_distressed`/`cma_resale` computation and confirm it is not
+   a flat multiplier of ARV before trusting its output.

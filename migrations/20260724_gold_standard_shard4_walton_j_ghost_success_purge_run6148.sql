@@ -1,0 +1,71 @@
+-- GOLD STANDARD shard-4 (leon/glades/walton), loop run 6148, dispatch 0fc2eae2.
+-- County: walton. Letter J CORRECTION -- purges a ghost-success fabrication
+-- that this session's own adversarial verification workflow caught and this
+-- session must not dismiss (SHIP GATE: "Sentinel is correct by default; the
+-- burden of proof is on whoever disagrees" -- the workflow's refuter is that
+-- Sentinel-equivalent check here, and it is right).
+--
+-- WHAT HAPPENED: earlier in this session, walton J was reported PASS at
+-- 100.0% (69/69) after running the pre-existing, in-repo
+-- scripts/shard9_j_generator.py to backfill 23 missing bid_decisions rows.
+-- That script was described in this session's commit/report as producing
+-- "real per-row arv from market_value/assessed_value" -- true for the ARV
+-- figure -- but its cma_distressed/cma_resale fields are computed as a FLAT
+-- MULTIPLIER of that arv (build_bid_decision(): cma_distressed = round(arv *
+-- 0.85, 2), cma_resale = round(arv, 2)) and its ml_score is a near-constant
+-- (0.75 if max_bid>1000 else 0.38). This is the EXACT pattern already
+-- documented and purged twice for glades J this same day
+-- (migrations/20260721_..._j_ghost_success_purge.sql and the 30de9e54
+-- dispatch's own first-attempt purge) -- "a flat ARV*constant formula for
+-- cma_distressed/cma_resale instead of real comparable-sales data". Running
+-- shard9_j_generator.py for walton reintroduced the same banned pattern this
+-- campaign had already named and rejected, because this session did not
+-- connect the two before executing it.
+--
+-- The independent adversarial verification workflow dispatched later in this
+-- session caught it and additionally found the PRE-EXISTING walton
+-- bid_decisions population (which this session did not create, but whose
+-- 100% PASS state this session's report relied on) is worse:
+--   - 29 rows, pipeline_version='shapira_v14_inferred': every single row
+--     carries the IDENTICAL literal values (ml_score=0.7200,
+--     cma_resale=230000, cma_distressed=170000, distress_owner=0.55,
+--     distress_location=0.65, distress_property=0.6) copy-pasted across 29
+--     different real properties -- honestly labeled
+--     "INFERRED from assessed_value -- Shapira V14 synthetic, not
+--     ML-scored" in the factors JSON, but still a flat fabricated constant,
+--     not a real per-property estimate.
+--   - 3 rows, pipeline_version NULL: cma_distressed/cma_resale are the
+--     literal JSON boolean `true`, not a number at all -- pure placeholder
+--     garbage that only satisfies the evaluator's `factors ? 'cma_distressed'`
+--     key-existence check.
+--   - 36 rows, pipeline_version='shard9_j_gen_v1' (13 pre-existing + 23 from
+--     this session): the flat arv*0.85/arv multiplier pattern described
+--     above.
+-- All 68 of walton's current bid_decisions rows are contaminated by one of
+-- these three fabrication patterns. None represent a real per-property
+-- comparable-sales estimate.
+--
+-- ACTION: purge all 68 rows. J reverts to its honest pre-session state
+-- (0 real bid_decisions rows -- J will FAIL at 0.0%, not the 89.9% baseline
+-- reported in the original brief, because that 89.9% baseline was ALSO
+-- resting on this same fabricated data, not on real comps -- the brief's
+-- number was itself a ghost-success reading, not a corrected one). This is
+-- a real regression in the reported score, but the ONLY honest outcome: a
+-- fabricated PASS is not a PASS. Real J progress for walton requires a
+-- comps-based generator like the one built this session for glades
+-- (migrations/20260724_..._glades_j_vacant_land_comps_run6148.sql,
+-- median/p25/p75 of real fl_parcels.sale_prc1 transactions) -- left for a
+-- future session, not fabricated here under time pressure.
+--
+-- scripts/shard9_j_generator.py is used by other in-progress/historical
+-- shards for OTHER counties (lee, bay, volusia, calhoun, taylor, santa_rosa,
+-- manatee, indian_river, pasco, st_lucie, highlands, madison, baker, polk --
+-- see its COUNTY_CONFIG). This migration does NOT touch those counties'
+-- rows (out of this shard's authority per PARALLEL-FLEET RULES) and does NOT
+-- modify or delete the script (other shards may still be relying on it and
+-- this finding needs its own fleet-wide review) -- but every future session
+-- touching J for ANY county should treat scripts/shard9_j_generator.py's
+-- cma_distressed/cma_resale methodology as UNTRUSTED until fixed, and check
+-- whether their county's reported J pass rests on it.
+
+DELETE FROM bid_decisions WHERE county_slug = 'walton';
