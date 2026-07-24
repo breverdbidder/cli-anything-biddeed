@@ -208,3 +208,43 @@ Name "Bank of New York" or a direct records request to `publicrecords@jeffersonc
 342-0287 citing case 25-CA-164) — now with a specific, real target instead of a generic placeholder.
 No metric moved this firing (correctly — nothing new reached the DB); the deliverable is diagnostic
 confirmation + a sharper escalation path.
+
+## Addendum: 8th firing (same dispatch_id `c3be301d`, same `chat_session architect-20260724T160000`
+as the 7th firing above — this dispatch was re-delivered a second time to a fresh session context)
+
+This is a duplicate re-fire of the identical dispatch, ~3h15m after the 7th firing shipped `c8ead307`.
+Rather than re-run the exhaustive research already performed across 7 prior firings (stranded-branch
+recovery, PDF label-format fix, outcomes-schema fix, FL Treasure Hunt, BOCC packets, myfloridacounty.com
+official-records CAPTCHA, qPublic Cloudflare block, FL Stat 45.031 newspaper-channel dead end), this
+firing did targeted re-verification only, per K3 Surgical Changes / cost discipline — spinning up a new
+ULTRALOOP fan-out to re-derive already-confirmed conclusions would be wasted fleet spend, not thoroughness.
+
+1. **Re-verified live state via REST RPC: unchanged, 8/10.** `pencil_dod_evaluate_county('jefferson')`
+   — identical to the 7th firing's ending state (`B`/`F` still `verified=0 closed_sold=0` /
+   `tier1_sold=0 closed_sold=0`; only `H`'s freshness metric ticked, 2.9h, still well inside the 48h SLA).
+   **VERIFIED** (direct REST call, output captured this session).
+2. **`SUPABASE_DB_PASSWORD` psql auth still fails in this sandbox** — same operational finding as all 8
+   firings; REST API + service-role key used throughout instead, per CLAUDE.md sanctioned path.
+   **VERIFIED**.
+3. **Live dry-run of the merged scraper (`shard_jefferson_clerk_scraper.py --dry-run`): no new sale
+   data.** Foreclosure page now has **zero** PDF linked at all (previously had the 1-row `25-CA-164`
+   pending-sales PDF, which makes sense to disappear once a case is no longer pending — it does not
+   imply a results PDF exists elsewhere; none was found). Tax-deed PDF unchanged: still only `26-TD-05`,
+   `sold_amount: null`. Confirmed by direct `curl` of the foreclosure page (HTTP 200, 155KB, zero `.pdf`
+   hrefs in the raw HTML) that this is a genuine empty state, not a fetch/WAF failure. **VERIFIED**.
+4. **`26-TD-04` residual still absent from the pending PDF**, ~4.5h after the 6th firing first noticed
+   it and ~3.25h after the 7th firing's re-check. No new information. **VERIFIED**, not pursued (out of
+   B/F scope, as noted in both prior firings).
+5. **No new escalation avenue attempted this firing.** The two out-of-session-authority options (paid
+   court-records API; manual CAPTCHA solve at `myfloridacounty.com/orisearch/33`) are unchanged from the
+   7th firing's finding — this firing did not have new grounds to revisit them.
+
+**Conclusion: jefferson remains correctly at 8/10.** The wiring is confirmed correct and already proved
+by a real in-runner execution (7th firing, GHA run `30108929102`). B and F have no legally-obtainable
+public data to move them right now — continuing to dispatch this identical shard will not produce a
+different outcome until either (a) the 2026-08-19 tax deed sale passes and a results PDF is published,
+which the existing weekly cron will pick up automatically with zero further manual session required, or
+(b) someone with authority to spend outside the ARM-2 J-only pre-authorization approves a paid
+court-records API call, or manually solves the CAPTCHA at the official-records portal identified in the
+7th firing. **Recommend the fleet dispatcher stop re-firing this exact dispatch_id until one of those
+two conditions changes** — each re-fire currently burns a session for zero possible metric movement.
