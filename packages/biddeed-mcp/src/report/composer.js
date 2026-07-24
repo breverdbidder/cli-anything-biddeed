@@ -19,6 +19,7 @@ import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
 import { predict as xgbPredict } from './xgboost-model.js';
 import { deriveRedFlags } from './red-flags.js';
+import { buildOutcomeSection } from './outcome.js';
 
 const NO_ESTIMATE_REFUSAL = "An estimate here would be fabrication; BidDeed declines where HouseCanary would extrapolate.";
 const MIN_PRICE_SIGNAL = 1000;
@@ -150,6 +151,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       zoning: await buildZwSection(auction, { get }),
       cma: { section_key: 'cma', comps: [], note: 'No comps — subject is unlocatable.' },
       red_flags: redFlags,
+      auction_outcome: buildOutcomeSection(auction, { ceiling: null, value: null, entryBid: null }),
       composition: sectionComposition({ locatable: false }),
       provenance: buildProvenance(auction, { modelAvailable: false }),
     };
@@ -182,6 +184,9 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   if (thinMargin && verdict.startsWith('BID')) {
     redFlags.push({ code: 'THIN_MARGIN', severity: 'risk', text: `Ceiling-to-entry margin is ${marginPct != null ? Math.round(marginPct * 100) : '?'}% — thin cushion, size accordingly.` });
   }
+
+  const outcome = buildOutcomeSection(auction, { ceiling, value, entryBid });
+  if (outcome.flags?.length) redFlags.push(...outcome.flags);
 
   return {
     cover: {
@@ -238,6 +243,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       bid_to_judgment_ratio: (auction.opening_bid && auction.judgment_amount) ? Number((auction.opening_bid / auction.judgment_amount).toFixed(3)) : null,
     },
     red_flags: redFlags,
+    auction_outcome: outcome,
     composition: sectionComposition({ locatable: true }),
     provenance: buildProvenance(auction, { modelAvailable: model.available }),
   };
