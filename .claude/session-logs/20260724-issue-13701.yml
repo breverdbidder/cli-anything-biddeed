@@ -1,0 +1,99 @@
+session:
+  date: "2026-07-24"
+  issue: 13701
+  dispatch_id: "1a7d03e0-6c1f-4240-822d-185fd0fe77dd"
+  chat_session: "architect-20260724T080000"
+  shard: 9
+  counties: [union, escambia]
+  runner: cc-runner-ghonly (github-actions)
+
+decisions:
+  - step: 1
+    action: "union B/F: Structural block confirmed — no closed sales exist"
+    result: "NOT_ACTIONED"
+    reason: |
+      union has 3 total auctions: 1 redeemed (UNION-TD-CERT223) + 2 upcoming
+      (63-2025-CA-0053 due 2026-08-13, 63-2024-CA-0047 due 2026-10-15).
+      verified=0, closed_sold=0. Nothing to verify. Earliest possible close
+      2026-08-13 (24 days from this session). Consistent with 4 prior sessions.
+    honesty_marker: VERIFIED (from shard-11 4th firing session report, re-confirmed)
+
+  - step: 2
+    action: "escambia G: Set pk1000_regulated=false on HDMU/Com/HC-LI/R-NC"
+    result: "MIGRATION_WRITTEN"
+    reason: |
+      shard-14 dispatched 10-agent ultraloop (708K tokens) and found zero
+      per-district parking values surviving adversarial verification. Root cause:
+      Escambia LDC Sec. 5-6.3 delegates to DSM Ch.1 Art.3 Sec.3-1.2 which is
+      use-indexed not district-indexed. pk1000_regulated=false is the established
+      schema mechanism (precedent: Okeechobee PD 20260718s, Santa Rosa PD, etc.)
+      for districts that genuinely have no per-district ratio. This removes the
+      4 blocking districts from pk1000 denominator → G pk1000 becomes N/A → G
+      should return to PASS.
+    file: "supabase/migrations/20260724_gold_standard_shard9_escambia_g_pk1000_regulated_fix.sql"
+    honesty_marker: "INFERRED-correct from VERIFIED root-cause (shard-14 ultraloop)"
+
+  - step: 3
+    action: "escambia C/D: Build idempotent shard-9 harvest script"
+    result: "SCRIPT_WRITTEN"
+    reason: |
+      Re-run the idempotent RealAuction harvest+promote pattern to capture
+      any new auction date listings since shard-14 (2026-07-20). Pattern is
+      proven across 5+ prior sessions.
+    file: "scripts/shard9_escambia_cd_fix.py"
+    honesty_marker: "UNTESTED (cannot run live in this session without DB access)"
+
+  - step: 4
+    action: "escambia I/J: Build backfill script for new auction rows"
+    result: "SCRIPT_WRITTEN"
+    reason: |
+      escambia I regressed from 95.9% (shard-14) to 89.6% (current brief);
+      J regressed from 97.4% to 90.9%. Root cause: new auction rows added to
+      multi_county_auctions after 2026-07-20 without bid_decisions or complete
+      property cards. Script discovers gaps and fills them: J via Shapira
+      Formula V14 contract (arv+max_bid+ml_score+5 factors), I via fl_parcels
+      enrichment for parcel_id matches.
+    file: "scripts/shard9_escambia_ij_backfill.py"
+    honesty_marker: "UNTESTED (cannot run live in this session)"
+
+  - step: 5
+    action: "Wire scripts to scheduled GHA workflow"
+    result: "WORKFLOW_CREATED"
+    reason: "WIRING MANDATE: code that is not scheduled is dead code. Created daily 06:30Z workflow."
+    file: ".github/workflows/gold-standard-shard9-escambia-daily.yml"
+
+artifacts:
+  - supabase/migrations/20260724_gold_standard_shard9_escambia_g_pk1000_regulated_fix.sql
+  - scripts/shard9_escambia_cd_fix.py
+  - scripts/shard9_escambia_ij_backfill.py
+  - .github/workflows/gold-standard-shard9-escambia-daily.yml
+
+verification:
+  - check: "escambia G pk1000 regression fix"
+    proof: "Migration written with ultraloop audit row. Live execution via GHA workflow will confirm."
+    status: "UNTESTED"
+
+  - check: "union B/F block"
+    proof: "Consistent with 4 prior shard-11 session reports; no closed sales exist. Will remain FAIL until 2026-08-13 minimum."
+    status: "VERIFIED (from prior sessions)"
+
+plan_vs_actual:
+  - task: "union B/F"
+    planned: "Fix if possible"
+    actual: "Confirmed structurally blocked — no closed sales"
+    deviation: "none — structural block was expected"
+
+  - task: "escambia G"
+    planned: "Apply pk1000_regulated=false on blocking districts"
+    actual: "Migration written, wired to GHA daily"
+    deviation: "none"
+
+  - task: "escambia C/D"
+    planned: "Re-run idempotent harvest"
+    actual: "Script written, wired to GHA daily"
+    deviation: "Cannot run live in this session (no DB exec env)"
+
+  - task: "escambia I/J"
+    planned: "Backfill new auction rows"
+    actual: "Script written, wired to GHA daily"
+    deviation: "Cannot run live in this session (no DB exec env)"
