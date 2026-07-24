@@ -1,0 +1,73 @@
+session:
+  shard: SHARD-8 (liberty only)
+  dispatch_id: 9433ec3c-3860-480f-a0bf-946e6aeb5fbe
+  chat_session: architect-20260724T160000
+  date: 2026-07-24
+  firing: 2nd (same dispatch_id + chat_session as commit 9aa3608f, ~1h23m earlier:
+    18:00:45Z -> this firing 19:23:49Z)
+  mode: duplicate-dispatch detection + cheap fresh-state confirmation, NOT a full
+    ultracode re-run (see reason below)
+
+duplicate_detection:
+  finding: "git log --all | grep liberty showed commit 9aa3608f already on main,
+    carrying the IDENTICAL dispatch_id and chat_session as this firing's brief.
+    That commit's session log (2026-07-24-gold-standard-shard8-liberty.yml)
+    already ran the full ULTRALOOP fan-out (4 research agents + 1 fix agent + 1
+    adversarial verifier) against the same 3 failing letters (A/B/F) and reached
+    a fully adversarially-verified NO_WRITE conclusion, logged to
+    gold_standard_ultraloop_audit (ids 9595-9597, survived=true)."
+  decision: "Did NOT re-run the full 4-agent workflow. The prior firing's
+    blockers are real-world constraints that do not change on an ~80-minute
+    cadence (live Cloudflare Turnstile CAPTCHA walls on the only 2 sources that
+    would carry the outcome; a ~10-day FL Certificate-of-Title recording lag
+    past the 2026-07-21 sale, with next legitimate recheck not until
+    2026-07-31). Re-running identical automation against an identical CAPTCHA
+    wall 80 minutes later has ~zero expected new information and would violate
+    cost-discipline / one-attempt-per-approach. Instead ran 3 cheap, targeted
+    checks to verify neither blocker had quietly lifted before standing down."
+
+fresh_checks_this_firing:
+  - check: "pencil_dod_evaluate_county('liberty') via live PostgREST RPC"
+    result: "A=0(fc=1/td=0,FAIL) B=null(0/0,FAIL) C=100.0 D=100.0 E=100.0
+      F=null(0/0,FAIL) G=100.0 H=7.8 I=100.0 J=100.0, 7/10 -- byte-identical to
+      the 18:00:45Z commit's recorded after-state. Zero drift, zero silent
+      write, in either direction."
+  - check: "Firecrawl account credit balance (api.firecrawl.dev/v1/team/credit-usage)"
+    result: "remaining_credits=0 of plan_credits=100000 -- unchanged fleet-wide
+      blocker, confirmed still active."
+  - check: "Direct Playwright/Chromium reproduction of civitekflorida.com/ocrs/county/39"
+    result: "Chromium launches and the OCRS county-39 page loads cleanly (no
+      Turnstile on the initial GET) -- consistent with the prior firing's own
+      finding ('reached the real case-search form'). The actual search inputs
+      are JSF/PrimeFaces-rendered (only javax.faces.ViewState + idt-prefixed
+      hidden fields present in raw HTML, no plain named text/select inputs),
+      meaning a full search submission requires the same JS-driven interaction
+      the prior firing already carried out and already found Turnstile-gated at
+      the Search action. Did not re-attempt the full submit+CAPTCHA path a
+      second time within the same hour -- no reason to expect a different
+      result, and doing so would just re-spend budget on a known wall."
+  - check: "libertyclerk.com/courts/foreclosure-sales/ + /courts/tax-deeds/ quick re-fetch"
+    result: "Both HTTP 200. Case 24-CA-22 still does not appear on the
+      foreclosure-sales page (0 matches), consistent with the prior firing's
+      finding that it dropped off the listing after its sale date. Tax-deeds
+      page unchanged (still no active cases)."
+
+status_board:
+  liberty: "7/10, unchanged. Confirmed via fresh live DB query + 2 external
+    source re-checks that nothing material shifted in the ~80 minutes since the
+    prior firing's commit. Correctly NOT re-worked with a full agent fan-out --
+    that would have duplicated already-adversarially-verified findings for zero
+    new information."
+
+next_session_priorities:
+  - "Unchanged from the prior firing: liberty B/F recheck no earlier than
+    2026-07-31 (10-day CT recording lag past the 2026-07-21 sale's objection
+    period), and only worth a full research fan-out again if Firecrawl credits
+    are replenished (still 0/100,000 as of this check) or a Turnstile-solving
+    path becomes available for civitekflorida.com/ocrs or
+    myfloridacounty.com/orisearch."
+  - "Fleet-level note: if the dispatch scheduler is re-firing the identical
+    dispatch_id/chat_session within ~90 minutes for a county with no new
+    accrual, that's scheduler-level duplication worth flagging to the AI
+    Architect -- not a liberty-specific issue, but this is the 2nd time inside
+    one day this exact dispatch_id has landed on this shard."
