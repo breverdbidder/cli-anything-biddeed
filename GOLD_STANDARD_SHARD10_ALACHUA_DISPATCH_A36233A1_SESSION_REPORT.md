@@ -154,3 +154,137 @@ Both queries run live against `mocerqjnksmhcjzxrewo.supabase.co` via the Managem
    the 7 currently have neither).
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+---
+
+## 2nd firing (dispatch `a36233a1`, ultracode workflow `wf_43135baa-e95`, 2026-07-24T18:xxZ)
+
+### Ghost placeholder regenerated between firings — confirms the root-cause diagnosis above
+
+Live re-check at session start found `E=85.7% (48/56)` again — i.e. **back up** from the 1st
+firing's honestly-corrected `76.8% (43/56)`. Investigation confirmed this is the exact
+"stale garbage never cleared by a columns=-scoped upsert" mechanism the 1st firing diagnosed:
+3 of the 4 rows that firing nulled (`01 2025 CA 001634`, `01 2023 CA 004261`,
+`01 2024 CC 005935`) plus 2 more (`01 2025 CA 002830`, `01 2025 CA 003156`) carried the literal
+placeholder string `parcel_id='Property Appraiser'` again at this firing's start. `_clean_parcel()`
+in `.github/scripts/calendar_sweep_mca.py` (current, already-fixed v3.0 logic) correctly returns
+`None` for this placeholder text on ingest — so a *fresh* sweep run does not reintroduce the raw
+string. Root cause of the reappearance is therefore NOT this session's target; flagging as an
+open question for whoever owns the scrape-scheduling cadence (an older/different harvester run,
+or a since-superseded code path, is the more likely source — worth a `data_source`/`updated_at`
+audit across all alachua rows with this placeholder, not just these 5).
+
+### E: reconfirmed genuinely blocked (85.7% unchanged, 48/56)
+
+Ran a full ULTRALOOP workflow (harvest → per-case research → adversarial match verification →
+apply → cascade → adversarial final-verify) against all 13 unlinked/placeholder rows, reusing
+the AJAX-docid-harvest + Playwright Official-Records + ArcGIS PublicParcel FeatureServer chain
+documented above. Result: 8 rows have an explicit empty `docid=&ms=0` marker (Clerk has not
+cross-referenced any recorded document) and 1 (`01 2025 CA 003287`) independently re-confirmed
+as a genuine multi-parcel case (recorded ORDER spans 3 lots in "MOSES E LEVY GRANT" subdivision;
+none of its 5 grantor/grantee names match a current parcel owner). All 9 are honest BLOCKED
+outcomes — no fabrication, matches and extends the 1st firing's finding. E stays failing;
+metric numerically unchanged because the 2 rows resolved this firing were already `NOT NULL`
+placeholder rows (E only counts `parcel_id IS NOT NULL`), not the null-parcel_id rows E's metric
+tracks.
+
+### I: 71.4% → 73.2% (40/56 → 41/56), J: 83.9% → 85.7% (47/56 → 48/56) — real, adversarially verified, both letters still fail
+
+2 of 13 target rows resolved to real, uniquely-verified parcel data:
+- `01 2025 CA 002830` → `parcel_id=06014-020-059`, `owner_name=KELLY TORI`, lat/lng — unique
+  ArcGIS `FULLADDR` match on the pre-existing real street address. Now fully passes I (address +
+  lat/lng + value + zone-linked parcel all confirmed true via direct predicate query).
+- `01 2025 CA 003156` → `parcel_id=09755-000-000`, `property_address=404 NW 14TH AVE,
+  GAINESVILLE, FL 32601`, `owner_name=IGNITE LIFE CENTER INC`, `assessed_value=2583490` —
+  resolved via Playwright Clerk-record lookup (docid 3696051, JUDGMENT, grantor GENFI
+  MINISTRIES → grantee IGNITE LIFE CENTER INC) + ArcGIS owner-name query (3 candidate parcels)
+  disambiguated against the official ACPA CAMA bulk export's `Legals.txt` (exact plat/lot match:
+  "MEADOR S/D PB A-27 LOTS 9 10 11 12 13 14 15 16"). Still fails I — `09755-000-000` has zero
+  rows in `v_zoning_gold_standard_card` (genuine zoning-ingestion gap, G-adjacent, out of scope
+  this firing). Fed one new real XGBoost-scored `bid_decisions` row (arv=2583490 from this same
+  assessed value, ml_score=0.0853, all 5 factor keys) via
+  `scripts/gold_standard_shard9_broward_alachua_j_generator_real.py` — moved J 47→48.
+
+**Process failure caught and fixed mid-session**: both the workflow's Apply phase and its
+Cascade-phase self-correction *reported* these 2 writes as verified (RETURNING/SELECT output
+quoted in their own text), but a fresh independent `SELECT` after the workflow finished showed
+`updated_at` on both rows unchanged from *before this session* (2026-07-03 / 2026-07-10) —
+neither UPDATE had actually persisted. Root cause of the silent failure itself was not
+determined (not reproduced); re-applied both UPDATEs directly via `mgmt_sql.py` with `RETURNING`
+proof and fresh timestamps, then independently re-verified via the evaluator and via a direct
+card-completeness predicate query. Logged to `gold_standard_ultraloop_audit` (id 9611) as its own
+finding: **agent-self-reported DB verification is not sufficient evidence** — this project's
+Evidence-Before-Claims rule requires a ground-truth re-query by an actor other than the one that
+made the claim, which is exactly what caught this.
+
+### Residual defect flagged, not fixed this firing
+
+3 rows still carry the raw `parcel_id='Property Appraiser'` placeholder
+(`01 2025 CA 001634`, `01 2023 CA 004261`, `01 2024 CC 005935`) — all confirmed BLOCKED (no
+docid, no address, no owner, qpublic 403, Clerk docket JS-gated) so left as-is rather than
+force-nulled again (would just get silently re-inflated on the next stale-scrape source, see
+root-cause note above — nulling without finding and fixing the actual reintroduction source is
+whack-a-mole, not a fix).
+
+### SQL VERIFICATION
+
+```
+BEFORE (public.pencil_dod_evaluate_county('alachua'), 2026-07-24T17:5xZ):
+{"A":{"pass":true,"metric":3,"detail":"fc=53 td=3"},
+ "B":{"pass":true,"metric":100,"detail":"verified=7 closed_sold=7"},
+ "C":{"pass":true,"metric":100,"detail":"matched_clean=56"},
+ "D":{"pass":true,"metric":100,"detail":"matched_any=56"},
+ "E":{"pass":false,"metric":85.7,"detail":"parcel_linked=48"},
+ "F":{"pass":true,"metric":100,"detail":"tier1_sold=7 closed_sold=7"},
+ "G":{"pass":true,"metric":97.9,"detail":"density=97.9 far= pk1000="},
+ "H":{"pass":true,"metric":0,"detail":"hours since last_seen (SLA 48h)"},
+ "I":{"pass":false,"metric":71.4,"detail":"card_complete=40 of 56"},
+ "J":{"pass":false,"metric":83.9,"detail":"deal_complete=47 ..."},
+ "county":"alachua","auctions_total":56}
+
+AFTER (public.pencil_dod_evaluate_county('alachua'), 2026-07-24T18:18Z, post manual-fix
+re-verification):
+{"A":{"pass":true,"metric":3,"detail":"fc=53 td=3"},
+ "B":{"pass":true,"metric":100,"detail":"verified=7 closed_sold=7"},
+ "C":{"pass":true,"metric":100,"detail":"matched_clean=56"},
+ "D":{"pass":true,"metric":100,"detail":"matched_any=56"},
+ "E":{"pass":false,"metric":85.7,"detail":"parcel_linked=48"},
+ "F":{"pass":true,"metric":100,"detail":"tier1_sold=7 closed_sold=7"},
+ "G":{"pass":true,"metric":97.9,"detail":"density=97.9 far= pk1000="},
+ "H":{"pass":true,"metric":0,"detail":"hours since last_seen (SLA 48h)"},
+ "I":{"pass":false,"metric":73.2,"detail":"card_complete=41 of 56"},
+ "J":{"pass":false,"metric":85.7,"detail":"deal_complete=48 ..."},
+ "county":"alachua","auctions_total":56}
+```
+Both queries run live against `mocerqjnksmhcjzxrewo.supabase.co` via the Management API
+(`python3 mgmt_sql.py`), 2026-07-24. County remains **7/10** (A,B,C,D,F,G,H pass; E,I,J fail) —
+no letter flipped pass/fail this firing, but I and J both moved closer to threshold with real,
+adversarially-verified data, and no regressions occurred on any of the 7 passing letters.
+
+## Plan vs actual (2nd firing)
+
+| Task | Planned | Actual | Deviation |
+|---|---|---|---|
+| E linkage for 13 unlinked/placeholder rows | Resolve as many as possible via AJAX-docid + Playwright + ArcGIS chain | 2/13 resolved (002830, 003156); 11/13 confirmed genuinely blocked with fresh live evidence | None — matches the documented dead-end pattern, extended coverage to 6 newer case numbers not previously attempted |
+| I/J cascade | Expected to move automatically once E-adjacent rows got real parcel/value data | Moved as expected (I +1, J +1) once the underlying writes were actually re-applied | The workflow's own writes silently failed to persist; required a manual, independently-verified re-apply before the cascade was real |
+| Root-cause the placeholder regeneration | Not originally planned | Diagnosed as *not* caused by the already-fixed `calendar_sweep_mca.py` v3.0 logic; true source undetermined | Surfaced as an open next-session item rather than guessed at |
+
+## Next-session priorities (2nd firing)
+
+1. **Audit the placeholder-regeneration source**: query `data_source`/`updated_at` history (or
+   any available audit/history table) for the 3 remaining `parcel_id='Property Appraiser'` rows
+   to identify what actually wrote that literal string after the 1st firing nulled it — the
+   current `calendar_sweep_mca.py` (v3.0, `_clean_parcel()`) provably does NOT write this raw
+   text on a fresh sweep, so a different/older code path is the suspect.
+2. **I**: `09755-000-000` (case `003156`) needs zoning-substrate ingestion
+   (`v_zoning_gold_standard_card` has zero rows for it) before it can pass I — G-adjacent gap.
+3. **J**: 8 of 9 remaining gap rows still have no real ARV input (no assessed/market value, no
+   comp) — same rows as E's 8 confirmed-blocked; a real Alachua Property Appraiser value source
+   independent of a parcel_id match (e.g. the ACPA CAMA bulk export used successfully this
+   firing for `003156`, keyed by owner/address instead of parcel_id) is the most promising
+   unexplored lever.
+4. **Process**: treat any workflow-subagent "verified via SELECT" claim as unconfirmed until an
+   independent, out-of-band re-query is run after the workflow returns — this firing's silent
+   write failure would have shipped as a false `SHIPPED ✅` claim otherwise.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
