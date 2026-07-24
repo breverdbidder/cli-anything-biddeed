@@ -1,0 +1,146 @@
+session:
+  shard: SHARD-4 (pasco, suwannee), loop run 6253
+  dispatch_id: 2c5b3c77-d296-4c59-b08d-ede8091f9752
+  chat_session: architect-20260724T160000
+  date: 2026-07-24
+  mode: live DB verification first (dispatched brief showed pasco 9/10 pasco I FAIL
+    94.7%%, suwannee 4/10) + ultracode Workflow (2 parallel fix agents, one per
+    county's highest-leverage failing letter, adversarial-refuter gate for both
+    claims before any audit row was logged).
+
+pre_session_baseline: "Live pencil_dod_evaluate_county() matched the dispatched
+  brief closely for pasco (9/10, only I failing 94.7%%) but suwannee had drifted:
+  brief said 4/10 across 14 rows, but the live 13-row baseline (before a fresh
+  calendar-sweep row landed mid-session) matched the shard8-suwannee 3rd firing's
+  closing state from ~13h earlier (8/10, only B/F failing). A NEW row (case 4713,
+  tax_deed, REDEEMED, parcel 11943002000, created_at 2026-07-24 05:59z) had just
+  been inserted by the calendar sweep, dropping C/D/I/J from 100%% to 92.9%% (13/14)."
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county for both counties live via the Supabase
+      Management API (mgmt SQL endpoint) before any plan -- direct psql/pooler auth
+      still fails (password auth failed), consistent with every prior session this
+      month."
+    reason: "HONESTY PROTOCOL / Evidence-Before-Claims."
+  - step: 2
+    action: "Queried the exact failing rows for both letters: pasco I's 14
+      incomplete-card rows (address/geo/value/zone-link breakdown per row), and
+      suwannee's fresh case-4713 row's missing fields, plus read the shard8-suwannee
+      3rd-firing session log to confirm B/F are settled (do not re-investigate
+      without new evidence)."
+    result: "pasco needed only 1 of 14 rows fixed to flip I to PASS (251/264=95.08%%)
+      but all 14 were assessed for real-data availability. suwannee's gap was
+      entirely the single new row -- all 4 letters (C/D/I/J) hinge on it."
+  - step: 3
+    action: "Dispatched 2 parallel fix agents (Agent tool, not a saved Workflow --
+      /effort ultracode was not available as a menu option in this session, so
+      used the documented fallback: manual subagent fan-out, same
+      adversarial-verify pattern, mode='fallback' in the audit rows) -- one per
+      county's failing letter(s), each scoped to real-data-only sourcing (no
+      fabrication)."
+    result: "pasco agent: resolved 7/14 rows via fl_parcels (co_no=61) address
+      cross-walk, JV->assessed_value, centroid->lat/lon, dor_uc->zone_code. 7
+      remained honestly unresolved (null keys, no fl_parcels match, ambiguous
+      multi-unit address). suwannee agent: enriched case 4713 via live
+      RealTaxDeed AJAX re-harvest (parity), Suwannee PA GSA-Corp livesearch
+      (value+zone), US Census Geocoder (lat/lon), Shapira V14 (bid_decisions)."
+  - step: 4
+    action: "Ran 2 independent adversarial refuter agents (one per county claim),
+      each with NO access to the fixer's own conclusions, tasked only with trying
+      to break the claim: re-verify every written field directly, cross-check
+      source tables, scan for ghost-fill/duplicate-value fabrication signatures,
+      sanity-check lat/lon are in-county, and re-run pencil_dod_evaluate_county
+      fresh."
+    result: "suwannee: SURVIVED in full -- every field, the parity_source LIKE
+      pattern, zone_code=R1 linkage, and bid_decisions distinctness (vs siblings)
+      all checked out. pasco: REFUTED in part -- 6/7 cross-walks were real and
+      clean, but case 51-2026-CA-000777-CAAX-WS was flagged: no fl_parcels row for
+      '9934 AQUARIUS' exists at all, and the parcel the fixer accepted (...0018,
+      '9926 AQUARIUS') carries a JV of $840,889 -- a 2.2-2.4x outlier vs every
+      immediate street neighbor ($355K-$388K), strong evidence of a wrong-parcel
+      cross-walk rather than a benign address-format variance."
+  - step: 5
+    action: "Reverted the refuted pasco row's session-added fields (latitude,
+      longitude, assessed_value, market_value, assessed_value_source) back to
+      NULL -- left the pre-existing parcel_id and its parcel_zones entry
+      untouched (parcel_id predates this session; the zone_code describes the
+      parcel itself, which may be a real, correctly-zoned parcel regardless of
+      whether it's the right parcel for THIS case)."
+    reason: "Honesty Protocol: a wrong VERIFIED claim carries a 3x penalty and is
+      worse than an honest residual. 256/264=96.97%% still clears the 95%% bar, so
+      the revert does not cost pasco the letter."
+  - step: 6
+    action: "Logged 5 gold_standard_ultraloop_audit rows (pasco/I, suwannee/C,D,I,J
+      -- all survived=true, ultraloop_mode='fallback', dispatch_id=this session's),
+      each with refuter_evidence documenting the specific checks run."
+    result: "ids 9474-9478 confirmed via RETURNING id on insert."
+  - step: 7
+    action: "Committed 3 migrations (batch5 enrichment, its refuter-revert
+      addendum, suwannee case-4713 enrichment) directly to main per SHIP-TO-MAIN
+      mandate, after git pull --rebase (picked up shard10-alachua's concurrent
+      commit cleanly, no conflicts)."
+    result: "Pushed fdfa16bf..2bfb7d68."
+  - step: 8
+    action: "Checked summit_chat_dispatch for other mid-flight sessions before
+      considering gold_standard_loop()/certify() -- 9 other shards from this same
+      16:00Z wave plus several from the 08:00Z wave were still 'dispatched'
+      (not completed). Per PARALLEL-FLEET RULES, skipped loop/certify and reported
+      only per-county pencil_dod_evaluate_county() output."
+    result: "Correctly did not run the fleet-wide loop while other shards were
+      active."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('pasco') before vs after"
+    proof: "before: I FAIL metric=94.7 (card_complete=250 of 264), all else PASS
+      (9/10). after: I PASS metric=97.0 (card_complete=256 of 264), all else
+      unchanged (A=129, B=100.0, C=97.3, D=97.3, E=97.7, F=100.0, G=100.0, H=0.0,
+      J=100.0). pasco is now 10/10."
+  - check: "pencil_dod_evaluate_county('suwannee') before vs after"
+    proof: "before: C=92.9 FAIL (matched_clean=13), D=92.9 FAIL (matched_any=13),
+      I=92.9 FAIL (card_complete=13 of 14), J=92.9 FAIL (deal_complete=13); A/E/G/H
+      PASS, B/F FAIL (null). after: C=100 PASS (14/14), D=100 PASS (14/14), I=100
+      PASS (14/14), J=100 PASS (14/14); B/F still FAIL (null, closed_sold=0 --
+      genuinely no auction in the 14-row set has resulted yet). suwannee is 8/10."
+  - check: "gold_standard_ultraloop_audit rows for dispatch_id=2c5b3c77-d296-4c59-b08d-ede8091f9752"
+    proof: "5 rows inserted and confirmed via RETURNING id: 9474 (pasco/I), 9475
+      (suwannee/C), 9476 (suwannee/D), 9477 (suwannee/I), 9478 (suwannee/J), all
+      survived=true."
+  - check: "adversarial refuter pass on both fixer claims"
+    proof: "suwannee: SURVIVED (0 discrepancies found across 7 independent checks).
+      pasco: REFUTED in part (1 of 7 cross-walked rows was a wrong-parcel match) --
+      reverted same session before committing, re-verified pasco still 10/10 at
+      256/264=97.0%% after the revert."
+  - check: "git push to main"
+    proof: "commit 2bfb7d68, 3 files, fdfa16bf..2bfb7d68 -> origin/main."
+
+status_board:
+  pasco: "10/10 (A,B,C,D,E,F,G,H,I,J all PASS). No further work needed unless a
+    future freshness sweep or new-row calendar-sweep regresses a letter."
+  suwannee: "8/10 (A,C,D,E,G,H,I,J PASS; B,F FAIL). B/F remain genuinely blocked
+    on real-world auction timing -- 4 distinct research passes this week (2026-07-11,
+    07-20, 07-24 x3) have exhausted every known channel (RealTaxDeed/RealForeclose
+    AJAX, suwgov.org, myfloridacounty.com/orisearch, LandmarkWeb, FL legal-notice
+    aggregators). The only remaining lever is calendar time: 25-CA-170 (7/28/2026)
+    or the 8/6/2026 tax-deed batch (7 rows, including the now-enriched 4713) need
+    to actually close before B/F can move. A NEW row appearing (as case 4713 did
+    this session) is the one thing that can still regress C/D/I/J -- future
+    sessions should re-check the row count against 14 before assuming no work is
+    needed."
+
+next_session_priorities:
+  - "suwannee: do not re-open before 2026-07-28 (25-CA-170 sale date) or 2026-08-06
+    (the 7-case tax-deed batch) without new evidence, EXCEPT to re-verify the
+    14-row denominator hasn't grown again (a new calendar-sweep row is the only
+    thing that can regress C/D/I/J, as it did this session)."
+  - "pasco: 10/10, holds unless a freshness/calendar-sweep event adds new
+    incomplete rows. If a future session revisits letter I, the 7 rows this
+    session left honestly unresolved (2 with no address/parcel_id at all, 3 with
+    zero fl_parcels match, 2 ambiguous multi-unit condo addresses) are documented
+    in supabase/migrations/20260724x_...batch5.sql's header for reference -- do
+    not re-attempt the wrong-parcel cross-walk this session reverted
+    (51-2026-CA-000777-CAAX-WS / 21-25-16-0000-00100-0018) without first finding
+    the ACTUAL '9934 Aquarius' parcel."
+  - "This shard (pasco/suwannee) has no further legitimate work available today.
+    Both counties are either fully passing or genuinely blocked on real-world
+    timing with an exhaustively documented negative search history."
