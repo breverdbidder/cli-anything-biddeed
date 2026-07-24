@@ -7,6 +7,16 @@ import { getClerkLink } from '../constants.js';
 // #12786) — never gold_standard_county_status directly.
 import { badgeRows, badgeCounty } from '../cert-gate.js';
 
+// GTM-22 T2 — appraiser deep-links, joined by case_number against
+// v_auction_appraiser_links (pre-computed per-county PAO parcel search URL).
+async function getAppraiserLinks(caseNumbers) {
+  const unique = [...new Set(caseNumbers)].filter(Boolean);
+  if (!unique.length) return new Map();
+  const list = unique.map(c => encodeURIComponent(c)).join(',');
+  const rows = await get(`v_auction_appraiser_links?case_number=in.(${list})&select=case_number,appraiser_name,appraiser_parcel_link`);
+  return new Map(rows.map(r => [r.case_number, r]));
+}
+
 export const schemas = [
   {
     name: 'search_auctions',
@@ -100,10 +110,12 @@ export async function search_auctions({ county, date_from, date_to, min_bid, max
   const cap = Math.min(limit, 100);
   const rows = await get(`multi_county_auctions?${filters.join('&')}&order=auction_date.asc&limit=${cap}&select=case_number,county,property_address,parcel_id,opening_bid,auction_date,plaintiff,sale_type,judgment_amount`);
 
+  const appraiserLinks = await getAppraiserLinks(rows.map(r => r.case_number));
   const enriched = rows.map(r => ({
     ...r,
     deposit_required: Math.max(200, (r.opening_bid || 0) * 0.05),
     clerk_link: getClerkLink(r.county),
+    appraiser_parcel_link: appraiserLinks.get(r.case_number)?.appraiser_parcel_link ?? null,
   }));
   const { rows: auctions, hasUncertifiedCounties } = await badgeRows(enriched);
 
@@ -126,6 +138,7 @@ export async function get_auction_detail({ case_number, county }) {
   const r = rows[0];
   const deposit = Math.max(200, (r.opening_bid || 0) * 0.05);
   const certified = await badgeCounty(r.county);
+  const appraiser = (await getAppraiserLinks([r.case_number])).get(r.case_number);
 
   return {
     found: true,
@@ -137,6 +150,8 @@ export async function get_auction_detail({ case_number, county }) {
     realforeclose_search: `https://www.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=${r.auction_date}&county=${r.county}`,
     realauction_search: `https://www.realauction.com/`,
     certified,
+    appraiser_name: appraiser?.appraiser_name ?? null,
+    appraiser_parcel_link: appraiser?.appraiser_parcel_link ?? null,
   };
 }
 
@@ -159,11 +174,17 @@ export async function browse_deals({ county, max_bid, cert_only = false, sale_ty
   // browse_deals defaults to all active counties, badged not blocked.
   // cert_only remains an opt-in filter (default off) for a customer who
   // specifically wants only Gold Standard certified inventory.
+  const appraiserLinks = await getAppraiserLinks(rows.map(r => r.case_number));
   const scoredAll = rows.map(r => {
     const fj = r.judgment_amount || 0;
     const bid = r.opening_bid || 0;
     const discount = fj > 0 ? (fj - bid) / fj : 0;
-    return { ...r, shapira_discount: Math.round(discount * 100), deposit_required: Math.max(200, bid * 0.05) };
+    return {
+      ...r,
+      shapira_discount: Math.round(discount * 100),
+      deposit_required: Math.max(200, bid * 0.05),
+      appraiser_parcel_link: appraiserLinks.get(r.case_number)?.appraiser_parcel_link ?? null,
+    };
   });
   const { rows: badged, hasUncertifiedCounties } = await badgeRows(scoredAll);
   const scored = badged
@@ -191,6 +212,7 @@ export async function get_deposit_requirements({ case_number, county }) {
   const r = rows[0];
   const deposit = Math.max(200, (r.opening_bid || 0) * 0.05);
   const certified = await badgeCounty(r.county);
+  const appraiser = (await getAppraiserLinks([case_number])).get(case_number);
 
   return {
     case_number,
@@ -204,6 +226,8 @@ export async function get_deposit_requirements({ case_number, county }) {
     payment_forms: ['Cashier\'s check', 'Wire transfer (same day)'],
     make_payable_to: `Clerk of Court, ${r.county} County`,
     clerk_link: getClerkLink(r.county),
+    appraiser_name: appraiser?.appraiser_name ?? null,
+    appraiser_parcel_link: appraiser?.appraiser_parcel_link ?? null,
     note: 'Deposit forfeited if you win and fail to close. Balance typically due within 24 hours.',
   };
 }
