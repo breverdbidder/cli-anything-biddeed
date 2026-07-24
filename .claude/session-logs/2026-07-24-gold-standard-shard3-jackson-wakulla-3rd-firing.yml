@@ -1,0 +1,188 @@
+session:
+  shard: SHARD-3 (jackson, wakulla)
+  dispatch_id: da3fde1c-5c12-4786-bbda-4ea2708ee2e1
+  chat_session: architect-20260724T160000
+  date: 2026-07-24
+  mode: "3rd firing of the same dispatch (issue trigger re-fired identically). ultracode
+    Workflow fan-out: 5 parallel research agents + 5 independent adversarial refuters,
+    per ULTRALOOP PROTOCOL, targeting the 2nd firing's own documented
+    next_session_priorities."
+
+pre_session_baseline: "Live DB matched the 2nd firing's committed final_state (commit
+  86d01a26) EXACTLY: jackson 9/10 (I FAIL 93.2%, 68/73 card_complete; all others PASS).
+  wakulla 8/10 (E FAIL 93.3% 28/30, I FAIL 93.3% 28/30; A/B/C/D/F/G/H/J PASS). No drift,
+  no other shard had touched these counties since. This confirms today's dispatch
+  trigger was a duplicate re-fire of an already-shipped dispatch, not new work -- this
+  session picked up the prior firing's own documented remaining-gaps queue instead of
+  repeating completed work."
+
+decisions:
+  - step: 1
+    action: "Verified live state via pencil_dod_evaluate_county for both counties before
+      any work, per Evidence-Before-Claims."
+    result: "Confirmed exact match to the 2nd firing's committed final_state -- no
+      drift, nothing to redo."
+
+  - step: 2
+    action: "Launched an ultracode Workflow with 5 parallel research agents (jax_geom_source,
+      jax_area_split, jax_sneads_campbellton, wakulla_25ca68, wakulla_txd097_confirm),
+      each briefed on exactly what the prior 2 sessions already tried and told to only
+      report a finding backed by a live query/URL actually fetched this session -- not
+      to repeat exhausted routes. Each finding was independently adversarially verified
+      by a separate refuter agent with zero visibility into the builder's evidence."
+    result: "4 of 5 survived verification unchanged (jax_geom_source, jax_area_split,
+      wakulla_25ca68, wakulla_txd097_confirm). 1 (jax_sneads_campbellton) was REFUTED --
+      but the refutation itself surfaced a materially better finding than what it
+      refuted (see step 4)."
+
+  - step: 3
+    action: "For the 3 Jackson parcels blocked on missing geometry (dashed tax-roll IDs
+      not present in the FL GIO Statewide Cadastral), the jax_geom_source agent found a
+      second, independent ArcGIS Online FeatureServer covering Jackson County parcels
+      (services.arcgis.com/XG15cJAlne2vxtgt/.../Jackson_County_Parcel/FeatureServer, a
+      ~2018-2019 FEMA-hosted snapshot) whose APN field matches the dashed format exactly.
+      The jax_area_split agent then fetched real polygon geometry (from whichever source
+      had it) and computed a true area-weighted intersection against every layer of the
+      Jackson County FLUM FeatureServer using shapely, cross-checked against ArcGIS's own
+      authoritative Shape__Area field (matched to 5 decimals) and validated as a clean,
+      full-coverage, non-overlapping partition on every parcel."
+    result: "234N10000000500000 (4624 Magnolia Rd): CORRECTS the 2nd firing's belief that
+      this parcel straddled Residential/Conservation -- a live re-query shows Residential
+      returns ZERO features against the real polygon; the true split is AG2 (3.64%) /
+      Conservation (96.36%), majority CONSERVATION. 02-2N-11-0083-00V0-0070: Conservation
+      0.08% / Residential 99.92%, majority RESIDENTIAL. 02-2N-11-0083-00V0-0080:
+      Conservation 12.58% / Residential 87.42%, majority RESIDENTIAL. All 3 independently
+      re-confirmed OUTSIDE any incorporated place via US Census TIGERweb (re-checked by
+      me directly), so the county FLUM is the correct authority for each."
+    reason: "An area-weighted computation, not a point-in-polygon guess, is required
+      for parcels that genuinely straddle a boundary -- verified as a clean partition
+      (union of intersection pieces = full parcel area, near-zero overlap) rather than
+      assumed."
+
+  - step: 4
+    action: "The jax_sneads_campbellton agent concluded (as the 1st and 2nd firings also
+      concluded) that no georeferenced per-town FLU data exists for Sneads or
+      Campbellton -- Sneads' adopted FLU map is a raster-only PDF (confirmed at the PDF
+      content-stream level: 32 image draw operators, 0 vector fill operators) and
+      Campbellton has no findable land-use document at all. Its adversarial refuter
+      re-ran the SAME ArcGIS Online item-search query the builder used
+      (q=Jackson County Florida future land use) but read the FULL result list instead
+      of stopping at the first hit, and found two real, per-town vector FeatureServers
+      the builder missed entirely: Sneads_FLUM/FeatureServer and Campbellton_FLUM/
+      FeatureServer, both with a Category field, both matching the PDF's own legend text
+      verbatim (confirming they are the actual georeferenced source data behind the PDF).
+      Per ULTRALOOP protocol, a refuter's own claim gets the same scrutiny as a
+      builder's -- I independently re-verified this myself, live, before relying on it."
+    result: "curl to Sneads_FLUM/FeatureServer/0 at the Sneads parcel's exact centroid ->
+      FID=76, Category='Agriculture'. curl to Campbellton_FLUM/FeatureServer/0 at BOTH of
+      the Campbellton parcel's split-geometry centroids -> FID=52 and FID=40, both
+      Category='Residential-Suburban' (consistent, no ambiguity). Both independently
+      reproduced by me -- resolving the last 2 of the 5 remaining rows."
+    reason: "A refutation that surfaces a better, verifiable finding should be acted on
+      (after independent re-verification), not discarded just because it contradicts
+      the original builder's conclusion -- same principle the 2nd firing applied in the
+      opposite direction (re-verifying a partially-refuted finding before trusting it)."
+
+  - step: 5
+    action: "Applied all 5 parcels live via the Supabase REST API (service-role key;
+      direct psql/pooler still unavailable, stale DB_PASSWORD, consistent with both
+      prior firings): 3 new zoning_districts (FLU-CONSERVATION under Unincorporated
+      Jackson County; FLU-SNEADS-AG under Sneads; FLU-CAMPBELLTON-RES under Campbellton
+      -- all with far_regulated/pk1000_regulated explicitly false, sourced structural
+      facts since neither FLU schema has those fields; the 2 town districts additionally
+      have density_regulated=false since their schema is Category-only with no per-acre
+      figure at all, unlike the county FLUM's Max_Densit field), 3 zone_standards rows,
+      5 parcel_zones rows. Re-ran pencil_dod_evaluate_county('jackson') immediately,
+      checking G specifically (the P0 regression class from the wakulla fix earlier this
+      campaign)."
+    result: "I: FAIL 93.2% (68/73) -> PASS 100.0% (73/73). G: unchanged PASS 100.0 -- no
+      regression. jackson reaches 10/10 -- all 10 letters now PASS."
+
+  - step: 6
+    action: "wakulla_25ca68 and wakulla_txd097_confirm both surfaced genuinely new
+      evidence (a working LandmarkWeb CaseNumberSearch endpoint; a wider deed-search
+      window with stronger batch-level corroboration) but neither produced anything
+      writable: case 25-CA-68's foreclosure sale (2026-07-23) has not been recorded
+      anywhere yet as of this fetch (2026-07-24), and 2026-TXD-097's null-outcome
+      conclusion was reconfirmed, not changed."
+    result: "wakulla E and I remain FAIL at 93.3% (28/30 each) -- an honest, re-verified
+      ceiling this session, not fabricated. No DB write made for wakulla."
+    reason: "Per HONESTY PROTOCOL, nothing verifiable to write means nothing gets
+      written -- new evidence that doesn't resolve the ask is still worth recording
+      (in case a future session needs it) but isn't a basis for a database change."
+
+  - step: 7
+    action: "git pull --rebase before commit, per PARALLEL-FLEET RULES (other shards
+      were mid-flight -- shard5 volusia, shard8 liberty, shard9 bay, shard10 alachua
+      commits appeared during rebase)."
+    result: "Clean fast-forward rebase, no conflicts. Committed the migration file and
+      pushed directly to main."
+
+artifacts:
+  - path: supabase/migrations/20260724zzz_gold_standard_shard3_jackson_i_flu_zoning_3rd_firing.sql
+    purpose: "3 zoning_districts + 3 zone_standards + 5 parcel_zones for jackson's final
+      5 unresolved I-blocking parcels (Conservation area-split, 2 Residential area-splits,
+      Town of Sneads Agriculture, Town of Campbellton Residential-Suburban). Idempotent."
+
+verification:
+  - check: "pencil_dod_evaluate_county('jackson') before/after, G non-regression"
+    proof: 'before: {"I":{"pass":false,"metric":93.2,"detail":"card_complete=68 of 73"}} /
+      after: {"I":{"pass":true,"metric":100.0,"detail":"card_complete=73 of 73"},"G":{"pass":true,"metric":100.0,"detail":"density=100.0 far= pk1000="}}'
+    status: "PASS -- jackson reaches 10/10"
+  - check: "pencil_dod_evaluate_county('wakulla') before/after (no change expected)"
+    proof: 'before and after identical: {"B":{"pass":true,"metric":100.0},"E":{"pass":false,"metric":93.3,"detail":"parcel_linked=28"},"F":{"pass":true,"metric":100.0},"I":{"pass":false,"metric":93.3,"detail":"card_complete=28 of 30"}}'
+    status: "CONFIRMED NO REGRESSION -- 8/10 unchanged, no write made"
+  - check: "Independent self-verification of the refuter's Sneads_FLUM/Campbellton_FLUM
+      claim, before relying on it for a DB write"
+    proof: "curl Sneads_FLUM/FeatureServer/0/query at parcel centroid (EPSG:3086
+      x=312019.62789409666 y=745725.2717292765) -> FID=76, Category='Agriculture'. curl
+      Campbellton_FLUM/FeatureServer/0/query at both split-geometry centroids (EPSG:4326
+      -85.395442,30.946193 and -85.395425,30.945725) -> FID=52 and FID=40, both
+      Category='Residential-Suburban'."
+    status: PASS
+
+plan_vs_actual:
+  - task: "Determine whether today's dispatch trigger represented new work or a
+      duplicate re-fire"
+    planned: "N/A -- not anticipated before session start"
+    actual: "Confirmed via live pencil_dod_evaluate_county that state matched the 2nd
+      firing's committed final_state exactly -- this was a duplicate re-fire. Pivoted to
+      the 2nd firing's own next_session_priorities queue instead of repeating work."
+    deviation: "None from mandate -- this is the correct response to a duplicate
+      trigger under the ship-to-main/no-idle mandate."
+  - task: "wakulla E/I orphan resolution (dispatch brief's stated priority, also the 2nd
+      firing's #1 next-session priority)"
+    planned: "Attempt via a genuinely different research angle than the 2 prior
+      sessions."
+    actual: "New angle attempted (LandmarkWeb CaseNumberSearch, post-sale-date docket
+      check) and genuinely new facts surfaced, but the core ask remained unresolved --
+      the foreclosure sale simply has not posted to any record yet."
+    deviation: "None -- honestly reported as an unresolved, re-verified ceiling, not
+      fabricated."
+  - task: "jackson I (2nd firing's #2 next-session priority)"
+    planned: "Attempt the GIS geometry-clip/area-split capability the 2nd firing
+      flagged as needed but unavailable, plus retry town-level FLU lookups for Sneads/
+      Campbellton."
+    actual: "Both succeeded -- area-split computed and verified for 3 parcels (correcting
+      a factual error in the 2nd firing's characterization of one of them), and real
+      per-town FLU FeatureServers found (via an adversarial refutation) for the other 2.
+      All 5 of jackson's remaining I-blocking parcels resolved."
+    deviation: "Exceeded plan -- jackson reaches 10/10 this session, not just
+      incremental improvement."
+
+final_state:
+  jackson: "10/10 -- ALL LETTERS PASS (I moved 93.2% -> 100.0%, G confirmed unregressed
+    at 100.0%)"
+  wakulla: "8/10, unchanged from the 2nd firing (E, I FAIL 93.3% both, re-verified
+    ceiling; A, B, C, D, F, G, H, J PASS)"
+  commit: "pending (this file + migration committed together)"
+  next_session_priorities:
+    - "wakulla E/I: case 25-CA-68's foreclosure sale (2026-07-23) has not been recorded
+      anywhere as of 2026-07-24 -- re-check LandmarkWeb CaseNumberSearch (working recipe
+      now documented in this log) in a few days once/if a Certificate of Title posts.
+      2026-TXD-097 remains a genuine no-bidder non-event, not a data gap -- do not
+      re-research this one again without new evidence (2 independent re-derivations
+      across 2 sessions have now confirmed it)."
+    - "jackson is now 10/10 -- per canon, certification lands automatically after the
+      second consecutive 10/10 daily 07:30Z run. No further jackson work needed unless
+      a future audit-freshness check finds regression."
