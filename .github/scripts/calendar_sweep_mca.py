@@ -217,22 +217,33 @@ _PARCEL_RE = re.compile(r'^[\dA-Z\-\./]{5,30}$', re.IGNORECASE)
 _BAD_PARCEL_WORDS = {'property appraiser', 'multiple', 'various', 'see attachment',
                       'n/a', 'na', 'none', 'unknown', 'see documents'}
 
+
+# Property-appraiser sites use different query-param names for the parcel
+# value (STRAP is common; Baker County's bakerpa.com uses `parcel`). The
+# capture group requires 1+ chars, so an empty `?parcel=` (unlinked case)
+# correctly yields no match rather than an empty-string false positive.
+_PARCEL_HREF_RE = re.compile(r'[?&](?:STRAP|parcel|PARCELID|PARCEL_ID)=([^&"\'<>\s]+)', re.IGNORECASE)
+
+
 def _clean_parcel(raw: str | None, block: str) -> str | None:
     """
     Validate/clean parcel ID. RealAuction Parcel ID cells sometimes show
     link text like "Property Appraiser" or "MULTIPLE" instead of the actual ID;
-    in that case fall back to extracting the STRAP param from the href URL.
+    in that case fall back to extracting the parcel-identifying param
+    (STRAP/parcel/PARCELID) from the href URL. If the href param itself is
+    empty (property-appraiser site has no parcel linked to this case yet),
+    correctly returns None rather than a placeholder string.
     """
     if not raw:
         return None
     raw = raw.strip()
     if raw.lower() in _BAD_PARCEL_WORDS:
-        m = re.search(r'[?&]STRAP=([^&"\'<>\s]+)', block, re.IGNORECASE)
+        m = _PARCEL_HREF_RE.search(block)
         return m.group(1).strip() if m else None
     if _PARCEL_RE.match(raw):
         return raw
     # Try URL extraction for anything that didn't match the pattern
-    m = re.search(r'[?&]STRAP=([^&"\'<>\s]+)', block, re.IGNORECASE)
+    m = _PARCEL_HREF_RE.search(block)
     if m:
         return m.group(1).strip()
     return None
