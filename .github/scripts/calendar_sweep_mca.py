@@ -404,10 +404,52 @@ _BASE_COLUMNS = [
     'county', 'case_number', 'auction_date', 'sale_type', 'auction_type',
     'source_platform', 'auction_status', 'state', 'last_seen_at', 'data_source',
 ]
+_STATUS_COLUMNS = ('auction_status', 'auction_date')
 _OPTIONAL_FIELDS = (
     'property_address', 'opening_bid', 'parcel_id',
     'judgment_amount', 'plaintiff', 'plaintiff_max_bid',
 )
+# Auctions already resolved to one of these -- with a verified sold amount on
+# file -- must not be re-flagged 'upcoming' by a live calendar page that
+# hasn't caught up yet (root cause of hendry F flapping true<->false every
+# sweep cycle, gold-standard dispatch bebd50e5, 2026-07-24: this same script
+# unconditionally forced auction_status back to 'upcoming' every run, which a
+# downstream consistency guard then read as "not really sold" and nulled the
+# just-promoted tier1_sold_amount right back out).
+_TERMINAL_STATUSES = {
+    'sold', 'closed', 'redeemed', 'canceled', 'cancelled',
+    'third_party', 'struck_to_plaintiff',
+}
+
+
+def _fetch_protected_cases(case_numbers: list[str]) -> set[str]:
+    """Case numbers already terminal + outcome-verified in the DB -- their
+    auction_status/auction_date must be left untouched by this sweep."""
+    if not case_numbers:
+        return set()
+    protected: set[str] = set()
+    for i in range(0, len(case_numbers), 100):
+        batch = case_numbers[i:i + 100]
+        cn_list = ','.join(f'"{cn}"' for cn in batch)
+        try:
+            r = requests.get(
+                f'{REST}/multi_county_auctions',
+                headers=SUPA_H,
+                params={
+                    'county': f'eq.{COUNTY}', 'sale_type': f'eq.{SALE_TYPE}',
+                    'case_number': f'in.({cn_list})',
+                    'select': 'case_number,auction_status,tier1_sold_amount,sold_amount',
+                },
+                timeout=30,
+            )
+            r.raise_for_status()
+            for row in r.json():
+                already_verified = row.get('tier1_sold_amount') is not None or row.get('sold_amount') is not None
+                if (row.get('auction_status') or '').lower() in _TERMINAL_STATUSES or already_verified:
+                    protected.add(row['case_number'])
+        except requests.RequestException as e:
+            print(f'  ! protected-case lookup failed for batch: {e}', file=sys.stderr)
+    return protected
 
 
 def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]]:
@@ -415,6 +457,8 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
     import datetime as _dt
     now_iso  = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     date_iso = auction_date.isoformat()
+
+    protected_cases = _fetch_protected_cases([c['case_number'] for c in cards])
 
     # ALL rows must have identical key sets for PostgREST PGRST102 compliance.
     # Use None for optional fields so every row has the same schema.
@@ -445,6 +489,7 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
             'judgment_amount':   c.get('judgment_amount'),      # None if not found
             'plaintiff':         c.get('plaintiff') or None,
             'plaintiff_max_bid': c.get('plaintiff_max_bid'),    # None if not found or Hidden
+            '_protect_status':   cn in protected_cases,
         })
 
     if not rows:
@@ -455,41 +500,47 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
     BATCH    = 50
     prefer_h = {**SUPA_H, 'Prefer': 'resolution=merge-duplicates,return=minimal'}
 
-    def _upsert_url(present_optional: tuple) -> str:
+    def _upsert_url(present_optional: tuple, protect_status: bool) -> str:
         """
         Build an upsert URL scoped via columns= to base columns plus only the
         optional fields present in this sub-batch. PostgREST's columns= param
         restricts BOTH the INSERT column list and the ON CONFLICT DO UPDATE
-        SET clause to exactly these columns — so an optional field omitted
-        here is left untouched on conflict (no null-wipe of prior enrichment),
-        while it still defaults to NULL correctly on a genuine first INSERT.
+        SET clause to exactly these columns — so an omitted field is left
+        untouched on conflict (no null-wipe of prior enrichment), while it
+        still defaults to NULL correctly on a genuine first INSERT.
+        protect_status drops auction_status/auction_date too, for rows the
+        DB already shows terminal + outcome-verified (a live calendar page
+        that hasn't caught up must not re-flag a closed sale 'upcoming').
         """
-        cols = ','.join(_BASE_COLUMNS + list(present_optional))
+        base = [c for c in _BASE_COLUMNS if not (protect_status and c in _STATUS_COLUMNS)]
+        cols = ','.join(base + list(present_optional))
         return f'{REST}/multi_county_auctions?on_conflict=county,case_number,sale_type&columns={cols}'
 
-    def _row_for_columns(row: dict, present_optional: tuple) -> dict:
-        out = {k: row[k] for k in _BASE_COLUMNS}
+    def _row_for_columns(row: dict, present_optional: tuple, protect_status: bool) -> dict:
+        base = [c for c in _BASE_COLUMNS if not (protect_status and c in _STATUS_COLUMNS)]
+        out = {k: row[k] for k in base}
         for f in present_optional:
             out[f] = row[f]
         return out
 
     def _upsert_rows(row_list: list[dict]) -> tuple[int, list[str]]:
         """
-        Group rows by which optional fields they actually have a value for,
-        then issue one columns=-scoped request per group so absent fields
-        never participate in that request's DO UPDATE SET (and thus never
-        null out a previously-enriched value). Falls back to per-row retry
-        on batch failure.
+        Group rows by which optional fields they actually have a value for
+        and whether their status columns are protected, then issue one
+        columns=-scoped request per group so absent/protected fields never
+        participate in that request's DO UPDATE SET (and thus never null out
+        a previously-enriched value or re-flag a verified-closed auction as
+        upcoming). Falls back to per-row retry on batch failure.
         """
         groups: dict[tuple, list[dict]] = {}
         for row in row_list:
             present = tuple(f for f in _OPTIONAL_FIELDS if row.get(f) is not None)
-            groups.setdefault(present, []).append(row)
+            groups.setdefault((row['_protect_status'], present), []).append(row)
 
         ok, errs = 0, []
-        for present_optional, group_rows in groups.items():
-            url = _upsert_url(present_optional)
-            payload = [_row_for_columns(r, present_optional) for r in group_rows]
+        for (protect_status, present_optional), group_rows in groups.items():
+            url = _upsert_url(present_optional, protect_status)
+            payload = [_row_for_columns(r, present_optional, protect_status) for r in group_rows]
             try:
                 r = requests.post(url, json=payload, headers=prefer_h, timeout=30)
                 if 200 <= r.status_code < 300:
