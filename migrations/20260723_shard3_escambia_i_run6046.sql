@@ -164,8 +164,11 @@ SELECT
 FROM gap_parcels gp
 CROSS JOIN safe_zone sz
 WHERE sz.zone_code IS NOT NULL
-  AND sz.jurisdiction_id IS NOT NULL
-ON CONFLICT (parcel_id, jurisdiction_id) DO NOTHING;
+  AND sz.jurisdiction_id IS NOT NULL;
+-- No ON CONFLICT: parcel_zones has no unique constraint on (parcel_id, jurisdiction_id)
+-- (only on (tax_account, jurisdiction_id) — verified live 2026-07-24). gap_parcels
+-- already excludes parcel_ids present in existing_escambia_pz, so this insert is
+-- naturally idempotent across re-runs without needing ON CONFLICT.
 
 -- ── 4. Post-insert diagnostic ─────────────────────────────────────────────────
 DO $$
@@ -192,7 +195,7 @@ BEGIN
   RAISE NOTICE '  With valid parcel_id: %', v_with_parcel;
   RAISE NOTICE '  Now in parcel_zones: %', v_in_pz_after;
   RAISE NOTICE '  Gap remaining: %', (v_with_parcel - v_in_pz_after);
-  RAISE NOTICE '  Pct covered: %%', ROUND(100.0 * v_in_pz_after / NULLIF(v_with_parcel, 0), 1);
+  RAISE NOTICE '  Pct covered: %%%', ROUND(100.0 * v_in_pz_after / NULLIF(v_with_parcel, 0), 1);
 END $$;
 
 -- ── 5. H freshness bump for all 3 counties ────────────────────────────────────
