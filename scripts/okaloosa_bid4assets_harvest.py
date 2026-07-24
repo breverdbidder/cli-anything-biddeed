@@ -158,13 +158,19 @@ async def _scrape_date_grid(browser, base_url: str, yyyymmdd: str) -> list[list[
         await asyncio.sleep(1)
 
 
-async def scrape_all() -> tuple[list[dict], list[dict], dict]:
-    """Returns (rows, outcome_rows, stats) where stats tracks per-date parse
-    counts for fail-loud verification. outcome_rows are real closed-sale
-    foreclosure_outcomes records derived 1:1 from FC grid rows whose status
-    is a genuine sold status (never fabricated)."""
+async def scrape_all() -> tuple[list[dict], list[dict], list[dict], dict]:
+    """Returns (rows, outcome_rows, td_outcome_rows, stats) where stats
+    tracks per-date parse counts for fail-loud verification. outcome_rows
+    are real closed-sale foreclosure_outcomes records derived 1:1 from FC
+    grid rows whose status is a genuine sold status (never fabricated).
+    td_outcome_rows is the same pattern mirrored into tax_deed_outcomes for
+    the TD lane (added 2026-07-24, gold-standard-shard9-okaloosa WP2: the TD
+    lane built sold_amount/tier1_sold_amount on the auction row but never
+    mirrored a matching outcome row, capping DoD letter B below 100% on any
+    closed TD case)."""
     rows: list[dict] = []
     outcome_rows: list[dict] = []
+    td_outcome_rows: list[dict] = []
     stats = {"fc_dates_checked": 0, "fc_dates_with_rows": 0, "fc_rows": 0,
               "td_dates_checked": 0, "td_dates_with_rows": 0, "td_rows": 0}
 
@@ -292,9 +298,23 @@ async def scrape_all() -> tuple[list[dict], list[dict], dict]:
                 })
                 stats["td_rows"] += 1
 
+                if sold_amount is not None:
+                    td_outcome_rows.append({
+                        "case_number": f"B4A-{auction_id}",
+                        "county": "okaloosa",
+                        "sale_type": "tax_deed",
+                        "auction_date": _iso_date(d),
+                        "outcome": "sold",
+                        "winning_bid": sold_amount,
+                        "parcel_id": apn.strip() or None,
+                        "property_address": clean_address or None,
+                        "data_source": "bid4assets_scrape:SHARD3-OKALOOSA-V1",
+                        "source_url": f"{TD_BASE}?salesdate={d}",
+                    })
+
         await browser.close()
 
-    return rows, outcome_rows, stats
+    return rows, outcome_rows, td_outcome_rows, stats
 
 
 def _headers(supa_key: str) -> dict:
@@ -344,12 +364,38 @@ def upsert_outcomes(outcome_rows: list[dict]) -> None:
         raise RuntimeError(f"foreclosure_outcomes upsert failed {resp.status_code} {resp.text[:500]}")
 
 
+def upsert_outcomes_td(td_outcome_rows: list[dict]) -> None:
+    """Mirrors closed-sale TD grid rows into tax_deed_outcomes, same pattern
+    as upsert_outcomes() for foreclosure_outcomes. NOTE: tax_deed_outcomes
+    has no sale_type column (confirmed live via information_schema.columns,
+    2026-07-24) -- every row in this table is implicitly tax_deed, so
+    "sale_type" is dropped from the payload before upsert."""
+    if not td_outcome_rows:
+        return
+    supa_url = _req("SUPABASE_URL").rstrip("/")
+    supa_key = _req("SUPABASE_SERVICE_ROLE_KEY")
+    headers = _headers(supa_key)
+
+    payload = [{k: v for k, v in r.items() if k != "sale_type"} for r in td_outcome_rows]
+    all_keys = set().union(*(r.keys() for r in payload))
+    for r in payload:
+        for k in all_keys:
+            r.setdefault(k, None)
+
+    resp = requests.post(
+        f"{supa_url}/rest/v1/tax_deed_outcomes?on_conflict=case_number,county,auction_date",
+        headers=headers, json=payload, timeout=60,
+    )
+    if not (200 <= resp.status_code < 300):
+        raise RuntimeError(f"tax_deed_outcomes upsert failed {resp.status_code} {resp.text[:500]}")
+
+
 def main() -> int:
-    rows, outcome_rows, stats = asyncio.run(scrape_all())
+    rows, outcome_rows, td_outcome_rows, stats = asyncio.run(scrape_all())
 
     print(f">>> FC: checked {stats['fc_dates_checked']} dates, {stats['fc_dates_with_rows']} had rows, {stats['fc_rows']} total rows parsed")
     print(f">>> TD: checked {stats['td_dates_checked']} dates, {stats['td_dates_with_rows']} had rows, {stats['td_rows']} total rows parsed")
-    print(f">>> Closed-sale outcomes found: {len(outcome_rows)}")
+    print(f">>> Closed-sale outcomes found: {len(outcome_rows)} (foreclosure), {len(td_outcome_rows)} (tax_deed)")
 
     # Fail-loud: we KNOW from this session's live probes that both grids
     # have real listed inventory right now (FC has closed sales on 20260716,
@@ -375,9 +421,11 @@ def main() -> int:
     upsert(fc_rows)
     upsert(td_rows)
     upsert_outcomes(outcome_rows)
+    upsert_outcomes_td(td_outcome_rows)
     print(f"\nSUCCESS: upserted {len(rows)} okaloosa row(s) "
           f"({stats['fc_rows']} foreclosure, {stats['td_rows']} tax_deed), "
-          f"{len(outcome_rows)} foreclosure_outcomes row(s)")
+          f"{len(outcome_rows)} foreclosure_outcomes row(s), "
+          f"{len(td_outcome_rows)} tax_deed_outcomes row(s)")
     return 0
 
 
