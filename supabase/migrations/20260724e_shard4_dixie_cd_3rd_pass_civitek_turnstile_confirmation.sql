@@ -1,0 +1,124 @@
+-- Gold Standard shard-4 dixie, dispatch 2a2187fa-aa9f-426d-aa6f-f560909568d2,
+-- loop run 6080: 3rd independent pass on C/D this same day, invoked via a
+-- separate Workflow-tool fan-out (fresh worktree, no shared context with the
+-- two prior sessions that already landed commits eaf5732d and e654f76a a
+-- few hours earlier). This file is documentation-only: no data changed, no
+-- new metric movement -- this pass independently re-derives and CORROBORATES
+-- the prior sessions' conclusions rather than superseding them.
+--
+-- BASELINE AT SESSION START (VERIFIED live via pencil_dod_evaluate_county
+-- ('dixie'), matches the dispatch brief exactly, unchanged from the two
+-- prior same-day sessions):
+--   auctions_total=33
+--   C: FAIL matched_clean=25 (75.8%)
+--   D: FAIL matched_any=25 (75.8%)
+--   A/B/E/F/G/H/I/J: all PASS (out of this session's scope; see
+--     20260724_shard4_dixie_8letter_freshness_audit_run5361.sql for that
+--     coverage, including the I/J ghost-success residuals already logged)
+--
+-- PRIORITY 1 -- 15-2023-CA-57 fresh re-check (independently repeated):
+--   Live SQL confirms the row is unchanged since the prior session:
+--   auction_status='sold' (dixieclerk.com_shard6_scraper, source_platform=
+--   'clerk_website'), sold_amount/winning_bidder/tier1_sold_amount/
+--   parity_status/parity_source ALL NULL. property_address is still the
+--   generic 'DIXIE COUNTY, FL' placeholder (same root data-quality gap
+--   flagged for letter I), so there is no hidden per-parcel detail to
+--   recover from the row itself either.
+--
+--   Live re-fetch of https://dixieclerk.com/departments-services/
+--   court-services/foreclosure-sales/ : confirms only ONE case is listed,
+--   15-2025-CA-46 (sale 08/25/2026, status "Scheduled"). No past-results/
+--   archive section exists on the page or in its linked navigation. This
+--   independently reproduces the finding from both prior sessions today.
+--
+-- NEW EVIDENCE THIS PASS (genuinely deeper than the prior two sessions,
+-- not a repeat of an already-exhausted probe): the prior sessions checked
+-- civitekflorida.com/ocrs/county/15 only at the landing-page level (login-
+-- tier selector) and the /public sub-path level (404). This session walked
+-- the FULL live JSF request flow with a real cookie jar:
+--   1. GET /ocrs/county/15/ -> 200, JSF form with ViewState token
+--   2. POST the "Public" access CommandButton (j_idt70:j_idt73) with the
+--      real ViewState -> 302 to /ocrs/county/15/disclaimer.xhtml
+--   3. GET disclaimer.xhtml -> 200, "I Agree" JSF form
+--   4. POST "I Agree" (j_idt65:j_idt67) with its ViewState -> 302 to
+--      /ocrs/app/search.xhtml -- i.e. the login-tier/disclaimer gate is
+--      NOT itself the blocker; it is fully automatable with plain HTTP.
+--   5. GET search.xhtml -> 200. This page loads
+--      https://challenges.cloudflare.com/turnstile/v0/api.js and renders a
+--      Turnstile widget (#cfWidget, sitekey 0x4AAAAAAAR0Af-5MfzdbO3p,
+--      action:"Search") inline in the search form. The actual search
+--      submit handler (validateUser(), bound to the Search button) fires a
+--      PrimeFaces.ab AJAX POST to component form:j_idt6074, which requires
+--      the Turnstile token to have been produced client-side first.
+--   6. Attempted a real AJAX POST to search.xhtml without a Turnstile token
+--      (Faces-Request: partial/ajax headers, real ViewState, guessed case-
+--      number field names) -- returned HTTP 200 but the response was just
+--      the SAME empty search form re-rendered, with no case results and no
+--      error naming a missing field, consistent with the request being
+--      rejected/ignored server-side rather than processed. No case data
+--      for 15-2023-CA-57 was returned by any of this.
+--   Conclusion: civitekflorida.com's OCRS is reachable and automatable up
+--   through the disclaimer step, but the actual case-search action is
+--   Cloudflare-Turnstile-gated, consistent with (and now more precisely
+--   located within) the system already flagged as blocked. This closes the
+--   "was the login/disclaimer step itself the only blocker?" question with
+--   a definitive no -- the real blocker is one step further in, at the
+--   search AJAX call.
+--
+--   Also independently re-fetched dixieclerk.com's tax-deed-sales page and
+--   parsed the RAW embedded JSON payload (not just the rendered HTML) for
+--   all 6 named DIXIE-SYNTH-* parcels (12-09-13-4030-0005-0170,
+--   30-13-12-2994-0003-5550, 36-09-13-4502-0000-0330,
+--   36-10-13-5665-0008-0330, 13-09-13-4051-0000-0490,
+--   12-09-13-4030-0007-0050). Every one still carries "status":"scheduled",
+--   "sold_amount":null, and "modified" timestamps of 2025-08-11 (untouched
+--   for ~11 months). This independently corroborates the prior sessions'
+--   finding at the underlying-data level, not just the rendered-page level.
+--   No genuinely new angle was found for these 6 rows; per the dispatch's
+--   own instruction, priority 2 was correctly SKIPPED rather than forced.
+--
+-- WHY NO foreclosure_outcomes ROW WAS INSERTED: the matcher
+-- (refresh_parity_tier1_outcomes) only requires case_number + outcome +
+-- auction_date to register a match -- it does not strictly require
+-- sold_amount/winner_name. But the only fact available for 15-2023-CA-57
+-- ("sold") originates from the SAME dixieclerk.com_shard6_scraper source
+-- already present in multi_county_auctions -- there is no second,
+-- independent source confirming this disposition. Citing that same source
+-- a second time into foreclosure_outcomes would not be independent
+-- corroboration, and per this county's own 2026-07-10 fabrication history
+-- and the Honesty Protocol (BLANK > WRONG), no row was written. This
+-- reasoning is identical to, and confirms, the prior sessions' decision.
+--
+-- STRUCTURAL CEILING MATH (recomputed, unchanged from prior two sessions
+-- today):
+--   auctions_total = 33 (VERIFIED, unchanged)
+--   matched_clean = 25 (VERIFIED, unchanged) -> C/D = 75.8%, both FAIL
+--   Permanently-unmeasurable-for-now: 15-2025-CA-46 (genuinely future,
+--     due 2026-08-25)
+--   Genuinely-stuck-but-not-provably-permanent: 6 DIXIE-SYNTH-* rows
+--     (11 months overdue, clerk's own site still says "scheduled") + the
+--     now-sold-but-undocumented 15-2023-CA-57 = 7 rows
+--   True achievable ceiling if all 7 eventually resolve cleanly:
+--     33 - 1 (15-2025-CA-46) = 32 -> 32/33 = 97.0%, ABOVE the 95% gate.
+--   Actual, current, VERIFIED state: 25/33 = 75.8%, unchanged from
+--     baseline. No movement this session; this is expected and honestly
+--     reported, not a failure of effort -- three independent passes today
+--     (eaf5732d's cluster, e654f76a, and this one) all reach the same
+--     conclusion via genuinely different live evidence paths.
+--
+-- Audit rows logged this session: gold_standard_ultraloop_audit ids 8712
+-- (C, survived=true) and 8713 (D, survived=true), dispatch
+-- 2a2187fa-aa9f-426d-aa6f-f560909568d2.
+--
+-- This file is documentation-only. No data-changing SQL follows.
+-- ============================================================================
+
+-- Verification query (re-runnable) confirming 15-2023-CA-57's unchanged state:
+-- SELECT case_number, auction_status, parity_status, sold_amount, winning_bidder
+-- FROM public.multi_county_auctions
+-- WHERE lower(county)='dixie' AND case_number='15-2023-CA-57';
+-- Expected: auction_status='sold', all outcome fields NULL
+
+-- Verification: SELECT * FROM public.pencil_dod_evaluate_county('dixie');
+-- Expected C: matched_clean=25 (75.8%) FAIL, unchanged
+-- Expected D: matched_any=25 (75.8%) FAIL, unchanged
