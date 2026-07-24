@@ -110,6 +110,22 @@
 -- or not sold. Three independent sessions (2026-07-11, 2026-07-20, 2026-07-24) now agree: no
 -- write made, state genuinely unresolved, not a confirmed zero and not a confirmed sale.
 --
+-- This session also closed one open thread from the 2026-07-20 residual: found and fetched the
+-- Clerk's actual published schedule PDF (suwgov.org/wp-content/uploads/Schedule-07.20.2026.pdf,
+-- linked from suwgov.org/tax-deed-sales/) and extracted its real text (via pypdf). It lists only
+-- the 7 cases for the NEXT scheduled sale (4706/2024-1088 ... 4784/2024-1886, all for 8/6/2026)
+-- -- confirming this document is a per-sale-date upcoming schedule, not a historical case
+-- registry, which is why 4666/4667 (a past date) were never going to appear on it regardless of
+-- whether they sold. The "case-number discrepancy" the 2026-07-20 session flagged as an open
+-- question is therefore resolved as a scope misunderstanding, not a real numbering
+-- inconsistency -- it provides no evidence either way on whether 4666/4667 sold. Also
+-- re-confirmed via suwannee-search.gsacorp.io that neither parcel (10591001000 / 11016001003)
+-- has picked up a new 2026 recorded instrument since the last check (still 2009 and 1996
+-- respectively) -- a fourth independent live re-check, same conclusion. No further B/F lever
+-- exists this session; the next real opportunity is the 08/06/2026 and 07/23-08/27/2026 sale
+-- dates (the 7 existing tax-deed rows and the 4 just-inserted foreclosure rows) once they
+-- actually pass and have time to post/record.
+--
 -- AFTER (pencil_dod_evaluate_county, re-verified live immediately after each write):
 --   suwannee: A metric 0->4 (fc=4 td=9), pass false->true.
 --             J metric 0.0->100.0 (13/13), pass false->true.
