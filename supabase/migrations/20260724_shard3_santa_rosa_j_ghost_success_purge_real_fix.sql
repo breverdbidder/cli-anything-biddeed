@@ -1,0 +1,65 @@
+-- GOLD STANDARD shard-3 santa_rosa (dispatch cc621572-35e9-41fd-a901-e5719416b834),
+-- audit-freshness refresh session. No schema change -- documents a live DATA fix
+-- applied via scripts/shard3_run6080_santa_rosa_j_generator_real.py (run directly
+-- against production Supabase, not through this migration file).
+--
+-- FINDING (ultraloop adversarial audit, live 2026-07-24): all 104 pre-existing
+-- santa_rosa bid_decisions rows carried a constant or 2-value-bucketed ml_score
+-- regardless of pipeline_version tag:
+--   - 77 rows tagged 'v14.0_heuristic' / 'shard6_loop581_j_fix': ml_score constant
+--     0.45 across every row -- no real XGBoost inference in that code path despite
+--     the tag name.
+--   - 27 rows tagged 'shard9_j_gen_v1' (scripts/shard9_j_generator.py): ml_score
+--     bucketed to exactly 0.38 or 0.75 based only on whether max_bid>0, ARV falling
+--     back to a hardcoded county-wide constant ($295,000) when no real value existed.
+-- This satisfied pencil_dod_evaluate_county's letter-J key-presence check (factors ?
+-- 'cma_distressed' etc.) while being a textbook ghost-success: the metric looked
+-- like 88-90/90 PASS, but the underlying "deal thesis" was not computed per-property.
+--
+-- FIX (real, adversarially verified in 2 independent rounds -- verifier != fixer
+-- both times): scripts/shard3_run6080_santa_rosa_j_generator_real.py, forked from
+-- the proven scripts/shard8_run6080_suwannee_j_generator_real.py pattern (used and
+-- verified for suwannee earlier the same day). Real per-property ml_score via live
+-- XGBoost inference against shapira_models v14.0 (AUC 0.7834, storage bucket
+-- shapira-models, path v14/2026-05-27-180308/); santa_rosa's REAL trained
+-- county_target_encoding_map rate (0.70720 -- santa_rosa is one of the 45 counties
+-- in the training corpus, no fallback needed); ARV strictly from real
+-- assessed_value/market_value on the auction row (1 of 90 auctions honestly skipped
+-- for having neither); distress_location from haversine distance to the real
+-- median lat/lon centroid of santa_rosa's own 89 geocoded auction rows;
+-- distress_property from real assessed-value percentile rank within the county's
+-- own auction cohort; distress_owner from real fl_parcels.own_name regex
+-- classification (multi_county_auctions.owner_name is null for all 90 santa_rosa
+-- rows -- a V1 pass of this fix missed that and silently collapsed distress_owner
+-- to a constant 0.35, caught by round-1 adversarial refuter, fixed in V2 by joining
+-- fl_parcels.own_name by parcel_id).
+--
+-- Round-1 refuter also caught 17 old-fabricated bid_decisions rows left orphaned
+-- (case_numbers no longer among the 90 live santa_rosa auctions, so the reprocess
+-- loop never reached them) plus 1 further leftover fabricated row for an auction
+-- with no real value on file at all (case_number 572022CA000671CAAXMX). All 18 were
+-- purged rather than left as stale fabricated data or fabricated to keep the count
+-- up -- J's honest denominator is 89/90 (98.9%), down from a fabricated 90/90, and
+-- still clears the >=95% canon threshold.
+--
+-- Round-2 independent refuter confirmed: exactly 89 bid_decisions rows remain for
+-- santa_rosa, 100% on the new v2 pipeline_version tag, zero on any prior/fabricated
+-- tag; distress_owner has real variance (79 rows baseline 0.35, 10 rows genuinely
+-- elevated to 0.55, all 10 independently confirmed against fl_parcels.own_name to
+-- be real LLC/INC/ESTATE entities); the 89/90 metric independently recomputed from
+-- raw tables matches the live evaluator exactly; letters A-I unaffected.
+--
+-- Separately this session: corrected an over-eager adversarial refutation of
+-- letters C, D, and E for the same county -- those letters were flagged
+-- ghost-success by a refuter applying an outdated PropertyOnion-po_id-linkage
+-- criterion that the evaluator's actual SQL does not implement (the real predicate
+-- is parity_source LIKE 'tier1%%' for C/D, and parcel_id IS NOT NULL for E, both of
+-- which the santa_rosa data genuinely satisfies). See
+-- gold_standard_ultraloop_audit rows for C/D/E (this dispatch) for the corrected,
+-- SQL-grounded verification.
+--
+-- No cron jobs (109/111/115/gold-standard-loop-*) modified. No schema DDL in this
+-- file -- included for session provenance/audit-trail only, matching this
+-- campaign's established convention (see 20260724_gold_standard_shard8_suwannee_
+-- aj_real_fix.sql for the same pattern).
+SELECT 1;
