@@ -1,0 +1,121 @@
+name: "Gold Standard SHARD-7: dixie + flagler (dispatch ea6af08a)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      dispatch_id:
+        description: 'dispatch_id (ea6af08a-62cb-4bdb-b69d-224fbfac7d47)'
+        required: false
+        default: 'ea6af08a-62cb-4bdb-b69d-224fbfac7d47'
+
+concurrency:
+  group: gold-standard-shard7-dixie-flagler
+  cancel-in-progress: false
+
+jobs:
+  fix-dixie-flagler:
+    name: "Shard-7: dixie + flagler — C/D/I/J fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx requests beautifulsoup4 lxml
+
+      - name: Configure git
+        run: |
+          git config user.email "shard7-bot@biddeed.ai"
+          git config user.name "SHARD-7 Gold Standard Bot"
+
+      - name: Apply SQL migration (I/J/H fixes via Management API)
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: mocerqjnksmhcjzxrewo
+        run: |
+          set -euo pipefail
+          echo "=== Applying migration 20260724_gold_standard_shard7_dixie_flagler_cd_i_j.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260724_gold_standard_shard7_dixie_flagler_cd_i_j.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/resp.json
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration failed HTTP $HTTP"; exit 1; }
+          echo "Migration OK"
+
+      - name: Run Shard-7 dixie+flagler fix script (C/D AJAX harvest + residual card fills)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "=== SHARD-7 dixie+flagler fix ==="
+          echo "Dispatch: ea6af08a-62cb-4bdb-b69d-224fbfac7d47"
+          python3 scripts/shard7_dixie_flagler_cd_i_j_fix.py 2>&1 | tee /tmp/shard7_dixie_flagler_output.txt
+          echo "=== Fix script complete ==="
+
+      - name: Verify via pencil_dod_evaluate_county
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 -c "
+          import os, json
+          import urllib.request
+
+          SB = os.environ['SUPABASE_URL']
+          KEY = os.environ['SUPABASE_KEY']
+          BASE = f'{SB}/rest/v1'
+          H = {'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json'}
+
+          print('### SQL VERIFICATION — SHARD-7 dixie+flagler Evaluation')
+          import datetime
+          print(f'Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z')
+
+          for county in ['dixie', 'flagler']:
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(f'{BASE}/rpc/pencil_dod_evaluate_county', data=body, headers={**H, 'Prefer': ''}, method='POST')
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  ev = json.loads(r.read())
+              letters = 'ABCDEFGHIJ'
+              passes = sum(1 for l in letters if ev.get(l, {}).get('pass', False))
+              print(f'{county.upper()}: {passes}/10 PASS')
+              for l in letters:
+                  d = ev.get(l, {})
+                  s = 'PASS' if d.get('pass') else 'FAIL'
+                  m = d.get('metric', '')
+                  det = d.get('detail', '')
+                  print(f'  {l}: {s} metric={m} {det}')
+              print(f'  FULL: {json.dumps(ev)}')
+              print()
+          " 2>&1 | tee /tmp/shard7_dixie_flagler_verify.txt
+
+          cat /tmp/shard7_dixie_flagler_verify.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit migration files and scripts
+        run: |
+          set +e
+          git pull --rebase origin main || git pull origin main
+          git add scripts/shard7_dixie_flagler_cd_i_j_fix.py || true
+          git add .github/workflows/gold-standard-shard7-dixie-flagler.yml || true
+          git diff --cached --quiet || git commit -m "fix(gold-standard-shard7-dixie-flagler): C/D/I/J fix for dixie+flagler dispatch ea6af08a
+
+          dixie: probe dixieclerk.com for new dispositions, attempt C/D promotion
+          flagler: AJAX harvest new auction dates for C/D; fill lat/lon+av+addr+parcel_zones for I; bid_decisions for J
+
+          Co-authored-by: breverdbidder <breverdbidder@users.noreply.github.com>"
+          git push origin main || true
+          echo "Commit done"
