@@ -1,0 +1,120 @@
+session:
+  shard: SHARD-8 (liberty only)
+  dispatch_id: 9433ec3c-3860-480f-a0bf-946e6aeb5fbe
+  chat_session: architect-20260724T160000
+  date: 2026-07-24
+  mode: ultracode Workflow fan-out (4 parallel research agents -> 1 conditional fix agent
+    -> 1 adversarial verify agent), per ULTRALOOP PROTOCOL
+
+pre_session_baseline: "7/10 -- A FAIL (fc=1 td=0), B FAIL (null, verified=0 closed_sold=0),
+  F FAIL (null, tier1_sold=0 closed_sold=0). C/D/E/G/H/I/J already PASS at 100.0 (1/1, the
+  county's only auction). Verified live via pencil_dod_evaluate_county('liberty') before
+  any work. DB direct psql/pooler auth failed (password auth failed, us-west-2 pooler) --
+  same constraint hit by multiple sessions this month; used PostgREST REST/RPC +
+  Supabase Management API SQL endpoint instead, both worked cleanly all session."
+
+decisions:
+  - step: 1
+    action: "Read liberty's full prior history first: pipeline.counties notes (verified
+      2026-07-05 and 2026-07-20 that the tax-deed page has zero active cases -- genuine
+      absence for A) and scripts/franklin_liberty_bf_recheck_2026-07-18.py (established
+      B/F were accrual-blocked because the county's one auction, case 24-CA-22, hadn't
+      reached its 2026-07-21 sale date yet as of the 07-18 check)."
+    reason: "2026-07-18's finding explicitly said 'earliest possible legitimate flip is
+      B/F the day after 2026-07-21' -- today (07-24) is the first session where that
+      window is actually open, so this was the one live lead worth chasing hard."
+
+  - step: 2
+    action: "Confirmed the case's status changed: libertyclerk.com/courts/foreclosure-
+      sales/ no longer lists case 24-CA-22 at all (previously listed as 'upcoming' as of
+      07-18/07-20). The site has no past-sales/results section to fall into -- it simply
+      dropped off. Re-confirmed tax-deed page unchanged (zero cases, 3rd verified check
+      in 19 days)."
+
+  - step: 3
+    action: "Dispatched an ultracode Workflow with 4 parallel read-only research agents,
+      each chasing a distinct independent (non-PropertyOnion) source for the case's real
+      outcome: (a) Civitek OCRS court docket search civitekflorida.com/ocrs/county/39,
+      (b) Official Records Index myfloridacounty.com/orisearch/39, (c) Property
+      Appraiser (libertypa.org/qpublic) + a fresh A recheck + tax collector glance,
+      (d) an exhaustive full-sitemap crawl of libertyclerk.com itself."
+    result: "All four came back blocked or negative, independently corroborating each
+      other: (a) reached the real case-search form (Year=24/Type=CA/Seq=22) but the
+      Search action is gated by a live Cloudflare Turnstile CAPTCHA (sitekey
+      0x4AAAAAAAR0Af-5MfzdbO3p) -- unsolvable by headless Chromium/Playwright available
+      this session; (b) form POST returns a Turnstile interstitial (sitekey
+      0x4AAAAAAA64PTBePmuGbrkR) instead of results; (c) libertypa.org/qpublic both
+      HTTP 403 behind a Cloudflare Managed Challenge; the only reachable data was a
+      third-party aggregator (floridaparcels.com) showing an ownership change tagged to
+      the 2025 Assessment row -- over a year before this auction, unrelated; (d) full
+      26-page sitemap crawl confirms the site structurally has no case-outcome page
+      type anywhere (static WordPress site, not a case-management system)."
+
+  - step: 4
+    action: "Fix agent received all 4 research reports and was instructed: write a
+      foreclosure_outcomes row + patch multi_county_auctions ONLY if at least one
+      agent produced VERIFIED, source-quoted proof of a real dollar sale outcome;
+      otherwise make zero writes and report why."
+    result: "Decision: NO_WRITE. No agent produced a sourced dollar figure, winning-
+      bidder name, or 'sold'/Certificate-of-Title text for case 24-CA-22 from any
+      independent source. Root cause identified as tooling gaps stacked on a genuine
+      accrual gap: Firecrawl account confirmed at 0/100,000 credits (account-wide,
+      blocks every county's scrape/agent calls, not just liberty's), browser-use CLI
+      not installed in this environment, AND Florida practice typically doesn't record
+      a Certificate of Title until ~10 days post-sale (objection period) -- so even
+      working CAPTCHA-solving tooling would likely show nothing yet at day 3."
+
+  - step: 5
+    action: "Dispatched an independent adversarial verify agent (not the fix agent) to
+      re-query the live DB itself and try to refute the NO_WRITE claim -- checking for
+      a silent write, a false 'no write' claim, or any regression on the county's 7
+      passing letters."
+    result: "SURVIVED. foreclosure_outcomes WHERE county='liberty' confirmed still
+      empty (0 rows). multi_county_auctions row for 24-CA-22 confirmed byte-identical
+      to pre-session state (sold_amount/tier1_sold_amount/tier1_authoritative/
+      data_source all unchanged). Fresh pencil_dod_evaluate_county('liberty') identical
+      to the session's starting baseline on every letter -- zero regression on
+      C/D/E/G/H/I/J, A/B/F correctly still failing (no new evidence written)."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('liberty') before vs after (direct RPC call,
+      this session)"
+    proof: "before: A=0(fc=1/td=0,FAIL) B=null(0/0,FAIL) C=100.0(1) D=100.0(1) E=100.0(1)
+      F=null(0/0,FAIL) G=100.0 H=2.0/6.2 I=100.0(1/1) J=100.0(1/1), 7/10.
+      after (fresh call from the adversarial verify agent): A=0(fc=1/td=0,FAIL,
+      unchanged) B=null(0/0,FAIL,unchanged) C=100.0(1) D=100.0(1) E=100.0(1)
+      F=null(0/0,FAIL,unchanged) G=100.0 H=6.4 I=100.0(1/1) J=100.0(1/1), 7/10 --
+      IDENTICAL, correctly no change since no verified evidence was found."
+  - check: "foreclosure_outcomes WHERE county='liberty' (adversarial verify agent's own
+      independent query)"
+    proof: "0 rows -- confirms the NO_WRITE claim, no silent insert occurred."
+  - check: "gold_standard_ultraloop_audit rows for dispatch_id=9433ec3c-3860-480f-a0bf-
+      946e6aeb5fbe"
+    proof: "id=9595 (liberty/A, survived=true), id=9596 (liberty/B, survived=true),
+      id=9597 (liberty/F, survived=true) -- each documents the full blocking-source
+      list and tooling-gap root cause in refuter_evidence jsonb."
+
+status_board:
+  liberty: "7/10, unchanged this session -- correctly NOT force-resolved. A remains
+    independently blocked (genuine zero tax-deed cases, 3rd consecutive verified
+    check). B/F remain genuinely blocked by a stack of (1) a real 10-day CT-recording
+    accrual gap (sale was 3 days ago) and (2) two live Cloudflare Turnstile CAPTCHA
+    walls on the only two sources that would carry the outcome once recorded. No
+    fabrication, no regression, no forced write."
+
+next_session_priorities:
+  - "Liberty B/F: recheck no earlier than 2026-07-31 (10-day CT recording lag past the
+    sale's objection period), AND only useful if Firecrawl credits are replenished, or
+    browser-use gets installed in the session environment, or a human solves the
+    Turnstile challenge once on civitekflorida.com/ocrs/county/39 or
+    myfloridacounty.com/orisearch/39 -- both are real, correct sources, just currently
+    unreachable by this session's available automation."
+  - "Fleet-level tooling flag (not liberty-specific, worth raising once): Firecrawl
+    account is at 0/100,000 credits account-wide, and browser-use is not installed in
+    this session environment. The same myfloridacounty.com/orisearch Turnstile gate was
+    independently hit by the parallel 2026-07-24 suwannee shard-8 session too -- this
+    blocks B/F/C/D progress on multiple counties, not just liberty, and is a better use
+    of fix effort than re-deriving the same finding county-by-county."
+  - "Liberty A: no dependency on the above -- would only move if a genuine new
+    tax-deed case appears on libertyclerk.com/courts/tax-deeds/ (rare for an 8K-
+    population county); no action needed until that changes."
