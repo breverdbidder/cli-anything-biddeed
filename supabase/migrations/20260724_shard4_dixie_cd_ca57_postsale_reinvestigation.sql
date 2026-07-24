@@ -1,0 +1,156 @@
+-- Gold Standard shard-4 dispatch 2a2187fa-aa9f-426d-aa6f-f560909568d2: dixie C/D
+-- fresh-verify pass, county has been independently re-investigated 8+ times
+-- 2026-07-04 through 2026-07-19. This is documentation-only: no schema/data
+-- change was made this session because no new real disposition was found.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('dixie') at session
+-- start, matches the dispatch brief exactly): auctions_total=33,
+-- C matched_clean=25 (75.8%) FAIL, D matched_any=25 (75.8%) FAIL.
+--
+-- ONE GENUINELY NEW THING THIS SESSION: case 15-2023-CA-57's sale date
+-- (2026-07-21) is now 3 days in the past (today=2026-07-24). Prior sessions
+-- (through 2026-07-19) correctly left it unmeasured as a future auction.
+-- multi_county_auctions already carries auction_status='sold' for this row
+-- (data_source='dixieclerk.com_shard6_scraper', source_platform=
+-- 'clerk_website', last_seen_at=2026-07-23T16:40:03Z) but sold_amount,
+-- winning_bidder, and parity_status/parity_source are all NULL -- meaning no
+-- independent foreclosure_outcomes row has been harvested+matched yet.
+--
+-- INVESTIGATION (this session, live, all fresh re-checks with real dated
+-- evidence, none reused from a stale cache):
+--   1. https://dixieclerk.com/departments-services/court-services/
+--      foreclosure-sales/ -- fetched live. Only lists ONE row: case
+--      15-2025-CA-46, sale date 08/25/2026, status "Scheduled". Case
+--      15-2023-CA-57 has fallen off this page because the page only shows
+--      *upcoming* sales -- once a sale date passes, the row disappears
+--      rather than converting to a "sold/results" state. Confirmed via a
+--      second live fetch of the same URL asking specifically for links to
+--      a past-sales/results archive: none found. dixieclerk.com has no
+--      "foreclosure sale results" page distinct from the upcoming-sales
+--      list, so post-sale disposition is not published there at all.
+--   2. https://dixieclerk.com/departments-services/court-services/
+--      property-sales/ (a sibling page not explicitly named in the prior
+--      8-probe list) -- fetched live. Confirmed to be a navigation/index
+--      page only (links to Foreclosure Sales / Tax Deed Sales / Lands
+--      Available), no case data of its own. Does not contain 15-2023-CA-57
+--      or any completed-sale table. This closes off the one page-shaped
+--      gap in the prior investigation's coverage -- it was a dead end too.
+--   3. https://www.civitekflorida.com/ocrs/county/15/ -- fetched live.
+--      Confirmed (again) to be a login gate: Public/Attorney/Registered
+--      User/Party Access tiers, three of which explicitly require a
+--      username+password we do not have and will not fabricate/acquire.
+--      The "Public" access tier was tried directly
+--      (.../ocrs/county/15/public) and returns HTTP 404. No anonymous
+--      case-search path exists. Consistent with the county's own docket
+--      index being gated, as previously documented.
+--   4. https://www.myfloridacounty.com/orisearch/15 -- fetched live.
+--      NOTE: this endpoint is NOT currently NXDOMAIN as one prior session
+--      reported -- it resolves and returns HTTP 200 with a real Official
+--      Records search FORM (party name / legal description / document
+--      type / instrument type / date range), and the page footer states
+--      "Instruments verified through 7/22/2026" -- i.e. its index is
+--      current past the 2026-07-21 sale date, which is exactly why this
+--      was worth a fresh, real attempt rather than trusting the stale
+--      NXDOMAIN note. Captured the live form's actual HTML (name= form
+--      field attributes, POST action URL with a session-scoped q1= query
+--      token, JSESSIONID cookie) and submitted a real POST search for
+--      party name "21ST MORTGAGE" (the case's plaintiff) with a
+--      07/01/2026-07/24/2026 date window, replaying the session cookie.
+--      RESULT: the search endpoint (not the landing page) is gated behind
+--      a Cloudflare Turnstile widget ("Please verify you are human",
+--      sitekey 0x4AAAAAAA64PTBePmuGbrkR, onTurnstileSuccess callback that
+--      submits the form only after passing the challenge). This cannot be
+--      passed headless. This CONFIRMS the prior sessions' finding that
+--      this source is Turnstile-gated -- the landing page reachability
+--      changed (200 vs previously-reported NXDOMAIN) but the actual
+--      blocker (Turnstile on submission) did not. Net: still exhausted,
+--      now re-confirmed with a real POST attempt rather than just a GET.
+--   5. https://dixieclerk.com/departments-services/court-services/
+--      tax-deed-sales/ -- fetched live (relevant because Dixie sometimes
+--      miscategorizes cases). No reference to 15-2023-CA-57. Page states
+--      explicitly "We do not conduct the auctions online" -- confirmed
+--      via a live source_platform census this session
+--      (SELECT source_platform, count(*) FROM multi_county_auctions WHERE
+--      lower(county)='dixie' GROUP BY source_platform -> 100% (33/33)
+--      clerk_website) that Dixie has no RealAuction/RealForeclose/
+--      RealTaxDeed online platform at all -- this definitively closes off
+--      that avenue for good, not just for this row.
+--
+-- CONCLUSION on 15-2023-CA-57: real, non-synthetic case, genuinely past due
+-- (3 days), auction_status already correctly flipped to 'sold' by the
+-- scraper, but NO independently-citable sold_amount/winning_bidder exists
+-- on any reachable source as of this session. Per Honesty Protocol
+-- (BLANK > WRONG) and this county's own documented 2026-07-10 fabrication
+-- incident, NO foreclosure_outcomes row was inserted and
+-- refresh_parity_tier1_outcomes('dixie') was NOT re-run (nothing new to
+-- pick up). This case remains genuinely blocked, not resolved. Re-check in
+-- a future session once dixieclerk.com or myfloridacounty.com actually
+-- publishes disposition data for it.
+--
+-- ITEM 2 (6 stale DIXIE-SYNTH-* rows): per the dispatch brief's own
+-- instruction, only attempted if a genuinely NEW angle (not a repeat of
+-- the 8 exhausted probes) could be articulated. None was found this
+-- session -- the "property-sales" index page checked in step 2 above
+-- turned out to be a navigation shell, not a new data source, and every
+-- other angle considered (qPublic, kofilequicklinks, civitekflorida,
+-- myfloridacounty, FL DOR NAL FeatureServer, RealTaxDeed/RealForeclose
+-- alternates, F.S.197.582 surplus list) is identical to the already-
+-- exhausted list. Skipped per instruction rather than forced. These 6
+-- rows remain: 12-09-13-4030-0005-0170, 30-13-12-2994-0003-5550,
+-- 36-09-13-4502-0000-0330, 36-10-13-5665-0008-0330,
+-- 13-09-13-4051-0000-0490, 12-09-13-4030-0007-0050 -- all
+-- auction_status='upcoming', auction_date in Aug 2025 (~11 months
+-- overdue), parity_status/parity_source both still NULL. VERIFIED live
+-- this session via direct SQL against multi_county_auctions.
+--
+-- STRUCTURAL CEILING MATH (recomputed precisely this session):
+--   auctions_total = 33 (VERIFIED, unchanged)
+--   matched_clean (parity_status IS NOT NULL AND parity_source LIKE
+--     'tier1%') = 25 (VERIFIED, unchanged -- no new match was possible)
+--   C/D metric = 25/33 = 75.8% (VERIFIED, unchanged from baseline) -- FAIL,
+--     below the 95% (32/33 or better, i.e. >=31.35 -> 32) gate.
+--   Genuinely-unmatchable-forever rows: the 2 rows the brief flags as real
+--     (15-2025-CA-46, future, due 2026-08-25 -- correctly unmeasurable
+--     until then) and NOTHING else is "forever" unmatchable -- the 6 synth
+--     rows are stuck, not proven permanently unresolvable (the clerk's own
+--     site could theoretically update its 11-month-stale postings any day)
+--     and 15-2023-CA-57 is now sold-but-undocumented, not future.
+--   True achievable ceiling if ALL 6 synth rows AND 15-2023-CA-57 resolved
+--     cleanly: 33 - 1 (15-2025-CA-46, genuinely future) = 32 achievable,
+--     32/33 = 97.0% -- ABOVE the 95% threshold. This confirms and carries
+--     forward the 2026-07-19 session's own ceiling math unchanged: the
+--     true ceiling is 97.0%, not a lower "hard" number, and the current
+--     78.8%-vs-97.0% gap (25/33 actual vs 32/33 achievable) is entirely
+--     attributable to 7 specific, named, still-open rows (6 synth + CA-57),
+--     zero of which resolved this session despite a genuine, fresh,
+--     evidence-based attempt on the one row (CA-57) that had newly become
+--     eligible since the last check.
+--   NOTE: this session did NOT move matched_clean from 25 to 26 as the
+--   brief's "if it resolves cleanly" scenario hoped -- CA-57 did not
+--   resolve. The 78.8% figure in the brief's framing was conditional
+--   ("if it resolves cleanly it moves...to 26/33"); the actual, VERIFIED
+--   result is it stayed at 25/33=75.8%, unchanged from baseline.
+--
+-- This file is a documentation-only record. No data-changing SQL follows
+-- because no data changed this session -- verification queries only.
+-- ============================================================================
+
+-- Verification query used to confirm CA-57's current state (re-runnable):
+-- SELECT case_number, auction_status, auction_date, parity_status,
+--        parity_source, sold_amount, winning_bidder
+-- FROM public.multi_county_auctions
+-- WHERE lower(county)='dixie' AND case_number='15-2023-CA-57';
+-- Expected: auction_status='sold', parity_status IS NULL, sold_amount IS NULL
+
+-- Verification query used to confirm the 6 synth rows remain unmatched:
+-- SELECT case_number, auction_status, auction_date, parity_status
+-- FROM public.multi_county_auctions
+-- WHERE lower(county)='dixie' AND case_number LIKE 'DIXIE-SYNTH%'
+--   AND (parity_status IS NULL OR parity_source NOT LIKE 'tier1%')
+-- ORDER BY case_number;
+-- Expected: exactly 6 rows, all auction_status='upcoming',
+--           auction_date in Aug 2025
+
+-- Verification: SELECT public.pencil_dod_evaluate_county('dixie');
+-- Expected C: matched_clean=25 (75.8%) -- still FAIL, unchanged from baseline
+-- Expected D: matched_any=25 (75.8%) -- still FAIL, unchanged from baseline
