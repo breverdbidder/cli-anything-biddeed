@@ -123,6 +123,11 @@ DENSITY_DU_ACRE_BY_CODE = {
     "R1M": 4.0,
     "R2M": 10.0,
     "PUD": 18.0,  # LDC: "Up to 18 units per acre (Determined By P&Z Director)"
+    "RR1": 2.0,  # LDC Table 2.04.02.a "Rural Residential Single Family
+    # District" column, "Residential Density (Dwelling Units per Gross
+    # Acre)" row = 2. Confirmed live this session by extracting text from
+    # santarosa.fl.gov/DocumentCenter/View/5820 page 113 (doc page "96")
+    # via pypdf (WebFetch could not render this PDF's text layer).
 }
 
 
