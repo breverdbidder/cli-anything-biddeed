@@ -1,0 +1,148 @@
+-- HAMILTON County (shard-5, gold-standard-shard5-run3679) -- 2026-07-25 session (2nd firing
+-- this day; parallel to 20260725_shard5_hamilton_bf_turnstile_and_taxcollector_dead_end_reverify.sql
+-- which worked B/F -- this session's assignment is letters E (parcel linkage) and I (card
+-- completeness)). RESULT: no new writes. Both gaps remain genuinely blocked. Migration filed
+-- per campaign protocol (a file is required even for reverify/exhaustion-only sessions).
+--
+-- Read in full before this file (not repeated here): 20260711_shard_run3679_hamilton_e_
+-- linkage_cdf_diagnosis.sql, 20260711_shard5_hamilton_reverify_no_new_writes.sql,
+-- 20260724_shard5_hamilton_e_cd_reverify_no_new_writes.sql,
+-- 20260724c_shard5_hamilton_madison_refire_reverify_no_new_writes.sql,
+-- 20260724_shard5_hamilton_i_card_completeness_source_exhaustion.sql.
+--
+-- =====================================================================================
+-- BASELINE (live, pencil_dod_evaluate_county('hamilton'), this session, START = END,
+--   confirms zero drift since the 07-24 sessions):
+--   A=PASS(6) B=FAIL(null) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16) E=FAIL(93.8%,15/16)
+--   F=FAIL(null) G=PASS(100.0) H=PASS(12.9h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+-- =====================================================================================
+--
+-- E-BLOCKING ROW re-confirmed live: id=09081529-84af-4e0c-9ebf-e49f0b241ace, case
+-- '2025-CA-66', parcel_id NULL, property_address still the placeholder
+-- "Ashley Victoria Steward-Ross property, Hamilton County FL". Re-fetched
+-- https://hamiltonclerk.com/foreclosures/ live: still publishes "DATE OF SALE - JULY 22,
+-- 2026 / Case No. 2025-CA-66; 21st Mortgage Corp., vs. Ashley Victoria Steward-Ross /
+-- Judgment amount: $184,852.59. / Legal: Lot 6 Horse Country I at Oak Woodlands" -- byte-
+-- for-byte the same legal description surfaced by the 07-24 session, no new info from the
+-- clerk itself.
+--
+-- =====================================================================================
+-- 1) TECHNIQUE (a) -- r.jina.ai reader proxy on the Cloudflare-blocked qpublic/beacon
+--    URLs -- ATTEMPTED, CONFIRMED DEAD (genuinely new technique for hamilton, precedent
+--    was a real bypass for a Sumter Cloudflare-Turnstile PDF earlier this campaign)
+-- =====================================================================================
+-- Tried live this session:
+--   https://r.jina.ai/https://qpublic.schneidercorp.com/Application.aspx?AppID=1073&LayerID=25046&PageTypeID=2
+--   https://r.jina.ai/https://beacon.schneidercorp.com/Application.aspx?AppID=817&LayerID=14544&PageTypeID=2&PageID=6409
+--   https://r.jina.ai/https://qpublic.schneidercorp.com/Search.aspx?App=HamiltonCountyFL
+--   https://r.jina.ai/https://beacon.schneidercorp.com/Application.aspx?AppID=817&LayerID=14544&PageTypeID=1&PageID=6409&Q=0&KeyValue=Steward-Ross
+-- All 4 returned HTTP 200 from jina's own reader endpoint, but jina's reader is itself
+-- rendering the underlying Cloudflare "Just a moment... / Performing security
+-- verification" managed-challenge interstitial (jina proxies the page as-is; it does not
+-- run/solve a JS challenge on the target's behalf). This differs from the Sumter Wildwood
+-- precedent, where the blocked resource was a static PDF behind a Turnstile *gate on the
+-- link*, not a page requiring a live JS challenge-response itself -- jina's plain HTTP
+-- fetch cleared that gate but cannot clear an active Cloudflare managed challenge that
+-- inspects TLS/JS fingerprints on every request. CONCLUSION: r.jina.ai does NOT bypass
+-- qpublic.schneidercorp.com or beacon.schneidercorp.com for Hamilton -- confirmed dead,
+-- distinct root cause from the headless-Chromium attempt already logged in
+-- 20260724c_shard5_hamilton_madison_refire_reverify_no_new_writes.sql (that was a JS-
+-- challenge-solve failure; this is a "proxy still serves the same challenge page,
+-- doesn't even attempt a solve" failure). Do not re-attempt r.jina.ai against either
+-- schneidercorp.com host again absent a fundamentally different proxy/anti-detect
+-- technique.
+--
+-- =====================================================================================
+-- 2) TECHNIQUE (b) -- FL DOR Statewide Cadastral ArcGIS FeatureServer, narrow/selective
+--    queries with retry+backoff -- ATTEMPTED, ROOT-CAUSE REFINED, STILL CONFIRMED DEAD
+--    for both E and I
+-- =====================================================================================
+-- The service is NOT simply "slow/flaky" as hypothesized in the task brief -- live testing
+-- this session established a precise, reproducible pattern:
+--   - `where=CO_NO=24` (no space around `=`) reliably returns HTTP 200 with an
+--     `{"error":{"code":400,...}}` JSON body INSTANTLY (~1s) -- a query-parser rejection,
+--     not a timeout. Root cause: CO_NO is typed esriFieldTypeDouble server-side; the
+--     bare `24` without a space-separated `=` token appears to hit a different parser path
+--     that this service rejects for this field (reproduced 3x, both via curl --data-
+--     urlencode and via Python httpx with no shell-quoting involved, ruling out a
+--     shell-encoding artifact).
+--   - `where=CO_NO = 24` (spaces around `=`) parses successfully and, when combined with a
+--     highly selective secondary predicate on an indexed-feeling field (PARCEL_ID LIKE
+--     'prefix%'), returns HTTP 200 fast (~1-3s) with a well-formed empty-or-populated
+--     feature array -- this is the fast/working path.
+--   - `where=CO_NO = 24 AND <anything on OWN_NAME or S_LEGAL, indexed or not>` (e.g.
+--     `OWN_NAME = 'STEWARD'`, `PHY_CITY = 'JENNINGS' AND CO_NO = 24`) reliably TIMES OUT
+--     server-side (tested with per-request timeouts up to 45s, retried 3x with backoff per
+--     the task brief's instruction) -- CO_NO combined with any OWN_NAME/PHY_CITY/S_LEGAL
+--     predicate is the specific slow path, not just "any CO_NO=24 query." Statewide
+--     leading-wildcard LIKE queries on S_LEGAL with NO CO_NO filter at all
+--     (`S_LEGAL LIKE '%HORSE COUNTRY%'`, `S_LEGAL LIKE '%OAK WOODLANDS%'`) ALSO time out
+--     (unindexed full-text scan across the entire statewide table, millions of rows) --
+--     confirmed a second, independent reason this class of query cannot resolve "Horse
+--     Country I at Oak Woodlands" to a parcel via this service.
+--   - `OWN_NAME LIKE '%STEWARD%'` with NO CO_NO filter DID succeed once (10 rows returned,
+--     ~5s) but on retry with a tighter pattern (`'%STEWARD%ROSS%'`, `'STEWARD-ROSS%'`,
+--     `'STEWARDROSS%'`) either hit the same 400 parser rejection (double-wildcard) or
+--     timed out -- not reproducible/reliable enough to depend on, and the one successful
+--     run's 10 rows were all non-Hamilton counties (Gainesville/Waldo/Newberry/Panama
+--     City), zero Jasper/Jennings/White Springs (Hamilton-area) matches.
+--   - CO_NO=24 combined with a selective PARCEL_ID prefix match (the one reliably-fast
+--     query shape) was re-run this session for the E-blocking row's area AND for the 3
+--     secondary I-target TD parcels (3729-650, 4837-048, 4837-067, in addition to the
+--     4837-130 candidate parcel already rejected 07-24): all four PARCEL_ID LIKE '<Hamilton
+--     4-digit prefix>%' queries returned HTTP 200 with ZERO features. This is now confirmed
+--     across 4+ independent prefixes over 2 sessions (07-24 and 07-25): Hamilton's stored
+--     NNNN-NNN parcel_id values genuinely do not exist in this statewide layer's PARCEL_ID
+--     field under any tested prefix form -- a real crosswalk/format gap for this county,
+--     not a network flake, not fixable by retrying harder.
+-- CONCLUSION: this source cannot resolve "Lot 6 Horse Country I at Oak Woodlands" to a
+-- parcel_id (both the name-search and the legal-description-search paths are blocked by
+-- server-side timeouts, and the one path that IS fast -- PARCEL_ID prefix match -- returns
+-- zero rows because Hamilton's local numbering scheme isn't present in this field at all).
+-- Also confirms zero new I-completeness data for 3729-650/4837-048/4837-067 (would have
+-- returned JV/PHY_ADDR1/PHY_CITY if matched; got zero features instead). Do not re-attempt
+-- this ArcGIS service for Hamilton by "retrying more" -- the specific query shapes that
+-- would answer this question (CO_NO=24 + name/legal-description search) are structurally
+-- the slow/timeout path, confirmed reproducibly across 2 independent sessions now; only a
+-- genuinely different technique (e.g. a bulk CO_NO=24 extract job run out-of-band with a
+-- much longer budget than any interactive session allows, to learn Hamilton's real
+-- PARCEL_ID format once) would change this.
+--
+-- =====================================================================================
+-- 3) TECHNIQUE (c) -- Firecrawl API -- RE-CHECKED, STILL HTTP 402 "Insufficient credits"
+-- =====================================================================================
+-- Direct call to api.firecrawl.dev/v1/scrape against the beacon.schneidercorp.com URL,
+-- live this session: `{"success":false,"error":"Insufficient credits to perform this
+-- request..."}` -- identical to the 2026-07-24 finding, confirms the credit shortage has
+-- not been resolved in the intervening ~1 day. firecrawl CLI binary also still not present
+-- in this sandbox (`firecrawl: command not found`). Confirmed still dead, unchanged.
+--
+-- =====================================================================================
+-- CONCLUSION -- changed=false, E and I remain genuinely blocked
+-- =====================================================================================
+-- All three genuinely-new techniques named in this session's task brief were attempted
+-- live and are now confirmed dead with root causes documented above (jina proxies the
+-- Cloudflare challenge page rather than solving it; the FL DOR ArcGIS service has a
+-- precise timeout pattern on any CO_NO+name/legal-description combined query and zero
+-- PARCEL_ID-format overlap with Hamilton's local numbering scheme; Firecrawl remains
+-- credit-exhausted). No parcel_id, address, lat/lon, or assessed_value was fabricated or
+-- guessed for id=09081529-84af-4e0c-9ebf-e49f0b241ace or for any of the secondary I-target
+-- TD rows. BLANK > WRONG. Residual, unchanged from 07-24: (1) a real anti-detect/
+-- residential-proxy browser service (not plain headless Chromium, already proven to fail
+-- against this specific Cloudflare managed challenge) to clear qpublic/beacon, (2) a DOR
+-- NAL file request (floridarevenue.com/property/Pages/DataPortal_RequestAssessmentRollGIS
+-- Data.aspx, emailed request, not automatable same-session), or (3) direct phone contact
+-- with the Hamilton County Property Appraiser's office (386-792-2791) to ask for the
+-- parcel_id behind "Lot 6 Horse Country I at Oak Woodlands."
+--
+-- =====================================================================================
+-- AFTER (verified via pencil_dod_evaluate_county('hamilton'), live, this session --
+--   IDENTICAL to BEFORE, confirming zero drift, zero regression, zero fabricated gain):
+--   A=PASS(6) B=FAIL(null) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16) E=FAIL(93.8%,15/16)
+--   F=FAIL(null) G=PASS(100.0) H=PASS(13.2h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents a live research + re-verification
+          -- pass only. No DDL, no data mutation. Every candidate technique named in this
+          -- session's task brief was tried live and confirmed non-viable with a specific,
+          -- reproducible root cause -- not merely "untried" or "timed out once."
