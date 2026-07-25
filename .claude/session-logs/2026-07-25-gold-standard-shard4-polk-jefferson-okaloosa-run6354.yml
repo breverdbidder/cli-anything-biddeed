@@ -1,0 +1,172 @@
+session:
+  shard: SHARD-4 (polk, jefferson, okaloosa), loop run 6354
+  dispatch_id: 3e3a8dd9-2ca8-4611-b6b9-fec7ac92d413
+  chat_session: architect-20260725T080000
+  date: 2026-07-25
+  mode: live DB verification first (Management API SQL, direct psql pooler auth still
+    fails with the same stale-password issue every prior session this month has hit) +
+    ultracode Workflow adversarial-refuter gate before any ultraloop_audit row was logged.
+
+pre_session_baseline: "Live pencil_dod_evaluate_county() matched the dispatched brief
+  exactly for all 3 counties: polk 10/10, jefferson 8/10 (B,F FAIL, both null), okaloosa
+  6/10 (C,D,E,I FAIL)."
+
+decisions:
+  - step: 1
+    action: "Verified live DB access before touching anything: direct psql to the pooler
+      failed (password auth), PostgREST and the Supabase Management API SQL endpoint both
+      confirmed working. Pulled the real pencil_dod_evaluate_county() function definition
+      via pg_get_functiondef to work from the exact evaluator SQL, not assumptions."
+    reason: "Evidence-Before-Claims."
+  - step: 2
+    action: "polk: re-ran pencil_dod_evaluate_county live. Identical to the dispatch
+      brief, byte-for-byte, all 10 letters PASS. No fix attempted -- nothing to fix."
+    result: "No drift, no regression. polk remains 10/10."
+  - step: 3
+    action: "okaloosa: queried the exact 4 rows with parcel_id IS NULL (the E/C/D gap)
+      and the 5th row failing only on the zoning-linkage half of I (B4A-1299799).
+      Cross-referenced against 3 prior okaloosa session logs embedded in
+      pipeline.counties.notes before doing any new work, to avoid re-deriving
+      already-exhaustively-documented findings (the 2 dead legacy stub rows, the Mary
+      Esther zoning dead end)."
+    result: "2 of the 4 parcel_id-null rows were genuinely new/fixable (2025-CA-002243-F,
+      2025-CA-002234-F, both from a later Bid4Assets scrape than the documented 38-row
+      2026-07-19 batch); 2 were the already-confirmed-unfixable dead stubs
+      (2024-CA-000470, 2024-TDD-000089)."
+  - step: 4
+    action: "Fixed 2025-CA-002243-F: queried Okaloosa County's own parcel/addressing
+      ArcGIS FeatureServer (okgis.myokaloosa.com/.../Parcels_with_Addressing/MapServer/121)
+      by street address + unit number. Exactly one PIN matched (00-2S-22-0520-0000-2120)
+      with real assessed/market value and a geometry centroid for lat/lon."
+    result: "parcel_id, address, value, lat/lon, and parity_status/parity_source (tier1
+      GIS pin match, same pattern the 2026-07-24 shard9 session already established for
+      this county) written live."
+  - step: 5
+    action: "Fixed 2025-CA-002234-F: the DB's property_address was a broken scraper
+      artifact, literally the string 'Movable:'. Fetched the raw Bid4Assets listing JSON
+      directly (embedded in the listings page HTML, no JS execution needed) and found
+      Asset_Title 'Condominium Unit No. 601-8, Fair Oaks Village' and Defendant 'Guevara,
+      Sean Lazaro'. Cross-referenced against the same ArcGIS layer by owner surname:
+      exactly one match, OWNER 'GUEVARA SEAN L', legal description 'FAIR OAKS VILLAGE
+      CONDO' / 'BLDG E UNIT 8' -- an exact match on both owner name and condo name."
+    result: "parcel_id 02-2S-24-0750-000E-0080, real address, value, lat/lon, and parity
+      fields written live."
+  - step: 6
+    action: "Ran a Workflow fan-out of 2 parallel adversarial refuter subagents (one per
+      fixed case), per the ULTRALOOP PROTOCOL. Each independently re-fetched the live
+      Bid4Assets JSON and the ArcGIS layer from scratch, ran its own disambiguation
+      queries (condo-wide scan for case 1, owner-surname scan + legal-description scan
+      for case 2), and independently recomputed the lat/lon centroid via pyproj for
+      case 2."
+    result: "Both survived=true. Case 2 refuter even surfaced a field I had not
+      inspected (LEGL3='601-8 (UCC)'), an exact match to the auction's 'Unit No. 601-8'
+      -- a stronger confirmation than my original fix used."
+  - step: 7
+    action: "Re-ran pencil_dod_evaluate_county('okaloosa') live post-fix."
+    result: "C/D/E: 93.2% FAIL -> 96.6% PASS (55/59 -> 57/59). okaloosa moved 6/10 -> 9/10."
+  - step: 8
+    action: "Checked whether I could also be moved this session. card_complete requires
+      the parcel to ALSO be zoned (v_zoning_gold_standard_card). Neither of the 2 newly-
+      parcel-linked rows is in parcel_zones; Okaloosa's county-wide zoning ArcGIS layer
+      (Planning-Development/Zoning MapServer, present as recently as 2026-07-19 per
+      existing parcel_zones.source values) currently returns only Flood/Flood2 -- the
+      zoning service appears to have been removed or renumbered since. Computed the
+      ceiling: even a hypothetical successful zoning of both new rows only reaches
+      56/59=94.9%, still under the 95% bar, because 3 rows are permanently unresolvable
+      this session (2 dead legacy stubs with no address/parcel at all, plus the
+      already-confirmed-dead-end Mary Esther row)."
+    result: "Did not spend further budget chasing a fix that cannot cross the threshold
+      regardless of success. Logged as a residual, not attempted as a false-progress
+      claim."
+  - step: 9
+    action: "jefferson: only 1 of 3 rows (25-CA-164, foreclosure, sale date 2026-06-25,
+      auction_status='sold') has actually closed in the real world, but the evaluator's
+      B/F denominator is sold_amount IS NOT NULL, which is 0 for all 3 rows -- so
+      closed_sold=0 and B/F structurally cannot pass without a real, independent verified
+      outcome for this one case."
+    result: "Investigated jeffersonclerk.com's Foreclosures page live via headless
+      Chromium (not just static curl) -- its 'Upcoming Foreclosure Sales' section
+      renders genuinely empty, no per-case results table exists on the domain."
+  - step: 10
+    action: "Investigated Jefferson's Civitek OCRS case-search portal
+      (civitekflorida.com/ocrs/county/33) via a real headed-Chromium session under Xvfb --
+      successfully navigated Public access -> I Agree disclaimer -> Case Search tab ->
+      filled Year/Court Type/Sequence for case 25-CA-164 -- and found the actual blocker:
+      a live Cloudflare Turnstile challenge (challenges.cloudflare.com iframe, confirmed
+      present) gates the search submission. This upgrades the prior characterization of
+      this portal class ('session/ViewState-gated') to a precise, confirmed root cause,
+      matching the same class of block already root-caused for hamilton's
+      myfloridacounty.com on 2026-07-25 in a sibling shard."
+    result: "Confirmed genuine structural block. Did not attempt to defeat the Turnstile
+      challenge (not a legitimate automatable path; would require a real human or a paid
+      solving service, out of scope). No writes made for jefferson."
+  - step: 11
+    action: "Wrote 3 gold_standard_ultraloop_audit rows (okaloosa C, D, E -- all
+      survived=true, ultraloop_mode='native', dispatch_id=this session's) with the
+      Workflow run_id and refuter reasoning as refuter_evidence."
+    result: "ids 9863-9865 confirmed via return=representation on insert."
+  - step: 12
+    action: "Wrote migration 20260725_gold_standard_shard4_okaloosa_run6354_cde_parcel_fix.sql
+      documenting the already-executed live changes, including the honest I-ceiling
+      math and the jefferson Turnstile dead-end, for the repo's audit trail."
+    result: "File committed to main, no side branches, per SHIP-TO-MAIN mandate."
+  - step: 13
+    action: "Checked summit_chat_dispatch for other mid-flight sessions before considering
+      gold_standard_loop()/certify()."
+    result: "Concurrent shard activity present (multiple other dispatches from this
+      08:00Z wave). Per PARALLEL-FLEET RULES, skipped loop/certify and reported only
+      per-county pencil_dod_evaluate_county() output."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('polk') before vs after"
+    proof: "before and after: identical, 10/10 (A=157 B=100.0 C=99.3 D=99.3 E=99.9
+      F=100.0 G=100.0 H=0.0-0.1 I=99.9 J=97.7). No fix attempted, no regression."
+  - check: "pencil_dod_evaluate_county('jefferson') before vs after"
+    proof: "before and after: identical, 8/10 (A=1 B=FAIL/null C=100.0 D=100.0 E=100.0
+      F=FAIL/null G=100.0 H=15.0-15.6 I=100.0 J=100.0). Genuinely blocked, not touched
+      -- see decisions 9-10."
+  - check: "pencil_dod_evaluate_county('okaloosa') before vs after"
+    proof: "before: C=93.2 FAIL (matched_clean=55) D=93.2 FAIL (matched_any=55) E=93.2
+      FAIL (parcel_linked=55) I=91.5 FAIL (card_complete=54 of 59); A/B/F/G/H/J PASS
+      (6/10). after: C=96.6 PASS (matched_clean=57) D=96.6 PASS (matched_any=57) E=96.6
+      PASS (parcel_linked=57); I unchanged FAIL 91.5% (card_complete=54 of 59, structurally
+      capped this session, see decision 8). okaloosa is now 9/10."
+  - check: "adversarial refuter Workflow (wf_6473efe6-858) on both okaloosa fixes"
+    proof: "Both cases refuted=false (survived). Full independent re-derivation from live
+      Bid4Assets JSON + Okaloosa ArcGIS, including disambiguation scans and (for case 2)
+      an independently recomputed centroid via pyproj matching to <0.00001 degrees."
+  - check: "gold_standard_ultraloop_audit rows for dispatch_id=3e3a8dd9-2ca8-4611-b6b9-fec7ac92d413"
+    proof: "3 rows inserted and confirmed via return=representation: 9863 (okaloosa/C),
+      9864 (okaloosa/D), 9865 (okaloosa/E), all survived=true."
+  - check: "git push to main"
+    proof: "see commit hash in the closing summary; 1 migration file + this session log +
+      the session report doc."
+
+status_board:
+  polk: "10/10 (all letters PASS). No further work needed unless a future freshness or
+    calendar-sweep event regresses a letter."
+  jefferson: "8/10 (A,C,D,E,G,H,I,J PASS; B,F FAIL). Genuinely blocked: only 1 of 3 rows
+    has closed in the real world and its sole verification channel (Civitek OCRS) is
+    Cloudflare Turnstile-gated, root-caused this session via a real headed-browser probe.
+    The 2 tax-deed rows are scheduled 2026-08-19 (future) -- not yet closeable regardless."
+  okaloosa: "9/10 (A,B,C,D,E,F,G,H,J PASS; I FAIL). I is structurally capped at 56/59=94.9%
+    max this session (3 permanently-unresolvable rows: 2 dead legacy stubs, 1 confirmed
+    zoning dead-end) -- still short of the 95% bar even in the best case, so not attempted
+    further this session."
+
+next_session_priorities:
+  - "jefferson: do not re-attempt Civitek OCRS scripting without a real CAPTCHA-solving
+    integration or human interaction (out of scope for an autonomous session) -- this is
+    now a confirmed, root-caused dead end, not an unexplored path. Re-check only when the
+    2 scheduled 2026-08-19 tax-deed sales close, or if jeffersonclerk.com ever adds a
+    per-case results page."
+  - "okaloosa I: needs (a) a live Okaloosa county-wide zoning ArcGIS layer to reappear
+    (Planning-Development folder currently has only Flood/Flood2 -- re-probe periodically,
+    it existed as recently as 2026-07-19) to zone the 2 newly-parcel-linked rows, AND
+    (b) a decision on the 2 dead legacy stub rows (2024-CA-000470, 2024-TDD-000089 --
+    confirmed absent from the live Bid4Assets platform across 3+ sessions; archiving or
+    otherwise resolving them, out of scope for an autonomous session per the campaign
+    brief, would be required for I to ever reach 95% for this county's current row set).
+    Even fixing everything else, I structurally caps at 56/59=94.9% until one of these
+    3 rows is resolved some other way."
+  - "polk: 10/10, holds unless a freshness/calendar-sweep event adds new incomplete rows."
