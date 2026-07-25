@@ -1,0 +1,31 @@
+-- Gold Standard shard-13 (dispatch c475a06d-f1c1-4192-a033-e15f4917ca2a): bradford.
+-- This dispatch was already fully executed earlier today (commit 314a6ebe,
+-- ~09:40Z): I fixed 80.0% -> 100.0% via FL GIO cadastral dash-stripped
+-- PARCEL_ID lookup + parcel_zones backfill; B/F reconfirmed as the 3rd genuine
+-- dead-end of the day. This is a duplicate/re-fire of the identical dispatch.
+-- Live re-check confirms the fix is still applied and stable:
+--   pencil_dod_evaluate_county('bradford') = 9/10 (only B/F fail).
+--
+-- Rather than re-tread the exhausted source list (bradfordclerk.com Cloudflare
+-- 403, no RealAuction platform, Firecrawl 402, Wayback dead, bctelegraph no
+-- post-sale notice, surplusindex 404, gz.floridapa.com undocumented CGI), this
+-- pass tried one genuinely NEW angle: Bradford's participation in the
+-- statewide myfloridacounty.com Official Records Index (a different vendor/
+-- portal than bradfordclerk.com), reachable at
+-- https://www.myfloridacounty.com/orisearch/04 per the county dropdown on
+-- https://www.myfloridacounty.com/ori/index.jsp. The search form itself loads
+-- unauthenticated (index verified through 7/23/2026 per its own banner), but
+-- every search submission (POST /orisearch/s/search) returns a Cloudflare
+-- Turnstile human-verification challenge instead of results. No CAPTCHA-
+-- solving attempted (out of scope). This closes off the ORI portal as an
+-- unattended-session source for future bradford B/F attempts -- do not retry
+-- this specific angle without a real browser session capable of clearing
+-- Turnstile.
+--
+-- No UPDATE issued. case 25000457CAAXMX (sale date 2026-07-16) remains
+-- unpublished from any accessible independent source. Audit trail: 2 rows
+-- inserted into public.gold_standard_ultraloop_audit (dispatch_id
+-- c475a06d-f1c1-4192-a033-e15f4917ca2a, letters B/F, survived=true, ids
+-- 9996-9997).
+
+SELECT public.pencil_dod_evaluate_county('bradford');
