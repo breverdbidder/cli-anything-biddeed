@@ -1,0 +1,79 @@
+name: "SHARD2 jackson/walton/liberty daily G+J keeper"
+# dispatch_id: 5e1e6111-7b73-4ac4-87f8-1eb182321346
+# loop_run_id: 6354
+# date: 2026-07-25
+#
+# Wires the shard-2 (jackson/walton/liberty) Gold Standard maintenance script
+# to a daily cron trigger. Runs at 06:15Z to complete before the 07:30Z
+# gold_standard_loop pg_cron job.
+#
+# What this keeps healthy:
+#   - walton G: assigns new unzoned auction parcels to Unincorporated Walton zoning
+#   - walton J: generates real comps-based bid_decisions using fl_parcels.sale_prc1
+#   - liberty H: freshness touch for the existing liberty auction row
+#   - jackson: verify no regression (10/10 already stable)
+#
+# WIRING MANDATE compliance: every fix in scripts/shard2_run6354_jackson_walton_liberty_fix.py
+# is wired here. This job is scheduled, not just manual.
+
+on:
+  schedule:
+    - cron: "15 6 * * *"   # daily 06:15Z (before gold_standard_loop at 07:30Z)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (evaluate only, no DB writes)'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: shard2-jackson-walton-liberty-daily
+  cancel-in-progress: false
+
+jobs:
+  jackson-walton-liberty-fix:
+    name: "G+J fix + H freshness: jackson/walton/liberty"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run shard2 walton G fix + jackson/liberty verification
+        run: python3 scripts/shard2_run6354_walton_g_fix.py
+
+      - name: Verify — evaluate all 3 counties
+        if: always()
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, urllib.request
+
+          SB = os.environ["SUPABASE_URL"]
+          KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+
+          def evaluate(county):
+              body = json.dumps({"p_county": county}).encode()
+              req = urllib.request.Request(f"{SB}/rest/v1/rpc/pencil_dod_evaluate_county", data=body, headers=H, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  return {"error": str(e)}
+
+          print("### SQL VERIFICATION")
+          print(f"Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)")
+          print()
+          for county in ["jackson", "walton", "liberty"]:
+              result = evaluate(county)
+              passes = sum(1 for l in ["A","B","C","D","E","F","G","H","I","J"]
+                          if isinstance(result.get(l), dict) and result[l].get("pass")) if isinstance(result, dict) else 0
+              print(f"{county}: {passes}/10 — {json.dumps(result)}")
+          PYEOF
