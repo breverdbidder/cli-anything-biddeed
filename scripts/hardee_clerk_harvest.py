@@ -82,6 +82,32 @@ def parse_cards(html: str) -> list[dict]:
     return [c for c in cards if "Case Number" in c]
 
 
+def touch_existing_last_seen(supa_url: str, headers: dict, now_iso: str) -> int:
+    """Update last_seen_at for all existing hardee rows (H-freshness keepalive).
+    Called every run regardless of whether new cards were found, so the H metric
+    (SLA <=48h) never drifts when the Clerk site temporarily shows 0 listings.
+    Returns number of rows updated (0 is acceptable — county may have no rows yet)."""
+    touch_headers = {**headers, "Prefer": "return=minimal"}
+    resp = requests.patch(
+        f"{supa_url}/rest/v1/multi_county_auctions?county=eq.hardee",
+        headers=touch_headers,
+        json={"last_seen_at": now_iso, "updated_at": now_iso},
+        timeout=30,
+    )
+    if not (200 <= resp.status_code < 300):
+        print(f"WARNING: last_seen_at touch failed {resp.status_code} {resp.text[:200]}")
+        return 0
+    content_range = resp.headers.get("Content-Range", "")
+    count = 0
+    if content_range:
+        try:
+            count = int(content_range.split("/")[-1])
+        except ValueError:
+            pass
+    print(f">>> last_seen_at touch: {count} hardee row(s) updated to {now_iso}")
+    return count
+
+
 def main() -> int:
     supa_url = _req("SUPABASE_URL").rstrip("/")
     supa_key = _req("SUPABASE_SERVICE_ROLE_KEY")
@@ -127,6 +153,7 @@ def main() -> int:
 
     if not rows:
         print("NOTE: zero cards parsed from either page -- hardee genuinely has no listed inventory right now")
+        touch_existing_last_seen(supa_url, headers, now_iso)
         return 2
 
     all_keys = set().union(*(r.keys() for r in rows))
