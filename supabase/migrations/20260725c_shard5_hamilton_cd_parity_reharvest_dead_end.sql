@@ -1,0 +1,94 @@
+-- HAMILTON County (shard-8 dispatch 3e3d7776, loop run 6288) -- 2026-07-25 session.
+-- Assignment: letters C/D (parity: matched_clean/matched_any vs litmus source). Both FAIL
+-- at 50.0% (8 of 16). Row-level state confirmed live at session start:
+--   8 matched_clean: 7 redeemed TD certs + foreclosure case 2025-CA-46.
+--   4 mca_only foreclosure rows (no litmus counterpart): 2024-CA-19, 2023-CA-41,
+--     2025-CA-37, 2021-CA-46.
+--   3 TD certs with parity_status=NULL entirely: HAM-TD-CERT-379/597/599.
+--
+-- NO WRITE IN THIS FILE. Applied the standing C/D-litmus-fallback authorization (CLAUDE.md
+-- "STANDING AUTHORIZATIONS", 2026-06-12) and the hamilton 2025-CA-46 precedent (a genuine
+-- independent live re-fetch of hamiltonclerk.com counts as parity litmus for this county)
+-- to all 7 remaining candidate rows. Every one failed a real second cross-check -- none
+-- were force-matched.
+--
+-- =====================================================================================
+-- STEP 1 -- PropertyOnion coverage check (resolves the standing-authorization precondition)
+-- =====================================================================================
+-- v_po_county_coverage for county_slug=hamilton: po_total=0, po_upcoming=0, po_sold=0,
+-- po_canceled=0, po_foreclosures=0, po_tax_deeds=0, tier=3. Hamilton has ZERO PropertyOnion
+-- listings -- confirms the PO-coverage-gap scenario applies structurally. This explains WHY
+-- PO-based litmus was never an option for hamilton (not a matcher bug on our side), but by
+-- itself creates no new matches -- hamiltonclerk.com direct-fetch (already in use per the
+-- 2025-CA-46 precedent) remains the only available fallback litmus source.
+--
+-- =====================================================================================
+-- STEP 2 -- 4 mca_only foreclosure rows: VANISHED from the live source, not matchable
+-- =====================================================================================
+-- Live re-fetch (raw curl, byte-verified) of hamiltonclerk.com/foreclosures/ this session
+-- lists only 4 case numbers: 2025-CA-28, 2025-CA-46, 2025-CA-66, 2025-CA-92. None of
+-- 2024-CA-19, 2023-CA-41, 2025-CA-37, or 2021-CA-46 appear anywhere on the page. These 4
+-- cases cannot be independently litmus-confirmed this session because the only available
+-- live source no longer lists them (settled / dismissed / continued / aged off -- unknown
+-- which, out of scope to determine here). parity_status left UNCHANGED at mca_only.
+--
+-- =====================================================================================
+-- STEP 3 -- 2025-CA-66: found live, but a material fact diverges -- not force-matched
+-- =====================================================================================
+-- Defendant name (Ashley Victoria Steward-Ross) and judgment amount ($184,852.59) match our
+-- DB exactly. BUT the live page states sale date "JULY 22, 2026" while our row has
+-- auction_date=2026-08-05 -- a genuine divergence, and July 22 2026 has already passed as of
+-- today (2026-07-25), meaning OUR row is stale on a key fact (this case may have already
+-- been sold/resolved in reality). Per this session's rule (a genuine independent check that
+-- could disagree and didn't is required for a match), this was NOT force-matched.
+-- RESIDUAL: flag 2025-CA-66 for a targeted re-scrape of auction_status/auction_date -- out
+-- of this parity-only task's scope, not corrected here.
+--
+-- =====================================================================================
+-- STEP 4 -- 3 null-parity TD certs: parcel_id matches, but opening_bid does NOT -- a
+-- fleet-wide off-by-one ingestion bug, not force-matched
+-- =====================================================================================
+-- Live re-fetch of hamiltonclerk.com/tax-deeds/ (raw curl + regex parse of the full 9-cert
+-- sequence 230/344/379/467/557/559/597/599/688) confirms parcel_id matches our DB for all 3
+-- null-parity certs (379->3729-650, 597->4837-048, 599->4837-067), but opening_bid is WRONG
+-- for all 3 -- and in fact for ALL 9 sequential certs in Hamilton's TD dataset, following a
+-- consistent off-by-one shift (db[cert_N] == live[cert_N-1]). Root cause: a list-parsing
+-- ordering bug in the original 2026-07-03 ingestion where "Opening Bid Amount: $X ... PARCEL
+-- NO. Y ... Cert. No. Z" entries got mis-associated across cert boundaries. Since
+-- opening_bid is a material, non-reconciling fact, none of the 3 were force-matched.
+-- RESIDUAL (IMPORTANT, flagging for the letter-owner, not fixed here -- out of this parity-
+-- only task's scope per this dispatch's explicit row-ownership boundary with the B/F lane):
+-- this bug likely affects opening_bid on ALL 10 Hamilton TD rows, including the 6 already
+-- labeled matched_clean -- those were NOT re-verified this session (out of scope) and should
+-- be treated as suspect until a future B/F or ingestion-focused session re-checks them.
+--
+-- =====================================================================================
+-- STEP 5 -- 2025-CA-46 (already matched_clean since 2026-07-18): re-checked as a control
+-- =====================================================================================
+-- Independently re-fetched live this session: plaintiff NewRez LLC, judgment $609,173.11,
+-- address 520 NW Rodman LN Jennings FL 32053, sale date 2026-08-12 -- all still match
+-- exactly. No action needed or taken; confirms the existing label is still correct, not
+-- ghost-success.
+--
+-- =====================================================================================
+-- CONCLUSION -- changed=false, C and D remain FAIL at 50.0% (8 of 16)
+-- =====================================================================================
+-- Verified via pencil_dod_evaluate_county('hamilton') before and after this session --
+-- identical (C=50.0 D=50.0), confirming zero drift and zero fabricated match. This is a
+-- genuine block, not a process failure: PO coverage is proven absent (step 1), and every one
+-- of the 7 candidate rows failed a real independent second cross-check (steps 2-4). BLANK >
+-- WRONG -- no row was relabeled without a check that could have disagreed and didn't.
+--
+-- NEXT-SESSION LEADS:
+--   1. 2025-CA-66 and the 4 vanished mca_only cases need a targeted docket-history check
+--      (Hamilton Clerk's case search, not just the sales-notice page) to determine actual
+--      disposition, then a rescrape to correct auction_status/auction_date before parity can
+--      be re-attempted honestly.
+--   2. The TD opening_bid off-by-one bug (step 4) should be handed to whichever future
+--      session owns Hamilton TD ingestion/B-F correction -- it likely also taints the 6
+--      already-matched_clean TD rows' opening_bid values (not their parity_status, which
+--      only checks against sold_amount/winning_bid, currently all NULL/absent for hamilton).
+--
+-- No SQL to apply -- this file is a pure audit record (Ship Gate + CANON requirement for
+-- documenting a genuinely-attempted, still-blocked residual).
+SELECT 1;

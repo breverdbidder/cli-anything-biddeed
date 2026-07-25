@@ -1,0 +1,128 @@
+-- HAMILTON County (shard-5, gold-standard-shard5-run3679) -- 2026-07-25 session.
+-- Assignment: letters B (verified independent outcomes) and F (tier1 sold amount), both
+-- FAIL with metric=null because ZERO hamilton rows have sold_amount populated anywhere.
+-- Target: HAM-TD-CERT-379 (parcel 3729-650), -597 (parcel 4837-048), -599 (parcel
+-- 4837-067) -- all auction_date=2025-12-04, still auction_status='upcoming' 8 months
+-- later, per the same stale-status hypothesis already investigated on 2026-07-24
+-- (see 20260724_shard5_hamilton_bf_stale_upcoming_reverify_no_new_writes.sql -- read in
+-- full before this file; not repeated here).
+--
+-- =====================================================================================
+-- BASELINE (live, pencil_dod_evaluate_county('hamilton'), this session, START = END,
+-- identical to the 2026-07-24 session's baseline -- zero drift since then):
+--   A=PASS(6) B=FAIL(null, verified=0 closed_sold=0) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16)
+--   E=FAIL(93.8%,15/16) F=FAIL(null, tier1_sold=0 closed_sold=0) G=PASS(100.0)
+--   H=PASS(13.0h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+--
+-- =====================================================================================
+-- NEW ANGLES TRIED THIS SESSION (genuinely new techniques, not repeats of 07-24's trail)
+-- =====================================================================================
+--
+-- (a) Official Records recording search (hamiltonclerk.com/official-record-search/ ->
+--     myfloridacounty.com/orisearch/24). The 07-24 session flagged this as "JS/session-
+--     driven form, no documented URL-parameter pattern" without root-causing WHY. This
+--     session drove it further with real curl + cookie jar (GET to establish jsessionid,
+--     then POST the actual form fields discovered from the raw HTML: name, partyType
+--     [B=Business/T=Trust/F=... radio], legalDescription, documentTypeID,
+--     instrumentTypeID, startDate, endDate, instrumentNumber, book, page_number). The
+--     POST to the session-bound action URL (/orisearch/s/search;jsessionid=...) with
+--     name="IDE Technologies" and a Nov-2025..Jul-2026 date range returned NOT a results
+--     page but a **Cloudflare Turnstile challenge** ("Please verify you are human",
+--     data-sitekey="0x4AAAAAAA64PTBePmuGbrkR", a <script> that only calls
+--     form.submit() after Turnstile's onTurnstileSuccess callback fires). This is a
+--     hard, deliberate anti-bot gate on myfloridacounty.com itself (a statewide platform
+--     serving many FL clerks, not Hamilton-specific) -- root-cause now confirmed,
+--     not just "form looks JS-y". No curl/WebFetch/jina-proxy technique can solve a
+--     Turnstile challenge; it requires a real browser + human (or a paid CAPTCHA-solving
+--     service, which is out of scope/budget for a $10 session). This closes the loop on
+--     the "future session: try browser automation" residual left by 07-24's migration --
+--     browser automation would ALSO fail here, because the gate is Turnstile, not merely
+--     "no headless browser available."
+--
+-- (b) r.jina.ai proxy (per task brief's suggested technique, which worked for a Sumter
+--     Cloudflare block earlier this campaign). Tried against both
+--     myfloridacounty.com/orisearch/24 (returned the same static wildcard-syntax-help
+--     landing page, no different from a direct fetch -- jina's cache did not reveal any
+--     additional form/JS detail) and hamiltonclerk.com/3776-2/tax-deed-sales-surplus-funds/
+--     (re-confirmed, byte-for-byte consistent with 07-24: "No available properties at
+--     this time.", zero entries for any cert). jina.ai does not help against a
+--     Turnstile-gated POST endpoint specifically because Turnstile activates on the
+--     actual search submission, not the static landing page (which jina *can* reach).
+--
+-- (c) Hamilton County TAX COLLECTOR site (hamiltoncountytaxcollector.com) -- genuinely
+--     new source not covered by 07-24's trail (07-24 only checked the informational
+--     TaxCertificates page, not the actual search tool). Discovered via WebSearch a
+--     working GET-parameterized endpoint:
+--       /Property/TASearchResults?RollTypes=&Years=&ownername=&propertynumber={parcel}&
+--         streetname=&streetnumber=&taxbillnumber=
+--     Ran live for all 3 parcels (3729-650, 4837-048, 4837-067) -- HTTP 200, returns a
+--     10-year annual tax-bill roll history table per parcel (2016-2025) with the
+--     OWNER OF RECORD name per tax year and a taxbillno per year. Findings:
+--       - 3729-650: 2025 owner of record = "SARMIENTO MARCELINO AND..." (NOT "IDE
+--         Technologies Inc.", our applicant). 2022/2023/2024 tax-bill rows carry an
+--         st=TD (tax-deed) status flag in their detail-page link.
+--       - 4837-048: 2025 owner of record = "JOHNSON GREGORY ALLAN" (NOT "FIG 20 LLC").
+--       - 4837-067: 2025 owner of record = "BURNHAM CHRISTOPHER D" (NOT "DCR Unlimited
+--         Inc.").
+--     This is INFORMATIVE (it independently corroborates, via a source completely
+--     unrelated to the clerk's tax-deeds page, that as of the latest available tax roll
+--     none of the 3 applicants had yet been recorded as the new owner -- consistent with,
+--     but not proof against, "sale happened but deed recording is still pending/lagged")
+--     but it is NOT a sold_amount source: it lists owner names, not dollar amounts.
+--     Followed the st=TD detail links (/Property/TATaxBill?taxbillno=...&rolltype=R&
+--     taxyear=...&st=TD) for the 2022/2023/2024/2025 bills on parcel 3729-650: all 4
+--     returned HTTP 302, and following the redirect with a persisted cookie jar (GET
+--     search page first to seed session, then GET the bill detail with cookies) landed
+--     on the site's generic homepage rather than a bill-detail view -- confirming the
+--     detail page ALSO requires stateful ASP.NET session context that a raw curl GET/
+--     cookie-jar sequence does not reproduce (this is a different, non-Turnstile
+--     mechanism from (a), but the practical effect -- unreachable via curl/WebFetch -- is
+--     the same). No dollar sale amount was obtained from this source.
+--
+-- (d) WebSearch for the 3 parcel IDs directly against Hamilton tax-deed content --
+--     resurfaced only the identical pre-sale opening-bid figures already on file
+--     (certificate numbers, applicants, opening bids) already known from hamiltonclerk.com
+--     -- zero new post-sale evidence, zero certificate-of-title, zero winning-bid mention.
+--
+-- =====================================================================================
+-- CONCLUSION -- changed=false, B and F remain genuinely blocked
+-- =====================================================================================
+-- This session went strictly deeper than 07-24 (2 new independently-discovered tools:
+-- the tax collector's TASearchResults endpoint, and a live-driven POST against the
+-- clerk's official-records search rather than just reading its static instructions page)
+-- and both new paths dead-ended for reasons now root-caused precisely: (a) a Cloudflare
+-- Turnstile human-verification challenge on myfloridacounty.com's actual search
+-- submission (not solvable by curl, WebFetch, or a jina.ai proxy -- Turnstile is
+-- specifically designed to defeat exactly these techniques; would require a real browser
+-- + human interaction or a paid solving service, out of scope), and (b) a stateful
+-- ASP.NET session requirement on the tax collector's per-bill detail page that a
+-- stateless/cookie-jar curl sequence does not satisfy. Neither yields a dollar sale
+-- amount. The tax-collector owner-of-record data (c) is real, independently-sourced
+-- evidence that is USEFUL for the C/D parity-status investigation (current owner of
+-- record still does NOT match any of the 3 applicant names) but is explicitly NOT used
+-- here to derive or write any sold_amount, per BLANK > WRONG and the independent-source
+-- rule -- an owner name is not a sale price, and a derivation from it would be exactly
+-- the class of fabrication already correctly reverted for sumter TD-5028/5031/5036
+-- (see 20260724_gold_standard_shard7_sumter_bf_provenance_revert.sql).
+--
+-- Residual for a future session: the only remaining channels are (1) a paid CAPTCHA-
+-- solving integration to clear the myfloridacounty.com Turnstile gate (cost/scope
+-- decision, not a technique gap), or (2) calling the clerk's office directly
+-- (386-792-1288), both outside this agent's current tooling. No new attempt should
+-- re-try r.jina.ai, WebFetch, or curl against myfloridacounty.com/orisearch/24's search
+-- SUBMISSION (as opposed to its static landing page) without first solving Turnstile --
+-- that specific sub-path is now conclusively closed, not merely unexplored.
+--
+-- =====================================================================================
+-- AFTER (verified via pencil_dod_evaluate_county('hamilton'), live, this session --
+--   IDENTICAL to BEFORE, confirming zero drift, zero regression, zero fabricated gain):
+--   A=PASS(6) B=FAIL(null, verified=0 closed_sold=0) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16)
+--   E=FAIL(93.8%,15/16) F=FAIL(null, tier1_sold=0 closed_sold=0) G=PASS(100.0)
+--   H=PASS(13.0h) I=FAIL(31.3%,5/16) J=PASS(100.0)  [4/10]
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: this migration documents a live research + re-verification
+          -- pass only. No DDL, no data mutation -- no candidate sold_amount value found
+          -- this session cleared the INDEPENDENT SOURCE bar, so none was written to
+          -- multi_county_auctions.sold_amount/tier1_sold_amount or to
+          -- tax_deed_outcomes/foreclosure_outcomes.

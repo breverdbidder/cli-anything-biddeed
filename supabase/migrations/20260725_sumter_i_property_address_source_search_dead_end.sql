@@ -1,0 +1,101 @@
+-- Gold Standard: sumter I (property card completeness) — property_address source
+-- search, case 2025-CA-000255 (Wildwood Phase One LLC, parcel D29A024)
+-- Session: 2026-07-25
+--
+-- NO WRITE IN THIS FILE. This session searched exhaustively for the ORIGINAL
+-- scraped source's own address/description text for this case and found none
+-- reachable. Documenting the dead ends so a future session does not repeat them.
+--
+-- STARTING STATE (confirmed live via pencil_dod_evaluate_county before AND
+-- after this session -- no change, both reads identical):
+--   I = 90.9% (card_complete=10 of 11). Sole residual row:
+--   id=8ea8c278-94ae-4e8c-ba6e-6e1538aae148, case_number='2025-CA-000255',
+--   parcel_id='D29A024', property_address=NULL. Everything else on the row
+--   (parcel_id, lat/long, assessed/market value, zoning link) already PASS
+--   per the 2026-07-24 migration (20260724_sumter_e_i_wildwood_phase_one_parcel_link.sql).
+--
+-- data_source='sumterclerk_foreclosure_sale_pdf',
+-- source_url='https://www.sumterclerk.com/index.cfm?a=Files.Serve&File_id=1ECCECFB-B437-408E-AEDE-A65428B402A3',
+-- clerk_url='https://www.sumterclerk.com/2026/1/foreclosure-sale'.
+--
+-- NEW ATTEMPTS THIS SESSION (all genuinely new techniques, none repeating a
+-- prior session's exact method):
+--
+--   1. Original source_url (File_id=1ECCECFB-...) -> live HTTP 404, confirmed
+--      by direct curl. No Wayback Machine snapshot for this exact File_id
+--      (wayback available API returned empty archived_snapshots). Same dead-
+--      link pattern the 2026-07-24 shard7 revert (
+--      20260724_gold_standard_shard7_sumter_bf_provenance_revert.sql) already
+--      documented for a DIFFERENT sumterclerk File_id -- sumterclerk.com's
+--      Files.Serve links appear to rot/expire after the sale date passes.
+--      clerk_url (2026/1/foreclosure-sale) also 404 live.
+--
+--   2. WebSearch for a live/cached alternate sumterclerk.com sale-listing PDF
+--      covering this case (multiple query variants: case number, plaintiff
+--      "TL Gulf Coast Holdings LLC", defendant "Wildwood Phase One LLC").
+--      Found several OTHER sumterclerk.com sale-listing PDFs (different sale
+--      dates: 01/29/2026, 02/12/2026, 08/22/2024, etc.) and fetched/WebFetched
+--      the most promising one directly -- case 2025-CA-000255 does not appear
+--      in it (that PDF's own File_id search results were for a different
+--      SPA-shell page, no real listing content extractable).
+--
+--   3. Sumter County BOCC AgendaCenter (sumtercountyfl.gov/AgendaCenter) hits
+--      surfaced by WebSearch for "2025-CA-000255" and "Wildwood Phase One" --
+--      fetched two real PDFs (fileID=67243, and the code-enforcement one at
+--      Item/27266). Both are GENUINELY UNRELATED cases: fileID 67243 quoted
+--      case 2025-CA-000466 (Carrington Mortgage Services LLC v. Wyatt, a
+--      Sumter County code-enforcement-lien foreclosure, address 5473 CR 122
+--      Wildwood -- a DIFFERENT property, DIFFERENT parties, DIFFERENT case
+--      number, NOT our target). Confirmed via full PDF text extraction
+--      (pdfminer.six) this was a false-positive keyword match, not our case.
+--      Correctly did NOT write this unrelated address into our row.
+--
+--   4. Sumter County OCRS (Online Court Records Search), powered by CiviTek,
+--      at civitekflorida.com/ocrs/county/60/ -- a genuinely NEW, previously
+--      untried source this session found via WebFetch of
+--      sumterclerk.com/court-records. This is a real public civil-case
+--      docket search (separate from Official Records, which is deeds/liens
+--      only). Successfully automated via Playwright (local Chromium,
+--      headless) through: county select page -> "Public" anonymous access ->
+--      disclaimer "I Agree" -> reached the live Case Search form
+--      (Year/Court Type/Sequence#/Party Identifier fields -- would have taken
+--      Year=2025, Court Type=CA, Sequence=000255 to pull this exact case).
+--      BLOCKED at the final step: the search submission is gated by a
+--      Cloudflare Turnstile CAPTCHA ("Verify you are human"), confirmed via
+--      literal 'cf-turnstile'/'Turnstile' markup in the rendered page.
+--      Per this campaign's own standing precedent (myfloridacounty.com,
+--      already ruled correctly out of scope for the identical reason in
+--      prior sumter sessions per this dispatch's own brief), a Cloudflare
+--      Turnstile CAPTCHA wall is NOT attempted to be bypassed. This is an
+--      honest technique exhaustion, not a fabrication shortcut.
+--
+--   5. Firecrawl API (scrape with browser actions, to attempt the same
+--      CiviTek flow without local Playwright) -- returned HTTP 402
+--      "Insufficient credits", an account/budget constraint rather than a
+--      source unavailability. Not retried given the $10 session cap.
+--
+-- CONCLUSION: no genuinely sourced address/description string for parcel
+-- D29A024 / case 2025-CA-000255 was found this session. Per CANON (BLANK >
+-- WRONG), property_address remains NULL. Did NOT synthesize an address from
+-- legal_description (section/township/range) or from the owner's mailing
+-- address (OWN_ADDR1='9371 SE 144TH PL', SUMMERFIELD -- already correctly
+-- rejected in the 2026-07-24 migration's own docstring).
+--
+-- STILL GENUINELY BLOCKED. I remains 90.9% (10 of 11). Verified via
+-- pencil_dod_evaluate_county('sumter') both before and after this session --
+-- identical, confirming no drift and no accidental write occurred.
+--
+-- NEXT-SESSION LEAD (not yet exhausted): CiviTek OCRS Case Search IS the
+-- correct source and IS reachable up to the CAPTCHA wall. A future session
+-- with either (a) a funded Firecrawl account with CAPTCHA-solving support in
+-- its managed browser product, or (b) explicit authorization to use a
+-- CAPTCHA-solving service, could complete the Year=2025/CourtType=CA/
+-- Sequence=000255 search and read the case caption directly. Until then, do
+-- NOT re-attempt the exact curl-replicated-AJAX approach against CiviTek's
+-- JSF lazy tabs (confirmed non-functional -- tab content is empty without
+-- real browser JS) or re-fetch the two already-confirmed-dead sumterclerk.com
+-- File_id URLs above.
+--
+-- No SQL to apply -- this file is a pure audit record (Ship Gate + CANON
+-- requirement for documenting a genuinely-attempted, still-blocked residual).
+SELECT 1;
