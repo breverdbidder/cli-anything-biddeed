@@ -1,0 +1,75 @@
+name: "Suwannee Outcome Harvest — Track B/F freshness"
+# Wires scripts/suwannee_outcome_harvester.py to a real schedule so the
+# suwannee tax-deed lane (td_platform=realtaxdeed, td_subdomain=suwannee)
+# stops being dead code (county_auction_config.last_td_scraped_at was NULL
+# despite daily_scrape_enabled=true — WIRING MANDATE gap closed 2026-07-25).
+#
+# Genuine-source-only harvester: logs into suwannee.realtaxdeed.com via
+# Playwright, reads the live DAYLIST results page for past-due tax-deed
+# cases, and only PATCHes auction_status for confirmed non-sale outcomes
+# (redeemed/canceled/no-sale). Never fabricates sold_amount — a case that
+# shows 'sold' is skipped rather than guessed. See script docstring.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Weekly — suwannee is a small single-county tax-deed lane (14 rows),
+    # daily is unnecessary load on the target site.
+    - cron: '0 8 * * 1'  # Mon 08:00 UTC
+
+concurrency:
+  group: suwannee-outcome-harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    name: "Harvest suwannee tax-deed outcomes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install --quiet playwright
+          playwright install chromium --with-deps
+
+      - name: Run suwannee outcome harvester
+        env:
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REALFORECLOSE_EMAIL:       ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_USERNAME:    ${{ secrets.REALFORECLOSE_USERNAME }}
+          REALFORECLOSE_PASSWORD:    ${{ secrets.REALFORECLOSE_PASSWORD }}
+        run: python scripts/suwannee_outcome_harvester.py
+
+      # ── SHIP GATE verification (psql — bypasses REST/Cloudflare) ──────────
+      - name: SHIP GATE — psql verification B/F
+        continue-on-error: true
+        env:
+          SUPABASE_DB_URL:      ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set +e
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          DB_URL="${SUPABASE_DB_URL}"
+          if [ -z "$DB_URL" ] && [ -n "${SUPABASE_DB_PASSWORD}" ]; then
+            DB_URL="postgresql://postgres.mocerqjnksmhcjzxrewo:${SUPABASE_DB_PASSWORD}@aws-0-us-west-2.pooler.supabase.com:6543/postgres"
+          fi
+          if [ -z "$DB_URL" ]; then
+            echo "No DB credentials available — skipping psql verification"
+            exit 0
+          fi
+          echo ""
+          echo "### SHIP GATE — psql B/F — SUWANNEE"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          psql "$DB_URL" -c "SELECT letter, pass, metric, detail, threshold FROM pencil_dod_evaluate_county('suwannee') WHERE letter IN ('B','F') ORDER BY letter;" 2>&1
