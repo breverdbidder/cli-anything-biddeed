@@ -745,6 +745,61 @@ if len(new_cases) > 0 and j_inserted == 0:
 time.sleep(3)
 
 
+# ─── PHASE 6b: HIGHLANDS F — TIER1 SOLD PROMOTION (added 2026-07-25 shard6 run6288) ──────────
+
+log("\n=== PHASE 6b: HIGHLANDS F — TIER1 SOLD PROMOTION ===")
+log("  F criterion: tier1_sold/closed_sold >= 95%. Current: 66.7% (2/3). Need 1 more.")
+log("  Strategy: check foreclosure_outcomes + tax_deed_outcomes for winning_bid with no tier1_sold_amount")
+
+h_fc_out = sb_get(
+    "foreclosure_outcomes",
+    "county=eq.highlands&winning_bid=not.is.null&tier1_sold_amount=is.null&select=case_number,winning_bid",
+    limit=50,
+)
+h_td_out = sb_get(
+    "tax_deed_outcomes",
+    "county=eq.highlands&winning_bid=not.is.null&tier1_sold_amount=is.null&select=case_number,winning_bid",
+    limit=50,
+)
+log(f"  FC outcomes missing tier1_sold_amount: {len(h_fc_out)}")
+log(f"  TD outcomes missing tier1_sold_amount: {len(h_td_out)}")
+
+h_f_promoted = 0
+for r in h_fc_out:
+    cn = r.get("case_number")
+    wb = r.get("winning_bid")
+    if cn and wb:
+        s_r, _ = sb_patch(
+            "foreclosure_outcomes",
+            f"county=eq.highlands&case_number=eq.{urllib.parse.quote(str(cn))}",
+            {"tier1_sold_amount": wb},
+        )
+        if s_r < 300:
+            h_f_promoted += 1
+            log(f"    Promoted FC tier1: {cn} wb={wb}")
+
+for r in h_td_out:
+    cn = r.get("case_number")
+    wb = r.get("winning_bid")
+    if cn and wb:
+        s_r, _ = sb_patch(
+            "tax_deed_outcomes",
+            f"county=eq.highlands&case_number=eq.{urllib.parse.quote(str(cn))}",
+            {"tier1_sold_amount": wb},
+        )
+        if s_r < 300:
+            h_f_promoted += 1
+            log(f"    Promoted TD tier1: {cn} wb={wb}")
+
+log(f"  F tier1 promotions: {h_f_promoted}")
+
+promote_f_result = run_sql("SELECT public.promote_tier1_from_outcomes() AS result;")
+if promote_f_result:
+    log(f"  promote_tier1_from_outcomes(): {promote_f_result}")
+
+time.sleep(2)
+
+
 # ─── PHASE 7: Post-fix Evaluation ─────────────────────────────────────────────
 
 log("\n=== PHASE 7: POST-FIX EVALUATION ===")

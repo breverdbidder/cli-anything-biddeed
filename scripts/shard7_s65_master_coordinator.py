@@ -345,6 +345,14 @@ def main():
         run_script(script)
         time.sleep(2)
 
+    # Step 3b: Supplemental shard6 run6288 fix (highlands F + st_lucie C/D/I)
+    # Added 2026-07-25 dispatch_id 5fa42352-4a49-40b4-9548-8ed140b2d4bc
+    log("--- Step 3b: shard6 run6288 supplemental fix (highlands/st_lucie) ---")
+    shard6_fix = WORK_DIR / "scripts" / "shard6_run6288_highlands_stlucie_fix.py"
+    if shard6_fix.exists():
+        run_script(shard6_fix)
+        time.sleep(3)
+
     # Step 4: Additional scrape dispatches for seminole H (if not already done)
     log("--- Step 4: Supplemental scrape dispatches ---")
     # Seminole is the critical H case (535.6h) — dispatches already sent earlier
