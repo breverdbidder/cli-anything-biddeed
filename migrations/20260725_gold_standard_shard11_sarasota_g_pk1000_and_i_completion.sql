@@ -110,7 +110,18 @@ VALUES
   -- No density standard available for bare RSF-1 without ordinance lookup; density_regulated=true
   -- but no numeric value added (HONESTY PROTOCOL: do not invent density without ordinance source)
   (824, 'RSF-1', 'Residential Single Family', 'residential', false, true, false,
-   'sarasota_county_scgov_arcgis_zone_group_confirmed:shard11_run6288')
+   'sarasota_county_scgov_arcgis_zone_group_confirmed:shard11_run6288'),
+  -- CT: Corridor, Transitional (North Port) — jurisdiction_id=941
+  -- zone_extend added parcels 0962089939, 0984046914 with zone_code='CT', jid=941,
+  -- source='northport_gis_arcgis'. North Port ULDC Chapter 3 Commercial Districts:
+  -- CT = Corridor Transitional; commercial category, FAR-regulated (ULDC Ch.3 dimensional
+  -- standards table) but no max_far value sourced this session (Municode rendering blocked
+  -- direct table read). Per HONESTY PROTOCOL: no fabricated FAR value — far_regulated=true
+  -- with no zone_standards row (follows same honest pattern as CC/C-2 in leon shard4-run6148).
+  -- Parking in North Port CT: governed by use-type table (ULDC Sec. 4.5), not district-level
+  -- per-1000sf → pk1000_regulated=false prevents false dilution of pk1000 numerator.
+  (941, 'CT', 'Corridor, Transitional', 'commercial', false, false, true,
+   'north_port_uldc_shard11_run6288:far_regulated_true_no_value_inferred_from_transitional_corridor_category')
 ON CONFLICT (jurisdiction_id, code) DO NOTHING;
 
 -- ============================================================
