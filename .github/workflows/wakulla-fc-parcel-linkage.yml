@@ -1,0 +1,68 @@
+name: "Wakulla FC Parcel Linkage — Shard-7 Run 6459"
+# Fix the remaining wakulla rows missing parcel_id.
+# Run 6253 analysis (20260724w migration) identified:
+#   - 2026-TXD-097: redeemed TD, no recorded deed, parcel_id unobtainable (BLANK>WRONG)
+#   - 25-CA-68: 2 candidate parcels, legal-description disambiguation needed
+# This job targets 25-CA-68 via LandmarkWeb OCRS + Wakulla parcel GIS.
+# If 25-CA-68 is resolved: E/I = 29/30 = 96.7% (PASS >= 95%)
+# If not: E/I = 28/30 = 93.3% (honest ceiling, FAIL)
+# dispatch_id: 55e44a55-29b3-45cf-8edd-46bf8d547803
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-parcel-linkage:
+    name: "Fix wakulla 25-CA-68 parcel disambiguation"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests urllib3
+
+      - name: "Run 25-CA-68 parcel disambiguation"
+        run: |
+          set -euo pipefail
+          EXIT=0
+          python3 scripts/wakulla_25ca68_parcel_disambiguation.py || EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = still ambiguous — honest, not an error
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: E+I metrics via evaluator RPC"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "wakulla"}')
+          echo "### SQL VERIFICATION: wakulla E+I" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
+          E_METRIC=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('E',{}).get('metric',0))" 2>/dev/null || echo "0")
+          I_METRIC=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('I',{}).get('metric',0))" 2>/dev/null || echo "0")
+          echo "E_metric=$E_METRIC I_metric=$I_METRIC" >> "$GITHUB_STEP_SUMMARY"
+          echo "E metric: $E_METRIC"
+          echo "I metric: $I_METRIC"
+
+      - name: "Honest ceiling note for 2026-TXD-097"
+        run: |
+          echo "### 2026-TXD-097: confirmed unobtainable parcel_id" >> "$GITHUB_STEP_SUMMARY"
+          echo "Redeemed tax deed with NO recorded deed (confirmed by 2 independent agents" >> "$GITHUB_STEP_SUMMARY"
+          echo "in run 6253, 2026-07-24). Parcel_id cannot be written without fabrication." >> "$GITHUB_STEP_SUMMARY"
+          echo "E/I ceiling: 29/30=96.7% if 25-CA-68 fixed, else 28/30=93.3%." >> "$GITHUB_STEP_SUMMARY"
