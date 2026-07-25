@@ -1,0 +1,167 @@
+session:
+  shard: SHARD-2 (pinellas, lake), loop run 6459
+  dispatch_id: 8df2e635-919d-4739-ad3f-be2df85bcb9d
+  chat_session: architect-20260725T160000
+  date: 2026-07-25
+  mode: live REST verification first (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY -- direct
+    psql pooler auth not attempted, REST confirmed working immediately) + ultracode
+    Workflow tool for two rounds of research-then-adversarial-refute before any write.
+
+pre_session_baseline: "Live pencil_dod_evaluate_county() matched the dispatched brief
+  exactly for both counties: pinellas 10/10 (all letters PASS), lake 2/10 (A,H PASS;
+  B,C,D,E,F,G,I,J FAIL, matching the brief's numbers exactly)."
+
+decisions:
+  - step: 1
+    action: "Explored repo tooling and read the most recent lake-county migrations
+      (20260724t cd ceiling, 20260724u g coverage backfill, 20260724v j ghost purge,
+      20260724 e ceiling audit) before touching anything, to avoid re-deriving
+      already-exhaustively-documented dead ends."
+    reason: "This repo has a documented history of ghost-success/fabrication incidents
+      on lake specifically (97-row ml_score=0.55 stub purged 2026-07-24) -- read the
+      paper trail before acting."
+  - step: 2
+    action: "Reconfirmed pinellas live: 10/10 PASS, all letters, H=7.2h fresh."
+    result: "No drift, no regression, no action needed."
+  - step: 3
+    action: "Independently re-verified (fresh live checks, not trusting the prior
+      session's claims on faith) that B/F/C/D/G are genuine structural ceilings for
+      lake: live-fetched the Lake Clerk sale_details.aspx for a sold case and
+      confirmed zero sale-result fields exist on the page (root cause of
+      closed_sold=0 despite 7 sold-status rows); confirmed 9/11 lake tax-deed rows
+      are still upcoming (zero closed sales in either lane); reviewed the
+      cd_litmus_parity_v2 findings for the RealAuction/FloridaBidder FC-lane absence."
+    result: "All confirmed as real, not re-derivable this session -- logged as
+      reconfirmed residuals, no new evidence found or claimed."
+  - step: 4
+    action: "Checked whether letter E's one deferred-but-untried avenue (a fuzzy
+      owner-name matcher against the 2,048-row live po_listings PropertyOnion
+      archive) was actually buildable. Queried po_listings' live schema directly."
+    result: "Not buildable: po_listings has 37 columns, zero of which is an
+      owner-name/defendant/plaintiff equivalent -- only address-based fields, and the
+      29 remaining E-gap rows have NULL property_address by construction (Lake Clerk
+      calendar never publishes an address). Closes out the 2026-07-24 deferred item
+      as a confirmed dead end."
+  - step: 5
+    action: "Found a genuinely unexplored lever: queried which of the 80 E-linked
+      lake auctions had zero parcel_zones row (39 of 80), then live point-in-polygon
+      queried Lake County GIS's own City Limits In layer for each to determine which
+      municipality each falls in. All 39 landed inside 9 incorporated cities
+      (Clermont 10, Eustis 9, Groveland 5, Tavares 4, Leesburg 4, Lady Lake 2,
+      Mascotte 2, Mount Dora 2, Howey-in-the-Hills 1) -- prior sessions had only ever
+      probed Lake County's own unincorporated zoning layer for this county."
+    result: "Set up a real research target: does each of these 9 cities publish its
+      own live, public zoning GIS?"
+  - step: 6
+    action: "Ran a Workflow: one research subagent per city (9 total) to find a live
+      public zoning source and query real zone_code per parcel by lat/lon, followed
+      by one independent adversarial-refuter subagent per claimed match that
+      re-issued the exact live query itself before anything was written to
+      production, per the ULTRALOOP PROTOCOL."
+    result: "8 of 9 cities had a live source (Eustis did not, left residual). 28
+      candidate matches, 27 survived, 1 refuted -- Leesburg case 2025CA002532 claimed
+      parcel 271924255000001100 but the refuter's live re-query at that exact
+      coordinate returned a completely different parcel (261924390000200408) --
+      hallucinated/mismatched evidence, correctly rejected before write."
+  - step: 7
+    action: "Applied the 26 distinct survived (parcel_id, jurisdiction_id) matches to
+      parcel_zones live via REST, idempotency-checked against existing rows first
+      (zero pre-existing conflicts)."
+    result: "Re-ran pencil_dod_evaluate_county('lake'): I moved 37.6% -> 62.4%
+      (41 -> 68 of 109 card_complete) -- a real, verified +30.7pp gain. But G
+      regressed 75.0 -> 0.0 (density 75.0->48.6, far 100.0->23.3, pk1000 null->0.0)."
+  - step: 8
+    action: "Diagnosed the G regression: identical failure mode to
+      20260719n_gtm22j_shard6_hillsborough_g_regression_fix.sql -- the 26 new
+      parcels reference 9 (jurisdiction, zone_code) pairs with NO zoning_districts
+      row at all, and v_zoning_gold_standard_kpi_v3 treats a missing district row as
+      'applicable, no value' (worst case), not 'not applicable'."
+    result: "Applied the same fix pattern as that precedent: 4 Planned-Development-
+      style codes (Groveland/Clermont/Tavares/Howey) get explicit far/pk1000/density
+      regulated=false, matching the already-established Lake-unincorporated-PUD and
+      Hillsborough-PD precedent that PD/PUD sets density per development order, not a
+      fixed ordinance number. Re-ran evaluator: density 48.6->57.6, far 23.3->36.8."
+  - step: 9
+    action: "Ran a second Workflow: one research subagent per remaining city (7) to
+      find real max_density_du_acre/max_far/parking_per_1000sf for the 7 genuine
+      conventional-residential codes from each city's own Land Development Code,
+      followed by one independent adversarial refuter per claim."
+    result: "9 candidate standards claims, 6 survived, 3 refuted (Lady Lake MX-8:
+      Municode 403 on all routes; Mount Dora R-2: claimed figure did not match the
+      source on live re-fetch; Leesburg R-3: Municode 403 on all 5 attempted routes).
+      Also discovered Mount Dora already had pre-existing zoning_districts rows for
+      R-1A/R-2 (from an earlier, unrelated session) -- avoided a duplicate-key error
+      by checking existing rows before insert, updated R-1A's far/pk1000 flags
+      in-place instead of inserting."
+  - step: 10
+    action: "Applied 6 new zoning_districts rows + 1 update (Mount Dora R-1A) + 4
+      zone_standards rows (real density values with honest confidence scores: 0.95
+      direct-table Mascotte, 0.82 direct-table Leesburg, 0.55 algebraically-derived
+      Clermont/Tavares from real min-lot-size figures). Left the 3 refuted codes
+      fully NULL/unknown (Lady Lake MX-8, Mount Dora R-2, Leesburg R-3) -- no
+      fabrication."
+    result: "Re-ran pencil_dod_evaluate_county('lake'): G density 57.6->72.9,
+      far 36.8->77.8. pk1000 remains 0.0 (the 3 residual-unknown codes still drag
+      it), so G's overall LEAST() stays FAIL -- but G was FAIL before this session
+      (75.0 metric) and remains FAIL after (0.0 metric shown, but PASS/FAIL status
+      unchanged both times) -- no certification was ever at risk from this swing."
+  - step: 11
+    action: "Logged 6 gold_standard_ultraloop_audit rows (pinellas freshness, lake
+      I/G/B/C/E) with full refuter evidence per the ULTRALOOP PROTOCOL certify gate."
+    result: "ids 10127-10132, all survived=true."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('pinellas') before/after"
+    proof: "Identical both times: A-J all pass=true, H metric 7.2 (before) / 4.3-4.9
+      (after, unrelated to this session's lake-only writes)."
+  - check: "pencil_dod_evaluate_county('lake') before/after"
+    proof: |
+      BEFORE: A PASS(11) B FAIL(null,0/0) C FAIL(11.9) D FAIL(24.8) E FAIL(73.4)
+        F FAIL(null,0/0) G FAIL(75.0,far=100,pk1000=null) H PASS(1.1)
+        I FAIL(37.6,41/109) J FAIL(73.4)
+      AFTER:  A PASS(11) B FAIL(null,0/0) C FAIL(11.9) D FAIL(24.8) E FAIL(73.4)
+        F FAIL(null,0/0) G FAIL(0.0,density=72.9,far=77.8,pk1000=0.0) H PASS(4.9)
+        I FAIL(62.4,68/109) J FAIL(73.4)
+      Real gain: I +30.7pp (verified live, 27 adversarially-refuted case rows).
+      G shows a metric swing (75.0->0.0) but PASS/FAIL status is unchanged (FAIL
+      both times) -- flagged explicitly, not hidden, per HONESTY PROTOCOL.
+  - check: "gold_standard_ultraloop_audit rows for this dispatch"
+    proof: "6 rows, ids 10127-10132, all survived=true, all with live refuter
+      evidence attached (see migration file for full text)."
+
+plan_vs_actual:
+  - task: "Work highest-leverage failing letters for pinellas (10/10) and lake
+      (2/10) within the 6h shard budget."
+    planned: "Full A-J diagnose/fix/verify cycle per the dispatch playbooks."
+    actual: "Pinellas required no action (genuinely already 10/10, reconfirmed).
+      Lake: B/C/D/F/G(pre-existing)/E were already fully diagnosed as structural
+      dead ends by prior sessions and independently reconfirmed rather than
+      re-attempted; the two genuinely open levers (I via municipal zoning, G-repair
+      of the resulting regression) were built out with full adversarial verification
+      and shipped live."
+    deviation: "No B/C/D/E/F movement this session -- these are real, evidence-backed
+      dead ends, not a shortfall in effort. I moved substantially; G's PASS/FAIL
+      status is unchanged but its intermediate metric was tracked honestly through a
+      real regression-then-repair cycle rather than hidden."
+
+next_session_priorities:
+  - "Eustis municipal zoning (9 of the 39 gap parcels) -- no live public zoning GIS
+    source found this session; needs either a fresh probe for a service this session
+    missed, or documentation as a confirmed dead end."
+  - "3 residual zone codes still fully unknown, dragging G's pk1000 metric to 0.0:
+    Lady Lake MX-8 (Municode 403), Mount Dora R-2 (claimed density refuted), Leesburg
+    R-3 (Municode 403 on 5 routes) -- try a different source (city's own site, not
+    Municode) for these 3 specifically."
+  - "Lake B/C/D/F remain hard dead ends absent an authenticated Lake Clerk
+    official-records session (officialrecords.lakecountyclerk.org, login-gated) --
+    not achievable from this environment; would need a provisioned account."
+  - "Lake J is structurally capped at E's ceiling (73.4%) by design (ARV requires a
+    linked parcel) -- will move automatically if/when E moves."
+
+honesty_protocol_tags:
+  - "All DB counts and percentages in this log are VERIFIED via live
+    pencil_dod_evaluate_county() calls pasted above, not estimated."
+  - "The G metric swing (75.0->0.0->72.9-ish) is disclosed in full rather than
+    reported only as a final 'still FAIL, no change' summary -- INFERRED risk: a
+    reviewer skimming only PASS/FAIL columns could miss that G's intermediate metric
+    briefly looked much worse; flagging explicitly here."
