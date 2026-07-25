@@ -1,0 +1,140 @@
+name: "Gold Standard Shard-3 run6288 — Columbia E/I re-fix"
+# Shard-3 run6288: pinellas (10/10 ✅ no work), dixie (8/10 C/D BLOCKED),
+# columbia (5/10 → E/I actionable).
+#
+# dispatch_id: 6e24ea71-1441-4615-a9c5-7245008667a4
+#
+# Actions:
+#   1. Apply 20260725_shard3_run6288_columbia_ei_refix.sql via Mgmt API
+#   2. Run shard3_run6288_columbia_ei_refix.py for BEFORE/AFTER evaluation
+#   3. Report pencil_dod_evaluate_county results for pinellas, dixie, columbia
+#
+# Blocked (documented in script, not re-attempted):
+#   - Dixie C/D: Cloudflare Turnstile CAPTCHA on all docket systems (5+ sessions confirmed)
+#   - Columbia A: no real TD inventory; columbiaclerk.com = 403 Cloudflare
+#   - Columbia B/F: Turnstile CAPTCHA on myfloridacounty.com; columbiaclerk.com 403
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (evaluate only, no DB writes)'
+        required: false
+        default: 'false'
+
+jobs:
+  columbia-ei-refix:
+    name: "Columbia E/I re-fix + shard-3 verification"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Apply migration via Supabase Mgmt API"
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          MIGRATION="migrations/20260725_shard3_run6288_columbia_ei_refix.sql"
+          echo "Applying $MIGRATION ..."
+          python3 -c "
+          import json, sys
+          sql = open('$MIGRATION').read()
+          print(json.dumps({'query': sql}))
+          " > /tmp/migration_payload.json
+
+          HTTP=$(curl -sS -o /tmp/migration_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/migration_payload.json)
+
+          echo "Migration HTTP: $HTTP"
+          cat /tmp/migration_resp.json
+          echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration failed HTTP $HTTP"; exit 1; }
+          echo "Migration applied OK"
+
+      - name: "Run E/I refix script + BEFORE/AFTER evaluation"
+        run: |
+          set -euo pipefail
+          DRY_FLAG=""
+          [[ "${{ github.event.inputs.dry_run }}" == "true" ]] && DRY_FLAG="--dry-run"
+          python3 scripts/shard3_run6288_columbia_ei_refix.py $DRY_FLAG
+
+      - name: "Pinellas verification (must stay 10/10)"
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, urllib.request
+
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+
+          def eval_county(county):
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(
+                  f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                  data=body,
+                  headers={
+                      'apikey': KEY,
+                      'Authorization': f'Bearer {KEY}',
+                      'Content-Type': 'application/json',
+                  },
+                  method='POST'
+              )
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  return json.loads(resp.read().decode())
+
+          result = eval_county('pinellas')
+          print(f'pinellas: {json.dumps(result)}')
+          # Pinellas must stay 10/10
+          if isinstance(result, dict):
+              failing = [k for k, v in result.items() if len(k)==1 and k.isupper() and isinstance(v, dict) and not v.get('pass', True)]
+              if failing:
+                  print(f'::error::Pinellas REGRESSION — failing letters: {failing}')
+                  exit(1)
+              print('Pinellas 10/10 confirmed ✅')
+          "
+
+      - name: "Summary report"
+        if: always()
+        run: |
+          set -uo pipefail
+          python3 -c "
+          import json, os, urllib.request
+
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+
+          def eval_county(county):
+              body = json.dumps({'p_county': county}).encode()
+              req = urllib.request.Request(
+                  f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+                  data=body,
+                  headers={
+                      'apikey': KEY,
+                      'Authorization': f'Bearer {KEY}',
+                      'Content-Type': 'application/json',
+                  },
+                  method='POST'
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      return json.loads(resp.read().decode())
+              except Exception as e:
+                  return {'error': str(e)}
+
+          print('=== SHARD-3 RUN6288 FINAL EVALUATION ===')
+          for county in ['pinellas', 'dixie', 'columbia']:
+              result = eval_county(county)
+              print(f'{county}: {json.dumps(result)}')
+          print('=========================================')
+          "
