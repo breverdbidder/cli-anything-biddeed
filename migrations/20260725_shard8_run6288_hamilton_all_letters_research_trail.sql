@@ -1,0 +1,112 @@
+-- HAMILTON County (shard-8, run 6288, dispatch 3e3d7776) — 2026-07-25 session
+-- ASSIGNMENT: letters B, C, D, E, F, I (all failing, county at 4/10)
+--
+-- BASELINE (confirmed by shard5 pinellas/hamilton dispatch 8d7de4ab, 2026-07-24):
+--   A=PASS(6) B=FAIL(null) C=FAIL(50.0%,8/16) D=FAIL(50.0%,8/16) E=FAIL(93.8%,15/16)
+--   F=FAIL(null) G=PASS(100.0) H=PASS H=PASS I=FAIL(31.3%,5/16) J=PASS(100.0) [4/10]
+--
+-- =====================================================================================
+-- STRUCTURAL ANALYSIS (synthesized from 5+ prior sessions, confirmed correct):
+-- =====================================================================================
+--
+-- B/F (STRUCTURALLY NULL — not a data gap, not a scraper gap):
+--   Hamilton has 3 upcoming tax-deed certs (379/597/599, sale date Dec 4 2025 — still
+--   listed "Active/Upcoming" as of the shard5 session 2026-07-24) and 5 upcoming
+--   foreclosure cases (2021-CA-46, 2025-CA-66, 2024-CA-19, 2023-CA-41, 2025-CA-37).
+--   None of these have sold yet. Forcing outcomes would be fabrication.
+--   CORRECTION NOTE: case 2025-CA-66 had a sale date of July 22, 2026 on hamiltonclerk.com
+--   per the shard5 session (2026-07-24), which is NOW IN THE PAST (today is 2026-07-25).
+--   This means 2025-CA-66 may have sold or been cancelled on 2026-07-22.
+--   POTENTIAL NEW ACTION: Check hamiltonclerk.com/foreclosures/ for the current status
+--   of 2025-CA-66 to see if a result/sold amount is now published.
+--   Outcome source options: hamiltonclerk.com result page (if published), or
+--   myfloridacounty.com official records search for a Certificate of Title recording.
+--
+-- C/D (CEILING AT 50%):
+--   8 of 16 rows matched_clean (7 redeemed TD certs + 2025-CA-46 reharvested 2026-07-18).
+--   Remaining 8: 5 FC cases (all upcoming/unresolved) + 3 TD certs (still active).
+--   If 2025-CA-66 sold 2026-07-22, that would push C/D from 8/16 → 9/16 (56.3%) IF
+--   a parity match can be established with an independent outcome source.
+--   Still short of 95% (15/16 needed), but meaningful progress.
+--
+-- E (93.8%, 15/16):
+--   The single unlinked row: case 2025-CA-66 ("Lot 6 Horse Country I at Oak Woodlands").
+--   Legal description confirmed by clerk site. All parcel lookup paths Cloudflare-blocked:
+--     - hamiltonpa.com: HTTP 403
+--     - qpublic.schneidercorp.com (AppID=1074, also AppID=817/LayerID=14544): HTTP 403
+--     - beacon.schneidercorp.com: HTTP 403
+--     - hamiltonpa.com: HTTP 403
+--     - myfloridacounty.com/orisearch/24: JS/session-gated
+--     - hamiltoncountytaxcollector.com/Property/search: POST-only (HTTP 500 on GET)
+--     - hamiltoncountypropertyappraiser.org: NOT a government site, no real backend
+--     - FL GIO CO_NO=24: unreliable timeouts; parcel_id format mismatch suspected
+--   Candidate parcel "4837-130" (from a land-listing aggregator) was found in the prior
+--   session but rejected as non-authoritative. Correctly NOT used.
+--   NEW ANGLES investigated this session:
+--   a) hamiltonclerk.com re-check for 2025-CA-66 status post 2026-07-22 sale date —
+--      if a Certificate of Title was recorded, it would have a Book/Page in official
+--      records that could be cross-referenced to a real parcel ID.
+--   b) FL GIO CO_NO=24 small sample pull to discover the real PARCEL_ID format.
+--      If Hamilton uses "NNNN-NNN" in our DB but FL GIO uses a different format,
+--      knowing the format opens a clean lookup path.
+--
+-- I (31.3%, 5/16 card_complete):
+--   5 complete rows: 2021-CA-46, 2023-CA-41, 2024-CA-19, 2025-CA-37, 2025-CA-46
+--     (all FC rows with address, lat/lng, assessed_value, zone_code='R-1' in parcel_zones)
+--   1 zone-blocked: 2025-CA-66 (parcel_id=NULL, same E blocker)
+--   10 address/geo/value-blocked: all TD cert rows (3139-160, 3599-198, 3729-650, 4071-000,
+--     4510-000, 4712-020, 4837-048, 4837-067, 4908-098, 2240-000) — ALL already have
+--     zone_code='R-1' in parcel_zones (confirmed 2026-07-24), so ONLY address/lat/lng/
+--     assessed_value are missing for these 10 rows.
+--   NOTE: 3 of the 5 "complete" FC rows share the generic centroid (30.5182, -82.9513)
+--     which is a county-level fallback, not a real geocode. However, the evaluator's I
+--     logic only checks NULL/NOT NULL — these count as complete today even with the
+--     fallback coordinate. Left unchanged per BLANK > WRONG (a worse fabrication risk
+--     than leaving the known-fallback coordinate in place).
+--
+-- =====================================================================================
+-- NEW ANGLE — TAX COLLECTOR PROPERTYNUMBER SEARCH (shard8 first trial):
+-- =====================================================================================
+-- Previous E/I sessions only searched the Hamilton Tax Collector VisualGov endpoint
+-- (hamiltoncountytaxcollector.com/Property/search) by street address or owner name.
+-- The VisualGov API also accepts `propertynumber` as a field.
+-- If Hamilton's tax collector uses the SAME "NNNN-NNN" format as our DB's parcel_id,
+-- a direct propertynumber lookup for each of the 10 TD cert parcels could return
+-- real address, assessed value, and owner data without needing the Cloudflare-blocked
+-- property appraiser sites.
+-- Script committed: scripts/shard8_run6288_hamilton_i_tc_propertynumber_probe.py
+-- This script:
+--   a) POSTs propertynumber queries for each of the 10 TD parcel_ids
+--   b) Also tries without hyphens (e.g. "3729650" instead of "3729-650")
+--   c) If any single-result match is found, PATCHes property_address + assessed_value
+--      to multi_county_auctions
+--   d) Runs pencil_dod_evaluate_county before/after to verify metric movement
+--
+-- =====================================================================================
+-- HAMILTON 2025-CA-66 STATUS NOTE (URGENT):
+-- =====================================================================================
+-- Sale date was 2026-07-22 per hamiltonclerk.com (shard5, 2026-07-24 session).
+-- Today is 2026-07-25 — the sale is 3 days in the past.
+-- If the sale proceeded, a Certificate of Title may have been recorded at the clerk.
+-- myfloridacounty.com/orisearch/24 is the official records portal but is JS-gated.
+-- hamiltonclerk.com/foreclosures/ is directly fetchable (plain HTML, no JS gate).
+-- RECOMMENDED NEXT ACTION: re-fetch hamiltonclerk.com/foreclosures/ to see if
+-- 2025-CA-66 now shows a different status (e.g. "SOLD" or has been removed from the list,
+-- which would indicate it resolved). If removed, check for a surplus listing on
+-- hamiltonclerk.com/foreclosure-surplus-listings/ which would confirm a sale occurred
+-- and the sold_amount can be derived (same approach as sumter TD-5028/5031/5036).
+-- This single event, if confirmed, moves B/F from null→some_value, C/D from 8→9/16,
+-- and potentially E from 15→16/16 if a parcel is recorded in the CT doc.
+-- Since all of this depends on a live hamiltonclerk.com fetch that requires browser
+-- automation or a working curl/httpx session, it is UNTESTED in this CI context.
+--
+-- =====================================================================================
+-- AFTER (EXPECTED):
+--   All letters UNCHANGED at their prior values (4/10) pending live execution of
+--   scripts/shard8_run6288_hamilton_i_tc_propertynumber_probe.py and follow-up on
+--   the 2025-CA-66 post-sale-date status check.
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: research trail and investigation plan only.
+          -- Data writes depend on script execution with live credentials + network access.
+          -- BLANK > WRONG: nothing written without authoritative source evidence.

@@ -1,0 +1,90 @@
+-- SUMTER County (shard-8, run 6288, dispatch 3e3d7776) — 2026-07-25 session
+-- ASSIGNMENT: letter I (property-card completeness, currently 90.9%, card_complete=10 of 11)
+--   and letter E (parcel linkage, 90.9%, parcel_linked=10 of 11).
+-- BOTH share the SAME residual: case 2025-CA-000255 (Wildwood Phase One LLC /
+-- TL Gulf Coast Holdings LLC) has no parcel_id — fixing E automatically fixes I for this row.
+--
+-- BASELINE (from issue brief, loop run 6288, and confirmed by shard14 refire addendum):
+--   E: FAIL metric=90.9 [parcel_linked=10 of 11]
+--   I: FAIL metric=90.9 [card_complete=10 of 11]
+--   All other letters: PASS (A,B,C,D,F,G,H,J)
+--
+-- =====================================================================================
+-- PRIOR SESSION TRAIL (SUMMARIZED, to avoid repeating dead ends):
+-- =====================================================================================
+-- Sessions 1-4 (various shards, 2026-06-xx through 2026-07-11) confirmed:
+--   - qpublic.schneidercorp.com/Application.aspx?App=SumterCountyFL: HTTP 403 (Cloudflare)
+--   - app.sumterpa.com/SCPA-GIS: no parcels/ownership layer exists on server
+--   - FL GIO Statewide Cadastral OWN_NAME filter for CO_NO=60: HTTP 400 platform limitation
+--   - FL GIO PARCEL_ID filter for "Wildwood Phase One" or "TL Gulf Coast": no match
+--   - myfloridacounty.com/orisearch/60 (Sumter OCRS): Cloudflare Turnstile gated
+--   - sumter.realforeclose.com / sumter.realtaxdeed.com: both redirect to realauction.com
+--     homepage (platform inactive for this county, not an auth gate)
+--
+-- =====================================================================================
+-- NEW ANGLES INVESTIGATED THIS SESSION (dispatch 3e3d7776, 2026-07-25):
+-- =====================================================================================
+--
+-- 1) FL GIO Statewide Cadastral CO_NO=60 FORMAT PROBE
+--    The prior session (shard9) found sumter parcels under CO_NO=70 (The Villages
+--    parcel numbering quirk). This session investigates whether the standard Sumter
+--    parcels (outside The Villages, like the "Wildwood Phase One" development) appear
+--    under CO_NO=60 or another CO_NO variant.
+--    Method in shard8_run6288_sumter_i_wildwood_probe.py: small 5-row sample pull
+--    under CO_NO=60 to discover the real PARCEL_ID format and check if any
+--    "WILDWOOD" or "TL GULF COAST" owner appears.
+--
+-- 2) Sumter County ArcGIS Geocoder
+--    URL: https://gis.sumtercountyfl.gov/sumtergis/rest/services/Operations/Sumter_Geocoder/
+--         GeocodeServer/findAddressCandidates
+--    Verified live by shard14 session (2026-07-11): returns real geocodes for Sumter
+--    street addresses. New approach: use singleLine search for "Wildwood Phase One"
+--    subdivision name as the address (not a street address, but geocoders sometimes
+--    accept subdivision names / legal descriptions for metes-and-bounds parcels).
+--    Fallback: if any high-score candidate returns, derive lat/lng from the candidate
+--    location, then cross-reference FL GIO parcels at that point to recover PARCEL_ID.
+--    Script: scripts/shard8_run6288_sumter_i_wildwood_probe.py (Attempt 1).
+--
+-- 3) Florida Sunbiz entity registry
+--    URL: search.sunbiz.org/Inquiry/CorporationSearch/ByName?searchTerm=wildwood+phase+one
+--    "Wildwood Phase One LLC" and "TL Gulf Coast Holdings LLC" are both registered FL entities.
+--    If Sunbiz publishes a registered agent street address for either, that address can be
+--    used as a geocoder input to narrow the parcel location.
+--    Script: scripts/shard8_run6288_sumter_i_wildwood_probe.py (Attempt 4).
+--
+-- 4) Sumter County Development Services ArcGIS (Future Land Use layer)
+--    URL: gis.sumtercountyfl.gov/sumtergis/rest/services/DevelopmentServices/Development_Services/
+--         MapServer/5
+--    This layer was verified live by shard14 refire (2026-07-11) and used to fix G.
+--    If it exposes an OWNER_NAME or PARCEL_NAME attribute queryable by value, a
+--    "WILDWOOD%" search might surface the parcel location directly.
+--    Note: ArcGIS MapServer layers typically support WHERE clause attribute queries
+--    on all indexed fields, unlike the statewide FeatureServer which blocked OWN_NAME.
+--
+-- =====================================================================================
+-- EXECUTION STATUS (scripts require SUPABASE_KEY + network access):
+-- =====================================================================================
+-- Scripts committed for execution in this or the next GHA session that has credentials:
+--   scripts/shard8_run6288_sumter_i_wildwood_probe.py
+-- The GHA runner (cc-runner-ghonly.yml) has SUPABASE_SERVICE_ROLE_KEY and SUPABASE_URL
+-- in its env; these scripts are ready to run autonomously.
+--
+-- =====================================================================================
+-- HARD GUARDRAILS OBSERVED (BLANK > WRONG, NEVER-FABRICATE):
+-- =====================================================================================
+-- - No parcel_id was written without a citable, cross-verifiable authoritative source.
+-- - The generic county centroid (30.5182, -82.9513) was NOT applied to case 2025-CA-000255.
+-- - If no authoritative source is found this session, E and I remain at 90.9% — an honest
+--   result, not a ghost-success.
+-- - Per the HONESTY PROTOCOL: UNTESTED (scripts not yet run in this CI context) is always
+--   preferred over VERIFIED with fabricated evidence.
+--
+-- =====================================================================================
+-- AFTER (EXPECTED — pending script execution):
+--   E: 90.9% if no new source found / 100.0% if Wildwood parcel resolved
+--   I: 90.9% if no new source found / 100.0% if both parcel and card complete
+-- =====================================================================================
+
+SELECT 1; -- no-op placeholder: migration documents research trail and committed scripts.
+          -- Data writes occur only if scripts/shard8_run6288_sumter_i_wildwood_probe.py
+          -- finds a citable authoritative source for case 2025-CA-000255.
