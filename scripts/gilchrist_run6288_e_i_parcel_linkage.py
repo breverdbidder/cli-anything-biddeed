@@ -279,6 +279,43 @@ def parse_centroid(geometry: dict | None) -> tuple[float | None, float | None]:
     return round(avg_lat, 7), round(avg_lon, 7)
 
 
+def parse_fl_case_number(case_number: str) -> dict:
+    """
+    Parse a long-format FL case number into component parts and alternate formats.
+
+    Example: '212025CA000064CAAXMX'
+    -> circuit=21, year=2025, type='CA', seq=64, short='2025-CA-000064'
+    -> also tries '25-CA-64', '25-CA-000064', '2025-CA-64'
+
+    FL 8th Circuit covers: Alachua, Baker, Bradford, Columbia, Dixie,
+    Gilchrist, Levy, Union counties.
+    """
+    result = {
+        "original": case_number,
+        "short_formats": [],
+        "year": None,
+        "seq": None,
+    }
+    # Long format: <circuit:2><year:4><type:2><seq:6><suffix:6>
+    m = re.match(r'^(\d{2})(\d{4})([A-Z]{2})(\d{6})(.+)$', case_number.upper())
+    if m:
+        circuit, year, ctype, seq_str, suffix = m.groups()
+        seq = int(seq_str)
+        short_year = year[-2:]
+        result["circuit"] = circuit
+        result["year"] = year
+        result["type"] = ctype
+        result["seq"] = seq
+        result["seq_str"] = seq_str
+        result["short_formats"] = [
+            f"{year}-{ctype}-{seq_str}",
+            f"{short_year}-{ctype}-{seq:06d}",
+            f"{short_year}-{ctype}-{seq}",
+            f"{year}-{ctype}-{seq}",
+        ]
+    return result
+
+
 def lookup_fl_courts_case(case_number: str) -> dict:
     """
     Attempt to fetch case details from FL Courts eFiling portal or
@@ -291,6 +328,10 @@ def lookup_fl_courts_case(case_number: str) -> dict:
     HONESTY: UNTESTED — endpoint may block bot requests or require JS rendering.
     """
     result = {}
+    parsed = parse_fl_case_number(case_number)
+
+    # Build list of case number formats to try
+    case_formats = [case_number] + parsed.get("short_formats", [])
 
     # Try the FL Courts public case information via myfloridacounty portal
     # Pattern: https://myeclerk.myfloridacounty.com/cases/search?county=GI&caseNum=<case>
@@ -298,9 +339,15 @@ def lookup_fl_courts_case(case_number: str) -> dict:
     # Note: Most FL clerk portals are behind Captcha or JS — this is a best-effort attempt.
 
     fl_courts_url = "https://myeclerk.myfloridacounty.com/cases/search"
-    params = {"county": "GI", "caseNum": case_number, "caseType": "CA"}
-    status, body = http_get(fl_courts_url, params, timeout=20)
-    log(f"FL Courts eFiling {case_number}: HTTP {status}, body_len={len(body)}", "VERIFIED")
+    status, body = 0, ""
+    for fmt in case_formats:
+        params = {"county": "GI", "caseNum": fmt, "caseType": "CA"}
+        s, b = http_get(fl_courts_url, params, timeout=20)
+        log(f"FL Courts eFiling {fmt}: HTTP {s}, body_len={len(b)}", "VERIFIED")
+        if s == 200 and len(b) > 200:
+            status, body = s, b
+            break
+        time.sleep(0.3)
 
     if status == 200 and len(body) > 200:
         # Look for property address patterns in the HTML
