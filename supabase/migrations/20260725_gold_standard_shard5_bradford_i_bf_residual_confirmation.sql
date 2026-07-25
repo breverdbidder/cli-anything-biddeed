@@ -1,0 +1,84 @@
+-- Gold Standard shard-5 (dispatch d07c1eba-6206-41e6-93eb-d34ce1ba2d9b): bradford
+-- I and B/F re-attempt session, 2026-07-25.
+--
+-- Baseline (VERIFIED via pencil_dod_evaluate_county('bradford'), live 2026-07-25):
+--   7/10. A/C/D/E/G/H/J pass. B/F/I fail. auctions_total=5.
+--   I: card_complete=4 of 5 (80.0%). Gap row: case 25000439CAAXMX / parcel
+--      00868-0-01200 -- has parcel_id + property_address, missing
+--      assessed_value/market_value/latitude/longitude.
+--   B/F: verified=0/tier1_sold=0/closed_sold=0. Gap row: case 25000457CAAXMX,
+--      auction_date 2026-07-16 (9 days past as of this session), auction_status
+--      still 'upcoming', sold_amount still null.
+--
+-- ================================================================================
+-- I ATTEMPT (parcel 00868-0-01200) -- NO UPDATE, genuine residual, not fabricated
+-- ================================================================================
+-- Replicated the exact method that fixed the other 4 Bradford parcels
+-- (migrations/20260719_gold_standard_shard1_bradford_i_geo_value_backfill.sql):
+-- Bradford County Property Appraiser GIS (bradfordappraiser.com/gis/, backed by
+-- GrizzlyLogic mapserver at gz.floridapa.com/mapserver/). Could not reproduce a
+-- working parcel-level query this session:
+--   - bradfordappraiser.com/gis/ is a client-rendered JS shell; no discoverable
+--     REST/WFS parcel-search endpoint reachable via static HTTP fetch.
+--   - Direct MapServer CGI probe (gz.floridapa.com/mapserver/?county=...&parid=...)
+--     returns "CGI variable 'map' is not set" -- requires an internal mapfile
+--     path not discoverable via static probing (would need a real rendered
+--     browser session to capture the actual client-side request, out of scope
+--     for a bounded pass per shard budget).
+--   - FL GIO statewide cadastral ArcGIS FeatureServer query (where=CO_NO=4),
+--     replicating the exact pattern from scripts/ingest_county.py, times out
+--     (30-60s) on every attempt this session -- service-side issue, not a
+--     credentials/syntax issue (confirmed 1=1 and OBJECTID=1 queries succeed,
+--     only CO_NO-filtered queries hang).
+--   - Firecrawl /v1/scrape and /v1/search both return HTTP 402 insufficient
+--     credits -- same blocker the 2026-07-19 session hit for a different lookup.
+--   - Auction.com has a listing for 7594 SW 130th St, Starke FL confirming case
+--     25000439CAAXM and the address match our row -- but its "Est. Market Value"
+--     ($224,911) is a third-party Cotality AVM estimate, NOT a county appraiser
+--     assessed/market value. Per this campaign's zero-tolerance fabrication
+--     policy for Bradford specifically (see 20260703_shard13 + 20260710 revert
+--     history), this was deliberately NOT written into assessed_value/
+--     market_value -- doing so would misrepresent third-party AVM data as
+--     county-appraiser-sourced data, the same category of error as the prior
+--     fabrication incidents, just with real-looking provenance.
+--
+-- No UPDATE issued. I remains 80.0% (4 of 5). Reported as residual gap.
+--
+-- ================================================================================
+-- B/F ATTEMPT (case 25000457CAAXMX) -- NO UPDATE, genuine residual, not fabricated
+-- ================================================================================
+-- Re-confirmed bradfordclerk.com/tax-deeds-and-foreclosure-sales/ and
+-- /foreclosures/ both return HTTP 403 Cloudflare "Just a moment..." challenge
+-- (5.6KB), reproduced fresh via curl (real Chrome UA) AND WebFetch independently.
+-- Firecrawl scrape of the same URL returns HTTP 402 insufficient credits.
+-- Checked bctelegraph.com (the confirmed independent source behind row #1's
+-- 'bctelegraph_legal_notice' data_source):
+--   - Pre-sale notice found (legal-notices-for-7-2-26): Case 2025-CA-000457,
+--     VyStar Credit Union v. Unknown Heirs of Debra Ilene Hunter, property
+--     18737 Charlotte Ave Brooker FL 32622, sale date 2026-07-16 -- no bid/price
+--     info (expected, pre-sale notice).
+--   - Most recent post-sale issue (legal-notices-for-7-23-26, 7 days after the
+--     sale date) checked for a certificate-of-title / sale-result notice for
+--     this case -- NONE found yet.
+-- Checked surplusindex.com/bradford-county-florida-excess-funds-list/ -- HTTP 404.
+-- Checked officialrecords.bradfordclerk.com (guessed OCRS subdomain) -- DNS
+-- resolution failure. Checked bradfordclerk.com/official-records/ -- also
+-- Cloudflare 403.
+--
+-- No real, independently-sourced sale result found anywhere accessible this
+-- session. No UPDATE issued -- sold_amount/auction_status left untouched.
+-- Reported as genuine residual: the sale likely occurred (calendar date has
+-- passed) but no accessible source has published the result yet, or Bradford's
+-- clerk has not yet posted it. NOT fabricated, NOT backdated, NOT reusing
+-- another row's numbers or a third-party AVM value as a stand-in for sold_amount.
+--
+-- Audit trail: 3 rows inserted into public.gold_standard_ultraloop_audit
+-- (dispatch_id d07c1eba-6206-41e6-93eb-d34ce1ba2d9b, letters I/B/F, survived=true)
+-- documenting each attempted method and its outcome.
+--
+-- No SQL to run -- this migration is a documentation-only record of a fix
+-- session that found zero real, independently-sourced data to write, per the
+-- fail-loud / BLANK > WRONG invariant. Verification query below reproduces the
+-- unchanged baseline.
+
+SELECT public.pencil_dod_evaluate_county('bradford');
