@@ -1,0 +1,177 @@
+session:
+  shard: SHARD-2 (pinellas, lake), loop run 6459 -- 2ND FIRING of an identical dispatch
+  dispatch_id: 8df2e635-919d-4739-ad3f-be2df85bcb9d
+  chat_session: architect-20260725T160000
+  date: 2026-07-25
+  mode: REST verification (psql pooler auth failed this firing -- password rejected;
+    fell back to REST, consistent with the first firing's stated mode) + ultracode
+    Workflow for research-then-adversarial-refute on the first firing's queued
+    next_session_priorities.
+
+pre_session_finding: "This session's dispatch (8df2e635-919d-4739-ad3f-be2df85bcb9d)
+  is IDENTICAL to the dispatch already fully worked, verified, and shipped to main
+  in commit 4e137c72 (same dispatch_id, same chat_session, same date). Live-reconfirmed
+  both counties BEFORE doing anything: pinellas 10/10 PASS unchanged; lake unchanged at
+  A/H PASS only, I=62.4%% (68/109, matching commit 4e137c72's AFTER state exactly), G
+  FAIL(0.0, density=72.9 far=77.8 pk1000=0.0) exactly as left. No drift, no regression.
+  Rather than re-deriving or re-claiming already-shipped work, this firing picked up the
+  first firing's own next_session_priorities queue: Eustis municipal zoning (9 parcels)
+  and the 3 residual zone-standard codes (Lady Lake MX-8, Mount Dora R-2, Leesburg R-3)."
+
+decisions:
+  - step: 1
+    action: "Live-reconfirmed pinellas (10/10) and lake (2/10, I=62.4 G=0.0) via
+      pencil_dod_evaluate_county REST RPC before any other action, to rule out drift
+      since the first firing's commit."
+    result: "Exact match to commit 4e137c72's documented AFTER state -- confirmed this
+      is a duplicate dispatch firing, not new drift to fix."
+  - step: 2
+    action: "Re-derived the current parcel_zones gap for lake's 80 E-linked parcels
+      (multi_county_auctions county=lake, parcel_id not null) via REST, diffed against
+      parcel_zones."
+    result: "12 parcels still gapped (was 39 before run6459, 27 written). Point-in-polygon
+      re-check against Lake County's City Limits In layer (InteractiveMap/MapServer/26)
+      for all 12: 9 in EUSTIS (the known unresolved city from run6459), 1 in LEESBURG
+      (case 2025CA002532 / parcel 271924255000001100 -- the run6459-refuted mismatch,
+      genuinely unresolved, not re-attempted without new evidence), and 2 NEW ones in
+      CLERMONT not previously investigated."
+  - step: 3
+    action: "Queried Clermont's zoning layer (LocalGov/CityZoning/MapServer/1 -- the
+      same layer that supplied run6459's 7 survived Clermont matches) at the 2 new
+      Clermont parcels' exact coordinates."
+    result: "Both queries returned zero features -- confirmed live gap in the source's
+      coverage extent, not a query bug (both parcels ARE inside Clermont city limits
+      per the City Limits layer). Logged as audit id=10165, flagged for next session
+      to try Clermont's own city GIS or Planning Dept directly."
+  - step: 4
+    action: "Ran a 2-phase ultracode Workflow (Research -> Verify) per the ULTRALOOP
+      PROTOCOL: 4 parallel research subagents (Eustis zoning-source discovery for the
+      9 gap parcels; Lady Lake MX-8, Mount Dora R-2, Leesburg R-3 density re-research
+      from non-Municode sources per run6459's next_session_priorities), each followed
+      by an independent adversarial refuter for any CONFIRMED-confidence claim before
+      any write."
+    result: "Zero claims reached CONFIRMED confidence, so zero refuters were even
+      triggered -- an honest negative result across all 4 items, not a refutation
+      failure. See step 5/6 for the substance of each."
+  - step: 5
+    action: "Eustis research agent (28 tool calls, 3 independent live corroborating
+      checks) investigated why no Eustis zoning GIS exists."
+    result: "GENUINE STRUCTURAL FINDING, not a search failure: City of Eustis has NO
+      zoning districts at all -- confirmed verbatim on eustis.org's own Planning
+      Dept page ('Please note the City of Eustis does not have zoning districts').
+      Eustis uses Future Land Use (FLU) districts (AG/RR/SR/UR/MH/CBD/GC/GI/MCI/MCR/
+      PI/RT) as its SOLE land-use control instead of zoning. Corroborated 3 ways: (a)
+      Lake County's LocalGov/CityZoning MapServer has 11 layers, none for Eustis; (b)
+      the combined LocalGov/CityView/MapServer's EUSTIS group layer has only a Future
+      Land Use sublayer, while every other Lake municipality in that same service has
+      BOTH Zoning and FLU sublayers; (c) ArcGIS Online's public catalog has a 'City of
+      Eustis Future Land Use' item but no 'Eustis Zoning' item, while 7 other Lake
+      municipalities do have a zoning item there. DNS probes for gis/maps/arcgis/egis
+      .eustis.org and ci.eustis.fl.us all failed to resolve; eustis.maps.arcgis.com
+      and cityofeustis.maps.arcgis.com are real-but-private orgs with 0 public items.
+      The agent correctly declined to substitute FLU code as zone_code -- FLU is a
+      materially different legal concept and the task required zone_code with
+      parcel-level spatial evidence, not a proxy attribute. NO WRITE MADE. This closes
+      out 'no live Eustis zoning source found' from a plain gap into a diagnosed,
+      documented structural fact requiring a product/schema decision (whether
+      v_zoning_gold_standard_card should ever treat FLU as the applicable control for
+      zoning-exempt municipalities) before any future write -- explicitly NOT this
+      session's call to make unilaterally."
+  - step: 6
+    action: "3 residual-code research agents (Lady Lake MX-8, Mount Dora R-2, Leesburg
+      R-3) each found a candidate density figure from a non-Municode source."
+    result: "All 3 self-tagged confidence=HYPOTHESIS, not CONFIRMED, so none qualified
+      for the write-then-refute gate: Lady Lake MX-8=8 du/acre sourced via
+      zoneomics.com (a third-party aggregator restating the ordinance, not the town's
+      own primary text -- Municode still 403). Mount Dora R-2 derived from Ordinance
+      2020-20 Sec.1.4's Land-Use-Category/Zoning-District compatibility TABLE (a range
+      applicable to multiple districts, not an R-2-specific figure -- same weak-
+      derivation pattern that got run6459's Mount Dora R-2 claim refuted). Leesburg
+      R-3 derived from the Growth Management Plan's Future Land Use Element (FLU
+      category range, not a zoning-ordinance-specific figure -- Municode still 403 on
+      all 5 routes tried). NO WRITES MADE for any of the 3 -- left NULL/unknown exactly
+      as run6459 left them."
+  - step: 7
+    action: "Logged 5 gold_standard_ultraloop_audit rows (ids 10164-10168, all
+      survived=false) documenting each honest negative finding with full evidence, so
+      a future session does not re-spend budget re-deriving the same dead ends without
+      new leads."
+    result: "Re-confirmed pencil_dod_evaluate_county('lake') I and G metrics unchanged
+      (62.4%% / 0.0%%) after the workflow -- exactly as expected, since zero writes
+      were made this firing."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('pinellas') and ('lake') at session start"
+    proof: "Pinellas: A-J all pass=true (10/10). Lake: A PASS(11) B FAIL(null) C
+      FAIL(11.9) D FAIL(24.8) E FAIL(73.4) F FAIL(null) G FAIL(0.0, density=72.9
+      far=77.8 pk1000=0.0) H PASS(5.3) I FAIL(62.4, 68/109) J FAIL(73.4) -- exact
+      match to commit 4e137c72's documented AFTER state, confirming no drift."
+  - check: "Lake parcel_zones gap re-derivation (80 E-linked parcels vs parcel_zones)"
+    proof: "12 parcels remain gapped; point-in-polygon re-verified live against Lake
+      County's City Limits In layer: 9 Eustis, 1 Leesburg (known refuted mismatch), 2
+      Clermont (new, confirmed zero coverage in the Clermont zoning layer at those
+      exact coordinates)."
+  - check: "pencil_dod_evaluate_county('lake') I and G after the workflow (no writes
+      made)"
+    proof: "I=62.4%% (68/109), G=0.0%% (density=72.9 far=77.8 pk1000=0.0) -- byte-for-
+      byte unchanged from session start, confirming the zero-write outcome was
+      correctly honest, not silently lossy."
+  - check: "gold_standard_ultraloop_audit rows for this firing"
+    proof: "5 rows, ids 10164-10168, all survived=false, each with full evidence
+      documenting WHY no claim qualified for a write (see decisions 5-6 above)."
+
+plan_vs_actual:
+  - task: "Work SHARD-2 (pinellas, lake) per the dispatched brief within the 6h
+      budget."
+    planned: "Full A-J diagnose/fix/verify cycle per the dispatch playbooks."
+    actual: "Discovered this dispatch is an exact duplicate of already-shipped commit
+      4e137c72 (same dispatch_id). Did not re-derive or re-claim that work. Instead
+      live-reconfirmed no drift, then worked the first firing's own
+      next_session_priorities queue (Eustis zoning discovery, 3 residual G codes, plus
+      a newly-found 2-parcel Clermont gap). All 4-5 items came back as honest negative
+      findings -- no letter moved this firing."
+    deviation: "Zero letter movement is the correct, evidence-backed outcome here, not
+      a shortfall: Eustis has no zoning system (a real structural fact, not a search
+      failure), and all 3 residual density figures could only be sourced to
+      HYPOTHESIS-level confidence (third-party aggregators or FLU-compatibility-table
+      derivations), which this session's CONFIRMED-only write gate correctly rejected
+      rather than fabricate. This mirrors the discipline the first firing itself
+      applied when it correctly rejected 1 of 28 zoning-match candidates."
+
+next_session_priorities:
+  - "Eustis (9 gap parcels, I-metric): requires a PRODUCT/SCHEMA decision, not more
+    searching -- Eustis genuinely has no zoning code, only Future Land Use districts.
+    Decide whether v_zoning_gold_standard_card should ever accept FLU as the
+    applicable land-use control for zoning-exempt municipalities (with an explicit
+    zone_source tag distinguishing it from true zoning), or whether these 9 parcels
+    should be excluded from I's denominator as genuinely not-applicable (same pattern
+    as the G-metric's PD/PUD density_regulated=false precedent). Escalate to Ariel --
+    this is a scope/definition call the evaluator author should make, not something to
+    infer unilaterally."
+  - "2 new Clermont gap parcels (082326050200001800, 062326040000001800): confirmed
+    inside Clermont city limits but outside the county-hosted Clermont zoning layer's
+    coverage extent. Try Clermont's own city GIS domain or Planning Dept directly next
+    session, not the county-hosted compilation service again."
+  - "Lady Lake MX-8 / Mount Dora R-2 / Leesburg R-3 density figures: still unresolved
+    after 2 independent attempts each. Municode remains 403 for Lady Lake and
+    Leesburg on every route tried across both firings. Consider a different avenue
+    entirely next session -- e.g. a public-records request contact, or accepting a
+    lower-confidence algebraic derivation ONLY if disclosed at that confidence level
+    (matching the 0.55-confidence precedent already used for Clermont R-1/Tavares
+    RSF-1 in run6459) rather than continuing to search for a CONFIRMED-level primary
+    source that may not be online."
+  - "Lake B/C/D/F/J unchanged -- reconfirmed structural ceilings from run6459 still
+    stand, not re-litigated this firing (no new evidence surfaced)."
+
+honesty_protocol_tags:
+  - "All DB counts/percentages in this log are VERIFIED via live
+    pencil_dod_evaluate_county() and REST table queries pasted above, not estimated."
+  - "This firing shipped ZERO data writes -- disclosed explicitly rather than padding
+    the session with a no-op migration file. The 5 audit rows and this session log are
+    the full deliverable: preventing a THIRD firing from re-spending budget on the same
+    4-5 dead ends without new leads."
+  - "The Eustis 'no zoning system exists' finding is flagged INFERRED-to-CONFIRMED
+    fact (verified via 3 independent live sources) but the POLICY response to it is
+    explicitly left as UNKNOWN/escalate -- this session did not unilaterally decide
+    whether FLU should count toward I's card_complete metric, since that changes the
+    evaluator's definition of 'zoned parcel' for other counties too, not just lake."
