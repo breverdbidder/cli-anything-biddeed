@@ -103,7 +103,14 @@ VALUES
    'sarasota_county_scgov_arcgis_marine_park:shard11_run6288'),
   -- RSM-9: Residential Single Multiple 9 du/ac — City of Sarasota residential
   (824, 'RSM-9', 'Residential Single Multiple 9 units per acre', 'residential', false, true, false,
-   'city_sarasota_cos_zoning_arcgis_residential:shard11_run6288')
+   'city_sarasota_cos_zoning_arcgis_residential:shard11_run6288'),
+  -- RSF-1: Residential Single Family (Sarasota County) — distinct from RSF-1/PUD
+  -- zone_extend added parcel 0285010011 with code='RSF-1' (no /PUD suffix), source=scgov_arcgis
+  -- zoninggroup: 'Residential Single Family' — same family as RSF-2/RSF-3 already classified
+  -- No density standard available for bare RSF-1 without ordinance lookup; density_regulated=true
+  -- but no numeric value added (HONESTY PROTOCOL: do not invent density without ordinance source)
+  (824, 'RSF-1', 'Residential Single Family', 'residential', false, true, false,
+   'sarasota_county_scgov_arcgis_zone_group_confirmed:shard11_run6288')
 ON CONFLICT (jurisdiction_id, code) DO NOTHING;
 
 -- ============================================================
