@@ -24,6 +24,36 @@
 
 SET statement_timeout = 0;
 
+-- ── Pre-step: Register 3 residual zone codes from shard12 session ─────────────
+-- CPD@929 (Fort Myers Commercial Planned Development),
+-- MH-1@914 (Bonita Springs Mobile Home Low Density),
+-- CS@630 (Lee County unincorporated Conservation Subdivision).
+-- These 3 codes were identified in the shard12 July 23 session as blocking the
+-- final parcel_zones inserts for 3 parcels. Classified as:
+--   CPD: commercial planned development — same treatment as Fort Myers PUD (no
+--        fixed code-wide bulk standards, governed per development order).
+--   MH-1: mobile home residential — density regulated per Bonita Springs LDC;
+--        max_density not set here (UNKNOWN from available sources) so left NULL
+--        to avoid a BLANK>WRONG violation; density_regulated=true keeps it in
+--        G's applicable denominator so a future session can fill the number.
+--   CS: conservation subdivision, Lee County LDC — primarily environmental
+--        overlay, FAR/density/parking not regulated at the district level per
+--        Lee County's known code structure (same treatment as AG/TFC districts).
+-- All three are inserted only if (jurisdiction_id, code) does not already exist.
+INSERT INTO zoning_districts
+  (jurisdiction_id, code, name, category, far_regulated, density_regulated, pk1000_regulated, description)
+VALUES
+  (929, 'CPD', 'Commercial Planned Development', 'commercial',
+   false, false, false,
+   'Fort Myers Commercial Planned Development — per-site development order governs bulk standards, not a blanket city code table entry. Same non-blanket-regulated treatment as Fort Myers PUD (id=5319). Source: shard11_run6354 Lee residual backfill.'),
+  (914, 'MH-1', 'Mobile Home Residential Low Density', 'residential',
+   false, true, false,
+   'Bonita Springs Mobile Home Low Density district. density_regulated=true; max_density not confirmed from available sources (UNKNOWN) — left NULL per BLANK>WRONG rule. Source: shard11_run6354 Lee residual backfill.'),
+  (630, 'CS', 'Conservation Subdivision', 'mixed',
+   false, false, false,
+   'Lee County unincorporated Conservation Subdivision — environmental overlay district, FAR/density/parking not regulated at the district level per Lee County LDC code structure (same treatment as AG/TFC/natural-area districts). Source: shard11_run6354 Lee residual backfill.')
+ON CONFLICT (jurisdiction_id, code) DO NOTHING;
+
 DO $$
 DECLARE
   v_total         INTEGER;
