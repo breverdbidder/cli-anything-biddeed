@@ -220,18 +220,21 @@ def is_lookupable_folio(folio: str) -> bool:
     return bool(FOLIO_RE.match(folio.strip()))
 
 
-def infer_zone_code_from_address(address: str | None, district_map: dict[str, int] | None = None) -> str:
-    # Broward's zoning_districts substrate is currently a single synthetic
-    # placeholder district (verified 2026-07-20: only code='R-1' exists,
-    # jurisdiction_id=628). The G view joins parcel_zones.zone_code to
-    # zoning_districts.code by exact text match — inferring a code that
-    # doesn't exist in district_map (e.g. 'RS-1') leaves max_far/
-    # parking_per_1000sf NULL for newly-applicable parcels and regresses G
-    # to 0. Always fall back to a code that's actually present in the
-    # substrate until real per-parcel Broward zoning is ingested.
-    if district_map:
-        return next(iter(district_map.keys()))
-    return "RS-1"
+def infer_zone_code_from_address(address: str | None, district_map: dict[str, int] | None = None) -> str | None:
+    # BLANK > WRONG (HONESTY PROTOCOL): this function never actually infers a
+    # code from the address string — there is no address-parsing logic here.
+    # It previously either grabbed an arbitrary key from district_map or, when
+    # district_map was empty, fabricated the literal 'RS-1' (a code that does
+    # not exist as an unincorporated-Broward zoning district — verified against
+    # bcpa.net/ZoningDefinitions.htm + Broward Code Ch.39 Art.XVI Sec.39-283,
+    # whose residential series starts at RS-2). That fabricated code caused a
+    # live G regression (gold_standard_shard3_broward_g_rs1_root_cause_fix,
+    # 2026-07-25): 2 parcels inserted with zone_code='RS-1' had no matching
+    # zoning_districts row, so the KPI view treated them as FAR/parking
+    # "applicable, no value" and collapsed G to FAIL. Do not fabricate a zone
+    # code when the live BCPA lookup fails — return None and let the caller
+    # skip the row (residual gap, not a wrong answer).
+    return None
 
 
 def main():
@@ -296,6 +299,11 @@ def main():
         else:
             stats["bcpa_failed"] += 1
             zone_code = infer_zone_code_from_address(address, district_map)
+            if not zone_code:
+                log(f"SKIP folio={folio!r} case={case_number} — BCPA lookup failed, "
+                    f"no fabricated fallback (BLANK > WRONG)", "WARN", "VERIFIED")
+                stats["skipped_no_zone"] = stats.get("skipped_no_zone", 0) + 1
+                continue
             source = f"address_inferred:INFERRED"
             honesty_tag = "INFERRED"
 
