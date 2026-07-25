@@ -1,0 +1,82 @@
+-- Gold Standard shard-6 alachua, letter J: fabrication purge (HONEST
+-- CORRECTION, not a fix -- J metric goes DOWN as a result, from a false
+-- 86.0% to a true 78.9%).
+--
+-- This session's adversarial-verify fan-out included a dedicated
+-- fabrication-risk audit of the 4 alachua bid_decisions rows that were
+-- ALREADY marked "complete" (arv+max_bid+ml_score+5 factor keys present)
+-- before this session started, despite their multi_county_auctions row
+-- having NO parcel_id and NO real property_address. Independently
+-- re-verified live (not trusting the sub-agent's numbers) before acting:
+--
+--   01 2025 CA 001928 / 01 2025 CA 003287 (pipeline_version=
+--   'shard9_20a33672_5th_firing_shapira_v14_real', arv_source=
+--   'shapira_v14_real_multi_county_auctions.assessed_value'):
+--     Both traced to multi_county_auctions.assessed_value=150000 -- a value
+--     confirmed LIVE to be a hardcoded ingestion-pipeline default, not a
+--     real per-property figure: 13 distinct alachua case_numbers carry the
+--     exact same assessed_value=150000, spanning 3 different data_source
+--     values (realforeclose, realauction_http_v3, calendar_sweep_mca_v3),
+--     created_at from 2026-03-20 through 2026-06-23, judgment_amount
+--     ranging $7,024 to $3,995,806 (including 3 tax-deed cases with NO
+--     judgment_amount at all), and market_value NULL on every one. A real
+--     county's assessed values do not cluster identically across
+--     unrelated properties and unrelated ingestion runs -- this is a
+--     placeholder/default value that a "_real" generator pipeline
+--     incorrectly stamped as a genuine per-property input. cma_resale=
+--     153000/cma_distressed=120000/max_bid=83000.00 were also byte-
+--     identical between the two rows despite ~5x different judgment
+--     amounts ($223,368 vs $1,112,554) -- the classic fabrication
+--     signature this repo's own J-generator docstring (scripts/
+--     gold_standard_shard9_broward_alachua_j_generator_real.py) says it
+--     was built specifically to eliminate.
+--
+--   01 2025 CA 001634 / 01 2025 CA 002643 (older pipeline_version=
+--   'shard1-loop56-j-gen-v1', created_at 2026-06-19): bid_decisions.
+--   parcel_id (04321-007-000 / 07651-002-000 respectively) matches
+--   NOTHING on the corresponding multi_county_auctions row (parcel_id
+--   NULL there) or in sample_properties (0 rows for either parcel) --
+--   i.e. the parcel_id itself is unsourced. factors.cma_resale/
+--   cma_distressed carry honesty_marker='INFERRED' from sources
+--   market_value_proxy/po_avm/assessed_value_proxy/shapira_arm1, but the
+--   auction row has every value field NULL -- there is no real value
+--   these proxies could have been inferred FROM. Unsourceable.
+--
+-- ACTION: DELETE (not null-out -- the entire row's premise, a parcel +
+-- valuation, is invented; a partial row would still misrepresent a real
+-- case as analyzed). This is an honest correction, not a regression --
+-- consistent with this repo's established precedent of purging ghost/
+-- placeholder data even when it lowers a metric (see e.g. the
+-- 'Property Appraiser' ghost-parcel_id purges referenced in
+-- 20260724zzz_gold_standard_shard10_alachua_flow_card_parcel_garbage_guard.sql).
+-- These 4 rows were informing a LIVE bid-decision table used for real
+-- investment recommendations -- leaving fabricated ARV/max_bid figures in
+-- place was a correctness risk independent of the pencil_dod score.
+--
+-- Applied live via Supabase Management API before this migration file was
+-- written (verified via DELETE ... RETURNING case_number, all 4 rows
+-- confirmed removed).
+--
+-- RESULT: pencil_dod_evaluate_county('alachua') J: 49/57 (86.0%, false) ->
+-- 45/57 (78.9%, true). Still FAIL either way (gate is 95%) -- this purge
+-- does not change the PASS/FAIL verdict, only the honesty of the number.
+--
+-- RESIDUAL FLEET-WIDE FINDING (NOT fixed here, flagged for a future
+-- session -- out of scope for this shard's assigned counties/letters):
+-- the assessed_value=150000 hardcoded-default pattern affects 13 alachua
+-- rows total (only 2 of which fed the fabricated bid_decisions rows
+-- purged above); the other 11 may still be silently inflating letter I's
+-- card_complete count (I's rule accepts assessed_value OR market_value
+-- non-null, with no plausibility check) for any of those 11 that also
+-- carry a real parcel_id. Root cause is upstream in the ingestion
+-- pipeline (shared across scrape_realauction_county.py / calendar_sweep_
+-- mca.py / realauction_http_v3 -- the common factor is NOT the scraper,
+-- since 3 different data_source values are represented, so likely a
+-- shared enrichment/fallback step). Chasing this down was out of budget
+-- and out of the hendry/alachua letter scope for this session; noted here
+-- so a future session does not have to rediscover it from scratch.
+
+-- (No SQL to replay here -- the DELETE was already applied live. This
+-- file exists purely as the audit-trail record, per this migrations
+-- directory's established convention for Management-API-applied changes.)
+SELECT 1;

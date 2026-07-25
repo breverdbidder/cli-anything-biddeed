@@ -1,0 +1,136 @@
+-- Gold Standard shard-6 alachua, letter E (parcel_linked), Playwright re-attempt
+-- session, 2026-07-25T08:xxZ.
+--
+-- SCOPE: the 12 multi_county_auctions rows (county=alachua) with parcel_id
+-- IS NULL, currently blocking E at 45/57 = 78.9% (need >=95%):
+--   01 2025 CA 003287, 01 2025 CA 001928, 01 2025 CA 002643, 01 2025 CA 001634,
+--   01 2025 CA 003629, 01 2025 CC 001552, 01 2025 CA 003919, 01 2023 CA 004261,
+--   01 2025 CC 001127, 01 2025 CC 007164, 01 2026 CA 000211, 01 2024 CC 005935
+--
+-- PRIOR SESSIONS (raw HTTP/urllib only) already established:
+--   scripts/shard14_run121fa7c3_alachua_e_i_diagnosis.py -- RealForeclose AJAX
+--     'Parcel ID' field decodes to placeholder text for these listings;
+--     qpublic.schneidercorp.com 403s (Cloudflare) on raw HTTP; isol.
+--     alachuaclerk.org docid links 301-redirect to a JS BrowserTest.aspx page
+--     on raw HTTP.
+--   scripts/shard10_run_alachua_docid_harvest.py -- re-confirmed live this
+--     session that of these 12 cases, only 01 2025 CA 003287 carries a
+--     non-empty isol.alachuaclerk.org docid (3683369) in the RealForeclose
+--     AJAX Case# column; the other 11 all show the literal empty marker
+--     "docid=&ms=0" -- the Clerk's system has not cross-referenced any
+--     recorded document to those 11 cases at all.
+--
+-- THIS SESSION used a real headless browser (Playwright/Chromium,
+-- args=['--no-sandbox'], same pattern as .github/scripts/
+-- scrape_realauction_county.py) to test every route the raw-HTTP diagnosis
+-- could not exercise, specifically to rule out JS-rendering as the missing
+-- link (see scripts/shard6_run_alachua_e_playwright_investigation.py and the
+-- ad-hoc /tmp probes referenced in the session's final report):
+--
+-- (a) alachua.realforeclose.com PREVIEW calendar for each of the 12 cases'
+--     exact auction dates, loaded with a real browser + full 8s render wait,
+--     DOM-scoped to each case's own AUCTION_ITEM block (not just the AJAX
+--     JSON payload). RESULT: identical to the raw-HTTP finding -- the
+--     rendered DOM's "Parcel ID:" table cell literally contains the anchor
+--     text "Property Appraiser" (11 of 12 cases) or "MULTIPLE PARCEL" (case
+--     003287). No hidden/JS-injected parcel ID, property address, or
+--     defendant name exists anywhere in the rendered block for any of the
+--     12 cases -- confirmed by inspecting the full inner_text of each
+--     AUCTION_ITEM DOM node, not just the anchor. This is the site's own
+--     genuine data gap, not a raw-HTTP parsing limitation.
+--
+-- (b) isol.alachuaclerk.org Official Records SearchDetail.aspx?docid=3683369
+--     (the one case, 003287, with a non-empty docid) -- THIS ROUTE, unlike
+--     raw HTTP, DID render successfully via Playwright (JS-required page
+--     resolved cleanly with a real browser). Confirmed real recorded
+--     document: Instrument #3683369, Document Type ORDER, Book 5264 Page
+--     2498, Grantor "CENTENNIAL BANK", Grantees "GOODWIN LUMBER COMPANY INC
+--     / GOODWIN GEORGE E / GOODWIN CAROL M / SUSSMAN MELANIE / CELTIC BANK
+--     CORPORATION". Clicking through to the "Legal Description" tab (also
+--     JS-rendered, also worked via Playwright) returned: Type SUBDIVISION,
+--     Plat name "MOSES E LEVY GRANT", Lot From "1 2 8" (three separate,
+--     non-contiguous lots), Block blank. This CONFIRMS (with the real
+--     underlying legal description, not just the calendar's placeholder
+--     text) that case 003287 genuinely covers 3 distinct parcels with no
+--     single correct parcel_id -- writing any one of the 3 would be an
+--     arbitrary/fabricated choice, not a verified match. Consistent with
+--     and strengthens the prior session's "MULTIPLE PARCEL -- SKIPPED"
+--     finding; still not writable.
+--
+-- (c) isol.alachuaclerk.org Official Records SearchEntry.aspx (the search
+--     form itself, not a docid deep link) -- reachable via Playwright.
+--     Inspected all form fields live: Party/Grantor/Grantee (name-only),
+--     Instrument No range, Book/Page, Doc Type, Subdivision/Block/Lot. NO
+--     case-number field exists on this form -- it is a recorded-document
+--     index, not a case docket, and requires a real party name to search,
+--     which we do not have for the 11 cases with no docid (their owner_name
+--     column is also NULL in our DB -- no independently-known name to try).
+--
+-- (d) Alachua Clerk's actual Court Records / case docket portal (found live
+--     this session via the county's own PublicRecords > CourtRecords page,
+--     link http://www.alachuaclerk.org/court_records) -- reachable via
+--     Playwright (unlike raw HTTP's redirect-to-JS-page result), but lands
+--     on a CAPTCHA-gated login screen ("Enter text below to sign in: Click
+--     to Listen to Captcha Text") with no public/guest bypass link anywhere
+--     on the page (only "Clerk's Home Page" and "Public Records Online",
+--     neither of which leads around the captcha). This is a genuine,
+--     different blocker than the raw-HTTP session found (that session saw
+--     a JS-redirect wall; a real browser gets past the JS redirect but
+--     lands on a captcha wall instead) -- confirms no case-caption
+--     (plaintiff/defendant name) lookup is possible for these 12 cases
+--     without solving a CAPTCHA, which is out of scope/forbidden
+--     (bot-evasion) for this session.
+--
+-- (e) qpublic.schneidercorp.com (Alachua County Property Appraiser's real
+--     parcel search) -- re-tested via a real Chromium session (not just
+--     urllib) with a 15s wait for Cloudflare's JS challenge to resolve.
+--     RESULT: still HTTP 403, title "Just a moment...", body text
+--     "Performing security verification ... Ray ID: a209d2264f8df7e3". A
+--     genuine, durable Cloudflare bot-block that a real (non-interactive)
+--     headless browser session does not clear -- not a raw-HTTP-only
+--     artifact.
+--
+-- (f) Alachua County Property Appraiser's public ArcGIS FeatureServer
+--     (PublicParcel/FeatureServer/0, discovered by the prior diagnosis
+--     session) -- re-confirmed its field schema live this session: OBJECTID,
+--     Name, Prop_ID, Owner_Mail_Name/Addr1-3/City/State/Zip, FULLADDR,
+--     StatedArea, geometry. NO case-number field and no free-text search by
+--     case number is possible; it only supports owner-name or address
+--     lookup, which requires exactly the input (a) through (d) above failed
+--     to produce for 11 of the 12 cases.
+--
+-- CONCLUSION: every genuinely new (JS-capable browser) route this session
+-- could try was tried and produced either (i) the identical placeholder
+-- data the raw-HTTP diagnosis already found, or (ii) a different but
+-- equally real structural block (captcha wall, durable Cloudflare
+-- challenge). Case 003287 additionally got a real, citable confirmation
+-- that it is a genuine multi-parcel case (not writable without fabricating
+-- which of 3 lots is "the" parcel). No evidence-backed parcel_id,
+-- property_address, lat/lon, or assessed/market_value can be written for
+-- ANY of the 12 target rows this session without fabrication, which is
+-- explicitly forbidden by this repo's guardrails and the HONESTY PROTOCOL
+-- (BLANK > WRONG). Reported as a residual, still-genuine gap.
+--
+-- NO multi_county_auctions rows are written by this migration -- there is
+-- no verified data to write. This file exists only to document, per this
+-- repo's established convention (see e.g. migration
+-- 20260724_gold_standard_shard11_hendry_f_status_sync_i_zone_correction.sql),
+-- exactly what was investigated and why it remains blocked, so a future
+-- session does not re-spend budget re-deriving the same conclusion via the
+-- same routes.
+--
+-- SEPARATE OBSERVATION (not part of E, not acted on here): case
+-- 01 2025 CA 001928 carries sold_amount=150000.00 and auction_status=
+-- 'completed' in our DB, but the live RealForeclose calendar for its
+-- auction date (2026-05-14) currently shows Auction Status = "Judgment"
+-- (i.e. a final judgment has been entered but the case has not shown as
+-- sold on the calendar) -- a possible staleness/consistency issue on a
+-- DIFFERENT column (auction_status/sold_amount), unrelated to parcel_id
+-- linkage. Flagged here for visibility only; not modified, since fixing it
+-- would require re-verifying the actual sale outcome via a source this
+-- session did not chase down (out of the E scope given for this dispatch).
+
+-- No-op: intentionally no UPDATE statements. See narrative above for the
+-- full evidence chain on why none of the 12 rows can be corrected this
+-- session without fabricating data.
+SELECT 1;
