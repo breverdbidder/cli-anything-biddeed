@@ -1,0 +1,78 @@
+name: "Shard-2: Apply Walton G Zoning Categorization Fix"
+# Applies supabase/migrations/20260725_gold_standard_shard2_walton_g_zoning_categorization.sql
+# live via the Supabase Management API (same proven pattern as apply-gold-standard-fix.yml),
+# then prints before/after pencil_dod_evaluate_county('walton') into the run summary.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-fix:
+    name: "Apply walton G migration + verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "BEFORE: pencil_dod_evaluate_county('walton')"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county":"walton"}')
+          echo "$RESP" | tee /tmp/before.json
+          echo "### BEFORE" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/before.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Apply migration via Management API"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260725_gold_standard_shard2_walton_g_zoning_categorization.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration failed HTTP $HTTP"; exit 1; }
+          echo "Migration OK"
+
+      - name: "AFTER: pencil_dod_evaluate_county('walton')"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county":"walton"}')
+          echo "$RESP" | tee /tmp/after.json
+          echo "### AFTER" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/after.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          PASS=$(python3 -c "import json; d=json.load(open('/tmp/after.json')); print(d['G']['pass'])")
+          echo "::notice::walton G pass=$PASS"
+
+      - name: "SQL VERIFICATION"
+        run: |
+          set -euo pipefail
+          echo "### SQL VERIFICATION" >> "$GITHUB_STEP_SUMMARY"
+          echo '```sql' >> "$GITHUB_STEP_SUMMARY"
+          echo "SELECT id, code, category, density_regulated, ordinance_section FROM zoning_districts WHERE id IN (11397,12652,5560,5567,8225);" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python3 -c "import json; print(json.dumps({'query': \"SELECT id, code, category, density_regulated, ordinance_section FROM zoning_districts WHERE id IN (11397,12652,5560,5567,8225) ORDER BY id\"}))" > /tmp/vq.json
+          curl -sS -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/vq.json | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "-- run: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"

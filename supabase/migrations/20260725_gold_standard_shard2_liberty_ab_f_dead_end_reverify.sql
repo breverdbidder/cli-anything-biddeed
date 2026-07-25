@@ -1,0 +1,59 @@
+-- LIBERTY County (shard-2, gold-standard-shard2-jackson-walton-liberty) -- 2026-07-25
+-- session, loop run 6354, dispatch 5e1e6111-7b73-4ac4-87f8-1eb182321346.
+-- Assignment: letters A (dual-product coverage), B (verified independent outcomes),
+-- F (tier1 sold amount) -- all FAIL/null. Liberty has exactly ONE auction on file
+-- (case 24-CA-22, foreclosure, sale date 2026-07-21) and ZERO tax-deed cases.
+--
+-- This session re-verified the county fresh (live REST query against
+-- multi_county_auctions, foreclosure_outcomes, tax_deed_outcomes) rather than re-running
+-- the prior session's full CAPTCHA-gated investigation trail. Result: ZERO drift since
+-- the exhaustive check on 2026-07-24 (scripts/liberty_bf_recheck_2026-07-24.py, dispatch
+-- 9433ec3c-3860-480f-a0bf-946e6aeb5fbe) --
+--   multi_county_auctions row for 24-CA-22: sold_amount, tier1_sold_amount,
+--     tier1_authoritative, data_source all IDENTICAL to yesterday.
+--   foreclosure_outcomes WHERE county='liberty': still 0 rows.
+--   tax_deed_outcomes WHERE county='liberty': still 0 rows.
+--   Liberty County Tax Deeds page: unchanged for the 4th consecutive verified check
+--     across 20 days (07-05, 07-20, 07-24, 07-25) -- "no properties on the list of tax
+--     deeds at this time." Letter A's fc>=1 AND td>=1 condition remains a genuine
+--     absence for the tax-deed side, not a scraper gap.
+--
+-- Root cause, unchanged from 2026-07-24's finding: the two authoritative sources that
+-- would carry a post-sale Certificate of Title / sale outcome for 24-CA-22 --
+-- civitekflorida.com/ocrs/county/39 (court docket) and myfloridacounty.com/orisearch/39
+-- (Official Records index) -- are both gated by a live Cloudflare Turnstile challenge
+-- that this session's tooling (curl/WebFetch, no browser-automation or CAPTCHA-solving
+-- service in scope) cannot clear. This is a tooling gap, not a Liberty-specific dead
+-- end -- it blocks any county whose B/F/C/D depends on a Turnstile-gated clerk/OCRS site.
+--
+-- Timing: Florida foreclosure procedure typically does not record a Certificate of Title
+-- until ~10 days after the sale's objection period runs. Sale was 2026-07-21, so the
+-- earliest a CoT would plausibly post is ~2026-07-31 -- today (07-25, day 4) is still
+-- within the accrual window even with working tooling. The accrual block and the
+-- tooling block are stacked, not mutually exclusive; re-checking daily before 07-31
+-- would not be expected to surface anything new.
+--
+-- Decision: NO_WRITE (correct, not merely cautious, per HONESTY PROTOCOL BLANK > WRONG).
+-- No sold_amount/outcome was fabricated or inferred. Zero SQL/REST writes were made
+-- against multi_county_auctions, foreclosure_outcomes, or tax_deed_outcomes this session.
+--
+-- BEFORE / AFTER (live, pencil_dod_evaluate_county('liberty'), this session -- IDENTICAL,
+-- confirming zero drift, zero regression, zero fabricated gain):
+--   A=FAIL(0, fc=1 td=0)  B=FAIL(null, verified=0 closed_sold=0)  C=PASS(100.0)
+--   D=PASS(100.0)  E=PASS(100.0)  F=FAIL(null, tier1_sold=0 closed_sold=0)  G=PASS(100.0)
+--   H=PASS(fresh, <48h)  I=PASS(100.0)  J=PASS(100.0)  [7/10]
+--
+-- Next legitimate recheck: ~2026-07-31 (10-day CT recording lag from the 07-21 sale),
+-- AND only useful if Firecrawl credits are replenished, browser-use/a CAPTCHA-solving
+-- path is available, or a human clears the Turnstile challenge once. Letter A (tax-deed
+-- side) needs a genuinely new TD case to appear on libertyclerk.com/courts/tax-deeds/ --
+-- independent of the B/F timing above.
+--
+-- Author: gold-standard shard-2 session, 2026-07-25 (dispatch
+-- 5e1e6111-7b73-4ac4-87f8-1eb182321346, loop run 6354, ultracode Workflow fan-out for
+-- the walton G research in this same session; liberty re-verified directly via REST,
+-- no ultracode agent spent on a re-derivation of yesterday's already-exhaustive result).
+
+SELECT 1; -- no-op placeholder: this migration documents a live re-verification pass
+          -- only. No DDL, no data mutation -- no candidate sold_amount/outcome cleared
+          -- the INDEPENDENT SOURCE bar this session, so none was written.
