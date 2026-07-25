@@ -1,0 +1,193 @@
+name: "Gold Standard Shard-10 Gilchrist Run-6354"
+# Dispatch: 5269ffd2-e5f8-4e34-9ab3-a4667d99c6e1
+# Session: architect-20260725T080000
+# County: gilchrist (shard-10)
+# Target: E (57.1%->95%+), I (57.1%->95%+)
+# Strategy:
+#   1. Probe gilchrist.realtaxdeed.com for 26-0005-TD parcel data
+#   2. Probe Gilchrist GIS by STRAP prefix / address for 26-0005-TD and 212025CA000069
+#   3. Re-probe gilchrist.realforeclose.com for any newly-published parcel data on 6 stubs
+#   4. Apply confirmed fixes via Supabase REST API
+#   5. Verify via pencil_dod_evaluate_county
+# SHIP-TO-MAIN: direct push, no PRs
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no DB writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  gilchrist-ei-fix:
+    name: "Gilchrist E/I Fix Run-6354"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.email "shard10-gilchrist-run6354@biddeed.ai"
+          git config user.name "SHARD-10 Gilchrist Run-6354 Bot"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/breverdbidder/cli-anything-biddeed.git
+
+      - name: "Step 0: Before evaluation"
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY"); exit(0)
+          headers = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}', 'Content-Type': 'application/json'}
+          url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+          req = urllib.request.Request(url, data=json.dumps({'p_county': 'gilchrist'}).encode(), headers=headers, method='POST')
+          with urllib.request.urlopen(req, timeout=60) as r:
+              print('BEFORE:', json.dumps(json.loads(r.read()), indent=2))
+          PYEOF
+
+      - name: "Step 1: Fetch current gilchrist DB rows"
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY"); exit(0)
+          headers = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}'}
+          url = (f"{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.gilchrist"
+                 f"&select=id,case_number,parcel_id,property_address,latitude,longitude,assessed_value,parity_status"
+                 f"&order=case_number.asc")
+          req = urllib.request.Request(url, headers=headers)
+          with urllib.request.urlopen(req, timeout=30) as r:
+              rows = json.loads(r.read())
+          print(f"Total gilchrist rows: {len(rows)}")
+          for row in rows:
+              print(f"  {row['case_number']}: parcel_id={row.get('parcel_id')!r}, lat={row.get('latitude')}, parity={row.get('parity_status')}")
+          null_parcel = [r for r in rows if not r.get('parcel_id')]
+          print(f"\nRows with NULL parcel_id: {[r['case_number'] for r in null_parcel]}")
+          no_geo = [r for r in rows if r.get('parcel_id') and not r.get('latitude')]
+          print(f"Rows with parcel_id but no geo: {[r['case_number'] for r in no_geo]}")
+          PYEOF
+
+      - name: "Step 2: Run gilchrist probe (AJAX + GIS investigation)"
+        run: |
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then DRY_FLAG="--dry-run"; fi
+          python3 scripts/gilchrist_probe_run6354.py $DRY_FLAG
+
+      - name: "Step 3: Run comprehensive fix script"
+        run: |
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then DRY_FLAG="--dry-run"; fi
+          python3 scripts/gilchrist_shard10_run6354_ei_fix.py $DRY_FLAG
+
+      - name: "Step 4: After evaluation"
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY"); exit(0)
+          headers = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}', 'Content-Type': 'application/json'}
+          url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+          req = urllib.request.Request(url, data=json.dumps({'p_county': 'gilchrist'}).encode(), headers=headers, method='POST')
+          with urllib.request.urlopen(req, timeout=60) as r:
+              result = json.loads(r.read())
+          print('AFTER:', json.dumps(result, indent=2))
+
+          # Count passing letters
+          if isinstance(result, dict):
+              passes = sum(1 for ltr in 'ABCDEFGHIJ'
+                          if isinstance(result.get(ltr), dict) and result[ltr].get('pass'))
+              print(f"\nGilchrist: {passes}/10 letters passing")
+              for ltr in 'ABCDEFGHIJ':
+                  v = result.get(ltr, {})
+                  if isinstance(v, dict):
+                      status = 'PASS' if v.get('pass') else 'FAIL'
+                      metric = v.get('metric', '?')
+                      detail = v.get('detail', '')
+                      print(f"  {ltr} {status}: metric={metric} [{detail}]")
+          PYEOF
+
+      - name: "Step 5: Write migration file and commit"
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              exit(0)
+          headers = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}'}
+
+          # Fetch current state to document what was done
+          url = (f"{SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.gilchrist"
+                 f"&select=case_number,parcel_id,latitude,longitude,assessed_value,parity_status"
+                 f"&order=case_number.asc")
+          req = urllib.request.Request(url, headers=headers)
+          with urllib.request.urlopen(req, timeout=30) as r:
+              rows = json.loads(r.read())
+
+          ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          migration_content = f"""-- GOLD STANDARD shard-10 gilchrist (dispatch 5269ffd2, loop run 6354)
+-- Session: architect-20260725T080000
+-- Target: E (parcel_linked) and I (card_complete) improvement
+-- This file documents the state applied by gilchrist_probe_run6354.py and
+-- gilchrist_shard10_run6354_ei_fix.py during this session.
+-- Timestamp: {ts}
+--
+-- Current state after session:
+"""
+          for row in rows:
+              migration_content += f"-- {row['case_number']}: parcel_id={row.get('parcel_id')!r}, lat={row.get('latitude')}, parity={row.get('parity_status')}\n"
+
+          migration_content += """
+-- See session report: GOLD_STANDARD_SHARD10_GILCHRIST_RUN6354_SESSION_REPORT.md
+-- Applied live via REST API during workflow run.
+"""
+          mig_path = f"supabase/migrations/20260725_gold_standard_shard10_gilchrist_run6354.sql"
+          os.makedirs("supabase/migrations", exist_ok=True)
+          with open(mig_path, 'w') as f:
+              f.write(migration_content)
+          print(f"Migration file written: {mig_path}")
+          PYEOF
+
+          git pull --rebase origin main || true
+          git add supabase/migrations/20260725_gold_standard_shard10_gilchrist_run6354.sql || true
+          git add scripts/gilchrist_probe_run6354.py || true
+          git add scripts/gilchrist_shard10_run6354_ei_fix.py || true
+          git diff --cached --quiet && echo "Nothing to commit" || \
+            git commit -m "feat(gilchrist): run-6354 E/I probe and fix (shard-10 dispatch 5269ffd2)
+
+Probe and fix attempt for gilchrist E (57.1%->?) and I (57.1%->?).
+Investigated: realtaxdeed.com AJAX for 26-0005-TD, GIS address search
+for 212025CA000069CAAXMX, realforeclose.com re-probe for 6 foreclosure stubs.
+
+dispatch_id: 5269ffd2-e5f8-4e34-9ab3-a4667d99c6e1
+
+Co-authored-by: breverdbidder <breverdbidder@users.noreply.github.com>
+🤖 Generated with [Claude Code](https://claude.ai/code)"
+          git push origin main || echo "Push failed — will retry"
+          git pull --rebase origin main && git push origin main || true

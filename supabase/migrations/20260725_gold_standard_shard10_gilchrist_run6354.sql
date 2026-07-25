@@ -1,0 +1,49 @@
+-- GOLD STANDARD shard-10 gilchrist (dispatch 5269ffd2, loop run 6354)
+-- Session: architect-20260725T080000
+-- Target: E (57.1% -> >=95%), I (57.1% -> >=95%)
+--
+-- Context:
+-- gilchrist grew from 6 to 14 auctions between sessions. The run-6288 session
+-- (2026-07-25T00) improved I from 42.9%->57.1% but E stayed at 57.1% (8/14).
+-- The blocking gap: 6 foreclosure cases (212025CA*) have NO parcel data published
+-- by gilchrist.realforeclose.com's pre-sale AJAX listings, and qpublic.schneidercorp.com
+-- (the only system that could resolve the generic Q=548715190 link) is Cloudflare-blocked.
+-- Additionally, 26-0005-TD has a malformed parcel_id "171015" from an earlier session,
+-- and 212025CA000069CAAXMX has a potential parcel_id mismatch.
+--
+-- This session's approach (executed via gilchrist_probe_run6354.py + workflow):
+--   1. Re-harvest gilchrist.realtaxdeed.com for 26-0005-TD on all likely auction dates
+--   2. Gilchrist GIS (gis1.hcpao.org) by DSP_STRAP prefix "17-10-15%" for 26-0005-TD
+--   3. GIS address search for 212025CA000069CAAXMX ("7439 SE 78 PL")
+--   4. Re-probe realforeclose.com for 6 stub foreclosure cases (may have new data
+--      since listings sometimes populate parcel closer to sale date)
+--
+-- HONESTY MARKERS:
+--   VERIFIED: Prior sessions (run6288, run6148, b88eb871, 2nd firing) established the
+--             root cause: platform gap, not a scraper issue.
+--   UNTESTED: Whether the realtaxdeed.com or GIS probes this session yielded new data
+--             (depends on live workflow execution result).
+--   INFERRED: The "171015" parcel_id = likely truncated STRAP from section 17, township 10,
+--             range 15 (based on Gilchrist STRAP encoding pattern from sibling cases).
+--
+-- If the workflow finds real data, the actual UPDATE/INSERT statements are applied
+-- via REST API at runtime by gilchrist_probe_run6354.py and committed as a follow-up.
+-- This file serves as the audit trail for this session's approach.
+--
+-- ULTRALOOP audit entries (if fixes were applied):
+-- These will be inserted by gilchrist_shard10_run6354_ei_fix.py at runtime.
+
+SET statement_timeout = 0;
+
+-- Verification query (run after workflow completes):
+-- SELECT public.pencil_dod_evaluate_county('gilchrist');
+--
+-- SQL VERIFICATION (to be filled in after workflow execution):
+-- SELECT case_number, parcel_id, latitude, longitude, assessed_value, parity_status
+-- FROM multi_county_auctions
+-- WHERE county = 'gilchrist'
+-- ORDER BY case_number;
+--
+-- Expected: parcel_linked >= 13/14 (E >= 92.9%) if 26-0005-TD resolved
+-- Expected: card_complete >= 9/14 (I >= 64.3%) minimum if just 26-0005-TD geo fixed
+-- Target:   parcel_linked = 14/14 (E = 100%) if ALL gaps resolved
