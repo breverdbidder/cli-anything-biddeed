@@ -47,6 +47,19 @@ jobs:
           [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration failed HTTP $HTTP"; exit 1; }
           echo "Migration OK"
 
+      - name: "Apply pk1000 regression-fix migration via Management API"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('supabase/migrations/20260725b_gold_standard_shard2_walton_g_pk1000_regression_fix.sql').read()}))" > /tmp/payload2.json
+          HTTP=$(curl -sS -o /tmp/resp2.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload2.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp2.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::pk1000 regression-fix migration failed HTTP $HTTP"; exit 1; }
+          echo "pk1000 regression-fix migration OK"
+
       - name: "AFTER: pencil_dod_evaluate_county('walton')"
         run: |
           set -euo pipefail
