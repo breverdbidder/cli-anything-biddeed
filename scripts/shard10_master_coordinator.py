@@ -36,7 +36,7 @@ BASE         = f"{SUPABASE_URL}/rest/v1"
 WORK_DIR     = Path(__file__).parent.parent
 DISPATCH_ID  = "447b32e4-948c-47ef-914e-a2f09da4191d"
 
-TARGET_COUNTIES = ["nassau", "pinellas", "putnam", "sumter"]
+TARGET_COUNTIES = ["nassau", "pinellas", "putnam", "sumter", "gilchrist"]
 
 RESULTS = {
     "session":     "architect-20260626T000000",
@@ -303,6 +303,10 @@ def main():
     apply_migration(migration_file)
     time.sleep(2)
 
+    gilchrist_mig = WORK_DIR / "migrations" / "20260725_gilchrist_shard10_run6288_e_i_fix.sql"
+    apply_migration(gilchrist_mig)
+    time.sleep(2)
+
     # Also scan supabase/migrations/ for any shard10 files
     supabase_mig_dir = WORK_DIR / "supabase" / "migrations"
     shard10_migrations = sorted(supabase_mig_dir.glob("20260626_shard10_*.sql"))
@@ -319,10 +323,11 @@ def main():
     # Step 3: Per-county fix scripts
     log("--- Step 3: Per-county fix scripts ---")
     county_scripts = {
-        "nassau":   WORK_DIR / "scripts" / "shard10_nassau_fixes.py",
-        "pinellas": WORK_DIR / "scripts" / "shard10_pinellas_fixes.py",
-        "putnam":   WORK_DIR / "scripts" / "shard10_putnam_fixes.py",
-        "sumter":   WORK_DIR / "scripts" / "shard10_sumter_fixes.py",
+        "nassau":    WORK_DIR / "scripts" / "shard10_nassau_fixes.py",
+        "pinellas":  WORK_DIR / "scripts" / "shard10_pinellas_fixes.py",
+        "putnam":    WORK_DIR / "scripts" / "shard10_putnam_fixes.py",
+        "sumter":    WORK_DIR / "scripts" / "shard10_sumter_fixes.py",
+        "gilchrist": WORK_DIR / "scripts" / "gilchrist_run6288_e_i_parcel_linkage.py",
     }
     for county, script in county_scripts.items():
         # Try alternate naming patterns
@@ -397,7 +402,7 @@ def main():
     # Step 7: Summary + Telegram notification
     RESULTS["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-    summary_lines = ["SHARD-10 RESULTS (nassau/pinellas/putnam/sumter):"]
+    summary_lines = ["SHARD-10 RESULTS (nassau/pinellas/putnam/sumter/gilchrist):"]
     total_delta = 0
     for county in TARGET_COUNTIES:
         cd    = RESULTS["counties"].get(county, {})
@@ -415,7 +420,7 @@ def main():
     telegram_msg = (
         f"SHARD-10 Complete — dispatch {DISPATCH_ID[:8]}\n"
         f"{summary}\n"
-        f"Counties: nassau/pinellas/putnam/sumter"
+        f"Counties: nassau/pinellas/putnam/sumter/gilchrist"
     )
     send_telegram_notification(telegram_msg)
 
