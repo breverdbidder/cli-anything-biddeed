@@ -1,0 +1,97 @@
+session:
+  repo: cli-anything-biddeed
+  dispatch_id: "a9cb3cc1-eda1-4a56-9a53-dedf15803742"
+  chat_session: "architect-20260725T000000"
+  shard: "SHARD-14 (martin)"
+  loop_run: 6288
+  session_started: "2026-07-25T00:00:00Z"
+  session_ended: "2026-07-25T00:45:00Z"
+  note: "session_ended is a real timestamp estimate at close-out, not rounded to the hour"
+
+decisions:
+  - step: 1
+    action: "Verified live DB access before touching anything. Direct psql to the pooler failed with password auth error (SUPABASE_DB_PASSWORD stale, same known issue as every prior shard session). Supabase Management API (SUPABASE_ACCESS_TOKEN) and PostgREST (SUPABASE_SERVICE_ROLE_KEY) both worked."
+    result: "Confirmed a working live-DB read/write path exists."
+    reason: "Evidence-Before-Claims -- do not assume SQL access without testing it."
+  - step: 2
+    action: "Pulled live pencil_dod_evaluate_county('martin') and the evaluator function's own SQL definition (pg_get_functiondef) before diagnosing anything."
+    result: "Confirmed live state matched the dispatch brief exactly (6/10: C/D/E/I failing). Read the exact denominators/thresholds for each letter from the real SQL, not assumptions."
+    reason: "Diagnose against the real evaluator contract, not assumptions."
+  - step: 3
+    action: "Pulled all 38 live martin multi_county_auctions rows and manually reconciled against the evaluator's WHERE clauses to identify the exact failing rows per letter, before writing any fix."
+    result: "C/D gap = 2 rows (25000316CAAXMX parity NULL, 2024-001-TD-MARTIN mca_only). E gap = 3 rows (same as documented in 3 prior martin sessions). I gap = the same 3 E rows + 1 garbage parcel_id (25000442CAAXMX='Property Appraiser' literal) + 1 no-geo row (25000316CAAXMX)."
+    reason: "Row-level diagnosis before any fix, per Evidence-Before-Claims."
+  - step: 4
+    action: "Read the 2026-07-18 and 2026-07-19 (x2) prior martin session reports in full before doing any new work, to avoid re-deriving already-exhaustively-documented findings (especially E's CAPTCHA blocker) and to reuse proven scripts."
+    result: "Confirmed E has been investigated via 8+ distinct methods across 3 sessions with zero success -- decided not to re-run that full investigation, only a single light fresh probe. Found the reusable AJAX harvester and its is_real_parcel_id() garbage-parcel-detection helper."
+    reason: "Do not duplicate exhaustively-documented prior work; HONESTY PROTOCOL guidance against redundant re-investigation."
+  - step: 5
+    action: "Wrote scripts/shard14_martin_9d22d82f_run6288_cd_e_i_fix.py (dispatch-scoped label) reusing scripts/shard2_run2450_ajax_realforeclose_harvest.py, ran it live against martin.realforeclose.com (2026-07-30) and martin.realtaxdeed.com (2026-08-15)."
+    result: "25000316CAAXMX matched (3 calendar items found, case matched). 2024-001-TD-MARTIN: 0 calendar items -- same finding as the 2026-07-18 session at this exact date; sale is 3+ weeks out, tax-deed calendar not yet posted. Left unmatched, not fabricated."
+    reason: "Reuse the fleet's proven harvest mechanism rather than reimplementing; use a dispatch-scoped label from the start (the 2026-07-18 session's refuter caught a copy-pasted foreign-county label bug from reusing another script's hardcoded string -- avoided repeating that class of bug)."
+  - step: 6
+    action: "Geocoded 25000316CAAXMX's real street address via the free US Census geocoder. Fixed 25000442CAAXMX's garbage parcel_id='Property Appraiser' to the real value, verified via an exact address/lat/lon/assessed_value match against a different martin row (25002267CCAXMX) already zoned B-1."
+    result: "Both patched live via PostgREST. Confirmed 19-37-41-000-000-00520-7 already has zone_code='B-1' in v_zoning_gold_standard_card."
+    reason: "Real, free, government-sourced data (geocode) and a verified real-world duplicate-property match (parcel_id) -- never invented."
+  - step: 7
+    action: "Point-in-polygon queried Martin County's own live ArcGIS zoning layer for 25000316CAAXMX's new coordinates. Found ZONING=COR-2, no existing district in DB. Used Playwright (chromium already installed) to render Municode's Angular SPA (static WebFetch 403s it, documented working access path from the 2026-07-19 session) and recovered real Table 3.12.1/3.12.2 dimensional/setback values. Inserted zoning_districts/zone_standards/parcel_zones rows with explicit density_regulated=true, far_regulated=false, pk1000_regulated=false (backed by a full-page negative-evidence search for FAR/per-1000 mentions)."
+    result: "G reconfirmed PASS 100.0 immediately after insert (no regression). I moved from 86.8% to 92.1% (33/38 -> 35/38), still failing, now purely capped by E's 3 rows."
+    reason: "Explicit non-NULL flags avoid the category-default regression this same county self-caught in a prior session (B-1/pk1000); real primary-source ordinance text only, never guessed."
+  - step: 8
+    action: "Single fresh probe of court.martinclerk.com/Home.aspx/Search (E's documented blocker) -- did not re-run the full 8-method investigation."
+    result: "CAPTCHA form field still present, unchanged from all 3 prior sessions' findings."
+    reason: "HONESTY PROTOCOL guidance against redundant re-investigation of an already-exhaustively-documented blocker."
+  - step: 9
+    action: "Ran a Workflow fan-out of 3 parallel adversarial refuter subagents (one per claimed fix: C/D harvest, I parcel_id fix, I COR-2 zoning insert), per the ULTRALOOP PROTOCOL. Each independently re-fetched the live sources (ArcGIS, Census, Municode, Supabase) rather than trusting the claims' own numbers."
+    result: "2 of 3 survived=true on first pass. 1 (C/D harvest) was refuted=true: the refuter found case 25000316CAAXMX (and a second martin row, 25002772CCAXMX, matched by a prior session) had tier1_sale_status='CANCELED_PER_COUNTY' but a stale, never-reconciled auction_status='upcoming'."
+    reason: "Per ULTRALOOP PROTOCOL: a claim ships only if it survives an independent refuter whose only goal is to break it."
+  - step: 10
+    action: "Investigated the refuter's finding directly. Confirmed both martin rows had the mismatch (fleet-wide sweep found 43 rows total with this pattern -- 41 outside martin, deliberately left untouched per PARALLEL-FLEET RULES). Patched both martin rows' auction_status from 'upcoming' to 'cancelled' (the fleet's existing canonical spelling for this field). Left parity_status='matched_clean' unchanged -- the case number genuinely matches a real county calendar record; a canceled auction is still a real, correctly-identified court case."
+    result: "Live re-check: C/D still PASS 97.4%, no other letter affected."
+    reason: "Do not dismiss an adversarial refuter's finding -- investigate and fix the real underlying issue, per the SHIP GATE 'Sentinel is correct by default' principle applied to this session's own refuter layer."
+  - step: 11
+    action: "Spawned a second, independent follow-up agent (not the one that made the fix, not myself) to re-verify the auction_status correction before counting the C/D claim as survived."
+    result: "Follow-up agent confirmed survived=true: 0 remaining martin rows with the mismatch, C/D reconfirmed PASS 97.4% live, and independently endorsed the parity_status-vs-auction_status separation-of-concerns reasoning as correct rather than a rationalization."
+    reason: "The verifier of a fix must never be the agent that wrote it, per the ULTRALOOP PROTOCOL's explicit rule."
+  - step: 12
+    action: "Wrote 3 rows to public.gold_standard_ultraloop_audit (letters C, D, I) documenting both refuter passes for C/D and the survived verdicts for I's two sub-fixes. Wrote supabase/migrations/20260725_shard14_martin_run6288_cd_i_fix.sql documenting the already-executed live changes for the repo's audit trail (idempotent)."
+    result: "Audit trail complete for all letters that moved this session."
+    reason: "CERTIFY GATE requires survived=true rows per letter within a 7-day window; wrote them immediately after verification."
+  - step: 13
+    action: "Did NOT run public.gold_standard_loop() or public.gold_standard_certify() at close-out."
+    result: "Skipped -- git pull --rebase mid-session pulled in other shards' commits (baker, hardee, collier, highlands/st_lucie), confirming concurrent activity. Reported per-county pencil_dod_evaluate_county only, per PARALLEL-FLEET RULES."
+    reason: "Follow the brief's own concurrency guardrail exactly."
+
+artifacts:
+  - "3 rows updated: public.multi_county_auctions (martin, parity_status/parity_source/latitude/longitude for 25000316CAAXMX; parcel_id for 25000442CAAXMX; auction_status for both 25000316CAAXMX and 25002772CCAXMX)"
+  - "1 row inserted: public.zoning_districts (id 12864, COR-2, Unincorporated Martin County)"
+  - "1 row inserted: public.zone_standards (id 5326, COR-2 dimensional/setback values)"
+  - "1 row inserted: public.parcel_zones (id 845382, parcel 55-38-41-311-000-00050-0 -> COR-2)"
+  - "3 rows inserted: public.gold_standard_ultraloop_audit (ids 9721-9723)"
+  - "scripts/shard14_martin_9d22d82f_run6288_cd_e_i_fix.py (new)"
+  - "supabase/migrations/20260725_shard14_martin_run6288_cd_i_fix.sql (new, documents already-executed changes)"
+  - "GOLD_STANDARD_SHARD14_MARTIN_DISPATCH_A9CB3CC1_RUN6288_SESSION_REPORT.md (new)"
+  - "This file"
+
+verification:
+  - check: "martin C/D live re-evaluation after the harvest + auction_status fix"
+    proof: "pencil_dod_evaluate_county('martin') C: pass=true metric=97.4 matched_clean=37; D: pass=true metric=97.4 matched_any=37 (was 94.7%/94.7% FAIL for both before this session, auctions_total=38 unchanged)"
+    status: PASS
+  - check: "martin I live re-evaluation after the parcel_id + COR-2 zoning fixes"
+    proof: "pencil_dod_evaluate_county('martin') I: pass=false metric=92.1 card_complete=35 of 38 (was 86.8%/33 of 38 before this session) -- real progress, still failing, capped by E's 3 rows"
+    status: "PROGRESS, not yet PASS"
+  - check: "martin G held at PASS 100.0 after the COR-2 zoning_districts insert (regression check)"
+    proof: "pencil_dod_evaluate_county('martin') G: pass=true metric=100.0 density=100.0, immediately after insert and again at session close"
+    status: PASS
+  - check: "Adversarial refuter fan-out (3 claims) + follow-up re-verify of the C/D fix"
+    proof: "Workflow wf_95b613a9-f63: i_parcel_fix and i_cor2_zoning survived=true on first pass. cd_harvest refuted=true (stale auction_status caught with cited live evidence, 2-row scope confirmed via fleet-wide sweep). Follow-up agent a48c008140ec8d085 re-verified the correction: survived=true, 0 remaining mismatches, C/D PASS 97.4 reconfirmed, parity_status reasoning independently endorsed."
+    status: PASS
+  - check: "martin E genuinely blocked, single fresh re-probe (not full re-investigation)"
+    proof: "Live GET court.martinclerk.com/Home.aspx/Search: HTTP 200, CAPTCHA form field still present in body -- unchanged from the 2026-07-18/07-19 sessions' exhaustive 8-method investigation."
+    status: "BLOCKED, unchanged, not routed around"
+
+deviation_log:
+  - "The brief's directive to 'run the full loop + certify' at close-out was skipped per the brief's own PARALLEL-FLEET RULES -- other shards' commits landed on main mid-session (confirmed via git pull --rebase), used per-county pencil_dod_evaluate_county only, as instructed."
+  - "One claimed fix (C/D via the cancellation-status defect) required a live correction mid-session after an adversarial refuter caught a real staleness bug -- disclosed in full above, fixed, and independently re-verified by a second agent rather than silently fixed and re-claimed as clean on the first pass."
+  - "Found (but did not fix beyond martin's own 2 rows) a fleet-wide pattern: 43 rows across all counties share the same tier1_sale_status/auction_status staleness martin exhibited. Left untouched outside martin per PARALLEL-FLEET RULES (never touch another shard's counties) -- flagged in the session report for a fleet-wide follow-up."
+  - "martin C/D has 1 residual unmatched row (2024-001-TD-MARTIN, tax_deed 2026-08-15) -- the live realtaxdeed.com calendar returns 0 items for that date, same finding as a prior session; not fabricated, left FAIL-contributing."
