@@ -1,0 +1,32 @@
+-- Gold Standard shard-8 columbia, dispatch f7e4b597-0289-41b8-a0ac-864834d24ae0
+-- DUPLICATE FIRING of a dispatch already fully executed and shipped as commit
+-- 51ce20b0 (same dispatch_id, same chat_session architect-20260725T160000).
+-- Live pencil_dod_evaluate_county('columbia') re-checked at session start and
+-- matched the already-shipped result exactly (E=100.0 PASS, I=93.3 FAIL,
+-- A/B/F FAIL, C/D/G/H/J PASS -- 6/10). No re-application of the already-live
+-- E fix was needed or performed.
+--
+-- This firing instead produced genuinely NEW independent corroborating
+-- evidence (not a copy of the already-logged run6459 audit rows) for the two
+-- residual FAILs, using methods the original run6459 session did not use:
+--   I: queried gis.columbiacountyfla.com's Zoning_Atlas/MapServer service
+--      (distinct from the Zoning_and_Land_Use/MapServer the original session
+--      checked) and ran a progressive envelope-buffer search around the
+--      parcel centroid to rule out a coordinate-reprojection artifact --
+--      nearest mapped zone (A-3) sits ~200-500m away, confirming a real
+--      unmapped gap, not a query bug.
+--   B/F: DOM-dumped columbiaclerk.com's own official-records/property-sales/
+--      search-records pages to check for a self-hosted alternative to the
+--      Turnstile-gated myfloridacounty.com/orisearch/12 -- confirmed none
+--      exists; the clerk's own search widget routes directly to orisearch.
+--
+-- No code changed, no data written to multi_county_auctions/foreclosure_outcomes,
+-- no metric moved. Audit rows already inserted live via PostgREST
+-- (ids 10159, 10160) -- this file is the source-of-truth record of that insert.
+
+-- (For reference; already applied live via REST POST at session time.)
+-- INSERT INTO public.gold_standard_ultraloop_audit
+--   (dispatch_id, ultraloop_mode, county_slug, letter, claim, refuter_evidence, survived)
+-- VALUES
+--   ('f7e4b597-0289-41b8-a0ac-864834d24ae0', 'native', 'columbia', 'I', <see id 10159>, <jsonb>, true),
+--   ('f7e4b597-0289-41b8-a0ac-864834d24ae0', 'native', 'columbia', 'B', <see id 10160>, <jsonb>, true);
