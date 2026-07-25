@@ -1,0 +1,156 @@
+name: "Gold Standard Shard-11: Sarasota G+I Fix (run 6288)"
+# Applies sarasota G (pk1000 classification) and I (property card completion) fixes
+# dispatch_id: 42827b21-94db-42c9-92df-4e1b83219c49
+# Triggered: auto-run on push (created by shard-11 session 2026-07-25)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "migrations/20260725_gold_standard_shard11_sarasota_g_pk1000_and_i_completion.sql"
+      - "scripts/gold_standard_shard11_sarasota_g_i_run6288.py"
+
+jobs:
+  apply-and-verify:
+    name: "Apply sarasota G+I migration + verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REF: mocerqjnksmhcjzxrewo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Step 1: Baseline evaluation"
+        run: |
+          python3 -c "
+          import json, urllib.request, os
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          def q(sql):
+              h = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+              body = json.dumps({'query': sql}).encode()
+              req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{REF}/database/query', data=body, headers=h, method='POST')
+              import urllib.error
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read())
+          s, r = q(\"SELECT public.pencil_dod_evaluate_county('sarasota')\")
+          print(f'BASELINE sarasota: {json.dumps(r, default=str)[:2000]}')
+          "
+
+      - name: "Step 2: Apply G migration (pk1000 classification)"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260725_gold_standard_shard11_sarasota_g_pk1000_and_i_completion.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/resp.json
+          echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::G migration failed HTTP $HTTP"; cat /tmp/resp.json; exit 1; }
+          echo "G migration applied successfully"
+
+      - name: "Step 3: After-G evaluation"
+        run: |
+          python3 -c "
+          import json, urllib.request, urllib.error, os
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          def q(sql):
+              h = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+              body = json.dumps({'query': sql}).encode()
+              req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{REF}/database/query', data=body, headers=h, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read())
+          s, r = q(\"SELECT public.pencil_dod_evaluate_county('sarasota')\")
+          print(f'AFTER G MIGRATION sarasota: {json.dumps(r, default=str)[:2000]}')
+          "
+
+      - name: "Step 4+5: I completion — find and resolve 12 incomplete property cards"
+        run: |
+          MIGRATION_FILE=migrations/20260725_gold_standard_shard11_sarasota_g_pk1000_and_i_completion.sql \
+          python3 scripts/gold_standard_shard11_sarasota_g_i_run6288.py
+
+      - name: "Step 6: Final evaluation"
+        run: |
+          python3 -c "
+          import json, urllib.request, urllib.error, os
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          def q(sql):
+              h = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+              body = json.dumps({'query': sql}).encode()
+              req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{REF}/database/query', data=body, headers=h, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read())
+          s, r = q(\"SELECT public.pencil_dod_evaluate_county('sarasota')\")
+          print(f'FINAL sarasota: {json.dumps(r, default=str)[:2000]}')
+          # Also check scoreboard
+          s2, r2 = q(\"SELECT county_slug, pass_count, gold_standard, detail FROM gold_standard_county_status WHERE county_slug = 'sarasota' ORDER BY evaluated_at DESC LIMIT 1\")
+          print(f'Scoreboard: {json.dumps(r2, default=str)[:500]}')
+          "
+
+      - name: "Step 7: Log ultraloop audit + notify"
+        run: |
+          python3 -c "
+          import json, urllib.request, urllib.error, os
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          SB_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SB_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          DISPATCH_ID = '42827b21-94db-42c9-92df-4e1b83219c49'
+          def mgmt(sql):
+              h = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+              body = json.dumps({'query': sql}).encode()
+              req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{REF}/database/query', data=body, headers=h, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read())
+          def sb_post(table, data):
+              body = json.dumps(data).encode()
+              req = urllib.request.Request(f'{SB_URL}/rest/v1/{table}', data=body,
+                  headers={'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}',
+                           'Content-Type': 'application/json', 'Prefer': 'return=minimal'}, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status
+              except urllib.error.HTTPError as e:
+                  return e.code
+          # Get final eval
+          s, r = mgmt(\"SELECT public.pencil_dod_evaluate_county('sarasota')\")
+          final = json.dumps(r, default=str)
+          g_pass = 'G pass' in final or ('pk1000' in final and any(f'pk1000={x}' in final for x in ['95','96','97','98','99','100']))
+          i_pass = 'I pass' in final
+          # Log ultraloop audit rows
+          for letter, passed, claim in [
+              ('G', g_pass, 'pk1000 classification: added zoning_districts for CN/RC/RE-2/OUE-1/MP/RSM-9 + pk1000_regulated=false on PUD/SKOD residential variants'),
+              ('I', i_pass, 'property card completion: ArcGIS zone resolution for remaining 12 incomplete cards'),
+          ]:
+              row = {'dispatch_id': DISPATCH_ID, 'ultraloop_mode': 'fallback', 'county_slug': 'sarasota',
+                     'letter': letter, 'claim': claim, 'refuter_evidence': json.dumps({'final_eval': final[:300], 'honesty_marker': 'VERIFIED via pencil_dod_evaluate_county'}),
+                     'survived': passed}
+              status = sb_post('gold_standard_ultraloop_audit', row)
+              print(f'Audit log {letter}: HTTP {status}, survived={passed}')
+          print(f'FINAL: {final[:1000]}')
+          "
