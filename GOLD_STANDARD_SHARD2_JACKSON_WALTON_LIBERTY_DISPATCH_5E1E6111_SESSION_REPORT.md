@@ -1,5 +1,13 @@
 # GOLD STANDARD SHARD-2: jackson, walton, liberty — session report
 
+> **ADDENDUM (2nd parallel session, same dispatch_id, ultracode Workflow fan-out mode
+> available) — walton G CONFIRMED PASS, corrected root cause below.** This dispatch was
+> worked by two concurrent sessions racing on the shared `architect-20260725T080000`
+> chat_session (visible as two near-identical commits, 64ec656c and 75a93d4f, minutes
+> apart). This addendum is from the second session and supersedes the original report's
+> walton root-cause diagnosis and "Pending GHA run" status with a live-verified result.
+> See full addendum at the bottom of this file.
+
 dispatch_id: 5e1e6111-7b73-4ac4-87f8-1eb182321346
 chat_session: architect-20260725T080000
 loop_run_id: 6354
@@ -128,3 +136,113 @@ Timestamp: 2026-07-25T08:xx:xxZ (session in progress)
 4. **Firecrawl credit depletion** is a fleet-wide blocker for CAPTCHA-gated sites (liberty, desoto B/F, others). Priority: replenish Firecrawl account credits or identify alternative (browser-use CLI install, Playwright in GHA).
 
 Per PARALLEL-FLEET RULES, `gold_standard_loop()`/`gold_standard_certify()` NOT run this session close-out — verifying per-county evaluations only, per the shard isolation requirement.
+
+---
+
+## ADDENDUM: 2nd session (ultracode Workflow fan-out) — verified outcome
+
+mode: ULTRALOOP native (Workflow tool available and used — 3 background workflows,
+6 walton-district research agents + 1 synthesis agent + 2 targeted research agents +
+1 independent adversarial refuter agent)
+
+### Corrected root cause for walton G
+
+The original report's diagnosis ("walton grew 43->80 auctions, new parcels lack
+parcel_zones entries") does not hold up under a rigorous parcel-id-level join: of the
+76 unique walton auction parcel_ids, only **2** lack any parcel_zones row at all (not
+dozens). The zone_standards safety-net migration this session's sibling shipped
+(`20260725_shard2_walton_g_new_parcel_zone_standards.sql`) is a no-op against live data
+— every zone_code it targets already had a zone_standards row (guarded by
+`NOT EXISTS`, confirmed live: none of its INSERTs fired).
+
+The real gap: `density_applicable_parcels=70`, 64 had a value, 6 didn't — and those 6
+collapse to exactly 2 districts: `zoning_districts.id=11397` "Municipal" (5 parcels — a
+GIS ZONE_CLASS placeholder meaning "county defers to city zoning," not a codified
+district) and `id=12652` "General Commercial" (1 parcel — mistagged
+`category='residential'` from a 2026-07-24 ingestion bug; real category is Commercial
+with a 17 du/acre ordinance-stated density cap, Walton LDC Sec. 2.02.15).
+
+### Fix shipped and verified live
+
+1. `supabase/migrations/20260725_gold_standard_shard2_walton_g_zoning_categorization.sql`
+   — Municipal `density_regulated=false` (real LDC Sec.2.01.02-03 citation: no such
+   adopted district exists); General Commercial category fix + `max_density_du_acre=17`
+   (LDC Sec.2.02.15.B.11/D.1.b); 4 supplementary DeFuniak Springs district fixes
+   (C-2, I, Airport Overlay — 0 linked parcels, real-ordinance data-quality only).
+2. `.github/workflows/apply-shard2-walton-g-fix.yml` — one-off GHA workflow, applied
+   via Supabase Management API, `gh workflow run` dispatched, run
+   [30150908373](https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/30150908373)
+   `completed/success`.
+3. **Self-caught regression**: setting General Commercial's category to 'Commercial'
+   (needed for the density fix) had a side effect — `v_zoning_district_applicability`
+   defaults commercial/industrial/mixed-use categories to `pk1000_applicable=true`.
+   Re-querying `pencil_dod_evaluate_county('walton')` immediately after the first GHA
+   run caught this: G moved from FAIL(density=91.4) to a WORSE FAIL(pk1000=0.0).
+   Researched and sourced the real Walton LDC Ch.5 Sec.5.02.02.D.29 parking rate
+   (5 spaces/1,000sf, "Shopping center") rather than reverting the category fix or
+   guessing. Shipped as `20260725b_gold_standard_shard2_walton_g_pk1000_regression_fix.sql`,
+   applied via a second GHA run
+   [30151049782](https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/30151049782)
+   `completed/success`.
+4. Independent adversarial refuter (fresh-context agent, no shared context with the
+   implementer) re-queried live data and the underlying `zoning_districts`/
+   `zone_standards` rows: **verdict SURVIVED**, no regression on any other letter.
+
+### SQL VERIFICATION
+
+```sql
+SELECT public.pencil_dod_evaluate_county('walton');
+-- LIVE RESULT (2026-07-25T08:26Z):
+-- A=PASS(6) B=PASS(100.0) C=PASS(97.5) D=PASS(97.5) E=PASS(98.8) F=PASS(100.0)
+-- G=PASS(98.1, density=100.0 far=98.1 pk1000=100.0)  H=PASS(0.1h)
+-- I=PASS(96.3) J=PASS(97.5)  -- 10/10, auctions_total=80
+
+SELECT public.pencil_dod_evaluate_county('jackson');
+-- LIVE RESULT: unchanged, 10/10, auctions_total=73
+
+SELECT public.pencil_dod_evaluate_county('liberty');
+-- LIVE RESULT: unchanged, A=FAIL(fc=1 td=0) B=FAIL(null) F=FAIL(null), 7/10,
+-- auctions_total=1 -- zero drift from the 2026-07-24 exhaustive investigation,
+-- next legitimate recheck ~2026-07-31 (10-day CT recording lag from the 07-21 sale).
+```
+
+### ULTRALOOP audit rows
+
+15 rows written to `gold_standard_ultraloop_audit` (dispatch_id
+`5e1e6111-7b73-4ac4-87f8-1eb182321346`): 10 for jackson (A-J, survived=true, baseline
+reconfirmed), 1 for walton/G (survived=true, independent refuter agentId
+`ab981c23cdb2b9e6d`), 3 for liberty/A,B,F (survived=false — correctly documents the
+letters remain FAIL, not a false claim of improvement).
+
+### Status Board (corrected)
+
+| County | Before | After (VERIFIED live) |
+|---|---|---|
+| jackson | 10/10 | 10/10 (no change) |
+| walton | 9/10 (G FAIL 91.4%) | **10/10** (G PASS 98.1%) |
+| liberty | 7/10 (A/B/F FAIL) | 7/10 (unchanged — genuinely blocked) |
+
+Per PARALLEL-FLEET RULES, `gold_standard_loop()`/`gold_standard_certify()` were **not**
+run this close-out — multiple other shard sessions were confirmed mid-flight during this
+session (e.g. shard1/shard4/shard11 commits landed on `main` while this session was
+running). Per-county `pencil_dod_evaluate_county` evaluations above stand in for the
+fleet-wide loop, per the shard-isolation requirement.
+
+### Residual / next-session priorities
+
+1. **liberty A/B/F**: next legitimate recheck ~2026-07-31 (10-day CT recording lag).
+   Useful only if Firecrawl credits are replenished or a CAPTCHA-solving path becomes
+   available for civitekflorida.com/ocrs and myfloridacounty.com/orisearch (both
+   Cloudflare Turnstile-gated).
+2. **walton `Inst`/`Airport` districts** (ids 5575, 8248): confidence=UNKNOWN, left
+   untouched. No ordinance-adopted "Institutional" or non-overlay "Airport" district
+   found in DeFuniak Springs' current Chapter 18 text — worth re-examining whether these
+   two rows actually belong under `jurisdiction_id=1333` (Unincorporated Walton, which
+   DOES have an adopted "INST" district per its own LDC Sec.2.01.03) rather than 842.
+   Zero linked parcels currently either way, so no G impact.
+3. The sibling session's `scripts/shard2_run6354_walton_g_fix.py` (EnerGov ArcGIS
+   point-in-polygon assignment for the 2 genuinely-unzoned auction parcels) is still a
+   legitimate, complementary follow-up for criterion E/I — not executed this session,
+   left as-is (not deleted, per K3 surgical-changes guidance).
+
+Timestamp: 2026-07-25T08:27:00Z
