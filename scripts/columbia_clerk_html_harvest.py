@@ -113,27 +113,9 @@ def parse_listings(html, source_url):
     return items
 
 
-def upsert(items, sale_type):
-    if not items:
+def _post_upsert(payload):
+    if not payload:
         return 0
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    payload = []
-    for it in items:
-        payload.append({
-            "county": "columbia",
-            "case_number": it["case_number"],
-            "sale_type": sale_type,
-            "auction_status": "upcoming" if (it["status_raw"] or "").lower() in ("scheduled", "upcoming", "") else it["status_raw"].lower(),
-            "auction_date": it["auction_date"],
-            "parcel_id": it["parcel_id"],
-            "property_address": it["property_address"],
-            "judgment_amount": it["judgment_amount"],
-            "plaintiff": it["plaintiff"],
-            "data_source": "columbia_clerk_html:SHARD2-V1",
-            "source_url": it["source_url"],
-            "scraped_at": now,
-            "last_seen_at": now,
-        })
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/multi_county_auctions?on_conflict=county,case_number,sale_type",
         data=json.dumps(payload).encode(), method="POST",
@@ -147,6 +129,37 @@ def upsert(items, sale_type):
         if resp.status not in (200, 201, 204):
             raise RuntimeError(f"upsert failed: HTTP {resp.status}")
     return len(payload)
+
+
+def upsert(items, sale_type):
+    if not items:
+        return 0
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def base_row(it):
+        return {
+            "county": "columbia",
+            "case_number": it["case_number"],
+            "sale_type": sale_type,
+            "auction_status": "upcoming" if (it["status_raw"] or "").lower() in ("scheduled", "upcoming", "") else it["status_raw"].lower(),
+            "auction_date": it["auction_date"],
+            "property_address": it["property_address"],
+            "judgment_amount": it["judgment_amount"],
+            "plaintiff": it["plaintiff"],
+            "data_source": "columbia_clerk_html:SHARD2-V1",
+            "source_url": it["source_url"],
+            "scraped_at": now,
+            "last_seen_at": now,
+        }
+
+    # The clerk site doesn't always publish a Parcel ID for a given case, and
+    # merge-duplicates upsert overwrites every column present in the payload --
+    # including with NULL. Send parcel_id only for rows where the scrape found
+    # one, so a case lacking it on the site never clobbers a manually-verified
+    # parcel_id already on the row (e.g. sourced from the property appraiser).
+    with_parcel = [dict(base_row(it), parcel_id=it["parcel_id"]) for it in items if it["parcel_id"]]
+    without_parcel = [base_row(it) for it in items if not it["parcel_id"]]
+    return _post_upsert(with_parcel) + _post_upsert(without_parcel)
 
 
 def main():
