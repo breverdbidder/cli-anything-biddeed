@@ -1,0 +1,180 @@
+-- HAMILTON County (shard-9, dispatch 7425b4a1-fdfc-4f13-a414-cc9cefc81307, loop run 6354)
+-- 2026-07-25 session. Assignment: letters B,C,D,E,F,I. Applied live via Supabase REST API
+-- (service role key) during this session; this file documents the writes for repo parity.
+--
+-- =====================================================================================
+-- PART 1 -- E fix: case 2025-CA-66 parcel linkage via a genuinely NEW source
+-- =====================================================================================
+-- Prior sessions today (20260725b_shard5_hamilton_e_i_jina_arcgis_dead_end.sql and
+-- earlier) exhaustively tried and confirmed dead: qpublic/beacon.schneidercorp.com
+-- (Cloudflare managed challenge), FL DOR statewide ArcGIS Cadastral (CO_NO=24 timeout
+-- pattern, zero PARCEL_ID-prefix matches), Firecrawl API (HTTP 402).
+--
+-- NEW SOURCE this session: Hamilton County's OWN public GIS backend, discovered via
+-- https://zoning.hamiltoncountyfl.com/pages/gis-map (an Esri "Instant Lookup" app,
+-- itemId=52bde6eb477a4f12ab1f314e90f5257a) -> unauthenticated ArcGIS FeatureServer at
+-- https://services6.arcgis.com/wKGu58lMCTiOrVAj/arcgis/rest/services/June_2026_Parcels/FeatureServer/31
+-- Same org (wKGu58lMCTiOrVAj) also hosts Hamilton's ZoneAtlas, FLU_Map, Flood_Hazard_Areas,
+-- Storm_Debris_Map -- confirmed this is the county's real GIS backend, not a third-party
+-- aggregator.
+--
+-- Query: WHERE SUBDIV LIKE '%HORSE%' AND LOT='6' returns TWO candidates (a genuine
+-- ambiguity an earlier draft of this session's work did not initially disclose --
+-- caught by adversarial refuter review before shipping, see PART 3):
+--   4837-015  SUBABBV=HC-I   SUBDIV="Horse Country I"        OWNER=STEWARD-ROSS ASHLEY V & MOBLEY
+--   4837-305  SUBABBV=HCM    SUBDIV="Horse Country Meadows"  OWNER=WALKER MICHAEL R & JOANNA
+-- Disambiguated via exact match: WHERE SUBDIV='Horse Country I' AND LOT='6' -> unique,
+-- 4837-015 only. Legal description on the foreclosure notice ("Lot 6 Horse Country I at
+-- Oak Woodlands") matches SUBDIV="Horse Country I" exactly (not "Horse Country Meadows"),
+-- and OWNER_NAME "STEWARD-ROSS ASHLEY V & MOBLEY" matches defendant "Ashley Victoria
+-- Steward-Ross" from hamiltonclerk.com/foreclosures/. Cross-checked against two independent
+-- layer vintages (March_2026_Parcels/29 and June_2026_Parcels/31) -- identical result to
+-- 6 decimal places on the centroid.
+--
+-- WRITE (applied):
+--   UPDATE multi_county_auctions SET parcel_id='4837-015',
+--     latitude=30.57972444789168, longitude=-83.20911184241596
+--   WHERE id='09081529-84af-4e0c-9ebf-e49f0b241ace' (case 2025-CA-66)
+-- The prior lat/lon (30.5182/-82.9513) was identical to two OTHER unrelated Hamilton rows
+-- (2024-CA-19, 2021-CA-46) -- a shared placeholder/ghost centroid, not a real geocode.
+-- Corrected only this row (the one with newly-sourced real data); the other two are left
+-- untouched (no equivalent real source found for them this session) and flagged below as
+-- residual, per established campaign precedent of not fabricating replacements.
+--
+-- SCORING IMPACT (verified live via pencil_dod_evaluate_county('hamilton')):
+--   E: has_parcel 15/16 (93.8%) -> 16/16 (100.0%)  ==> FLIPS TO PASS
+--
+-- =====================================================================================
+-- PART 2 -- CRITICAL FINDING: the pre-existing Hamilton zoning data (G + part of I) was
+-- FABRICATED, not merely unsourced. Discovered as a side effect of PART 1's zoning-link
+-- research and corrected in the same session (not deferred -- ghost-success is BANNED
+-- per campaign SHIP GATE / Sentinel-correct-by-default rules).
+-- =====================================================================================
+-- All 14 pre-existing hamilton parcel_zones rows (linked 2026-06-25 through 2026-07-23,
+-- sources 'shard_hamilton_g_fix_v1' and 'shard10_run5668_hamilton_i_fix_v1') carried
+-- zone_code='R-1'. The backing zoning_districts row (id=10828) was self-labeled in its
+-- own description column: "Synthetic R-1 for Hamilton County Gold Standard G+I. honesty:
+-- HYPOTHESIS" -- i.e. a prior session invented a zoning district and density/FAR/parking
+-- numbers (max_far=0.35, max_density_du_acre=4.0, parking_per_1000sf=2.0, no source_url,
+-- no confidence_score) with no real ordinance backing, wired it into the G/I evaluator
+-- path, and it has been producing a FALSE PASS for hamilton G (100.0%, "density=100.0")
+-- for a month.
+--
+-- "R-1" is not even a real Hamilton County zoning code: queried the county's own
+-- ZoneAtlas layer (services6.arcgis.com/wKGu58lMCTiOrVAj/.../ZoneAtlas___2025_Update/
+-- FeatureServer/4) for ALL distinct codes in the county -- A-1..A-5, CG, CHI, CI, CN, CSV,
+-- EPGF, ESA-2, ESA-3, I, ILW, NRPA, PRMUD, RD, RMF-2, RSF/MH-1, RSF/MH-3, RSF-1. No "R-1".
+--
+-- Point-in-polygon queried ALL 16 hamilton parcels (the 14 pre-existing + the new
+-- 4837-015 + the unresolved 8282-000) against ZoneAtlas for their REAL zone:
+--   A-4  (Agriculture-4):  2240-000, 3729-650, 3819-070, 4712-020, 4833-015, 4837-015,
+--                          4837-048, 4837-067, 4908-098, 5044-000  (10 parcels)
+--   A-1  (Agriculture-1):  3599-198                                (1 parcel)
+--   ESA-2 (Env Sensitive Area-2): 3139-160, 4071-000, 4510-000     (3 parcels)
+--   RSF/MH-1 (Res Single Family/Mobile Home-1): 2007-000           (1 parcel)
+--   CITY LIMITS (White Springs municipal, NOT county-zoned): 8282-000 (1 parcel,
+--     case 2023-CA-41, address "16797 Mill Street, White Springs" -- inside a
+--     municipality; the county ZoneAtlas layer does not cover it and assigning it a
+--     county code would be a fabrication. Unlinked (parcel_zones row deleted), left
+--     genuinely blank pending Town of White Springs municipal zoning research.)
+--
+-- REAL ordinance data sourced for A-4/A-1 (uniform across A-1..A-5 per the ordinance
+-- text; only min lot area differs by sub-code) via
+-- https://zoning.hamiltoncountyfl.com/uploads/4.5-a-agricultural.pdf (text-extracted,
+-- not scanned -- pdfplumber, no OCR needed):
+--   Sec 4.5.6: min lot area A-4=5 acres (base case), A-1=40 acres
+--   Sec 4.5.7: front 30ft, side 15ft, rear 25ft (uniform, undifferentiated by sub-code)
+--   Sec 4.5.8: max height 35ft
+--   Sec 4.5.9: max lot coverage 20%; "no structure shall exceed a 1.0 floor area ratio"
+--   Sec 4.5.11: residential dwelling units, 2 parking spaces PER UNIT (not per-1000-sqft
+--     -- schema's parking_per_1000sf field does not apply to this ordinance's unit basis;
+--     set pk1000_regulated=false honestly, same pattern as the Collier per-use-FAR gap,
+--     rather than fabricate a sqft conversion)
+--   max_density_du_acre derived as 1 dwelling unit / min lot acreage: A-4=0.2, A-1=0.025
+--
+-- ESA-2 (3 parcels) and RSF/MH-1 (1 parcel): zone_code is real/verified (ZoneAtlas), but
+-- their ordinance PDFs (4.4-esa-...pdf, 4.8-rsfmh-...pdf) are SCANNED IMAGES with zero
+-- extractable text in this sandbox (no tesseract/OCR tooling available). Standards are
+-- honestly left NULL/unsourced -- zoning_districts.far_regulated/density_regulated/
+-- pk1000_regulated all NULL (unknown), not guessed. Flagged as residual for a future
+-- OCR-capable session.
+--
+-- WRITES (applied):
+--   DELETE FROM zone_standards WHERE zoning_district_id=10828;
+--   DELETE FROM zoning_districts WHERE id=10828;  -- the fabricated "Synthetic R-1"
+--   UPDATE parcel_zones SET zone_code/zone_name/source for the 14 groups above (real codes)
+--   DELETE FROM parcel_zones WHERE parcel_id='8282-000';  -- unlink municipal parcel
+--   INSERT INTO parcel_zones (4837-015, A-4)  -- the newly E-linked parcel
+--   INSERT INTO zoning_districts (A-4, A-1, ESA-2, RSF/MH-1) with honest far/density/
+--     pk1000 _regulated flags (true/true/false for A-4,A-1; NULL/NULL/NULL for ESA-2,
+--     RSF/MH-1)
+--   INSERT INTO zone_standards for A-4, A-1 only (real sourced dimensional data)
+--
+-- SCORING IMPACT (verified live via pencil_dod_evaluate_county('hamilton') and
+-- v_zoning_gold_standard_kpi_v3, BEFORE vs AFTER this session):
+--   G: density=100.0 (FABRICATED, on 15/15 parcels linked to the fake district)
+--      -> density=73.3 (HONEST: 11/15 real-standards parcels / 15 zoned parcels),
+--         far=null (not applicable under fake residential category)
+--      -> far=100.0 (11/11 applicable A-4/A-1 parcels now have real FAR data)
+--      G.metric: 100.0 -> 73.3  ==> FLIPS FROM (FALSE) PASS TO (HONEST) FAIL
+--   I: card_complete=5/16 (31.3%) -> still 5/16 (31.3%) -- NET UNCHANGED, but composition
+--      corrected: lost 8282-000 (was counted complete only via the fake R-1 zone link,
+--      genuinely has no verified county zone), gained 2025-CA-66 (now genuinely parcel+
+--      zone-linked with real data). A wash on the metric, a real improvement in what it
+--      measures.
+--
+-- This is reported as a REGRESSION on G (10/10 -> 9/10 net letters unaffected since G
+-- was already excluded from the 8/10 count... county was 4/10 before [A,G,H,J], now 4/10
+-- after [A,E,H,J] -- same COUNT, different and now-honest composition) per the Ship Gate
+-- mandate: a corrected fabrication is not something to spin as a loss avoided or hide --
+-- it is disclosed exactly as it landed. No new fabrication was introduced to compensate.
+--
+-- =====================================================================================
+-- PART 3 -- Adversarial verification (ULTRALOOP protocol, 3 independent refuters)
+-- =====================================================================================
+-- Ran BEFORE any write, against the originally-planned proposal (which incorrectly
+-- proposed zone_code='R-1' for the new parcel, inferred from the then-unquestioned 14/14
+-- precedent). Refuter verdicts:
+--   refuter-name-match:   REFUTED, do_not_ship -- found the loose SUBDIV+LOT query
+--     returns 2 features (not 1 as originally described), AND independently queried
+--     ZoneAtlas to discover the real zone is A-4, not R-1 -- decisive, correct catch.
+--   refuter-source-trust: NOT refuted, ship_partial -- confirmed source authenticity and
+--     the parcel_id resolution, flagged the same query-description inaccuracy.
+--   refuter-scope:        NOT refuted, ship_partial (medium confidence, no live DB access
+--     in that sandbox) -- flagged property_address is still a placeholder string post-fix
+--     (I-letter gain partly rests on a non-null-but-fake address text; the evaluator only
+--     checks NULL-ness, not accuracy -- disclosed here per that refuter's explicit ask,
+--     not silently absorbed into the claimed I gain) and that the R-1 zone_code inference
+--     should be tagged INFERRED not asserted.
+-- Net: proceeded ONLY after independently re-verifying refuter-name-match's ZoneAtlas
+-- finding myself (point-in-polygon query reproduced, see Part 2), which changed the write
+-- from the originally-verified proposal to the corrected one filed above. The claim that
+-- shipped is NOT the claim that was refuted -- it was revised in response to the refutation,
+-- which is the adversarial-verify loop working as designed.
+--
+-- =====================================================================================
+-- RESIDUAL FOR A FUTURE SESSION (not fixed here, honestly disclosed)
+-- =====================================================================================
+--   1. ESA-2 (3 parcels) and RSF/MH-1 (1 parcel) zone_standards remain unsourced -- need
+--      OCR (tesseract/pytesseract not available in this sandbox) against
+--      https://zoning.hamiltoncountyfl.com/uploads/4.4-esa-environmentally-sensitive-areas.pdf
+--      and .../4.8-rsfmh-residential-single-family-mobile-home.pdf. Sourcing these would
+--      raise G's density_applicable/far_applicable coverage from 11/15 further.
+--   2. 8282-000 (case 2023-CA-41, White Springs) needs Town of White Springs municipal
+--      zoning, not county ZoneAtlas -- genuinely out of the county GIS layer's coverage.
+--   3. property_address for 2025-CA-66 is still a placeholder string ("Ashley Victoria
+--      Steward-Ross property, Hamilton County FL"), not a real street address -- counts
+--      as I-complete under the evaluator's NULL-only check but is not a real address.
+--      Flagged, not silently relied upon.
+--   4. 2024-CA-19 and 2021-CA-46 still share the same suspicious placeholder lat/lon
+--      (30.5182/-82.9513) that 2025-CA-66 had before this session's fix -- no equivalent
+--      real source found for those two this session, left untouched (BLANK > WRONG).
+--   5. B/C/D/F remain genuinely blocked per today's earlier dead-end sessions (Turnstile
+--      on myfloridacounty.com, vanished mca_only cases, TD opening_bid off-by-one bug) --
+--      not re-attempted this session, no new technique found for those letters.
+--
+-- No `gold_standard_loop()`/`gold_standard_certify()` run (parallel shards active this
+-- pass; per-county evaluation reported instead, per the parallel-fleet fallback).
+
+SELECT 1; -- writes were applied live via REST API during the session (see PART 1/2 above
+          -- for exact statements); this file is the checked-in audit record.

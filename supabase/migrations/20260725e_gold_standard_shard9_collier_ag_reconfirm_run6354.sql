@@ -1,0 +1,43 @@
+-- COLLIER County (shard-9, dispatch 7425b4a1-fdfc-4f13-a414-cc9cefc81307, loop run 6354)
+-- 2026-07-25 session. Assignment: letters A, G. Both remain FAIL, no writes.
+--
+-- This is the FOURTH same-day pass on these exact two letters (prior: 2026-07-03 bootstrap,
+-- 2026-07-18/19/20/24 G backfills, and shard9-collier-run6288-a-g-structural-recheck earlier
+-- today -- see docs/gold-standard-sessions/shard9-collier-run6288-a-g-structural-recheck-2026-07-25.md).
+-- Rather than repeat identical checks, this session looked specifically for avenues the
+-- prior 4 passes had not tried.
+--
+-- A: re-confirmed collier.realforeclose.com / realtaxdeed.com still dead (deprovisioned
+--    vendor). Checked collier.maps.arcgis.com (302, ArcGIS Online org exists) and
+--    gis.colliercountyfl.gov (503) as a genuinely different angle from the already-
+--    exhausted cms.collierclerk.com/showcaseweb/ ShowCase reCAPTCHA-v3 SPA -- found no new
+--    surface; Collier's ArcGIS Online presence is standard parcel/zoning mapping, not a
+--    court-events/foreclosure-sales API. No anonymous digital source exists for Collier
+--    foreclosure sales (in-person only). Unchanged conclusion.
+--
+-- G: searched for a Collier-specific parcel-level per-use FAR data source (the same class
+--    of source -- county's own ArcGIS Online GIS org -- that unlocked a genuine fix for
+--    Hamilton's fabricated zoning this same session, see the hamilton E/I/G migration filed
+--    alongside this one). Found only standard zoning-district boundary layers (geometry +
+--    district code), not a per-land-use FAR attribute table -- consistent with, not
+--    contradicting, the already-established root cause: Collier LDC Sec 4.02.01 Table 2's
+--    FAR for C-4/C-5 is regulated per LAND USE (e.g. "Hotels .60", "Destination resort
+--    .80"), not per zoning district, so no GIS attribute table could hold a single
+--    district-level number even if one existed. This is a schema/evaluator-level gap
+--    (zone_standards has no per-use column), not a missing-data gap -- confirmed dead a
+--    4th time, same conclusion as all 3 prior sessions today and this campaign week.
+--
+-- Live re-check via pencil_dod_evaluate_county('collier'), before and after this session
+-- (identical, zero drift):
+--   A: pass=false, metric=0,   detail="fc=0 td=212"
+--   G: pass=false, metric=0.0, detail="density=100.0 far=0.0 pk1000="
+-- collier stays 8/10 (B,C,D,E,F,H,I,J pass). No fabrication, no forced match.
+--
+-- What would actually move these (unchanged from the 4 prior sessions' conclusion):
+--   A: a Playwright/browser-automation + CAPTCHA-solving build against
+--      cms.collierclerk.com/showcaseweb/ -- a distinct larger build task.
+--   G: a zone_standards_by_use schema addition (fleet-wide) OR an evaluator change to
+--      exclude criteria with zero genuinely-applicable parcels from LEAST(...) instead of
+--      nulling the whole G score -- both out of a single shard session's blast radius.
+
+SELECT 1;
