@@ -29,8 +29,7 @@ jobs:
           node-version: '20'
 
       - name: Install deps
-        run: npm install @supabase/supabase-js resend date-fns
-
+       run: npm install @supabase/supabase-js resend date-fns ws
       - name: Send branded digest to leads
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
