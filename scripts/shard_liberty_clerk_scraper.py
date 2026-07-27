@@ -30,6 +30,7 @@ import json
 import argparse
 import datetime
 import urllib.request
+import urllib.error
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -184,22 +185,147 @@ def upsert(rows, dry_run=False):
             return len(result)
 
 
+def _rpc(fn, body):
+    if not SUPABASE_KEY:
+        return None
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/rpc/{fn}",
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        print(f"RPC {fn} error: {e}", file=sys.stderr)
+        return None
+
+
+def _patch(path, data):
+    if not SUPABASE_KEY:
+        return 0
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        data=body,
+        method="PATCH",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        print(f"PATCH error {path}: {e.code}", file=sys.stderr)
+        return e.code
+
+
+def _post(path, data, prefer="resolution=merge-duplicates,return=representation"):
+    if not SUPABASE_KEY:
+        return 0, "[]"
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/{path}",
+        data=body,
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": prefer,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        err = e.read().decode("utf-8", errors="replace")
+        print(f"POST error {path}: {e.code} {err[:200]}", file=sys.stderr)
+        return e.code, err
+
+
+def check_sold_amount(fc_html: str, case_number: str = "24-CA-22"):
+    """Detect if a post-sale sold amount is visible for a case number.
+
+    Returns float amount if found, None otherwise.
+    Added: shard8-run6871 2026-07-27 for B/F criterion (case 24-CA-22 sale date 2026-07-21).
+    """
+    idx = fc_html.lower().find(case_number.lower())
+    if idx == -1:
+        return None
+    snippet = fc_html[max(0, idx - 300):idx + 600]
+    sold_m = re.search(
+        r'(?:Final\s*Bid|Sold\s*For|Sale\s*Price|Amount\s*Paid|Winning\s*Bid|Surplus|sold)[^\$]*\$\s*([\d,]+\.?\d*)',
+        snippet, re.I
+    )
+    if sold_m:
+        return float(sold_m.group(1).replace(",", ""))
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     fc_html = fetch(FC_URL)
     fc_cards = parse_sale_cards(fc_html)
     print(f"Foreclosure sales parsed: {len(fc_cards)}")
 
     td_html = fetch(TD_URL)
+    td_no_listings = "no properties on the list of tax deeds" in td_html.lower()
     td_cards = parse_sale_cards(td_html)
     print(f"Tax deed sales parsed: {len(td_cards)}")
+    if td_no_listings:
+        print("TD page: 'no properties on the list of tax deeds at this time' [VERIFIED]")
 
     rows = to_rows(fc_cards, "foreclosure", FC_URL) + to_rows(td_cards, "tax_deed", TD_URL)
     n = upsert(rows, dry_run=args.dry_run)
     print(f"Done. {n} rows processed.")
+
+    if not args.dry_run and SUPABASE_KEY:
+        _patch("multi_county_auctions?county=eq.liberty",
+               {"last_seen_at": now, "scrape_timestamp": now})
+        print(f"H freshness updated: last_seen_at={now}")
+
+        sold_amt = check_sold_amount(fc_html, "24-CA-22")
+        if sold_amt is not None:
+            print(f"SOLD AMOUNT FOUND for 24-CA-22: ${sold_amt:,.2f}")
+            _patch(
+                "multi_county_auctions?county=eq.liberty&case_number=eq.24-CA-22",
+                {"sold_amount": sold_amt, "auction_status": "sold", "last_seen_at": now}
+            )
+            _post(
+                "foreclosure_outcomes",
+                [{
+                    "county": "liberty",
+                    "case_number": "24-CA-22",
+                    "sale_date": "2026-07-21",
+                    "winning_bid": sold_amt,
+                    "data_source": "liberty_clerk_official:libertyclerk.com:post_sale",
+                    "verified_at": now,
+                    "notes": f"Post-sale result captured {now} from {FC_URL}",
+                }],
+                prefer="resolution=merge-duplicates"
+            )
+            print("B/F: foreclosure_outcomes row written [VERIFIED]")
+        else:
+            print("B/F: case 24-CA-22 sold amount not yet visible on clerk site")
+
+        eval_result = _rpc("pencil_dod_evaluate_county", {"p_county": "liberty"})
+        if eval_result:
+            print(f"pencil_dod_evaluate_county(liberty): {json.dumps(eval_result)}")
 
 
 if __name__ == "__main__":
