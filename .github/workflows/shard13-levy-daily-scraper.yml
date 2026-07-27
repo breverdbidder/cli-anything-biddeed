@@ -5,13 +5,6 @@ name: "SHARD-13 Levy Daily Scraper (tax_deed + foreclosure check)"
 #   - H-freshness: updates last_seen_at for all levy rows
 #
 # WIRING MANDATE compliance: wired 2026-06-27, dispatch shard13-run1113
-# WIRING BUG (UNFIXED — needs workflows permission to fix):
-#   The levy-taxsmart job is missing SUPABASE_ACCESS_TOKEN from its env block.
-#   _fc_upsert_sql() in levy_taxsmart_scraper.py requires SUPABASE_ACCESS_TOKEN
-#   to persist FC cases via the Management API SQL endpoint. Without it, any
-#   real FC cases found on levyclerk.com will silently fail to persist.
-#   FIX: add SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }} to
-#   the levy-taxsmart job env block AND the "Scrape levy TaxSmart" step env block.
 
 on:
   schedule:
@@ -37,8 +30,6 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      # WIRING BUG: SUPABASE_ACCESS_TOKEN missing here — needed by _fc_upsert_sql()
-      # Add: SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -61,8 +52,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # WIRING BUG: SUPABASE_ACCESS_TOKEN missing here too
-          # Add: SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
   # ── H-FRESHNESS UPDATE ────────────────────────────────────────────────────
   h-freshness:
