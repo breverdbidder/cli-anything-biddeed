@@ -87,8 +87,8 @@ jobs:
           fi
 
           MSG="🧠 Skills Health $EMOJI $STATUS
-Hetzner: $REMOTE skills | Repo: $REPO skills
-Missing: ${MISSING:-none}"
+          Hetzner: $REMOTE skills | Repo: $REPO skills
+          Missing: ${MISSING:-none}"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
