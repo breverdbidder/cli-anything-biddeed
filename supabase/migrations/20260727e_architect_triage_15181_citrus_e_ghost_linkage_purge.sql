@@ -1,0 +1,55 @@
+-- ARCHITECT TRIAGE (issue #15181, dispatch e5e09c8d-4151-46f6-b0cb-57314a74a871)
+--
+-- Blocked DoD: SELECT EXISTS (SELECT 1 FROM public.gold_standard_certifications
+-- WHERE county_slug = ANY('{citrus}'::text[]) AND certified) -- still false.
+--
+-- DIAGNOSIS (VERIFIED live 2026-07-27):
+-- 1. Letter I genuinely fails: card_complete=180/191 (94.2%%, needs 182/191).
+--    The prior session (commit b103a0ad, dispatch a308fac7) closed 1 real gap
+--    row (2025 CA 000569 A) and correctly documented the remaining 11 rows as
+--    genuine dead ends today: 4 rows have no parcel_id/address/geo at all
+--    (SCORSS Cloudflare Turnstile CAPTCHA-gated, confirmed blocked across 3
+--    dispatches: d574fe69, c271da62, a308fac7), and 7 rows had a parcel_id
+--    value that turned out to be scraper-artifact garbage (see #2) rather
+--    than a real, independently-enrichable parcel number. This is a genuine
+--    external blocker, not a code/data bug -- flagged for human action in the
+--    issue comment (Firecrawl credit top-up or a CAPTCHA-bypass tool), not
+--    fixed in this migration.
+--
+-- 2. Letter E was a GHOST-SUCCESS (found independently this session, same
+--    pattern as st_lucie commit 0d3c9038 same day): 7 of citrus's 191
+--    multi_county_auctions rows had `parcel_id` set to a UI-label string
+--    captured by the RealForeclose AJAX calendar decoder in place of a real
+--    parcel number -- 'MULTIPLE PARCELS' (x2) and 'Property Appraiser' (x5).
+--    pencil_dod_evaluate_county() only checks `parcel_id IS NOT NULL`, so
+--    these counted as "linked" and inflated E to a false PASS of 97.9%%
+--    (187/191). The honest count, once these non-parcel values are excluded,
+--    is 180/191 = 94.2%% -- E should have been FAILing.
+--
+--    This migration nulls those 7 values live (already applied via PostgREST
+--    PATCH during triage; this file documents+replays the same fix so it is
+--    idempotent and reviewable). It does NOT touch letter I: none of the 7
+--    ghost rows had property_address/latitude populated, so they were never
+--    counted toward card_complete in the first place -- I's honest value was
+--    already 180/191 before and after this fix.
+--
+-- RESULT: citrus is honestly 8/10 (E and I both FAIL) after this fix, down
+-- from an apparent 9/10 that rested partly on a false E PASS. This is the
+-- correct direction per HONESTY PROTOCOL (BLANK/FAIL > WRONG PASS) even
+-- though it moves the scoreboard further from certification, not closer.
+--
+-- Certification is additionally blocked by evidence staleness independent of
+-- the two failing letters: gold_standard_precert_guards for citrus
+-- (calendar_parity, denominator_integrity) last passed 2026-07-08 (19 days
+-- stale, outside the certify() 7-day window), and gold_standard_ultraloop_audit
+-- shows only letters G and I with survived=true evidence inside the 7-day
+-- window (A/B/C/D/F/H/J are 9-30 days stale). Both are logged as residuals in
+-- the issue comment; not remediated here because letters E and I are
+-- genuinely failing right now, so refreshing PASS evidence for the other 8
+-- letters would not change the certified=false outcome this session and is
+-- better done alongside the next real attempt at closing I.
+
+UPDATE public.multi_county_auctions
+SET parcel_id = NULL
+WHERE county = 'citrus'
+  AND parcel_id IN ('MULTIPLE PARCELS', 'Property Appraiser');
