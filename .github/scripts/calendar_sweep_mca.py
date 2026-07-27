@@ -452,6 +452,35 @@ def _fetch_protected_cases(case_numbers: list[str]) -> set[str]:
     return protected
 
 
+
+# Some counties' RealAuction "foreclosure"-branded subdomain (e.g. Okeechobee's
+# realforeclose.com) actually hosts a mix of sale types, and the source's own
+# per-card "Auction Type" field (already parsed into card['auction_type']) is
+# the ground truth — not the GHA job's fixed SALE_TYPE for this lane. Verified
+# live 2026-07-27: okeechobee.realforeclose.com cards for cases 2026TD052/055/
+# 070/072 etc. carry "Auction Type: TAXDEED" while the job runs SALE_TYPE=
+# foreclosure, so every sweep re-inserted a duplicate foreclosure-labeled row
+# under a different on_conflict key (county,case_number,sale_type) than the
+# already-correct tax_deed row, undoing prior gold-standard reclassification
+# fixes every cycle. Only recognized values override the job default so this
+# is a no-op for every county whose source field already agrees with its lane.
+_SALE_TYPE_FIELD_MAP = {
+    'taxdeed':   'tax_deed',
+    'tax deed':  'tax_deed',
+    'foreclosure': 'foreclosure',
+    'mortgage foreclosure': 'foreclosure',
+}
+
+
+def _resolve_sale_type(card_auction_type: str | None) -> str:
+    if card_auction_type:
+        key = re.sub(r'\s+', ' ', card_auction_type).strip().lower()
+        mapped = _SALE_TYPE_FIELD_MAP.get(key)
+        if mapped:
+            return mapped
+    return SALE_TYPE
+
+
 def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]]:
     """Batch-upsert cards to multi_county_auctions. Returns (inserted, errors)."""
     import datetime as _dt
@@ -468,7 +497,8 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
     rows = []
     for c in cards:
         cn = c['case_number']  # already set to AID fallback in parser
-        key = (COUNTY, cn, SALE_TYPE)
+        resolved_sale_type = _resolve_sale_type(c.get('auction_type'))
+        key = (COUNTY, cn, resolved_sale_type)
         if key in seen_keys:
             continue
         seen_keys.add(key)
@@ -476,8 +506,8 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
             'county':            COUNTY,
             'case_number':       cn,
             'auction_date':      date_iso,
-            'sale_type':         SALE_TYPE,
-            'auction_type':      SALE_TYPE,
+            'sale_type':         resolved_sale_type,
+            'auction_type':      resolved_sale_type,
             'source_platform':   PLATFORM,
             'auction_status':    'upcoming',
             'state':             'FL',
