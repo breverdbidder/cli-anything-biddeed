@@ -20,25 +20,14 @@ jobs:
         with:
           python-version: '3.12'
       
-      - name: Install deps
-        run: pip install psycopg2-binary
-      
       - name: Create Supabase table
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           python3 -c "
-          import psycopg2
-          conn = psycopg2.connect(
-              host='aws-0-us-west-2.pooler.supabase.com',
-              port=6543,
-              user='postgres.mocerqjnksmhcjzxrewo',
-              password='${SUPABASE_DB_PASSWORD}',
-              dbname='postgres'
-          )
-          conn.autocommit = True
-          cur = conn.cursor()
-          cur.execute('''
+          import os, sys, json, urllib.request
+
+          query = '''
             CREATE TABLE IF NOT EXISTS skills_catalog (
               id TEXT PRIMARY KEY,
               repo TEXT NOT NULL,
@@ -55,10 +44,23 @@ jobs:
             CREATE INDEX IF NOT EXISTS idx_skills_score ON skills_catalog(score DESC);
             CREATE INDEX IF NOT EXISTS idx_skills_status ON skills_catalog(status);
             CREATE INDEX IF NOT EXISTS idx_skills_category ON skills_catalog(category);
-          ''')
-          cur.close()
-          conn.close()
-          print('✅ skills_catalog table ready')
+          '''
+          req = urllib.request.Request(
+              'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query',
+              data=json.dumps({'query': query}).encode(),
+              headers={
+                  'Authorization': f\"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}\",
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'cli-anything-biddeed-skills-evaluator/1.0',
+              },
+              method='POST',
+          )
+          try:
+              resp = urllib.request.urlopen(req, timeout=60)
+              print(f'✅ skills_catalog table ready ({resp.status})')
+          except urllib.error.HTTPError as e:
+              print(f'❌ Management API error {e.code}: {e.read().decode()}')
+              sys.exit(1)
           "
 
       - name: Run evaluator
