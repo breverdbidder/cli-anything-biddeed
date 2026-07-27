@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BidDeed.AI Chat | Foreclosure Auction Assistant</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0f; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: rgba(10,10,15,0.95); border-bottom: 1px solid #1e293b; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #f97316); display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; color: white; }
+  .brand-text h1 { font-size: 17px; font-weight: 600; color: white; }
+  .brand-text p { font-size: 12px; color: #64748b; }
+  .messages { flex: 1; overflow-y: auto; padding: 24px 20px; }
+  .welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; gap: 16px; }
+  .welcome h2 { font-size: 24px; font-weight: 600; color: white; }
+  .welcome p { color: #94a3b8; max-width: 360px; }
+  .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 400px; margin-top: 8px; }
+  .quick-btn { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 14px; text-align: left; cursor: pointer; color: #cbd5e1; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+  .quick-btn:hover { background: #1e293b; color: white; border-color: #334155; }
+  .msg { display: flex; gap: 10px; margin-bottom: 16px; }
+  .msg.user { flex-direction: row-reverse; }
+  .avatar { width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .avatar.ai { background: linear-gradient(135deg, #f59e0b, #f97316); }
+  .avatar.user { background: #334155; }
+  .bubble { max-width: 80%; padding: 12px 16px; border-radius: 16px; font-size: 15px; line-height: 1.6; }
+  .bubble.ai { background: rgba(255,255,255,0.05); border: 1px solid #1e293b; color: #e2e8f0; }
+  .bubble.user { background: #334155; color: #f1f5f9; }
+  .typing { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; animation: bounce 1s infinite; }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%,100%{opacity:0.4;transform:scale(1)} 50%{opacity:1;transform:scale(1.3)} }
+  .input-area { padding: 16px 20px; background: rgba(10,10,15,0.95); border-top: 1px solid #1e293b; display: flex; gap: 10px; }
+  .input-area input { flex: 1; background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 14px 16px; color: white; font-size: 15px; outline: none; transition: border-color 0.2s; }
+  .input-area input:focus { border-color: #f59e0b; }
+  .input-area input::placeholder { color: #475569; }
+  .send-btn { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #f59e0b, #f97316); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.2s; }
+  .send-btn:hover { opacity: 0.9; }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .send-btn svg { width: 20px; height: 20px; fill: white; }
+  .error { color: #f87171; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">BD</div>
+    <div class="brand-text">
+      <h1>BidDeed.AI</h1>
+      <p>Everest Summit Edition</p>
+    </div>
+  </div>
+</header>
+
+<div class="messages" id="messages">
+  <div class="welcome" id="welcome">
+    <div class="logo" style="width:64px;height:64px;font-size:24px;margin-bottom:8px">BD</div>
+    <h2>Foreclosure Intelligence</h2>
+    <p>AI-powered auction analysis for Florida counties. Ask about upcoming auctions, max bid calculations, lien priority, and more.</p>
+    <div class="quick-actions">
+      <button class="quick-btn" onclick="ask('What auctions are coming up?')">📅 Upcoming Auctions</button>
+      <button class="quick-btn" onclick="ask('Explain max bid calculation')">🧮 Max Bid Formula</button>
+      <button class="quick-btn" onclick="ask('How do liens get prioritized?')">⚖️ Lien Priority</button>
+      <button class="quick-btn" onclick="ask('What can you help me with?')">❓ Help</button>
+    </div>
+  </div>
+</div>
+
+<div class="input-area">
+  <input type="text" id="input" placeholder="Ask about properties, auctions, or liens..." onkeydown="if(event.key==='Enter')send()">
+  <button class="send-btn" id="sendBtn" onclick="send()">
+    <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+  </button>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/claude-router';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhydXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDk3NTI5NjcsImV4cCI6MjAyNTMyODk2N30.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw';
+const ROUTER_KEY = 'rpk_h6V8dmdzY_v0AP3lohUye4Cg-hc00l6uLoVG0q0cQ7g';
+
+let history = [];
+let loading = false;
+
+function ask(text) {
+  document.getElementById('input').value = text;
+  send();
+}
+
+function addMsg(role, content) {
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `
+    <div class="avatar ${role === 'assistant' ? 'ai' : 'user'}">${role === 'assistant' ? '🤖' : '👤'}</div>
+    <div class="bubble ${role === 'assistant' ? 'ai' : 'user'}" id="bubble-${Date.now()}">${content}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div.querySelector('.bubble');
+}
+
+async function send() {
+  if (loading) return;
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  loading = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  history.push({ role: 'user', content: text });
+  addMsg('user', text);
+
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'msg';
+  typingDiv.innerHTML = `<div class="avatar ai">🤖</div><div class="bubble ai"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
+  document.getElementById('messages').appendChild(typingDiv);
+  document.getElementById('messages').scrollTop = 99999;
+
+  try {
+    const res = await fetch(SUPABASE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ANON_KEY}`,
+        'X-Router-Key': ROUTER_KEY
+      },
+      body: JSON.stringify({ messages: history, model: 'gemini-2.5-flash', variant: 'biddeed' })
+    });
+
+    typingDiv.remove();
+
+    if (!res.ok) {
+      const err = await res.text();
+      addMsg('assistant', `<span class="error">⚠️ Error ${res.status}: ${err}</span>`);
+    } else {
+      const bubble = addMsg('assistant', '');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += decoder.decode(value);
+        bubble.textContent = full;
+        document.getElementById('messages').scrollTop = 99999;
+      }
+      history.push({ role: 'assistant', content: full });
+    }
+  } catch (e) {
+    typingDiv.remove();
+    addMsg('assistant', `<span class="error">⚠️ Connection error: ${e.message}</span>`);
+  }
+
+  loading = false;
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('input').focus();
+}
+</script>
+</body>
+</html>
