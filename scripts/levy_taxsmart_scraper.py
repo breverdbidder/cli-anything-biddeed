@@ -30,6 +30,7 @@ MGMT_API_URL = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/databa
 
 TAXSMART_BASE = "https://online.levyclerk.com/TaxSmartWeb/Home/Details?id="
 LEVYCLERK_FC = "https://levyclerk.com/departments-services/court-services/foreclosure-sales/"
+FLPUBLICNOTICES_LEVY = "https://www.floridapublicnotices.com/legal-notice/search?county=Levy&noticeType=Foreclosure+Sale"
 
 HEADERS = {
     "User-Agent": (
@@ -224,9 +225,22 @@ def _tdo_upsert_sql(rows: list[dict]) -> int:
     return inserted
 
 
-def _fc_upsert_sql(case_numbers: list[str]) -> int:
+def _fc_upsert_sql(fc_items: list) -> int:
+    """Upsert FC cases. fc_items may be plain case_number strings or dicts
+    with keys: case_number, auction_date, source_platform, data_source.
+    """
     inserted = 0
-    for case_number in case_numbers:
+    for item in fc_items:
+        if isinstance(item, str):
+            case_number = item
+            auction_date_sql = "NULL"
+            source_platform = "levyclerk_html"
+            data_source = "levyclerk_com_foreclosure_sales"
+        else:
+            case_number = item["case_number"]
+            auction_date_sql = f"'{item['auction_date']}'" if item.get("auction_date") else "NULL"
+            source_platform = item.get("source_platform", "levyclerk_html")
+            data_source = item.get("data_source", "levyclerk_com_foreclosure_sales")
         sql = f"""
         INSERT INTO multi_county_auctions (
             county, state, auction_type, sale_type, case_number, parcel_id,
@@ -236,12 +250,14 @@ def _fc_upsert_sql(case_numbers: list[str]) -> int:
         ) VALUES (
             'levy', 'FL', 'foreclosure', 'foreclosure',
             '{case_number}', NULL,
-            NULL, 'NA, FL NA',
-            'levyclerk_html', 'levyclerk_com_foreclosure_sales', 'in_person', '11:00:00',
+            {auction_date_sql}, 'NA, FL NA',
+            '{source_platform}', '{data_source}', 'in_person', '11:00:00',
             NOW(), NOW()
         )
         ON CONFLICT (county, case_number, sale_type) DO UPDATE SET
-            last_seen_at = NOW(), updated_at = NOW();
+            last_seen_at = NOW(),
+            auction_date = COALESCE(EXCLUDED.auction_date, multi_county_auctions.auction_date),
+            updated_at = NOW();
         """
         try:
             mgmt_query(sql)
@@ -293,17 +309,16 @@ def scrape_levy_fc(client: httpx.Client) -> list[dict]:
     try:
         r = client.get(LEVYCLERK_FC, timeout=15)
         if r.status_code != 200:
+            log(f"levy FC: levyclerk.com returned HTTP {r.status_code}")
             return []
         soup = BeautifulSoup(r.text, "html.parser")
         content = soup.find("div", class_="entry-content") or soup.find("article")
         if not content:
             return []
         text = content.get_text()
-        # Check for "no foreclosure sales available"
         if "no foreclosure sales" in text.lower():
             log("levy FC: no foreclosure sales available at this time (levyclerk.com)")
             return []
-        # Look for case numbers (FL court format)
         cases = re.findall(r"38-\d{4}-CA-\d+", text)
         log(f"levy FC: found {len(cases)} case numbers in levyclerk.com")
         return cases
@@ -312,7 +327,50 @@ def scrape_levy_fc(client: httpx.Client) -> list[dict]:
         return []
 
 
-def build_fc_row(case_number: str) -> dict:
+def probe_floridapublicnotices_levy(client: httpx.Client) -> list[dict]:
+    """Probe floridapublicnotices.com for upcoming Levy foreclosure notices.
+
+    Returns list of case_number strings for FUTURE sales only (auction_date >= today).
+    Past sales are silently skipped — they cannot contribute to criterion A.
+    This is a supplementary source; levyclerk.com is primary.
+    """
+    from datetime import date as date_cls
+    today = date_cls.today()
+    try:
+        r = client.get(FLPUBLICNOTICES_LEVY, timeout=15)
+        log(f"levy FC floridapublicnotices.com: HTTP {r.status_code}")
+        if r.status_code != 200:
+            return []
+        text = r.text
+        found = re.findall(r"38-\d{4}-CA-\d+", text)
+        sale_dates = re.findall(r"(\d{2}/\d{2}/\d{4})", text)
+        log(f"levy FC floridapublicnotices.com: {len(found)} case refs, {len(sale_dates)} date refs")
+        future_cases: list[dict] = []
+        for cn in set(found):
+            try:
+                idx = text.find(cn)
+                vicinity = text[max(0, idx - 300): idx + 300]
+                sale_dates_near = re.findall(r"(\d{2}/\d{2}/\d{4})", vicinity)
+                for ds in sale_dates_near:
+                    parsed = datetime.strptime(ds, "%m/%d/%Y").date()
+                    if parsed >= today:
+                        future_cases.append({
+                            "case_number": cn,
+                            "auction_date": parsed.isoformat(),
+                        })
+                        break
+            except Exception:
+                pass
+        log(f"levy FC floridapublicnotices.com: {len(future_cases)} future sales found")
+        return future_cases
+    except Exception as e:
+        log(f"levy FC floridapublicnotices.com error: {e}")
+        return []
+
+
+def build_fc_row(case_number: str, auction_date: str | None = None,
+                 source_platform: str = "levyclerk_html",
+                 data_source: str = "levyclerk_com_foreclosure_sales") -> dict:
     return {
         "county": "levy",
         "state": "FL",
@@ -320,10 +378,10 @@ def build_fc_row(case_number: str) -> dict:
         "sale_type": "foreclosure",
         "case_number": case_number,
         "parcel_id": None,
-        "auction_date": None,
+        "auction_date": auction_date,
         "property_address": "NA, FL NA",
-        "source_platform": "levyclerk_html",
-        "data_source": "levyclerk_com_foreclosure_sales",
+        "source_platform": source_platform,
+        "data_source": data_source,
         "auction_venue": "in_person",
         "auction_time": "11:00:00",
         "last_seen_at": NOW,
@@ -362,15 +420,31 @@ def main():
     sold_cases = [c for c in cases if c["status"] == "SOLD"]
     log(f"  SALE={len(sale_cases)}, SOLD={len(sold_cases)}, other={len(cases)-len(sale_cases)-len(sold_cases)}")
 
-    # Also check FC lane
-    fc_cases = scrape_levy_fc(client)
+    # Check FC lanes: levyclerk.com (primary) + floridapublicnotices.com (supplementary)
+    fc_levyclerk = scrape_levy_fc(client)
+    fc_fpn = probe_floridapublicnotices_levy(client)
+
+    # Merge: levyclerk entries are plain case_number strings; FPN entries are dicts
+    # De-duplicate by case_number (levyclerk wins if both present)
+    fc_all_items: list = []
+    seen_cn: set = set()
+    for cn in fc_levyclerk:
+        if cn not in seen_cn:
+            fc_all_items.append(cn)
+            seen_cn.add(cn)
+    for item in fc_fpn:
+        cn = item["case_number"] if isinstance(item, dict) else item
+        if cn not in seen_cn:
+            fc_all_items.append(item)
+            seen_cn.add(cn)
+    log(f"levy FC total: {len(fc_all_items)} unique cases (levyclerk={len(fc_levyclerk)}, fpn={len(fc_fpn)})")
 
     if args.dry_run:
         log("Dry run — no DB writes")
         for c in cases[:5]:
             print(json.dumps(c))
-        for cn in fc_cases:
-            print(json.dumps({"fc_case_number": cn}))
+        for item in fc_all_items:
+            print(json.dumps({"fc_item": item}))
         return
 
     # Insert MCA rows (SALE and SOLD)
@@ -383,17 +457,15 @@ def main():
     inserted_outcomes = sb_upsert("tax_deed_outcomes", outcome_rows)
     log(f"tax_deed_outcomes upserted: {inserted_outcomes}/{len(outcome_rows)}")
 
-    # Insert FC lane cases found on levyclerk.com (persist letter-A foreclosure
-    # coverage; previously scraped but silently discarded — see
-    # migrations/20260710_gold_standard_shard3_levy_fabrication_purge.sql).
-    if fc_cases:
+    # Insert FC lane cases (levyclerk primary + floridapublicnotices supplementary).
+    if fc_all_items:
         if not SUPABASE_ACCESS_TOKEN:
             log("ERROR: FC cases found but SUPABASE_ACCESS_TOKEN not set — cannot persist")
         else:
-            inserted_fc = _fc_upsert_sql(fc_cases)
-            log(f"FC upserted: {inserted_fc}/{len(fc_cases)}")
+            inserted_fc = _fc_upsert_sql(fc_all_items)
+            log(f"FC upserted: {inserted_fc}/{len(fc_all_items)}")
             if inserted_fc == 0:
-                raise RuntimeError(f"FAIL-LOUD: parsed {len(fc_cases)} FC cases but inserted 0")
+                raise RuntimeError(f"FAIL-LOUD: parsed {len(fc_all_items)} FC cases but inserted 0")
 
     # Update last_seen_at for all levy rows
     if not args.dry_run:
