@@ -1,0 +1,83 @@
+-- Gold Standard shard-7, county dixie ONLY (dispatch 5f3886dd-93fe-4567-94f5-
+-- c34177bc9a55). C/D re-investigation via the mandated ULTRALOOP protocol
+-- (Workflow-tool fan-out, two fresh subagents with no shared context, live
+-- web checks against dixieclerk.com only -- no PropertyOnion). Documentation-
+-- only: NO rows were updated in multi_county_auctions, foreclosure_outcomes,
+-- or tax_deed_outcomes this session.
+--
+-- BASELINE (VERIFIED live via rest/v1/rpc/pencil_dod_evaluate_county at
+-- session start, byte-identical before and after):
+--   dixie 8/10: A/B/E/F/G/H/I/J all PASS, C FAIL (matched_clean=25/33=75.8%),
+--   D FAIL (matched_any=25/33=75.8%), auctions_total=33.
+--
+-- GAP RE-DERIVED (fresh direct REST query of multi_county_auctions, county=
+-- dixie, parity_status IS NULL -- 8 rows, matches evaluator exactly):
+--   - 6 tax-deed rows, case_number DIXIE-SYNTH-* (a synthesized key for tax
+--     deed sales, which have no court case number -- confirmed real cert_
+--     number/cert_holder/parcel_id/lat-long present, this is NOT fabricated
+--     placeholder data), parity_scope='archive_no_source_truth', auction_date
+--     2025-08-12 or 2025-08-26 (11+ months past), auction_status still
+--     'upcoming' on our side. Cert numbers: 2023/1217, 2022/1367, 2023/427,
+--     2023/425, 2023/1457, 2023/471.
+--   - case 15-2023-CA-57 (foreclosure): auction_date 2026-07-21, now 6 days
+--     past; auction_status already flipped to 'sold' (source: dixieclerk.com_
+--     shard6_scraper) but sold_amount/winning_bidder/tier1_sold_amount/
+--     parity_status all NULL -- the "sale date now passed" recheck this
+--     dispatch specifically anticipated.
+--   - case 15-2025-CA-46 (foreclosure): auction_date 2026-08-25, genuinely
+--     future, cannot resolve for another 29 days -- correctly out of scope.
+--
+-- THIS SESSION'S INVESTIGATION (2 independent Workflow subagents, WebFetch/
+-- WebSearch only, dixietax.com and PropertyOnion excluded per standing
+-- guardrails):
+--   1. fc-15-2023-CA-57: dixieclerk.com/departments-services/court-services/
+--      foreclosure-sales/ lists ONLY genuinely-upcoming sales (currently
+--      15-2025-CA-46 and 15-2025-CA-10 for 08/25/2026); 15-2023-CA-57 does
+--      not appear. No results/outcomes archive page exists anywhere on the
+--      site (confirmed by trying /property-sales/ and the site's own
+--      internal linking). The only systems that would hold the actual
+--      disposition (winning bid / certificate-of-title amount) are Dixie's
+--      Official Records: civitekflorida.com/ocrs/county/15 and myfloridacounty.
+--      com/orisearch/15 -- both are interactive/authenticated search-form
+--      systems that WebFetch/WebSearch cannot submit. This is consistent
+--      with, and does not newly contradict, the 2026-07-24 3rd-pass session
+--      (commit 7a9cb013 / migration 20260724e) which walked the FULL Civitek
+--      OCRS JSF request flow with a real cookie jar down to the protocol
+--      level and confirmed the actual case-search action is gated by a
+--      Cloudflare Turnstile challenge on the search AJAX call itself (not
+--      the earlier login/disclaimer steps, which ARE automatable). That
+--      remains the real, final, unexploitable blocker for this case --
+--      this session did not attempt to bypass it (out of bounds).
+--   2. td-certs: live WebFetch of dixieclerk.com/departments-services/court-
+--      services/tax-deed-sales/ returned zero active listings this pass, and
+--      the "Lands Available for Taxes" page is empty (so none of the 6 certs
+--      escheated to the county via that path). This differs on its face from
+--      the 2026-07-24 3rd-pass session, which parsed the page's embedded raw
+--      JSON payload (not just rendered HTML) and found all 6 certs still
+--      carrying status=scheduled. This session's WebFetch pass did not parse
+--      that embedded JSON, so the difference is judged a fetch-method
+--      artifact, NOT evidence that the certs resolved -- per Honesty
+--      Protocol (BLANK > WRONG), nothing was written on this basis. A future
+--      session with browser/JSON-parse tooling should re-check the raw
+--      payload specifically, the way the 3rd-pass session did, rather than
+--      trusting rendered HTML.
+--
+-- CONCLUSION: no new reachable, non-gated, official per-parcel disposition
+-- data was found for any of the 8 gap rows this session. This is now the
+-- Nth independent pass (see gold_standard_ultraloop_audit ids 9153/9154/
+-- 9715/9845/9846/9998 and this dispatch's new ids 10403/10404) reaching the
+-- identical conclusion via genuinely different evidence paths each time.
+-- C and D remain a genuine structural ceiling (achievable max 32/33=97.0% if
+-- 15-2023-CA-57 and all 6 DIXIE-SYNTH rows eventually resolve; 15-2025-CA-46
+-- cannot resolve before 2026-08-25 regardless). No parity_status/sold_amount/
+-- winning_bidder written. Metric unchanged: C=75.8% FAIL, D=75.8% FAIL,
+-- zero regression on the other 8 letters.
+--
+-- gold_standard_ultraloop_audit rows logged this session (fresh, live-
+-- inserted via REST, real dispatch_id from this task's own summit_chat_
+-- dispatch row -- not fabricated): id 10403 (letter C, survived=true), id
+-- 10404 (letter D, survived=true).
+--
+-- No SQL statements to apply -- this file is documentation-only. Zero writes
+-- were made to multi_county_auctions, bid_decisions, foreclosure_outcomes,
+-- or tax_deed_outcomes this session.
