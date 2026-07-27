@@ -1,0 +1,81 @@
+session:
+  date: "2026-07-27"
+  dispatch_id: "fd02926f-3898-4e43-ab3d-c2edaa7f4a0b"
+  chat_session: "architect-20260727T160000"
+  role: "columbia-only shard -- diagnose A/B/F/I, adversarially verify blockers, fix a discovered Ship-to-Main violation"
+  counties: [columbia]
+  agent: claude-sonnet-5
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county('columbia') live at session start"
+    result: "6/10 -- A FAIL (fc=15 td=0), B FAIL (verified=0 closed_sold=0), F FAIL (tier1_sold=0 closed_sold=0), I FAIL (card_complete=14 of 15); C/D/E/G/H/J PASS"
+    reason: "Evidence-Before-Claims -- confirm the brief's stated metrics against live DB before doing any work"
+  - step: 2
+    action: "git log -i --grep=columbia across all branches to find prior session context before re-attempting anything"
+    result: "Found the most recent columbia session (dispatch f7e4b597, run6459, 3 commits) sits ONLY on remote branch origin/claude/issue-14254-20260725-1601 -- never merged to main. Ship-to-Main mandate violation."
+    reason: "K1 Think Before Coding -- do not re-diagnose what a prior session already root-caused; also surfaces a real repo-hygiene defect"
+  - step: 3
+    action: "Read pipeline.counties.notes for columbia (long-running audit trail) and the pencil_dod_evaluate_county SQL function definition directly"
+    result: "Confirmed exact evaluator semantics: closed_sold = count(sold_amount IS NOT NULL); B/F both structurally gated on that; A requires fc>0 AND td>0; I requires parcel_id/tax_account to resolve into v_zoning_gold_standard_card with zone_code NOT NULL"
+    reason: "Ground every subsequent diagnosis in the actual SQL, not assumption"
+  - step: 4
+    action: "Attempted columbiaclerk.com (foreclosure + tax-deed pages) via 4 distinct methods in this session: raw curl, headless Chromium subprocess (--headless=new --dump-dom, the exact technique a 2026-07-05 session used successfully), WebFetch tool, Firecrawl API"
+    result: "curl/Chromium/WebFetch all returned HTTP 403 (WP Defender AntiBot Global Firewall block page, distinct from the Cloudflare-only challenge documented on 2026-07-05); Firecrawl returned HTTP 402 insufficient credits"
+    reason: "A/B/F all depend on this single domain; needed a fresh, current-session reachability check before accepting the standing note as still true"
+  - step: 5
+    action: "Diagnosed the single I-incomplete row (case 2025-2196-CC, parcel_id 04023-000) via direct DB queries: parcel_zones (0 rows for this parcel), fl_parcels bare-parcel_id lookup (found a co_no=72/Taylor County collision, NOT columbia -- co_no must always be filtered), fl_counties (confirmed columbia co_no=12)"
+    result: "Root-caused: this specific parcel is entirely absent from fl_parcels co_no=12 (Columbia has only 12,661 of ~37,676 real parcels ingested)"
+    reason: "Systematic debugging -- do not accept a bare parcel_id string match across counties as ground truth"
+  - step: 6
+    action: "Found and queried the Columbia County Property Appraiser's live search API (search.ccpafl.com/api/livesearch/, reverse-engineered from livesearch.js) since columbiaclerk.com was unreachable but this different domain was not blocked"
+    result: "Resolved full STRAP 33-6S-16-04023-000, owner LAND HAND OUTDOORS LLC, situs 357 SW Amiel Ct, Fort White FL. Appraiser's own 'Zone' field is blank; 'Tax District' is a taxing district, not zoning. No verified zoning code available from this or any free source (Fort White zoning map is a non-georeferenced PDF; Zoneomics requires a paid report)."
+    reason: "Exhaust real, verifiable sources before declaring a blocker"
+  - step: 7
+    action: "Found the orphaned branch's prior I-fix attempt (migrations/20260725_gold_standard_shard8_columbia_i_e_fortwhite.sql) had written a GUESSED zone_code ('R-2', self-labeled INFERRED) plus a blanket A-1/R-1 catchall directly into parcel_zones -- never applied live (verified: parcel_zones still empty for this parcel)"
+    result: "Decision: do not apply or port this migration as an active migration -- fabricated zoning data violates the HONESTY PROTOCOL ('guessed standards = ghost-success, BANNED'). Quarantined instead."
+    reason: "K1/Honesty Protocol -- a metric flip built on a guess is worse than an honest FAIL"
+  - step: 8
+    action: "Ran a Workflow (ultracode) with 2 independent adversarial refuter agents (fresh context, no knowledge of my specific attempts beyond the claim itself) to try to disprove the columbiaclerk.com-unreachable finding, in parallel with a 3rd agent doing the Ship-to-Main git cleanup"
+    result: "Both refuters independently CONFIRMED the block across 5 more method/tool combinations combined (curl variants, python urllib, headless Chromium, WebFetch) -- 7 total independent methods across 3 agent contexts, zero retrieved real listing content. New detail surfaced: site stacks TWO block layers (Cloudflare challenge + WP Defender AntiBot), not one."
+    reason: "ULTRALOOP PROTOCOL -- a blocker claim only survives if refuters, whose sole goal is to break it, cannot"
+  - step: 9
+    action: "Ship agent: cherry-picked the legitimate session-report file from the orphaned branch onto main; explicitly excluded the fabricated migration from migrations/ and supabase/migrations/, placing a clearly-marked quarantined copy under docs/gold-standard-sessions/ instead; committed and pushed directly to main (rebased once against a concurrent unrelated push from another shard)"
+    result: "commit 846a7d12; git rev-parse main origin/main both resolve to 846a7d12, zero diff"
+    reason: "SHIP-TO-MAIN MANDATE -- fix the discovered violation the same way all session work should land: direct to main, no branch"
+  - step: 10
+    action: "Re-ran pencil_dod_evaluate_county('columbia') live at session close"
+    result: "Still 6/10, identical to session start -- no regression, no fabricated gain"
+    reason: "Verification-before-completion -- confirm the honest no-op claim against fresh live data, not memory of the start-of-session read"
+  - step: 11
+    action: "Wrote GOLD_STANDARD_SHARD9_COLUMBIA_DISPATCH_FD02926F_RUN6871_SESSION_REPORT.md with before/after JSON, full A/B/F/I diagnosis, and the Ship-to-Main fix; committing this file + this session log directly to main"
+    result: "see verification section"
+    reason: "Session Summary Loop Closure -- required for every session per CLAUDE.md"
+
+artifacts:
+  - path: GOLD_STANDARD_SHARD9_COLUMBIA_DISPATCH_FD02926F_RUN6871_SESSION_REPORT.md
+    type: session_report
+  - path: GOLD_STANDARD_SHARD8_COLUMBIA_DISPATCH_F7E4B597_SESSION_REPORT.md
+    type: recovered_session_report (from orphaned branch, commit 846a7d12)
+  - path: docs/gold-standard-sessions/QUARANTINED_20260725_gold_standard_shard8_columbia_i_e_fortwhite.sql
+    type: quarantined_migration (never applied, contains fabricated zone_code, kept for audit trail only, commit 846a7d12)
+  - path: .claude/session-logs/2026-07-27-gold-standard-shard9-columbia-run6871.yml
+    type: session_decision_log
+  - gold_standard_ultraloop_audit: no rows inserted this session -- no letter passed, so no survived=true claim exists to log; A/B/F/I all remain the same FAIL rows as session start
+
+verification:
+  - check: "pencil_dod_evaluate_county('columbia') live, session start"
+    proof: '{"A":{"pass":false,"metric":0,"detail":"fc=15 td=0"},"B":{"pass":false,"metric":null,"detail":"verified=0 closed_sold=0"},"C":{"pass":true,"metric":100.0,"detail":"matched_clean=15"},"D":{"pass":true,"metric":100.0,"detail":"matched_any=15"},"E":{"pass":true,"metric":100.0,"detail":"parcel_linked=15"},"F":{"pass":false,"metric":null,"detail":"tier1_sold=0 closed_sold=0"},"G":{"pass":true,"metric":100.0,"detail":"density=100.0 far= pk1000="},"H":{"pass":true,"metric":6.9,"detail":"hours since last_seen"},"I":{"pass":false,"metric":93.3,"detail":"card_complete=14 of 15"},"J":{"pass":true,"metric":100.0,"detail":"deal_complete=15"},"auctions_total":15}'
+    status: verified
+  - check: "pencil_dod_evaluate_county('columbia') live, session close (post-workflow)"
+    proof: '{"A":{"pass":false,"metric":0,"detail":"fc=15 td=0"},"B":{"pass":false,"metric":null,"detail":"verified=0 closed_sold=0"},"C":{"pass":true,"metric":100.0,"detail":"matched_clean=15"},"D":{"pass":true,"metric":100.0,"detail":"matched_any=15"},"E":{"pass":true,"metric":100.0,"detail":"parcel_linked=15"},"F":{"pass":false,"metric":null,"detail":"tier1_sold=0 closed_sold=0"},"G":{"pass":true,"metric":100.0,"detail":"density=100.0 far= pk1000="},"H":{"pass":true,"metric":7.1,"detail":"hours since last_seen"},"I":{"pass":false,"metric":93.3,"detail":"card_complete=14 of 15"},"J":{"pass":true,"metric":100.0,"detail":"deal_complete=15"},"auctions_total":15}'
+    status: verified
+  - check: "columbiaclerk.com unreachable -- adversarial verification"
+    proof: "7 independent method/tool combinations (curl x3 variants, headless Chromium, python urllib, WebFetch, Firecrawl) across 3 separate agent contexts (this session + 2 refuter agents), 0 retrieved real listing content, all 403/402"
+    status: verified (CONFIRMED, refuted attempt failed to refute)
+  - check: "parcel_zones has zero rows for parcel 04023-000 / tax_account 33-6S-16-04023-000, both before and after this session"
+    proof: "SELECT * FROM parcel_zones WHERE parcel_id='04023-000' OR tax_account='04023-000' -> [] (empty), confirming the orphaned branch's migration was never applied live"
+    status: verified
+  - check: "git push to origin main"
+    proof: "git rev-parse main origin/main -> both 846a7d12dc3327bba54f66a0db55f464607aad81 after fetch"
+    status: verified
