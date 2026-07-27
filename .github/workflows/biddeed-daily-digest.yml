@@ -1,14 +1,8 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# BidDeed.AI — Daily Branded Digest (Runs AFTER existing auction scraper)
-# Sends NEW branded email to lead_profiles list
-# Does NOT replace existing family email — runs in parallel
-# Schedule: 12:00 PM UTC (8:00 AM ET) weekdays
-# ─────────────────────────────────────────────────────────────────────────────
 name: BidDeed Daily Digest — Branded Email to Leads
 
 on:
   schedule:
-    - cron: '0 12 * * 1-5'    # 8:00 AM ET weekdays
+    - cron: '0 12 * * 1-5'
   workflow_dispatch:
     inputs:
       test_email:
@@ -29,13 +23,14 @@ jobs:
           node-version: '20'
 
       - name: Install deps
-       run: npm install @supabase/supabase-js resend date-fns ws
+        run: npm install @supabase/supabase-js resend date-fns ws
+
       - name: Send branded digest to leads
         env:
-          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RESEND_API_KEY:       ${{ secrets.RESEND_API_KEY }}
-          TEST_EMAIL:           ${{ github.event.inputs.test_email }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY:            ${{ secrets.RESEND_API_KEY }}
+          TEST_EMAIL:                ${{ github.event.inputs.test_email }}
         run: node scripts/biddeed-daily-digest.cjs
 
       - name: Summary
