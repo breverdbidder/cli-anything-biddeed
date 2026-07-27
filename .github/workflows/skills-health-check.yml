@@ -1,5 +1,7 @@
 name: Skills Health Check
 # Auto-deployed from claude-skills-library
+# Re-enabled 2026-07-27 (skill-audit #15144): was disabled_manually since 2026-03-27, ~4 months
+# of missed Sunday drift checks. Re-index forced per the same fix pattern used in 51bbd0b.
 
 on:
   schedule:

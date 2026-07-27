@@ -90,7 +90,7 @@ def detect_category(content):
     return max(scores, key=scores.get) if any(scores.values()) else "other"
 
 def upsert_batch(records):
-    """Upsert to Supabase via REST"""
+    """Upsert to Supabase via REST. Returns True on success, False on failure."""
     url = f"{SUPABASE_URL}/rest/v1/skills_catalog"
     headers = {
         "apikey": SUPABASE_KEY,
@@ -102,10 +102,10 @@ def upsert_batch(records):
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         resp = urllib.request.urlopen(req, timeout=30)
-        return resp.status
+        return 200 <= resp.status < 300
     except Exception as e:
         print(f"  Supabase upsert error: {e}")
-        return 0
+        return False
 
 def main():
     workdir = "/tmp/skills-eval"
@@ -148,13 +148,15 @@ def main():
     print("[3/3] Scoring...")
     batch = []
     stats = {"ADOPT": 0, "EVALUATE": 0, "CONDITIONAL": 0, "SKIP": 0}
-    
+    batches_ok = 0
+    batches_failed = 0
+
     for skill in skills:
         score, matched = keyword_score(skill["content"])
         category = detect_category(skill["content"])
         status = "ADOPT" if score >= 80 else "EVALUATE" if score >= 60 else "CONDITIONAL" if score >= 40 else "SKIP"
         stats[status] += 1
-        
+
         record = {
             "id": hashlib.md5(f"{skill['repo']}:{skill['skill_name']}".encode()).hexdigest(),
             "repo": skill["repo"],
@@ -167,18 +169,37 @@ def main():
             "evaluated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ")
         }
         batch.append(record)
-        
+
         if len(batch) >= 50:
-            upsert_batch(batch)
+            if upsert_batch(batch):
+                batches_ok += 1
+            else:
+                batches_failed += 1
             batch = []
-    
+
     if batch:
-        upsert_batch(batch)
-    
+        if upsert_batch(batch):
+            batches_ok += 1
+        else:
+            batches_failed += 1
+
     print(f"\n{'=' * 60}")
     print(f"  RESULTS: {len(skills)} skills evaluated")
     print(f"  ADOPT: {stats['ADOPT']} | EVALUATE: {stats['EVALUATE']} | CONDITIONAL: {stats['CONDITIONAL']} | SKIP: {stats['SKIP']}")
+    print(f"  Supabase batches: {batches_ok} ok / {batches_failed} failed")
     print(f"{'=' * 60}")
+
+    with open(os.path.join(workdir, "result_summary.txt"), "w") as f:
+        if batches_failed and not batches_ok:
+            f.write(f"FAILED — 0/{batches_ok + batches_failed} batches written, {len(skills)} skills evaluated but NOT persisted")
+        elif batches_failed:
+            f.write(f"PARTIAL — {batches_ok}/{batches_ok + batches_failed} batches written, {len(skills)} skills scored")
+        else:
+            f.write(f"{len(skills)} skills scored → Supabase skills_catalog (ADOPT:{stats['ADOPT']} EVAL:{stats['EVALUATE']} COND:{stats['CONDITIONAL']} SKIP:{stats['SKIP']})")
+
+    if batches_failed and not batches_ok:
+        print("FATAL: every Supabase batch write failed — nothing persisted this run")
+        sys.exit(1)
     
     # Print top ADOPT skills
     all_records = []
