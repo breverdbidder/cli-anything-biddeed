@@ -14,7 +14,7 @@ const ws = require('ws');
 const { Resend }        = require('resend');
 const { format, addDays } = require('date-fns');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { realtime: { transport: ws } });
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false }, realtime: { enabled: false } });
 const resend   = new Resend(process.env.RESEND_API_KEY);
 const BASE     = 'https://biddeed.ai';
 const TODAY    = format(new Date(), 'yyyy-MM-dd');
