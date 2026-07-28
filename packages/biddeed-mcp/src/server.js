@@ -9,6 +9,7 @@ import { computeIdempotencyKey, claimIdempotencyKey, completeIdempotencyKey } fr
 import { captureToolCall } from './posthog.js';
 import { TOOL_STREAM } from './constants.js';
 import { assertCountyCertified, resolveAuctionCounty } from './cert-gate.js';
+import { DISCLAIMER_SHORT } from './disclaimer.js';
 
 // Tool schemas
 import { schemas as discoverySchemas } from './tools/discovery.js';
@@ -253,6 +254,14 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
     errorClass = err.name || err.constructor?.name || 'Error';
   }
   const latencyMs = Date.now() - startedAt;
+
+  // UPL/legal disclaimer — every tool response payload carries it, success
+  // or tool-level error. Mutating `result` here (rather than the `response`
+  // envelope below) means the disclaimer also rides along into whatever
+  // gets cached for idempotent replay (completeIdempotencyKey below).
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    result = { ...result, disclaimer: DISCLAIMER_SHORT };
+  }
 
   // GTM-22 Task 3, Failure B — build and validate the wire payload BEFORE
   // charging. Billing for a response that fails to serialize is billing for

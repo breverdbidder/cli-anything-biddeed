@@ -20,6 +20,7 @@ import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vecto
 import { predict as xgbPredict } from './xgboost-model.js';
 import { deriveRedFlags } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
+import { DISCLAIMER_FULL } from '../disclaimer.js';
 
 const NO_ESTIMATE_REFUSAL = "An estimate here would be fabrication; BidDeed declines where HouseCanary would extrapolate.";
 const MIN_PRICE_SIGNAL = 1000;
@@ -154,6 +155,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       auction_outcome: buildOutcomeSection(auction, { ceiling: null, value: null, entryBid: null }),
       composition: sectionComposition({ locatable: false }),
       provenance: buildProvenance(auction, { modelAvailable: false }),
+      disclaimer: DISCLAIMER_FULL,
     };
   }
 
@@ -246,6 +248,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     auction_outcome: outcome,
     composition: sectionComposition({ locatable: true }),
     provenance: buildProvenance(auction, { modelAvailable: model.available }),
+    disclaimer: DISCLAIMER_FULL,
   };
 }
 

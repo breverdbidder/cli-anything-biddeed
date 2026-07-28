@@ -4,6 +4,7 @@
 // void #020617 (background); green=verified/positive $, red=risk,
 // amber=pending/inferred.
 import PDFDocument from 'pdfkit';
+import { DISCLAIMER_FULL } from '../disclaimer.js';
 
 const NAVY = '#1E3A5F';
 const ORANGE = '#F59E0B';
@@ -163,6 +164,12 @@ export function renderReportPdf(report) {
 
   doc.fontSize(7).fillColor('#888888')
     .text('BidDeed.AI / Everest Capital USA — decision-support intelligence, not legal or investment advice. Gold Standard certified data only.', 40, doc.page.height - 30, { width: doc.page.width - 80 });
+
+  doc.addPage();
+  doc.rect(0, 0, doc.page.width, 50).fill(NAVY);
+  doc.fillColor(WHITE).fontSize(13).font('Helvetica-Bold').text('Disclaimer', 40, 16);
+  doc.fillColor('#000000').fontSize(9).font('Helvetica')
+    .text(DISCLAIMER_FULL, 40, 70, { width: doc.page.width - 80 });
 
   doc.end();
   return done;
