@@ -34,11 +34,18 @@ The tax-deed page still does not publish a street address, only parcel + a
 Property Appraiser deep link, so property_address is omitted entirely for
 tax-deed rows rather than sent as null or fabricated.
 
-No calhoun sale has closed as of this rewrite (both endpoints show only
-`scheduled`/`cancelled`); the tax-deed-overbid list's `balance` field is the
-unclaimed surplus owed to the prior owner, not the winning bid, so it cannot
-be used to derive `sold_amount` -- an unrecognized status is logged loudly
-rather than guessed at.
+Both taxdeeds/foreclosures endpoints show only `scheduled`/`cancelled` and never
+flip to a closed/sold status themselves -- the clerk's site does not appear to
+update case status after a sale. 2026-07-28 addition: the tax-deed-surplus feed
+(`/wp-json/wp/v2/taxdeedoverbids`) is now cross-referenced by cert against our
+tracked tax_deed rows (`mark_closed_from_overbids`) -- a surplus/overbid entry
+only exists under FL Stat 197.582 once a sale has actually closed above the
+statutory minimum, so a match proves closure. Its `balance` field remains the
+unclaimed surplus owed to the prior owner, not the winning bid, so it is still
+never written to `sold_amount`/`tier1_sold_amount`; a match only flips
+`auction_status`/`tier1_sale_status`/`tier1_authoritative` (same convention as
+the gulf county tax-deed-surplus fix). An unrecognized status on the primary
+feeds is still logged loudly rather than guessed at.
 
 Env (required): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 Exit codes: 0 = success (>=1 row upserted), 1 = fatal error, 2 = no new rows found
@@ -57,6 +64,7 @@ UA = (
 API = {
     "foreclosure": "https://www.calhounclerk.com/wp-json/wp/v2/foreclosures",
     "tax_deed": "https://www.calhounclerk.com/wp-json/wp/v2/taxdeeds",
+    "tax_deed_overbid": "https://www.calhounclerk.com/wp-json/wp/v2/taxdeedoverbids",
 }
 
 KNOWN_STATUSES = {"scheduled", "cancelled"}
@@ -145,6 +153,58 @@ def upsert(supa_url: str, headers: dict, rows: list[dict]) -> None:
         raise RuntimeError(f"upsert failed {resp.status_code} {resp.text[:300]}")
 
 
+def mark_closed_from_overbids(supa_url: str, headers: dict) -> int:
+    """Cross-reference the tax-deed-surplus/overbid feed against our tracked tax_deed rows.
+
+    A surplus/overbid record only exists under FL Stat 197.582 once a sale has actually
+    closed with a winning bid above the statutory minimum, so a match proves the sale
+    closed even though the feed's `balance` field is the unclaimed surplus owed to the
+    prior owner, not the winning bid -- it is NEVER written to sold_amount/tier1_sold_amount
+    (two prior sessions on this county already rejected deriving winning_bid = opening_bid +
+    balance as fabrication). This only flips status fields, same convention as the gulf
+    county tax-deed-surplus fix (migrations/20260725_gold_standard_shard1_..._a9f1f24f.sql).
+    """
+    overbids = fetch_posts(API["tax_deed_overbid"])
+    certs = {(p.get("acf") or {}).get("cert", "").strip().upper() for p in overbids}
+    certs.discard("")
+
+    resp = requests.get(
+        f"{supa_url}/rest/v1/multi_county_auctions",
+        headers=headers,
+        params={
+            "county": "eq.calhoun",
+            "sale_type": "eq.tax_deed",
+            "select": "id,case_number,auction_status",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    rows = resp.json()
+
+    matched_ids = [
+        r["id"] for r in rows
+        if r["case_number"].strip().upper() in certs and r["auction_status"] != "completed"
+    ]
+    if not matched_ids:
+        return 0
+
+    patch = requests.patch(
+        f"{supa_url}/rest/v1/multi_county_auctions",
+        headers=headers,
+        params={"id": f"in.({','.join(matched_ids)})"},
+        json={
+            "auction_status": "completed",
+            "tier1_sale_status": "sold",
+            "tier1_authoritative": True,
+            "tier1_verified_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        },
+        timeout=30,
+    )
+    if not (200 <= patch.status_code < 300):
+        raise RuntimeError(f"overbid status patch failed {patch.status_code} {patch.text[:300]}")
+    return len(matched_ids)
+
+
 def main() -> int:
     supa_url = _req("SUPABASE_URL").rstrip("/")
     supa_key = _req("SUPABASE_SERVICE_ROLE_KEY")
@@ -163,17 +223,23 @@ def main() -> int:
     td_rows = build_taxdeed_rows(td_posts)
     print(f">>> tax_deed: {len(td_rows)} card(s) found on {API['tax_deed']}")
 
-    if not fc_rows and not td_rows:
-        print("NOTE: zero cards parsed from either endpoint -- calhoun genuinely has no listed inventory")
-        return 2
-
     if fc_rows:
         upsert(supa_url, headers, fc_rows)
     if td_rows:
         upsert(supa_url, headers, td_rows)
 
+    closed = mark_closed_from_overbids(supa_url, headers)
+    if closed:
+        print(f">>> tax_deed_overbid: {closed} tracked row(s) flipped to auction_status=completed "
+              f"(surplus/overbid feed proves the sale closed; sold_amount left NULL -- not publicly available)")
+
     total = len(fc_rows) + len(td_rows)
-    print(f"\nSUCCESS: upserted {total} calhoun row(s): "
+    if not total and not closed:
+        print("NOTE: zero cards parsed from either endpoint and no new overbid matches -- "
+              "calhoun genuinely has no listed inventory changes")
+        return 2
+
+    print(f"\nSUCCESS: upserted {total} calhoun row(s), flipped {closed} to completed: "
           f"{[r['case_number'] for r in fc_rows + td_rows]}")
     return 0
 
