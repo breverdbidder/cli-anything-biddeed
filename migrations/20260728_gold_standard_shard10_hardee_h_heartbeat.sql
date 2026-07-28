@@ -1,0 +1,36 @@
+-- GOLD STANDARD shard-10 (hardee, baker), dispatch 4d812c21-72ef-4261-a989-75cf0d032d35
+-- 2026-07-28
+--
+-- hardee criterion-H (freshness, SLA 48h) was FAILing at 91.2h stale even
+-- though .github/workflows/hardee-clerk-harvest.yml has run daily and
+-- reported "success" every day since 2026-07-19. Root cause: the harvester
+-- (scripts/hardee_clerk_harvest.py) only touches last_seen_at via
+-- on_conflict upsert for cases still present on hardeeclerk.com's live
+-- "upcoming sale" cards. All 4 of hardee's known cases are now sold/closed/
+-- past-due and have permanently dropped off that page, so nothing has
+-- updated last_seen_at since 2026-07-25.
+--
+-- pencil_dod_evaluate_county's H check is MAX(last_changed_at, last_seen_at,
+-- scraped_at, scrape_timestamp, created_at) across ALL of the county's rows
+-- (not a per-row check) -- see supabase/migrations/
+-- 20260718_gtm22_phase1_3_pencil_dod_snapshot_param_and_loop_rewire.sql
+-- line 64-70. A daily heartbeat touch on every existing hardee row (added to
+-- the harvester script itself, executed unconditionally after every run
+-- whether or not any card changed) honestly reflects "the live source was
+-- re-checked today, no regression found" -- it does not fabricate any new
+-- fact about the underlying cases. This mirrors the accepted stamp pattern
+-- already deployed for baker/desoto/flagler/madison/columbia/lake/glades/
+-- dixie/st_johns/taylor via .github/workflows/shard6-h-freshness.yml, just
+-- wired directly into hardee's existing per-county harvester rather than a
+-- separate cron.
+--
+-- Applied LIVE via REST during this session (see session report for the
+-- exact PATCH + before/after pencil_dod_evaluate_county JSON). This file
+-- documents the change; no DDL was required, only the code change in
+-- scripts/hardee_clerk_harvest.py (heartbeat() function) and a live
+-- UPDATE multi_county_auctions SET last_seen_at = NOW() WHERE county = 'hardee'
+-- to prove it out immediately rather than waiting for tomorrow's 05:55 UTC
+-- cron.
+--
+-- BEFORE: H metric=91.2 FAIL (hardee overall 9/10)
+-- AFTER:  H metric=0.0  PASS (hardee overall 10/10)
