@@ -1,0 +1,42 @@
+-- Gold Standard shard-3 (hendry/flagler/st_lucie/hamilton, dispatch 9fd73f40-0a4a-462c-b848-13ddb187e863,
+-- chat_session architect-20260728T160000): hamilton J ghost-success purge.
+--
+-- ROOT CAUSE (VERIFIED live this session): scripts/shard1_run2886_hamilton_j_backfill.py's
+-- fetch_shapira_model() reads shapira_models.cv_auc_mean (a MODEL-LEVEL cross-validation metric,
+-- 0.7785016343887565) and writes it into bid_decisions.ml_score as if it were a per-property
+-- prediction. All 16 hamilton bid_decisions rows (pipeline_version='shard1-run2886-hamilton-j-v1')
+-- carried the IDENTICAL ml_score=0.7785 despite ARV ranging from $1,752.19 (HAM-TD-CERT-230) to
+-- $575,000.00 (2025-CA-46) -- a 328x spread with one constant score, which is impossible for a
+-- real per-property model. Corroborating fabrication signals: factors.distress_owner='unknown'
+-- for all 16 rows (100%), factors.cma_distressed = arv*0.65 exactly for all 16 (formulaic, not
+-- comparable-sales analysis), and two single-timestamp bulk inserts (6 rows at
+-- 2026-06-25T16:25:56.143546Z, 10 rows at 2026-07-04T09:59:04.596139Z) rather than per-property
+-- scoring over time.
+--
+-- This is the SAME fabrication class already identified and purged fleet-wide in
+-- migrations/20260721_gold_standard_shard9_hillsborough_glades_suwannee_j_ghost_success_purge.sql
+-- and migrations/20260711b_gold_standard_shard10_gulf_j_ghost_success_purge_run3679.sql. Per HARD
+-- GUARDRAILS #2 (fail-loud, never fabricate) and established campaign precedent, extending this
+-- pattern to hamilton's 5 remaining rows (HAM-TD-CERT-2/300/539/540/585) instead of purging would
+-- have compounded the fabrication, not fixed it.
+--
+-- ACTION TAKEN LIVE (via Supabase Management API SQL endpoint, this file documents for replay):
+--   DELETE FROM bid_decisions
+--   WHERE case_number IN (SELECT case_number FROM multi_county_auctions WHERE lower(county)='hamilton')
+--     AND pipeline_version = 'shard1-run2886-hamilton-j-v1';
+--   -- 16 rows deleted.
+--
+-- pencil_dod_evaluate_county('hamilton') re-verified live immediately after:
+--   J: pass=false, metric=76.2, deal_complete=16  ->  pass=false, metric=0.0, deal_complete=0
+--   (no other letter changed; J was already FAIL in the dispatch brief, so this is an honesty
+--   correction, not a new regression -- the true number was always 0, not 76.2)
+--
+-- RESIDUAL for a future session: build a REAL J generator for hamilton (genuine per-property
+-- Shapira V14 XGBoost inference + gen_valuations_comps_batch two-arm CMA, not a constant
+-- cv_auc_mean stub). Also flag scripts/shard1_run2886_hamilton_j_backfill.py's
+-- fetch_shapira_model() as fleet-wide-dangerous -- any other county backfilled with this exact
+-- script (grep pipeline_version='shard1-run2886-hamilton-j-v1' or similar '*-j-backfill-v1'
+-- patterns fleet-wide) likely carries the identical fabrication and needs the same audit.
+--
+-- No DDL in this file -- the write was a single DELETE executed live via PostgREST/Management API,
+-- not a transactional migration script. This file is the audit-trail record only.
