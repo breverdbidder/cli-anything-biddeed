@@ -1129,7 +1129,7 @@ input[type=range] { accent-color:#f59e0b; }
   <div x-show="deals.length===0" class="space-y-3 mt-3"><template x-for="i in 5"><div class="h-32 rounded-xl skeleton"></div></template></div>
   <div x-show="deals.length>0 && filteredDeals.length===0" class="mt-12 text-center text-slate-400 text-sm">No deals match. Try clearing filters.</div>
 
-  <div class="md:hidden space-y-3 mt-3" x-show="deals.length>0">
+  <div class="space-y-3 mt-3 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4" x-show="deals.length>0">
     <template x-for="d in displayDeals" :key="d.tax_deed_case||d.full_address||d.street_address">
       <div @click="openDeal=d" class="card-tap rounded-xl p-3 active:bg-slate-800/80"
            :class="(d.sale_status==='SOLD' ? 'glass-sold' : d.sale_status==='CANCELED' ? 'glass-canceled' : (d.owner_distress_score||0)>=50 ? 'glass-triangle' : isUnknownAddr(d) ? 'glass-diamond' : 'glass')">
@@ -1182,7 +1182,7 @@ input[type=range] { accent-color:#f59e0b; }
     </template>
   </div>
 
-  <div class="hidden md:block glass rounded-xl overflow-hidden mt-3" x-show="deals.length>0">
+  <div class="hidden" x-show="false">
     <table class="w-full text-sm">
       <thead class="bg-slate-900/80 text-xs uppercase text-slate-400">
         <tr><th class="p-3 text-left">Status</th><th class="p-3 text-left">Grade</th><th class="p-3 text-left">Property / Owner</th><th class="p-3 text-left">🔺 Signals</th><th class="p-3 text-right">Bid</th><th class="p-3 text-right">Equity</th><th class="p-3 text-right">Score</th></tr>
