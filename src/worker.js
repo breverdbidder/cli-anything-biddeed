@@ -281,7 +281,7 @@ export default {
         if (askedYesterday || askedResults) {
           try {
             const y = new Date(Date.now() - 86400000).toISOString().slice(0,10);
-            let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&sold_amount=not.is.null&order=sold_amount.desc.nullslast&limit=12&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
+            let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&or=(sold_amount.not.is.null,tier1_sold_amount.not.is.null)&order=tier1_sold_amount.desc.nullslast&limit=12&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
             if (county) url += `&county=eq.${encodeURIComponent(county)}`;
             const lr = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
             const rows = lr.ok ? await lr.json() : [];
