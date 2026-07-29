@@ -1,0 +1,80 @@
+-- Gold Standard shard-6 (dispatch f68d2ec5-b6ba-4201-8d33-3c2083e0fce3): bradford.
+-- This is the 5th session to work bradford's B/F gap (after dispatches 42aac1fb,
+-- d07c1eba x2, c475a06d x2 -- see supabase/migrations/20260725_gold_standard_shard5_bradford_i_bf_residual_confirmation.sql,
+-- 20260725c_..._bf_3rd_reconfirm.sql, 20260725d_..._bf_4th_reconfirm_ori_turnstile.sql
+-- for the full exhausted-angle history). This pass used an ULTRALOOP Workflow
+-- (2 parallel browser-capable research agents + adversarial-verify wiring) to
+-- pursue two genuinely NEW leads discovered fresh this session via Firecrawl
+-- search, rather than re-treading the confirmed-dead list (bradfordclerk.com
+-- Cloudflare 403, Firecrawl static scrape, bctelegraph.com through 7-23-26,
+-- surplusindex.com 404, Wayback dead, RealAuction not-applicable,
+-- officialrecords.bradfordclerk.com DNS failure, myfloridacounty.com ORI
+-- Turnstile, gz.floridapa.com undocumented CGI, records.bradfordco.org login wall).
+--
+-- Baseline (VERIFIED via pencil_dod_evaluate_county('bradford'), live 2026-07-29
+-- before and after this session's work -- UNCHANGED): 8/10. A/C/D/E/G/H/I/J pass.
+-- B=null(verified=0 closed_sold=0) F=null(tier1_sold=0 closed_sold=0) FAIL.
+-- auctions_total=5. Single lever: case 25000457CAAXMX, sale date 2026-07-16,
+-- 13 days past as of this session, still auction_status='upcoming',
+-- sold_amount still null -- the only bradford row with a lapsed sale date.
+--
+-- ================================================================================
+-- NEW LEAD 1: civitekflorida.com/ocrs/county/04/ (Bradford County OCRS,
+-- "anonymous access to court records") -- CONFIRMED BLOCKED, NEW EVIDENCE
+-- ================================================================================
+-- Genuinely untried by any prior session (prior sessions only guessed the dead
+-- "officialrecords.bradfordclerk.com" subdomain, a different vendor/domain).
+-- Verified fresh this session: HTTP 200, real Civitek-hosted JSF/PrimeFaces
+-- search application (not Cloudflare-blocked at the domain level). A Firecrawl
+-- actions-based scrape (click "Public" -> click "I Agree" disclaimer) reached
+-- the real Person/Case Search form, including a Circuit Civil (CA) case-type
+-- checkbox matching this case's format. However, a live Cloudflare Turnstile
+-- widget (cf-chl-widget iframe, real challenge-platform URLs/session tokens
+-- confirmed in raw HTML) sits directly above the Search button -- a mandatory
+-- gate on the search action itself, not decorative. Per this campaign's hard
+-- rule against CAPTCHA solving/bypass, no attempt was made to clear it and no
+-- attorney-login alternate path was tried. Case docket for 2025-CA-000457 /
+-- 25000457CAAXMX was never reached. This closes off civitekflorida.com/ocrs as
+-- an unattended-session source, same category as the myfloridacounty.com ORI
+-- portal dead end (20260725d) -- do not retry without a human-in-the-loop
+-- browser session capable of manually solving Turnstile.
+--
+-- ================================================================================
+-- NEW LEAD 2: Box.com "FORECLOSURE SALE LIST" doc linked from
+-- bradfordclerk.com/tax-deeds-and-foreclosure-sales/ -- CONFIRMED BLOCKED
+-- ================================================================================
+-- Documented in pipeline.counties.notes (verified 2026-07-03) but never
+-- actually pursued by any residual-confirmation migration to date. Attempted
+-- via Firecrawl's full browser-rendering scrape engine (v2/scrape,
+-- waitFor up to 15000ms, timeout up to 120000ms, maxAge:0 to force a fresh
+-- non-cached fetch) specifically to see whether real JS execution could clear
+-- the Cloudflare challenge where plain curl/static scrape could not. Result:
+-- HTTP 408 SCRAPE_TIMEOUT on every genuine attempt (one interim response was a
+-- stale cache hit for an unrelated prior request, correctly discarded as not
+-- real data). Opportunistic web search (4 queries) for the Box.com folder URL
+-- independently of the blocked parent page returned zero box.com/app.box.com
+-- results. Note: the browser-use and firecrawl CLI binaries referenced by this
+-- campaign's Skill docs are not installed in this sandbox; the Firecrawl REST
+-- API was used as an equivalent-capability substitute (same underlying engine)
+-- and still failed -- flagging this as a possible environment/tooling gap for
+-- a future session to close before ruling out real interactive browser
+-- automation entirely, but bradfordclerk.com itself remains unreachable by
+-- every method tried across 5 sessions to date.
+--
+-- ================================================================================
+-- Conclusion: NO UPDATE issued. No fabrication.
+-- ================================================================================
+-- Both new angles produced genuinely new, concrete blocking evidence (not
+-- re-guessed dead ends) but no real, independently-sourced sale result for
+-- case 25000457CAAXMX. B/F remain FAIL for the 5th consecutive confirmed
+-- residual pass. This shard's assigned scope (bradford only, 8/10, only B/F
+-- open) is exhausted for this session -- the campaign's fail-loud / BLANK >
+-- WRONG invariant means reporting this honestly rather than fabricating a
+-- sold amount or reusing another row's data.
+--
+-- Audit trail: 2 rows inserted into public.gold_standard_ultraloop_audit
+-- (dispatch_id f68d2ec5-b6ba-4201-8d33-3c2083e0fce3, letters B/F,
+-- ultraloop_mode='native' via the Workflow tool's fan-out-and-verify
+-- orchestration, survived=true -- ids 10702-10703).
+
+SELECT public.pencil_dod_evaluate_county('bradford');
