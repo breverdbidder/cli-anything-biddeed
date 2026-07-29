@@ -2,27 +2,57 @@
  * BidDeed.AI Cloudflare Worker — src/worker.js
  * SSOT established: 2026-07-29
  * Worker name: worker-damp-snowflake-cead
- * 
+ *
  * Routes:
- *   GET  /              → Homepage
- *   GET  /chat          → Chatbot UI
- *   POST /chat/api      → Streaming SSE chat (Anthropic)
- *   POST /chat/lead     → Email capture → Supabase lead_profiles
- *   GET  /chat/county-data → County card JSON
- *   GET  /subscribe     → Redirect to Stripe checkout
- *   GET  /subscribe?tier=investor → Stripe investor checkout
- *   GET  /success       → Post-payment key delivery page
- *   GET  /subscribe/status → Poll for API key after payment
- *   GET  /terms         → Terms of Service
- *   GET  /privacy       → Privacy Policy
- *   GET  /disclaimer    → Disclaimer
+ *   GET  /                    → Homepage
+ *   GET  /chat                → Chatbot UI
+ *   GET  /county/:name        → County deep-link landing page
+ *   GET  /counties            → All counties index
+ *   POST /chat/api            → Streaming SSE chat (Anthropic)
+ *   POST /chat/lead           → Email capture → Supabase lead_profiles
+ *   GET  /chat/county-data    → County card JSON
+ *   GET  /subscribe           → Stripe checkout redirect
+ *   GET  /success             → Post-payment key delivery page
+ *   GET  /subscribe/status    → Poll for API key after payment
+ *   GET  /terms               → Terms of Service
+ *   GET  /privacy             → Privacy Policy
+ *   GET  /disclaimer          → Disclaimer
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const SUPABASE_URL  = 'https://mocerqjnksmhcjzxrewo.supabase.co';
-const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODc0Nzc1MTksImV4cCI6MjAwMzA1MzUxOX0.VFl2gOfVWMRFQPiWxkpRf-GH5Vc_9bRHhK5bnAHmLNA';
+const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODc0Nzc1MTksImV4cCI6MjAwMzA1MzUxOX0.VFl2gOfVWMRFQPiWxkpRf-GH5Vc_9bRHhK5bnAHmLNA';
 const STRIPE_INVESTOR_URL = 'https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00';
+const MINDSTUDIO_S5_URL = 'https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427';
 const DISCLAIMER_SHORT = 'Informational only — not legal, financial, or investment advice. Verify independently & consult a licensed attorney before bidding.';
+
+const GOLD_COUNTIES = [
+  'brevard','broward','charlotte','clay','duval','franklin','hardee','hendry',
+  'hernando','highlands','hillsborough','indian_river','jackson','lafayette',
+  'leon','monroe','nassau','orange','palm_beach','pasco','putnam','st_johns',
+  'volusia','washington'
+];
+
+const COUNTY_DISPLAY = {
+  'brevard':'Brevard','broward':'Broward','charlotte':'Charlotte','clay':'Clay',
+  'duval':'Duval','franklin':'Franklin','hardee':'Hardee','hendry':'Hendry',
+  'hernando':'Hernando','highlands':'Highlands','hillsborough':'Hillsborough',
+  'indian_river':'Indian River','jackson':'Jackson','lafayette':'Lafayette',
+  'leon':'Leon','monroe':'Monroe','nassau':'Nassau','orange':'Orange',
+  'palm_beach':'Palm Beach','pasco':'Pasco','putnam':'Putnam','st_johns':'St. Johns',
+  'volusia':'Volusia','washington':'Washington','alachua':'Alachua','baker':'Baker',
+  'bay':'Bay','bradford':'Bradford','brevard':'Brevard','calhoun':'Calhoun',
+  'citrus':'Citrus','columbia':'Columbia','desoto':'DeSoto','dixie':'Dixie',
+  'escambia':'Escambia','flagler':'Flagler','gadsden':'Gadsden','gilchrist':'Gilchrist',
+  'glades':'Glades','gulf':'Gulf','hamilton':'Hamilton','holmes':'Holmes',
+  'jefferson':'Jefferson','lafayette':'Lafayette','lake':'Lake','lee':'Lee',
+  'levy':'Levy','liberty':'Liberty','madison':'Madison','manatee':'Manatee',
+  'marion':'Marion','martin':'Martin','miami_dade':'Miami-Dade','okaloosa':'Okaloosa',
+  'okeechobee':'Okeechobee','osceola':'Osceola','pinellas':'Pinellas','polk':'Polk',
+  'santa_rosa':'Santa Rosa','sarasota':'Sarasota','seminole':'Seminole',
+  'st_lucie':'St. Lucie','sumter':'Sumter','suwannee':'Suwannee','taylor':'Taylor',
+  'union':'Union','wakulla':'Wakulla','walton':'Walton'
+};
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 function corsHeaders(origin) {
@@ -46,7 +76,7 @@ async function logErr(env, endpoint, message, detail, status) {
   } catch(_) {}
 }
 
-// ── Rate limit check ──────────────────────────────────────────────────────────
+// ── Rate limit ────────────────────────────────────────────────────────────────
 async function checkRateLimit(ip, limit = 15) {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/chat_rate_check`, {
@@ -54,12 +84,34 @@ async function checkRateLimit(ip, limit = 15) {
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
       body: JSON.stringify({ p_ip: ip, p_limit: limit }),
     });
-    if (!res.ok) return true; // fail open
-    const data = await res.json();
-    return data === true;
-  } catch(_) {
-    return true; // fail open
-  }
+    if (!res.ok) return true;
+    return await res.json() === true;
+  } catch(_) { return true; }
+}
+
+// ── County data fetch ─────────────────────────────────────────────────────────
+async function fetchCountyData(county) {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/county_twin_snapshot?county=eq.${encodeURIComponent(county)}&limit=1`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    return rows[0] || null;
+  } catch(_) { return null; }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtDate(d) {
+  if (!d) return 'TBD';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function fmtMoney(n) {
+  if (!n) return 'N/A';
+  return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+function toDisplay(slug) {
+  return COUNTY_DISPLAY[slug] || slug.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 
 // ── Main fetch handler ────────────────────────────────────────────────────────
@@ -70,24 +122,18 @@ export default {
     const method = request.method;
     const origin = request.headers.get('Origin') || '';
 
-    // Global try/catch
     try {
-      // OPTIONS preflight
       if (method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: corsHeaders(origin) });
       }
 
-      // ── Legal pages ──────────────────────────────────────────────────────
-      if (path === '/terms') return new Response(TERMS_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      // ── Legal ────────────────────────────────────────────────────────────
+      if (path === '/terms')      return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/privacy')    return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/disclaimer') return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
       // ── /subscribe ───────────────────────────────────────────────────────
       if (path === '/subscribe') {
-        const tier = url.searchParams.get('tier') || 'investor';
-        if (tier === 'investor') {
-          return Response.redirect(STRIPE_INVESTOR_URL, 302);
-        }
         return Response.redirect(STRIPE_INVESTOR_URL, 302);
       }
 
@@ -113,20 +159,27 @@ export default {
         }
       }
 
+      // ── /county/:slug — county deep-link landing page ────────────────────
+      if (path.startsWith('/county/')) {
+        const slug = path.replace('/county/', '').toLowerCase().replace(/-/g,'_');
+        if (!slug) return Response.redirect('/counties', 302);
+        const data = await fetchCountyData(slug);
+        const html = buildCountyPage(slug, data);
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+
+      // ── /counties — all counties index ───────────────────────────────────
+      if (path === '/counties') {
+        const html = buildCountiesIndex();
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+
       // ── /chat/county-data ────────────────────────────────────────────────
       if (path === '/chat/county-data') {
         const county = url.searchParams.get('county') || '';
         if (!county) return new Response(JSON.stringify(null), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        try {
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/county_twin_snapshot?county_name=eq.${encodeURIComponent(county)}&limit=1`, {
-            headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-          });
-          const rows = await res.json();
-          const row = rows[0] || null;
-          return new Response(JSON.stringify(row), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        } catch(e) {
-          return new Response(JSON.stringify(null), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
+        const row = await fetchCountyData(county);
+        return new Response(JSON.stringify(row), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
       // ── POST /chat/lead ──────────────────────────────────────────────────
@@ -160,55 +213,51 @@ export default {
 
       // ── POST /chat/api — Streaming SSE ───────────────────────────────────
       if (path === '/chat/api' && method === 'POST') {
-        // Content-Length guard
         const cl = parseInt(request.headers.get('Content-Length') || '0', 10);
         if (cl > 20000) return new Response(JSON.stringify({ error: 'Request too large' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
 
-        // Rate limit
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
         const allowed = await checkRateLimit(ip, 15);
         if (!allowed) return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again in a minute.' }), { status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
 
         let body = {};
-        try { body = await request.json(); } catch(_) { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } }); }
+        try { body = await request.json(); } catch(_) {
+          return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
 
         const { messages, county, hook } = body;
-        if (!Array.isArray(messages) || messages.length === 0) {
+        if (!Array.isArray(messages) || messages.length === 0)
           return new Response(JSON.stringify({ error: 'messages required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        if (messages.length > 20) return new Response(JSON.stringify({ error: 'Too many messages' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-
-        // Validate messages
+        if (messages.length > 20)
+          return new Response(JSON.stringify({ error: 'Too many messages' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const totalChars = messages.reduce((n, m) => n + String(m.content || '').length, 0);
-        if (totalChars > 8000) return new Response(JSON.stringify({ error: 'Messages too long' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const validRoles = ['user', 'assistant'];
-        if (!messages.every(m => validRoles.includes(m.role))) {
+        if (totalChars > 8000)
+          return new Response(JSON.stringify({ error: 'Messages too long' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!messages.every(m => ['user','assistant'].includes(m.role)))
           return new Response(JSON.stringify({ error: 'Invalid message role' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
 
-        // System prompt
-        const countyCtx = county ? `The user is asking about ${county} County, Florida.` : 'The user may ask about any Florida county.';
-        const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. You are built on 20 years of experience from Ariel Shapira, a Florida auction expert and the creator of the Shapira Max Bid Formula.
+        const countyCtx = county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.';
+        const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the Shapira Max Bid Formula.
 
 ${countyCtx}
 
 Your capabilities:
 - Analyze foreclosure and tax deed auctions across all 67 Florida counties
-- Explain and apply the Shapira Max Bid Formula (the exact ceiling before bidding)
+- Explain and apply the Shapira Max Bid Formula (exact ceiling before bidding)
 - Identify Gold Standard certified counties (verified data quality)
 - Explain lien priority, HOA foreclosure risks, and surplus funds
 - Answer questions about ZoneWise zoning intelligence
-- Respond in the same language the user writes in (English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese, etc.)
+- Respond in the same language the user writes in (English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese, French, Italian, German, Japanese, Korean, etc.)
 
 Key facts:
 - 24 Gold Standard certified counties: Brevard, Broward, Charlotte, Clay, Duval, Franklin, Hardee, Hendry, Hernando, Highlands, Hillsborough, Indian River, Jackson, Lafayette, Leon, Monroe, Nassau, Orange, Palm Beach, Pasco, Putnam, St. Johns, Volusia, Washington
 - Marion County proof: Case 422021CA000414CAAXXX — Shapira Max Bid $82,000, actual sale $73,501. Ceiling held by $8,499.
-- Shapira S5 reports are $25 each (pay-per-execution)
-- Investor tier: $99/month
+- Shapira S5 reports: $25 each — full AI-powered max-bid analysis for one specific property
+- Investor tier: $99/month — unlimited property cards, 10 S5 reports/mo, daily digest all 67 counties
+- When a user asks for a specific property analysis, mention they can get a full Shapira S5 Report for $25
 
-Always end responses with a brief mention of how BidDeed.AI can help further. ${DISCLAIMER_SHORT}`;
+When someone asks for a specific property analysis or max bid, always suggest the $25 Shapira S5 Report as the way to get the full calculation. ${DISCLAIMER_SHORT}`;
 
-        // Call Anthropic with streaming
         const anthropicKey = env.ANTHROPIC_KEY;
         if (!anthropicKey) {
           await logErr(env, '/chat/api', 'Missing ANTHROPIC_KEY binding', '', 500);
@@ -219,11 +268,7 @@ Always end responses with a brief mention of how BidDeed.AI can help further. ${
         try {
           anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
-            headers: {
-              'x-api-key': anthropicKey,
-              'anthropic-version': '2023-06-01',
-              'Content-Type': 'application/json',
-            },
+            headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: 'claude-haiku-4-5',
               max_tokens: 1024,
@@ -243,7 +288,6 @@ Always end responses with a brief mention of how BidDeed.AI can help further. ${
           return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        // Pipe SSE stream to client
         const { readable, writable } = new TransformStream();
         const writer = writable.getWriter();
         const encoder = new TextEncoder();
@@ -280,12 +324,7 @@ Always end responses with a brief mention of how BidDeed.AI can help further. ${
         })());
 
         return new Response(readable, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            ...corsHeaders(origin),
-          },
+          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', ...corsHeaders(origin) },
         });
       }
 
@@ -295,21 +334,15 @@ Always end responses with a brief mention of how BidDeed.AI can help further. ${
         const hook   = url.searchParams.get('hook')   || '';
         const ref    = url.searchParams.get('ref')    || '';
         const action = url.searchParams.get('action') || '';
-
-        if (action === 'subscribe') {
-          return Response.redirect(`/subscribe?tier=investor`, 302);
-        }
-
-        const chatHtml = buildChatPage(county, hook, ref);
-        return new Response(chatHtml, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+        if (action === 'subscribe') return Response.redirect(`/subscribe?tier=investor`, 302);
+        return new Response(buildChatPage(county, hook, ref), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
-      // ── GET / (Homepage) ─────────────────────────────────────────────────
+      // ── GET / ────────────────────────────────────────────────────────────
       if (path === '/' || path === '') {
         return new Response(HOMEPAGE_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
-      // 404
       return new Response('Not found', { status: 404 });
 
     } catch(e) {
@@ -319,98 +352,333 @@ Always end responses with a brief mention of how BidDeed.AI can help further. ${
   }
 };
 
-// ── Chat page builder ─────────────────────────────────────────────────────────
-function buildChatPage(county, hook, ref) {
-  const countyBar = county ? `
-<div class="county-bar" id="cbar" style="display:none">
-  <div class="cb-name" id="cb-name">${county.charAt(0).toUpperCase()+county.slice(1)} County</div>
-  <div class="cb-stats" id="cb-stats"></div>
-  <div id="cb-badge"></div>
-  <div style="font-size:.65rem;color:var(--muted);margin-left:auto" id="cb-date"></div>
-</div>` : '';
-
-  // Auto-fire message based on hook
-  let autoMsg = '';
-  if (hook === 'PROOF') autoMsg = 'Show me the Marion County proof — Shapira Formula ceiling held to the cent.';
-  else if (ref === 'digest') autoMsg = `What are the most important ${county || 'Florida'} auction opportunities right now?`;
+// ── County deep-link landing page ─────────────────────────────────────────────
+function buildCountyPage(slug, d) {
+  const name = toDisplay(slug);
+  const isGold = d ? d.is_gold_standard : GOLD_COUNTIES.includes(slug);
+  const fcCount = d?.fc_upcoming_30d || 0;
+  const tdCount = d?.td_upcoming_30d || 0;
+  const fcNext  = fmtDate(d?.fc_next_auction_date);
+  const tdNext  = fmtDate(d?.td_next_auction_date);
+  const fcAvg   = fmtMoney(d?.fc_avg_opening_bid);
+  const tdAvg   = fmtMoney(d?.td_avg_opening_bid);
+  const total   = fcCount + tdCount;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>BidDeed.AI · Auction Intelligence</title>
+<title>${name} County Foreclosure &amp; Tax Deed Auctions — BidDeed.AI</title>
+<meta name="description" content="${name} County FL: ${total} upcoming auctions. AI-powered max bid analysis. Gold Standard certified data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b;--green:#10b981}
-html,body{height:100%;overflow:hidden}
-body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:54px;background:rgba(2,6,23,.98);border-bottom:1px solid var(--border);flex-shrink:0}
-.hdr-left{display:flex;align-items:center;gap:10px;text-decoration:none}
-.bd-logo{width:32px;height:32px;border-radius:7px;background:linear-gradient(135deg,var(--orange),var(--orange2));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:var(--navy);flex-shrink:0}
-.bd-brand h1{font-size:14px;font-weight:700;color:white;line-height:1.1}
-.bd-brand p{font-size:10px;color:var(--muted)}
-.upgrade-btn{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border:none;border-radius:7px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
-.county-bar{background:var(--navy2);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:16px;flex-shrink:0;flex-wrap:wrap}
-.cb-name{font-size:14px;font-weight:700;color:white}
-.cb-stats{display:flex;gap:14px;flex-wrap:wrap}
-.cb-stat .num{font-family:'SF Mono',monospace;font-size:1rem;font-weight:700;color:white}
-.cb-stat .num.hot{color:var(--orange)}
-.cb-stat .lbl{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-.cb-badge-gold{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--orange);font-weight:600;margin-left:auto}
-.cb-badge-pend{background:var(--navy3);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--muted);margin-left:auto}
-.msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
-.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:14px;padding:20px 12px}
-.wl-icon{width:58px;height:58px;border-radius:14px;background:linear-gradient(135deg,var(--orange),var(--orange2));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px;color:var(--navy)}
-.wl-title{font-size:19px;font-weight:700;color:white}
-.wl-sub{font-size:13px;color:var(--muted);max-width:300px;line-height:1.55}
-.quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;width:100%;max-width:390px}
-.qbtn{background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:left;cursor:pointer;color:var(--muted);font-size:12px;font-weight:500;line-height:1.4;transition:all .15s;font-family:inherit}
-.qbtn:hover{background:var(--navy3);border-color:var(--orange);color:white}
-.qbtn.prime{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.3);color:var(--orange)}
-.lang-row{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}
-.lchip{background:var(--navy3);border:1px solid var(--border);border-radius:14px;padding:2px 8px;font-size:11px;color:var(--muted)}
-.msg{display:flex;gap:9px;animation:fi .2s ease}
-.msg.user{flex-direction:row-reverse}
-@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-.av{width:28px;height:28px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800}
-.av.ai{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy)}
-.av.user{background:var(--navy3);font-size:14px}
-.bbl{max-width:85%;padding:9px 13px;border-radius:13px;font-size:13.5px;line-height:1.65;word-break:break-word}
-.bbl.ai{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);white-space:pre-wrap}
-.bbl.user{background:#1e3a5f;color:var(--text);border:1px solid #2d5a8e}
-.typing-row{display:flex;gap:9px;align-items:flex-end}
-.typing-bbl{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:13px;padding:10px 14px;display:flex;gap:5px;align-items:center}
-.td{width:6px;height:6px;border-radius:50%;background:var(--orange);animation:td 1.1s infinite}
-.td:nth-child(2){animation-delay:.18s}.td:nth-child(3){animation-delay:.36s}
-@keyframes td{0%,80%,100%{opacity:.25;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}
-.ec{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.2);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
-.ec-lbl{font-size:12px;color:var(--orange);font-weight:600}
-.ec-row{display:flex;gap:7px}
-.ec input{flex:1;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:white;font-size:13px;outline:none;font-family:inherit}
-.ec input:focus{border-color:var(--orange)}
-.ec button{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit}
-.inp-bar{flex-shrink:0;display:flex;gap:8px;padding:10px 14px;background:rgba(2,6,23,.98);border-top:1px solid var(--border);align-items:center}
-.inp-bar input{flex:1;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:white;font-size:14px;outline:none;font-family:inherit;transition:border-color .2s}
-.inp-bar input:focus{border-color:var(--orange)}
-.inp-bar input::placeholder{color:var(--muted)}
-.snd{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--orange),var(--orange2));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s}
-.snd:disabled{opacity:.35;cursor:not-allowed}
-.snd svg{width:17px;height:17px;fill:var(--navy)}
-@media(max-width:420px){.quick-grid{grid-template-columns:1fr}}
+:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
+.nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.lm{width:32px;height:32px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:var(--navy)}
+.ln{font-size:15px;font-weight:700;color:white}.ln span{color:var(--orange)}
+.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+.hero{padding:3rem 1.5rem 2rem;max-width:1100px;margin:0 auto}
+.breadcrumb{font-size:.78rem;color:var(--muted);margin-bottom:1rem}
+.breadcrumb a{color:var(--muted);text-decoration:none}.breadcrumb a:hover{color:var(--orange)}
+.county-header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:2rem}
+.county-title h1{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.8rem);color:white;line-height:1.15}
+.county-title p{color:var(--muted);margin-top:.5rem;font-size:.95rem}
+.gold-badge{display:inline-flex;align-items:center;gap:.4rem;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:.4rem 1rem;font-size:.8rem;color:var(--orange);font-weight:600}
+.pend-badge{display:inline-flex;align-items:center;gap:.4rem;background:var(--navy3);border:1px solid var(--border);border-radius:20px;padding:.4rem 1rem;font-size:.8rem;color:var(--muted);font-weight:600}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem;margin-bottom:2rem}
+.stat-card{background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.25rem}
+.stat-num{font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:600;color:white}
+.stat-num.hot{color:var(--orange)}
+.stat-lbl{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:.25rem}
+.main-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem}
+@media(max-width:700px){.main-grid{grid-template-columns:1fr}}
+.type-card{background:var(--navy2);border:1px solid var(--border);border-radius:14px;padding:1.5rem}
+.type-card.fc{border-left:3px solid var(--orange)}
+.type-card.td{border-left:3px solid var(--green)}
+.type-label{font-family:'JetBrains Mono',monospace;font-size:.65rem;letter-spacing:.1em;margin-bottom:.75rem;font-weight:700}
+.type-label.fc{color:var(--orange)}.type-label.td{color:var(--green)}
+.type-title{font-size:1.1rem;font-weight:700;color:white;margin-bottom:1rem}
+.type-row{display:flex;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.85rem}
+.type-row:last-child{border-bottom:none}
+.type-row .lbl{color:var(--muted)}.type-row .val{color:white;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:.82rem}
+.chat-section{background:var(--navy2);border:1px solid rgba(245,158,11,.2);border-radius:16px;overflow:hidden;margin-bottom:2rem}
+.chat-header{background:var(--navy3);padding:1rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
+.chat-header h2{font-size:1rem;font-weight:700;color:white}
+.chat-header p{font-size:.8rem;color:var(--muted)}
+.report-cta{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.25);border-radius:14px;padding:1.5rem;margin-bottom:2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.report-cta-left h3{font-size:1rem;font-weight:700;color:white;margin-bottom:.3rem}
+.report-cta-left p{font-size:.82rem;color:var(--muted);line-height:1.5}
+.report-btn{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:12px 24px;border-radius:10px;font-size:.9rem;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0}
+.counties-link{text-align:center;padding:2rem;font-size:.85rem;color:var(--muted)}
+.counties-link a{color:var(--orange);text-decoration:none;font-weight:600}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted)}
+footer a{color:var(--muted);text-decoration:none}
+@media(max-width:600px){.county-header{flex-direction:column}.stats-grid{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
+<nav><div class="nav-inner">
+  <a href="/" class="logo"><div class="lm">BD</div><span class="ln">BidDeed<span>.AI</span></span></a>
+  <a href="/subscribe?tier=investor" class="nav-cta">Investor $99/mo</a>
+</div></nav>
+
+<div class="hero">
+  <div class="breadcrumb"><a href="/">BidDeed.AI</a> › <a href="/counties">Counties</a> › ${name}</div>
+
+  <div class="county-header">
+    <div class="county-title">
+      <h1>${name} County, Florida</h1>
+      <p>Foreclosure &amp; Tax Deed Auction Intelligence</p>
+    </div>
+    <div>${isGold
+      ? '<div class="gold-badge">🏆 Gold Standard Certified</div>'
+      : '<div class="pend-badge">⏳ Certification Pending</div>'
+    }</div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-num hot">${fcCount}</div><div class="stat-lbl">FC Auctions (30 days)</div></div>
+    <div class="stat-card"><div class="stat-num hot">${tdCount}</div><div class="stat-lbl">TD Auctions (30 days)</div></div>
+    <div class="stat-card"><div class="stat-num">${fcNext}</div><div class="stat-lbl">Next FC Auction</div></div>
+    <div class="stat-card"><div class="stat-num">${tdNext}</div><div class="stat-lbl">Next TD Auction</div></div>
+  </div>
+
+  <div class="main-grid">
+    <div class="type-card fc">
+      <div class="type-label fc">FORECLOSURE AUCTIONS</div>
+      <div class="type-title">Foreclosure Sales</div>
+      <div class="type-row"><span class="lbl">Upcoming (30d)</span><span class="val">${fcCount}</span></div>
+      <div class="type-row"><span class="lbl">Next Auction</span><span class="val">${fcNext}</span></div>
+      <div class="type-row"><span class="lbl">Avg Opening Bid</span><span class="val">${fcAvg}</span></div>
+      <div class="type-row"><span class="lbl">Data Quality</span><span class="val">${isGold ? '🏆 Gold Standard' : '⏳ Pending'}</span></div>
+    </div>
+    <div class="type-card td">
+      <div class="type-label td">TAX DEED AUCTIONS</div>
+      <div class="type-title">Tax Deed Sales</div>
+      <div class="type-row"><span class="lbl">Upcoming (30d)</span><span class="val">${tdCount}</span></div>
+      <div class="type-row"><span class="lbl">Next Auction</span><span class="val">${tdNext}</span></div>
+      <div class="type-row"><span class="lbl">Avg Opening Bid</span><span class="val">${tdAvg}</span></div>
+      <div class="type-row"><span class="lbl">Data Quality</span><span class="val">${isGold ? '🏆 Gold Standard' : '⏳ Pending'}</span></div>
+    </div>
+  </div>
+
+  <div class="report-cta">
+    <div class="report-cta-left">
+      <h3>💼 Get a Shapira S5 Report — $25</h3>
+      <p>Full AI-powered analysis for any ${name} property: exact max bid ceiling, lien stack, plaintiff intel, ZoneWise zoning, and BID/SKIP recommendation. Verified to the cent.</p>
+    </div>
+    <a href="${MINDSTUDIO_S5_URL}" target="_blank" class="report-btn">Get Report — $25 →</a>
+  </div>
+
+  <div class="chat-section">
+    <div class="chat-header">
+      <div>
+        <h2>Ask BidDeed.AI about ${name} County</h2>
+        <p>Live auction data · Shapira Formula · Responds in your language</p>
+      </div>
+    </div>
+    <iframe src="/chat?county=${encodeURIComponent(slug)}&hook=COUNTY_PAGE" width="100%" height="580" style="display:block;border:none" allow="clipboard-write" loading="lazy" title="BidDeed.AI ${name} County Chat"></iframe>
+  </div>
+
+  <div class="counties-link"><a href="/counties">← View all 67 Florida counties</a></div>
+</div>
+
+<footer>
+  <p>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a></p>
+  <p style="margin-top:.5rem;font-size:.7rem;max-width:800px;margin-left:auto;margin-right:auto">${DISCLAIMER_SHORT}</p>
+</footer>
+</body></html>`;
+}
+
+// ── Counties index ────────────────────────────────────────────────────────────
+function buildCountiesIndex() {
+  const goldSet = new Set(GOLD_COUNTIES);
+  const allCounties = Object.keys(COUNTY_DISPLAY).sort();
+  const rows = allCounties.map(slug => {
+    const name = toDisplay(slug);
+    const isGold = goldSet.has(slug);
+    return `<a href="/county/${slug.replace(/_/g,'-')}" class="county-link ${isGold?'gold':''}">
+      ${isGold?'🏆 ':''}${name}
+      ${isGold?'<span class="gs-tag">Gold Standard</span>':''}
+    </a>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>All 67 Florida Counties — BidDeed.AI Foreclosure &amp; Tax Deed Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
+.nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.lm{width:32px;height:32px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:var(--navy)}
+.ln{font-size:15px;font-weight:700;color:white}.ln span{color:var(--orange)}
+.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+.wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem}
+.ey{display:inline-flex;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
+h1{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.8rem);color:white;margin-bottom:.75rem}
+.sub{color:var(--muted);margin-bottom:2.5rem;font-size:.95rem}
+.counties-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem}
+.county-link{display:block;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;text-decoration:none;color:var(--muted);font-size:.88rem;font-weight:500;transition:all .15s;position:relative}
+.county-link:hover{background:var(--navy3);border-color:var(--orange);color:white}
+.county-link.gold{border-color:rgba(245,158,11,.3);color:var(--text)}
+.county-link.gold:hover{border-color:var(--orange)}
+.gs-tag{display:block;font-size:.65rem;color:var(--orange);font-family:'JetBrains Mono',monospace;margin-top:.2rem;letter-spacing:.05em}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
+footer a{color:var(--muted);text-decoration:none}
+</style>
+</head>
+<body>
+<nav><div class="nav-inner">
+  <a href="/" class="logo"><div class="lm">BD</div><span class="ln">BidDeed<span>.AI</span></span></a>
+  <a href="/subscribe?tier=investor" class="nav-cta">Investor $99/mo</a>
+</div></nav>
+<div class="wrap">
+  <div class="ey">ALL 67 FLORIDA COUNTIES</div>
+  <h1>Florida Auction Intelligence<br>by County</h1>
+  <p class="sub">Gold Standard counties have verified title records, current tax data, reliable auction timing, and documented clearance patterns.</p>
+  <div class="counties-grid">${rows}</div>
+</div>
+<footer>
+  <p>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a></p>
+</footer>
+</body></html>`;
+}
+
+// ── Chat page — MOBILE-FIRST, full viewport, all languages ───────────────────
+function buildChatPage(county, hook, ref) {
+  const countyBar = county ? `
+<div class="county-bar" id="cbar" style="display:none">
+  <div class="cb-name">${toDisplay(county)} County</div>
+  <div class="cb-stats" id="cb-stats"></div>
+  <div id="cb-badge"></div>
+  <div style="font-size:.6rem;color:var(--muted)" id="cb-date"></div>
+</div>` : '';
+
+  let autoMsg = '';
+  if (hook === 'PROOF') autoMsg = 'Show me the Marion County proof — Shapira Formula ceiling held to the cent.';
+  else if (hook === 'COUNTY_PAGE') autoMsg = county ? `What auctions are coming up in ${toDisplay(county)} County? Give me the highlights.` : '';
+  else if (ref === 'digest') autoMsg = county ? `What are the most important ${toDisplay(county)} County auction opportunities right now?` : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>BidDeed.AI · Auction Intelligence</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+html{height:100%;height:-webkit-fill-available}
+body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;overflow:hidden;position:fixed;width:100%}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:52px;background:rgba(2,6,23,.98);border-bottom:1px solid var(--border);flex-shrink:0;min-height:52px}
+.hdr-left{display:flex;align-items:center;gap:9px;text-decoration:none;min-width:0}
+.bd-logo{width:30px;height:30px;border-radius:7px;background:linear-gradient(135deg,var(--orange),var(--orange2));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;color:var(--navy);flex-shrink:0}
+.bd-brand h1{font-size:13px;font-weight:700;color:white;line-height:1.1;white-space:nowrap}
+.bd-brand p{font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upgrade-btn{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border:none;border-radius:7px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;flex-shrink:0}
+
+/* COUNTY BAR */
+.county-bar{background:var(--navy2);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;min-height:44px}
+.cb-name{font-size:13px;font-weight:700;color:white}
+.cb-stats{display:flex;gap:10px;flex-wrap:wrap}
+.cb-stat .num{font-family:'SF Mono',monospace;font-size:.9rem;font-weight:700;color:white}
+.cb-stat .num.hot{color:var(--orange)}
+.cb-stat .lbl{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cb-badge-gold{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--orange);font-weight:600}
+.cb-badge-pend{background:var(--navy3);border:1px solid var(--border);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--muted)}
+
+/* MESSAGES */
+.msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+
+/* WELCOME */
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:12px;padding:16px 10px;min-height:0}
+.wl-icon{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--orange),var(--orange2));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;color:var(--navy);flex-shrink:0}
+.wl-title{font-size:17px;font-weight:700;color:white}
+.wl-sub{font-size:12px;color:var(--muted);max-width:280px;line-height:1.5}
+.quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%;max-width:380px}
+.qbtn{background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 10px;text-align:left;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;line-height:1.4;transition:all .15s;font-family:inherit;-webkit-tap-highlight-color:transparent}
+.qbtn:hover,.qbtn:active{background:var(--navy3);border-color:var(--orange);color:white}
+.qbtn.prime{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.3);color:var(--orange)}
+
+/* LANGUAGE CHIPS — all 12 visible */
+.lang-row{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:340px}
+.lchip{background:var(--navy3);border:1px solid var(--border);border-radius:12px;padding:2px 7px;font-size:10.5px;color:var(--muted);white-space:nowrap}
+
+/* MESSAGES */
+.msg{display:flex;gap:8px;animation:fi .18s ease}
+.msg.user{flex-direction:row-reverse}
+@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.av{width:26px;height:26px;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800}
+.av.ai{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy)}
+.av.user{background:var(--navy3);font-size:13px}
+.bbl{max-width:88%;padding:9px 12px;border-radius:13px;font-size:13px;line-height:1.65;word-break:break-word}
+.bbl.ai{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);white-space:pre-wrap}
+.bbl.user{background:#1e3a5f;color:var(--text);border:1px solid #2d5a8e}
+
+/* TYPING */
+.typing-row{display:flex;gap:8px;align-items:flex-end}
+.typing-bbl{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:13px;padding:9px 13px;display:flex;gap:4px;align-items:center}
+.td{width:5px;height:5px;border-radius:50%;background:var(--orange);animation:td 1.1s infinite}
+.td:nth-child(2){animation-delay:.18s}.td:nth-child(3){animation-delay:.36s}
+@keyframes td{0%,80%,100%{opacity:.25;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}
+
+/* S5 REPORT CTA IN CHAT */
+.s5-cta{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.s5-cta-text .title{font-size:12px;font-weight:700;color:var(--orange);margin-bottom:2px}
+.s5-cta-text .desc{font-size:11px;color:var(--muted);line-height:1.4}
+.s5-btn{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;font-family:inherit;-webkit-tap-highlight-color:transparent}
+
+/* EMAIL CAPTURE */
+.ec{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.2);border-radius:12px;padding:11px;display:flex;flex-direction:column;gap:8px}
+.ec-lbl{font-size:11.5px;color:var(--orange);font-weight:600}
+.ec-row{display:flex;gap:6px}
+.ec input{flex:1;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:white;font-size:14px;outline:none;font-family:inherit;-webkit-appearance:none}
+.ec input:focus{border-color:var(--orange)}
+.ec button{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border:none;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit}
+
+/* INPUT BAR — pinned to bottom, always visible */
+.inp-wrap{flex-shrink:0;background:rgba(2,6,23,.98);border-top:1px solid var(--border)}
+.inp-bar{display:flex;gap:8px;padding:10px 12px;align-items:center}
+.inp-bar input{flex:1;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:white;font-size:16px;outline:none;font-family:inherit;transition:border-color .2s;-webkit-appearance:none;min-width:0}
+.inp-bar input:focus{border-color:var(--orange)}
+.inp-bar input::placeholder{color:var(--muted);font-size:14px}
+.snd{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--orange),var(--orange2));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;-webkit-tap-highlight-color:transparent}
+.snd:disabled{opacity:.35;cursor:not-allowed}
+.snd svg{width:17px;height:17px;fill:var(--navy)}
+.disclaimer-bar{flex-shrink:0;text-align:center;font-size:9.5px;color:var(--muted);padding:3px 12px 8px;line-height:1.4}
+.disclaimer-bar a{color:var(--muted);text-decoration:underline}
+@media(max-width:380px){.quick-grid{grid-template-columns:1fr}.bd-brand p{display:none}}
+</style>
+</head>
+<body>
+
 <header class="hdr">
   <a href="/" class="hdr-left">
     <div class="bd-logo">BD</div>
     <div class="bd-brand">
       <h1>BidDeed.AI</h1>
-      <p>AI-Powered Foreclosure &amp; Tax Deed Intelligence</p>
+      <p>Foreclosure &amp; Tax Deed Intelligence</p>
     </div>
   </a>
-  <a href="/subscribe?tier=investor" class="upgrade-btn">⚡ Investor $99/mo</a>
+  <a href="/subscribe?tier=investor" class="upgrade-btn">⚡ $99/mo</a>
 </header>
+
 ${countyBar}
+
 <div class="msgs" id="msgs">
   <div class="welcome" id="welcome">
     <div class="wl-icon">BD</div>
@@ -420,37 +688,51 @@ ${countyBar}
       <button class="qbtn prime" data-msg="Show me the Marion County proof — Shapira Formula ceiling held to the cent.">📊 See proof it works</button>
       <button class="qbtn" data-msg="What foreclosure and tax deed auctions are coming up across Florida this week?">📅 What's coming to auction?</button>
       <button class="qbtn" data-msg="How does the Shapira Max Bid formula work? Walk me through it.">🧮 Shapira Max Bid formula</button>
-      <button class="qbtn" data-msg="What is a Gold Standard county and which counties are certified?">🏆 Gold Standard counties</button>
+      <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a Shapira S5 Report?">💼 Get a $25 S5 Report</button>
     </div>
     <div class="lang-row">
-      <span class="lchip">🇺🇸 EN</span><span class="lchip">🇮🇱 עב</span><span class="lchip">🇪🇸 ES</span>
-      <span class="lchip">🇧🇷 PT</span><span class="lchip">🇸🇦 AR</span><span class="lchip">🇨🇳 中</span>
+      <span class="lchip">🇺🇸 English</span>
+      <span class="lchip">🇮🇱 עברית</span>
+      <span class="lchip">🇪🇸 Español</span>
+      <span class="lchip">🇧🇷 Português</span>
+      <span class="lchip">🇸🇦 العربية</span>
+      <span class="lchip">🇷🇺 Русский</span>
+      <span class="lchip">🇨🇳 中文</span>
+      <span class="lchip">🇫🇷 Français</span>
+      <span class="lchip">🇩🇪 Deutsch</span>
+      <span class="lchip">🇯🇵 日本語</span>
+      <span class="lchip">🇰🇷 한국어</span>
+      <span class="lchip">🇮🇹 Italiano</span>
     </div>
   </div>
 </div>
-<div class="inp-bar">
-  <input type="text" id="inp" placeholder="Ask about any Florida county...">
-  <button class="snd" id="snd">
-    <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
-  </button>
+
+<div class="inp-wrap">
+  <div class="inp-bar">
+    <input type="text" id="inp" placeholder="Ask about any Florida county..." autocomplete="off" autocorrect="off" spellcheck="false">
+    <button class="snd" id="snd" aria-label="Send">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+    </button>
+  </div>
+  <div class="disclaimer-bar">Informational only — not legal, financial, or investment advice. <a href="/disclaimer" target="_blank">Disclaimer</a></div>
 </div>
-<div style="flex-shrink:0;text-align:center;font-size:10px;color:var(--muted);padding:4px 14px 8px;line-height:1.4">Informational only — not legal, financial, or investment advice. Verify independently &amp; consult a licensed attorney. <a href="/disclaimer" target="_blank" style="color:var(--muted);text-decoration:underline">Disclaimer</a></div>
+
 <script>
 const COUNTY = ${JSON.stringify(county)};
 const HOOK   = ${JSON.stringify(hook)};
 const AUTO   = ${JSON.stringify(autoMsg)};
-const STRIPE = 'https://biddeed.ai/subscribe?tier=investor';
-let H = [], busy = false, emailDone = false, msgCount = 0;
+const S5_URL = ${JSON.stringify(MINDSTUDIO_S5_URL)};
+let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0;
 
+// County bar
 if (COUNTY) {
   fetch('/chat/county-data?county=' + COUNTY)
-    .then(r => r.json())
-    .then(d => {
+    .then(r => r.json()).then(d => {
       if (!d) return;
       const bar = document.getElementById('cbar');
       if (bar) bar.style.display = 'flex';
       const dt = document.getElementById('cb-date');
-      if (dt) dt.textContent = 'Snapshot: ' + (d.snapshot_date || 'Today');
+      if (dt) dt.textContent = d.snapshot_date ? 'Snapshot: ' + d.snapshot_date : '';
       const st = document.getElementById('cb-stats');
       if (st) {
         const fcN = d.fc_next_auction_date ? new Date(d.fc_next_auction_date).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'TBD';
@@ -458,36 +740,47 @@ if (COUNTY) {
         st.innerHTML = mkStat(d.fc_upcoming_30d||0,'FC 30d',true)+mkStat(fcN,'Next FC')+mkStat(d.td_upcoming_30d||0,'TD 30d',true)+mkStat(tdN,'Next TD');
       }
       const bg = document.getElementById('cb-badge');
-      if (bg) bg.innerHTML = d.is_gold_standard ? '<span class="cb-badge-gold">🏆 Gold Standard</span>' : '<span class="cb-badge-pend">⏳ Cert Pending</span>';
+      if (bg) bg.innerHTML = d.is_gold_standard
+        ? '<span class="cb-badge-gold">🏆 Gold Standard</span>'
+        : '<span class="cb-badge-pend">⏳ Cert Pending</span>';
     }).catch(()=>{});
 }
 function mkStat(val,lbl,hot){return '<div class="cb-stat"><div class="num'+(hot?' hot':'')+'">'+val+'</div><div class="lbl">'+lbl+'</div></div>';}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function scrollBottom(){const m=document.getElementById('msgs');m.scrollTop=m.scrollHeight;}
+function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTop=m.scrollHeight;}}
+
 function addMsg(role,content){
   document.getElementById('welcome')?.remove();
   const m=document.getElementById('msgs');
-  const row=document.createElement('div');
-  row.className='msg '+role;
+  const row=document.createElement('div');row.className='msg '+role;
   const av=role==='assistant'?'<div class="av ai">BD</div>':'<div class="av user">👤</div>';
   row.innerHTML=av+'<div class="bbl '+role+'">'+esc(content)+'</div>';
   m.appendChild(row);scrollBottom();
   return row.querySelector('.bbl');
 }
+
+function showS5CTA(){
+  if(s5Shown||document.getElementById('s5cta'))return;
+  s5Shown=true;
+  const m=document.getElementById('msgs');
+  const d=document.createElement('div');d.id='s5cta';d.className='s5-cta';
+  d.innerHTML='<div class="s5-cta-text"><div class="title">💼 Get a Shapira S5 Report</div><div class="desc">Full AI max-bid analysis for a specific property — lien stack, plaintiff intel, zoning, BID/SKIP recommendation.</div></div><a href="'+S5_URL+'" target="_blank" class="s5-btn">$25 — Get Report →</a>';
+  m.appendChild(d);scrollBottom();
+}
+
 function ask(t){document.getElementById('inp').value=t;send();}
+
 async function send(){
   if(busy)return;
   const inp=document.getElementById('inp');
-  const text=inp.value.trim();
-  if(!text)return;
+  const text=inp.value.trim();if(!text)return;
   inp.value='';busy=true;
   document.getElementById('snd').disabled=true;
   msgCount++;
   H.push({role:'user',content:text});
   addMsg('user',text);
   const m=document.getElementById('msgs');
-  const tv=document.createElement('div');
-  tv.id='typing';tv.className='typing-row';
+  const tv=document.createElement('div');tv.id='typing';tv.className='typing-row';
   tv.innerHTML='<div class="av ai">BD</div><div class="typing-bbl"><div class="td"></div><div class="td"></div><div class="td"></div></div>';
   m.appendChild(tv);scrollBottom();
   try{
@@ -496,15 +789,15 @@ async function send(){
     if(!res.ok){addMsg('assistant','Error '+res.status+'. Please try again.');busy=false;document.getElementById('snd').disabled=false;inp.focus();return;}
     document.getElementById('welcome')?.remove();
     const row=document.createElement('div');row.className='msg assistant';
-    row.innerHTML='<div class="av ai">BD</div><div class="bbl ai" id="stream-bbl"></div>';
+    row.innerHTML='<div class="av ai">BD</div><div class="bbl ai" id="sbbl"></div>';
     m.appendChild(row);scrollBottom();
-    const bbl=document.getElementById('stream-bbl');
+    const bbl=document.getElementById('sbbl');
     const reader=res.body.getReader();const decoder=new TextDecoder();
     let fullText='',buf='';
     while(true){
       const{done,value}=await reader.read();if(done)break;
       buf+=decoder.decode(value,{stream:true});
-      const lines=buf.split(String.fromCharCode(10));buf=lines.pop()||'';
+      const lines=buf.split('\n');buf=lines.pop()||'';
       for(const line of lines){
         if(!line.startsWith('data: '))continue;
         const data=line.slice(6).trim();if(data==='[DONE]')break;
@@ -513,13 +806,17 @@ async function send(){
     }
     bbl.id='';
     H.push({role:'assistant',content:fullText});
-    if(!emailDone&&msgCount>=2)showEmailCapture();
+    // Show S5 CTA after 2nd message
+    if(msgCount>=2&&!s5Shown)showS5CTA();
+    // Show email capture after 3rd message
+    if(!emailDone&&msgCount>=3)showEmailCapture();
   }catch(e){
     document.getElementById('typing')?.remove();
     addMsg('assistant','Connection error. Check your internet and try again.');
   }
   busy=false;document.getElementById('snd').disabled=false;inp.focus();
 }
+
 function showEmailCapture(){
   if(emailDone||document.getElementById('ec'))return;
   const m=document.getElementById('msgs');
@@ -531,6 +828,7 @@ function showEmailCapture(){
   const btnEl=document.createElement('button');btnEl.textContent='Get Alerts →';btnEl.addEventListener('click',saveEmail);
   rowEl.appendChild(inputEl);rowEl.appendChild(btnEl);d.appendChild(lbl);d.appendChild(rowEl);m.appendChild(d);scrollBottom();
 }
+
 async function saveEmail(){
   const email=(document.getElementById('ei')?.value||'').trim();
   if(!email||!email.includes('@'))return;
@@ -539,20 +837,24 @@ async function saveEmail(){
   addMsg('assistant','✅ Done! Daily FL auction alerts sent to '+email+'. What else can I pull up for you?');
   H.push({role:'assistant',content:'Email captured.'});
 }
+
 document.querySelectorAll('.qbtn').forEach(function(btn){
   btn.addEventListener('click',function(){const msg=btn.getAttribute('data-msg');if(msg)ask(msg);});
 });
 document.getElementById('inp').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
 document.getElementById('snd').addEventListener('click',send);
-if(AUTO)setTimeout(()=>ask(AUTO),500);
+
+// Prevent body scroll on iOS when chat is focused
+document.getElementById('inp').addEventListener('focus',function(){setTimeout(scrollBottom,300);});
+
+if(AUTO)setTimeout(()=>ask(AUTO),600);
 </script>
 </body>
 </html>`;
 }
 
 // ── Success page ──────────────────────────────────────────────────────────────
-const SUCCESS_HTML = `<!DOCTYPE html>
-<html lang="en"><head>
+const SUCCESS_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Welcome to BidDeed.AI Investor</title>
 <style>
@@ -566,8 +868,7 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 .key-box{background:#020617;border:1px solid var(--border);border-radius:10px;padding:1rem;font-family:'SF Mono',monospace;font-size:.85rem;color:var(--orange);word-break:break-all;margin:1rem 0;min-height:44px;display:flex;align-items:center;justify-content:center}
 .btn{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#020617;padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;font-size:.95rem;margin-top:1rem}
 .status{font-size:.8rem;color:var(--muted);margin-top:1rem}
-</style>
-</head><body>
+</style></head><body>
 <div class="card">
   <div class="icon">🎉</div>
   <h1>Welcome to Investor!</h1>
@@ -577,35 +878,23 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
   <a href="/chat" class="btn">Open BidDeed.AI Chat →</a>
 </div>
 <script>
-const params = new URLSearchParams(location.search);
-const session_id = params.get('session_id') || '';
-let attempts = 0;
-async function poll() {
-  if (!session_id) { document.getElementById('key-box').textContent = 'No session ID found.'; return; }
+const params=new URLSearchParams(location.search);
+const session_id=params.get('session_id')||'';
+let attempts=0;
+async function poll(){
+  if(!session_id){document.getElementById('key-box').textContent='No session ID found.';return;}
   attempts++;
-  try {
-    const res = await fetch('/subscribe/status?session_id=' + encodeURIComponent(session_id));
-    const d = await res.json();
-    if (d.key) {
-      document.getElementById('key-box').textContent = d.key;
-      document.getElementById('status').textContent = 'Tier: ' + (d.tier||'investor') + ' · Save this key — shown once.';
-    } else if (d.active) {
-      document.getElementById('key-box').textContent = 'Key issued. Check your email.';
-      document.getElementById('status').textContent = 'Tier: ' + (d.tier||'investor') + ' · Activated ✓';
-    } else if (attempts < 8) {
-      document.getElementById('status').textContent = 'Activating... attempt ' + attempts;
-      setTimeout(poll, 3000);
-    } else {
-      document.getElementById('key-box').textContent = 'Taking longer than expected.';
-      document.getElementById('status').textContent = 'Email hello@biddeed.ai with your receipt if not resolved.';
-    }
-  } catch(e) {
-    if (attempts < 8) setTimeout(poll, 3000);
-  }
+  try{
+    const res=await fetch('/subscribe/status?session_id='+encodeURIComponent(session_id));
+    const d=await res.json();
+    if(d.key){document.getElementById('key-box').textContent=d.key;document.getElementById('status').textContent='Tier: '+(d.tier||'investor')+' · Save this key — shown once.';}
+    else if(d.active){document.getElementById('key-box').textContent='Key issued. Check your email.';document.getElementById('status').textContent='Tier: '+(d.tier||'investor')+' · Activated ✓';}
+    else if(attempts<8){document.getElementById('status').textContent='Activating... attempt '+attempts;setTimeout(poll,3000);}
+    else{document.getElementById('key-box').textContent='Taking longer than expected.';document.getElementById('status').textContent='Email hello@biddeed.ai with your receipt if not resolved.';}
+  }catch(e){if(attempts<8)setTimeout(poll,3000);}
 }
 poll();
-</script>
-</body></html>`;
+</script></body></html>`;
 
 
 // ── Static HTML pages ────────────────────────────────────────────────────────
