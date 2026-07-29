@@ -6,6 +6,7 @@ on:
     paths:
       - src/worker.js
       - wrangler.toml
+  workflow_dispatch:
 
 jobs:
   deploy:
