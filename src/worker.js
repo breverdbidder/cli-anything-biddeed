@@ -1203,6 +1203,23 @@ input[type=range] { accent-color:#f59e0b; }
           <div class="bg-slate-900/60 rounded-lg p-2.5"><div class="text-[10px] text-slate-500 uppercase">% Mkt</div><div class="font-mono font-bold text-amber-400" x-text="(openDeal && openDeal.opening_bid_pct_of_market) ? openDeal.opening_bid_pct_of_market+'%' : '—'"></div></div>
         </div>
       </div>
+      <!-- S5 REPORT PURCHASE — the $25 income stream -->
+      <div class="mb-3">
+        <template x-if="S5_AVAILABLE">
+          <button @click="buyS5(openDeal)" class="w-full rounded-xl py-4 px-4 font-bold text-base flex items-center justify-center gap-2 transition-transform active:scale-[0.98]" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#1f2937;">
+            <span style="font-size:1.2rem">💼</span>
+            <span>Get the Shapira S5 Report — $25</span>
+          </button>
+        </template>
+        <template x-if="!S5_AVAILABLE">
+          <div class="w-full rounded-xl py-3.5 px-4 text-center text-sm border border-slate-700 bg-slate-800/50 text-slate-400">
+            <div class="font-semibold text-slate-300">📋 S5 Report — coming soon for COUNTY_TITLE_PLACEHOLDER</div>
+            <div class="text-[11px] mt-1">Full AI max-bid analysis available now in certified counties</div>
+          </div>
+        </template>
+        <p class="text-[10px] text-slate-500 text-center mt-2 leading-snug">18-section AI analysis · Shapira Max Bid ceiling · CMA comps · zoning · outcome prediction · branded PDF</p>
+      </div>
+
       <div class="grid grid-cols-3 gap-2">
         <a :href="openDeal && openDeal.google_maps_url" target="_blank" class="bg-slate-800 rounded-lg text-center text-xs py-3 font-medium">🗺️ Maps</a>
         <a :href="openDeal && openDeal.bcpao_link" target="_blank" class="bg-slate-800 rounded-lg text-center text-xs py-3 font-medium">🏢 BCPAO</a>
@@ -1238,8 +1255,11 @@ input[type=range] { accent-color:#f59e0b; }
 <script>
 const COUNTY_SLUG = "COUNTY_SLUG_PLACEHOLDER";
 const COUNTY_TITLE_JS = "COUNTY_TITLE_PLACEHOLDER";
+const S5_CERTIFIED_COUNTIES = ["charlotte","hillsborough","indian_river","monroe","nassau","putnam","st_johns"];
+const S5_AVAILABLE = S5_CERTIFIED_COUNTIES.includes(COUNTY_SLUG);
+const MINDSTUDIO_S5_URL = "https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427";
 const SUPABASE_URL = "https://mocerqjnksmhcjzxrewo.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODc0Nzc1MTksImV4cCI6MjAwMzA1MzUxOX0.VFl2gOfVWMRFQPiWxkpRf-GH5Vc_9bRHhK5bnAHmLNA";
 </script>
 <script>
 const SIG_META = {
@@ -1285,7 +1305,9 @@ function app() {
     init() {
       const today = new Date().toISOString().slice(0,10);
       const cutoff = new Date(Date.now()+35*24*60*60*1000).toISOString().slice(0,10);
-      fetch('/county/'+COUNTY_SLUG+'/lots')
+      fetch(SUPABASE_URL+'/rest/v1/multi_county_auctions?county=eq.'+COUNTY_SLUG+'&auction_date=gte.'+today+'&auction_date=lte.'+cutoff+'&order=auction_date.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff,market_value', {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
+      })
       .then(r => r.json())
       .then(rows => {
         this.deals = rows.map(r => {
@@ -1330,6 +1352,16 @@ function app() {
     },
 
     isUnknownAddr(d) { if (!d) return false; const a = (d.street_address||d.full_address||'').toUpperCase(); return !a.trim() || a.includes('UNKNOWN') || a.startsWith('0 '); },
+    buyS5(d) {
+      if (!d || !S5_AVAILABLE) return;
+      const params = new URLSearchParams({
+        mode: 'report',
+        county: COUNTY_SLUG,
+        case_number: d.tax_deed_case || '',
+        address: d.street_address || d.full_address || '',
+      });
+      window.open(MINDSTUDIO_S5_URL + '?' + params.toString(), '_blank');
+    },
     getSigClass(sig) { return (SIG_META[sig] && SIG_META[sig].cls) || 'sig-out'; },
     getSigLabel(sig) { return (SIG_META[sig] && SIG_META[sig].label) || sig; },
     getSigWeight(sig) { return '+' + ((SIG_META[sig] && SIG_META[sig].weight) || 0); },
