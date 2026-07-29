@@ -268,7 +268,32 @@ export default {
         if (!messages.every(m => ['user','assistant'].includes(m.role)))
           return new Response(JSON.stringify({ error: 'Invalid message role' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
 
-        const countyCtx = county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.';
+        // Live Supabase grounding — detect what the user is asking about and fetch real data
+        const lastMsg = String(messages[messages.length - 1]?.content || '').toLowerCase();
+        const yesterdayWords = ['yesterday','hier','ayer','ontem','wczoraj','ieri','gestern','昨天','昨日','어제','вчера','أمس'];
+        const askedYesterday = yesterdayWords.some(w => lastMsg.includes(w));
+        const askedResults = /result|sold|outcome|clos|winn|résultat|vendu|resultado|vendido|verkauft|销售|낙찰|продан|نتيجة/i.test(lastMsg);
+
+        let liveDataCtx = '';
+        if (askedYesterday || askedResults) {
+          try {
+            const y = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+            let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&sold_amount=not.is.null&order=sold_amount.desc.nullslast&limit=12&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
+            if (county) url += `&county=eq.${encodeURIComponent(county)}`;
+            const lr = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+            const rows = lr.ok ? await lr.json() : [];
+            if (Array.isArray(rows) && rows.length > 0) {
+              liveDataCtx = `\n\nLIVE DATA — actual completed auctions from ${y} (yesterday), pulled just now from the production database. Use ONLY these real records when answering, cite exact figures, do not invent any:\n` +
+                rows.map(r => `- ${toDisplay(r.county)} County, ${r.sale_type}: ${r.property_address || 'address pending'} (case ${r.case_number}) — sold $${Number(r.tier1_sold_amount || r.sold_amount).toLocaleString()}`).join('\n');
+            } else {
+              liveDataCtx = `\n\nLIVE DATA CHECK: queried the production database for auctions completed on ${y} — no sold-amount records were found for that date${county ? ' in ' + toDisplay(county) + ' County' : ''}. Tell the user honestly that no results are available yet rather than inventing figures.`;
+            }
+          } catch(e) {
+            liveDataCtx = '\n\nNote: live data lookup failed — do not fabricate specific figures, tell the user to check biddeed.ai/county/[name] directly.';
+          }
+        }
+
+        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx;
         const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the Shapira Max Bid Formula.
 
 ${countyCtx}
@@ -806,8 +831,8 @@ const COUNTY_PAGE_TEMPLATE = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#020617">
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
-<script defer src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js"></script>
 <style>
 :root { --safe-bottom: env(safe-area-inset-bottom,0px); --safe-top: env(safe-area-inset-top,0px); }
 body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:#020617; color:#e2e8f0; -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
