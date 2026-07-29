@@ -277,8 +277,32 @@ export default {
         const askedYesterday = yesterdayWords.some(w => lastMsg.includes(w));
         const askedResults = /result|sold|outcome|clos|winn|résultat|vendu|resultado|vendido|verkauft|销售|낙찰|продан|نتيجة/i.test(lastMsg);
 
+        const upcomingWords = ['upcoming','coming up','this week','next week','auction','schedule','calendar','available','à venir','prochaine','enchère','prochain','próxima','subasta','venda','מכירה','קרוב','предстоящ','аукцион','拍卖','即将','오는','경매'];
+        const askedUpcoming = upcomingWords.some(w => lastMsg.includes(w));
+
         let liveDataCtx = '';
-        if (askedYesterday || askedResults) {
+
+        // UPCOMING auctions grounding (mirrors the daily Resend email)
+        if (askedUpcoming && !askedYesterday) {
+          try {
+            const today2 = new Date().toISOString().slice(0,10);
+            const cut30 = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+            let uUrl = SUPABASE_URL+'/rest/v1/multi_county_auctions?auction_date=gte.'+today2+'&auction_date=lte.'+cut30+'&order=auction_date.asc&limit=25&select=county,sale_type,property_address,auction_date,opening_bid,assessed_value,case_number';
+            if (county) uUrl += '&county=eq.'+encodeURIComponent(county);
+            const uRes = await fetch(uUrl, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer '+SUPABASE_KEY } });
+            const uRows = uRes.ok ? await uRes.json() : [];
+            if (Array.isArray(uRows) && uRows.length > 0) {
+              liveDataCtx = '\n\nLIVE DATA — upcoming auctions (next 30 days) from the production database, same data that goes out in the daily BidDeed email digest. Use ONLY these real records, cite exact figures, do not invent any:\n' +
+                uRows.map(r => '- '+r.auction_date+' | '+(r.county||'')+' | '+(r.sale_type||'')+' | '+(r.property_address||'address pending')+' | case '+r.case_number+' | bid $'+(Number(r.opening_bid)||0).toLocaleString()+' | assessed $'+(Number(r.assessed_value)||0).toLocaleString()).join('\n') +
+                '\nTotal: '+uRows.length+' lots shown (there may be more — tell the user to visit biddeed.ai/county/SLUG for the full list). For each property, mention they can get a $25 Shapira S5 Report for a full max-bid analysis.';
+            }
+          } catch(e2) {
+            liveDataCtx = '\n\nNote: upcoming auction data lookup failed — tell the user to check biddeed.ai/county/[name] directly.';
+          }
+        }
+
+        // YESTERDAY sold grounding (existing)
+        if ((askedYesterday || askedResults) && !liveDataCtx) {
           try {
             const y = new Date(Date.now() - 86400000).toISOString().slice(0,10);
             let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&or=(sold_amount.not.is.null,tier1_sold_amount.not.is.null)&order=tier1_sold_amount.desc.nullslast&limit=30&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
@@ -539,7 +563,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .cb-badge-pend{background:var(--navy3);border:1px solid var(--border);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--muted)}
 
 /* MESSAGES */
-.msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch}
 
 /* WELCOME */
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:12px;padding:16px 10px;min-height:0}
