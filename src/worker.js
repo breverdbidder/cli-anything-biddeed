@@ -21,7 +21,7 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODc0Nzc1MTksImV4cCI6MjAwMzA1MzUxOX0.VFl2gOfVWMRFQPiWxkpRf-GH5Vc_9bRHhK5bnAHmLNA';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDUzMjUyNiwiZXhwIjoyMDgwMTA4NTI2fQ.sNmIFhUGbBfMPHKxU2MjCn2wjXIKUnxcMU2RYTqp9nE';
 const STRIPE_INVESTOR_URL = 'https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00';
 const MINDSTUDIO_S5_URL = 'https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427';
 const DISCLAIMER_SHORT = 'Informational only — not legal, financial, or investment advice. Verify independently & consult a licensed attorney before bidding.';
@@ -1239,7 +1239,7 @@ input[type=range] { accent-color:#f59e0b; }
 const COUNTY_SLUG = "COUNTY_SLUG_PLACEHOLDER";
 const COUNTY_TITLE_JS = "COUNTY_TITLE_PLACEHOLDER";
 const SUPABASE_URL = "https://mocerqjnksmhcjzxrewo.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODc0Nzc1MTksImV4cCI6MjAwMzA1MzUxOX0.VFl2gOfVWMRFQPiWxkpRf-GH5Vc_9bRHhK5bnAHmLNA";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDUzMjUyNiwiZXhwIjoyMDgwMTA4NTI2fQ.sNmIFhUGbBfMPHKxU2MjCn2wjXIKUnxcMU2RYTqp9nE";
 </script>
 <script>
 const SIG_META = {
@@ -1285,9 +1285,7 @@ function app() {
     init() {
       const today = new Date().toISOString().slice(0,10);
       const cutoff = new Date(Date.now()+35*24*60*60*1000).toISOString().slice(0,10);
-      fetch(SUPABASE_URL+'/rest/v1/multi_county_auctions?county=eq.'+COUNTY_SLUG+'&auction_date=gte.'+today+'&auction_date=lte.'+cutoff+'&order=auction_date.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff,market_value', {
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
-      })
+      fetch('/county/'+COUNTY_SLUG+'/lots')
       .then(r => r.json())
       .then(rows => {
         this.deals = rows.map(r => {
