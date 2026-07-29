@@ -1,0 +1,85 @@
+session:
+  shard: SHARD-8 (liberty only)
+  dispatch_id: 455552e8-01af-4425-bd7d-8da60b23ad90
+  chat_session: architect-20260729T000000
+  date: 2026-07-29
+  mode: ultracode Workflow fan-out (3 parallel recheck agents -> 1 adversarial
+    verify/audit-logging agent), task w3q783524, run wf_87f6bdea-cb4
+
+decisions:
+  - step: "pre-work scoping"
+    action: "Read all 5 prior liberty session reports/logs (07-05, 07-18/20,
+      07-24 x2, 07-27) plus the reusable shard-8 workflow artifact before
+      deciding session shape."
+    result: "Found liberty A/B/F genuinely blocked by 2 structural issues
+      (empty tax-deed list; Turnstile gates on the only 2 independent-outcome
+      sources), independently reconfirmed across 5 prior sessions."
+    reason: "Avoid duplicating already-adversarially-verified findings; size
+      this firing's work to what had genuinely not been checked recently."
+  - step: "live baseline pull"
+    action: "Ran pencil_dod_evaluate_county('liberty') directly via curl
+      before launching any workflow."
+    result: "7/10, byte-identical to 07-27 session-end state. auctions_total
+      still 1 (case 24-CA-22 only)."
+    reason: "Confirm zero drift before deciding whether a full re-investigation
+      or a scoped recheck was the honest, proportionate action."
+  - step: "scoped ultracode workflow"
+    action: "Launched a 2-phase Workflow: 3 parallel independent-source
+      rechecks (tax-deed listing, Civitek OCRS, ORI+appraiser), then 1
+      adversarial verify agent that re-ran the RPC fresh and logged audit
+      rows."
+    result: "All 4 external sources unchanged. Verifier caught and correctly
+      overrode a self-contradictory changed_from_history=true flag from the
+      ORI recheck agent (whose own prose said 'unchanged')."
+    reason: "ultracode was explicitly opted into this turn; sized the
+      workflow to the actual remaining work (a freshness recheck) rather
+      than re-running the full research fan-out for a known, unchanged wall."
+  - step: "close-out"
+    action: "Wrote session report, this log, and NO new DB writes to
+      foreclosure_outcomes/tax_deed_outcomes/multi_county_auctions."
+    result: "NO_WRITE verdict, matching the honest state of the data."
+    reason: "Fail-loud invariant / no ghost-success: nothing actionable was
+      found, so nothing was fabricated to fill session time."
+
+artifacts:
+  - GOLD_STANDARD_SHARD8_LIBERTY_DISPATCH_455552E8_SESSION_REPORT.md
+  - .claude/session-logs/2026-07-29-gold-standard-shard8-liberty.yml
+  - gold_standard_ultraloop_audit rows 10662 (A), 10663 (B), 10664 (F),
+    dispatch_id=455552e8-01af-4425-bd7d-8da60b23ad90, ultraloop_mode=native,
+    all survived=true
+
+verification:
+  - check: "pencil_dod_evaluate_county('liberty') pre-workflow (direct curl)"
+    proof: "A fail(0) B fail(null) F fail(null) C/D/E/G/H/I/J pass,
+      auctions_total=1 -- matches 07-27 baseline exactly"
+    status: PASS (confirms no drift)
+  - check: "pencil_dod_evaluate_county('liberty') post-workflow (independent
+      re-run inside the verify agent)"
+    proof: "Identical result to pre-workflow baseline"
+    status: PASS (confirms no drift)
+  - check: "libertyclerk.com tax-deed + foreclosure pages, live fetch"
+    proof: "HTTP 200 both, 'no properties on the list of tax deeds' /
+      'no foreclosure sales available', zero case-24-CA-22 matches via grep"
+    status: PASS (genuine absence, 5th consecutive identical check)
+  - check: "Civitek OCRS + ORI + libertypa.org + qpublic, live fetch"
+    proof: "OCRS landing page loads clean (Turnstile only at deeper
+      stateful search-submit, requires JS browser not available this
+      firing -- disclosed as inferred/carried-forward, not re-observed);
+      libertypa.org and qpublic both HTTP 403 Cloudflare Managed Challenge,
+      2 user-agents tested"
+    status: PASS (unchanged from history; one agent's changed_from_history
+      flag was contradicted by its own prose and overridden by the verifier)
+
+status_board:
+  liberty: "7/10, unchanged. 6th consecutive session (07-05, 07-18/20,
+    07-24 x2, 07-27, 07-29) to independently confirm the same structural
+    A/B/F blockers. NO_WRITE is correct."
+
+next_session_priorities:
+  - "Next legitimate recheck: 2026-07-31 (FL Certificate-of-Title recording
+    window closes for the 2026-07-21 sale)."
+  - "Civitek OCRS has a scheduled maintenance window Sat 2026-08-01
+    11:00-14:00 ET -- avoid scheduling a recheck of that source during it."
+  - "Turnstile sitekeys stable 5+ days -- still a fleet-level (not
+    liberty-specific) decision on a sanctioned CAPTCHA-solving integration."
+  - "Single-county shard, no other counties to pivot to."
