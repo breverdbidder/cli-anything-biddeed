@@ -1305,9 +1305,7 @@ function app() {
     init() {
       const today = new Date().toISOString().slice(0,10);
       const cutoff = new Date(Date.now()+35*24*60*60*1000).toISOString().slice(0,10);
-      fetch(SUPABASE_URL+'/rest/v1/multi_county_auctions?county=eq.'+COUNTY_SLUG+'&auction_date=gte.'+today+'&auction_date=lte.'+cutoff+'&order=auction_date.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff,market_value', {
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
-      })
+      fetch('/county/'+COUNTY_SLUG+'/lots')
       .then(r => r.json())
       .then(rows => {
         this.deals = rows.map(r => {
@@ -1628,25 +1626,7 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
   <div class="mi">🗺️ <strong>ZoneWise Zoning</strong> — setbacks, FAR, land use on every property</div>
 </div></div>
 
-<section class="sec" id="chat">
-  <div class="ey">LIVE · FREE · NO SIGNUP</div>
-  <h2 class="st2">Ask BidDeed.AI Anything</h2>
-  <p class="ss">Real auction data. Shapira Formula. Responds in your language automatically.</p>
-  <div class="lps">
-    <span class="lp">🇺🇸 English</span><span class="lp">🇮🇱 עברית</span><span class="lp">🇪🇸 Español</span>
-    <span class="lp">🇧🇷 Português</span><span class="lp">🇸🇦 العربية</span><span class="lp">🇷🇺 Русский</span><span class="lp">🇨🇳 中文</span>
-  </div>
-  <div class="cfw">
-    <div class="cfb">
-      <div class="cfd" style="background:#ef4444"></div>
-      <div class="cfd" style="background:var(--orange);margin-left:5px"></div>
-      <div class="cfd" style="background:var(--green);margin-left:5px"></div>
-      <div class="cfl">BidDeed.AI · Streaming Auction Intelligence</div>
-    </div>
-    <iframe src="https://biddeed.ai/chat" width="100%" height="620" style="display:block;border:none" allow="clipboard-write" loading="lazy" title="BidDeed.AI Chat"></iframe>
-  </div>
-  <p class="cn">Free · No credit card · <a href="/subscribe?tier=investor">Upgrade to Investor $99/mo →</a></p>
-</section>
+
 
 <hr class="dv">
 
@@ -1779,6 +1759,26 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
     <a href="#chat" class="bp">Try Free — No Signup</a>
     <a href="/subscribe?tier=investor" class="bs">Get Investor Access — $99/mo</a>
   </div>
+</section>
+
+<section class="sec" id="chat" style="max-width:100%;width:100%;padding-left:0;padding-right:0">
+  <div class="ey">LIVE · FREE · NO SIGNUP</div>
+  <h2 class="st2">Ask BidDeed.AI Anything</h2>
+  <p class="ss">Real auction data. Shapira Formula. Responds in your language automatically.</p>
+  <div class="lps">
+    <span class="lp">🇺🇸 English</span><span class="lp">🇮🇱 עברית</span><span class="lp">🇪🇸 Español</span>
+    <span class="lp">🇧🇷 Português</span><span class="lp">🇸🇦 العربية</span><span class="lp">🇷🇺 Русский</span><span class="lp">🇨🇳 中文</span>
+  </div>
+  <div class="cfw">
+    <div class="cfb">
+      <div class="cfd" style="background:#ef4444"></div>
+      <div class="cfd" style="background:var(--orange);margin-left:5px"></div>
+      <div class="cfd" style="background:var(--green);margin-left:5px"></div>
+      <div class="cfl">BidDeed.AI · Streaming Auction Intelligence</div>
+    </div>
+    <iframe src="https://biddeed.ai/chat" width="100%" height="620" style="display:block;border:none" allow="clipboard-write" loading="lazy" title="BidDeed.AI Chat"></iframe>
+  </div>
+  <p class="cn">Free · No credit card · <a href="/subscribe?tier=investor">Upgrade to Investor $99/mo →</a></p>
 </section>
 
 <footer><p>© 2026 BidDeed.AI · Everest Capital USA · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a> &nbsp;·&nbsp; <a href="#pricing">Pricing</a> &nbsp;·&nbsp; <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a> &nbsp;·&nbsp; <a href="/disclaimer">Disclaimer</a></p><p style="margin-top:.6rem;font-size:.72rem;color:var(--muted);max-width:820px;margin-left:auto;margin-right:auto">BidDeed.AI is an information and analytics platform, not a law firm or financial advisor. Nothing here is legal, financial, or investment advice. Foreclosure and tax-deed investing carries risk of loss. Verify all data independently and consult a licensed Florida attorney before bidding.</p></footer>
