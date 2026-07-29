@@ -321,7 +321,7 @@ export default {
 
         // Dynamic Gold Standard list from runtime config
         const rtCfg = await fetchRuntimeConfig();
-        const goldListForPrompt = (rtCfg.goldCounties || GOLD_COUNTIES).map(s => toDisplay(s)).join(', ');
+        const goldListForPrompt = (rtCfg.goldCounties && rtCfg.goldCounties.length ? rtCfg.goldCounties : GOLD_COUNTIES).map(s => toDisplay(s)).join(', ');
 
         // Live Supabase grounding — detect what the user is asking about and fetch real data
         const lastMsg = String(messages[messages.length - 1]?.content || '').toLowerCase();
@@ -500,8 +500,8 @@ ${DISCLAIMER_SHORT}`;
       // ── GET / ────────────────────────────────────────────────────────────
       if (path === '/' || path === '') {
         const hpConfig = await fetchRuntimeConfig();
-        const goldChips = (hpConfig.goldCounties || GOLD_COUNTIES).map(s => '<div class="cc">' + toDisplay(s) + '</div>').join('');
-        const goldCount = (hpConfig.goldCounties || GOLD_COUNTIES).length;
+        const goldChips = (hpConfig.goldCounties && hpConfig.goldCounties.length ? hpConfig.goldCounties : GOLD_COUNTIES).map(s => '<div class="cc">' + toDisplay(s) + '</div>').join('');
+        const goldCount = (hpConfig.goldCounties && hpConfig.goldCounties.length ? hpConfig.goldCounties : GOLD_COUNTIES).length;
         let hp = HOMEPAGE_HTML
           .replace(/GOLD_CHIPS_PLACEHOLDER/, goldChips)
           .replace(/GOLD_COUNT_PLACEHOLDER/g, String(goldCount));
@@ -532,7 +532,7 @@ function buildCountyPage(slug, d, lots, rtConfig) {
 }
 
 function buildCountiesIndex(rtConfig) {
-  const goldSet = new Set((rtConfig && rtConfig.goldCounties) || GOLD_COUNTIES);
+  const goldSet = new Set((rtConfig && rtConfig.goldCounties && rtConfig.goldCounties.length) ? rtConfig.goldCounties : GOLD_COUNTIES);
   const allCounties = Object.keys(COUNTY_DISPLAY).sort();
   const rows = allCounties.map(slug => {
     const name = toDisplay(slug);
@@ -1216,14 +1216,15 @@ input[type=range] { accent-color:#f59e0b; }
             </template>
             <template x-if="d.sale_status!=='SOLD'">
               <div>
-                <div class="text-emerald-400 font-bold text-sm">$<span x-text="formatNum(d.equity_at_opening_bid)"></span></div>
-                <div class="text-[10px] text-slate-500">equity</div>
+                <div class="font-bold text-sm" :class="d.equity_at_opening_bid > 0 ? 'text-emerald-400' : d.equity_at_opening_bid < 0 ? 'text-red-400' : 'text-slate-500'" x-text="d.equity_at_opening_bid != 0 ? ((d.equity_at_opening_bid < 0 ? '-$' : '$') + formatNum(Math.abs(d.equity_at_opening_bid))) : 'TBD'"></div>
+                <div class="text-[10px] text-slate-500" x-text="d.equity_at_opening_bid != 0 ? 'equity' : 'pending'"></div>
               </div>
             </template>
           </div>
         </div>
         <div class="text-[15px] font-semibold leading-tight" x-text="isUnknownAddr(d) ? ('PIN '+(d.bcpao_account||'?')) : (d.street_address||'(pending)')"></div>
-        <div class="text-xs text-slate-400 mb-2" x-text="isUnknownAddr(d) ? 'No street · check parcel map' : ((d.city||'?')+(d.zip5 ? ', '+d.zip5 : ''))"></div>
+        <div class="text-xs text-slate-400" x-text="isUnknownAddr(d) ? 'No street · check parcel map' : ((d.city||'?')+(d.zip5 ? ', '+d.zip5 : ''))"></div>
+        <div class="text-[11px] text-amber-400/80 mb-2 font-medium" x-show="d.auction_date" x-text="'📅 ' + (d.auction_date ? new Date(d.auction_date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}) : '')"></div>
         <div x-show="d.owner_name" class="text-[11px] mb-2 flex items-start gap-1.5">
           <span class="text-slate-500">👤</span>
           <span class="text-slate-300 font-medium truncate" x-text="(d.owner_name||'')+(d.owner_mailing_state ? ' · '+d.owner_mailing_state : '')"></span>
@@ -1234,8 +1235,8 @@ input[type=range] { accent-color:#f59e0b; }
           </template>
         </div>
         <div class="grid grid-cols-3 gap-2 text-xs">
-          <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">Bid</div><div class="font-mono font-semibold">$<span x-text="formatNum(d.opening_bid)"></span></div></div>
-          <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">Market</div><div class="font-mono font-semibold">$<span x-text="formatNum(d.market_value)"></span></div></div>
+          <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">Bid</div><div class="font-mono font-semibold" x-text="d.opening_bid > 0 ? ('$'+formatNum(d.opening_bid)) : 'TBD'"></div></div>
+          <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">Market</div><div class="font-mono font-semibold" x-text="d.market_value > 0 ? ('$'+formatNum(d.market_value)) : 'TBD'"></div></div>
           <div class="bg-slate-900/60 rounded px-2 py-1.5"><div class="text-[9px] text-slate-500 uppercase">% Mkt</div><div class="font-mono font-semibold text-amber-400" x-text="d.opening_bid_pct_of_market!=null ? d.opening_bid_pct_of_market+'%' : '—'"></div></div>
         </div>
       </div>
