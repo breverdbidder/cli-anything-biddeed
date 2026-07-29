@@ -503,13 +503,13 @@ function buildChatPage(county, hook, ref) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content">
 <title>BidDeed.AI · Auction Intelligence</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
 html{height:100%;height:-webkit-fill-available}
-body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;overflow:hidden;position:fixed;width:100%}
+body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;height:var(--vvh,100vh);overflow:hidden;position:fixed;width:100%}
 
 /* HEADER */
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:52px;background:rgba(2,6,23,.98);border-bottom:1px solid var(--border);flex-shrink:0;min-height:52px}
@@ -646,6 +646,23 @@ ${countyBar}
 </div>
 
 <script>
+// FIX: iOS Safari keyboard freeze — 100vh does not shrink when the keyboard opens,
+// so a position:fixed body stays full-height while the real visible area shrinks,
+// making touches land in the wrong place and the page appear frozen.
+// visualViewport tracks the REAL visible height and we sync --vvh to it live.
+(function() {
+  function syncVVH() {
+    var h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+    document.documentElement.style.setProperty('--vvh', h + 'px');
+  }
+  syncVVH();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncVVH);
+    window.visualViewport.addEventListener('scroll', syncVVH);
+  }
+  window.addEventListener('orientationchange', function(){ setTimeout(syncVVH, 100); });
+})();
+
 const COUNTY = ${JSON.stringify(county)};
 const HOOK   = ${JSON.stringify(hook)};
 const AUTO   = ${JSON.stringify(autoMsg)};
