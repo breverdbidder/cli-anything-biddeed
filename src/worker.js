@@ -281,7 +281,7 @@ export default {
         if (askedYesterday || askedResults) {
           try {
             const y = new Date(Date.now() - 86400000).toISOString().slice(0,10);
-            let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&or=(sold_amount.not.is.null,tier1_sold_amount.not.is.null)&order=tier1_sold_amount.desc.nullslast&limit=12&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
+            let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&or=(sold_amount.not.is.null,tier1_sold_amount.not.is.null)&order=tier1_sold_amount.desc.nullslast&limit=30&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
             if (county) url += `&county=eq.${encodeURIComponent(county)}`;
             const lr = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
             const rows = lr.ok ? await lr.json() : [];
@@ -316,7 +316,15 @@ Key facts:
 - Investor tier: $99/month — unlimited property cards, 10 S5 reports/mo, daily digest all 67 counties
 - When a user asks for a specific property analysis, mention they can get a full Shapira S5 Report for $25
 
-When someone asks for a specific property analysis or max bid, always suggest the $25 Shapira S5 Report as the way to get the full calculation. ${DISCLAIMER_SHORT}`;
+When someone asks for a specific property analysis or max bid, always suggest the $25 Shapira S5 Report as the way to get the full calculation.
+
+FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
+- Use **bold** for prices, addresses, and key figures
+- Use markdown tables (| col | col |) when listing 3+ properties — they render as real HTML tables
+- ALWAYS end a county-specific answer with a link in this EXACT format: [See all COUNTY listings →](https://biddeed.ai/county/SLUG) using the lowercase-underscore county slug (e.g. palm_beach, st_johns, miami_dade). This link becomes clickable and drives users to the full property card grid.
+- If you listed live auction results and there could be more than what you showed, say so and link to the county page rather than just stopping — never imply the list is exhaustive when it's a top-N sample
+- ALWAYS end every substantive answer with a clear next step: either the county link above, or the $25 S5 report for a specific property, or the $99/mo Investor tier link [Upgrade to Investor →](https://biddeed.ai/subscribe?tier=investor) for users asking broad multi-county questions. Never end with just information and no path forward — every answer is a lead-generation opportunity.
+${DISCLAIMER_SHORT}`;
 
         const anthropicKey = env.ANTHROPIC_KEY;
         if (!anthropicKey) {
@@ -554,7 +562,16 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .av.ai{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy)}
 .av.user{background:var(--navy3);font-size:13px}
 .bbl{max-width:88%;padding:9px 12px;border-radius:13px;font-size:13px;line-height:1.65;word-break:break-word}
-.bbl.ai{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);white-space:pre-wrap}
+.bbl.ai{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text)}
+.bbl.ai .md-h1,.bbl.ai .md-h2,.bbl.ai .md-h3{font-weight:700;margin:8px 0 4px;color:var(--orange)}
+.bbl.ai .md-li{margin:2px 0}
+.bbl.ai .md-sp{height:6px}
+.bbl.ai b{color:#fff}
+.bbl.ai .md-link{color:var(--orange);text-decoration:underline;font-weight:600}
+.chat-tbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;overflow-x:auto;display:block}
+.chat-tbl thead{background:rgba(255,255,255,.06)}
+.chat-tbl th,.chat-tbl td{padding:6px 8px;border:1px solid var(--border);text-align:left;white-space:nowrap}
+.chat-tbl th{color:var(--orange);font-weight:700;font-size:11px;text-transform:uppercase}
 .bbl.user{background:#1e3a5f;color:var(--text);border:1px solid #2d5a8e}
 
 /* TYPING */
@@ -692,6 +709,58 @@ if (COUNTY) {
 }
 function mkStat(val,lbl,hot){return '<div class="cb-stat"><div class="num'+(hot?' hot':'')+'">'+val+'</div><div class="lbl">'+lbl+'</div></div>';}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Safe minimal markdown renderer for assistant messages — escapes first (XSS-safe),
+// then converts **bold**, [text](https://...) links (biddeed.ai + safe https only), and | table | rows.
+function mdToHtml(raw){
+  const lines = String(raw).split(String.fromCharCode(10));
+  let html = '';
+  let inTable = false;
+  let tableRows = [];
+  const flushTable = () => {
+    if (!tableRows.length) return;
+    const [header, ...rest] = tableRows;
+    html += '<table class="chat-tbl"><thead><tr>' + header.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>';
+    for (const r of rest) html += '<tr>' + r.map(c=>'<td>'+c+'</td>').join('') + '</tr>';
+    html += '</tbody></table>';
+    tableRows = [];
+  };
+  for (let line of lines) {
+    const escLine = esc(line);
+    const isTableRow = /^\s*\|.*\|\s*$/.test(line);
+    const isSeparator = /^\s*\|[\s:|-]+\|\s*$/.test(line);
+    if (isTableRow) {
+      if (isSeparator) { inTable = true; continue; }
+      const cells = line.split('|').slice(1,-1).map(c => formatInline(esc(c.trim())));
+      tableRows.push(cells);
+      inTable = true;
+      continue;
+    } else if (inTable) {
+      flushTable();
+      inTable = false;
+    }
+    if (/^#{1,3}\s/.test(line)) {
+      const lvl = line.match(/^#{1,3}/)[0].length;
+      html += '<div class="md-h' + lvl + '">' + formatInline(esc(line.replace(/^#{1,3}\s*/,''))) + '</div>';
+    } else if (/^\s*[-*]\s/.test(line)) {
+      html += '<div class="md-li">• ' + formatInline(esc(line.replace(/^\s*[-*]\s*/,''))) + '</div>';
+    } else if (line.trim() === '') {
+      html += '<div class="md-sp"></div>';
+    } else {
+      html += '<div>' + formatInline(escLine) + '</div>';
+    }
+  }
+  if (inTable) flushTable();
+  return html;
+}
+function formatInline(escaped){
+  // Bold
+  escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  // Links — only allow https://biddeed.ai/... or https://app.mindstudio.ai/... to prevent injected redirects
+  escaped = escaped.replace(/\[([^\]]+)\]\((https:\/\/(?:biddeed\.ai|app\.mindstudio\.ai)[^\)]*)\)/g,
+    '<a href="$2" target="_blank" class="md-link">$1 →</a>');
+  return escaped;
+}
 function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTop=m.scrollHeight;}}
 
 function addMsg(role,content){
@@ -699,7 +768,8 @@ function addMsg(role,content){
   const m=document.getElementById('msgs');
   const row=document.createElement('div');row.className='msg '+role;
   const av=role==='assistant'?'<div class="av ai">BD</div>':'<div class="av user">👤</div>';
-  row.innerHTML=av+'<div class="bbl '+role+'">'+esc(content)+'</div>';
+  const body = role==='assistant' ? mdToHtml(content) : esc(content);
+  row.innerHTML=av+'<div class="bbl '+role+'">'+body+'</div>';
   m.appendChild(row);scrollBottom();
   return row.querySelector('.bbl');
 }
@@ -746,7 +816,7 @@ async function send(){
       for(const line of lines){
         if(!line.startsWith('data: '))continue;
         const data=line.slice(6).trim();if(data==='[DONE]')break;
-        try{const evt=JSON.parse(data);if(evt.text){fullText+=evt.text;bbl.textContent=fullText;scrollBottom();}}catch(e){}
+        try{const evt=JSON.parse(data);if(evt.text){fullText+=evt.text;bbl.innerHTML=mdToHtml(fullText);scrollBottom();}}catch(e){}
       }
     }
     bbl.id='';
