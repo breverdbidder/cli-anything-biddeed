@@ -790,7 +790,7 @@ function formatInline(escaped){
           const url = escaped.slice(closeBracket+2, closeParen);
           const safe = url.indexOf('https://biddeed.ai') === 0 || url.indexOf('https://app.mindstudio.ai') === 0;
           if (safe) {
-            out += '<a href="' + url + '" target="_blank" class="md-link">' + linkText + ' ' + String.fromCharCode(8594) + '</a>';
+            out += '<a href="' + url + '" target="_blank" class="md-link">' + linkText + '</a>';
             i = closeParen + 1;
             continue;
           }
