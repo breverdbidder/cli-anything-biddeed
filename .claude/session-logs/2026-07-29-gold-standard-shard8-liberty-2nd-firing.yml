@@ -1,0 +1,83 @@
+session:
+  shard: SHARD-8 (liberty only)
+  dispatch_id: 455552e8-01af-4425-bd7d-8da60b23ad90
+  chat_session: architect-20260729T000000
+  date: 2026-07-29
+  firing: 2nd (same dispatch_id + chat_session as commit c63ad493, ~1h37m
+    earlier: 01:48:43Z -> this firing 03:24:04Z)
+  mode: duplicate-dispatch detection + single independent-verify agent
+    (ultracode Workflow, 1 agent), NOT a full ultracode re-run (see reason
+    below)
+
+duplicate_detection:
+  finding: "git log --all | grep liberty showed commit c63ad493 already on
+    main, carrying the IDENTICAL dispatch_id and chat_session as this
+    firing's brief. That commit's session report/log already ran the full
+    ULTRALOOP fan-out (3 recheck agents + 1 adversarial verifier) against
+    the same 3 failing letters (A/B/F) and reached a fully
+    adversarially-verified NO_WRITE conclusion, logged to
+    gold_standard_ultraloop_audit (ids 10662-10664, survived=true)."
+  decision: "Did NOT re-run the full multi-agent research fan-out. The
+    prior firing's blockers are real-world constraints that do not change
+    on a ~90-minute cadence (empty tax-deed clerk listing; live Cloudflare
+    Turnstile CAPTCHA walls on the only 2 sources that would carry an
+    independent sale outcome for case 24-CA-22; next legitimate recheck not
+    until 2026-07-31, the FL Certificate-of-Title recording window). Instead:
+    ran a direct live RPC/audit-table check myself (curl, main context),
+    then launched one scoped ultracode Workflow with a single independent
+    verify agent to corroborate the duplicate-detection finding per the
+    ULTRALOOP adversarial-verify protocol -- sized to the actual remaining
+    work (confirm no drift) rather than re-spending budget on a known,
+    unchanged wall. Per prior 07-24 2nd-firing precedent, re-running the
+    full fan-out here would be a cost-discipline violation for ~zero
+    expected new information."
+
+fresh_checks_this_firing:
+  - check: "pencil_dod_evaluate_county('liberty') via live PostgREST RPC
+      (main-context curl, pre-workflow)"
+    result: "A fail(0, fc=1/td=0) B fail(null, verified=0/closed_sold=0)
+      F fail(null, tier1_sold=0/closed_sold=0), C/D/E/G/I/J all 100.0,
+      H=15.7h (SLA 48h) -- 7/10, byte-identical to the 01:48:43Z commit's
+      recorded after-state except H's freshness clock ticking forward
+      (8.3h -> 15.7h, expected time passage, not a metric regression)."
+  - check: "gold_standard_ultraloop_audit rows for dispatch_id
+      455552e8-01af-4425-bd7d-8da60b23ad90 (main-context curl)"
+    result: "5 rows found (not 3 as the committed report stated): id=10660
+      (B, 01:45:37Z), id=10661 (F, 01:45:42Z), id=10662 (A, 01:47:03Z),
+      id=10663 (B, 01:47:03Z), id=10664 (F, 01:47:03Z) -- all
+      county_slug=liberty, all survived=true. The prior report only cited
+      10662-10664; rows 10660-10661 are an earlier partial log from the
+      same original run (B/F logged ~1.5min before the final A/B/F set).
+      Correcting the record here: 5 audit rows exist for this dispatch,
+      all consistent (survived=true, no conflicting verdicts)."
+  - check: "Independent workflow agent re-verification (ultracode, 1 agent,
+      task w5j7bbkzy / run wf_b4c9f9b3-3cb)"
+    result: "Independently re-ran both checks above via its own curl calls
+      (not trusting the main-context results). RPC result matched exactly.
+      Audit query also found the same 5 rows and flagged the 3-vs-5 count
+      discrepancy and the true elapsed time (~96-98 min via `date -u`, not
+      the ~3min the task briefing's commit-timestamp framing implied).
+      Verdict: is_duplicate=true, no new work needed -- both discrepancies
+      are bookkeeping-only and do not change the substantive finding."
+
+status_board:
+  liberty: "7/10, unchanged. Confirmed via 2 independent live RPC checks
+    (main context + a separate verify agent) plus a corrected audit-row
+    count that nothing material shifted in the ~97 minutes since the prior
+    firing's commit. Correctly NOT re-worked with a full agent fan-out --
+    that would have duplicated already-adversarially-verified findings for
+    zero new information. This is the 7th consecutive session/firing
+    (07-05, 07-18/20, 07-24 x2, 07-27, 07-29 x2) to independently confirm
+    the same structural A/B/F blockers."
+
+next_session_priorities:
+  - "Unchanged from the prior firing: next legitimate B/F recheck no
+    earlier than 2026-07-31 (FL Certificate-of-Title recording window
+    closes for the 2026-07-21 sale)."
+  - "Civitek OCRS scheduled maintenance window Sat 2026-08-01 11:00-14:00
+    ET -- avoid scheduling a recheck of that source during it."
+  - "Fleet-level note: this is the 2nd same-day dispatch_id re-fire on
+    this shard within the current campaign (07-24 had the same pattern) --
+    worth flagging to the AI Architect as a scheduler-level duplication
+    signal, not a liberty-specific issue."
+  - "Single-county shard, no other counties to pivot to."
