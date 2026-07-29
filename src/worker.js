@@ -287,8 +287,21 @@ export default {
           try {
             const today2 = new Date().toISOString().slice(0,10);
             const cut30 = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+            // Extract county from message if not provided by frontend
+            let effectiveCounty = county || '';
+            if (!effectiveCounty) {
+              const countyNames = Object.keys(COUNTY_DISPLAY);
+              const msgLower = lastMsg.replace(/-/g,'_');
+              for (const slug of countyNames) {
+                const display = COUNTY_DISPLAY[slug].toLowerCase();
+                if (msgLower.includes(display) || msgLower.includes(slug.replace(/_/g,' '))) {
+                  effectiveCounty = slug;
+                  break;
+                }
+              }
+            }
             let uUrl = SUPABASE_URL+'/rest/v1/multi_county_auctions?auction_date=gte.'+today2+'&auction_date=lte.'+cut30+'&order=auction_date.asc&limit=25&select=county,sale_type,property_address,auction_date,opening_bid,assessed_value,case_number';
-            if (county) uUrl += '&county=eq.'+encodeURIComponent(county);
+            if (effectiveCounty) uUrl += '&county=eq.'+encodeURIComponent(effectiveCounty);
             const uRes = await fetch(uUrl, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer '+SUPABASE_KEY } });
             const uRows = uRes.ok ? await uRes.json() : [];
             if (Array.isArray(uRows) && uRows.length > 0) {
@@ -306,7 +319,8 @@ export default {
           try {
             const y = new Date(Date.now() - 86400000).toISOString().slice(0,10);
             let url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?auction_date=eq.${y}&or=(sold_amount.not.is.null,tier1_sold_amount.not.is.null)&order=tier1_sold_amount.desc.nullslast&limit=30&select=county,sale_type,property_address,case_number,sold_amount,tier1_sold_amount,opening_bid,auction_status`;
-            if (county) url += `&county=eq.${encodeURIComponent(county)}`;
+            const yCounty = county || effectiveCounty || '';
+            if (yCounty) url += '&county=eq.'+encodeURIComponent(yCounty);
             const lr = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
             const rows = lr.ok ? await lr.json() : [];
             if (Array.isArray(rows) && rows.length > 0) {
@@ -703,6 +717,13 @@ ${countyBar}
     window.visualViewport.addEventListener('scroll', syncVVH);
   }
   window.addEventListener('orientationchange', function(){ setTimeout(syncVVH, 100); });
+  // When embedded in an iframe (homepage), remove position:fixed so scroll events
+  // chain through to the parent page instead of being trapped
+  if (window.self !== window.top) {
+    document.body.style.position = 'relative';
+    document.body.style.overflow = 'auto';
+    document.body.style.height = '100%';
+  }
 })();
 
 const COUNTY = ${JSON.stringify(county)};
