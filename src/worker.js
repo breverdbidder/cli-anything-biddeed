@@ -85,7 +85,10 @@ async function checkRateLimit(ip, limit = 15) {
       body: JSON.stringify({ p_ip: ip, p_limit: limit }),
     });
     if (!res.ok) return true;
-    return await res.json() === true;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) return !!data[0].allowed;
+    if (data && typeof data === 'object' && 'allowed' in data) return !!data.allowed;
+    return true;
   } catch(_) { return true; }
 }
 
