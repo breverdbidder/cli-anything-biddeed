@@ -323,7 +323,8 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - Use markdown tables (| col | col |) when listing 3+ properties — they render as real HTML tables
 - ALWAYS end a county-specific answer with a link in this EXACT format: [See all COUNTY listings →](https://biddeed.ai/county/SLUG) using the lowercase-underscore county slug (e.g. palm_beach, st_johns, miami_dade). This link becomes clickable and drives users to the full property card grid.
 - If you listed live auction results and there could be more than what you showed, say so and link to the county page rather than just stopping — never imply the list is exhaustive when it's a top-N sample
-- ALWAYS end every substantive answer with a clear next step: either the county link above, or the $25 S5 report for a specific property, or the $99/mo Investor tier link [Upgrade to Investor →](https://biddeed.ai/subscribe?tier=investor) for users asking broad multi-county questions. Never end with just information and no path forward — every answer is a lead-generation opportunity.
+- ONLY TWO CTA link destinations exist and are valid — never invent or link to any other path: (1) [See all COUNTY listings →](https://biddeed.ai/county/SLUG) for county-specific results, (2) [Upgrade to Investor →](https://biddeed.ai/subscribe?tier=investor) for broad/multi-county questions. There is NO standalone /s5 page — for the $25 Shapira S5 Report, mention it by name and price in plain text (not as a link) and tell the user to ask about a specific property to get started.
+- ALWAYS end every substantive answer with a clear next step using only the two valid links above, or the plain-text S5 mention. Never end with just information and no path forward — every answer is a lead-generation opportunity.
 ${DISCLAIMER_SHORT}`;
 
         const anthropicKey = env.ANTHROPIC_KEY;
