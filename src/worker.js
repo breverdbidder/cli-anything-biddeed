@@ -104,6 +104,53 @@ async function fetchCountyData(county) {
   } catch(_) { return null; }
 }
 
+// ── Runtime config from Supabase SSOT (cached 5 min at edge) ──────────────────
+async function fetchRuntimeConfig() {
+  try {
+    const cacheKey = 'biddeed-runtime-config-v1';
+    const cache = caches.default;
+    const cached = await cache.match(new Request('https://biddeed.ai/_internal/config'));
+    if (cached) return await cached.json();
+
+    // Fetch gold-certified counties
+    const goldRes = await fetch(
+      SUPABASE_URL + '/rest/v1/v_certified_counties?select=county_slug',
+      { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }
+    );
+    const goldRows = goldRes.ok ? await goldRes.json() : [];
+    const goldCounties = Array.isArray(goldRows) ? goldRows.map(r => r.county_slug).filter(Boolean) : [];
+
+    // Fetch co_no-confirmed counties (S5-deliverable when also gold-certified)
+    const conoRes = await fetch(
+      SUPABASE_URL + '/rest/v1/county_co_no_resolution?is_confirmed=eq.true&select=county_slug',
+      { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }
+    );
+    const conoRows = conoRes.ok ? await conoRes.json() : [];
+    const confirmedCounties = Array.isArray(conoRows) ? conoRows.map(r => r.county_slug).filter(Boolean) : [];
+
+    // S5-purchasable = both gold-certified AND co_no-confirmed
+    const goldSet = new Set(goldCounties);
+    const s5Counties = confirmedCounties.filter(c => goldSet.has(c));
+
+    const config = { goldCounties, confirmedCounties, s5Counties };
+
+    // Cache at edge for 5 minutes
+    const resp = new Response(JSON.stringify(config), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' }
+    });
+    await cache.put(new Request('https://biddeed.ai/_internal/config'), resp.clone());
+
+    return config;
+  } catch(e) {
+    // Fallback to hardcoded if Supabase is down
+    return {
+      goldCounties: GOLD_COUNTIES,
+      confirmedCounties: [],
+      s5Counties: []
+    };
+  }
+}
+
 // ── County lots fetch ─────────────────────────────────────────────────────────
 async function fetchCountyLots(county) {
   try {
@@ -198,14 +245,15 @@ export default {
       if (path.startsWith('/county/')) {
         const slug = path.replace('/county/', '').toLowerCase().replace(/-/g,'_').replace(/\/.*$/,'');
         if (!slug) return Response.redirect('/counties', 302);
-        const [data, lots] = await Promise.all([fetchCountyData(slug), fetchCountyLots(slug)]);
-        const html = buildCountyPage(slug, data, lots);
+        const [data, lots, rtConfig] = await Promise.all([fetchCountyData(slug), fetchCountyLots(slug), fetchRuntimeConfig()]);
+        const html = buildCountyPage(slug, data, lots, rtConfig);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
       }
 
       // ── /counties — all counties index ───────────────────────────────────
       if (path === '/counties') {
-        const html = buildCountiesIndex();
+        const ciConfig = await fetchRuntimeConfig();
+        const html = buildCountiesIndex(ciConfig);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
@@ -270,6 +318,10 @@ export default {
           return new Response(JSON.stringify({ error: 'Messages too long' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (!messages.every(m => ['user','assistant'].includes(m.role)))
           return new Response(JSON.stringify({ error: 'Invalid message role' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
+        // Dynamic Gold Standard list from runtime config
+        const rtCfg = await fetchRuntimeConfig();
+        const goldListForPrompt = (rtCfg.goldCounties || GOLD_COUNTIES).map(s => toDisplay(s)).join(', ');
 
         // Live Supabase grounding — detect what the user is asking about and fetch real data
         const lastMsg = String(messages[messages.length - 1]?.content || '').toLowerCase();
@@ -348,7 +400,7 @@ Your capabilities:
 - Respond in the same language the user writes in (English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese, French, Italian, German, Japanese, Korean, etc.)
 
 Key facts:
-- 24 Gold Standard certified counties: Brevard, Broward, Charlotte, Clay, Duval, Franklin, Hardee, Hendry, Hernando, Highlands, Hillsborough, Indian River, Jackson, Lafayette, Leon, Monroe, Nassau, Orange, Palm Beach, Pasco, Putnam, St. Johns, Volusia, Washington
+- Gold Standard certified counties (verified data quality): ${goldListForPrompt}
 - Marion County proof: Case 422021CA000414CAAXXX — Shapira Max Bid $82,000, actual sale $73,501. Ceiling held by $8,499.
 - Shapira S5 reports: $25 each — full AI-powered max-bid analysis for one specific property
 - Investor tier: $99/month — unlimited property cards, 10 S5 reports/mo, daily digest all 67 counties
@@ -447,7 +499,13 @@ ${DISCLAIMER_SHORT}`;
 
       // ── GET / ────────────────────────────────────────────────────────────
       if (path === '/' || path === '') {
-        return new Response(HOMEPAGE_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        const hpConfig = await fetchRuntimeConfig();
+        const goldChips = (hpConfig.goldCounties || GOLD_COUNTIES).map(s => '<div class="cc">' + toDisplay(s) + '</div>').join('');
+        const goldCount = (hpConfig.goldCounties || GOLD_COUNTIES).length;
+        let hp = HOMEPAGE_HTML
+          .replace(/GOLD_CHIPS_PLACEHOLDER/, goldChips)
+          .replace(/GOLD_COUNT_PLACEHOLDER/g, String(goldCount));
+        return new Response(hp, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
       return new Response('Not found', { status: 404 });
@@ -460,19 +518,21 @@ ${DISCLAIMER_SHORT}`;
 };
 
 // ── County deep-link landing page ─────────────────────────────────────────────
-function buildCountyPage(slug, d, lots) {
+function buildCountyPage(slug, d, lots, rtConfig) {
   const name = toDisplay(slug);
+  const s5List = (rtConfig && rtConfig.s5Counties) ? JSON.stringify(rtConfig.s5Counties) : '[]';
   // Serve the full interactive county page (Alpine.js + Tailwind)
   // Template has COUNTY_SLUG_PLACEHOLDER, COUNTY_TITLE_PLACEHOLDER, COUNTY_TITLE tokens
   return COUNTY_PAGE_TEMPLATE
     .replace(/COUNTY_SLUG_PLACEHOLDER/g, slug)
     .replace(/COUNTY_TITLE_PLACEHOLDER/g, name)
+    .replace('S5_COUNTIES_PLACEHOLDER', s5List)
     .replace('COUNTY_TITLE Auctions', name + ' County Auctions')
     .replace('COUNTY_TITLE auctions', name + ' County auctions');
 }
 
-function buildCountiesIndex() {
-  const goldSet = new Set(GOLD_COUNTIES);
+function buildCountiesIndex(rtConfig) {
+  const goldSet = new Set((rtConfig && rtConfig.goldCounties) || GOLD_COUNTIES);
   const allCounties = Object.keys(COUNTY_DISPLAY).sort();
   const rows = allCounties.map(slug => {
     const name = toDisplay(slug);
@@ -1458,7 +1518,7 @@ input[type=range] { accent-color:#f59e0b; }
 <script>
 const COUNTY_SLUG = "COUNTY_SLUG_PLACEHOLDER";
 const COUNTY_TITLE_JS = "COUNTY_TITLE_PLACEHOLDER";
-const S5_CERTIFIED_COUNTIES = ["charlotte","hillsborough","indian_river","monroe","nassau","putnam","st_johns"];
+const S5_CERTIFIED_COUNTIES = S5_COUNTIES_PLACEHOLDER;
 const S5_AVAILABLE = S5_CERTIFIED_COUNTIES.includes(COUNTY_SLUG);
 const MINDSTUDIO_S5_URL = "https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427";
 const SUPABASE_URL = "https://mocerqjnksmhcjzxrewo.supabase.co";
@@ -1878,15 +1938,10 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
 
 <section class="sec" id="gold-standard">
   <div class="ey">GOLD STANDARD CERTIFIED</div>
-  <h2 class="st2">24 Florida Counties — Verified &amp; Ready</h2>
+  <h2 class="st2">GOLD_COUNT_PLACEHOLDER Florida Counties — Verified &amp; Ready</h2>
   <p class="ss">Verified title records, current tax data, reliable auction timing, documented clearance patterns. More counties certified weekly.</p>
   <div class="cgrid">
-    <div class="cc">Brevard</div><div class="cc">Broward</div><div class="cc">Charlotte</div><div class="cc">Clay</div>
-    <div class="cc">Duval</div><div class="cc">Franklin</div><div class="cc">Hardee</div><div class="cc">Hendry</div>
-    <div class="cc">Hernando</div><div class="cc">Highlands</div><div class="cc">Hillsborough</div><div class="cc">Indian River</div>
-    <div class="cc">Jackson</div><div class="cc">Lafayette</div><div class="cc">Leon</div><div class="cc">Monroe</div>
-    <div class="cc">Nassau</div><div class="cc">Orange</div><div class="cc">Palm Beach</div><div class="cc">Pasco</div>
-    <div class="cc">Putnam</div><div class="cc">St. Johns</div><div class="cc">Volusia</div><div class="cc">Washington</div>
+    GOLD_CHIPS_PLACEHOLDER
   </div>
   <p style="margin-top:1.25rem;font-size:.8rem;color:var(--muted)">Uncertified county? <a href="mailto:hello@biddeed.ai" style="color:var(--orange)">hello@biddeed.ai</a></p>
 </section>
