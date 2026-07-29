@@ -712,55 +712,97 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 
 // Safe minimal markdown renderer for assistant messages — escapes first (XSS-safe),
 // then converts **bold**, [text](https://...) links (biddeed.ai + safe https only), and | table | rows.
+// NOTE: written with zero regex literals — Cloudflare's template-literal evaluation of this
+// nested inline script silently strips backslash escapes, corrupting any regex containing them.
 function mdToHtml(raw){
   const lines = String(raw).split(String.fromCharCode(10));
   let html = '';
-  let inTable = false;
   let tableRows = [];
   const flushTable = () => {
     if (!tableRows.length) return;
-    const [header, ...rest] = tableRows;
+    const header = tableRows[0];
+    const rest = tableRows.slice(1);
     html += '<table class="chat-tbl"><thead><tr>' + header.map(c=>'<th>'+c+'</th>').join('') + '</tr></thead><tbody>';
     for (const r of rest) html += '<tr>' + r.map(c=>'<td>'+c+'</td>').join('') + '</tr>';
     html += '</tbody></table>';
     tableRows = [];
   };
+  const isPipeChar = (c) => c === '|' || c === ':' || c === '-' || c === ' ';
   for (let line of lines) {
-    const escLine = esc(line);
-    const isTableRow = /^\s*\|.*\|\s*$/.test(line);
-    const isSeparator = /^\s*\|[\s:|-]+\|\s*$/.test(line);
+    const trimmed = line.trim();
+    const isTableRow = trimmed.length > 1 && trimmed.charAt(0) === '|' && trimmed.charAt(trimmed.length-1) === '|';
     if (isTableRow) {
-      if (isSeparator) { inTable = true; continue; }
-      const cells = line.split('|').slice(1,-1).map(c => formatInline(esc(c.trim())));
+      const isSeparator = trimmed.split('').every(isPipeChar);
+      if (isSeparator) continue;
+      const inner = trimmed.slice(1, -1);
+      const cells = inner.split('|').map(c => formatInline(esc(c.trim())));
       tableRows.push(cells);
-      inTable = true;
       continue;
-    } else if (inTable) {
+    } else if (tableRows.length) {
       flushTable();
-      inTable = false;
     }
-    if (/^#{1,3}\s/.test(line)) {
-      const lvl = line.match(/^#{1,3}/)[0].length;
-      html += '<div class="md-h' + lvl + '">' + formatInline(esc(line.replace(/^#{1,3}\s*/,''))) + '</div>';
-    } else if (/^\s*[-*]\s/.test(line)) {
-      html += '<div class="md-li">• ' + formatInline(esc(line.replace(/^\s*[-*]\s*/,''))) + '</div>';
-    } else if (line.trim() === '') {
+    if (trimmed.charAt(0) === '#') {
+      let lvl = 0;
+      while (lvl < trimmed.length && trimmed.charAt(lvl) === '#' && lvl < 3) lvl++;
+      const rest = trimmed.slice(lvl).trim();
+      html += '<div class="md-h' + lvl + '">' + formatInline(esc(rest)) + '</div>';
+    } else if ((trimmed.charAt(0) === '-' || trimmed.charAt(0) === String.fromCharCode(42)) && trimmed.charAt(1) === ' ') {
+      const rest = trimmed.slice(1).trim();
+      html += '<div class="md-li">' + String.fromCharCode(8226) + ' ' + formatInline(esc(rest)) + '</div>';
+    } else if (trimmed === '') {
       html += '<div class="md-sp"></div>';
     } else {
-      html += '<div>' + formatInline(escLine) + '</div>';
+      html += '<div>' + formatInline(esc(line)) + '</div>';
     }
   }
-  if (inTable) flushTable();
+  if (tableRows.length) flushTable();
   return html;
 }
 function formatInline(escaped){
-  // Bold
-  escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  // Links — only allow https://biddeed.ai/... or https://app.mindstudio.ai/... to prevent injected redirects
-  escaped = escaped.replace(/\[([^\]]+)\]\((https:\/\/(?:biddeed\.ai|app\.mindstudio\.ai)[^\)]*)\)/g,
-    '<a href="$2" target="_blank" class="md-link">$1 →</a>');
-  return escaped;
+  const STAR = String.fromCharCode(42);
+  const bold = STAR + STAR;
+  // Bold: **text** -> <b>text</b>, pure string scan (no regex)
+  let out = '';
+  let i = 0;
+  while (i < escaped.length) {
+    if (escaped.slice(i, i+2) === bold) {
+      const close = escaped.indexOf(bold, i+2);
+      if (close !== -1) {
+        out += '<b>' + escaped.slice(i+2, close) + '</b>';
+        i = close + 2;
+        continue;
+      }
+    }
+    out += escaped.charAt(i);
+    i++;
+  }
+  escaped = out;
+  // Links: [text](https://biddeed.ai/... or https://app.mindstudio.ai/...) -> <a>, pure string scan
+  out = '';
+  i = 0;
+  while (i < escaped.length) {
+    if (escaped.charAt(i) === '[') {
+      const closeBracket = escaped.indexOf(']', i+1);
+      if (closeBracket !== -1 && escaped.charAt(closeBracket+1) === '(') {
+        const closeParen = escaped.indexOf(')', closeBracket+2);
+        if (closeParen !== -1) {
+          const linkText = escaped.slice(i+1, closeBracket);
+          const url = escaped.slice(closeBracket+2, closeParen);
+          const safe = url.indexOf('https://biddeed.ai') === 0 || url.indexOf('https://app.mindstudio.ai') === 0;
+          if (safe) {
+            out += '<a href="' + url + '" target="_blank" class="md-link">' + linkText + ' ' + String.fromCharCode(8594) + '</a>';
+            i = closeParen + 1;
+            continue;
+          }
+        }
+      }
+    }
+    out += escaped.charAt(i);
+    i++;
+  }
+  return out;
 }
+
 function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTop=m.scrollHeight;}}
 
 function addMsg(role,content){
