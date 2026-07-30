@@ -165,3 +165,111 @@ root causes instead of open questions):
    whoever manages `SUPABASE_DB_PASSWORD` provisioning; PostgREST was a full workaround this
    session but blocks any future work that genuinely needs raw SQL/migrations.
 ```
+
+---
+
+# ADDENDUM — 2nd firing on this dispatch, same session window (chat_session: architect-20260730T160000, ~17:40-18:30Z)
+
+A second independent pass on this exact dispatch ran after the report above was written.
+**Infra note supersedes the one above**: direct `psql` still fails (SASL auth error on
+every host/port), but the **Supabase Management API** (`SUPABASE_ACCESS_TOKEN` against
+`api.supabase.com/v1/projects/.../database/query`) works fine for arbitrary SQL — this is
+the same mechanism several other scripts in `scripts/` already use (see
+`cd_litmus_v2_realauction_harvest.py:run_sql`). Use this, not raw psql, for future
+sessions needing full SQL (joins, CTEs, DDL) beyond what PostgREST RPCs expose.
+
+## duval I: confirmed J's fix held; re-diagnosed I from scratch, found it a different way
+
+At the start of this 2nd pass, `pencil_dod_evaluate_county('duval')` showed J still PASSING
+(99.9%, matching the prior pass's fix — confirmed durable) but **I back to FAILING at
+94.9%** (same number the prior pass ended on). Independently re-derived the same root cause
+(dash vs. space `parcel_id` format mismatch against `v_zoning_gold_standard_card`) via full
+SQL bucketing (not knowing the prior pass had already diagnosed this), applied a fix, got I
+to PASS at 96.1% (666/693) — then an adversarial refuter caught two real problems:
+
+1. **The prior pass's exact symptom, root-caused precisely this time**: `pg_cron` job
+   `gold-calendar-parity-cycle` (jobid 204, every 5 min) re-dispatches a scrape for every
+   duval auction with `auction_date >= current_date` (~19 of 693 rows at any time),
+   throttled to ~once per 40 min per date. The live RealAuction site displays `parcel_id`
+   in dash format; the scraper faithfully re-captures it every cycle, silently reverting
+   any normalization for those rows. This is exactly the "live county churn" the prior
+   pass's report attributed the regression to — now identified down to the specific cron
+   job, not just observed as unexplained drift.
+2. **New finding, not caught by the prior pass**: the fix script's join (digit-normalized
+   `parcel_id` equality, no uniqueness guard) could nondeterministically match either of
+   two real spellings for ~171 duval digit-keys that have genuine dual entries in the
+   zoning card (some with different `zone_code` values — confirmed not pure formatting
+   noise). This caused the fix to flip-flop some rows between dash/space on repeated runs
+   instead of converging. **Fixed**: `scripts/gold_standard_shard1_duval_madison_run7519_duval_i_fix.py`
+   v2 adds `GROUP BY norm HAVING count(DISTINCT parcel_id) = 1` — ambiguous keys are now
+   skipped, never guessed at. This is the version committed and safe to re-run.
+
+Also fixed 7 rows (of 13 candidates) with literal `parcel_id = 'Property Appraiser'`
+(stale scraper garbage, pre-dating the current digit-guard at
+`scrape_realauction_county.py:163`) via real Duval Property Appraiser address lookups
+(paopropertysearch.coj.net), applying only unambiguous single-match results. Durable —
+confirmed still holding after the churn-affected rows above reverted.
+
+**Final live state this pass**: duval 10/10 (I: 96.1%, 666/693) but explicitly flagged
+`survived=false` / volatile in `gold_standard_ultraloop_audit` (row 11085) — do not
+certify off a single reading. **Durable fix requires a source-level format normalization
+in `biddeed.tier1_card_upsert` / `promote_upcoming_tier1_cards`**, shared by all 67
+realauction counties — correctly out of scope for a single-session patch.
+
+## madison: no new writes: 21-36-CA and 24-62-CA reconfirmed unresolvable via search
+
+Re-confirmed (independently, via direct WebFetch + Playwright, not trusting the prior
+pass's writeup) that A remains a real zero (tax-deed page unchanged) and that both
+past-due cases (21-36-CA, and now newly-vanished 24-62-CA) remain undiscoverable via free
+sources. **New, more actionable finding this pass**: drove a real Playwright/Chromium
+browser through Civitek OCRS's full click-through (Public → I Agree → Case Search) —
+further than any prior attempt — and found the wall is not missing tooling, it's an
+**interactive Cloudflare Turnstile human-verification challenge** gating both Case Search
+and Person Search (screenshot-confirmed). No attempt was made to defeat/spoof it (out of
+scope per operating guardrails). This changes the standing next-step recommendation from
+"try a different browser tool" to "this needs a phone call (850-973-1500) or a human" —
+appended to `pipeline.counties.notes` for madison so this isn't re-discovered from scratch
+a further time. Did not find the Auction.com NO_SALE record the prior pass found for
+24-62-CA in this pass's independent search — not a contradiction, likely just a different
+search path; the prior pass's `foreclosure_outcomes` row for it was not touched and should
+still stand (not independently re-verified this pass; flagging for next session).
+
+## Final live snapshot, this pass (~18:30Z)
+
+**duval** — 10/10 (I passing but flagged volatile, see above):
+```json
+{"A":{"pass":true,"metric":134},"B":{"pass":true,"metric":100.0},"C":{"pass":true,"metric":96.1},
+"D":{"pass":true,"metric":96.2},"E":{"pass":true,"metric":100.0},"F":{"pass":true,"metric":100.0},
+"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.0},
+"I":{"pass":true,"detail":"card_complete=666 of 693","metric":96.1},
+"J":{"pass":true,"detail":"deal_complete=692 (triangle + two-arm CMA + ml_score + max_bid)","metric":99.9},
+"auctions_total":693}
+```
+
+**madison** — 7/10, unchanged:
+```json
+{"A":{"pass":false,"detail":"fc=5 td=0","metric":0},
+"B":{"pass":false,"detail":"verified=0 closed_sold=0","metric":null},
+"C":{"pass":true,"metric":100.0},"D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},
+"F":{"pass":false,"detail":"tier1_sold=0 closed_sold=0","metric":null},
+"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":1.7},"I":{"pass":true,"metric":100.0},
+"J":{"pass":true,"metric":100.0},"auctions_total":5}
+```
+
+## Updated next-session priorities (supersedes the list above where they conflict)
+
+1. **Duval I durable fix**: normalize `parcel_id` format at the write chokepoint
+   (`biddeed.tier1_card_upsert` or `promote_upcoming_tier1_cards`), scoped to Duval's
+   RE-number convention only (other counties format differently — do not apply a blanket
+   regex). Until this ships, I will keep oscillating near the 95% threshold for the
+   ~19 upcoming-auction rows on a ~40min cycle. Mitigation available now: re-run
+   `scripts/gold_standard_shard1_duval_madison_run7519_duval_i_fix.py` (v2, collision-safe,
+   idempotent) periodically.
+2. **Madison B/F**: escalate the phone call (850-973-1500) to Ariel for 21-36-CA and
+   24-62-CA — confirmed via real browser automation to be the only remaining path, not a
+   tooling gap. Also verify the prior pass's Auction.com-sourced `foreclosure_outcomes` row
+   for 24-62-CA is still present and independently re-confirm it before relying on it for B.
+3. **Madison A**: unchanged — no action until Madison lists an actual tax deed sale.
+4. Do NOT re-attempt browser automation against `civitekflorida.com/ocrs/county/40/`
+   case/person search in future sessions — confirmed dead end this pass (Turnstile-gated),
+   save the budget for the phone-call escalation instead.
