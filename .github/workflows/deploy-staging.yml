@@ -1,0 +1,20 @@
+name: Deploy Cloudflare Worker (staging.biddeed.ai)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/worker-staging.js
+      - wrangler-staging.toml
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy staging worker
+        run: npx wrangler deploy --no-bundle --config wrangler-staging.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}

@@ -1,0 +1,19 @@
+name = "worker-biddeed-staging"
+main = "src/worker-staging.js"
+account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
+compatibility_date = "2024-09-23"
+
+[[routes]]
+pattern = "staging.biddeed.ai/*"
+zone_name = "biddeed.ai"
+
+# ── Manual step (Ariel only) ─────────────────────────────────────────────
+# The staging.biddeed.ai CNAME cannot be created from code. After this worker
+# deploys, add in Cloudflare DNS:
+#   staging.biddeed.ai  CNAME  worker-biddeed-staging.breverdbidder.workers.dev  (proxied)
+# Until that DNS record exists, the worker is reachable directly at:
+#   https://worker-biddeed-staging.breverdbidder.workers.dev/staging
+
+# [vars]
+# Non-secret config here. Secrets live in encrypted CF Worker secret bindings:
+#   ANTHROPIC_KEY — same binding name/value as the production worker
