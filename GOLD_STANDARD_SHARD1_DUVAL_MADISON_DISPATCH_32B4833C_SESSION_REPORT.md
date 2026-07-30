@@ -273,3 +273,112 @@ still stand (not independently re-verified this pass; flagging for next session)
 4. Do NOT re-attempt browser automation against `civitekflorida.com/ocrs/county/40/`
    case/person search in future sessions — confirmed dead end this pass (Turnstile-gated),
    save the budget for the phone-call escalation instead.
+
+---
+
+# ADDENDUM 2 — 3rd firing on this dispatch (chat_session: architect-20260730T160000, ~19:00-20:00Z)
+
+Infra confirmed unchanged: Management API still returns Cloudflare block (HTTP 403, code
+1010) and direct psql still fails SASL auth, from this sandbox, on this firing too. All
+work done via PostgREST REST API only (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`).
+
+## duval I: shipped the durable chokepoint fix as a migration; REST mitigation confirmed non-durable by an independent refuter
+
+Wrote `supabase/migrations/20260730c_gold_standard_shard1_duval_parcel_id_chokepoint_normalize.sql`
+— the source-level fix flagged as the top next-session priority by the 2nd firing.
+It adds the same collision-safe dash→space normalization directly inside
+`biddeed.flow_card_to_mca()`, gated strictly on `county_slug='duval'` and a
+digit-dash-digit pattern match, so no other county's write path changes. **Could not be
+applied live** — no DDL execution surface is reachable from this sandbox (Management API
+blocked, psql blocked, PostgREST has no arbitrary-SQL RPC). An independent refuter
+reviewed the migration by reading (diffed it against the last-applied function version)
+and the guard logic against 30 real ambiguous cases: **SURVIVED** — correctly scoped,
+byte-identical to the prior function outside the additive block, collision-safe.
+
+Also re-ran the REST-based data-level mitigation (new script,
+`scripts/gold_standard_shard1_duval_madison_run7519_duval_i_fix_v3_rest.py` — same v2
+collision guard, reimplemented as PostgREST GET+PATCH calls since the Management-API-based
+v1/v2 script can't reach its endpoint from this sandbox either). This is the fourth
+independent implementation of the same normalization logic across three firings on this
+dispatch, each rediscovering the DB-access blocker fresh.
+
+**New, more precise finding this firing**: the mitigation's effect reverted in under 10
+minutes — an independent refuter re-checked shortly after I reported PASS (96.1%,
+666/693) and found I back to FAIL (94.9%, 658/693), with the claim's own cited example
+row (`16-2025-CA-005443-AXXX-MA`, parcel `013837-0010`) already reverted to dash format.
+This is faster than the ~40min reversion cycle both prior firings measured for
+`gold-calendar-parity-cycle` (jobid 204). **Open question for next session**: either job
+204's cadence assumption is wrong, or a second, more frequent process also writes duval
+`parcel_id`. Re-applied the mitigation once more at session close (16 rows, same set) —
+**do not trust any single reading of duval I without a fresh live re-check immediately
+before use; it is confirmed volatile on a sub-10-minute cycle, not just a ~40min one.**
+Logged `survived=false` in `gold_standard_ultraloop_audit` (id 11177) for the "stable
+PASS" claim, per protocol — the migration's correctness is a separate, survived claim
+folded into the same audit row's evidence.
+
+## madison: B/F row reconfirmed real again; found and backfilled a real $100 opening bid the enrichment had missed
+
+Re-confirmed (3rd independent check across 3 firings) that the `foreclosure_outcomes` row
+for `24-62-CA` (Auction.com NO_SALE/plaintiff_reverted) is untouched and real, and that
+B/F correctly still FAIL. An independent refuter corroborated the row, the live source
+URL, and the B/F metrics, but caught a real overstatement in my claim: I said no dollar
+figure was disclosed "anywhere" for this case — false. The live Auction.com page has an
+`opening_bid_value` of **$100** that our enrichment never captured into
+`multi_county_auctions.opening_bid` / `foreclosure_outcomes.opening_bid`. Backfilled both
+(source-verified, not fabricated). This does **not** flip B or F — both key on a real
+sold/winning amount, and $100 is the nominal opening bid on a listing that reverted to
+the plaintiff with no third-party sale, not a transaction amount. Logged `survived=false`
+for both the B and F reconfirmation claims (ids 11178, 11179) per protocol, since the
+overstatement disqualifies the claim even though the core diagnosis holds — same pattern
+as the 1st firing's madison-A ledger defect.
+
+No further movement was possible on madison A (unchanged real zero) or the 21-36-CA /
+24-62-CA dollar-amount blocker (still requires the phone-call escalation to Ariel per the
+1st firing's finding — not actioned, out of scope for an autonomous session).
+
+## Final live snapshot, this firing (~19:55Z, immediately after re-applying the duval mitigation — expect further drift)
+
+**duval** — 10/10 by this instant's reading only, confirmed volatile, do not certify off it:
+```json
+{"A":{"pass":true,"metric":134},"B":{"pass":true,"metric":100.0},"C":{"pass":true,"metric":96.1},
+"D":{"pass":true,"metric":96.2},"E":{"pass":true,"metric":100.0},"F":{"pass":true,"metric":100.0},
+"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.0},
+"I":{"pass":true,"detail":"card_complete=666 of 693","metric":96.1},
+"J":{"pass":true,"detail":"deal_complete=692 (triangle + two-arm CMA + ml_score + max_bid)","metric":99.9},
+"auctions_total":693}
+```
+
+**madison** — 7/10, unchanged, now with opening_bid=$100 backfilled on 24-62-CA:
+```json
+{"A":{"pass":false,"detail":"fc=5 td=0","metric":0},
+"B":{"pass":false,"detail":"verified=0 closed_sold=0","metric":null},
+"C":{"pass":true,"metric":100.0},"D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},
+"F":{"pass":false,"detail":"tier1_sold=0 closed_sold=0","metric":null},
+"G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.0},"I":{"pass":true,"metric":100.0},
+"J":{"pass":true,"metric":100.0},"auctions_total":5}
+```
+
+`gold_standard_certify()` was NOT invoked — duval's 10/10 reading is confirmed transient
+(refuted), and madison is not at 10/10.
+
+## Updated next-session priorities (supersedes prior lists where they conflict)
+
+1. **Apply migration 20260730c live** the moment DDL access (working `supabase db push`,
+   psql, or a functioning Management API path) is available from wherever the session
+   runs. This is the only actual cure for duval I — every firing on this dispatch so far
+   has re-derived and re-applied the same data-level mitigation, which now provably
+   reverts in under 10 minutes.
+2. **Investigate the actual reversion cadence** — confirm whether `gold-calendar-parity-cycle`
+   (job 204) really runs every ~40min as previously assumed, or whether a second process
+   touches duval `parcel_id` more frequently. The sub-10-minute reversion observed this
+   firing doesn't match the prior model.
+3. **Madison B/F**: still needs the phone-call escalation (850-973-1500) to Ariel for
+   `21-36-CA` and `24-62-CA` — confirmed three times now this is a real data-access wall,
+   not a tooling gap. No further autonomous progress possible without it.
+4. Infra: Management API (`api.supabase.com/v1/projects/.../database/query`) now returns a
+   Cloudflare block (403/1010) from this sandbox, in addition to psql's pre-existing SASL
+   failure — meaning **no DDL/arbitrary-SQL path currently works from this sandbox at
+   all**. This has now blocked three consecutive firings from applying the one change that
+   would actually fix duval I. Needs escalation to whoever owns sandbox network/credential
+   provisioning — this is no longer a minor flag, it is the single blocker on this
+   dispatch's only remaining real fix.
