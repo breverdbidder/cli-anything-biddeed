@@ -14,6 +14,9 @@
  *   GET  /subscribe           → Stripe checkout redirect
  *   GET  /success             → Post-payment key delivery page
  *   GET  /subscribe/status    → Poll for API key after payment
+ *   GET  /buy-report          → $25 one-time Shapira report checkout page
+ *   POST /buy-report/checkout → Creates biddeed-checkout session (mode=report)
+ *   GET  /report-success      → Post-payment report key delivery page
  *   GET  /terms               → Terms of Service
  *   GET  /privacy             → Privacy Policy
  *   GET  /disclaimer          → Disclaimer
@@ -230,6 +233,43 @@ export default {
         } catch(e) {
           return new Response(JSON.stringify({ error: 'Status check failed' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
         }
+      }
+
+      // ── GET /buy-report — $25 one-time report checkout page ─────────────
+      if (path === '/buy-report' && method === 'GET') {
+        return new Response(BUY_REPORT_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+
+      // ── POST /buy-report/checkout — create Stripe checkout session ──────
+      if (path === '/buy-report/checkout' && method === 'POST') {
+        let body = {};
+        try { body = await request.json(); } catch(_) {
+          return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const { email, marketing_consent } = body;
+        if (!email) return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        try {
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY },
+            body: JSON.stringify({ customer_email: email, mode: 'report', marketing_consent: !!marketing_consent }),
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            await logErr(env, '/buy-report/checkout', 'biddeed-checkout failed', err, res.status);
+            return new Response(JSON.stringify({ error: 'Checkout session creation failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+          const session = await res.json();
+          return new Response(JSON.stringify({ url: session.url }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        } catch(e) {
+          await logErr(env, '/buy-report/checkout', 'Exception', String(e), 500);
+          return new Response(JSON.stringify({ error: 'Checkout session creation failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+      }
+
+      // ── GET /report-success — post-payment report key delivery page ─────
+      if (path === '/report-success' && method === 'GET') {
+        return new Response(REPORT_SUCCESS_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
 
       // ── /county/:slug/lots — JSON feed for lots ──────────────────────────
@@ -1059,6 +1099,104 @@ async function poll(){
 poll();
 </script></body></html>`;
 
+const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Buy One Shapira Report — $25 | BidDeed.AI</title>
+<meta name="description" content="Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. One-time $25, no subscription.">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:460px;width:100%}
+.badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
+h1{font-size:1.6rem;color:white;margin-bottom:.5rem}
+p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:.92rem}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
+input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:#020617;color:var(--text);font-size:.95rem;margin-bottom:1rem}
+.consent{display:flex;align-items:flex-start;gap:.5rem;margin-bottom:1.25rem;font-size:.8rem;color:var(--dim)}
+.consent input{margin-top:3px}
+.btn{display:block;width:100%;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#020617;padding:14px;border:none;border-radius:10px;font-weight:700;font-size:.95rem;cursor:pointer}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.err{color:#f87171;font-size:.85rem;margin-top:.75rem;display:none}
+.upl{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);line-height:1.6}
+.upl a{color:var(--orange)}
+</style></head><body>
+<div class="card">
+  <div class="badge">ONE-TIME · NO SUBSCRIPTION</div>
+  <h1>One Shapira Report — $25</h1>
+  <p>Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. No subscription required.</p>
+  <form id="f">
+    <label for="email">Email address</label>
+    <input type="email" id="email" name="email" required placeholder="you@example.com">
+    <label class="consent"><input type="checkbox" id="consent" name="consent"> Send me occasional auction intelligence updates (optional)</label>
+    <button type="submit" class="btn" id="btn">Buy One Report — $25</button>
+    <div class="err" id="err"></div>
+  </form>
+  <div class="upl">Not legal advice. BidDeed.AI is an information and analytics platform, not a law firm or title company. Auction data and bid estimates are informational and must be independently verified — always consult a licensed Florida attorney before bidding. See <a href="/disclaimer">full disclaimer</a>.</div>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const btn=document.getElementById('btn'), err=document.getElementById('err');
+  const email=document.getElementById('email').value.trim();
+  const marketing_consent=document.getElementById('consent').checked;
+  err.style.display='none';
+  btn.disabled=true; btn.textContent='Redirecting to checkout...';
+  try{
+    const res=await fetch('/buy-report/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,marketing_consent})});
+    const data=await res.json();
+    if(res.ok && data.url){ window.location.href=data.url; }
+    else{ err.textContent=data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Buy One Report — $25'; }
+  }catch(ex){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Buy One Report — $25'; }
+});
+</script></body></html>`;
+
+const REPORT_SUCCESS_HTML = `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Report Ready | BidDeed.AI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%;text-align:center}
+.icon{font-size:3rem;margin-bottom:1rem}
+h1{font-size:1.6rem;color:white;margin-bottom:.5rem}
+p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
+.key-box{background:#020617;border:1px solid var(--border);border-radius:10px;padding:1rem;font-family:'SF Mono',monospace;font-size:.85rem;color:var(--orange);word-break:break-all;margin:1rem 0;min-height:44px;display:flex;align-items:center;justify-content:center}
+.btn{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#020617;padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;font-size:.95rem;margin-top:1rem}
+.status{font-size:.8rem;color:var(--muted);margin-top:1rem}
+.emailed{font-size:.8rem;color:var(--muted);margin-top:.5rem}
+</style></head><body>
+<div class="card">
+  <div class="icon">✅</div>
+  <h1>Payment received — your S5 report credit is ready</h1>
+  <p>Your Shapira Max Bid report is being activated. Your key will appear below momentarily.</p>
+  <div class="key-box" id="key-box">Activating...</div>
+  <div class="status" id="status">Checking activation status...</div>
+  <div class="emailed" id="emailed"></div>
+  <a href="/chat" class="btn">Open BidDeed.AI Chat →</a>
+</div>
+<script>
+const params=new URLSearchParams(location.search);
+const session_id=params.get('session')||params.get('session_id')||'';
+const email=params.get('email')||'';
+if(email) document.getElementById('emailed').textContent='We also emailed your key to '+email;
+let attempts=0;
+async function poll(){
+  if(!session_id){document.getElementById('key-box').textContent='No session ID found.';return;}
+  attempts++;
+  try{
+    const res=await fetch('/subscribe/status?session_id='+encodeURIComponent(session_id));
+    const d=await res.json();
+    if(d.key){document.getElementById('key-box').textContent=d.key;document.getElementById('status').textContent='Save this key — shown once.';}
+    else if(d.active){document.getElementById('key-box').textContent='Key issued. Check your email.';document.getElementById('status').textContent='Activated ✓';}
+    else if(attempts<8){document.getElementById('status').textContent='Activating... attempt '+attempts;setTimeout(poll,3000);}
+    else{document.getElementById('key-box').textContent='Taking longer than expected.';document.getElementById('status').textContent='Email hello@biddeed.ai with your receipt if not resolved.';}
+  }catch(e){if(attempts<8)setTimeout(poll,3000);}
+}
+poll();
+</script></body></html>`;
+
 
 // ── County page template (from docs/brevard.html) ────────────────────────────
 const COUNTY_PAGE_TEMPLATE = `<!doctype html>
@@ -1865,7 +2003,7 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
 <body>
 <nav><div class="nav-inner">
   <a href="/" class="logo"><div class="lm">BD</div><span class="ln">BidDeed<span>.AI</span></span></a>
-  <div class="nav-links"><a href="#chat">Try Free</a><a href="#how-it-works">How It Works</a><a href="#gold-standard">Gold Standard</a><a href="#pricing">Pricing</a></div>
+  <div class="nav-links"><a href="#chat">Try Free</a><a href="#pricing">How It Works</a><a href="#gold-standard">Gold Standard</a><a href="#pricing">Pricing</a></div>
   <a href="/subscribe?tier=investor" class="nav-cta">Investor $99/mo</a>
 </div></nav>
 
@@ -1877,7 +2015,7 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
   <div class="hstats">
     <div class="st"><div class="sn">67<span>+</span></div><div class="sl">Florida Counties</div></div>
     <div class="st"><div class="sn">24<span>✓</span></div><div class="sl">Gold Standard</div></div>
-    <div class="st"><div class="sn">21<span>K+</span></div><div class="sl">Auctions Analyzed</div></div>
+    <div class="st"><div class="sn">72<span>K+</span></div><div class="sl">Auctions Analyzed</div></div>
     <div class="st"><div class="sn">$25</div><div class="sl">Per Shapira Report</div></div>
   </div>
 </section>
@@ -1915,28 +2053,6 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
 
 <hr class="dv">
 
-<section class="sec" id="how-it-works">
-  <div class="ey">THE EVEREST ASCENT™</div>
-  <h2 class="st2">12 Stages. Zero Guesswork.</h2>
-  <p class="ss">AI agents handle every step — from courthouse docket to max bid decision.</p>
-  <div class="pgrid">
-    <div class="sg"><div class="sn2">STAGE 01</div><div class="sna">DiscoverWise</div><div class="sd">Scrape foreclosure + tax deed dockets from all 67 FL counties.</div></div>
-    <div class="sg"><div class="sn2">STAGE 02</div><div class="sna">ScrapeWise</div><div class="sd">Pull property details, tax assessor data, and case information.</div></div>
-    <div class="sg"><div class="sn2">STAGE 03</div><div class="sna">TitleWise</div><div class="sd">Search recorded documents — mortgages, liens, judgments.</div></div>
-    <div class="sg"><div class="sn2">STAGE 04</div><div class="sna">LienWise</div><div class="sd">Analyze lien priority. Detect senior mortgage survival risk.</div></div>
-    <div class="sg"><div class="sn2">STAGE 05</div><div class="sna">TaxWise</div><div class="sd">Check tax certificate status and delinquent amounts.</div></div>
-    <div class="sg"><div class="sn2">STAGE 06</div><div class="sna">ZoneWise</div><div class="sd">Land use, zoning compatibility, density restrictions on every property.</div></div>
-    <div class="sg"><div class="sn2">STAGE 07</div><div class="sna">ScoreWise</div><div class="sd">XGBoost ML predicts third-party purchase probability.</div></div>
-    <div class="sg"><div class="sn2">STAGE 08</div><div class="sna">BidWise</div><div class="sd">Calculate your exact Shapira Max Bid ceiling before you bid.</div></div>
-    <div class="sg"><div class="sn2">STAGE 09</div><div class="sna">DecisionWise</div><div class="sd">BID / REVIEW / SKIP with full reasoning chain and audit trail.</div></div>
-    <div class="sg"><div class="sn2">STAGE 10</div><div class="sna">CMAwiser</div><div class="sd">Comparable market analysis with verified FL sale history.</div></div>
-    <div class="sg"><div class="sn2">STAGE 11</div><div class="sna">DispoWise</div><div class="sd">Track disposition — flip, hold, wholesale, or pass.</div></div>
-    <div class="sg"><div class="sn2">STAGE 12</div><div class="sna">VaultWise</div><div class="sd">Archive to database. Feed ML model for the next cycle.</div></div>
-  </div>
-</section>
-
-<hr class="dv">
-
 <section class="sec" id="gold-standard">
   <div class="ey">GOLD STANDARD CERTIFIED</div>
   <h2 class="st2">GOLD_COUNT_PLACEHOLDER Florida Counties — Verified &amp; Ready</h2>
@@ -1954,6 +2070,12 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
   <h2 class="st2">Start Free. Upgrade When Ready.</h2>
   <p class="ss">No credit card for free tier. Shapira reports $25 each, bundled by tier.</p>
   <div class="prgrid">
+    <div style="border:2px solid #f59e0b;border-radius:12px;padding:20px;margin-bottom:20px;background:#020617">
+      <div style="color:#f59e0b;font-size:12px;font-weight:600;letter-spacing:.1em">ONE-TIME · NO SUBSCRIPTION</div>
+      <div style="color:#fff;font-size:28px;font-weight:700;margin:8px 0">$25 <span style="font-size:16px;font-weight:400;color:#94a3b8">per report</span></div>
+      <div style="color:#94a3b8;margin-bottom:16px">Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. No subscription.</div>
+      <a href="/buy-report" style="display:block;text-align:center;background:#f59e0b;color:#020617;padding:12px;border-radius:8px;font-weight:600;text-decoration:none">Buy One Report — $25</a>
+    </div>
     <div class="pln live">
       <div class="pbadge hot">⚡ LIVE NOW</div>
       <div class="pname">Investor</div><div class="pprice">$99<sub>/month</sub></div>
