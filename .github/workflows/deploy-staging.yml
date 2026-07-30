@@ -18,3 +18,12 @@ jobs:
         run: npx wrangler deploy --no-bundle --config wrangler-staging.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      # worker-biddeed-staging is a brand-new Worker script — CF secret bindings
+      # are per-worker, so it does NOT inherit ANTHROPIC_KEY from the prod worker.
+      # Provision it here, inside the masked GHA runner, idempotently.
+      - name: Provision ANTHROPIC_KEY secret on staging worker
+        run: echo "::add-mask::$ANTHROPIC_KEY_VALUE" && echo "$ANTHROPIC_KEY_VALUE" | npx wrangler secret put ANTHROPIC_KEY --config wrangler-staging.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          ANTHROPIC_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY }}
