@@ -1,0 +1,120 @@
+session:
+  shard: SHARD-3 (volusia, st_lucie)
+  dispatch_id: 8c78a8df-6a6b-473d-b3cb-ac257a1f5718
+  chat_session: architect-20260730T160000
+  date: 2026-07-30
+  firing: 2nd (same dispatch_id + chat_session as commit 953bb752, ~1h34m
+    earlier: 16:42:50Z -> this firing ~18:16Z)
+  mode: ultracode Workflow (9-agent research+adversarial-verify fan-out for
+    the residual gaps), then direct main-context ArcGIS/AJAX diagnosis and
+    one live fix, once the fan-out came back empty
+
+duplicate_detection:
+  finding: "Did NOT check git log for a prior firing on this dispatch_id
+    before launching the 9-agent workflow -- should have. Discovered
+    mid-session (commit 953bb752 + GOLD_STANDARD_SHARD3_VOLUSIA_STLUCIE_
+    DISPATCH_8C78A8DF_SESSION_REPORT.md) that this dispatch was already
+    worked and closed to volusia 9/10 / st_lucie 8/10 by a prior firing
+    of the same chat_session ~1.5h earlier."
+  lesson_for_next_time: "Check `git log --all --grep=<dispatch_id>` before
+    any fan-out, per the liberty-shard-8 2nd-firing precedent
+    (.claude/session-logs/2026-07-29-gold-standard-shard8-liberty-2nd-firing.yml).
+    The 9-agent workflow (418 tool calls, ~756K tokens) reproduced findings
+    the prior firing had already reached via its own scripts -- real
+    corroboration value, but should have been a single targeted check first."
+
+fresh_checks_this_firing:
+  - check: "pencil_dod_evaluate_county live for both counties, pre-work"
+    result: "volusia 9/10 (G FAIL 83.3, all else PASS incl. I=95.7 -- byte
+      identical to the prior firing's committed after-state). st_lucie 8/10
+      (E FAIL 94.1 parcel_linked=112/119, I FAIL 93.3 card_complete=111/119,
+      all else PASS -- also byte-identical to prior firing's after-state).
+      No drift since the prior firing."
+  - check: "ultracode Workflow, 9 agents (7 st_lucie case lookups + 1
+      st_lucie zone lookup + 1 volusia M-1 ordinance lookup), each
+      research-then-adversarial-verify, task wlsh2dl4b / run wf_30ad712f-e68"
+    result: "all 9 came back found=false -- every access path genuinely
+      blocked (RealForeclose bidder-auth gate, St Lucie Clerk Akamai/
+      Benchmark bot wall + CAPTCHA, Property Appraiser custom-auth Angular
+      SPA, Daytona Beach Municode JS-only SPA + Firecrawl 402). Zero
+      fabricated data. 418 tool calls, 756,340 tokens."
+  - check: "Firecrawl account credit balance, direct API check
+      (GET api.firecrawl.dev/v1/team/credit-usage)"
+    result: "remaining_credits=-2 of plan_credits=1000, billing period
+      2026-07-28..2026-08-28 -- confirmed genuinely exhausted fleet-wide,
+      not a one-off 402. Corroborates and strengthens the prior firing's
+      identical blocker."
+  - check: "Direct ArcGIS REST queries (main context, not the blocked
+      Property Appraiser/Clerk web UIs) for st_lucie parcel 171578
+      (case 2025CC004353, the one zone-unlinked-but-otherwise-complete row)"
+    result: "map.paslc.gov SLCPA_PublicParcels MapServer -> AccountNumber
+      171578 = SiteAddress '5420 IMAGINATION DR' (exact match to our stored
+      address) + parcel polygon. slcgis.stlucieco.gov Fort Pierce zoning
+      MapServer -> spatial intersect on parcel centroid AND direct
+      AccountNum=171578 attribute match both return Zoning=PD (Planned
+      Development). zoning_districts already has PD/jurisdiction=971
+      (id=12073, far_regulated=false, density_regulated=false) from an
+      earlier session -- zero G-regression risk. VERIFIED, applied live."
+  - check: "Direct RealForeclose AJAX harvest (replicating the prior
+      firing's fix-script method, not the bidder-gated HTML detail pages
+      the workflow agents were blocked on) for all 7 remaining st_lucie
+      case numbers, targeting each case's own auction_date"
+    result: "confirmed all 7 carry literal non-parcel placeholder text as
+      parcel_id on the county's own live feed: 'Property Appraiser' (x4:
+      2024CA001834, 2025CC001033, 2025CA002738, 2023CA000465), 'AIRCRAFT'
+      (2023CA002852), 'TIMESHARE' (2024CA000330, 4 duplicate line items =
+      one consolidated 12-count HOA lien case per clerk docket), 'MULTIPLE
+      PARCELS' (2024CA000214). Independently reproduces the prior firing's
+      identical conclusion with fresh data ~1.5h later."
+
+actions_taken:
+  - action: "INSERT parcel_zones row: parcel_id=171578, jurisdiction_id=971,
+      zone_code=PD, zone_name='Planned Development', source cites the
+      ArcGIS query. Migration:
+      supabase/migrations/20260730d_gold_standard_shard3_stlucie_i_ftpierce_pd_zonelink.sql"
+    result: "Applied live via REST (HTTP 201, id=849707). Re-verified:
+      st_lucie I card_complete 111->112 of 119 (93.3%->94.1%, still FAIL).
+      E unchanged (94.1%, row already had parcel_id). G unaffected (still
+      PASS 97.2)."
+  - action: "3 rows inserted to gold_standard_ultraloop_audit (ids
+      11086-11088): st_lucie I (survived=true, the fix above), st_lucie E
+      residual (survived=true -- confirmed structural finding, not a
+      refuted improvement claim), volusia G (survived=false -- fix
+      attempted via 9-agent fan-out, not achieved)."
+  - action: "No writes to volusia (still blocked) or the other 7 st_lucie
+      rows (confirmed non-standard collateral, not mechanically closable)."
+
+status_board:
+  volusia: "9/10, unchanged. G still FAIL(83.3) -- confirmed blocked a
+    2nd time, independently, with stronger evidence (Firecrawl account
+    balance check) than the prior firing had."
+  st_lucie: "8/10, unchanged at the letter-pass/fail level, but I moved
+    111->112 of 119 (93.3%->94.1%) via one verified zone-link fix. E
+    unchanged at 94.1%. Both now confirmed to have a hard 94.1% ceiling
+    this session absent an owner/architect policy decision on
+    non-standard-collateral rows."
+
+next_session_priorities:
+  - "volusia G: same as prior firing -- source the real Daytona Beach M-1
+    (Local Industry) FAR + off-street-parking ordinance value. Needs either
+    Firecrawl credits restored/topped up, or a working browser-automation
+    tool wired into the session capable of rendering Municode's JS SPA (a
+    Playwright/Chromium binary exists in this sandbox per one agent's
+    report, but no MCP/CLI wrapper was registered this session to drive it
+    against a bot-walled or JS-only target). This single ordinance value
+    flips volusia to a 10/10 candidate."
+  - "st_lucie E/I: escalate to the AI Architect/owner -- does the 95%
+    threshold exclude non-standard-collateral rows (AIRCRAFT/TIMESHARE/
+    MULTIPLE PARCELS/unassigned-'Property Appraiser'-placeholder) from the
+    auctions_total denominator, or must a true single fee-simple parcel be
+    found for each via clerk docket research (would need the Final
+    Judgment/Certificate-of-Title document images behind the Clerk's
+    gated viewer, not just the case index)? This is a policy call, not a
+    scraping gap -- a single shard session should not decide it
+    unilaterally per PARALLEL-FLEET RULES."
+  - "Fleet-level note: Firecrawl is fleet-wide out of credit
+    (remaining_credits=-2 of 1000, billing period ends 2026-08-28) --
+    worth flagging to the AI Architect, since every shard session touching
+    JS-rendered or bot-walled sources this billing period will hit the
+    same wall until either the plan is topped up or a non-Firecrawl
+    browser-automation path is wired in."
