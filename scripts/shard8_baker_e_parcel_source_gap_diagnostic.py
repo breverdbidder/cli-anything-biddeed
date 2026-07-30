@@ -59,6 +59,34 @@ Next-session TODO if bakerpa.com comes back online:
      or a wider backward date-navigation sweep (this session's nav-link
      traversal capped at 15 hops, ending at 2026-04-23).
 
+RE-VERIFIED 2026-07-30 (dispatch 4fd52dfc, shard-2 marion/baker session):
+  - Re-ran this script live: same 3 cases (022025CA000148/022026CA000007 on
+    08/13, 022026CA000018 on 08/20) still show has_parcel_value=False,
+    has_property_address_field=False. Confirmed with the raw (unescaped)
+    JSON UPDATE payload too -- href="...propertydetails.php?parcel=" is
+    genuinely empty, no owner/defendant name anywhere on the card. Not a
+    parser gap.
+  - bakerpa.com IS now up (200, was 521). But it only supports owner/
+    parcel/address search (search.html, sales.html) -- no case-number
+    search -- so it's still unusable without an owner name.
+  - www.bakerclerk.com/foreclosures/ and www.bakerclerk.com/ are a genuine
+    Cloudflare JS challenge (confirmed via real Playwright/Chromium, title
+    "Just a moment...")/"Attention Required!", not just a missing-UA 403
+    like baker.realforeclose.com's calendar page turned out to be.
+  - civitekflorida.com/ocrs/county/02/ Case Search tab IS reachable
+    (Public -> I Agree -> Case Search, decomposes case# into year/court
+    type/sequence) but gates submission behind a Cloudflare Turnstile
+    human-verification checkbox. Did not attempt to automate past it --
+    CAPTCHA bypass is out of scope regardless of the legitimate
+    public-records purpose.
+  - Firecrawl API returned HTTP 402 (insufficient credits) this session --
+    a different blocker than prior sessions' "no FIRECRAWL_API_KEY".
+  - Logged as gold_standard_ultraloop_audit rows (county_slug=baker,
+    letter in C/D/E/I, survived=false) rather than re-attempted blind.
+    Conclusion unchanged: genuine structural source-data + bot-protection
+    gap, not a pipeline bug. 5th independent session to reach this
+    conclusion via a different blocker each time.
+
 Env (required): none read from the environment for this diagnostic --
 requests-only, read-only, no Supabase writes.
 """
