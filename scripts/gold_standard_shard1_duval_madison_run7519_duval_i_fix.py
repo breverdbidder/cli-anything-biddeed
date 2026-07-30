@@ -1,26 +1,40 @@
 #!/usr/bin/env python3
 """GOLD STANDARD shard-1 (dispatch 32b4833c, loop run 7519) -- duval I fix.
 
-ROOT CAUSE (verified live 2026-07-30): pencil_dod_evaluate_county's I criterion
-joins multi_county_auctions.parcel_id against v_zoning_gold_standard_card.parcel_id
-via exact string equality. Duval RE-numbers are canonically stored in the zoning
-card as "NNNNNN NNNN" (space-separated), but ~118 multi_county_auctions rows held
-the same RE-number as "NNNNNN-NNNN" (dash-separated) or compacted digit strings.
-Same parcel, same zone data already ingested -- the exact-match join just never
-fired, so these rows silently failed I's "linked to a zoned parcel" test.
+CORRECTED v2 (same session, after adversarial refutation found two real bugs
+in v1 -- see git history for the original commit message/context):
 
-Fix: normalize multi_county_auctions.parcel_id to the zoning card's canonical
-form wherever the digit-only RE-number matches exactly one zoning-card row and
-the current string does not already match. No values fabricated -- every new
-parcel_id string already exists verbatim in v_zoning_gold_standard_card with a
-real zone_code.
+  BUG 1 (non-durable): pg_cron job `gold-calendar-parity-cycle` (every 5 min,
+  jobid 204 -> public.gold_calendar_parity_cycle) re-dispatches a scrape for
+  every duval auction_date >= current_date roughly every 40 minutes. The live
+  RealAuction site displays parcel_id in dash format ("NNNNNN-NNNN"), and the
+  scraper (.github/scripts/scrape_realauction_county.py) faithfully captures
+  that verbatim -- correctly. So any row for an UPCOMING auction gets its
+  parcel_id overwritten back to dash format on the next scrape cycle, silently
+  reverting this fix. Only ~19 of 693 duval rows are "upcoming" at any time,
+  but they're enough to swing I across the 95% threshold. This is NOT fixed
+  by this script -- a durable fix needs to normalize format at the write
+  chokepoint (biddeed.tier1_card_upsert / promote_upcoming_tier1_cards), out
+  of scope for this session (shared by all 67 realauction counties, needs
+  dedicated testing). Re-running this script is a mitigation, not a cure.
 
-Result: duval I 94.9% (658/693) -> 96.1% (666/693, actually 118 rows re-matched,
-most already passing on other fields). Re-verified via pencil_dod_evaluate_county:
-duval now 10/10 PASS across A-J (live query, see session report).
+  BUG 2 (nondeterminism, more serious, FIXED in this version): v1 joined
+  multi_county_auctions.parcel_id to v_zoning_gold_standard_card.parcel_id on
+  digit-normalized equality with no uniqueness guard. ~171 of duval's zoning-
+  card digit-keys have TWO real, differently-formatted parcel_id spellings
+  (confirmed some carry genuinely different zone_code values -- these are not
+  pure formatting noise, Duval RE-number dash/space variants can denote
+  different real sub-parcels). v1's join could nondeterministically pick
+  either spelling on each run, causing some rows to flip-flop between dash and
+  space format across repeated runs instead of ever converging. v2 adds a
+  `GROUP BY norm HAVING count(DISTINCT parcel_id) = 1` guard so only digit-keys
+  with exactly one real spelling in the zoning card are ever touched --
+  ambiguous keys are skipped entirely, never guessed at.
 
 Usage: python3 scripts/gold_standard_shard1_duval_madison_run7519_duval_i_fix.py
-Idempotent -- re-running finds zero further rows to update once applied.
+Idempotent and safe to re-run periodically to counter BUG 1's erosion --
+v2's uniqueness guard makes every run monotonic (only ever normalizes further
+matches, never un-does a prior correct normalization).
 """
 import json
 import os
@@ -31,16 +45,21 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
 SQL = """
-WITH zc AS (
-  SELECT DISTINCT parcel_id, zone_code
+WITH zc_raw AS (
+  SELECT DISTINCT parcel_id, regexp_replace(parcel_id,'[^0-9]','','g') AS norm
   FROM v_zoning_gold_standard_card
   WHERE lower(county) = norm_county_key('duval') AND zone_code IS NOT NULL
+), zc_unique AS (
+  SELECT norm, min(parcel_id) AS parcel_id
+  FROM zc_raw
+  GROUP BY norm
+  HAVING count(DISTINCT parcel_id) = 1
 ), upd AS (
-  SELECT mca.case_number, mca.parcel_id AS old_parcel_id, zc.parcel_id AS new_parcel_id
+  SELECT mca.case_number, mca.parcel_id AS old_parcel_id, zu.parcel_id AS new_parcel_id
   FROM multi_county_auctions mca
-  JOIN zc ON regexp_replace(zc.parcel_id,'[^0-9]','','g') = regexp_replace(mca.parcel_id,'[^0-9]','','g')
+  JOIN zc_unique zu ON zu.norm = regexp_replace(mca.parcel_id,'[^0-9]','','g')
   WHERE lower(mca.county)='duval'
-    AND mca.parcel_id <> zc.parcel_id
+    AND mca.parcel_id <> zu.parcel_id
     AND mca.parcel_id ~ '^[0-9][0-9 \\-]*[0-9]$'
 )
 UPDATE multi_county_auctions mca
@@ -63,6 +82,6 @@ def run_sql(sql, timeout=90):
 
 if __name__ == "__main__":
     rows = run_sql(SQL)
-    print(f"Normalized {len(rows)} duval parcel_id rows")
+    print(f"Normalized {len(rows)} duval parcel_id rows (collision-safe)")
     for r in rows[:10]:
         print(f"  {r['case_number']}: {r['old_parcel_id']} -> {r['new_parcel_id']}")
