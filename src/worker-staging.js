@@ -85,7 +85,7 @@ async function fetchCountyFeed() {
     const res = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
     if (!res.ok) return [];
     const rows = await res.json();
-    return Array.isArray(rows) ? rows.slice(0, 6) : [];
+    return Array.isArray(rows) ? rows.slice(0, 8) : [];
   } catch(_) { return []; }
 }
 
