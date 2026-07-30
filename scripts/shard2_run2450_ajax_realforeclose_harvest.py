@@ -128,7 +128,11 @@ def parse_aitem_blocks(html, county_sub):
             "judgment_amount": to_float(data.get("final judgment amount")),
             "parcel_id": strip_html(data.get("parcel id")),
             "property_address": ", ".join(addr_lines) if addr_lines else None,
-            "assessed_value": to_float(data.get("assessed value")),
+            # Pasco's platform instance renders this field as "Property App. Market
+            # Value:" instead of the "Assessed Value:" label every other RealForeclose
+            # county uses (verified live 2026-07-30) -- fall back to it so counties
+            # with the alternate label aren't silently dropped.
+            "assessed_value": to_float(data.get("assessed value") or data.get("property app. market value")),
             "plaintiff_max_bid": to_float(data.get("plaintiff max bid")),
         })
     return items
