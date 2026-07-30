@@ -1,0 +1,24 @@
+name: brevard-i-card-backfill
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "15 8 * * *"
+concurrency:
+  group: brevard-i-card-backfill
+  cancel-in-progress: true
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Brevard I card completeness backfill
+        env:
+          SUPABASE_URL: "https://mocerqjnksmhcjzxrewo.supabase.co"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/brevard_i_address_geocode_backfill.py
