@@ -2,6 +2,7 @@ name = "worker-biddeed-staging"
 main = "src/worker-staging.js"
 account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 compatibility_date = "2024-09-23"
+workers_dev = true
 
 [[routes]]
 pattern = "staging.biddeed.ai/*"
