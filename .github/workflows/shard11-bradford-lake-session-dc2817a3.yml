@@ -1,0 +1,235 @@
+name: "SHARD-11 Bradford+Lake Gold Standard Session (dc2817a3)"
+# dispatch_id: dc2817a3-7057-402b-b887-17d6d31cc998
+# loop run: 7553
+# Counties: bradford (B+F fix), lake (E+G+J fix)
+#
+# Bradford: backfill sold_amount + insert independent foreclosure/tax_deed outcomes
+# Lake E:   owner-name ArcGIS parcel linkage for unlinked rows
+# Lake G:   parcel_zones coverage backfill via Lake County GIS ArcGIS (InteractiveMap/MapServer/50)
+# Lake J:   comprehensive bid_decisions generator for all lake cases
+#
+# Wiring Mandate: this workflow IS the executor — script + workflow shipped together.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no DB writes)'
+        required: false
+        default: 'false'
+      county_scope:
+        description: 'Scope: both / bradford-only / lake-only'
+        required: false
+        default: 'both'
+  schedule:
+    # Daily at 08:00 UTC (primary session window)
+    - cron: '0 8 * * *'
+
+jobs:
+  bradford-bf-fix:
+    name: "Bradford B+F: sold_amount backfill + independent outcomes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event.inputs.county_scope != 'lake-only' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Bradford B+F fix"
+        run: |
+          set -euo pipefail
+          ARGS="--bradford-only"
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python3 scripts/shard11_bradford_lake_session_dc2817a3.py $ARGS
+
+      - name: "Verify Bradford B+F metrics"
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, urllib.request
+
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+
+          req = urllib.request.Request(
+            f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+            data=json.dumps({'p_county': 'bradford'}).encode(), method='POST',
+            headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json'}
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+            result = json.loads(r.read())
+
+          b = result.get('B', {})
+          f = result.get('F', {})
+          passing = sum(1 for v in result.values() if isinstance(v, dict) and v.get('pass'))
+          print(f'Bradford: {passing}/10')
+          print(f'  B: pass={b.get(\"pass\")} metric={b.get(\"metric\")}')
+          print(f'  F: pass={f.get(\"pass\")} metric={f.get(\"metric\")}')
+
+          summary = f'Bradford {passing}/10 | B={b.get(\"metric\")} F={f.get(\"metric\")}'
+          print(f'::notice::{summary}')
+          with open(os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null'), 'a') as fh:
+            fh.write(f'### Bradford DoD\n```json\n{json.dumps(result, indent=2)}\n```\n')
+          "
+
+  lake-e-g-j-fix:
+    name: "Lake E+G+J: parcel linkage + zoning + bid_decisions"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: ${{ github.event.inputs.county_scope != 'bradford-only' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Lake E+G+J fix"
+        run: |
+          set -euo pipefail
+          ARGS="--lake-only"
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python3 scripts/shard11_bradford_lake_session_dc2817a3.py $ARGS
+
+      - name: "Verify Lake metrics"
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, urllib.request
+
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+
+          req = urllib.request.Request(
+            f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+            data=json.dumps({'p_county': 'lake'}).encode(), method='POST',
+            headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}', 'Content-Type': 'application/json'}
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+            result = json.loads(r.read())
+
+          passing = sum(1 for v in result.values() if isinstance(v, dict) and v.get('pass'))
+          print(f'Lake: {passing}/10')
+          for letter in 'ABCDEFGHIJ':
+            v = result.get(letter, {})
+            if isinstance(v, dict):
+              sym = chr(10003) if v.get('pass') else chr(10007)
+              print(f'  {letter} {sym} metric={v.get(\"metric\")} detail={v.get(\"detail\")}')
+
+          print(f'::notice::Lake {passing}/10')
+          with open(os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null'), 'a') as fh:
+            fh.write(f'### Lake DoD\n```json\n{json.dumps(result, indent=2)}\n```\n')
+          "
+
+  session-closeout:
+    name: "Session closeout: log ultraloop audit rows"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [bradford-bf-fix, lake-e-g-j-fix]
+    if: always() && github.event.inputs.dry_run != 'true'
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Log ultraloop audit + final evaluation"
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import json, os, urllib.request, datetime
+
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          URL = os.environ['SUPABASE_URL'].rstrip('/')
+          NOW = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          DISPATCH_ID = 'dc2817a3-7057-402b-b887-17d6d31cc998'
+          RUN_ID = os.environ.get('GITHUB_RUN_ID', 'unknown')
+
+          headers = {
+            'apikey': KEY,
+            'Authorization': f'Bearer {KEY}',
+            'Content-Type': 'application/json',
+          }
+
+          def dod(county):
+            req = urllib.request.Request(
+              f'{URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+              data=json.dumps({'p_county': county}).encode(), method='POST',
+              headers=headers
+            )
+            with urllib.request.urlopen(req, timeout=60) as r:
+              return json.loads(r.read())
+
+          bradford = dod('bradford')
+          lake = dod('lake')
+
+          b_b = bradford.get('B', {})
+          b_f = bradford.get('F', {})
+          l_e = lake.get('E', {})
+          l_g = lake.get('G', {})
+          l_i = lake.get('I', {})
+          l_j = lake.get('J', {})
+
+          bradford_score = sum(1 for v in bradford.values() if isinstance(v, dict) and v.get('pass'))
+          lake_score = sum(1 for v in lake.values() if isinstance(v, dict) and v.get('pass'))
+
+          print(f'=== FINAL SESSION METRICS ===')
+          print(f'Bradford: {bradford_score}/10 | B={b_b.get(\"pass\")} F={b_f.get(\"pass\")}')
+          print(f'Lake: {lake_score}/10 | E={l_e.get(\"metric\")} G={l_g.get(\"metric\")} I={l_i.get(\"metric\")} J={l_j.get(\"metric\")}')
+
+          audit_rows = []
+          for county, state, letters in [
+            ('bradford', bradford, ['B', 'F']),
+            ('lake', lake, ['C', 'D', 'E', 'G', 'I', 'J']),
+          ]:
+            for letter in letters:
+              v = state.get(letter, {})
+              passed = bool(v.get('pass')) if v else False
+              audit_rows.append({
+                'dispatch_id': DISPATCH_ID,
+                'ultraloop_mode': 'fallback',
+                'county_slug': county,
+                'letter': letter,
+                'claim': f'{county.upper()} {letter} metric={v.get(\"metric\")}',
+                'survived': passed,
+                'refuter_evidence': json.dumps({'metric': v.get('metric'), 'detail': v.get('detail'), 'gha_run_id': RUN_ID}),
+                'created_at': NOW,
+              })
+
+          if audit_rows:
+            req2 = urllib.request.Request(
+              f'{URL}/rest/v1/gold_standard_ultraloop_audit',
+              data=json.dumps(audit_rows).encode(), method='POST',
+              headers={**headers, 'Prefer': 'resolution=ignore-duplicates,return=minimal'}
+            )
+            try:
+              with urllib.request.urlopen(req2, timeout=30) as r:
+                print(f'Logged {len(audit_rows)} ultraloop audit rows')
+            except Exception as e:
+              print(f'Ultraloop audit log failed (non-fatal): {e}')
+
+          with open(os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null'), 'a') as fh:
+            fh.write('## Session Closeout\n')
+            fh.write(f'| County | Score | Key Metrics |\n|---|---|---|\n')
+            fh.write(f'| Bradford | {bradford_score}/10 | B={b_b.get(\"pass\")} F={b_f.get(\"pass\")} |\n')
+            fh.write(f'| Lake | {lake_score}/10 | E={l_e.get(\"metric\")} G={l_g.get(\"metric\")} I={l_i.get(\"metric\")} J={l_j.get(\"metric\")} |\n')
+            fh.write(f'\n**Bradford full eval:**\n```json\n{json.dumps(bradford, indent=2)}\n```\n')
+            fh.write(f'\n**Lake full eval:**\n```json\n{json.dumps(lake, indent=2)}\n```\n')
+          "
