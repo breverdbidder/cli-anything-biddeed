@@ -143,6 +143,25 @@ function buildStagingShell() {
   .marion .ceiling{color:#16a34a;font-weight:800;font-size:13px;}
   .marion .detail{font-size:12px;color:#334155;margin-top:4px;}
   .empty{color:#94a3b8;font-size:13px;padding:8px;}
+  @media (max-width: 768px) {
+    body{height:auto;overflow-y:auto;}
+    .shell{flex-direction:column;height:auto;min-height:100vh;width:100%;}
+    .left{width:100%;min-width:unset;height:60vh;min-height:400px;order:2;}
+    .right{width:100%;height:auto;max-height:50vh;order:1;border-bottom:1px solid #e2e8f0;}
+    .logo{font-size:20px;padding:16px 16px 8px;}
+    .chat{padding:8px 16px;}
+    .msg{font-size:14px;}
+    .quick{padding:0 16px 8px;gap:6px;flex-shrink:0;}
+    .quick button{font-size:13px;padding:8px 12px;border-radius:20px;flex:1 1 45%;}
+    .input-bar{padding:12px 16px 16px;flex-shrink:0;}
+    .input-bar input{font-size:16px;}
+    .feed-header{padding:14px 16px;}
+    .feed-title{font-size:13px;}
+    .feed{padding:14px 16px;grid-template-columns:1fr;gap:10px;}
+    .card{padding:12px;}
+    .card h3{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .card .row{font-size:14px;overflow-wrap:break-word;}
+  }
 </style>
 </head>
 <body>
