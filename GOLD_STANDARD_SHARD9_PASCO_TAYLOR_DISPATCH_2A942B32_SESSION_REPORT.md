@@ -65,6 +65,24 @@ No bid amount was fabricated. Recommend a follow-up session with Firecrawl credi
 browser-use restored before concluding "no sale occurred" on any of these 5 -- absence of evidence here
 is a tooling gap, not proof of no sale.
 
+**Follow-up same session, sharper diagnosis (Playwright + real Chromium, bypassing the Firecrawl-credit
+limit entirely):** confirmed `taylor.realtdm.com` itself is NOT Cloudflare/bot-blocked -- it returns a
+real HTTP 200 and a working case-search form (`filterCaseNumber`, `filterParcelNumber`, `filterPartyName`,
+case-status dropdown with 19 real status values). But it returns **"NO CASES FOUND" for every filter
+tried**, including a single-letter wildcard party-name search ("a") and all 8 sold/completed status
+codes combined with no other filter -- i.e. the public case index for this Taylor instance appears to be
+**entirely unpopulated**, not just missing these 5 specific cases (the page header also displays
+"TEST / Test Clerk of the Courts" branding, consistent with an unpopulated or staging instance). Separately,
+`taylorclerk.com/departments/foreclosure-sales/` (fetched live) confirms only 2 cases remain in "Active
+Foreclosure Sales" (25-014 CA and 23-597 CA, both still scheduled) -- the 3 target foreclosure cases
+(25-218, 25-196, 25-217) have dropped off that list, consistent with them having been processed, but the
+clerk's own linked "Local Official Record Search" (`pubrecords.taylorclerk.com`) is genuinely
+Cloudflare bot-challenge-gated (HTTP 403, "Performing security verification"), not merely
+rate-limited/credential-limited. Bottom line unchanged (B/F remain FAIL, no fabrication), but the actual
+blocker for a future session is now precisely identified: either get the realtdm.com case index actually
+populated/re-pointed to the live instance, or get legitimate access through Cloudflare on
+pubrecords.taylorclerk.com -- not simply "buy more Firecrawl credits."
+
 ## Self-caught regression (P0, fixed same session)
 The I-fix migration (`20260731d`) added 3 new `parcel_zones` rows (MPUD, R1 for pasco; RSF/MH-2 for
 taylor) with no matching `zoning_districts` row. `v_zoning_gold_standard_kpi_v3`'s
@@ -99,8 +117,12 @@ evaluator was used for verification, per protocol.
 1. Pasco rows `84ab0a10`/`ffd8f042` (wrong DB address, needs Clerk case-file legal description) and
    `ee7405d1`/`c7f13c39`/`c1b3fd78` (fully blocked) -- all need Firecrawl credits restored or a
    browser-use-capable session to clear `pasco.realforeclose.com`'s 403 and CiviTek OCRS's click-through gate.
-2. Taylor B/F -- same tooling gap, blocks `taylor.realtdm.com` and the clerk's post-sale results flow for
-   all 5 past-due auctions. This is the last blocker keeping taylor off 10/10.
+2. Taylor B/F -- confirmed via a real Playwright/Chromium session (bypassing Firecrawl entirely) that
+   `taylor.realtdm.com`'s public case search is reachable but returns zero results for any filter
+   (looks unpopulated, "TEST" branding), and `pubrecords.taylorclerk.com`'s official record search is
+   genuinely Cloudflare bot-gated (403). This is the last blocker keeping taylor off 10/10 -- needs
+   either the realtdm.com instance actually populated/re-pointed, or legitimate Cloudflare access on
+   pubrecords.taylorclerk.com, not just more Firecrawl credits.
 3. Not touched this session (out of scope, flagged only): pasco's remaining 269 legacy parcel_zones rows
    still carry the hardcoded R-2 default from `scripts/shard9_run651_pasco_zoning.py` -- this session's
    research proved that default wrong for 2 sampled parcels (real codes were MPUD and R1, neither R-2).
