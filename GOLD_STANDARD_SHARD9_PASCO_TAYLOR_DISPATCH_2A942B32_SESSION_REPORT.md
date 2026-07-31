@@ -129,6 +129,64 @@ evaluator was used for verification, per protocol.
    A full re-scrape of all 269 against Pasco's real BOCC zoning GIS (not the R-2 blanket default) is
    warranted for G-accuracy but is a larger, separate effort from this session's I-scoped mandate.
 
+## 2nd firing (2026-07-31, same dispatch 2a942b32 re-fired) — honest no-op, zero drift
+
+Live state confirmed via `pencil_dod_evaluate_county` before touching anything: `pasco` still exactly
+10/10 (I=95.1 PASS, all letters PASS, `card_complete=271 of 285`). `taylor` still exactly 8/10 (B=FAIL
+null, F=FAIL null, everything else including I=100 PASS). Both match this report's original close-out
+byte-for-byte — no drift since the first firing.
+
+Firecrawl credit check: `remaining_credits=-3` of 1000 (still exhausted, unchanged blocker).
+
+ULTRALOOP recheck (workflow `wf_244ec65d-327`, 4 finder agents + 4 adversarial verifiers, one per
+documented blocker) re-attempted all 4 open items from "Next-session priorities" with a fresh plain
+fetch/search pass (no Cloudflare-bypass, no CAPTCHA-solving, no bot-evasion attempted, per guardrails):
+
+- **`pubrecords.taylorclerk.com`**: still a genuine Cloudflare challenge (`Just a moment...`,
+  `challenges.cloudflare.com` in CSP), reproduced live with a real browser UA. Verdict: **NO_CHANGE**.
+- **`taylor.realtdm.com`**: the earlier-reported 403 was a plain User-Agent sniff (curl/WebFetch UA
+  rejected), not Cloudflare or a real bot-wall — with a standard browser UA it returns 200. But the page
+  behind it is a **login-gated splash page** for the same "TEST / Test Clerk" branded instance, no public
+  case-search surface without credentials. Net effect unchanged: the 3 target case numbers (25-218 CA,
+  25-196 CA, 25-217 CA) remain unobtainable. Verdict: **NEW_FINDING (diagnostic only) — no DB write**.
+  Useful for a future session with browser-use/credentials: the actual barrier is an auth gate, not a
+  network block.
+- **`pasco.realforeclose.com`**: same UA-sniff pattern as above (403 without UA, 200 with a real browser
+  UA — standard RealAuction terms-of-use splash page). Getting past it into the real AJAX case-search
+  still requires a browser session/click-through that curl/WebFetch cannot perform. The 3 blocked pasco
+  case IDs (`ee7405d1`, `c7f13c39`, `c1b3fd78`) remain unresolved. Verdict: **NO_CHANGE** (a prior
+  finder's phrasing overstated this as "domain-level inaccessible" — corrected here: it's reachable, just
+  gated behind an interactive flow no current tool can drive).
+- **Pasco addresses (`84ab0a10`, `ffd8f042`)**: re-queried Pasco Property Appraiser's own Streets +
+  Parcels ArcGIS layers live. Found and corrected a **query-formatting bug** in the original session's
+  method — "Beach Blvd" doesn't match because the appraiser's data spells it out as "Beach Boulevard";
+  the street genuinely exists (7 centerline segments, 31+ improved parcels in Hudson). But **6824 Beach
+  Blvd specifically still has no row** in the appraiser's improved-parcel index (third-party listings
+  confirm it's real but vacant/unbuilt land, consistent with no PHYS_STREET record). Tahitian Gardens Cir
+  4370-4372 **still genuinely absent** from a fresh, non-paginated appraiser query, even though
+  third-party rental listings market "4371 Tahitian Gardens Cir" as a real address (likely a
+  differently-filed appraiser ParcelID for that building, not resolved). Per HONESTY PROTOCOL, writing an
+  address into the gold-standard row without a matching authoritative parcel_id/geometry would be an
+  ungrounded write, worse than leaving it UNKNOWN. Verdict: **NO_CHANGE** — both rows correctly remain
+  UNKNOWN, sharper diagnosis only.
+
+**No database writes this firing.** No `gold_standard_ultraloop_audit` rows added — all 4 findings
+reconfirm blockers already logged `survived=true` in the first firing (ids 11655-11660, same day, well
+within the 7-day certification freshness window), so no new audit row was needed for certification
+purposes. Per PARALLEL-FLEET RULES, `gold_standard_loop()`/`gold_standard_certify()` were not run
+(confirmed active concurrent shard activity: `1bc57557` shard-12 jefferson landed on `main` during this
+session's window).
+
+**Carried-forward next-session priorities (unchanged, now with sharper mechanism):**
+1. Pasco's 5 blocked I rows and Taylor's B/F still need either Firecrawl credits restored or a
+   browser-use/credentialed session — now known specifically: pasco.realforeclose.com and
+   taylor.realtdm.com both need a real browser session to get past an interactive splash/login gate (not
+   a network block); pubrecords.taylorclerk.com needs legitimate Cloudflare clearance.
+2. The 2 pasco address rows need a Pasco Clerk case-file legal description (case
+   `51-2025-CA-002914-CAAX-WS` for 4371 Tahitian Gardens Cir, case `51-2025-CA-000763-CAAX-WS` for 6824
+   Beach Blvd) or the specific appraiser ParcelID underlying each third-party-marketed address, since
+   PHYS_STREET text-matching against the appraiser's tax roll does not resolve them.
+
 ---
 dispatch_id: 2a942b32-564d-4097-bc6a-5ac44d6e2be2
 chat_session: architect-20260731T080000
