@@ -1,0 +1,132 @@
+-- GOLD STANDARD shard-5, county columbia, letters B/F (this is at least the
+-- 4th firing on this exact problem -- see prior migrations
+-- 20260626_shard3_wave3_columbia_bf.sql, 20260719_shard2_columbia_a_bf_blocked_no_real_data.sql,
+-- 20260719_shard2cont_columbia_abf_recheck_still_blocked.sql, and
+-- .claude/workflows/gold-standard-shard9-columbia-run7177-b5ef98e4.js /
+-- GOLD_STANDARD_SHARD9_COLUMBIA_DISPATCH_FD02926F_RUN6871*.md session reports).
+--
+-- Documentation/summary migration ONLY. No B/F-relevant column changed --
+-- sold_amount and tier1_sold_amount remain NULL on all 15 columbia rows,
+-- verified unchanged before and after this session (see RESULT below).
+--
+-- LIVE BASELINE (verified via Management API this session, 2026-07-31):
+--   auctions_total=15, all sale_type='foreclosure', verified_outcomes=0,
+--   closed_sold=0. B metric=null (verified=0 closed_sold=0), F metric=null
+--   (tier1_sold=0 closed_sold=0). 7 of the 15 rows have auction_date already
+--   passed (today 2026-07-31) but auction_status='upcoming', sold_amount NULL:
+--   2025-499-CA, 2025-396-CA, 2025-103-CA, 2023-492-CA, 2023-79-CA,
+--   2025-2196-CC, 2025-501-CA.
+--
+-- WHAT WAS DONE THIS SESSION (real interactive browser via Playwright
+-- chromium, since neither the `browser-use` CLI nor `firecrawl-cli browser`
+-- were usable in this sandbox -- browser-use is not installed at all;
+-- firecrawl-cli is installable via npx but returned "Insufficient credits"
+-- on the account, same limitation noted in two prior sessions):
+--
+--   1. civitekflorida.com/ocrs/county/12/index.xhtml (Columbia County OCRS,
+--      genuinely untested for county 12 specifically until now -- prior
+--      sessions only confirmed the Turnstile gate for bradford/county 04).
+--      Drove the full flow with Playwright: loaded index.xhtml (200) ->
+--      clicked "Public" access option -> clicked "I Agree" on the
+--      disclaimer -> landed on /ocrs/app/search.xhtml (both Person Search
+--      and Case Search tabs share one form). CONFIRMED: the search form
+--      itself embeds a Cloudflare Turnstile widget bound to the submit
+--      action (sitekey 0x4AAAAAAAR0Af-5MfzdbO3p, action:'Search',
+--      cf-turnstile-response hidden input inside the shared <form>, NOT
+--      scoped to either tab individually). Network trace on page load
+--      (before any search was even submitted) already shows the Turnstile
+--      challenge-platform round trip, including an HTTP 401 on
+--      challenges.cloudflare.com/.../pat/... -- the identical mechanism
+--      documented for bradford county 04. Per this session's explicit
+--      instruction, did NOT attempt to click/solve/bypass the widget.
+--      CONCLUSION: Civitek's per-county Turnstile config is NOT
+--      county-specific after all -- columbia (12) is gated the same way
+--      bradford (04) was. This closes the "genuinely untested" question
+--      the prior session's residual note raised.
+--
+--   2. columbiaclerk.com/court-services/court-records/ -- confirmed its own
+--      "Search Court Records" flow routes directly to
+--      https://www.civitekflorida.com/ocrs/county/12/ (same gated portal,
+--      no independent bypass).
+--
+--   3. columbiaclerk.com's public marketing pages (NOT the old
+--      /foreclosure-sales/ and /tax-deed-sales/ paths, which now 404/hang --
+--      the site restructured its URLs since the last check). With a real
+--      Playwright browser:
+--        - /clerk-services/foreclosures/upcoming-foreclosure-sales/ loads
+--          cleanly (200, real content, no Cloudflare block). Lists 12 case
+--          numbers with Status/Sale Date/Case Number/Judgement
+--          Amount/Parties/Address/Parcel ID. Of our 7 past-due cases, 4
+--          (2023-492-CA, 2023-79-CA, 2025-501-CA, 2025-2196-CC) still
+--          appear on this page with Status="scheduled" for their exact
+--          original sale dates -- but the page's own "REVISED: 06/05/2026"
+--          banner shows it is a stale snapshot from before any of these
+--          sale dates occurred, so "still shows scheduled" is NOT evidence
+--          the sale did not happen -- it only proves this list page has not
+--          been refreshed since 06/05/2026. The other 3
+--          (2025-499-CA/2025-396-CA/2025-103-CA, our earliest/longest-past
+--          cases) are ABSENT from this same live page -- consistent with,
+--          but not proof of, having completed their sale process and
+--          rolled off the "upcoming" list. No sold_amount field exists
+--          anywhere on this page for any case, scheduled or not.
+--        - /clerk-services/foreclosures/foreclosure-surplus-listings/ loads
+--          cleanly (200). Lists 4 real surplus cases, all pre-2025
+--          (24-309-CA, 23-466-CA, 23-448-CA, 24-318-CA), "Revised
+--          02/19/2024" -- stale, and confirmed ZERO overlap with any of our
+--          15 tracked columbia case numbers (matches the 2026-07-19
+--          session's independent finding of zero overlap on this exact
+--          page).
+--        - /clerk-services/property-sales/ and /clerk-services/tax-deeds/
+--          both cleared their Cloudflare JS-challenge this session (200,
+--          real title, no "Just a moment..." holding page) -- outside this
+--          session's B/F scope (tax-deeds is letter A's lane), not acted on
+--          here, noted only as a residual for whichever session next owns
+--          letter A.
+--        - No third "completed sales / results" archive page exists on the
+--          site's current structure -- only "Upcoming Foreclosure Sales"
+--          and "Foreclosure Surplus Listings", neither of which carries a
+--          sold/winning-bid amount field for any case.
+--
+--   4. Ruled out: qpublic.schneidercorp.com and qpublic.net/fl/columbia
+--      (both hard Cloudflare-blocked even with a real Playwright browser,
+--      403/"Just a moment..." and 404 respectively) as a deed-transfer
+--      cross-check; myflcourtaccess.com (attorney/bar e-filing portal only,
+--      correctly not attempted per the no-attorney-login rule);
+--      thirdcircuitfl.org (court calendars only, not case dockets); fresh
+--      Wayback CDX query for the new
+--      /clerk-services/foreclosures/upcoming-foreclosure-sales/ URL path
+--      returned zero snapshots (the URL structure is new since the last
+--      Wayback crawl, so no historical comparison is possible there).
+--
+-- RESULT: B and F remain structurally blocked. Zero sold_amount or
+-- tier1_sold_amount evidence found from any real primary source. No case
+-- number, sold amount, or party name fabricated. sold_amount and
+-- tier1_sold_amount left NULL on all 15 columbia rows (verified via
+-- Management API immediately before and after this session -- identical).
+-- No fix applied, no foreclosure_outcomes row inserted.
+--
+-- RESIDUAL FOR NEXT SESSION:
+--   - The Civitek OCRS Turnstile gate is now confirmed for BOTH bradford
+--     (04) and columbia (12) -- treat this as a Civitek-wide default, not a
+--     per-county variable, unless a future county is found NOT to be gated
+--     (would be a genuinely new finding worth re-testing this assumption).
+--   - columbiaclerk.com's own site restructured its URLs since the last
+--     check (old /foreclosure-sales/ and /tax-deed-sales/ paths now
+--     404/hang; new paths are /clerk-services/foreclosures/upcoming-foreclosure-sales/
+--     and /clerk-services/foreclosures/foreclosure-surplus-listings/) --
+--     use the NEW paths in any future session, the old ones are dead.
+--   - The "Upcoming Foreclosure Sales" page is genuinely stale (REVISED
+--     06/05/2026 as of a 2026-07-31 check) -- a future session should
+--     re-check this same URL on a later date in case the clerk's office
+--     refreshes it with post-sale status/results.
+--   - B/F need either (a) a human to manually clear the civitekflorida.com
+--     Turnstile challenge once and hand an agent a reusable session cookie
+--     (out of scope for an unattended agent), or (b) budget authorization
+--     for a paid court-records API, or (c) the clerk's office publishing a
+--     genuine post-sale results/archive page (does not currently exist).
+--
+-- No schema change. No rows updated. This migration is a documentation
+-- artifact only, matching the pattern of prior "still blocked" migrations
+-- in this campaign (20260719_shard2_columbia_a_bf_blocked_no_real_data.sql,
+-- 20260719_shard2cont_columbia_abf_recheck_still_blocked.sql).
+SELECT 1;
