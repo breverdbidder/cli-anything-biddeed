@@ -353,10 +353,13 @@ def step1_geo_value_enrichment(mca_rows):
 def step2_parcel_zones_backfill(mca_rows, existing_pz):
     """Step 2: insert parcel_zones for rows without a zone_code link.
 
-    For each parcel_id not in existing_pz:
-    - Try to get real zone code from Osceola GIS (gis.osceola.org).
-    - Fall back to 'PD' (dominant real code in osceola parcel_zones per shard7 session).
-    - Tag source clearly so the fallback is auditable.
+    For each parcel_id not in existing_pz, insert ONLY when Osceola GIS
+    (gis.osceola.org) returns a real, matched zone code. Parcels with no
+    live GIS match (INCORP/empty/unrecognized code) are skipped, not
+    defaulted -- a blind 'PD' fallback here was ghost-success fabrication
+    (confirmed live 2026-07-31: 410 fabricated rows, contradicted by a
+    live gis.osceola.org spot-check on 3 sample parcels showing real zones
+    of E-1/PD/PD/CR, INCORP, and RS-3 respectively, none uniformly PD).
     """
     needs_pz = [
         r for r in mca_rows
@@ -389,24 +392,28 @@ def step2_parcel_zones_backfill(mca_rows, existing_pz):
     VALID_ZONE_CODES = {"AC", "CR", "CT", "PD", "PMUD", "RMH", "STRPD"}
 
     pz_inserts = []
+    skipped_no_match = 0
     for row in needs_pz:
         pid = row["parcel_id"]
         raw_zone = gis_zone_map.get(pid, "")
         if raw_zone and raw_zone not in INCORP_CODES and raw_zone in VALID_ZONE_CODES:
             zone_code = raw_zone
             source = f"shard4_run5153_osceola_gis_live:{zone_code}"
+            pz_inserts.append({
+                "parcel_id": pid,
+                "jurisdiction_id": JURISDICTION_ID,
+                "zone_code": zone_code,
+                "source": source,
+            })
         else:
-            zone_code = "PD"
-            reason = "INCORP_or_nomatch" if raw_zone in INCORP_CODES else (
-                "gis_unknown_code:" + (raw_zone or "empty")
-            )
-            source = f"shard4_run5153_osceola_i_default:{reason}"
-        pz_inserts.append({
-            "parcel_id": pid,
-            "jurisdiction_id": JURISDICTION_ID,
-            "zone_code": zone_code,
-            "source": source,
-        })
+            skipped_no_match += 1
+
+    if skipped_no_match:
+        log(
+            f"Step 2: skipped {skipped_no_match} parcels with no live GIS zone "
+            "match (no fallback insert -- see 2026-07-31 ghost-success fix)",
+            "VERIFIED",
+        )
 
     log(f"Inserting {len(pz_inserts)} parcel_zones rows...", "UNTESTED")
     inserted = sb_post("parcel_zones", pz_inserts)
