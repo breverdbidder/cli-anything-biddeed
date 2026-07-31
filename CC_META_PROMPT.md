@@ -208,3 +208,45 @@ READ ALL COMMENTS ON THIS ISSUE BEFORE STARTING.
 
 A brief missing the non-goals section or the negative test is an incomplete
 brief. Ask for it rather than guessing at the boundary.
+
+---
+
+## SESSION TEARDOWN — COST TELEMETRY (MANDATORY)
+
+At the end of EVERY session — success, failure, or timeout — before closing, run this SQL via Supabase MCP:
+
+```sql
+SELECT public.log_cc_session_cost(
+  p_issue        := <ISSUE_NUMBER>,           -- this session's GitHub issue number
+  p_run_id       := '<GHA_RUN_ID>',           -- GitHub Actions run ID if known, else NULL
+  p_shard_label  := '<TASK_LABEL>',           -- copy from /loop line verbatim
+  p_model        := '<MODEL_USED>',           -- e.g. 'claude-sonnet-4-6' or 'claude-opus-4-7'
+  p_effort_level := '<EFFORT>',              -- 'low' | 'medium' | 'high'
+  p_input_tokens := <INPUT_TOKENS>,           -- from session usage stats
+  p_output_tokens:= <OUTPUT_TOKENS>,          -- from session usage stats
+  p_cache_read   := <CACHE_READ_TOKENS>,      -- from session usage stats, 0 if unknown
+  p_cache_write  := <CACHE_WRITE_TOKENS>,     -- from session usage stats, 0 if unknown
+  p_started_at   := '<SESSION_START_ISO>',    -- ISO8601 timestamp when session began
+  p_ended_at     := now(),                    -- call at actual end time
+  p_conclusion   := '<success|failure|timeout>',
+  p_dod_met      := <true|false|NULL>,        -- was DoD SQL satisfied?
+  p_raw_usage    := '<USAGE_JSON>'::jsonb     -- full usage blob if available, else NULL
+);
+```
+
+### How to get token counts
+- Check the Claude Code session summary at end of run (CC prints usage stats)
+- If usage stats unavailable, use 0 for all token fields — the row still lands
+- Model: check `claude --version` output or the model field in session metadata
+
+### Why this matters
+- $767 was burned in July with zero visibility into which sessions cost what
+- This is the only way to get per-session cost, model, and DoD data
+- Budget alert fires at $140/month via Telegram — requires this data
+
+### Non-goals
+- Do NOT skip this step even if session was a hard failure
+- Do NOT guess token counts — use 0 if unavailable, not an estimate
+- This call is idempotent-safe — duplicate calls create duplicate rows (acceptable)
+
+---
