@@ -679,7 +679,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filte
 .logo{display:flex;align-items:center;gap:10px;text-decoration:none}
 .lm{width:32px;height:32px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:var(--navy)}
 .ln{font-size:15px;font-weight:700;color:white}.ln span{color:var(--orange)}
-.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
 .wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem}
 .ey{display:inline-flex;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
 h1{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.8rem);color:white;margin-bottom:.75rem}
@@ -2122,16 +2122,17 @@ const HOMEPAGE_HTML = `<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
+*{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 :root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b;--green:#10b981}
 html{scroll-behavior:smooth}
-body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;font-size:17px;line-height:1.75;letter-spacing:0.01em}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 2rem}
 .nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:64px}
 .logo{display:flex;align-items:center;gap:10px;text-decoration:none}
-.lm{width:34px;height:34px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:var(--navy);flex-shrink:0}
+.lm{width:34px;height:34px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:var(--navy);flex-shrink:0}
 .ln{font-size:16px;font-weight:700;color:white;letter-spacing:-.02em}.ln span{color:var(--orange)}
-.nav-links{display:flex;gap:1.5rem}.nav-links a{color:#e2e8f0;text-decoration:none;font-size:14px;font-weight:500}.nav-links a:hover{color:white}
-.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:9px 20px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
+.nav-links{display:flex;gap:1.5rem}.nav-links a{color:#e2e8f0;text-decoration:none;font-size:15px;font-weight:500}.nav-links a:hover{color:white}
+.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:9px 20px;border-radius:8px;font-size:15px;font-weight:700;text-decoration:none}
 .hero{padding:5rem 2rem 4rem;text-align:center;max-width:860px;margin:0 auto}
 .hbadge{display:inline-flex;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);padding:.35rem 1rem;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--orange);margin-bottom:1.5rem;letter-spacing:.06em}
 h1.hh1{font-family:'DM Serif Display',serif;font-size:clamp(2.2rem,5vw,3.6rem);color:white;line-height:1.15;letter-spacing:-.02em;margin-bottom:1.25rem}
