@@ -1,0 +1,51 @@
+session:
+  repo: cli-anything-biddeed
+  dispatch_id: e8926b0a-9997-471b-82f3-00a092c1eb19
+  chat_session: architect-20260731T080000
+  shard: "gold-standard-shard14-bay"
+  county: bay
+  note: "2nd firing on this dispatch. 1st firing (commit 8e1607ac, 08:32Z) already fixed C/D/I to 10/10 before this session started."
+
+decisions:
+  - step: 1
+    action: "Query live pencil_dod_evaluate_county('bay') and gold_standard_scoreboard before doing any work, rather than trust the dispatch brief's pasted 7/10 numbers"
+    result: "Brief was stale: bay was already 10/10 (pass_count=10, gold_standard=true, evaluated_at 09:30:36Z), fixed by an earlier firing of this exact dispatch_id"
+    reason: "HONESTY PROTOCOL -- re-verify claims fresh; found via git log that commit 8e1607ac ('fix(gold-standard-shard14-bay): C/D/I -> 10/10 live on dispatch e8926b0a') already shipped this"
+  - step: 2
+    action: "Checked gold_standard_ultraloop_audit freshness for all 10 letters instead of declaring the session done"
+    result: "C/D/I had fresh (07-31) survived=true rows from the 1st firing. A/B/E/F/G/H/I/J's most recent rows were all dated 2026-07-25 -- 6 days old, about to age past the certify gate's 7-day window before a second consecutive 10/10 daily 07:30Z run could land"
+    reason: "the 1st firing's own session report explicitly flagged this as an open risk to check before certification is claimed"
+  - step: 3
+    action: "Launched a native Workflow: 7 parallel adversarial verifier agents (A,B,E,F,G,H,J), each required to independently re-derive its letter's metric from underlying tables via live REST queries rather than re-trust the RPC, then one synthesis agent to insert fresh audit rows for survived letters"
+    result: "5 survived (A,B,E,F,G) with fresh audit rows inserted (ids 11704-11708). 2 REFUTED: H (0.1h freshness is a fleet-wide mass-touch artifact, real freshness 36.65h -- still under 48h SLA but the specific metric is fabricated) and J (CONFIRMED ghost-success: 55/191 case_numbers share byte-identical boilerplate deal-thesis payload across real properties valued $2,247-$115,894; plus discovered case_number is not unique across counties)"
+    reason: "ultracode opted in this turn; ULTRALOOP PROTOCOL mandates adversarial fan-out verification, not self-certification"
+  - step: 4
+    action: "The synthesis agent correctly declined to insert survived=true rows for H/J, but also inserted NOTHING for them, leaving the stale 2026-07-25 survived=true rows as the only audit evidence"
+    result: "Read the actual certify() SQL (migrations/20260720_architect_triage_12866_certify_tiebreak_fix.sql): DISTINCT ON (county_slug, letter) ... ORDER BY created_at DESC picks the MOST RECENT row within 7 days -- meaning the stale 07-25 survived=true rows for H/J would currently be picked up by a future certify run, silently masking today's refutation"
+    reason: "identified a live certify-gate integrity gap: 'refuted, so don't insert' is not the same as 'refuted, so log the refutation' -- the former leaves stale false evidence in place"
+  - step: 5
+    action: "Inserted fresh survived=false rows for H (id 11711) and J (id 11712) myself, with full refuter evidence from the workflow, dated today"
+    result: "Certify gate will now correctly see bay as audit-current on 8/10 letters (A,B,C,D,E,F,G,I) and blocked on H/J, matching the true state of the data"
+    reason: "close the certify-gate loophole rather than leave a known-false claim as the most recent evidence on file"
+  - step: 6
+    action: "Did not attempt to fix the J ghost-fill generator or the H evaluator formula"
+    result: "Both flagged as fleet-wide/shared-code concerns (bid_decisions generator template fallback; GREATEST() freshness formula fragility) for architect review, not unilaterally patched in a bay-only shard session"
+    reason: "PARALLEL-FLEET RULES scope this session to bay only; a dedicated fleet-wide J ghost-fill investigation already exists as a separate tracked skill"
+
+artifacts:
+  - GOLD_STANDARD_SHARD14_BAY_DISPATCH_E8926B0A_ULTRALOOP_REFRESH_ADDENDUM.md
+  - gold_standard_ultraloop_audit rows 11704-11708 (survived=true: A,B,E,F,G), 11711-11712 (survived=false: H,J) -- live DB
+
+verification:
+  - check: "pencil_dod_evaluate_county('bay') re-queried at session start and end"
+    proof: "10/10 both times (A64/B100.0/C100.0/D100.0/E98.4/F100.0/G97.0/H0.1/I97.4/J100.0), unchanged -- this session made zero county-data changes"
+    status: VERIFIED
+  - check: "H real freshness vs RPC-reported freshness"
+    proof: "RPC metric=0.1h; independently computed from scrape_timestamp/created_at max = 36.65h (2026-07-29T21:13:51Z to 2026-07-31T09:53:08Z). Both still under 48h SLA, but the RPC number itself is not evidence of a live scrape"
+    status: VERIFIED
+  - check: "J deal-thesis genuineness"
+    proof: "203 bid_decisions rows fetched and inspected; 55/191 unique case_numbers share byte-for-byte identical factors payload; cross-checked 4 of those case_numbers against real assessed_value ($2,247-$115,894) all stamped with identical $50,000 boilerplate ARV"
+    status: VERIFIED
+  - check: "certify-gate query semantics"
+    proof: "read migrations/20260720_architect_triage_12866_certify_tiebreak_fix.sql directly: DISTINCT ON (county_slug, letter) ... ORDER BY created_at DESC, survived ASC, id DESC WHERE created_at > now() - interval '7 days'"
+    status: VERIFIED
