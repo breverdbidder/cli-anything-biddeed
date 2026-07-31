@@ -1,0 +1,88 @@
+name: "SHARD-6 Lafayette Run-7553 Fix (C/D/I/J)"
+# dispatch_id: ee6107e0-45eb-4afc-a0c9-b46da7ad385e
+# Loop run 7553, 2026-07-31
+#
+# TARGET: lafayette — fix the 3rd new auction (C/D parity + I card + J deal thesis)
+# PROBLEM: auctions_total=3 (was 2 in all sessions ≤2026-07-19); new 3rd auction
+#   lacks parity_status=matched_clean (C/D at 66.7%) and bid_decisions (J at 66.7%)
+#   and may be missing lat/lon + assessed_value (I at 66.7%).
+#
+# AUTH: C/D LITMUS FALLBACK pre-authorized by Ariel 2026-06-12 (CLAUDE.md):
+#   Lafayette has zero PropertyOnion coverage (tiny rural county, <8K pop).
+#   data_source='lafayette_clerk_scrape' IS the official record. Supplementary
+#   clerk/official-records litmus applies — document in session report.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    name: "lafayette: C/D parity + I card + J bid_decisions for 3rd auction"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install --quiet requests
+
+      - name: Run lafayette fix script
+        run: |
+          set -euo pipefail
+          python3 scripts/shard6_lafayette_run7553_fix.py
+
+      - name: Verify final evaluation
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+
+          body = json.dumps({'p_county': 'lafayette'}).encode()
+          req = urllib.request.Request(
+              f'{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county',
+              data=body, method='POST',
+              headers={
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': f'Bearer {SUPABASE_KEY}',
+                  'Content-Type': 'application/json',
+              }
+          )
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              ev = json.loads(resp.read())
+
+          print('### SQL VERIFICATION — lafayette post-fix')
+          print('```json')
+          print(json.dumps(ev, indent=2))
+          print('```')
+
+          if isinstance(ev, dict):
+              letters = list(ev.keys())
+              passes = [l for l in letters if ev[l].get('pass')]
+              print(f'Score: {len(passes)}/{len(letters)} — PASS={passes}')
+              summary = f'lafayette: {len(passes)}/10 ({" ".join(passes)})'
+          else:
+              print(f'Result: {ev}')
+              summary = f'lafayette: unexpected result format'
+
+          import os as _os
+          step_summary = _os.environ.get('GITHUB_STEP_SUMMARY', '')
+          if step_summary:
+              with open(step_summary, 'a') as f:
+                  f.write('\n### SQL VERIFICATION — lafayette\n')
+                  f.write('```json\n')
+                  f.write(json.dumps(ev, indent=2))
+                  f.write('\n```\n')
+                  f.write(f'\n**{summary}**\n')
+          PYEOF
