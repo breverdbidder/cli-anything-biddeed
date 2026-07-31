@@ -1,0 +1,69 @@
+-- Gold Standard shard-10 sarasota-only, dispatch 44c8ac10 (2026-07-31)
+-- STATUS: BLOCKED_NO_DB_ACCESS-equivalent -- no write applied (no fabricated data written; no DDL run).
+-- This file documents a re-verification pass only. Nothing in zone_standards, zoning_districts, or
+-- permitted_uses was changed.
+--
+-- ===== Re-confirmed live today (2026-07-31), 4th session touching this exact blocker (after
+-- migrations/20260725_gold_standard_shard11_sarasota_g_density_i_card_completeness.sql,
+-- migrations/20260725_gold_standard_shard1_bay_sarasota_union_gulf_dispatch_a9f1f24f.sql, and the same-day
+-- bay-county dispatch 9f070f2b referenced therein):
+--
+-- 1. RPC pencil_dod_evaluate_county('sarasota') -> G at the time this check ran: {"pass":false,"detail":
+--    "density=91.4 far=95.4 pk1000=54.5","metric":54.5}. v_zoning_gold_standard_kpi_v3 confirmed
+--    pk1000_applicable_parcels=11, pct_pk1000_of_applicable=54.5 (6/11 populated) -- identical to the
+--    2026-07-25 baseline at that moment.
+--    CORRECTION (adversarial verify pass, same session, 2026-07-31): the sarasota I-letter fix run in
+--    parallel within this same dispatch inserted 14 new parcel_zones rows to clear the I-letter card-
+--    completeness gap. As a side effect, G's applicable-parcel denominator shifted: live re-check after
+--    that write shows density=91.5 far=95.0 pk1000=50.0, pk1000_applicable_parcels=12 (7/12 populated).
+--    This is NOT a regression from a previously-passing state -- G failed the >=95% threshold both before
+--    (54.5) and after (50.0) this session. It is flagged here so the next session does not mistake the
+--    54.5 baseline above for the current live number.
+--
+-- 2. CORRECTION to the prior diagnosis's premise: zone_standards has ZERO rows (not NULL-valued rows) for
+--    all 4 blocking zoning_district_ids (12598 CN, 12335 PID, 12591 CT, 12902 DTC). Verified via
+--    `zone_standards?zoning_district_id=in.(12598,12335,12591,12902)` -> `[]` for all four, individually
+--    and combined. A fix therefore requires INSERT, not UPDATE ... WHERE parking_per_1000sf IS NULL as the
+--    prior session's proposed_fix assumed. This does not change the blocker's conclusion (no safe value to
+--    write either way) but is recorded so a future session doesn't attempt a no-op PATCH.
+--
+-- 3. permitted_uses also has ZERO rows for all 4 districts. This closes off the "Marion-precedent" mitigation
+--    (map district's dominant permitted use to the nearest use-type parking row, disclosed as a judgment
+--    call) -- there is no permitted-use data in this DB to anchor that judgment call to, and no reliable
+--    external signal: 3 of the 5 blocking parcels are vacant/unaddressed (0043030031 "2222 DR MARTIN LUTHER
+--    KING JR" commercial corridor address but vacant-style FL GIO record, 0997034950 "0 FLOYD POTTER AVE",
+--    0984046914 "0 W PRICE BLVD"), leaving no dependable use-type signal for those.
+--
+-- 4. NEW evidence today, stronger than the prior session's finding: WebFetch of
+--    https://www.zoneomics.com/code/sarasota-county-unincorporated-FL/chapter_8 (live, 2026-07-31) returned
+--    the full parking table structure for Sec. 124-120(g)(2) and states explicitly the table "applies
+--    uniformly across all base zoning districts, 2050 zoning districts, and Planned Development Districts"
+--    with no CN/PID-to-use-type mapping provided by the ordinance itself. This suggests the gap may not be
+--    purely a sourcing problem solvable by finding the right PDF -- the ordinance may not define a
+--    district-level parking_per_1000sf value AT ALL for use-type-keyed jurisdictions, which is a schema/
+--    metric-definition question (should CN/PID/CT even count as pk1000_applicable if the county's own code
+--    never expresses parking by district?) rather than a missing-data question. Flagging for the fleet-wide
+--    policy decision already called for in the 2026-07-25 migration (a9f1f24f, line 72-74) -- this is now
+--    a 2nd/3rd data point (sarasota + bay, both same root cause) supporting that a metric-definition review
+--    is the correct next step, not another scrape attempt.
+--
+-- 5. Primary sources re-attempted live today, all still blocked (matching 2026-07-25 status, no change):
+--    - http://sarasotacounty.elaws.us/code/coor_apxa_art7_sec7.1 -> HTTP 503
+--    - https://edocs.sarasotagov.com/WebLink/Browse.aspx (DTC downtown parking chapter search) -> HTTP 404
+--    - https://www.northportfl.gov/.../unified-land-development-code (CT parking chapter) -> HTTP 403
+--    - https://www.scgov.net/government/planning-and-development-services/documents-and-forms -> HTTP 403
+--
+-- ===== No action taken. No parking_per_1000sf value was written for zoning_district_id IN
+-- (12335, 12591, 12598, 12902) -- doing so without a verified per-district citation would repeat the exact
+-- fabrication pattern already refused once against these fields (see a9f1f24f, lines 7-12).
+--
+-- ===== Recommendation for next session / for Ariel: this is the 2nd county (after bay, dispatch 9f070f2b)
+-- hitting the identical "use-type-keyed parking ordinance, no district mapping" wall. Recommend a fleet-wide
+-- policy decision on ONE of:
+--   (a) exclude use-type-only jurisdictions from pk1000_applicable entirely (metric-definition change,
+--       needs a migration to v_zoning_gold_standard_kpi_v3's applicability view), or
+--   (b) approve a documented default judgment-call mapping (e.g. CN/PID/CT/DTC -> "Commercial: Office 1/250sf"
+--       or "Retail 1/250sf" per the zoneomics-confirmed ratios) with an explicit confidence_score < 1.0 and
+--       source_url citing the use-type table, not a district-specific one -- this is a policy call, not a
+--       data-sourcing task, and should not be made unilaterally by an automated session.
+-- No SQL statements in this file are intended to be executed; this is a documentation-only record.
