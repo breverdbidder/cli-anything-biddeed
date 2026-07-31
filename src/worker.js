@@ -135,7 +135,15 @@ async function fetchRuntimeConfig() {
     const goldSet = new Set(goldCounties);
     const s5Counties = confirmedCounties.filter(c => goldSet.has(c));
 
-    const config = { goldCounties, confirmedCounties, s5Counties };
+    // Fetch total auctions analyzed (exact count via Content-Range header)
+    const auctionsRes = await fetch(
+      SUPABASE_URL + '/rest/v1/multi_county_auctions?select=case_number&limit=1',
+      { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, Prefer: 'count=exact' } }
+    );
+    const auctionsRange = auctionsRes.headers.get('content-range');
+    const auctionsCount = auctionsRange ? (parseInt(auctionsRange.split('/')[1], 10) || 0) : 0;
+
+    const config = { goldCounties, confirmedCounties, s5Counties, auctionsCount };
 
     // Cache at edge for 5 minutes
     const resp = new Response(JSON.stringify(config), {
@@ -149,7 +157,8 @@ async function fetchRuntimeConfig() {
     return {
       goldCounties: GOLD_COUNTIES,
       confirmedCounties: [],
-      s5Counties: []
+      s5Counties: [],
+      auctionsCount: 72000
     };
   }
 }
@@ -542,9 +551,11 @@ ${DISCLAIMER_SHORT}`;
         const hpConfig = await fetchRuntimeConfig();
         const goldChips = (hpConfig.goldCounties && hpConfig.goldCounties.length ? hpConfig.goldCounties : GOLD_COUNTIES).map(s => '<div class="cc">' + toDisplay(s) + '</div>').join('');
         const goldCount = (hpConfig.goldCounties && hpConfig.goldCounties.length ? hpConfig.goldCounties : GOLD_COUNTIES).length;
+        const auctionsK = Math.floor((hpConfig.auctionsCount || 72000) / 1000);
         let hp = HOMEPAGE_HTML
           .replace(/GOLD_CHIPS_PLACEHOLDER/, goldChips)
-          .replace(/GOLD_COUNT_PLACEHOLDER/g, String(goldCount));
+          .replace(/GOLD_COUNT_PLACEHOLDER/g, String(goldCount))
+          .replace(/AUCTIONS_COUNT_PLACEHOLDER/g, String(auctionsK));
         return new Response(hp, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
@@ -2014,8 +2025,8 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
   <div class="hact"><a href="#chat" class="bp">Try It Free — No Signup</a><a href="#pricing" class="bs">See Pricing</a></div>
   <div class="hstats">
     <div class="st"><div class="sn">67<span>+</span></div><div class="sl">Florida Counties</div></div>
-    <div class="st"><div class="sn">24<span>✓</span></div><div class="sl">Gold Standard</div></div>
-    <div class="st"><div class="sn">72<span>K+</span></div><div class="sl">Auctions Analyzed</div></div>
+    <div class="st"><div class="sn">GOLD_COUNT_PLACEHOLDER<span>✓</span></div><div class="sl">Gold Standard</div></div>
+    <div class="st"><div class="sn">AUCTIONS_COUNT_PLACEHOLDER<span>K+</span></div><div class="sl">Auctions Analyzed</div></div>
     <div class="st"><div class="sn">$25</div><div class="sl">Per Shapira Report</div></div>
   </div>
 </section>
