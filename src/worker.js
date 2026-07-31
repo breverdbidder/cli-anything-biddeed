@@ -413,7 +413,7 @@ export default {
           // the s5_onetime amount at $25 server-side.
           const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY },
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
             body: JSON.stringify({ tier: 's5_onetime', customer_email: email, county, case_number, mca_id: mca_id || null, marketing_consent: !!marketing_consent }),
           });
           if (!res.ok) {
@@ -653,17 +653,17 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - If this message included a "LIVE AUCTION DATA ... End your response with exactly" instruction, obey it literally: put that [PROPERTIES_LOADED:...] token as the very last thing in your reply, on its own, with nothing after it. It is a control token for the UI, not a link — never wrap it in markdown or explain it to the user.
 ${DISCLAIMER_SHORT}`;
 
-        const routerProxyKey = env.ROUTER_PROXY_KEY;
-        if (!routerProxyKey) {
-          await logErr(env, '/chat/api', 'Missing ROUTER_PROXY_KEY binding', '', 500);
+        const anthropicKey = env.ANTHROPIC_KEY;
+        if (!anthropicKey) {
+          await logErr(env, '/chat/api', 'Missing ANTHROPIC_KEY binding', '', 500);
           return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
         let anthropicRes;
         try {
-          anthropicRes = await fetch(`${SUPABASE_URL}/functions/v1/anthropic-proxy/v1/messages`, {
+          anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
-            headers: { 'x-api-key': routerProxyKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+            headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: 'claude-haiku-4-5',
               max_tokens: 1024,
@@ -673,7 +673,7 @@ ${DISCLAIMER_SHORT}`;
             }),
           });
         } catch(e) {
-          await logErr(env, '/chat/api', 'Anthropic proxy fetch failed', String(e), 502);
+          await logErr(env, '/chat/api', 'Anthropic fetch failed', String(e), 502);
           return new Response(JSON.stringify({ error: 'AI service unavailable' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
