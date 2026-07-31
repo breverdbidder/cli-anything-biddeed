@@ -13,7 +13,7 @@
  *   GET  /chat/county-data    → County card JSON
  *   GET  /auctions            → Property cards JSON for the chat right panel (?county=&days=&type=&limit=)
  *   GET  /property/:mca_id    → Single auction row + county appraiser link
- *   GET  /subscribe           → Stripe checkout redirect
+ *   GET  /subscribe           → PostHog-tracked interstitial → Stripe checkout redirect
  *   GET  /success             → Post-payment key delivery page
  *   GET  /subscribe/status    → Poll for API key after payment
  *   GET  /buy-report          → $25 one-time Shapira report checkout page (county->auction->email)
@@ -32,6 +32,12 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const STRIPE_INVESTOR_URL = 'https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00';
 const MINDSTUDIO_S5_URL = 'https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427';
 const DISCLAIMER_SHORT = 'Informational only — not legal, financial, or investment advice. Verify independently & consult a licensed attorney before bidding.';
+
+// ── PostHog — single shared init snippet, injected into every page's <head> ──
+const POSTHOG_SCRIPT = `<script>
+!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+posthog.init("phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14",{api_host:"https://us.i.posthog.com",capture_pageview:true});
+</script>`;
 
 const GOLD_COUNTIES = [
   'brevard','broward','charlotte','clay','duval','franklin','hardee','hendry',
@@ -356,8 +362,14 @@ export default {
       if (path === '/disclaimer') return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
       // ── /subscribe ───────────────────────────────────────────────────────
+      // Served as an HTML interstitial (not a raw 302) so PostHog can record
+      // the pageview before handing off to Stripe.
       if (path === '/subscribe') {
-        return Response.redirect(STRIPE_INVESTOR_URL, 302);
+        const tier = url.searchParams.get('tier') || 'investor';
+        const html = SUBSCRIBE_HTML
+          .replace(/STRIPE_URL_PLACEHOLDER/g, STRIPE_INVESTOR_URL)
+          .replace(/TIER_PLACEHOLDER/g, tier.replace(/[^a-z0-9_-]/gi, ''));
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
       // ── /success ─────────────────────────────────────────────────────────
@@ -873,10 +885,7 @@ function buildChatPage(county, hook, ref) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content">
 <title>BidDeed.AI · Auction Intelligence</title>
-<script>
-!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-posthog.init("phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14", {api_host: "https://us.i.posthog.com"});
-</script>
+${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
@@ -1252,11 +1261,16 @@ function badgeSaleType(t){
   if(t==='tax_deed')return'<span class="pc-badge td">TAX DEED</span>';
   return'';
 }
-function showUpgradePrompt(){
-  window.location.href='/subscribe?tier=investor';
+function showUpgradePrompt(feature,caseNumber,county){
+  try{if(window.posthog)posthog.capture('upgrade_prompt_clicked',{feature:feature,case_number:caseNumber,county:county});}catch(e){}
+  window.open('/subscribe?tier=investor','_blank');
 }
 function trackOutbound(kind,caseNumber,county){
   try{if(window.posthog)posthog.capture('outbound_click',{kind:kind,case_number:caseNumber,county:county});}catch(e){}
+}
+async function hashEmail8(email){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(email.trim().toLowerCase()));
+  return Array.prototype.map.call(new Uint8Array(buf),b=>('0'+b.toString(16)).slice(-2)).join('').slice(0,8);
 }
 function buildCard(a){
   const hasAddr=!!a.property_address;
@@ -1273,10 +1287,10 @@ function buildCard(a){
         '<div><div class="pc-lbl">Assessed Value</div><div class="pc-val">'+fmtMoneyP(a.assessed_value)+'</div></div>'+
         '<div><div class="pc-lbl">Equity Gap</div><div class="pc-val">'+fmtMoneyP(a.equity_gap)+'</div></div></div>';
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
-  html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt()">🔒 Place Bid — Upgrade to Unlock</button>'+
+  html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt(\'bid_link\',\''+esc(a.case_number||'')+'\',\''+esc(a.county||'')+'\')">🔒 Place Bid — Upgrade to Unlock</button>'+
         '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
-        '<div class="btn-locked" onclick="showUpgradePrompt()" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
+        '<div class="btn-locked" onclick="showUpgradePrompt(\'maps\',\''+esc(a.case_number||'')+'\',\''+esc(a.county||'')+'\')" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
         (a.po_url?('<a class="btn-po" href="'+esc(a.po_url)+'" target="_blank" rel="noopener">PropertyOnion details ↗</a>'):'')+'</div>';
   if(a.appraiser_url){
     html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">'+
@@ -1403,7 +1417,15 @@ async function saveEmail(){
   const email=(document.getElementById('ei')?.value||'').trim();
   if(!email||!email.includes('@'))return;
   emailDone=true;document.getElementById('ec')?.remove();
-  fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,county:COUNTY,source:HOOK||'chat'})}).catch(()=>{});
+  fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,county:COUNTY,source:HOOK||'chat'})})
+    .then(async function(res){
+      if(res.ok){
+        try{
+          const hashed=await hashEmail8(email);
+          if(window.posthog)posthog.identify(hashed,{county_interest:COUNTY||null,source:'biddeed_chat'});
+        }catch(e){}
+      }
+    }).catch(()=>{});
   addMsg('assistant','✅ Done! Daily FL auction alerts sent to '+email+'. What else can I pull up for you?');
   H.push({role:'assistant',content:'Email captured.'});
 }
@@ -1423,10 +1445,28 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 </html>`;
 }
 
+// ── Subscribe interstitial — tracks pageview then hands off to Stripe ────────
+const SUBSCRIBE_HTML = `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Redirecting to Checkout — BidDeed.AI Investor</title>
+${POSTHOG_SCRIPT}
+<meta http-equiv="refresh" content="1;url=STRIPE_URL_PLACEHOLDER">
+<style>
+body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0}
+p{color:#cbd5e1;font-size:.95rem}
+</style></head><body>
+<p>Redirecting to secure checkout…</p>
+<script>
+try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER'});}catch(e){}
+setTimeout(function(){window.location.href='STRIPE_URL_PLACEHOLDER';},200);
+</script>
+</body></html>`;
+
 // ── Success page ──────────────────────────────────────────────────────────────
 const SUCCESS_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Welcome to BidDeed.AI Investor</title>
+${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
@@ -1450,6 +1490,7 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 <script>
 const params=new URLSearchParams(location.search);
 const session_id=params.get('session_id')||'';
+try{if(window.posthog)posthog.capture('subscription_activated',{tier:params.get('tier')||'investor',amount:99,session_id:params.get('session')||params.get('session_id')||'unknown'});}catch(e){}
 let attempts=0;
 async function poll(){
   if(!session_id){document.getElementById('key-box').textContent='No session ID found.';return;}
@@ -1470,6 +1511,7 @@ const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Buy One Shapira Report — $25 | BidDeed.AI</title>
 <meta name="description" content="Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. One-time $25, no subscription.">
+${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
@@ -1543,6 +1585,11 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
 var selected={county:null,county_name:null,case_number:null,property_address:null,auction_date:null,opening_bid:null,sale_type:null,mca_id:null};
 var PREFILL = "PREFILL_PLACEHOLDER";
 
+async function hashEmail8(email){
+  var buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(email.trim().toLowerCase()));
+  return Array.prototype.map.call(new Uint8Array(buf),function(b){return('0'+b.toString(16)).slice(-2);}).join('').slice(0,8);
+}
+
 function showStep(n){
   document.getElementById('step-county').style.display=(n===1)?'block':'none';
   document.getElementById('step-auction').style.display=(n===2)?'block':'none';
@@ -1607,7 +1654,7 @@ if (PREFILL && PREFILL.mca_id) {
     }
     var opts='<option value="">Select a county…</option>';
     counties.forEach(function(c){
-      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'">'+c.display+' ('+c.upcoming+' upcoming)</option>';
+      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'" data-upcoming="'+c.upcoming+'">'+c.display+' ('+c.upcoming+' upcoming)</option>';
     });
     sel.innerHTML=opts;
     sel.style.display='block';
@@ -1618,6 +1665,7 @@ if (PREFILL && PREFILL.mca_id) {
       var opt=sel.options[sel.selectedIndex];
       selected.county=sel.value;
       selected.county_name=opt.getAttribute('data-name');
+      try{if(window.posthog)posthog.capture('buy_report_county_selected',{county:selected.county,upcoming_count:Number(opt.getAttribute('data-upcoming'))||0});}catch(e){}
       loadAuctions();
     });
   }).catch(function(){
@@ -1649,6 +1697,7 @@ function loadAuctions(){
         selected.auction_date=a.auction_date;
         selected.opening_bid=a.opening_bid;
         selected.sale_type=a.sale_type;
+        try{if(window.posthog)posthog.capture('buy_report_auction_selected',{county:selected.county,case_number:selected.case_number,property_address:selected.property_address,auction_date:selected.auction_date,opening_bid:selected.opening_bid});}catch(e){}
         goToCheckout();
       });
       list.appendChild(card);
@@ -1669,17 +1718,23 @@ function goToCheckout(){
 }
 document.getElementById('back-to-auction').addEventListener('click',function(){ showStep(2); });
 
-document.getElementById('f').addEventListener('submit', function(e){
+document.getElementById('f').addEventListener('submit', async function(e){
   e.preventDefault();
   var btn=document.getElementById('btn'), err=document.getElementById('err');
   var email=document.getElementById('email').value.trim();
   var marketing_consent=document.getElementById('consent').checked;
   err.style.display='none';
   btn.disabled=true; btn.textContent='Redirecting to checkout...';
+  var hashedEmail='';
+  try{ hashedEmail=await hashEmail8(email); }catch(e2){}
+  try{if(window.posthog)posthog.capture('buy_report_checkout_started',{county:selected.county,case_number:selected.case_number,email:hashedEmail,amount:25});}catch(e2){}
   fetch('/buy-report/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,county:selected.county,case_number:selected.case_number,mca_id:selected.mca_id,marketing_consent:marketing_consent})})
     .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })
     .then(function(r){
-      if(r.ok && r.data.url){ window.location.href=r.data.url; }
+      if(r.ok && r.data.url){
+        try{if(window.posthog)posthog.identify(hashedEmail,{county_interest:selected.county,source:'buy_report'});}catch(e2){}
+        window.location.href=r.data.url;
+      }
       else{ err.textContent=r.data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My Shapira Report — $25'; }
     })
     .catch(function(){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My Shapira Report — $25'; });
@@ -1689,6 +1744,7 @@ document.getElementById('f').addEventListener('submit', function(e){
 const REPORT_SUCCESS_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Report Ready | BidDeed.AI</title>
+${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
@@ -1715,6 +1771,7 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 const params=new URLSearchParams(location.search);
 const session_id=params.get('session')||params.get('session_id')||'';
 const email=params.get('email')||'';
+try{if(window.posthog)posthog.capture('report_purchased',{amount:25,county:params.get('county')||'unknown',session_id:params.get('session')||params.get('session_id')||'unknown'});}catch(e){}
 if(email) document.getElementById('emailed').textContent='We also emailed your key to '+email;
 let attempts=0;
 async function poll(){
@@ -2534,7 +2591,7 @@ footer a{color:var(--muted);text-decoration:none}
 hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 auto}
 @media(max-width:640px){.nav-links{display:none}.msep{display:none}}
 </style>
-<script>!function(t,e){window.posthog=e,e._i=[],e.init=function(i,s){var p=t.createElement("script");p.async=!0,p.src="https://us-assets.i.posthog.com/static/array.js",t.head.appendChild(p),e._i.push([i,s])}}(document,window.posthog||[]);posthog.init("phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14",{api_host:"https://us.i.posthog.com"});</script>
+${POSTHOG_SCRIPT}
 </head>
 <body>
 <nav><div class="nav-inner">
@@ -2704,6 +2761,7 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
 const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Terms of Service — BidDeed.AI</title>
+${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
@@ -2740,6 +2798,7 @@ footer a{color:var(--muted)}
 const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Privacy Policy — BidDeed.AI</title>
+${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
@@ -2778,6 +2837,7 @@ footer a{color:var(--muted)}
 const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Disclaimer — BidDeed.AI</title>
+${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
