@@ -1,0 +1,58 @@
+-- Gold Standard shard-3, county alachua ONLY (dispatch e2353eb4-f852-4723-
+-- b4b4-aab3cf9c1987, "GOLD STANDARD SHARD-3: hillsborough, alachua, dixie --
+-- parallel 6h session", fired 2026-07-31T08:00:00Z). Letters E (parcel
+-- linkage) and I (card completeness) freshness recheck ONLY.
+--
+-- CONTEXT: this exact gap was live re-verified only ~8 hours before this
+-- session, same day, in git commit 8b992c3b ("alachua E (parcel linkage):
+-- live re-verification, 0 writable rows confirmed", scripts/alachua-E_fix.py)
+-- and scripts/alachua-I_fix.py (commit 54c17c98, which already extracted the
+-- 3 rows that WERE resolvable via ArcGIS zoning+JustValue in an earlier
+-- pass -- reflected in the current 48/58 baseline, not redone here).
+--
+-- BASELINE (VERIFIED live at session start):
+--   E FAIL, parcel_linked=48 of 58 (metric 82.8)
+--   I FAIL, card_complete=48 of 58 (metric 82.8, capped exactly at E's
+--     number -- every parcel-linked row already has a complete card, so I's
+--     sole blocker is E)
+--
+-- THIS SESSION'S FRESH CHECKS (re-ran the 8h-old diagnosis live, did not
+-- trust the carried-over conclusion per Honesty Protocol):
+--   1. Re-queried the NULL-parcel_id row set: identical 10 case_numbers
+--      (01 2024 CC 005935, 01 2025 CA 001634/001928/002643/003287/003415/
+--      003919, 01 2025 CC 001127/007164, 01 2026 CA 000211) -- no drift.
+--   2. Re-harvested the RealForeclose AJAX payload for the 7 empty-docid
+--      target auction dates: all 7 still carry docid="" (empty) -- Clerk
+--      still has not cross-referenced a recorded document to these cases.
+--   3. Re-queried ArcGIS PublicParcel/FeatureServer/0 (services.arcgis.com/
+--      cNo3jpluyt69V8Ek) for owner "2900 GAINESVILLE HOLDINGS LLC" (the one
+--      row with a real docid): still exactly 2 ambiguous candidates
+--      (07332-200-004 @ 2900 SW 13TH ST, 9.741ac; 07332-200-007, no
+--      address/no area) -- no new disambiguating field appeared.
+--   4. qpublic.schneidercorp.com still HTTP 403 (Cloudflare-blocked).
+--   5. Attempted one new lever: FL GIO Statewide_Cadastral (CO_NO=1,
+--      Alachua) OWN_NAME query, as an alternate path to disambiguate the
+--      2-candidate ArcGIS match independent of qpublic -- timed out on both
+--      curl and python urllib. Inconclusive (neither confirms nor refutes),
+--      not a viable lever this session; worth a retry with a longer timeout
+--      or off-peak next time.
+--
+-- CONCLUSION: no new reachable, non-gated, non-ambiguous data found. E and I
+-- remain genuinely blocked at 48/58 (82.8%) for the same reasons documented
+-- 8 hours earlier: 8 rows with empty Clerk docid, 1 row with an
+-- unresolvable 2-parcel owner-match ambiguity, 1 row spanning a "MULTIPLE
+-- PARCEL" legal description. Writing any of the 10 would require guessing,
+-- explicitly forbidden by this repo's fail-loud/no-fabrication guardrails.
+-- Zero rows written to multi_county_auctions. Metric unchanged: E=82.8%
+-- FAIL, I=82.8% FAIL, byte-identical evaluator output before and after.
+--
+-- ADVERSARIAL VERIFICATION (survived=true both letters, gold_standard_
+-- ultraloop_audit ids 11591 E, 11592 I): independently re-ran the
+-- evaluator (exact match), independently re-confirmed the NULL-parcel-id
+-- row set, the ArcGIS 2-candidate ambiguity, the 7 empty docids, and the
+-- qpublic 403 -- all matched the claim. Confirmed zero writes to alachua
+-- rows in the prior 2 hours.
+--
+-- No SQL statements to apply -- this file is documentation-only. Zero
+-- writes were made to multi_county_auctions, bid_decisions,
+-- foreclosure_outcomes, or tax_deed_outcomes this session.

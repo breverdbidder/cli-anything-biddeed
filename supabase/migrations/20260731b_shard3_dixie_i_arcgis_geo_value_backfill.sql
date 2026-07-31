@@ -1,0 +1,94 @@
+-- Gold Standard shard-3, county dixie ONLY (dispatch e2353eb4-f852-4723-
+-- b4b4-aab3cf9c1987, "GOLD STANDARD SHARD-3: hillsborough, alachua, dixie --
+-- parallel 6h session", fired 2026-07-31T08:00:00Z alongside 13 other
+-- concurrent shard dispatches). Letter I (property card completeness) fix.
+--
+-- BASELINE (VERIFIED live via rest/v1/rpc/pencil_dod_evaluate_county at
+-- session start): dixie I FAIL, card_complete=0 of 34 (metric 0.0). This
+-- was NOT a live bug to chase -- a prior session (see
+-- 20260727c_shard7_dixie_ij_new_source_search_no_change.sql) had already
+-- caught and purged a ghost-success where 32/33 rows shared an identical
+-- county-centroid placeholder (lat=29.5839, lon=-83.1702, assessed_value=
+-- 134615.38). The 0.0 baseline this session is the honest post-purge state.
+--
+-- ROOT CAUSE (VERIFIED): I requires, per row: property_address, geo
+-- (lat/lon), assessed_value/market_value, AND a parcel_id present in
+-- v_zoning_gold_standard_card (parcel_zones + zone_code join). The zoning
+-- side was already fine (32 dixie parcels correctly zone-linked, jurisdiction
+-- "Cross City" id=975, zone_code mostly R-1 -- untouched by this migration).
+-- The actual gap: of 34 dixie rows, 33 have parcel_id + property_address,
+-- but only 2 had latitude/longitude and only 2 had assessed_value/
+-- market_value. Our internal fl_parcels table has ZERO Dixie rows under any
+-- co_no (fl_counties.total_parcels=0 for Dixie) -- already documented as a
+-- dead end by the prior session (ingest_county.py can't run, broken CI
+-- secret, cross-cutting, out of scope for a dixie-only shard).
+--
+-- NEW LEVER (not previously tried): query the FL GIO Statewide Cadastral
+-- ArcGIS FeatureServer directly, bypassing the empty internal fl_parcels
+-- mirror --
+--   https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/
+--   Florida_Statewide_Cadastral/FeatureServer/0/query
+-- Dixie's CO_NO in this statewide service is 25 (per fl_counties_manifest.yml
+-- header: "FL DOR alphabetical-from-11" scheme -- verified live this session,
+-- CO_NO=25 returns Cross City / rural Dixie addresses, e.g. "102 NE 522 AVE",
+-- distinct from our internal fl_counties.co_no column which uses an
+-- unrelated 1-67 sequential scheme, NOT the DOR scheme). The service's
+-- PARCEL_ID field has no dashes (18 raw digits); our multi_county_auctions.
+-- parcel_id values have dashes (e.g. "12-09-13-4030-0018-0010" -> strip
+-- dashes -> "120913403000180010" -> confirmed live exact match, JV=26300,
+-- PHY_ADDR1="102 NE 522 AVE").
+--
+-- WORK PERFORMED (via ULTRALOOP fan-out: one fix subagent + one independent
+-- adversarial refuter subagent, per repo protocol):
+--   1. Fresh query: 32 dixie rows had parcel_id but were missing
+--      latitude/longitude and/or assessed_value.
+--   2. For each of the 32, queried the ArcGIS FeatureServer with
+--      CO_NO=25 AND PARCEL_ID=<dash-stripped id>, returnCentroid=true,
+--      outSR=4326 (0.4s delay between calls, courtesy rate limit on a
+--      public server). Result: 32/32 returned exactly one feature -- zero
+--      ambiguous matches, zero misses.
+--   3. UPDATE multi_county_auctions SET latitude=<centroid.y>,
+--      longitude=<centroid.x>, assessed_value=<JV> WHERE case_number=<row's
+--      case_number>, executed live via the Supabase Management API
+--      (mgmt_sql.py) -- STATUS 201. Additionally backfilled
+--      property_address for case 15-2023-CA-57 (the one row missing it,
+--      guarded by `AND property_address IS NULL`) to
+--      '431 NE 628 ST, UNINCORPORATED, FL' from the same ArcGIS response.
+--   4. Re-ran pencil_dod_evaluate_county('dixie') fresh: I moved from
+--      {pass:false, metric:0, detail:"card_complete=0 of 34"} to
+--      {pass:false, metric:94.1, detail:"card_complete=32 of 34"}. Still
+--      FAIL -- 2 rows short of the 95% threshold. Zero regression on the
+--      other 9 letters (A/B/E/F/G/H/J unchanged pass=true; C/D unchanged
+--      fail at 73.5, pre-existing and out of this fix's scope).
+--
+-- ADVERSARIAL VERIFICATION (survived=true, gold_standard_ultraloop_audit id
+-- 11586): independently re-ran the evaluator (exact match), spot-checked all
+-- 33 non-propertyonion rows for lat/lon/value completeness (33/33 distinct
+-- lat, 33/33 distinct lon -- explicitly checked for the prior county-
+-- centroid placeholder failure mode and found NONE), investigated the one
+-- clustered-value group (9 rows sharing assessed_value=6500, adjacent
+-- platted subdivision lots in section-township-range block 24-09-13-4053)
+-- by independently re-querying the live ArcGIS FeatureServer for one sample
+-- parcel and confirming JV + centroid match the written DB row to full
+-- decimal precision -- genuine per-parcel data, not fabricated. Confirmed
+-- zero written rows trace to data_source='propertyonion'.
+--
+-- RESIDUAL GAP (2 rows, genuinely blocked, VERIFIED, NOT written/guessed --
+-- both explicitly out of this migration's scope, which is barred from
+-- touching parcel_zones/zoning_districts/zone_standards):
+--   1. case 15-2025-CA-46: parcel_id IS NULL -- cannot be zone-linked or
+--      ArcGIS-matched by parcel at all.
+--   2. case 15-2025-CA-10: parcel_id='27-10-13-5568-0000-0480' present, geo
+--      + value now present, but this parcel is simply absent from
+--      v_zoning_gold_standard_card (32 total dixie rows in that view, this
+--      one never linked) -- fixing this requires parcel_zones/
+--      zoning_districts work, out of scope here.
+--   Max achievable for I without further zoning-substrate work: 32/34 =
+--   94.1% (matches the metric above almost exactly -- the ceiling and the
+--   current state are the same).
+--
+-- No SQL statements to apply in this file -- the UPDATEs were already
+-- executed live via the Management API during this session (STATUS 201,
+-- verified with a fresh post-write SELECT: 33/33 rows complete on lat/lon/
+-- value/address). This file is the provenance record for that live change,
+-- consistent with this repo's convention for data-only backfill migrations.

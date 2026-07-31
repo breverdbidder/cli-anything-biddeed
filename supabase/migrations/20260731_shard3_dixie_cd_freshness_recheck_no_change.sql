@@ -1,0 +1,93 @@
+-- Gold Standard shard-3, county dixie ONLY (dispatch e2353eb4-f852-4723-
+-- b4b4-aab3cf9c1987, "GOLD STANDARD SHARD-3: hillsborough, alachua, dixie --
+-- parallel 6h session", fired 2026-07-31T08:00:00Z alongside 13 other
+-- concurrent shard dispatches). C/D freshness recheck ONLY -- this exact gap
+-- has been investigated exhaustively across many prior sessions (see
+-- 20260727d_shard7_dixie_cd_nth_pass_ultraloop_workflow_no_change.sql for
+-- the most recent full writeup, and gold_standard_ultraloop_audit ids
+-- 9153/9154/9715/9845/9846/9998/10403/10404, all survived=true). This
+-- session's job was narrow: has anything changed since the last check.
+-- Documentation-only: NO rows were updated in multi_county_auctions,
+-- foreclosure_outcomes, or tax_deed_outcomes this session.
+--
+-- BASELINE (VERIFIED live via rest/v1/rpc/pencil_dod_evaluate_county at
+-- session start): dixie C FAIL (matched_clean=25/34=73.5%), D FAIL
+-- (matched_any=25/34=73.5%), auctions_total=34, other 8 letters (A/B/E/F/
+-- G/H/I/J) unaffected by this session (I already FAILS for unrelated
+-- reasons -- card_complete=0/34 -- out of this session's scope).
+--
+-- GAP RE-DERIVED (fresh direct REST query of multi_county_auctions, county=
+-- dixie, parity_status IS NULL OR != 'matched_clean' -- 9 rows, matches
+-- evaluator exactly):
+--   - 6 tax-deed rows, case_number prefix DIXIE-SYNTH- (synthesized key,
+--     Dixie tax deed sales have no court case number -- documented
+--     convention, not fabricated data), parity_scope='archive_no_source_
+--     truth', auction_date 2025-08-12 or 2025-08-26 (11+ months past),
+--     auction_status still 'upcoming' on our side. Cert numbers: 2023/1217,
+--     2022/1367, 2023/427, 2023/425, 2023/1457, 2023/471.
+--   - case 15-2023-CA-57 (foreclosure): auction_date 2026-07-21, now 10 days
+--     past (was 6 days past as of the 07-27 session); auction_status
+--     already 'sold' on our side but sold_amount/winning_bidder/
+--     parity_status all NULL.
+--   - 15-2025-CA-46 and 15-2025-CA-10 (both auction_date 2026-08-25):
+--     genuinely future, correctly out of scope, not investigated.
+--
+-- THIS SESSION'S FRESH CHECKS (WebFetch + WebSearch + attempted Firecrawl
+-- API scrape, all live 2026-07-31, dixieclerk.com only, no PropertyOnion):
+--   1. https://dixieclerk.com/departments-services/court-services/
+--      foreclosure-sales/ -- 15-2023-CA-57 does NOT appear. Only
+--      15-2025-CA-46 and 15-2025-CA-10 (2026-08-25) listed under "Upcoming
+--      Sales". No completed-sales/results archive exists anywhere on the
+--      site: confirmed by fetching /property-sales/ (generic nav page, no
+--      per-case data) and /foreclosure-sales-results/ (HTTP 404). Same
+--      conclusion as every prior pass -- the only systems that hold actual
+--      disposition (sale amount / certificate of title) are Dixie's
+--      Official Records (civitekflorida.com/ocrs/county/15) and
+--      myfloridacounty.com/orisearch/15, both gated by the confirmed
+--      Cloudflare Turnstile challenge on the case-search AJAX call (walked
+--      to protocol level in the 2026-07-24 3rd-pass session, migration
+--      20260724e). Bypassing Turnstile is out of bounds -- not attempted.
+--   2. https://dixieclerk.com/departments-services/court-services/tax-deed-
+--      sales/ -- static WebFetch again renders an empty "Upcoming Tax Deed
+--      Sales" section (the listing loads client-side; WebFetch does not
+--      execute JS). This matches the 07-27 session's WebFetch-only result,
+--      NOT the 07-24 3rd-pass session's result (which parsed the page's
+--      embedded raw JSON via a different, unspecified method and found all
+--      6 certs still status=scheduled). To resolve this fetch-method gap,
+--      this session attempted a direct Firecrawl API scrape (which renders
+--      JS server-side) via POST https://api.firecrawl.dev/v1/scrape --
+--      result: HTTP 402, "Insufficient credits to perform this request."
+--      This is a genuine, confirmed API-level blocker (not a workaround-
+--      able one) -- per cost-discipline, no retries or paid alternatives
+--      were attempted. WebSearch (site-scoped to dixieclerk.com,
+--      civitekflorida.com, myfloridacounty.com) surfaced only the same
+--      known pages plus a static Nov-2023 foreclosure-sale-list PDF that
+--      predates all 9 gap rows -- nothing new.
+--
+-- CONCLUSION: no new reachable, non-gated, official per-parcel disposition
+-- data was found for any of the 9 gap rows this session. This is now
+-- another independent pass (see gold_standard_ultraloop_audit ids 9153/
+-- 9154/9715/9845/9846/9998/10403/10404 and this dispatch's new ids 11558/
+-- 11559) reaching the identical conclusion. The one previously-open
+-- question ("will dixieclerk.com show 15-2023-CA-57's outcome now that
+-- it's 10 days past sale, vs. 6 days past in the 07-27 session") is now
+-- answered: NO -- the case has simply dropped off the site's "upcoming"
+-- list entirely with no replacement disposition page, confirming this
+-- county's site structure never publishes post-sale outcomes for
+-- foreclosures (only Official Records does, and that remains Turnstile-
+-- gated). C and D remain a genuine structural ceiling (achievable max
+-- 32/34=94.1% if 15-2023-CA-57 and all 6 DIXIE-SYNTH rows eventually
+-- resolve via a reachable source; 15-2025-CA-46/15-2025-CA-10 cannot
+-- resolve before 2026-08-25 regardless). No parity_status/sold_amount/
+-- winning_bidder written. Metric unchanged: C=73.5% FAIL, D=73.5% FAIL,
+-- byte-identical evaluator output before and after, zero regression on the
+-- other 8 letters.
+--
+-- gold_standard_ultraloop_audit rows logged this session (fresh, live-
+-- inserted via REST, real dispatch_id e2353eb4-f852-4723-b4b4-aab3cf9c1987
+-- from this task's own summit_chat_dispatch row): id 11558 (letter C,
+-- survived=true), id 11559 (letter D, survived=true).
+--
+-- No SQL statements to apply -- this file is documentation-only. Zero
+-- writes were made to multi_county_auctions, bid_decisions,
+-- foreclosure_outcomes, or tax_deed_outcomes this session.
