@@ -1,0 +1,57 @@
+-- Gold Standard cert-fix session: st_lucie E/I (dispatch ca56cc4d-4e7f-4234-814f-a1e6de065d52, SHARD-C1)
+-- 2026-07-31
+--
+-- OUTCOME: BLOCKED. No writes were made to multi_county_auctions, parcel_zones, or
+-- zoning_districts this session. This file is intentionally a no-op record of that
+-- fact, per the "idempotent SQL reflecting your actual REST writes" instruction --
+-- there were no writes to reflect.
+--
+-- ROOT CAUSE (live-reconfirmed, not a regression from another county's fix):
+-- E (parcel_linked=112/119, 94.1%) and I (card_complete=112/119, 94.1%) both fail
+-- on the exact same 7 rows, because I's formula requires parcel_id to resolve a
+-- zone_code via v_zoning_gold_standard_card, and all 7 have parcel_id IS NULL.
+-- Need >=114/119 (ceil(95%)) for both; currently 112. Gap = 2 rows on each letter.
+--
+-- Of the 7 null-parcel_id rows, all 7 were live-reharvested via the RealForeclose
+-- AJAX endpoint (scripts/shard2_run2450_ajax_realforeclose_harvest.py, the same
+-- mechanism the 2026-07-25 shard6 session used) for their exact auction dates
+-- today (2026-07-31) and every single one currently renders a non-parcel-ID
+-- label string in the source system's own "Parcel ID" field -- not a scraper
+-- parsing bug, a genuine source-data gap:
+--
+--   2023CA000465  auction 08/05/2026  -> "Property Appraiser"   (label leaked as value)
+--   2025CA002738  auction 08/04/2026  -> "Property Appraiser"   (label leaked as value)
+--   2023CA002852  auction 04/01/2026  -> "AIRCRAFT"             (chattel/personal property, no real-estate parcel)
+--   2024CA000330  auction 06/24/2026  -> "TIMESHARE"            (chattel/personal property, no real-estate parcel)
+--   2024CA001834  auction 03/24/2026  -> "Property Appraiser"   (label leaked as value)
+--   2025CC001033  auction 03/25/2026  -> "Property Appraiser"   (label leaked as value)
+--   2024CA000214  auction 07/15/2026  -> "MULTIPLE PARCELS"     (multi-parcel sale, no single parcel_id fits schema)
+--
+-- These are not new: the 2026-07-25 shard6 session (docs/gold-standard-sessions/
+-- shard6-highlands-stlucie-run6288-2026-07-25.md) already identified 3 of these 7
+-- (2024CA000214, 2023CA000465, 2025CA002738) as an honest, intentionally-unfixed
+-- residual gap and correctly nulled parcel_id for them rather than storing the
+-- garbage label strings. That session left st_lucie passing 10/10 at 111
+-- auctions_total with only those 3 gap rows outstanding (108/111 = 97.3%, still
+-- >=95%). Since then auctions_total grew from 111 to 119 (8 new rows added,
+-- consistent with new auction-calendar sweeps between 07-25 and 07-31), and 4
+-- MORE genuinely-unresolvable rows entered the population (2023CA002852,
+-- 2024CA000330, 2024CA001834, 2025CC001033 -- AIRCRAFT/TIMESHARE/2x "Property
+-- Appraiser" label leaks). That arithmetic is what pushed E/I from PASS to FAIL:
+-- 112/119 = 94.1%, just under the 114/119 (95%) bar, NOT a schema regression, NOT
+-- a fabrication-guard rollback, and NOT caused by any zoning_districts/
+-- parcel_zones change from a sibling county fix (parcel_zones/zoning_districts
+-- were not touched by this session or, per git log, by any other county's fix in
+-- the intervening window).
+--
+-- Per HONESTY PROTOCOL / NEVER-LIE: none of these 7 can be assigned a real
+-- parcel_id without fabrication. "AIRCRAFT" and "TIMESHARE" cases have no real
+-- estate parcel by definition (chattel/personal-property foreclosures). The
+-- "Property Appraiser" cases are a RealForeclose-side label-as-value rendering
+-- bug on the source page itself (reconfirmed live via 2 independent AJAX pulls
+-- today, same failure both times) -- there is no hidden real value to extract,
+-- the source genuinely renders that string in the Parcel ID field. "MULTIPLE
+-- PARCELS" cases do not fit the single-parcel_id column by design.
+--
+-- BLANK > WRONG: leaving these 7 rows' parcel_id NULL (as they already are) is
+-- the correct, honest state. No SQL to apply.

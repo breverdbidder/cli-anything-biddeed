@@ -1,0 +1,80 @@
+-- Gold Standard SHARD-C1, dispatch ca56cc4d-4e7f-4234-814f-a1e6de065d52, sarasota re-verify.
+-- STATUS: NO WRITE APPLIED. This is a documentation-only file -- re-verification confirmed
+-- both letters G and J remain genuinely blocked/gapped after real data-sourcing attempts; no
+-- safe non-fabricated value existed to write for the residual G blockers, and no safe
+-- non-fabricated comp existed for the 2 remaining J-gap parcels investigated this session.
+--
+-- ===== LETTER G (pk1000) =====
+-- Live re-check (fresh, this session): density=93.2 far=95.5 pk1000=66.7 (9 applicable parcels,
+-- 6 populated, 3 unpopulated). LEAST(93.2,95.5,66.7)=66.7 < 95 -> FAIL.
+--
+-- Root cause (independently re-confirmed today, 5th+ session on this exact wall): the
+-- pk1000_applicable set is computed by v_zoning_district_applicability from zoning_districts
+-- (category IN commercial/industrial/mixed-use AND name NOT LIKE '%pud%'). For Sarasota this
+-- includes 27 districts across 4 jurisdictions (Sarasota unincorporated, Venice, North Port,
+-- City of Sarasota). Queried zone_standards directly for all 27 district ids:
+--   zoning_district_id IN (12335 PID, 12598 CN, 12327 AC-4, 12332 V, 12591 CT, 12902 DTC)
+--   -> ZERO zone_standards rows exist for these 6 districts (confirmed via REST, empty array).
+-- These 6 (minus whichever subset maps to the 3 unpopulated scored parcels) are the blockers.
+-- This matches and extends the prior session's finding (migrations/20260731_gold_standard_
+-- shard10_sarasota_g_dispatch44c8ac10.sql), which had already verified 4 of these 6 (12335,
+-- 12591, 12598, 12902) as zero-row and refused to fabricate a parking_per_1000sf value.
+--
+-- Primary-source re-check (not re-attempted live again this session -- prior session already
+-- re-attempted all 4 primary Sarasota ordinance sources today and got 503/404/403/403; no new
+-- evidence a 6th attempt would succeed): zoneomics.com/code/sarasota-county-unincorporated-FL
+-- confirms the county's parking table (Sec. 124-120(g)(2)) is USE-TYPE-KEYED, not district-keyed,
+-- and applies uniformly across all base/2050/PD districts. There is no ordinance-published
+-- district-to-parking-ratio mapping for CN, PID, CT, DTC, AC-4, or V to cite. Writing a value
+-- would require an undisclosed judgment-call (use-type inference) which the prior session
+-- correctly declined to make unilaterally.
+--
+-- NO SQL EXECUTED. NO INSERT/UPDATE to zone_standards or permitted_uses. Repeating the prior
+-- session's recommendation: this needs a fleet-wide POLICY decision (exclude use-type-keyed
+-- jurisdictions from pk1000_applicable via a v_zoning_district_applicability change, OR approve
+-- a disclosed default judgment-call mapping with confidence_score < 1.0) -- not a per-county
+-- data-sourcing fix. Sarasota is now the 3rd+ county on this exact wall (after bay, gadsden-
+-- adjacent findings referenced in the 07-31 report).
+--
+-- ===== LETTER J (deal_complete) =====
+-- Live re-check (fresh, this session): deal_complete=344 of auctions_total=365 -> 94.2%. FAIL
+-- (needs >=95%, i.e. >=347/365).
+--
+-- This session confirmed the 344 already-live rows are genuinely real-comp-derived (no
+-- fabrication fingerprint): 343 rows tagged pipeline_version=
+-- 'sarasota_j_real_comps_dispatch_gs_sarasota_j_v1' (applied earlier today, this same dispatch
+-- day) + 1 row tagged 'sarasota_j_real_comps_dispatch_222af90c_v1' (a parallel/later session that
+-- widened parcel 0143020007's comp bucket to countywide dor_uc=048, n=198 comps, and wrote a real
+-- comp-derived row). Both are legitimate.
+--
+-- Residual gap: 21 of 365 auctions still lack a bid_decisions row. Broken down:
+--   - 14 have parcel_id = NULL entirely (no property record to derive comps from) -- unfixable
+--     without fabricating a parcel_id.
+--   - 2 have a non-NULL parcel_id with ZERO match in fl_parcels (0937013811, 1001276511) --
+--     unfixable, no comp source exists.
+--   - 4 have a parcel_id that DOES match fl_parcels but previously had <3 comps in their exact
+--     (co_no, phy_zipcd, dor_uc) bucket, so were excluded by the original fix pass:
+--       0148100015 (34229, dor_uc 026): re-checked today, countywide dor_uc=026 widening yields
+--         n=3 comps but they are ALL non-comparable commercial-scale parcels in unrelated zips
+--         (34293 $950K/33830sqft, 34236 $4.0M/32892sqft, 34237 $14.0M/34580sqft) vs. the target's
+--         $9,300-assessed small vacant lot. Writing p25/p75 off this set would produce an ARV in
+--         the millions for a $9K-assessed lot -- technically "real" numbers but not an honest
+--         comp, i.e. fabrication-adjacent. DECLINED.
+--       0960114604 (34286, dor_uc 007): countywide widening yields n=15 comps but is dominated by
+--         6 Longboat Key (zip 34228) waterfront sales at $8.1M-$21.2M vs. the target's $21,120-
+--         assessed N Salford Blvd lot. Same non-comparability problem. DECLINED.
+--       2004020016 (34234, dor_uc 094) and 0104010003 (34231, dor_uc 033): countywide widening
+--         (even relaxing sale_yr1 to >=2018) still yields only n=2 comps each -- below the
+--         established n>=3 reliability floor used by the rest of this fix. DECLINED.
+-- None of these 4 were written. BLANK > WRONG: a nonsensical or unreliable-population ARV is
+-- worse than no bid_decisions row at all, and would not survive adversarial re-verification
+-- (same standard the 222af90c and gs_sarasota_j_v1 passes were held to).
+--
+-- NO SQL EXECUTED THIS SESSION. J's true ceiling given current fl_parcels comp coverage is
+-- 344/365 = 94.2% (down from a theoretical max of ~347/365 = 95.1% IF the 3 thin-comp parcels
+-- had reliable data, which they do not). J cannot reach >=95% without either (a) a non-fl_parcels
+-- comp source for these 4 properties, or (b) accepting fewer/looser comps as reliable, which is a
+-- policy call outside this session's scope.
+--
+-- No DDL. No changes to gold_standard_certifications, gold_standard_county_status, or any other
+-- county's rows. cron jobs / gold_standard_loop() / gold_standard_certify() not touched.

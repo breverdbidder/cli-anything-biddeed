@@ -1,0 +1,66 @@
+-- citrus E/I parcel-linkage gap fix — dispatch ca56cc4d-4e7f-4234-814f-a1e6de065d52, SHARD-C1
+-- loop_run_id 7726, cert-fix-criteria-2letter-g1
+--
+-- OUTCOME: BLOCKED. No SQL write applied — see citrus_report.md for full
+-- root-cause analysis. This file documents (a) the exact 11 blocking rows
+-- and (b) the idempotent UPDATE pattern to run ONCE real parcel_ids are
+-- obtained via a tool with JS/browser rendering (this sandbox has none:
+-- no browser-use binary, no firecrawl CLI, Firecrawl API account is at
+-- 0 credits (HTTP 402), no OCR engine for the one PDF document endpoint
+-- that did respond).
+--
+-- The 11 rows below are ALL of citrus's parcel_id IS NULL rows (191 total
+-- auctions, 180 already parcel_linked). Every one is a bare calendar-sweep
+-- stub for a FUTURE foreclosure auction (2026-03-12 through 2026-09-03)
+-- with property_address, city, zip, plaintiff, legal_description,
+-- owner_name, and bcpao_account ALL NULL — i.e. genuinely no property has
+-- been attached to these cases in our system yet, and (per the
+-- RealForeclose auction detail page checked live this session) the
+-- county's own platform does not publish a parcel ID for these cases
+-- either (the "Parcel ID" field renders as a dead link to
+-- citruspa.org/_Web/datalets/datalet.aspx?...&pin=&... with pin left
+-- blank). Several also carry judgment_amount = $0.00, consistent with
+-- final judgment not yet entered.
+--
+-- DO NOT fabricate parcel_id, address, or geo values for these rows.
+-- When re-attempting, prefer (in order):
+--   1. Citrus Clerk LandmarkWeb case search (search.citrusclerk.org/LandmarkWeb)
+--      — Angular SPA, needs a real browser (Playwright/browser-use), NOT
+--      plain HTTP. CFN doc numbers are already known for all 11 cases
+--      (see citrus_report.md) and resolve to real recorded documents
+--      (verified: HTTP 200, valid PDF returned) — likely Lis Pendens or
+--      Notice of Action, which usually contains the legal description.
+--   2. OCR the CFN PDF (CCITT Group 4 fax-encoded raster, no text layer)
+--      once a tesseract binary (or equivalent) is available.
+--   3. Re-check RealForeclose closer to each auction_date — Citrus
+--      typically populates Parcel ID only once the case nears its sale
+--      date (the 180 already-linked rows are evidence of this pattern).
+--
+-- Idempotent pattern (safe to re-run; only touches rows still NULL):
+--
+-- UPDATE public.multi_county_auctions
+-- SET parcel_id = v.parcel_id,
+--     property_address = v.property_address,
+--     latitude = v.latitude,
+--     longitude = v.longitude,
+--     assessed_value = COALESCE(assessed_value, v.assessed_value)
+-- FROM (VALUES
+--   ('2025 CA 000110 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2024 CA 000179 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000999 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000607 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 001016 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000967 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000855 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000393 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000734 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000343 A', NULL, NULL, NULL, NULL, NULL),
+--   ('2025 CA 000655 A', NULL, NULL, NULL, NULL, NULL)
+-- ) AS v(case_number, parcel_id, property_address, latitude, longitude, assessed_value)
+-- WHERE multi_county_auctions.county = 'citrus'
+--   AND multi_county_auctions.case_number = v.case_number
+--   AND multi_county_auctions.parcel_id IS NULL;
+--
+-- ^ NOT executed. All value columns above are NULL placeholders — filling
+-- them in requires the real per-case lookup described above. This session
+-- made ZERO writes to multi_county_auctions for citrus.

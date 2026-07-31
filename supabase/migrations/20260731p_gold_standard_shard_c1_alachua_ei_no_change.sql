@@ -1,0 +1,76 @@
+-- SHARD-C1, dispatch ca56cc4d-4e7f-4234-814f-a1e6de065d52, county=alachua,
+-- letters E (parcel_linked) and I (card_complete).
+--
+-- NO WRITES. This is a documentation-only file recording a 4th consecutive
+-- same-day (2026-07-31) live re-verification that E and I remain genuinely
+-- blocked at 48/58 (82.8%), need >=56/58 (95%).
+--
+-- Prior sessions today already established (git history, all same day):
+--   commit 8b992c3b / scripts/alachua-E_fix.py  -- live re-verify, 0 writable
+--   commit 54c17c98 / scripts/alachua-I_fix.py  -- closed 3 rows via ArcGIS
+--     Parcels35_view zoning+JustValue (reflected in current 48/58 baseline)
+--   supabase/migrations/20260731c_shard3_alachua_ei_freshness_recheck_no_change.sql
+--     -- adversarially verified (ultraloop_audit ids 11591 E, 11592 I,
+--     survived=true), same 10-row gap confirmed blocked
+--
+-- THIS SESSION (dispatch ca56cc4d) independently re-ran every check fresh,
+-- did not trust the carried-over conclusion:
+--
+--   1. Pulled the live population (58 rows, county='alachua', population
+--      filter data_source<>'propertyonion' OR tier1_authoritative=true) via
+--      PostgREST. Confirmed 10 rows with parcel_id IS NULL, and the set of
+--      10 case_numbers is BYTE-IDENTICAL to the set documented in
+--      20260731c: 01 2024 CC 005935, 01 2025 CA 001634/001928/002643/
+--      003287/003415/003919, 01 2025 CC 001127/007164, 01 2026 CA 000211.
+--
+--   2. Re-probed qpublic.schneidercorp.com (Alachua Property Appraiser
+--      search, root path AND the embedded AppID=1081 deep link) via raw
+--      HTTP: both return HTTP 403 (Cloudflare bot-block), unchanged from
+--      every prior session (a JS-capable Playwright browser was tried in
+--      scripts/shard6_run_alachua_e_playwright_investigation.py in an
+--      earlier session and also got blocked).
+--
+--   3. Re-queried Alachua's public ArcGIS PublicParcel/FeatureServer/0 for
+--      the one row with a real Clerk docid (01 2026 CA 000211, grantee
+--      "2900 GAINESVILLE HOLDINGS LLC"): exact owner-name match still
+--      returns 2 candidate parcels (07332-200-004, 9.741ac, 2900 SW 13TH
+--      ST, mailing c/o RISE8 COMPANIES / Miami; 07332-200-007, no acreage,
+--      no site address, mailing c/o HOTEL INVESTORS TRUST / LA) -- these
+--      are two genuinely distinct holdings under the same LLC name with no
+--      deterministic field tying either one to this specific case's
+--      $7.33M opening bid. Still unresolvable without guessing.
+--
+--   4. Re-polled the RealForeclose AJAX calendar for the 7 previously-
+--      recorded auction dates covering the empty-docid targets: none of
+--      the 7 case numbers appear on those dates any more (auction dates
+--      have shifted since the last poll, as anticipated by the prior
+--      session's "re-poll periodically" note) -- re-probing the general
+--      preview/calendar endpoint did not surface a working list of current
+--      dates within this session's scope. This is inconclusive (neither
+--      confirms nor refutes a populated docid), not a new lead: it does
+--      not change the E/I gap because these rows still have no other
+--      writable source (RealForeclose's own Parcel ID field for all 8 is
+--      documented as literal placeholder text "Property Appraiser" per the
+--      shard14 diagnosis, and no assessed-value/parcel corroboration
+--      exists independent of qpublic which remains 403-blocked).
+--
+--   5. 01 2025 CA 003287 remains a "MULTIPLE PARCEL" legal description
+--      (docid 3683369, spans 3 lots) -- cannot assign one parcel_id
+--      without fabricating which lot, unchanged from every prior session.
+--
+-- CONCLUSION: no new reachable, non-gated, non-ambiguous data found this
+-- session either. E and I remain at 48/58 (82.8%) for the same reasons
+-- documented in the 3 prior same-day sessions. Writing any of the 10 rows
+-- now would require guessing (2-way owner ambiguity, or picking a lot out
+-- of a multi-lot legal description, or inventing a parcel_id RealForeclose
+-- itself does not carry) -- explicitly forbidden by NEVER-LIE / no-
+-- fabrication guardrails.
+--
+-- pencil_dod_evaluate_county('alachua') BEFORE this session: E FAIL
+-- (parcel_linked=48, 82.8%), I FAIL (card_complete=48 of 58, 82.8%).
+-- AFTER this session (re-run, zero writes made): byte-identical --
+-- E FAIL (48, 82.8%), I FAIL (48 of 58, 82.8%). A/B/C/D/F/G/H/J unchanged
+-- (all still PASS). No regression introduced.
+--
+-- Zero rows written to multi_county_auctions, parcel_zones,
+-- zoning_districts, or any other table this session.
