@@ -213,11 +213,19 @@ async function fetchReportCounties(rtConfig) {
   } catch(_) { return []; }
 }
 
+// ── Bidding link label per auction platform ────────────────────────────────
+function bidLabel(sourcePlatform) {
+  if (sourcePlatform === 'realforeclose') return 'Bid on RealForeclose →';
+  if (sourcePlatform === 'realauction') return 'Bid on RealAuction →';
+  if (sourcePlatform === 'acclaimweb') return 'Bid on Clerk Portal →';
+  return 'View Auction →';
+}
+
 // ── Auction cards for chat property panel ─────────────────────────────────────
 async function fetchAuctionCards(county, days, type, limit) {
   const today = new Date().toISOString().slice(0,10);
   const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
-  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status`;
+  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform`;
   if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
 
   const [auctionsRes, certRes] = await Promise.all([
@@ -247,6 +255,11 @@ async function fetchAuctionCards(county, days, type, limit) {
       is_gold_standard: isGold,
       days_until_auction: daysUntil,
       equity_gap: hasBoth ? (Number(r.assessed_value) - Number(r.opening_bid)) : null,
+      auction_url: r.auction_url || null,
+      po_url: r.po_seo_url || null,
+      clerk_url: r.clerk_url || null,
+      source_platform: r.source_platform || null,
+      bid_label: bidLabel(r.source_platform),
     };
   });
 }
@@ -979,10 +992,13 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .pc-parity.ok{color:var(--green)}
 .pc-parity.warn{color:var(--orange)}
 .pc-parity.bad{color:#f87171}
-.pc-actions{display:flex;gap:8px;flex-wrap:wrap}
-.pc-buy{flex:1;text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap}
-.pc-maps{flex:1;text-align:center;background:var(--navy3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:600;text-decoration:none;white-space:nowrap}
+.pc-actions{display:flex;flex-direction:column;gap:8px}
+.pc-buy{text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap}
+.pc-maps{text-align:center;background:var(--navy3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:600;text-decoration:none;white-space:nowrap}
 .pc-maps.disabled{opacity:.4;cursor:not-allowed}
+.btn-bid{display:block;border:1px solid var(--orange);color:var(--orange);padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none;text-align:center;transition:background .15s}
+.btn-bid:hover{background:rgba(245,158,11,.13)}
+.btn-po{display:block;text-align:center;font-size:10.5px;color:var(--muted);text-decoration:underline;padding:2px 0}
 @media(max-width:768px){.split{flex-direction:column}.chat-col{flex:1 1 auto;min-height:0}.panel-col{border-left:none;border-top:1px solid var(--border);max-height:46vh;flex:0 0 auto}}
 </style>
 </head>
@@ -1246,7 +1262,9 @@ function buildCard(a){
         '<div><div class="pc-lbl">Equity Gap</div><div class="pc-val">'+fmtMoneyP(a.equity_gap)+'</div></div></div>';
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
   html+='<div class="pc-actions"><a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
-        (hasAddr?('<a class="pc-maps" href="'+mapsUrl+'" target="_blank" rel="noopener">View on Maps ↗</a>'):'<span class="pc-maps disabled">View on Maps ↗</span>')+'</div>';
+        (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
+        (hasAddr?('<a class="pc-maps" href="'+mapsUrl+'" target="_blank" rel="noopener">View on Maps ↗</a>'):'<span class="pc-maps disabled">View on Maps ↗</span>')+
+        (a.po_url?('<a class="btn-po" href="'+esc(a.po_url)+'" target="_blank" rel="noopener">PropertyOnion details ↗</a>'):'')+'</div>';
   html+='</div>';
   return html;
 }
