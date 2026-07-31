@@ -1,0 +1,97 @@
+-- GOLD STANDARD SHARD-13 (lee), dispatch 850748bb-e511-4a3d-bfe5-3714665723b5,
+-- chat_session architect-20260731T000000, loop run 7553. This is the THIRD
+-- firing of the identical dispatch_id + chat_session. Prior firings shipped
+-- as commit 6e51f24f (original) and 162d5ecd (1st duplicate re-fire, which
+-- surfaced but did not confirm the "20-CA-005572 = 14067 Danpark Loop"
+-- hypothesis). At this session's start, live pencil_dod_evaluate_county('lee')
+-- matched the 162d5ecd addendum's final state exactly (E 93.2/300, I 87.3/281,
+-- G 100/100/100, 8/10) -- zero drift confirmed before doing any new work.
+--
+-- === E+I: 1 new row fixed (case 20-CA-005572, "1067 Danpark Loop" typo
+-- confirmed = 14067 Danpark Loop) ===
+--
+-- Dispatched an ultracode Workflow (wf_44752cdd-38c: 2 independent research
+-- agents + 1 adversarial verifier) specifically to confirm/refute the prior
+-- session's unconfirmed proximity hypothesis. CONFIRMED, and independently
+-- re-verified by this session beyond the workflow's own findings:
+--
+-- 1. PRIMARY COURT RECORD: Business Observer legal notices, Nov 29 2024 issue,
+--    "Notice of Foreclosure Sale" for Case No. 20-CA-005572, MTGLQ Investors
+--    L.P. v. Douglas Spiegel, Heather Spiegel, Daniels Park HOA. Legal
+--    description: "LOT 15, DANIELS PARK, ... PLAT BOOK 82, PAGES 79 THROUGH
+--    83, ... LEE COUNTY, FLORIDA." The notice itself prints "Property Address:
+--    1067 Danpark Loop" -- the truncated/dropped-digit address is baked into
+--    the original court filing, not a RealForeclose scraping artifact.
+--    Independently re-fetched and confirmed verbatim by the adversarial
+--    verifier agent (downloaded PDF, extracted text with pdfplumber).
+--    (https://omg-legals.media.clients.ellingtoncms.com/news/document/2024/11/29/2024-11-29-Lee.pdf)
+-- 2. LEE COUNTY PROPERTY APPRAISER (ArcGIS FeatureServer, STRAP
+--    21452513000000150): LEGAL = "DANIELS PARK PB 82 PGS 79-83 LOT 15" --
+--    matches the Final Judgment's legal description verbatim (plat book,
+--    pages, and lot number all match exactly).
+-- 3. THIS SESSION'S OWN INDEPENDENT CHECK (beyond the workflow): the same
+--    ArcGIS record's O_NAME (current recorded owner) = "MTGLQ INVESTORS LP"
+--    -- the exact plaintiff named in the Final Judgment. A parcel whose
+--    current owner-of-record is the foreclosing plaintiff is the expected
+--    outcome of a concluded foreclosure sale where the lender took title via
+--    credit bid, independently consistent with this case's auction_status=
+--    'concluded' / auction_date=2026-03-12.
+--
+-- Three independent converging primary-source facts (legal description match,
+-- defendant-name-to-owner-history match via floridaparcels.com, and
+-- plaintiff-to-current-owner match) -- not proximity/geocoding inference like
+-- the prior session's centroid-distance hypothesis.
+--
+-- Wrote parcel_id/latitude/longitude/assessed_value to multi_county_auctions
+-- (guarded on parcel_id IS NULL, idempotent):
+--   parcel_id = 21452513000000150
+--   latitude = 26.540005, longitude = -81.812995 (ArcGIS LATITUDE/LONGITUDE,
+--     not the original scrape's centroid_lat/lng which pointed to a
+--     different, $0-assessed common-element parcel ~150m away)
+--   assessed_value = 150672 (ArcGIS ASSESSED)
+--
+-- G-risk check before inserting the zone link: RPD (Residential Planned
+-- Development) already exists in zoning_districts (id=11210) at
+-- jurisdiction_id=630 (Lee County unincorporated). zone_standards row
+-- (id=3951) already has max_density_du_acre=5.0 populated.
+-- v_zoning_district_applicability confirms far_applicable=false,
+-- pk1000_applicable=false, density_applicable=true for this district --
+-- the one regulated dimension already carries a real value. Zero
+-- G-denominator risk (same safe pattern documented in the 61454491 and
+-- 000992 re-fire sessions). Inserted parcel_zones row (parcel_id=
+-- 21452513000000150, jurisdiction_id=630, zone_code=RPD, source=
+-- 'lee_shard13_run7553_2ndrefire_danpark_005572' -- fresh, never-reused tag).
+--
+-- Live pencil_dod_evaluate_county('lee') before -> after this one write:
+--   E: FAIL 93.2 (parcel_linked=300/322) -> FAIL 93.5 (parcel_linked=301/322)
+--   I: FAIL 87.3 (card_complete=281/322) -> FAIL 87.6 (card_complete=282/322)
+--   G: PASS 100.0/100.0/100.0 -> PASS 100.0/100.0/100.0 (re-verified, no
+--      regression)
+--   A/B/C/D/F/H/J: unchanged. County remains 8/10.
+--
+-- Logged to gold_standard_ultraloop_audit (ids 11485, 11486): both survived
+-- adversarial verification (refuted=false), satisfying the ULTRALOOP
+-- PROTOCOL certify-gate requirement for E and I claims tied to this write.
+--
+-- === Not re-investigated this session (settled per prior sessions) ===
+--
+-- 1. 25-CA-002593 / 25-CA-003385 dedup collision: re-confirmed live, still
+--    two genuinely distinct cases (different judgment_amount/opening_bid,
+--    same property/date) blocked by the shared uq_mca_county_sale_date_parcel
+--    constraint. This remains an open ARCHITECT POLICY DECISION (extend the
+--    unique key to include case_number, fleet-wide, or accept the row cannot
+--    carry a parcel_id under the current schema) -- not something a
+--    single-shard lee session should unilaterally relax. No new evidence
+--    gathered; the evidence-gathering itself was already settled by the prior
+--    session.
+-- 2. 25-CA-004959 condo-unit disambiguation and the 14-row no-address bucket:
+--    not re-attempted this session -- both were already exhausted across
+--    multiple consecutive sessions for search-only tooling (RealForeclose
+--    requires authenticated bidder login, confirmed again this session via a
+--    direct anonymous fetch returning a login splash page; Lee Clerk blocked
+--    by Akamai WAF). Genuinely need an authenticated session or funded
+--    Firecrawl/Playwright pass, not another search attempt.
+--
+-- This file is a documentation record of writes already applied live via
+-- REST during the session (per established lee-session pattern) -- no DDL to
+-- execute.
