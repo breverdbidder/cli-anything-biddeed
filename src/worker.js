@@ -899,7 +899,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .cb-badge-pend{background:var(--navy3);border:1px solid var(--border);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--muted)}
 
 /* MESSAGES */
-.msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch}
+.msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:12px 14px;padding-bottom:24px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch}
 
 /* WELCOME */
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:12px;padding:16px 10px;min-height:0}
