@@ -1,0 +1,105 @@
+-- Gold Standard shard-13 sarasota-only (dispatch 222af90c, loop run 7622), letters G and J.
+-- STATUS: APPLIED LIVE via Supabase Management API during this session. This file documents the
+-- fix already executed against production for audit/provenance purposes.
+--
+-- STARTING STATE (live, verified before any change): G FAIL metric=50.0 (density=91.5 far=95.0
+-- pk1000=50.0), J FAIL metric=94.0 (deal_complete=343 of 365). Note: the dispatch brief's snapshot
+-- (A=59 B=98.0 J=92.5) was stale relative to live state at session start -- a prior wave earlier
+-- the same day (2026-07-31) had already shipped migrations/20260731_gold_standard_shard10_
+-- sarasota_j_dispatch44c8ac10.sql, moving J to 343/94.0 and growing the auction denominator to 365.
+--
+-- ============================================================================
+-- PART 1 -- G: duplicate-jurisdiction repoint (zero new research, real data already on file)
+-- ============================================================================
+-- ROOT CAUSE: jurisdictions 'Sarasota' (id=824) and 'City of Sarasota' (id=1516) are duplicate
+-- rows for the SAME physical municipality (confirmed: 824's RSF-3 district cites "City of Sarasota
+-- Zoning Code, Art. VI, Div. 2, Sec. VI-203, Table VI-203"). 4 parcel_zones rows were linked to the
+-- incomplete twin (1516) instead of the twin already carrying real ordinance-verified values (824).
+-- Repointed the 2 rows where 824 already had a real value for that exact code:
+UPDATE parcel_zones SET jurisdiction_id = 824
+WHERE jurisdiction_id = 1516 AND parcel_id IN ('2022011063','2001160059') AND zone_code IN ('RMF-1','RSF-3');
+-- Effect: density 214/234 (91.5%) -> 216/234 (92.3%); pk1000 also correctly dropped from 12 to 11
+-- applicable parcels (RSF-3 is residential, not pk1000-regulated -- the 12-applicable count included
+-- a null-district-join fallback default of true for the previously-unresolved link).
+--
+-- ============================================================================
+-- PART 2 -- G: ULTRALOOP ordinance research (workflow wf_33169676-8b9, 19 agents, 3 jurisdictions:
+-- North Port/Venice/City of Sarasota, adversarially verified). Yield: 1 confirmed value, 1 confirmed
+-- structural not-applicable finding, 14 rejected (see gold_standard_ultraloop_audit for full ledger).
+-- ============================================================================
+-- CONFIRMED: City of Sarasota RMF-4 = 18 du/acre. Independently corroborated via City of Sarasota
+-- Planning Department memo (Application No. 21-CW-18, official letterhead): "The RMF-4 zone
+-- district allows up to 18 dwelling units per acre." Cross-checked against Sarasota COUNTY's own
+-- zoning ordinance (Art. 4.12.2) showing the identical 18 units/acre for a legacy RMF-4 code.
+-- Applied to both duplicate-jurisdiction RMF-4 district rows (824 and 1516) since they represent
+-- the same physical zoning code:
+UPDATE zone_standards SET max_density_du_acre = 18.00,
+  ordinance_section = 'City of Sarasota Zoning Code, Art. VI, Sec. VI-303(b), Table VI-304 (base density; corroborated via City Planning Dept memo App. No. 21-CW-18)'
+WHERE zoning_district_id IN (12898, 12901);
+INSERT INTO zone_standards (zoning_district_id, max_density_du_acre, ordinance_section)
+SELECT d.id, 18.00, 'City of Sarasota Zoning Code, Art. VI, Sec. VI-303(b), Table VI-304 (base density; corroborated via City Planning Dept memo App. No. 21-CW-18)'
+FROM (VALUES (12898),(12901)) d(id)
+WHERE NOT EXISTS (SELECT 1 FROM zone_standards s WHERE s.zoning_district_id = d.id);
+--
+-- CONFIRMED (structural finding, not a fabricated number): North Port ULDC Sec. 4.10.3 /
+-- Table 4.10.3.1 sets off-street parking minimums by LAND-USE CATEGORY (office/retail/multi-family/
+-- etc.), applied uniformly city-wide -- there is no CT-district-specific parking-per-1000sf figure
+-- to report (confirmed absent from Sec. 3.2.4 CT use standards and the rest of Ch.4 Art.X). This is
+-- an evidence-backed applicability correction, not a guess:
+UPDATE zoning_districts SET pk1000_regulated = false WHERE id = 12591; -- North Port CT
+--
+-- REJECTED / left unwritten (BLANK > WRONG -- Municode returned HTTP 403 on every direct fetch
+-- attempt fleet-wide during this session, both from the workflow's research agents and this
+-- session's own direct follow-up WebFetch/WebSearch attempts; Firecrawl fallback had no credits):
+--   North Port R-3 (claimed 20 du/acre), North Port MH (claimed 15 du/acre) -- could not
+--     independently confirm; North Port's Municode structure has moved to Chapter 53 following an
+--     8-6-24 ULDC rewrite, contradicting the claimed Chapter 3 citation.
+--   Venice PUD, RMF-4, RMH density -- confidence UNKNOWN, no citation obtained.
+--   City of Sarasota OUE, OUE-1 density -- confidence UNKNOWN, no citation obtained.
+--   City of Sarasota PID, CN, DTC parking -- confidence UNKNOWN. This session directly attempted
+--     Sec. VII-206 ("Parking requirements specific to individual zone districts") via the
+--     zoneomics.com mirror that worked for RMF-4; the mirror confirmed the section exists (Article
+--     VII, Division 2) but did not surface its content, and Municode direct-fetch 403'd.
+-- Full claim-by-claim ledger (including quoted source text for both confirmed and rejected claims)
+-- is in gold_standard_ultraloop_audit, dispatch_id=222af90c-d69b-4773-bbc4-ee8a1e6d211a.
+--
+-- POST-FIX G STATE (live, verified): density=93.2 far=95.5 pk1000=66.7 -> G metric=66.7 (was 50.0).
+-- Still FAIL (min < 95). Residual gap: North Port R-3/MH/CT density (10 parcels), Venice
+-- PUD/RMF-4/RMH density (4 parcels), City of Sarasota OUE/OUE-1 density (2 parcels) for the density
+-- axis; City of Sarasota PID/CN/DTC parking (3 parcels) for the pk1000 axis. All genuinely blocked
+-- by Municode bot-access denial, not a fabrication shortcut avoided.
+--
+-- ============================================================================
+-- PART 3 -- J: one real-comps row + one self-caught-and-reverted regression
+-- ============================================================================
+-- Case 2026 TD 000075 (parcel 0143020007): zip-level comp bucket (34229/dor048) had only 1 real
+-- comp (unreliable, <3). Widened to countywide same-dor_uc-048 comps (sale_yr1>=2022,
+-- sale_prc1>10000, n=198), sanity-checked against assessed_value=$944,300 -- resulting p75=
+-- $1,190,075 is in a plausible range. Two sibling <3-comp stragglers (parcels with dor=026 and
+-- dor=007) were tried the same way and REJECTED: their countywide comps produced p75 values of
+-- $9.0M and $12.5M against assessed values of $9.3K and $21.1K respectively -- non-comparable
+-- outlier pollution, left unwritten per BLANK > WRONG. This file does not re-embed the INSERT
+-- literal (executed live via REST/Management API, single row, not meaningfully hand-maintainable
+-- as static SQL per the same convention as the prior sarasota J migration in this repo).
+--
+-- SELF-CAUGHT REGRESSION (reverted live before session close-out, net effect zero): attempted to
+-- "correct" case 2024 CA 006180 NC's parcel_id from 1001276511 (absent from the fl_parcels DOR
+-- sales extract) to 0787150049 (an exact address string match, "120 ROSE ST", in fl_parcels), then
+-- wrote a bid_decisions row off the new parcel. Post-write regression check caught that
+-- 1001276511 already has a REAL GIS zoning link (v_zoning_gold_standard_card, zone_code=RSF-3) --
+-- fl_parcels (DOR sales extract) and the parcel_zones/GIS pipeline are different, both-legitimate
+-- datasets, and absence from one does not mean the ID is invalid. The address-match correction was
+-- unverified beyond a string match and orphaned the case from its real zoning link, flipping
+-- criterion I from PASS (347/365) to FAIL (346/365). REVERTED: parcel_id restored to 1001276511,
+-- the bid_decisions row for 0787150049 deleted. Confirmed I back to PASS (347/365) before proceeding.
+--
+-- POST-FIX J STATE (live, verified): deal_complete=344 of 365 -> J metric=94.2 (was 94.0). Still
+-- FAIL. Residual 21-row gap carried forward from the prior sarasota J migration in this repo
+-- (14 no-parcel-id, 2 no-fl_parcels-match, 4 <3-comps-even-after-honest-widening no longer 5, minus
+-- the 1 recovered this session) -- unresolvable without fabrication this session.
+--
+-- ============================================================================
+-- REGRESSION CHECK (live, post-fix): A/B/C/D/E/F/H/I unchanged and still PASS
+-- (fc=111 td=254 / verified=131 closed_sold=133 / matched_clean=353 / matched_any=353 /
+-- parcel_linked=351 / tier1_sold=131 closed_sold=133 / SLA 0h / card_complete=347 of 365).
+-- cron jobs 109/111/115 not touched or considered for modification.
