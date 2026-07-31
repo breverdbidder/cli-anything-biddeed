@@ -225,7 +225,7 @@ function bidLabel(sourcePlatform) {
 async function fetchAuctionCards(county, days, type, limit) {
   const today = new Date().toISOString().slice(0,10);
   const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
-  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform`;
+  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform,bcpao_url,trellis_url`;
   if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
 
   const [auctionsRes, certRes] = await Promise.all([
@@ -241,6 +241,7 @@ async function fetchAuctionCards(county, days, type, limit) {
     const auctionMs = r.auction_date ? new Date(r.auction_date + 'T00:00:00Z').getTime() : null;
     const daysUntil = auctionMs !== null ? Math.max(0, Math.round((auctionMs - now) / 86400000)) : null;
     const hasBoth = r.assessed_value != null && r.opening_bid != null;
+    const appraiserUrl = r.bcpao_url || r.trellis_url || null;
     return {
       id: r.id,
       county: r.county,
@@ -260,6 +261,8 @@ async function fetchAuctionCards(county, days, type, limit) {
       clerk_url: r.clerk_url || null,
       source_platform: r.source_platform || null,
       bid_label: bidLabel(r.source_platform),
+      appraiser_url: appraiserUrl,
+      appraiser_label: appraiserUrl ? `${toDisplay(r.county)} Appraiser →` : null,
     };
   });
 }
@@ -998,8 +1001,6 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .pc-parity.bad{color:#f87171}
 .pc-actions{display:flex;flex-direction:column;gap:8px}
 .pc-buy{text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap}
-.pc-maps{text-align:center;background:var(--navy3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:600;text-decoration:none;white-space:nowrap}
-.pc-maps.disabled{opacity:.4;cursor:not-allowed}
 .btn-bid{display:block;border:1px solid var(--orange);color:var(--orange);padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none;text-align:center;transition:background .15s}
 .btn-bid:hover{background:rgba(245,158,11,.13)}
 .btn-locked{display:block;width:100%;border:1px solid var(--border);background:var(--navy3);color:var(--muted);padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;cursor:pointer;font-family:inherit}
@@ -1254,13 +1255,15 @@ function badgeSaleType(t){
 function showUpgradePrompt(){
   window.location.href='/subscribe?tier=investor';
 }
+function trackOutbound(kind,caseNumber,county){
+  try{if(window.posthog)posthog.capture('outbound_click',{kind:kind,case_number:caseNumber,county:county});}catch(e){}
+}
 function buildCard(a){
   const hasAddr=!!a.property_address;
   const addrParts=hasAddr?a.property_address.split(','):[];
   const line1=hasAddr?addrParts[0].trim():('Address not yet available — Case #'+esc(a.case_number||''));
   const line2=hasAddr?addrParts.slice(1).join(',').trim():'';
   const pinfo=parityInfo(a.parity_status);
-  const mapsUrl=hasAddr?('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(a.property_address)):'';
   const buyUrl='/buy-report?mca_id='+encodeURIComponent(a.id)+'&address='+encodeURIComponent(a.property_address||'')+'&county='+encodeURIComponent(a.county||'')+'&date='+encodeURIComponent(a.auction_date||'');
   let html='<div class="pc-card">';
   html+='<div class="pc-badges">'+badgeSaleType(a.sale_type)+(a.is_gold_standard?'<span class="pc-badge gold">⭐ GOLD STANDARD</span>':'')+'</div>';
@@ -1273,8 +1276,13 @@ function buildCard(a){
   html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt()">🔒 Place Bid — Upgrade to Unlock</button>'+
         '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
-        (hasAddr?('<a class="pc-maps" href="'+mapsUrl+'" target="_blank" rel="noopener">View on Maps ↗</a>'):'<span class="pc-maps disabled">View on Maps ↗</span>')+
+        '<div class="btn-locked" onclick="showUpgradePrompt()" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
         (a.po_url?('<a class="btn-po" href="'+esc(a.po_url)+'" target="_blank" rel="noopener">PropertyOnion details ↗</a>'):'')+'</div>';
+  if(a.appraiser_url){
+    html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">'+
+          '<a href="'+esc(a.appraiser_url)+'" target="_blank" rel="noopener" onclick="trackOutbound(\'appraiser\',\''+esc(a.case_number||'')+'\',\''+esc(a.county||'')+'\')" style="font-size:12px;color:#64748b;text-decoration:none;">📋 Property Appraiser Record ↗</a>'+
+          '</div>';
+  }
   html+='</div>';
   return html;
 }
