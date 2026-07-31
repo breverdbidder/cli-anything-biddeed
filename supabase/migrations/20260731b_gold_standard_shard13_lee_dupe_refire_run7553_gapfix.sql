@@ -1,0 +1,130 @@
+-- GOLD STANDARD SHARD-13 (lee), dispatch 850748bb-e511-4a3d-bfe5-3714665723b5,
+-- loop run 7553. This dispatch_id + chat_session already shipped in full as
+-- commit 6e51f24f (GOLD_STANDARD_SHARD13_LEE_DISPATCH_850748BB_SESSION_REPORT.md).
+-- At this session's start, live pencil_dod_evaluate_county('lee') matched that
+-- report's "Final live state" JSON exactly (E 92.9/299, I 87.0/280, G 100/100/100,
+-- 8/10). Zero drift confirmed before doing any new work -- duplicate re-fire,
+-- same pattern as the documented 61454491 lee re-fire addendum.
+--
+-- Rather than stop at "nothing to do", picked up the prior report's own
+-- documented next-session-priorities queue.
+--
+-- === E+I: 1 new row fixed (25-CA-000992, a case NOT mentioned in any prior
+-- lee session's before-state -- genuinely unattempted, not a re-probe) ===
+-- Case 25-CA-000992, "24898 TROST BLVD, BONITA SPRINGS, FL 34135" (concluded
+-- 2026-03-05). Lee County ArcGIS Parcels FeatureServer SITEADDR lookup:
+-- single, unambiguous match -- STRAP 184726B4001001170, ZONING=AG-2,
+-- LATITUDE=26.376293, LONGITUDE=-81.750296, ASSESSED=278073, JUST=313070.
+-- Wrote parcel_id/latitude/longitude/assessed_value to multi_county_auctions
+-- (guarded on parcel_id IS NULL). Verified AG-2 @ jurisdiction_id=914 (Bonita
+-- Springs) already exists in zoning_districts (id=11390) with
+-- max_density_du_acre=1.0 already populated in zone_standards, and
+-- v_zoning_district_applicability confirms far_applicable=false,
+-- pk1000_applicable=false, density_applicable=true for this district --
+-- zero G-denominator risk (same "safe" pattern as prior lee sessions:
+-- either not-applicable or applicable-with-a-real-value already present).
+-- Inserted parcel_zones row (parcel_id=184726B4001001170, jurisdiction_id=914,
+-- zone_code=AG-2, source='lee_shard13_run7553_gapfix_000992' -- fresh,
+-- never-reused tag per the source-tag-collision lesson from the 61454491
+-- re-fire addendum).
+--
+-- Live pencil_dod_evaluate_county('lee') before -> after this one write:
+--   E: FAIL 92.9 (parcel_linked=299/322) -> FAIL 93.2 (parcel_linked=300/322)
+--   I: FAIL 87.0 (card_complete=280/322) -> FAIL 87.3 (card_complete=281/322)
+--   G: PASS 100.0/100.0/100.0 -> PASS 100.0/100.0/100.0 (re-verified, no
+--      regression -- the AG-2/Bonita-Springs insert did not touch density/far/
+--      pk1000 applicable-set composition beyond the one already-safe entry)
+--   A/B/C/D/F/H/J: unchanged. County remains 8/10.
+--
+-- === Investigated, NOT written (BLANK>WRONG) ===
+--
+-- 1. 25-CA-002593 / 25-CA-003385 dedup collision (item 1 of prior session's
+--    next-session-priorities): re-confirmed live. Both rows share identical
+--    property_address (3312 OLD BURNT STORE RD N, CAPE CORAL) and
+--    auction_date (2026-08-06), but DIFFERENT judgment_amount/opening_bid
+--    (002593: opening_bid=202035.59, judgment_amount=null; 003385:
+--    judgment_amount=opening_bid=316933.86) -- strong evidence these are two
+--    genuinely distinct legal foreclosure actions against the same parcel
+--    (e.g. separate lien positions), not a duplicate scrape of the same case.
+--    003385 already holds parcel_id=24-43-22-C3-05425.0330 (confirmed real
+--    ArcGIS match by a prior session); writing the same parcel_id to 002593
+--    is blocked by uq_mca_county_sale_date_parcel (county, sale_type,
+--    auction_date, parcel_id).
+--    NOT relaxing this constraint this session: it is a shared, fleet-wide
+--    guard -- other shards (e.g. shard9-broward run6148) have explicitly
+--    documented it as "correctly blocking a duplicate assignment" in their
+--    own counties, and it plausibly exists specifically to catch the
+--    PropertyOnion-vs-court-case-number double-counting pattern the campaign
+--    has hit before in Duval (8,979 PO-keyed rows). Weakening it fleet-wide
+--    from a single lee-scoped session, mid-flight of a parallel multi-shard
+--    run, is exactly the kind of high-blast-radius shared-schema change this
+--    campaign's guardrails call for architect review on, not unilateral
+--    action. Flagged again for architect policy decision (add case_number to
+--    the unique key, or a scoped exception path) -- do not re-investigate the
+--    same evidence next session, it is settled; only the policy call remains
+--    open.
+--
+-- 2. 25-CA-004959 condo-unit disambiguation (2825 Palm Beach Blvd = "Alta Mar"
+--    condominium, ~131-141 units, STRAP pattern 18-44-25-P1-03700.0XXX):
+--    dispatched an ultracode research workflow (wf_7a8dea5f-a40, 2 research
+--    agents + adversarial verify stage) specifically to find the real unit
+--    number for this case via court docket / legal description / property
+--    appraiser owner-name cross-reference. Result: NOT_FOUND -- exhaustive
+--    WebSearch/WebFetch found no source exposing the specific unit for this
+--    case number. 0 candidates reached the verify stage (nothing to refute).
+--    Left unlinked, consistent with the prior 2 sessions' findings.
+--
+-- 3. 16(->14 live)-row no-address bucket: same ultracode workflow ran a
+--    second research agent against all 14 case numbers, explicitly instructed
+--    to try genuinely different sources (Trellis/UniCourt/CourtListener/
+--    Justia, general web search) rather than repeat the exhausted
+--    leeclerk.org / matrix.leeclerk.org / Firecrawl probes. Result: NOT_FOUND
+--    for all 14 -- only unverifiable/self-contradictory synthesized search
+--    snippets, no confirmable primary source. None written. Still the largest
+--    single E gap; still needs a genuinely new data source (authenticated
+--    RealAuction session or a funded Firecrawl/Playwright pass), not another
+--    search-tool attempt.
+--
+-- 4. Re-confirmed (4th consecutive session, via a NEW query pattern -- full
+--    street-name wildcard instead of house-number-prefix match, so this is
+--    an independent re-derivation, not a repeat of the identical probe) that
+--    3 of the 4 previously-flagged "unfixable" rows remain unfixable:
+--    24-CC-004249 (16300 PINE RIDGE RD LOT X18): no house number near 16300
+--      exists on Pine Ridge Rd in Lee County ArcGIS at all (range covers
+--      15415-16391 in scattered segments; no "X18" lot format found).
+--    18-CC-004510 (98 SABLE DR LOT 98): "SABLE DR" does not exist as a street
+--      name in Lee County ArcGIS -- only "CAPE SABLE LN" (Fort Myers) and
+--      "SABLE KEY CIR" (Punta Gorda, which is Charlotte County, not Lee).
+--    25-CA-007100 (14454 CANTABRIA DR): house number 14454 does not exist on
+--      Cantabria Dr (nearest are 14450/14453/14459/14462...).
+--
+-- 5. NEW hypothesis surfaced, NOT written (insufficient evidence): 20-CA-005572
+--    ("1067 DANPARK LOOP") -- the entire ArcGIS Danpark Loop range is
+--    14000-14195, and this case's own bcpao_data.centroid_lat/lng
+--    (26.541385,-81.812756, captured by a prior scrape from the RealForeclose
+--    detail page) sits only ~150m from 14067 DANPARK LOOP (STRAP
+--    21452513000000150, 26.540005,-81.812995), suggesting "1067" may be
+--    "14067" with a leading "4" dropped during scraping/OCR. However, the
+--    captured centroid itself resolves to a $0-assessed right-of-way/common-
+--    element parcel (214525130000A00CE), not the 14067 house parcel directly
+--    -- proximity only, not a primary-source confirmation of the specific
+--    unit. Per this session's evidence bar (matching the campaign's BLANK>
+--    WRONG standard), this does not clear the bar for a production write.
+--    Next-session path: cross-check the RealForeclose AID=1491561 detail page
+--    (source_url on the row) or the case's judgment_amount ($390,727.01)
+--    against a Lee Clerk/court-docket defendant-name lookup to confirm 14067
+--    Danpark Loop is the actual property, before writing parcel_id/geo.
+--
+-- === Adversarial verification ===
+-- The 000992 write was independently re-confirmed live: fresh
+-- pencil_dod_evaluate_county('lee') call after the write shows
+-- parcel_linked=300 (was 299) and card_complete=281 (was 280), with G
+-- unchanged at 100.0/100.0/100.0 -- direct before/after live-DB comparison,
+-- not a self-report. The two research-workflow findings both returned
+-- NOT_FOUND with 0 candidates reaching the adversarial verify stage, so
+-- there was nothing to refute or log to gold_standard_ultraloop_audit for
+-- this session (no claim was made that needed a survival vote).
+--
+-- This file is a documentation record of writes already applied live via
+-- REST during the session (per established lee-session pattern) -- no DDL to
+-- execute.
