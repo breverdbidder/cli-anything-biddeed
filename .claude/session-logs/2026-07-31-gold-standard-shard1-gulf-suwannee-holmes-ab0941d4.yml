@@ -1,0 +1,91 @@
+session:
+  shard: SHARD-1 (gulf, suwannee, holmes)
+  dispatch_id: ab0941d4-64a2-43a5-ac1a-1b88d98112ff
+  chat_session: architect-20260731T160000
+  loop_run: 7726
+  date: 2026-07-31
+  mode: live DB access, ultracode Workflow (3 parallel Discover agents + conditional adversarial Verify)
+
+decisions:
+  - step: 1
+    action: "Live pencil_dod_evaluate_county for gulf, suwannee, holmes before any change."
+    result: "Matched brief exactly: gulf 9/10 (I fail 85.7%), suwannee 8/10 (B/F null, closed_sold=0), holmes 6/10 (B/C/D/F fail)."
+    reason: "Evidence-Before-Claims — never trust a brief's numbers without a fresh query."
+    tag: VERIFIED
+
+  - step: 2
+    action: "Read prior session history (5+ sessions on gulf-I 2026-06-10 through 07-30, 6+ on suwannee-B/F 2026-07-10 through 07-25, 4+ on holmes-B/C/D/F 2026-07-10 through 07-20) plus the underlying pencil_dod_evaluate_county SQL definition to understand exactly what each letter measures and what leads were already exhausted."
+    result: "gulf-I blocked on Port St Joe zoning (no self-service GIS); suwannee-B/F blocked on closed_sold=0 (no genuine sale yet); holmes-B/C/D/F blocked on holmesclerk.com having no disposition/results page for its rolled-off listings."
+    reason: "Avoid re-deriving already-exhausted leads; focus session budget only on genuinely untried avenues."
+    tag: VERIFIED
+
+  - step: 3
+    action: "Ran a 3-agent Workflow research fan-out (gulf-I, suwannee-B/F, holmes-B/C/D/F), each agent given the exhausted-lead list explicitly and told to try ONLY new avenues, with live DB/web access and instructed never to fabricate a write."
+    result: |
+      gulf-I: FL GIO cadastral has no zoning field (DOR_UC=000 only); gulfcountypropertyappraiser.org confirmed unofficial marketing site; real official site gulfpa.com / Beacon-qPublic backend is Cloudflare-gated; both target parcels confirmed inside Port St Joe city limits (not unincorporated) via live ArcGIS point-in-polygon query, so the unincorporated-county FLU method doesn't apply; full 60-layer ArcGIS enumeration confirms no zoning-district layer exists. No lever found.
+      suwannee-B/F: live authenticated Playwright session confirmed cases 4666/4667 Auction Status = "Redeemed" (not "Sold") on the item-detail page directly, resolving a prior ambiguous reading; also resolved a standing doubt that 4666/4667 were fabricated identifiers -- they are the platform's internal case IDs, real Certificate Numbers are 2023-2312/2023-2428. Foreclosure cases 25-CA-197/25-CA-170 (now past due) have no disposition source: suwgov.org docx never refreshed post-sale-date, myfloridacounty.com ORI is Cloudflare-Turnstile-gated. No lever found.
+      holmes-B/C/D/F: tried the one lead flagged repeatedly as untried in prior sessions (myfloridacounty.com/orisearch/30, blocked previously only by lack of a browser session) -- live Playwright submission hits Cloudflare Turnstile. Discovered and tried a genuinely new lead, civitekflorida.com/ocrs/county/30 (linked from holmesclerk.com itself) -- also Turnstile-gated, and structurally inapplicable to TD# identifiers even if reachable. holmesclerk.com tax-deeds page re-confirmed fresh (updated 7/21, "no sales scheduled" banner, still no results page). No lever found.
+    reason: "ULTRALOOP PROTOCOL step 2 (fan-out-and-synthesize) — isolated context per letter, live verification only, no fabrication."
+    tag: VERIFIED
+
+  - step: 4
+    action: "Verify phase: 0 findings had found_new_lever=true or a proposed_write, so 0 adversarial refuter agents were spawned (nothing to refute) — consistent with the gulf-9th-firing precedent (3rd firing report, 2026-07-30) of skipping the Verify phase when Discover surfaces nothing new."
+    result: "No DB writes made to multi_county_auctions, tax_deed_outcomes, foreclosure_outcomes, or bid_decisions this session."
+    reason: "HARD GUARDRAILS -- never fabricate; BLANK > WRONG."
+    tag: VERIFIED
+
+  - step: 5
+    action: "Re-ran pencil_dod_evaluate_county live for all 3 counties post-research to confirm zero drift (no writes were made, so none expected)."
+    result: "Identical to step 1: gulf 9/10, suwannee 8/10, holmes 6/10 — exact same metrics, letter-for-letter."
+    reason: "Evidence-Before-Claims — confirm rather than assume no regression occurred."
+    tag: VERIFIED
+
+  - step: 6
+    action: "Checked gold_standard_ultraloop_audit freshness for all 3 counties' failing letters."
+    result: "gulf-I and suwannee-B/F already had same-day (2026-07-31, ~14-16h earlier) survived=true rows from an independent session on a different dispatch (5cd42fe0), matching this session's findings — no duplicate row needed. holmes rows were 6 days old (2026-07-25); logged 4 fresh survived=true rows (B, C, D, F) carrying this session's genuinely new evidence (civitek OCRS lead)."
+    reason: "EVALUATOR V6 certify gate requires survived=true rows within 7 days for all 10 letters before certification — kept holmes evidence fresh even though certification isn't imminent for this shard."
+    tag: VERIFIED
+
+  - step: 7
+    action: "Mandatory session close-out: UPDATE gold_standard_campaign SET criteria_passed (per-county A-J), criteria_total=10, exit_reason='blocked_confirmed_dead_end', session_end_at=now() WHERE dispatch_id='ab0941d4-64a2-43a5-ac1a-1b88d98112ff'."
+    result: "Applied live, verified via SELECT after write."
+    reason: "MANDATORY SESSION CLOSE-OUT protocol in the campaign brief."
+    tag: VERIFIED
+
+  - step: 8
+    action: "git pull --rebase, commit session artifacts, push directly to main (no side branch, no PR) per SHIP-TO-MAIN MANDATE."
+    result: "See commit hash in git log."
+    reason: "There is no human reviewer in this loop; unmerged work is dead work."
+    tag: VERIFIED
+
+artifacts:
+  - GOLD_STANDARD_SHARD1_GULF_SUWANNEE_HOLMES_DISPATCH_AB0941D4_SESSION_REPORT.md
+  - .claude/session-logs/2026-07-31-gold-standard-shard1-gulf-suwannee-holmes-ab0941d4.yml
+  - .claude/workflows/gold-standard-gulf-suwannee-holmes-ab0941d4.js
+
+verification:
+  - check: "pencil_dod_evaluate_county('gulf') live, before and after"
+    proof: "9/10 both times, I fail 85.7% (12/14) unchanged"
+    status: "VERIFIED"
+  - check: "pencil_dod_evaluate_county('suwannee') live, before and after"
+    proof: "8/10 both times, B/F null (closed_sold=0) unchanged"
+    status: "VERIFIED"
+  - check: "pencil_dod_evaluate_county('holmes') live, before and after"
+    proof: "6/10 both times, B/C/D/F fail unchanged (C/D matched_clean=8/13=61.5%)"
+    status: "VERIFIED"
+  - check: "gold_standard_campaign close-out row"
+    proof: "SELECT confirms criteria_passed/exit_reason/session_end_at written for dispatch_id ab0941d4-64a2-43a5-ac1a-1b88d98112ff"
+    status: "VERIFIED"
+  - check: "gold_standard_ultraloop_audit holmes freshness"
+    proof: "4 new rows (B,C,D,F) inserted with today's date, survived=true"
+    status: "VERIFIED"
+
+plan_vs_actual:
+  | Task | Planned | Actual | Deviation |
+  |---|---|---|---|
+  | gulf I | Find a lever to close the 2-parcel zoning gap | No lever found; identified Beacon/qPublic (gulfpa.com backend) as the one live-but-Cloudflare-gated lead for a future session with working Firecrawl/browser-use | None -- exhaustive negative result |
+  | suwannee B/F | Find outcome data for 4 past-due cases | No lever found; resolved 2 open sub-questions (redeemed-not-sold confirmed via item detail page; case-ID vs certificate-number doubt resolved) without moving the metric | None -- exhaustive negative result, but reduced future uncertainty |
+  | holmes B/C/D/F | Try civitek/myfloridacounty OCRS lead | Tried; both Cloudflare-Turnstile-gated | None -- exhaustive negative result |
+
+deviation_log:
+  - "All 3 counties' failing letters remain genuinely blocked by real-world infrastructure (Cloudflare Turnstile on 2 independent official-records platforms, dead/unprovisioned RealAuction tenants, and county Clerk sites that structurally have no disposition/results page). This is the 4th-6th consecutive session reaching the same conclusion for each letter. No new code or DB rows were shipped this session beyond the mandatory close-out record and audit-freshness rows -- per HARD GUARDRAILS, fabricating a write to show progress would be a severe Honesty Protocol violation. Recommend future sessions on these 3 counties be deferred until either (a) Firecrawl credits reset (confirmed exhausted, remaining_credits=-3) or (b) a CAPTCHA-solving-capable tool is authorized by Ariel -- forcing past Cloudflare Turnstile without such a tool was correctly not attempted."
