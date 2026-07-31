@@ -1,0 +1,60 @@
+name: "Miami-Dade C/D/I AJAX Harvest"
+# SHARD-2, issue 17097, dispatch 83c11ccb-424b-4b3b-822b-909c6e8fccaa
+#
+# Sweeps RealAuction AJAX calendar for unmatched miami_dade (sale_type, auction_date)
+# pairs, promotes matched rows to parity_status='matched_clean', and backfills
+# parcel_id/property_address/assessed_value for the I-criterion card completeness.
+#
+# Targeting the 66 new auctions (denominator 356->422 since run3786 2026-07-11)
+# plus any residual from prior sessions. Idempotent -- safe to re-run.
+#
+# After run: check pencil_dod_evaluate_county('miami_dade') for C/D/I metric movement.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 6 * * *'   # 06:30 UTC daily -- after calhoun-clerk-harvest (05:45) settles
+
+jobs:
+  harvest:
+    name: "Miami-Dade C/D/I AJAX harvest + card backfill"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install deps"
+        run: pip install --quiet requests
+
+      - name: "Run C/D/I harvest"
+        run: |
+          set -euo pipefail
+          EXIT=0
+          python3 scripts/shard2_17097_miami_dade_cd_i_harvest.py || EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_STEP_SUMMARY"
+          # exit 2 = zero new matches (not an error -- residual may be login-walled)
+          if [ "$EXIT" != "0" ] && [ "$EXIT" != "2" ]; then
+            exit "$EXIT"
+          fi
+
+      - name: "Verify: pencil_dod_evaluate_county('miami_dade')"
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"p_county": "miami_dade"}')
+          echo "### SQL VERIFICATION: miami_dade" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP"
