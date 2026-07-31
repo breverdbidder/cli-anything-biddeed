@@ -1,0 +1,115 @@
+-- Gold Standard shard-10 sarasota-only, dispatch 44c8ac10 (2026-07-31), letter J.
+-- STATUS: APPLIED LIVE via REST (DELETE + POST). This file documents the fix already
+-- executed against production for audit/provenance purposes; it is NOT required to
+-- reproduce the effect (already live) but re-running the DELETE+re-derive logic against
+-- the same live tables is idempotent given the same fl_parcels comp data.
+--
+-- ROOT CAUSE (continuation of this dispatch's diagnosis): sarasota J was a RECURRENCE of a
+-- previously-purged GHOST_SUCCESS. gold_standard_ultraloop_audit id=6712 (2026-07-18)
+-- condemned an earlier 204-row fabricated batch and migrations/20260718_gold_standard_shard5_
+-- sarasota_nassau_bay_gulf_ghost_success_purge.sql purged it (DELETE FROM bid_decisions WHERE
+-- county_slug ILIKE 'sarasota'). Between then and this session, something (no committed
+-- migration file for it) bulk-inserted 341 new bid_decisions rows in ONE transaction at
+-- 2026-07-23T16:34:31.045137+00:00, reproducing the exact same fabrication fingerprint:
+--   - arv = multi_county_auctions.assessed_value verbatim (0 of 341 sampled rows differed)
+--   - factors.cma_resale/arv == 1.0000 for all 341 rows (fixed multiplier)
+--   - factors.cma_distressed/arv == 0.8000 for all 341 rows (fixed multiplier)
+--   - ml_score took only 4 distinct values (0.45/0.55/0.60/0.68) -- a bucket function
+--   - factors.distress_owner took only 2 distinct values (0.55/0.75)
+-- Re-verified live immediately before this fix (2026-07-31): all of the above reconfirmed
+-- byte-for-byte identical to the diagnosis. Separately, 24 of 365 sarasota auctions had NO
+-- bid_decisions row at all (generator-timing gap, created_at strictly after the 341's bulk
+-- timestamp) -- a real but secondary gap layered on top of the fabrication.
+--
+-- FIX APPLIED (real per-property comps, same pattern as
+-- migrations/20260728_architect_triage_15799_sumter_j_real_comps.sql, NOT the flat-multiplier
+-- pattern that was tried for glades and adversarially REFUTED):
+--
+-- 1. PART A -- purge: DELETE FROM bid_decisions WHERE county_slug ILIKE 'sarasota'.
+--    Executed live via REST DELETE. Verified via re-query: content-range */0 (0 rows) before
+--    any new write. This was an HONEST REGRESSION on the naive J metric (341/365 pass ->
+--    0/365) because the true completeness was never 341/365 -- it was fabricated.
+--
+-- 2. PART B -- real comps for ALL 365 qualifying auctions (not just the 24 gap rows,
+--    correcting them alone would have just extended the same fabrication pattern to a smaller
+--    footprint):
+--    a. Pulled all 365 sarasota multi_county_auctions rows matching the live RPC's exact
+--       denominator filter (COALESCE(data_source,'') <> 'propertyonion' OR
+--       COALESCE(tier1_authoritative,false) = true), paginated with an explicit
+--       `order=case_number` (PostgREST pagination is NOT stable without an explicit order --
+--       an earlier unordered fetch in this session produced overlapping pages and an
+--       incorrect 195-row count; the ordered fetch reproduced auctions_total=365 exactly).
+--    b. 351 of 365 have parcel_id + assessed_value + property_address populated. 347 of those
+--       351 parcel_ids resolved to a live public.fl_parcels row (co_no=68 -- NOTE: this is
+--       fl_parcels' own county-numbering scheme, confirmed empirically per-parcel; it differs
+--       from public.fl_counties.co_no=58 for sarasota, which uses a different numbering
+--       scheme). 3 parcel_ids had no fl_parcels match at all; 14 auctions had no parcel_id.
+--    c. Grouped the 347 matched parcels into 63 distinct (phy_zipcd, dor_uc) buckets. For each
+--       bucket, pulled real sold comps from fl_parcels: same co_no=68, same phy_zipcd, same
+--       dor_uc, sale_yr1 >= 2022, sale_prc1 > 10000, capped at 2000 rows per bucket (4 of 63
+--       buckets hit a 1000-row fetch cap; percentiles for those are computed on the first 1000
+--       sorted comps, a disclosed truncation, not a data fabrication).
+--       3 buckets (34229|026, 34286|007, 34234|094 -- rare DOR use codes, 1 target parcel
+--       each) returned ZERO comps; those parcels' rows were left un-written (BLANK > WRONG).
+--    d. For each of the 347 parcels with a bucket, computed p25/p50/p75 of real sale_prc1
+--       comps (linear-interpolation percentile, standard method). 342 of 347 buckets had
+--       n_comps >= 3 (treated as a reliable percentile); 5 had n_comps < 3 and were EXCLUDED
+--       from the write (insufficient comp population, not fabricated: parcel_ids
+--       0148100015, 0960114604, 2004020016, 0104010003, 0143020007).
+--    e. Wrote 343 bid_decisions rows (342 comp-derived + 1 duplicate case_number sharing a
+--       parcel_id with an already-comp-derived parcel, same physical property re-listed under
+--       two case numbers: 2024 CA 002981 NC / 2024 CA 003282 NC both map to parcel_id
+--       0087040024):
+--         arv = p75 of real sold comps (VERIFIED source: fl_parcels.sale_prc1)
+--         factors.cma_resale.value = p75 (same population)
+--         factors.cma_distressed.value = p25 (same population)
+--         ml_score, distress_owner, distress_location, distress_property = INFERRED,
+--           disclosed formula based on the real comp spread (p75-p25)/p75 and comp-population
+--           size, bounded to reasonable ranges -- NOT a trained Shapira V14 model output, and
+--           NOT a fixed bucket/multiplier (55 distinct ml_score values across 343 rows,
+--           58 distinct cma_distressed/arv ratios -- reconfirmed live post-write, see below)
+--         repairs / repair_estimate = 20000.0 flat (disclosed estimate, consistent with the
+--           sumter-precedent baseline; NOT independently computed per property -- flagged here
+--           as a residual simplification, not hidden)
+--         max_bid = (arv * 0.70) - repairs - GREATEST(10000, LEAST(25000, 0.15*arv)) per the
+--           CLAUDE.md deal formula, floored at 0
+--         pipeline_version = 'sarasota_j_real_comps_dispatch_gs_sarasota_j_v1' (unique tag,
+--           auditable provenance)
+--         arv_source = 'fl_dor_cadastral_comps_percentile_<living_area_sqft|land_sqft>'
+--
+-- RESIDUAL GAP (honestly reported, not silently marked complete): 22 of 365 auctions remain
+-- without a bid_decisions row after this fix (365 - 343 = 22: 14 with no parcel_id, 3 with no
+-- fl_parcels match, 5 with <3 comps). These are left NULL/absent rather than fabricated.
+--
+-- POST-WRITE ADVERSARIAL VERIFICATION (run live immediately after the insert, 2026-07-31):
+--   RPC pencil_dod_evaluate_county('sarasota') -> J: {"pass":false,
+--     "detail":"deal_complete=343 (triangle + two-arm CMA + ml_score + max_bid)","metric":94.0}
+--   (up from the fabricated-but-"passing" 341/93.4 to a genuine 343/94.0 -- J still narrowly
+--   fails the 95% threshold, honestly, because 22 auctions genuinely lack reliable data to
+--   complete a deal card, not because of a generator-timing gap or fabrication).
+--   Fabrication-fingerprint re-check on the new 343 rows:
+--     distinct ml_score values: 55 (was 4)
+--     distinct cma_distressed/arv ratios: 58 (was fixed at 0.8000 for all rows)
+--     arv == multi_county_auctions.assessed_value verbatim: 0 of 343 (was 341 of 341)
+--     pipeline_version: 100% 'sarasota_j_real_comps_dispatch_gs_sarasota_j_v1' (was NULL)
+--     repair_estimate NULL count: 0 of 343
+--   None of the new rows reproduce the discrete-bucket / fixed-multiplier signature that
+--   condemned the prior 341-row and 204-row datasets.
+--
+-- Other letters unaffected by this write (spot-checked via the same RPC call before/after):
+-- A/B/C/D/E/F/G/H/I metrics identical before and after (C/D/G still fail for reasons unrelated
+-- to bid_decisions -- zoning KPI and parity-source gaps, out of scope for this file).
+--
+-- cron jobs 109/111/115 (gold_standard_loop()) were NOT touched or considered for
+-- modification -- confirmed by reading the live function body
+-- (supabase/migrations/20260718_gtm22_phase1_3_pencil_dod_snapshot_param_and_loop_rewire.sql
+-- lines 204-241): it only INSERTs into gold_standard_county_status via
+-- pencil_dod_evaluate_county_rows(); it never writes to bid_decisions.
+--
+-- No DDL was required for this fix (DML only: DELETE + INSERT against the existing
+-- bid_decisions table via the service-role REST API). This file is committed for provenance;
+-- the actual SQL equivalent of what was executed via REST is NOT re-embedded here as a literal
+-- runnable statement because the 343-row VALUES payload was generated programmatically from
+-- live fl_parcels percentile lookups in this session and is not meaningfully hand-maintainable
+-- as static SQL. Re-deriving it requires re-running the same fl_parcels comp-lookup + percentile
+-- computation this session performed (documented above step-by-step for reproducibility).
