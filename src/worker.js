@@ -78,30 +78,39 @@ function corsHeaders(origin) {
 }
 
 // ── Error logger ──────────────────────────────────────────────────────────────
-async function logErr(env, endpoint, message, detail, status) {
+async function logErr(env, endpoint, message, detail, status, severity = 'error') {
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/rpc/log_worker_error`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({ p_severity: 'error', p_endpoint: endpoint, p_message: message, p_detail: String(detail || ''), p_status: status || 500 }),
+      body: JSON.stringify({ p_severity: severity, p_endpoint: endpoint, p_message: message, p_detail: String(detail || ''), p_status: status || 500 }),
     });
   } catch(_) {}
 }
 
 // ── Rate limit ────────────────────────────────────────────────────────────────
-async function checkRateLimit(ip, limit = 15) {
+// Multi-window (minute/hour/day/week) gate + usage tier for LLM routing.
+// Fails OPEN (allowed=true, tier='standard') on any RPC error so a Supabase
+// hiccup never takes down chat.
+async function checkRateLimitV2(ip) {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/chat_rate_check`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/chat_rate_check_v2`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({ p_ip: ip, p_limit: limit }),
+      body: JSON.stringify({ p_ip: ip }),
     });
-    if (!res.ok) return true;
+    if (!res.ok) return { allowed: true, tier: 'standard' };
     const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) return !!data[0].allowed;
-    if (data && typeof data === 'object' && 'allowed' in data) return !!data.allowed;
-    return true;
-  } catch(_) { return true; }
+    if (data && typeof data === 'object') return data;
+    return { allowed: true, tier: 'standard' };
+  } catch(_) { return { allowed: true, tier: 'standard' }; }
+}
+
+function rateLimitReason(rl) {
+  if (rl.minute_hits > rl.minute_limit) return 'Too many messages — please wait a moment';
+  if (rl.hour_hits > rl.hour_limit) return `Hourly limit reached (${rl.hour_limit} messages/hour) — try again later`;
+  if (rl.day_hits > rl.day_limit) return `Daily limit reached (${rl.day_limit} messages/day) — try again tomorrow`;
+  return 'Weekly limit reached — upgrade to Investor for unlimited access';
 }
 
 // ── County data fetch ─────────────────────────────────────────────────────────
@@ -574,8 +583,10 @@ export default {
         if (cl > 20000) return new Response(JSON.stringify({ error: 'Request too large' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
 
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const allowed = await checkRateLimit(ip, 15);
-        if (!allowed) return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again in a minute.' }), { status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const rl = await checkRateLimitV2(ip);
+        if (!rl.allowed) return new Response(JSON.stringify({ error: rateLimitReason(rl) }), { status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const tier = rl.tier || 'standard';
+        await logErr(env, '/chat/api', `tier=${tier}`, `day_hits=${rl.day_hits} week_hits=${rl.week_hits}`, 200, 'info');
 
         let body = {};
         try { body = await request.json(); } catch(_) {
@@ -708,33 +719,49 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - If this message included a "LIVE AUCTION DATA ... End your response with exactly" instruction, obey it literally: put that [PROPERTIES_LOADED:...] token as the very last thing in your reply, on its own, with nothing after it. It is a control token for the UI, not a link — never wrap it in markdown or explain it to the user.
 ${DISCLAIMER_SHORT}`;
 
+        // tier=free routes to Gemini Flash when GEMINI_API_KEY is bound; otherwise every
+        // tier falls through to Haiku so a missing/unset Gemini secret never breaks chat.
+        const geminiKey = env.GEMINI_API_KEY;
+        const useGemini = tier === 'free' && !!geminiKey;
+
         const anthropicKey = env.ANTHROPIC_KEY;
-        if (!anthropicKey) {
+        if (!useGemini && !anthropicKey) {
           await logErr(env, '/chat/api', 'Missing ANTHROPIC_KEY binding', '', 500);
           return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        let anthropicRes;
+        let upstreamRes;
         try {
-          anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'claude-haiku-4-5',
-              max_tokens: 1024,
-              stream: true,
-              system: systemPrompt,
-              messages: messages.map(m => ({ role: m.role, content: String(m.content) })),
-            }),
-          });
+          if (useGemini) {
+            upstreamRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${geminiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                system_instruction: { parts: [{ text: systemPrompt }] },
+                contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] })),
+              }),
+            });
+          } else {
+            upstreamRes = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'claude-haiku-4-5',
+                max_tokens: 1024,
+                stream: true,
+                system: systemPrompt,
+                messages: messages.map(m => ({ role: m.role, content: String(m.content) })),
+              }),
+            });
+          }
         } catch(e) {
-          await logErr(env, '/chat/api', 'Anthropic fetch failed', String(e), 502);
+          await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'Anthropic') + ' fetch failed', String(e), 502);
           return new Response(JSON.stringify({ error: 'AI service unavailable' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        if (!anthropicRes.ok) {
-          const errText = await anthropicRes.text();
-          await logErr(env, '/chat/api', 'Anthropic non-200', errText, anthropicRes.status);
+        if (!upstreamRes.ok) {
+          const errText = await upstreamRes.text();
+          await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'Anthropic') + ' non-200', errText, upstreamRes.status);
           return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
@@ -750,11 +777,16 @@ ${DISCLAIMER_SHORT}`;
         }, 5000);
 
         ctx.waitUntil((async () => {
-          const reader = anthropicRes.body.getReader();
+          const reader = upstreamRes.body.getReader();
           const decoder = new TextDecoder();
           let buf = '';
           let fullText = '';
           try {
+            if (tier === 'heavy') {
+              const warning = "_You're a heavy chat user today — [Investor](https://biddeed.ai/subscribe?tier=investor) gives unlimited daily access._\n\n";
+              fullText += warning;
+              await writer.write(encoder.encode(`data: ${JSON.stringify({ text: warning })}\n\n`));
+            }
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
@@ -767,9 +799,12 @@ ${DISCLAIMER_SHORT}`;
                 if (data === '[DONE]') continue;
                 try {
                   const evt = JSON.parse(data);
-                  if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-                    fullText += evt.delta.text;
-                    await writer.write(encoder.encode(`data: ${JSON.stringify({ text: evt.delta.text })}\n\n`));
+                  const deltaText = useGemini
+                    ? evt.candidates?.[0]?.content?.parts?.[0]?.text
+                    : (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta' ? evt.delta.text : null);
+                  if (deltaText) {
+                    fullText += deltaText;
+                    await writer.write(encoder.encode(`data: ${JSON.stringify({ text: deltaText })}\n\n`));
                   }
                 } catch(_) {}
               }

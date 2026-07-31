@@ -7,6 +7,10 @@ account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 # Non-secret config here. Secrets live in encrypted CF Worker secret bindings:
 #   ANTHROPIC_KEY  — set via: wrangler secret put ANTHROPIC_KEY
 #     /chat/api calls api.anthropic.com directly with this key.
+#   GEMINI_API_KEY — OPTIONAL. set via: wrangler secret put GEMINI_API_KEY
+#     /chat/api routes free-tier chat users (chat_rate_check_v2 tier='free')
+#     to Gemini Flash when this is bound; unset = falls through to Haiku for
+#     every tier, so chat keeps working with zero config either way.
 #   ROUTER_PROXY_KEY — REVERTED as of 2026-07-31 incident fix. COST-FIX-5
 #     (a751682f) repointed /chat/api at the anthropic-proxy edge function via
 #     this binding, but it was never provisioned as a CF Worker secret before
