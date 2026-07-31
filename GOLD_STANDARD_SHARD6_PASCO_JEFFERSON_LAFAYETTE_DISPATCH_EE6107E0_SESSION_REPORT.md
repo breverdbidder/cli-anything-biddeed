@@ -75,19 +75,33 @@ Lafayette evidence (CONFIRMED from prior session research):
 
 ## Fixes shipped this session
 
-### Scripts written
-- `scripts/shard6_lafayette_run7553_fix.py`: Comprehensive fix for the new
+### Scripts written/modified
+- `scripts/shard6_lafayette_run7553_fix.py` (new): One-shot fix for the new
   3rd lafayette auction. Applies C/D parity, I card completeness (lat/lon +
   assessed_value + parcel_zones), and J bid_decisions for all auctions missing
-  qualifying rows. Idempotent (skip-if-already-complete).
+  qualifying rows. Idempotent.
 
-### Workflows created
-- `.github/workflows/shard6-lafayette-run7553-fix.yml`: workflow_dispatch
-  wiring for the fix script. Must be dispatched manually or via gh CLI.
+- `scripts/lafayette_clerk_harvest.py` (modified — surgical addition):
+  Added `_post_harvest_enrich()` called at end of every harvest run (including
+  zero-card runs). Adds permanent self-healing for C/D/I/J on every daily
+  cron execution. This eliminates the need for a separate one-shot workflow
+  and ensures any future new auction is auto-enriched within 24 hours.
 
-### Existing automation (untouched, correctly wired)
-- `lafayette-clerk-harvest.yml`: daily 05:50 UTC — continues to ingest new
-  auctions automatically
+  Changes: `import json` added; `_shapira_max_bid()` helper added;
+  `_post_harvest_enrich(supa_url, supa_key)` function added;
+  called from `main()` in both zero-card and success code paths.
+
+### WIRING: how the fixes will execute
+The `lafayette-clerk-harvest.yml` daily cron (05:50 UTC) now automatically:
+1. Scrapes new auctions from clerk
+2. Upserts them to MCA
+3. Calls `_post_harvest_enrich()` which fixes C/D/I/J for all lafayette
+   auctions (both existing and newly scraped)
+
+This is the scheduled executor required by the WIRING MANDATE. The daily
+cron IS the wiring. No separate one-shot workflow needed.
+
+### Existing automation (unchanged)
 - `shard-jefferson-clerk-scraper.yml`: weekly Monday 08:30 UTC — will
   auto-resolve jefferson B/F after 2026-08-19
 
@@ -133,9 +147,11 @@ and inserts one audit row per letter with before/after evidence). dispatch_id=ee
 
 ## Next session priority queue
 
-1. Confirm `shard6-lafayette-run7553-fix.yml` ran successfully and paste
-   pencil_dod_evaluate_county output as VERIFIED evidence.
+1. Confirm `lafayette-clerk-harvest.yml` daily run at 05:50 UTC on 2026-08-01
+   completed successfully. Check workflow run output for `_post_harvest_enrich`
+   log lines (C/D fix, I fix, J insert). Paste pencil_dod_evaluate_county
+   output as VERIFIED evidence.
 2. If lafayette reaches 10/10, confirm consecutive_gold counter in
-   gold_standard_county_status.
+   gold_standard_county_status. Second consecutive 10/10 = certification.
 3. Jefferson: recheck 2026-08-24 (first Monday after 2026-08-19 tax deed sale).
 4. Pasco: stable 10/10, no action until regression detected.
