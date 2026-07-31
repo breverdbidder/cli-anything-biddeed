@@ -457,17 +457,17 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - ALWAYS end every substantive answer with a clear next step using only the two valid links above, or the plain-text S5 mention. Never end with just information and no path forward — every answer is a lead-generation opportunity.
 ${DISCLAIMER_SHORT}`;
 
-        const anthropicKey = env.ANTHROPIC_KEY;
-        if (!anthropicKey) {
-          await logErr(env, '/chat/api', 'Missing ANTHROPIC_KEY binding', '', 500);
+        const routerProxyKey = env.ROUTER_PROXY_KEY;
+        if (!routerProxyKey) {
+          await logErr(env, '/chat/api', 'Missing ROUTER_PROXY_KEY binding', '', 500);
           return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
         let anthropicRes;
         try {
-          anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+          anthropicRes = await fetch(`${SUPABASE_URL}/functions/v1/anthropic-proxy/v1/messages`, {
             method: 'POST',
-            headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+            headers: { 'x-api-key': routerProxyKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: 'claude-haiku-4-5',
               max_tokens: 1024,
@@ -477,7 +477,7 @@ ${DISCLAIMER_SHORT}`;
             }),
           });
         } catch(e) {
-          await logErr(env, '/chat/api', 'Anthropic fetch failed', String(e), 502);
+          await logErr(env, '/chat/api', 'Anthropic proxy fetch failed', String(e), 502);
           return new Response(JSON.stringify({ error: 'AI service unavailable' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
