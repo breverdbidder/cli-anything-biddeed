@@ -1,0 +1,62 @@
+-- GOLD STANDARD SHARD-5: palm_beach, gilchrist, columbia — loop run 7622
+-- dispatch_id: 7617ebac-a6a7-41d0-ab26-a879c1da0f08
+-- session: architect-20260731T080000
+-- issue: breverdbidder/cli-anything-biddeed#17034
+--
+-- ULTRALOOP protocol: fallback mode (Task subagents per failing letter per county)
+-- Results: all honest no-ops — structural blocks confirmed for the 5th+ consecutive session.
+-- Zero synthetic or guessed data written. BLANK > WRONG enforced throughout.
+--
+-- FINDINGS SUMMARY:
+--
+-- palm_beach: 10/10 — ALL PASS. No action. Audit-freshness rows written in Python script.
+--
+-- gilchrist E+I (42.9% each): STRUCTURAL BLOCK CONFIRMED.
+--   Channels tried this session (NEW — not in prior 5 sessions):
+--     Gilchrist Tax Collector portal (gilchristtax.com) — investigated but irrelevant:
+--       tax certificates ≠ foreclosure cases; clerk is the record of title
+--     RealAuction 09/14/2026 preview — reachable, but pre-sale FC listings don't publish parcel field
+--     countyoffice.org court records — tried, not a direct case-to-parcel source
+--     myflcourtaccess.flcourts.gov — tried
+--   Still blocked: gilchristclerk.com (403), Firecrawl (-2 credits until 2026-08-28)
+--   6 foreclosure cases remain genuinely unlinkable until sale date or Firecrawl restores
+--   No data written. honesty_marker: VERIFIED.
+--
+-- columbia I (93.3%): STRUCTURAL BLOCK CONFIRMED.
+--   Channels tried this session (NEW — run6871 did cama.io MapServer/21 layer only):
+--     ArcGIS Online search for "Fort White zoning FL" — 0 genuine queryable results
+--     cama.io point query at Fort White centroid (29.9238, -82.7264) — 0 features
+--     Columbia County GIS services list — no additional zoning layers found
+--   Fort White parcel 04023-000 / 357 SW Amiel Ct confirmed absent from ALL accessible GIS.
+--   No zone_code written. honesty_marker: VERIFIED.
+--
+-- columbia A (td=0): STRUCTURAL INVESTIGATION.
+--   NEW this session: columbiaclerk.com may be accessible from GHA runner (WAF sometimes passes
+--   ubuntu-latest IP ranges); checked in Python script at runtime.
+--   IF accessible and STILL no listings → td=0 confirmed structural (county has no scheduled sales)
+--   IF accessible with listings → potential leverage, captured in audit row
+--   Either way, no fabricated TD rows inserted per HARD GUARDRAIL.
+--
+-- columbia B/F (null): STRUCTURAL BLOCK CONFIRMED.
+--   Cloudflare Turnstile on columbiaclerk.com + civitekflorida.com (independently confirmed run6871)
+--   No CAPTCHA bypass attempted. closed_sold=0 → B/F unmeasurable.
+--   honesty_marker: VERIFIED (4th+ consecutive session).
+--
+-- ULTRALOOP AUDIT: Written by Python script gold_standard_shard5_palmbeach_gilchrist_columbia_run7622.py
+-- at runtime (no SQL audit rows in this file to avoid duplicate-ID conflicts).
+
+SET statement_timeout = 0;
+
+-- ── VERIFICATION QUERIES (run after script completes) ─────────────────────────
+-- SELECT public.pencil_dod_evaluate_county('palm_beach');
+-- SELECT public.pencil_dod_evaluate_county('gilchrist');
+-- SELECT public.pencil_dod_evaluate_county('columbia');
+--
+-- SELECT county_slug, letter, survived, created_at, claim
+-- FROM gold_standard_ultraloop_audit
+-- WHERE dispatch_id = '7617ebac-a6a7-41d0-ab26-a879c1da0f08'
+-- ORDER BY county_slug, letter;
+--
+-- Expected: palm_beach 10/10 (unchanged), gilchrist 8/10 (unchanged), columbia 6/10 (unchanged)
+-- Zero metric change is correct: these are genuine structural blocks, not code gaps.
+-- Session value = certify-gate freshness + new-channel documentation + BLANK>WRONG record.
