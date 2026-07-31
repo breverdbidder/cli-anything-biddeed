@@ -36,9 +36,13 @@ Clerk docket gate is a ColdFusion login+captcha, not literally Cloudflare, as fi
 change the blocked conclusion.
 Audit: `gold_standard_ultraloop_audit` ids **11700** (E), **11701** (I), both `survived=true`.
 
-### dixie — 8/10 → **9/10**, I FIXED (94.1% → 100%), E bonus (97.1% → 100%), C/D unchanged
+### dixie — 7/10 → **8/10**, I FIXED (94.1% FAIL → 100% PASS), E bonus (97.1% → 100%), C/D unchanged
+Correction: the morning report's own header said "8/10" while I was still FAIL at 94.1% (threshold is
+95%) — that was a labeling slip in that report. The correct letter count both at the start of the morning
+session and at the start of this session was 7/10 (C, D, I all FAIL). This session's fix is the one that
+actually flips I to PASS, moving dixie to 8/10 for the first time today.
 ```
-BEFORE: I PASS 94.1 [card_complete=32 of 34]   E PASS 97.1 [parcel_linked=33]
+BEFORE: I FAIL 94.1 [card_complete=32 of 34]   E PASS 97.1 [parcel_linked=33]
 AFTER:  I PASS 100.0 [card_complete=34 of 34]  E PASS 100.0 [parcel_linked=34]
 ```
 **Genuine new fix, adversarially verified before either write was applied:**
@@ -75,11 +79,15 @@ blocked. Structural ceiling remains 32/34 = 94.1% best case (6 SYNTH archival ro
 Audit: ids **11702** (C), **11703** (D), both `survived=true`.
 
 ## Net shard scoreboard this firing
-- hillsborough: 10/10 (unchanged)
+- hillsborough: 10/10 certified/scoped (unchanged). Unscoped live view now shows I at 93.6% (938-row
+  denominator, further backfill accrual since the Jun-24 freeze) — same drift already flagged in the
+  morning report; per Evaluator V6 rules this does NOT move the certified score. No action taken.
 - alachua: 8/10 (unchanged, reconfirmed blocked with new evidence)
-- dixie: **9/10** (was 8/10 this morning — I flipped FAIL→PASS, E ticked to 100%, only C/D remain, both
-  structurally blocked pending either the owner's Civitek Turnstile resolution or dixieclerk.com publishing
-  results)
+- dixie: **8/10** (was 7/10 both at the start of the morning session and the start of this session — the
+  morning report's own "8/10" header was a labeling slip while I was still FAIL at 94.1%. This session's
+  fix is what actually flips I FAIL→PASS for the first time today, E ticked to 100% as a side effect.
+  Only C/D remain, both structurally blocked pending either the owner's Civitek Turnstile resolution or
+  dixieclerk.com publishing a disposition archive it currently lacks entirely.)
 
 ## Files this session
 - `supabase/migrations/20260731g_shard3_dixie_i_second_firing_parcel_zones_completion.sql`
