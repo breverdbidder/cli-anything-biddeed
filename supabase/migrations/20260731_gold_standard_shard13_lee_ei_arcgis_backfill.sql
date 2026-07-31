@@ -1,0 +1,133 @@
+-- GOLD STANDARD SHARD-13 (lee), dispatch 850748bb-e511-4a3d-bfe5-3714665723b5.
+-- ULTRALOOP workflow run wf_f6c41622-17b (8 subagents, fan-out + adversarial verify).
+--
+-- BEFORE (session start, live pencil_dod_evaluate_county('lee')):
+--   A PASS 40 | B PASS 100.0 | C PASS 98.8 | D PASS 98.8 | E FAIL 91.3
+--   (parcel_linked=294/322) | F PASS 100.0 | G PASS 100.0 | H PASS 0.1
+--   | I FAIL 85.7 (card_complete=276/322) | J PASS 100.0.  8/10 (E, I failing).
+--
+-- AFTER (session end, live pencil_dod_evaluate_county('lee')):
+--   E FAIL 92.9 (parcel_linked=299/322), I FAIL 87.0 (card_complete=280/322).
+--   All other letters unchanged (G independently re-verified 100.0/100.0/100.0,
+--   no regression). 8/10 (E, I still failing -- honest, gate is 95%%).
+--
+-- All writes applied live via PostgREST/service-role REST API (direct psql
+-- pooler password auth is stale, same as every prior lee session).
+--
+-- === E: 5 rows fixed via Lee ArcGIS FeatureServer SITEADDR lookup ===
+-- 25-CA-002165 -> 06-44-23-C1-04239.0150 | 25-CA-005615 -> 04-45-26-L4-05012.0240
+-- 25-CA-006129 -> 13-46-23-24-00000.0060 | 25-CA-003367 -> 03-45-27-L3-13058.0210
+--   (note: auction street "ARONNE AVE S" matched ArcGIS "ARGONNE AVE S", a
+--   single-letter typo variant -- house number + city/MUNICODE both exact)
+-- 25-CA-003581 -> 13-45-27-L1-02008.0140
+-- All 5 also got geo (latitude/longitude) + assessed_value backfilled from the
+-- same ArcGIS record. Not zone-linked this session (parcel_zones untouched for
+-- these 5 -- residual for I, follow-up).
+--
+-- E residual (2 new, left null -- BLANK>WRONG, no guess):
+--   25-CA-002593: exact single ArcGIS match found (STRAP->24-43-22-C3-05425.0330)
+--     but write blocked by uq_mca_county_sale_date_parcel -- another row (case
+--     25-CA-003385, same address, same auction_date 2026-08-06) already holds
+--     that (county,sale_type,auction_date,parcel_id) tuple. Duplicate-case data
+--     issue, not a matching-confidence problem -- needs a dedup/merge decision,
+--     out of this session's scope.
+--   25-CA-004959 (2825 PALM BEACH BLVD): resolves to a ~140-unit condo building;
+--     no unit number on the auction record, only no-unit ArcGIS match is a
+--     common-element parcel (ASSESSED=0) -- not a genuine unit, left unlinked.
+--
+-- E residual (4 rows, RE-CONFIRMED unfixable, 3rd consecutive session to check):
+--   20-CA-005572 (1067 DANPARK LOOP): entire ArcGIS DANPARK LOOP range is
+--     14000-14195, no such address exists.
+--   24-CC-004249 (16300 PINE RIDGE RD LOT X18): no house number near 16300 on
+--     PINE RIDGE RD, no unit/lot "X18" anywhere.
+--   18-CC-004510 (98 SABLE DR LOT 98): "SABLE DR" does not exist in Lee ArcGIS
+--     under this name at all.
+--   25-CA-007100 (14454 CANTABRIA DR): exact house number 14454 does not exist
+--     (nearest are 14450/14453/14458 -- guess-range, not a match).
+-- E residual (16 rows, untouched, same wall documented every prior lee
+--   session): calendar_sweep_mca_v3 rows with NO property_address at all --
+--   Lee Clerk case-detail pages still 403/Akamai-blocked, Firecrawl still out
+--   of credit. Needs a case-detail scrape path or authenticated session, not
+--   attempted this session (no new tool available).
+--
+-- === I: 4 rows completed (already-registered zone codes, zero G risk) ===
+-- Verified live via ArcGIS that these parcels already carry a zone code that
+-- ALREADY exists as a zoning_districts+zone_standards row (avoids the
+-- "applicable but zero" G-denominator trap documented in prior lee sessions):
+--   25-CA-003933 (27-44-23-C3-00700.0200): already zone-linked, only lat/lng
+--     was missing -> backfilled (26.611015,-81.995038).
+--   25-CA-003228 (17-44-23-C1-03943.0520): lat/lng backfilled + new parcel_zones
+--     row (R1@815, jurisdiction_id=815 City of Cape Coral).
+--   25-CA-001692 (12-45-23-C2-00277.0170): lat/lng backfilled + new parcel_zones
+--     row (R1@815).
+--   25-CA-000609 (28-44-26-L2-10095.0010): lat/lng backfilled + new parcel_zones
+--     row (RS-1@630, jurisdiction_id=630 Unincorporated Lee County).
+-- Also backfilled lat/lng/assessed_value for 2026000040 (06-46-24-21-00001.1080)
+-- -- honest real data, but ArcGIS ZONING is empty for this parcel so it does
+-- NOT complete the card (no zone code to link); does not move I.
+--
+-- === I: 6 new zone codes researched, correctly NOT registered (BLANK>WRONG) ===
+-- Two research agents found real Lee/FMB/Bonita-Springs LDC text for these
+-- codes but could not confirm a real NUMERIC value for whichever dimension
+-- would need to be regulated=true, so the registration agent declined all six
+-- rather than insert a guessed number (guessed G-denominator data is a HARD
+-- FAIL of canon per the G DIAGNOSIS rule in the shard-13 brief):
+--   CPD@630 (Commercial Planned Development, cases 24-CC-009119): density/FAR/
+--     parking are set per-project in individual rezoning ordinances, not a
+--     fixed base-code table -- genuinely not applicable at the district level.
+--   CS@630 (Commercial Shopping, case 26-CA-000391): Lee LDC regulates this
+--     district via max lot coverage (40%%) + setbacks, not density/FAR/
+--     parking-per-1000sf; county doesn't use FAR for conventional commercial.
+--   RS-2@630 (case 25-CC-007464): density_regulated=true in principle but no
+--     published density figure found; researcher explicitly declined to
+--     back-calculate from the 12,500 sqft min lot size (would be an inference,
+--     not an ordinance figure). Also flagged an unresolved 1986-vs-current
+--     ordinance discrepancy (100ft vs 75ft min depth) worth a follow-up.
+--   MH-1@914 (Bonita Springs, case 25-CA-005048): Table 4-556 has lot/setback/
+--     height/coverage standards but no explicit max-density or parking-per-unit
+--     row; a naive lot-size-based density (~8.7 du/acre) was explicitly not
+--     used.
+--   RS-1@912 / RM-2@912 (Fort Myers Beach, cases 2026000039 / 25-CA-003850):
+--     both are legacy pre-2003 Lee-County-era codes superseded by the Town's
+--     Ordinance 03-03 rezoning to generic "RS"/"RM" -- survive only on the
+--     historic zoning map for nonconforming-status purposes, no live standards
+--     table under the numbered code.
+-- These 4 parcels (CPD/CS/RS-2/MH-1 cases; RS-1/RM-2 cases also got lat/lng
+-- backfilled by the same agent as harmless real-data enrichment, but remain
+-- I-FAIL pending either real published numbers or a documented policy
+-- decision on how to treat PD/legacy-code districts in the G/I formula).
+--
+-- === Adversarial verification (ULTRALOOP, 3 refuter agents) ===
+-- E-fix and I-safe-fix: all 10 claimed writes independently re-queried fresh
+-- from the DB and CONFIRMED (see gold_standard_ultraloop_audit rows for
+-- dispatch 850748bb, letters E/I, survived=true).
+-- Register-link: refuter correctly found 3 live parcel_zones rows tagged
+-- source='lee_arcgis_2026_shard13' and initially flagged this as contradicting
+-- the register-link agent's "parcel_zones_inserted:[]" claim -- this was a
+-- workflow-authoring mistake (both the I-safe-fix agent and the register-link
+-- agent were given the same source tag string), NOT a double-write or
+-- fabrication: the 3 rows belong to the I-safe-fix agent's already-separately-
+-- verified work (25-CA-003228, 25-CA-001692, 25-CA-000609), and the
+-- register-link agent's own claim of zero writes is independently correct.
+-- The refuter's own G-regression check (the actual purpose of that gate)
+-- came back clean: density/far/pk1000 = 100.0/100.0/100.0 post-write, no
+-- drift from the documented pre-session baseline. Logged as survived=true
+-- with the source-tag-collision noted for the next session (use distinct
+-- source tags per agent in future ultraloop fix+register splits).
+--
+-- NEXT SESSION PRIORITIES: (1) resolve the 25-CA-002593/25-CA-003385 duplicate
+-- (county,sale_type,auction_date,parcel_id) tuple so the confirmed ArcGIS match
+-- can be written; (2) decide/confirm a condo-unit matching strategy for
+-- 25-CA-004959; (3) policy call needed on CPD/CS-style Planned-Development and
+-- legacy-code districts (RS-1/RM-2@912) that structurally have no fixed
+-- per-district density/FAR/parking table -- either mark them
+-- explicitly-N/A in the G view (excluded from the applicable-denominator,
+-- same treatment as e.g. conservation/CON districts) or accept they can never
+-- pass I without a policy change, rather than re-attempting the same ordinance
+-- search every session; (4) the 16-row no-address / Lee-Clerk-blocked bucket
+-- remains the largest single E gap and needs a new data source, not another
+-- ArcGIS attempt.
+--
+-- This file is a documentation record of writes already applied live via
+-- REST during the session (per established lee-session pattern) -- no DDL to
+-- execute.
