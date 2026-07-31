@@ -1,0 +1,110 @@
+session:
+  shard: SHARD-2 (franklin, levy, st_lucie, okaloosa)
+  dispatch_id: 3ff137ad-8070-42f9-9c6f-13de33b53292
+  loop_run: 7622
+  chat_session: architect-20260731T080000
+  date: 2026-07-31
+  mode: ULTRALOOP fallback (subagent fan-out via Task tool research, then direct fix)
+
+## Pre-session Brief Scorecards
+franklin: 10/10 (all PASS — already certified)
+levy: 9/10 (A FAIL: fc=0, confirmed genuine zero 7th time)
+st_lucie: 8/10 (E FAIL 94.1%, I FAIL 94.1% — 7 unlinked rows)
+okaloosa: 6/10 (C/D/E FAIL 91.9%, I FAIL 90.3% — 5 new auctions unmatched since run-7519)
+
+## Research Findings
+decisions:
+  - step: "Research levy A status"
+    action: "Read prior session report GOLD_STANDARD_SHARD6_LEVY_DISPATCH_82FD00DA_RUN6871_SESSION_REPORT.md"
+    result: "levy A (fc=0) confirmed genuine real-world zero — 7th independent session.
+      Levy County has no online foreclosure auction system. Physical courthouse only.
+      Do not re-investigate. Flagged 'Do not re-run full multi-source A sweep again soon'
+      (prior session note)."
+    confidence: VERIFIED
+
+  - step: "Research st_lucie E/I status"
+    action: "Read GOLD_STANDARD_SHARD3_VOLUSIA_STLUCIE_DISPATCH_8C78A8DF_3RD_FIRING_REPORT.md
+      and GOLD_STANDARD_SHARD4_STLUCIE_DISPATCH_8198896F_SESSION_REPORT.md"
+    result: "7 rows are structurally problematic:
+      - 2024CA000214: MULTIPLE PARCELS, $825K judgment — may decompose via .mlti1/.mlti2
+        sub-listings on stlucieforeclosures.com but that site is Cloudflare-gated (403)
+      - 2025CA002738, 2023CA000465: confirmed placeholders with $0 judgment (VERIFIED)
+      - 2024CA001834, 2025CC001033, 2023CA002852, 2024CA000330: UNTESTED (st_lucie
+        Clerk portal returned 500/403, AcclaimWeb 403, Firecrawl 402 insufficient credits)
+      3rd firing wrote nothing, per BLANK>WRONG. st_lucie stuck at 8/10 authentically."
+    confidence: VERIFIED
+
+  - step: "Research okaloosa denominator growth"
+    action: "Read GOLD_STANDARD_SHARD7_OKALOOSA_HOLMES_DISPATCH_E0481214_SESSION_REPORT.md
+      and okaloosa_parcel_gis_enrich.py"
+    result: "okaloosa was 9/10 on 2026-07-25 with C/D/E at 96.5% (55/57 matched).
+      Current brief shows 91.9% (57/62) — denominator grew by 5 new auctions from
+      the daily Bid4Assets harvest (okaloosa-bid4assets-harvest.yml, 06:20 UTC).
+      The 5 new rows need GIS enrichment via the confirmed-live endpoint:
+      https://okgis.myokaloosa.com/arcgis/rest/services/Land-Ownership/
+      Parcels_with_Addressing/MapServer/121/query
+      Also: B4A-1299799 Mary Esther zoning remains stuck (confirmed 3x — Municode 403,
+      City of Mary Esther PDF 404, no live zoning layer for incorporated city)."
+    confidence: VERIFIED
+
+## Work Performed
+
+  - step: "Write comprehensive fix script"
+    action: "Created scripts/gold_standard_shard2_run7622_stlucie_okaloosa_fix.py"
+    result: |
+      Script covers:
+      Phase 0: Baseline evaluations for all 4 counties
+      Phase 1: Identify st_lucie unlinked/garbage-parcel rows
+      Phase 2: RealForeclose AJAX probe for unlinked cases
+      Phase 3: PA ArcGIS spatial lookup for 2024CA000214 (if lat/lon available)
+      Phase 4: Census geocode + PA ArcGIS spatial + zoning for recoverable rows
+      Phase 5: Identify okaloosa 5 new unmatched cases
+      Phase 6: Okaloosa GIS enrichment (FC lane: address prefix match, TD lane: APN match)
+      Phase 7: Write GIS matches to multi_county_auctions
+      Phase 8: Zoning lookup for newly-linked okaloosa parcels
+      Phase 9: H freshness update for all 4 counties
+      Phase 10: Post-fix evaluations
+      Phase 11: Log ultraloop audit rows
+    confidence: UNTESTED (script written, not yet executed in live GHA)
+
+  - step: "Write diagnostic migration SQL"
+    action: "Created migrations/20260731_gold_standard_shard2_run7622_stlucie_okaloosa.sql"
+    result: "Diagnostic queries + H freshness UPDATE + garbage parcel NULL-out guard"
+    confidence: UNTESTED
+
+## Artifacts
+- scripts/gold_standard_shard2_run7622_stlucie_okaloosa_fix.py (CREATED)
+- migrations/20260731_gold_standard_shard2_run7622_stlucie_okaloosa.sql (CREATED)
+- .claude/session-logs/2026-07-31-gold-standard-shard2-run7622-stlucie-okaloosa.yml (THIS FILE)
+
+## Verification Evidence
+UNTESTED — script written in this session but not executed (no live DB credentials
+in the Claude Code GHA runner context for this issue-triggered session). Script
+requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to execute.
+
+## Key Blockers
+1. st_lucie: The 7 remaining unlinked rows require either:
+   - Funded Firecrawl account (currently at 0/negative credits per 3rd firing)
+   - Playwright browser to navigate Cloudflare-walled pages
+   - Manual lookup of the 4 UNTESTED cases
+2. okaloosa I: B4A-1299799 Mary Esther zoning requires:
+   - Funded Firecrawl OR Playwright OR direct contact with City of Mary Esther
+   - Until resolved, okaloosa I will remain at 94.7% (54/57 = 1 row short of PASS)
+3. levy A: Structural zero, nothing to do.
+
+## Plan vs Actual
+| Task | Planned | Actual | Deviation |
+|---|---|---|---|
+| Levy A investigation | None (known genuine zero) | Confirmed skip per session report | None |
+| st_lucie E/I | Try PA ArcGIS + Census geocode for 7 rows | Script written covering all 3 approaches (geocode/ArcGIS spatial/zoning) | Not yet executed |
+| okaloosa C/D/E/I | GIS enrich 5 new rows | Script written with full FC+TD lane logic | Not yet executed |
+| H freshness | Update all 4 counties | Migration SQL + script phase 9 | Not yet executed |
+| Session log | Required per CLAUDE.md | DONE | None |
+
+## Next-Session Priorities
+1. Execute scripts/gold_standard_shard2_run7622_stlucie_okaloosa_fix.py via GHA
+   (need SUPABASE credentials — dispatch via okaloosa-bid4assets-harvest.yml manual
+   trigger or create a dedicated shard2-run7622 workflow)
+2. If st_lucie 7 rows remain blocked: request Firecrawl credit top-up (ARM-2 budget)
+3. If okaloosa B4A-1299799 remains blocked: consider whether non-parcelable rows
+   should be excluded from I denominator (architect-level policy decision)
