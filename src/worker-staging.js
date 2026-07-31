@@ -317,6 +317,7 @@ body{overflow:hidden}
 </style>
 </head>
 <body>
+<div style="background:#f59e0b;color:#020617;text-align:center;padding:6px 12px;font-size:13px;font-weight:600;letter-spacing:.02em;">🧪 STAGING — No real charges · <a href="https://biddeed.ai" style="color:#020617;text-decoration:underline;">Go to live site</a></div>
 <div class="split-container">
   <div class="left-panel">
     <div class="logo">BidDeed<span>.AI</span></div>

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - src/worker.js
       - src/worker-staging.js
       - wrangler-staging.toml
   workflow_dispatch:
