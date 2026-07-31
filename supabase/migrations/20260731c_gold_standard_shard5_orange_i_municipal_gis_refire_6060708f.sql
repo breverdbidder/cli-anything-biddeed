@@ -1,0 +1,70 @@
+-- Gold Standard shard-5 orange I re-fire (dispatch 6060708f re-fire)
+-- Continuation of prior session's diagnosis (commit 4f481ba7 / fix 1b28caa9):
+-- of the 62 orange I gap rows, 6 had full address/geo/value data and were
+-- missing only a zoning parcel match (3 Orlando, 3 Apopka). Scope for this
+-- session: attempt ONLY rows resolvable via real municipal GIS.
+--
+-- SHIPPED (1 row): case 2024-2224, parcel 042128709800060,
+--   1031 Eagles Forrest Dr, Apopka
+--   -> https://services.arcgis.com/syn8rfJ2eTAK0T6k/arcgis/rest/services/Community_Development_Data_view/FeatureServer/1
+--      (City of Apopka "Apopka Zoning" layer, Community Development Data view)
+--   -> exact point-in-polygon (28.69841461,-81.51359995) intersects exactly
+--      ONE polygon: Zoning='PD' (Planned Development)
+--   -> verified zero side effect on letter G: Apopka's zoning_districts
+--      already has a matching PD row (id=1958) whose applicability view
+--      correctly marks far_applicable=false, pk1000_applicable=false for
+--      Planned Development, so this insert changes G's density denominator
+--      by +1 (98.0->97.9, still comfortably passing) with no far/pk1000
+--      distortion.
+--
+-- ATTEMPTED THEN REVERTED (1 row, documented not silently dropped):
+--   case 2018-12288, parcel 172329895709330, 4744 Walden Cir Unit 33, Orlando
+--   -> https://services5.arcgis.com/mMuoPCaIYD4wEgDl/arcgis/rest/services/OrlandoLUZoning/FeatureServer/0
+--      (City of Orlando "Orlando Land Use Zoning" open dataset)
+--   -> exact point-in-polygon (28.48949979,-81.44293048) intersects exactly
+--      ONE polygon: Zoning='R-3B' -- this zone_code IS real and verified.
+--   -> REJECTED after live re-measurement: Orlando's zoning_districts table
+--      has NO row for code='R-3B' (jurisdiction_id=822). Because
+--      v_zoning_district_applicability LEFT JOINs on zoning_districts, an
+--      unmatched zone_code makes district_id NULL, and the KPI view's
+--      COALESCE(a.far_applicable, true) / COALESCE(a.pk1000_applicable, true)
+--      defaults an UNCLASSIFIED code to "applicable" rather than "not
+--      applicable". Orange county's far/pk1000 applicable-parcel denominator
+--      was previously tiny (far_applicable_parcels=1, 100% coverage);
+--      this insert pushed it to 2 with the new row contributing zero
+--      standards, dropping G to far=50.0 pk1000=50.0 (metric 98.0->50.0)
+--      and FLIPPING G to FAIL. Fixing this correctly would require
+--      classifying Orlando's R-3B zoning_districts row (category +
+--      far/pk1000/density regulated flags) from the actual Orlando zoning
+--      ordinance -- out of this session's narrow scope (municipal-GIS-only
+--      row resolution for letter I), and Orlando's existing zoning_districts
+--      rows are themselves "Uncategorized" so guessing a category here would
+--      be fabrication, not verified research. INSERTED then DELETED live in
+--      the same session (id 849883) after the regression was measured;
+--      net live-DB effect of this migration is Apopka-only.
+--
+-- REJECTED, never attempted (4 rows, no live-DB write):
+--   - 2023-16096 / 2023-17380: share lat/lon (28.5383,-81.3792) with 828
+--     OTHER orange rows -- a generic county-wide placeholder centroid, not a
+--     real geocode. No GIS point-in-polygon query against a fabricated
+--     coordinate can be trusted.
+--   - 2024-2520 / 2024-3264: exact-point query against Apopka's zoning layer
+--     returned ZERO features (point falls in a coverage gap / imprecise
+--     geocode); a 200m buffer around each point straddles multiple different
+--     zone codes (MHP/RTF/RSF-1B/MU-D for 2024-2520; I-L/AG for 2024-3264)
+--     with no way to determine the correct one without a more precise parcel
+--     boundary lookup.
+--
+-- jurisdiction_id 822 = Orlando, 962 = Apopka (public.jurisdictions,
+-- county='Orange'). No existing parcel_zones rows existed for either
+-- jurisdiction prior to this migration (verified: 0 rows for jurisdiction_id
+-- IN (822,962) before this insert).
+--
+-- No unique constraint exists on (parcel_id, jurisdiction_id) -- only on
+-- (tax_account, jurisdiction_id), and the row below has tax_account NULL.
+-- Plain INSERT is correct and carries no duplicate-row risk.
+
+INSERT INTO public.parcel_zones (parcel_id, tax_account, jurisdiction_id, zone_code, zone_name, source)
+VALUES
+  ('042128709800060', NULL, 962, 'PD', 'Planned Development',
+   'apopka_arcgis:Community_Development_Data_view/FeatureServer/1 (exact point-in-polygon, verified 2026-07-31)');
