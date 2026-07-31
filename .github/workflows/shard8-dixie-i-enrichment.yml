@@ -1,0 +1,87 @@
+name: "SHARD-8: Dixie I Card-Completeness Enrichment"
+# Enriches the 2 incomplete Dixie MCA cards (one is the new auction added after Jul-19
+# that pushed I from 97.0% to 94.1%). Uses FL DOR Statewide Cadastral (CO_NO=15) to
+# backfill property_address, lat/lon, assessed_value, and parcel_zones for any row
+# that has a parseable parcel_id.
+#
+# Target: Dixie I 94.1% (32/34) -> 97.1% (33/34) — needs 1 more complete card.
+# Threshold is 95% = ceil(34*0.95) = 33. Currently at 32.
+#
+# WIRING MANDATE compliance: script is run once on dispatch + available for cron
+# after the initial enrichment confirms which rows are fixable.
+#
+# dispatch_id: c6b5fdd6-b4a0-4da7-aa46-f104f222ac7d (shard-8 session)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (print gaps but do not write to DB)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: shard8-dixie-i-enrichment
+  cancel-in-progress: false
+
+jobs:
+  enrich:
+    name: "Dixie I Card Enrichment via FL DOR Cadastral"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      DRY_RUN: ${{ github.event.inputs.dry_run }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install --quiet httpx
+
+      - name: Run Dixie I card enrichment
+        run: |
+          set -euo pipefail
+          python3 scripts/dixie_i_card_enrichment.py 2>&1 | tee /tmp/dixie_i_enrich.log
+
+      - name: Verify metric after enrichment
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import json, urllib.request, os
+          token = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+          if not token:
+              print("No SUPABASE_ACCESS_TOKEN — skipping Management API verify")
+              exit(0)
+          ref = "mocerqjnksmhcjzxrewo"
+          query = "SET statement_timeout = 0; SELECT public.pencil_dod_evaluate_county('dixie')"
+          body = json.dumps({"query": query}).encode()
+          req = urllib.request.Request(
+              f"https://api.supabase.com/v1/projects/{ref}/database/query",
+              data=body, method="POST"
+          )
+          req.add_header("Authorization", f"Bearer {token}")
+          req.add_header("Content-Type", "application/json")
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              result = json.loads(resp.read())
+          print("=== pencil_dod_evaluate_county('dixie') ===")
+          print(json.dumps(result, indent=2, default=str))
+          EOF
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## SHARD-8 Dixie I Card Enrichment" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -30 /tmp/dixie_i_enrich.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
