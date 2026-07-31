@@ -71,4 +71,25 @@ export async function storageGet(bucket, path) {
   return res.text();
 }
 
-export default { get, insert, patch, rpc, storageGet };
+// Uploads a Buffer to Supabase Storage, overwriting any existing object at
+// the same path (x-upsert) — callers re-generating the same report/export
+// must not 409 on a second run.
+export async function storagePut(bucket, path, buffer, contentType = 'application/octet-stream') {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    },
+    body: buffer,
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Supabase storage PUT ${bucket}/${path} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export default { get, insert, patch, rpc, storageGet, storagePut };
