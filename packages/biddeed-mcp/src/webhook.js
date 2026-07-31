@@ -121,14 +121,18 @@ async function processS5OnetimeCompletion(session) {
   const metadata = session.metadata || {};
   if (metadata.product !== 's5_onetime') return;
 
+  // biddeed-checkout inserts the queue row at Checkout Session *creation*
+  // time, when session.payment_intent is always still null — Stripe only
+  // attaches it once the session completes. Filtering on payment_intent here
+  // therefore never matches the stored (always-null) value and silently
+  // no-ops every PATCH below (PostgREST returns 200 on a zero-row match).
+  // session.id is the only key guaranteed to match the inserted row.
   const paymentIntent = session.payment_intent || null;
-  const filter = paymentIntent
-    ? `stripe_payment_intent=eq.${encodeURIComponent(paymentIntent)}`
-    : `stripe_session_id=eq.${encodeURIComponent(session.id)}`;
+  const filter = `stripe_session_id=eq.${encodeURIComponent(session.id)}`;
 
   await sbFetch(`report_delivery_queue?${filter}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status: 'paid' }),
+    body: JSON.stringify({ status: 'paid', stripe_payment_intent: paymentIntent }),
   });
 
   const caseNumber = metadata.case_number;
