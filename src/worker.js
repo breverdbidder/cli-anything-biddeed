@@ -184,33 +184,32 @@ async function fetchCountyLots(county) {
   } catch(_) { return []; }
 }
 
-// ── Buy-report picker: certified counties with purchasable upcoming auctions ──
-// "Purchasable" = certified AND matched_clean AND still upcoming — the same
-// bar predict_auction_outcome's CERT_REQUIRED gate holds cases to, so a report
+// ── Buy-report picker: full-S5 counties with purchasable upcoming auctions ──
+// "Full S5" = gold_standard_certifications.certified AND county_co_no_resolution
+// .is_confirmed — a county missing either only gets a partial S5 card (no
+// Shapira Max Bid, no ML prediction, no ZoneWise). get_s5_ready_counties()
+// also scopes to parity_status='matched_clean', the same bar
+// predict_auction_outcome's CERT_REQUIRED gate holds cases to, so a report
 // bought here is never for an auction the Shapira pipeline would refuse.
-async function fetchReportCounties(rtConfig) {
+async function fetchReportCounties() {
   try {
     const cacheKey = new Request('https://biddeed.ai/_internal/buy-report-counties');
     const cache = caches.default;
     const cached = await cache.match(cacheKey);
     if (cached) return await cached.json();
 
-    const gold = (rtConfig && rtConfig.goldCounties && rtConfig.goldCounties.length) ? rtConfig.goldCounties : GOLD_COUNTIES;
-    const today = new Date().toISOString().slice(0,10);
-    const counts = await Promise.all(gold.map(async (slug) => {
-      try {
-        const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(slug)}&auction_date=gte.${today}&auction_status=eq.upcoming&parity_status=eq.matched_clean&select=id&limit=1`;
-        const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Prefer': 'count=exact' } });
-        if (!res.ok) return { county_slug: slug, upcoming: 0 };
-        const range = res.headers.get('content-range') || '';
-        const upcoming = Number(range.split('/')[1] || 0);
-        return { county_slug: slug, upcoming };
-      } catch(_) { return { county_slug: slug, upcoming: 0 }; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_s5_ready_counties`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: '{}',
+    });
+    const rows = res.ok ? await res.json() : [];
+    const result = (Array.isArray(rows) ? rows : []).map(r => ({
+      county_slug: r.county_slug,
+      display: toDisplay(r.county_slug),
+      upcoming: Number(r.upcoming_count) || 0,
+      next_auction_date: r.next_auction_date || null,
     }));
-    const result = counts
-      .filter(c => c.upcoming > 0)
-      .map(c => ({ county_slug: c.county_slug, display: toDisplay(c.county_slug), upcoming: c.upcoming }))
-      .sort((a, b) => a.display.localeCompare(b.display));
 
     const resp = new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=120' } });
     await cache.put(cacheKey, resp.clone());
@@ -419,20 +418,19 @@ export default {
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': prefill ? 'no-store' : 'public,max-age=300' } });
       }
 
-      // ── GET /buy-report/counties — certified counties w/ purchasable auctions ──
+      // ── GET /buy-report/counties — full-S5 counties w/ purchasable auctions ──
       if (path === '/buy-report/counties' && method === 'GET') {
-        const rtConfig = await fetchRuntimeConfig();
-        const counties = await fetchReportCounties(rtConfig);
+        const counties = await fetchReportCounties();
         return new Response(JSON.stringify(counties), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=120', ...corsHeaders(origin) } });
       }
 
       // ── GET /buy-report/auctions?county=slug — purchasable auctions for a county ──
       if (path === '/buy-report/auctions' && method === 'GET') {
         const rtConfig = await fetchRuntimeConfig();
-        const goldSet = new Set((rtConfig.goldCounties && rtConfig.goldCounties.length) ? rtConfig.goldCounties : GOLD_COUNTIES);
+        const s5Set = new Set(rtConfig.s5Counties || []);
         const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
-        if (!county || !goldSet.has(county)) {
-          return new Response(JSON.stringify({ error: 'county must be a certified county' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!county || !s5Set.has(county)) {
+          return new Response(JSON.stringify({ error: 'county must be a full-S5 (certified + parcel-confirmed) county' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         const auctions = await fetchReportAuctions(county);
         return new Response(JSON.stringify(auctions), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=60', ...corsHeaders(origin) } });
@@ -499,10 +497,20 @@ export default {
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
-      // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
+      // ── GET /auctions?county=&days=&type=&limit=&mode= — property cards for chat ──
+      // mode=s5 (default all): only serve counties with full S5 capability
+      // (Gold Standard certified + parcel co_no confirmed).
       if (path === '/auctions' && method === 'GET') {
         const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
         if (!county) return new Response(JSON.stringify({ error: 'county required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const mode = (url.searchParams.get('mode') || 'all').toLowerCase();
+        if (mode === 's5') {
+          const rtConfig = await fetchRuntimeConfig();
+          const s5Set = new Set(rtConfig.s5Counties || []);
+          if (!s5Set.has(county)) {
+            return new Response(JSON.stringify({ error: 'county is not full-S5 (certified + parcel-confirmed)' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+        }
         let days = parseInt(url.searchParams.get('days') || '14', 10);
         if (!Number.isFinite(days) || days <= 0) days = 14;
         days = Math.min(days, 90);
@@ -1623,6 +1631,10 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
     <select id="county-select" style="display:none"></select>
     <button class="btn" id="county-continue" disabled style="display:none">Continue</button>
     <div class="err" id="county-err"></div>
+    <p id="county-note" style="display:none;font-size:13px;color:#94a3b8;margin-top:8px;">
+      ⭐ Gold Standard counties only — full 18-section Shapira report guaranteed.
+      <a href="/chat" style="color:#f59e0b;">Browse all 67 counties →</a>
+    </p>
   </div>
 
   <div id="step-auction" style="display:none">
@@ -1670,6 +1682,11 @@ function fmtDate(d){
   if(!d) return 'TBD';
   var dt=new Date(d+'T00:00:00');
   return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+function fmtShortDate(d){
+  if(!d) return 'TBD';
+  var dt=new Date(d+'T00:00:00');
+  return dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
 function fmtMoney(n){
   if(!n) return 'N/A';
@@ -1721,12 +1738,13 @@ if (PREFILL && PREFILL.mca_id) {
     }
     var opts='<option value="">Select a county…</option>';
     counties.forEach(function(c){
-      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'" data-upcoming="'+c.upcoming+'">'+c.display+' ('+c.upcoming+' upcoming)</option>';
+      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'" data-upcoming="'+c.upcoming+'">'+c.display+' ⭐ — '+c.upcoming+' upcoming · Next: '+fmtShortDate(c.next_auction_date)+'</option>';
     });
     sel.innerHTML=opts;
     sel.style.display='block';
     var btn=document.getElementById('county-continue');
     btn.style.display='block';
+    document.getElementById('county-note').style.display='block';
     sel.addEventListener('change',function(){ btn.disabled=!sel.value; });
     btn.addEventListener('click',function(){
       var opt=sel.options[sel.selectedIndex];
