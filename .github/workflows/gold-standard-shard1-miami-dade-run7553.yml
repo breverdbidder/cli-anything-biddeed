@@ -1,0 +1,71 @@
+name: "SHARD-1 run7553 Daily Maintenance (miami_dade)"
+# Gold Standard maintenance for miami_dade — dispatch_id 2931b3a1-9b07-4419-adba-fe711f1d0a56
+#
+# 2026-07-31 baseline: C/D=86.6% (362/418), I=80.6% (337/418)
+# Prior session (run3786, 2026-07-11): C/D=94.9% (338/356), I=PASS 96.1% (342/356)
+# auctions_total grew 356→418. 62 new rows lack parity and card_complete.
+#
+# This cron runs daily to:
+#  - C/D: AJAX harvest all unmatched (sale_type, auction_date) pairs
+#  - C/D: Promote court-format case numbers (pre-authorized litmus)
+#  - I: Geocode rows with address but no lat/lon
+
+on:
+  schedule:
+    - cron: '45 13 * * *'  # 13:45 UTC daily (15min after escambia cron)
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard1-miami-dade-run7553-daily
+  cancel-in-progress: false
+
+jobs:
+  cd-i-harvest:
+    name: "C/D+I: AJAX harvest + court-format promotion + geocode"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/shard1_run7553_miami_dade_cdi_fix.py
+
+  evaluate:
+    name: "Evaluate miami_dade metrics"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [cd-i-harvest]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Run pencil_dod_evaluate_county for miami_dade
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import os, json, urllib.request
+
+          supa_url = os.environ['SUPABASE_URL']
+          supa_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+
+          payload = json.dumps({'p_county': 'miami_dade'}).encode()
+          url = f'{supa_url}/rest/v1/rpc/pencil_dod_evaluate_county'
+          req = urllib.request.Request(url, data=payload, method='POST')
+          req.add_header('apikey', supa_key)
+          req.add_header('Authorization', f'Bearer {supa_key}')
+          req.add_header('Content-Type', 'application/json')
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              ev = json.loads(resp.read())
+              if isinstance(ev, dict):
+                  passes = sum(1 for k in 'ABCDEFGHIJ' if isinstance(ev.get(k), dict) and ev[k].get('pass'))
+                  print(f'miami_dade: {passes}/10 PASS')
+                  for letter in 'ABCDEFGHIJ':
+                      d = ev.get(letter, {})
+                      if isinstance(d, dict):
+                          status = 'PASS' if d.get('pass') else 'FAIL'
+                          print(f'  {letter}: {status} metric={d.get(\"metric\")} {str(d.get(\"detail\",\"\"))[:60]}')
+              else:
+                  print(f'miami_dade eval result: {json.dumps(ev)[:500]}')
+          "

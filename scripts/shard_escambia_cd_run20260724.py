@@ -76,9 +76,16 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 COUNTY_SLUG = "escambia"
-PARITY_SOURCE = "tier1_realauction_escambia_run20260724"
+PARITY_SOURCE = "tier1_realauction_escambia_run7553"
 
-FORECLOSURE_DATES = ["07/23/2026"]
+FORECLOSURE_DATES = [
+    "07/31/2026",
+    "08/04/2026",
+    "08/05/2026",
+    "08/11/2026",
+    "08/18/2026",
+    "08/25/2026",
+]
 TAXDEED_DATES = ["08/05/2026", "09/02/2026", "10/07/2026", "11/04/2026", "12/02/2026"]
 
 
