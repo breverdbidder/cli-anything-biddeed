@@ -1,0 +1,134 @@
+-- Gold Standard shard-5 palm_beach C/D fix (letters C=parity_clean, D=parity_any).
+-- Follow-up to 20260728b_gold_standard_shard_palm_beach_cd_accrual_gap_investigation.sql,
+-- which flagged the exact remediation this migration performs: "45 rows: null-parity
+-- ... Needs the upstream realforeclose_aids/palm_beach_realtdm_raw scrapers/harvesters
+-- to accrue rows for auction dates 2026-07-01 onward -- out of scope for this task
+-- (parity-matcher logic, not harvester logic). Flagged for a follow-up
+-- harvester-freshness task."
+--
+-- STEP 0 (BEFORE, live query, this session): SELECT public.pencil_dod_evaluate_county('palm_beach');
+--   auctions_total=732
+--   C: pass=false matched_clean=668 metric=91.3
+--   D: pass=false matched_any=668   metric=91.3
+--
+-- ROOT CAUSE (re-verified fresh this session via direct SQL, confirms prior session's
+-- diagnosis): 64 palm_beach rows in the evaluator's scoped population (lower(county)=
+-- 'palm_beach' AND (data_source<>'propertyonion' OR tier1_authoritative=true)) are not
+-- matched_clean/matched_divergent with a tier1%-prefixed parity_source:
+--   48 rows: parity_status IS NULL, parity_source IS NULL (created 2026-03-08 through
+--     2026-07-29; case numbers span both realforeclose.com foreclosure cases (e.g.
+--     502025CC004359XXXAMB, 12 rows created 2026-07-24..2026-07-29) and realtaxdeed.com
+--     tax_deed cases (e.g. 2025-2365TD, 2026-2850TD)).
+--   14 rows: parity_status='mca_only', parity_source='palm_beach_realtaxdeed_supplementary'
+--     (does not count toward C/D regardless of match status).
+--    2 rows: parity_status='mca_only', parity_source IS NULL.
+-- Confirmed NONE of the 48 null-parity rows matched realforeclose_aids as of session
+-- start: `realforeclose_aids WHERE county_slug='palm_beach'` had 217 rows, freshest
+-- last_seen_at 2026-05-14 03:16:01 UTC through 2026-07-29 05:45:54 UTC. Cross-referencing
+-- .github/workflows/ confirms NO recurring scheduled workflow harvests palm_beach into
+-- realforeclose_aids (shard2-ajax-realforeclose-harvest.yml covers only pinellas/
+-- santa_rosa; shard5-daily-scraper.yml's palm_beach-adjacent C/D jobs were deleted
+-- 2026-07-18 dispatch 9f070f2b as a ghost-success purge, not replaced with a real
+-- scraper). The 217 rows present were accrued via one-off manual GHA dispatches
+-- (source_dispatch_id 80256/3301/3163/2580, spanning 2026-05-14 through 2026-07-29),
+-- not a schedule -- i.e. a genuine harvester-freshness gap, exactly as flagged in the
+-- prior session's migration, not a parity-matcher bug.
+--
+-- LIVE VERIFICATION (this session): ran scripts/realforeclose_aids_paginated_harvest.py
+-- (existing, PROVEN script -- already used for pinellas/santa_rosa/duval/brevard/
+-- escambia in prior shards, unmodified) directly against palmbeach.realforeclose.com
+-- and palmbeach.realtaxdeed.com for the 12 distinct auction dates spanned by the 48+14
+-- non-matched rows. Confirmed live coverage BEFORE writing: e.g. 07/30/2026 foreclosure
+-- calendar returned 502025CA008285XXXAMB and 502025CC004359XXXAMB (2 of the 48 null
+-- rows) still live on RealAuction today -- proving the gap is harvester staleness, not
+-- a genuinely-delisted auction.
+--
+-- ACTION (live, this session): harvested and upserted into realforeclose_aids
+-- (on_conflict=aid, i.e. additive/idempotent, no existing rows altered):
+--   realforeclose.com (foreclosure): 07/01, 07/23, 07/24, 07/27, 07/28, 07/30/2026
+--     -> parsed=45, inserted_or_merged=45 (2+4+1+28+6+4)
+--   realtaxdeed.com (tax_deed):      03/11, 04/15, 06/10, 07/15, 08/12, 09/16/2026
+--     -> parsed=259, inserted_or_merged=259 (52+57+60+31+21+38)
+--   TOTAL: parsed=304, inserted_or_merged=304 (fail-loud invariant satisfied:
+--     parsed>0 and inserted>0 throughout, no silent-failure branch triggered).
+--   realforeclose_aids count for county_slug='palm_beach': 217 -> 521 rows.
+--
+--   Then ran the EXISTING, UNCHANGED canonical matcher (per this task's hard rule:
+--   do not modify the shared refresh function unless the bug is unambiguously in
+--   its own logic -- it was not; the bug was upstream source staleness):
+--     SELECT * FROM public.refresh_palm_beach_parity_v2();
+--   Result: {"path":"realforeclose_aids","rows_updated":55},
+--           {"path":"palm_beach_realtdm_raw","rows_updated":0}
+--   (palm_beach_realtdm_raw remains genuinely empty -- 0 rows, confirmed via
+--   `SELECT count(*) FROM palm_beach_realtdm_raw` = 0 -- no source ever populates
+--   this table; not fixed by this migration, flagged below as residual.)
+--
+-- STEP 1 (AFTER, live query, this session): SELECT public.pencil_dod_evaluate_county('palm_beach');
+--   auctions_total=732
+--   C: pass=TRUE matched_clean=723 metric=98.8  (+55 rows, +7.5pp, was 91.3)
+--   D: pass=TRUE matched_any=723   metric=98.8  (+55 rows, +7.5pp, was 91.3)
+--   No other letter regressed: A/B/E/F/G/H/J unchanged and passing; I unchanged at
+--   91.1% (667/732, pre-existing separate gap, not in scope for this dispatch).
+--
+-- palm_beach_realtaxdeed_supplementary DISPOSITION (task brief item 3, re-verified
+-- fresh this session): this source label was investigated and CONCLUSIVELY found to
+-- have ZERO real backing in tax_deed_outcomes/foreclosure_outcomes in TWO prior
+-- sessions (20260703_shard11_palm_beach_cd_fix.sql INVESTIGATION 2, and
+-- 20260728b_gold_standard_shard_palm_beach_cd_accrual_gap_investigation.sql
+-- INVESTIGATION 2, which traced it to a blind bulk-UPDATE ghost-success bug in
+-- scripts/shard7_run757_palm_beach_fixes.py fix_cd()). Both prior sessions explicitly
+-- concluded it "must NOT be promoted/renamed to a tier1% prefix -- doing so would be
+-- a fabricated pass (ghost success)". This session does NOT relabel it. Instead, of
+-- the 14 rows carrying this label, 13 were independently matched (real, not renamed)
+-- via the tier1_realforeclose_palm_beach path above because they turned out to be
+-- genuinely live/current on realforeclose.com/realtaxdeed.com today -- i.e. fixed
+-- through the legitimate source, not the fabricated one. Only 1 row remains
+-- (2026-2838TD, tax_deed, scheduled 2026-09-16): confirmed via live harvest of the
+-- 09/16/2026 realtaxdeed.com calendar (38 items) that this case is NOT currently
+-- listed -- genuinely absent from the live source (likely redeemed pre-sale, common
+-- for tax deeds), left as parity_status='mca_only' (does not count toward C/D),
+-- parity_source unchanged. No fabrication.
+--
+-- RESIDUAL GAP (9 of 732 rows, does not block C/D pass at 98.8% >= 95% threshold):
+--   - 8 rows: tax_deed cases (2025-2365TD, 2025-2368TD, 2025-2384TD, 2025-2393TD,
+--     2025-2426TD, 2026-2644TD, 2026-2646TD, 2026-2648TD) with auction dates
+--     03/11/2026, 04/15/2026, 06/10/2026 -- all in the past relative to today
+--     (2026-07-31). Confirmed via full live re-harvest of realtaxdeed.com for all
+--     three exact dates (52+57+60=169 items) that NONE of these 8 case numbers
+--     appear on the live calendar for their scheduled date. Genuinely delisted from
+--     RealAuction (redeemed/withdrawn/cancelled before sale, or duplicate case-number
+--     variants) -- structurally blocked, not fixable by re-scraping since the source
+--     no longer carries them, and neither tax_deed_outcomes/foreclosure_outcomes nor
+--     palm_beach_realtaxdeed_supplementary/tier1_supervisor_parity_restore_20260623
+--     (both already purged/investigated in prior sessions) have real backing either.
+--   - 1 row: 2026-2838TD (palm_beach_realtaxdeed_supplementary, see above) --
+--     genuinely absent from the live 09/16/2026 tax_deed calendar.
+--
+-- Not fixed / explicitly out of scope this session:
+--   - palm_beach_realtdm_raw remains 0 rows (no ingestion pipeline exists for this
+--     table anywhere in the repo; would require building a new scraper against
+--     whatever "realtdm" (Realauction Tax Deed Management?) source this table name
+--     implies -- UNKNOWN what that live source actually is, not investigated this
+--     session, flagged for a future dispatch).
+--   - No recurring scheduled workflow exists for palm_beach realforeclose_aids
+--     harvesting (unlike pinellas/santa_rosa's shard2-ajax-realforeclose-harvest.yml).
+--     Without one, this same 45-row accrual gap will silently reopen as new auction
+--     dates land. Flagged for a follow-up "wire a palm_beach cron" task; NOT created
+--     in this migration per this dispatch's scope (SQL/data fix only, no new
+--     workflow file requested in the task brief).
+--
+-- SCOPE COMPLIANCE: only county='palm_beach' touched. No other county's rows
+-- modified. refresh_palm_beach_parity_v2() NOT modified (no bug found in its logic --
+-- the bug was upstream source staleness, exactly as this task's hard rules direct:
+-- "prefer fixing the source data over the shared function"). gold_standard_loop()/
+-- gold_standard_certify() NOT invoked. Cron jobs 109/111/115 not touched. No CAPTCHA/
+-- Turnstile encountered (plain AJAX endpoint, no bot-challenge on realforeclose.com/
+-- realtaxdeed.com for this request pattern). No case number, sold amount, zone code,
+-- parcel ID, or party name invented -- all 304 harvested rows are verbatim parsed
+-- from the live RealAuction AJAX response.
+
+SELECT 1; -- no-op placeholder: documents the live realforeclose_aids upsert (304 rows,
+          -- via scripts/realforeclose_aids_paginated_harvest.py, unmodified) and the
+          -- live SELECT * FROM public.refresh_palm_beach_parity_v2() call (55 rows
+          -- updated) already applied via the Supabase Management API SQL endpoint in
+          -- this session.
