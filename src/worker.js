@@ -2226,7 +2226,7 @@ hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 a
   <div class="hstats">
     <div class="st"><div class="sn">67<span>+</span></div><div class="sl">Florida Counties</div></div>
     <div class="st"><div class="sn">GOLD_COUNT_PLACEHOLDER<span>✓</span></div><div class="sl">Gold Standard</div></div>
-    <div class="st"><div class="sn">72<span>K+</span></div><div class="sl">Auctions Tracked</div></div>
+    <div class="st"><div class="sn">72K<span>+</span></div><div class="sl">Auctions Tracked</div></div>
     <div class="st"><div class="sn">$25</div><div class="sl">Per Shapira Report</div></div>
   </div>
 </section>
