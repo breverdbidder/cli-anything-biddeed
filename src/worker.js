@@ -11,6 +11,8 @@
  *   POST /chat/api            → Streaming SSE chat (Anthropic)
  *   POST /chat/lead           → Email capture → Supabase lead_profiles
  *   GET  /chat/county-data    → County card JSON
+ *   GET  /auctions            → Property cards JSON for the chat right panel (?county=&days=&type=&limit=)
+ *   GET  /property/:mca_id    → Single auction row + county appraiser link
  *   GET  /subscribe           → Stripe checkout redirect
  *   GET  /success             → Post-payment key delivery page
  *   GET  /subscribe/status    → Poll for API key after payment
@@ -211,6 +213,60 @@ async function fetchReportCounties(rtConfig) {
   } catch(_) { return []; }
 }
 
+// ── Auction cards for chat property panel ─────────────────────────────────────
+async function fetchAuctionCards(county, days, type, limit) {
+  const today = new Date().toISOString().slice(0,10);
+  const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
+  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status`;
+  if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
+
+  const [auctionsRes, certRes] = await Promise.all([
+    fetch(auctionsUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
+    fetch(`${SUPABASE_URL}/rest/v1/gold_standard_certifications?county_slug=eq.${encodeURIComponent(county)}&select=certified&limit=1`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
+  ]);
+  const rows = auctionsRes.ok ? await auctionsRes.json() : [];
+  const certRows = certRes.ok ? await certRes.json() : [];
+  const isGold = !!(Array.isArray(certRows) && certRows[0] && certRows[0].certified);
+  const now = Date.now();
+
+  return (Array.isArray(rows) ? rows : []).map(r => {
+    const auctionMs = r.auction_date ? new Date(r.auction_date + 'T00:00:00Z').getTime() : null;
+    const daysUntil = auctionMs !== null ? Math.max(0, Math.round((auctionMs - now) / 86400000)) : null;
+    const hasBoth = r.assessed_value != null && r.opening_bid != null;
+    return {
+      id: r.id,
+      county: r.county,
+      sale_type: r.sale_type,
+      case_number: r.case_number,
+      property_address: r.property_address,
+      auction_date: r.auction_date,
+      opening_bid: r.opening_bid,
+      assessed_value: r.assessed_value,
+      judgment_amount: r.judgment_amount,
+      parity_status: r.parity_status,
+      is_gold_standard: isGold,
+      days_until_auction: daysUntil,
+      equity_gap: hasBoth ? (Number(r.assessed_value) - Number(r.opening_bid)) : null,
+    };
+  });
+}
+
+// ── Single auction lookup + county appraiser link ─────────────────────────────
+async function fetchPropertyById(id) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/multi_county_auctions?id=eq.${encodeURIComponent(id)}&limit=1`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function fetchAppraiserLink(county) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/county_appraiser_urls?county_slug=eq.${encodeURIComponent(county)}&select=appraiser_url&limit=1`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return (rows[0] && rows[0].appraiser_url) || null;
+  } catch(_) { return null; }
+}
+
 async function fetchReportAuctions(county) {
   try {
     const today = new Date().toISOString().slice(0,10);
@@ -244,6 +300,26 @@ function fmtMoney(n) {
 function toDisplay(slug) {
   return COUNTY_DISPLAY[slug] || slug.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
+
+// ── FL county name detection from free text (chat intent routing) ────────────
+const COUNTY_TEXT_ALIASES = {
+  'saint johns': 'st_johns',
+  'saint lucie': 'st_lucie',
+  'miami': 'miami_dade',
+  'dade': 'miami_dade',
+};
+function detectFLCounty(text) {
+  const lower = String(text || '').toLowerCase();
+  for (const alias of Object.keys(COUNTY_TEXT_ALIASES)) {
+    if (lower.includes(alias)) return COUNTY_TEXT_ALIASES[alias];
+  }
+  for (const slug of Object.keys(COUNTY_DISPLAY)) {
+    const display = COUNTY_DISPLAY[slug].toLowerCase();
+    if (lower.includes(display) || lower.includes(slug.replace(/_/g,' '))) return slug;
+  }
+  return null;
+}
+const AUCTION_INTENT_RE = /(?:show|find|list|what|upcoming|auction|properties?|foreclosure|tax.?deed)/i;
 
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
@@ -291,8 +367,16 @@ export default {
       }
 
       // ── GET /buy-report — $25 one-time report checkout page ─────────────
+      // ?mca_id=&address=&county=&date= pre-fills step 3 from a property card in chat.
       if (path === '/buy-report' && method === 'GET') {
-        return new Response(BUY_REPORT_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        const pMcaId = url.searchParams.get('mca_id') || '';
+        const pAddress = url.searchParams.get('address') || '';
+        const pCounty = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
+        const pDate = url.searchParams.get('date') || '';
+        const prefill = pMcaId ? { mca_id: pMcaId, address: pAddress, county: pCounty, county_name: pCounty ? toDisplay(pCounty) : '', date: pDate } : null;
+        const prefillJson = JSON.stringify(prefill).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+        const html = BUY_REPORT_HTML.replace('"PREFILL_PLACEHOLDER"', prefillJson);
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': prefill ? 'no-store' : 'public,max-age=300' } });
       }
 
       // ── GET /buy-report/counties — certified counties w/ purchasable auctions ──
@@ -320,7 +404,7 @@ export default {
         try { body = await request.json(); } catch(_) {
           return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
-        const { email, county, case_number, marketing_consent } = body;
+        const { email, county, case_number, mca_id, marketing_consent } = body;
         if (!email)       return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (!county)      return new Response(JSON.stringify({ error: 'county required — select an auction first' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (!case_number) return new Response(JSON.stringify({ error: 'case_number required — select an auction first' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
@@ -330,7 +414,7 @@ export default {
           const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY },
-            body: JSON.stringify({ tier: 's5_onetime', customer_email: email, county, case_number, marketing_consent: !!marketing_consent }),
+            body: JSON.stringify({ tier: 's5_onetime', customer_email: email, county, case_number, mca_id: mca_id || null, marketing_consent: !!marketing_consent }),
           });
           if (!res.ok) {
             const err = await res.text();
@@ -373,6 +457,30 @@ export default {
         const ciConfig = await fetchRuntimeConfig();
         const html = buildCountiesIndex(ciConfig);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+
+      // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
+      if (path === '/auctions' && method === 'GET') {
+        const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
+        if (!county) return new Response(JSON.stringify({ error: 'county required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let days = parseInt(url.searchParams.get('days') || '14', 10);
+        if (!Number.isFinite(days) || days <= 0) days = 14;
+        days = Math.min(days, 90);
+        const type = (url.searchParams.get('type') || 'all').toLowerCase();
+        let limit = parseInt(url.searchParams.get('limit') || '20', 10);
+        if (!Number.isFinite(limit) || limit <= 0) limit = 20;
+        limit = Math.min(limit, 50);
+        const cards = await fetchAuctionCards(county, days, type, limit);
+        return new Response(JSON.stringify(cards), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=60', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /property/:mca_id — single auction row + appraiser link ─────
+      if (path.match(/^\/property\/[^/]+$/) && method === 'GET') {
+        const id = decodeURIComponent(path.split('/')[2]);
+        const row = await fetchPropertyById(id);
+        if (!row) return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const appraiser_link = row.county ? await fetchAppraiserLink(row.county) : null;
+        return new Response(JSON.stringify({ ...row, appraiser_link }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
       // ── /chat/county-data ────────────────────────────────────────────────
@@ -504,7 +612,16 @@ export default {
           }
         }
 
-        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx;
+        // ── County auction intent → live property cards panel (SSE "properties" event) ──
+        const intentCounty = AUCTION_INTENT_RE.test(lastMsg) ? (county || detectFLCounty(lastMsg)) : null;
+        let propertyPanelCards = null;
+        let propertyPanelCtx = '';
+        if (intentCounty) {
+          propertyPanelCards = await fetchAuctionCards(intentCounty, 21, 'all', 20);
+          propertyPanelCtx = `\n\nLIVE AUCTION DATA for ${toDisplay(intentCounty)} County (next 21 days): ${JSON.stringify(propertyPanelCards)}. Summarize these properties naturally. Do not list all fields — highlight the best opportunities by equity gap. Mention the opening bids and dates. End your response with exactly (nothing after it): [PROPERTIES_LOADED:${intentCounty}:${propertyPanelCards.length}]`;
+        }
+
+        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx + propertyPanelCtx;
         const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the Shapira Max Bid Formula.
 
 ${countyCtx}
@@ -533,6 +650,7 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - If you listed live auction results and there could be more than what you showed, say so and link to the county page rather than just stopping — never imply the list is exhaustive when it's a top-N sample
 - ONLY TWO CTA link destinations exist and are valid — never invent or link to any other path: (1) [See all COUNTY listings →](https://biddeed.ai/county/SLUG) for county-specific results, (2) [Upgrade to Investor →](https://biddeed.ai/subscribe?tier=investor) for broad/multi-county questions. There is NO standalone /s5 page — for the $25 Shapira S5 Report, mention it by name and price in plain text (not as a link) and tell the user to ask about a specific property to get started.
 - ALWAYS end every substantive answer with a clear next step using only the two valid links above, or the plain-text S5 mention. Never end with just information and no path forward — every answer is a lead-generation opportunity.
+- If this message included a "LIVE AUCTION DATA ... End your response with exactly" instruction, obey it literally: put that [PROPERTIES_LOADED:...] token as the very last thing in your reply, on its own, with nothing after it. It is a control token for the UI, not a link — never wrap it in markdown or explain it to the user.
 ${DISCLAIMER_SHORT}`;
 
         const routerProxyKey = env.ROUTER_PROXY_KEY;
@@ -573,6 +691,7 @@ ${DISCLAIMER_SHORT}`;
           const reader = anthropicRes.body.getReader();
           const decoder = new TextDecoder();
           let buf = '';
+          let fullText = '';
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -587,9 +706,17 @@ ${DISCLAIMER_SHORT}`;
                 try {
                   const evt = JSON.parse(data);
                   if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+                    fullText += evt.delta.text;
                     await writer.write(encoder.encode(`data: ${JSON.stringify({ text: evt.delta.text })}\n\n`));
                   }
                 } catch(_) {}
+              }
+            }
+            if (propertyPanelCards) {
+              const markerStart = fullText.indexOf('[PROPERTIES_LOADED:');
+              if (markerStart !== -1) {
+                const payload = { county: intentCounty, auctions: propertyPanelCards, total: propertyPanelCards.length };
+                await writer.write(encoder.encode(`event: properties\ndata: ${JSON.stringify(payload)}\n\n`));
               }
             }
             await writer.write(encoder.encode('data: [DONE]\n\n'));
@@ -824,6 +951,39 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .disclaimer-bar{flex-shrink:0;text-align:center;font-size:9.5px;color:var(--muted);padding:3px 12px 8px;line-height:1.4}
 .disclaimer-bar a{color:var(--muted);text-decoration:underline}
 @media(max-width:380px){.quick-grid{grid-template-columns:1fr}.bd-brand p{display:none}}
+
+/* SPLIT LAYOUT — property cards right panel */
+.split{flex:1;display:flex;min-height:0;overflow:hidden}
+.chat-col{display:flex;flex-direction:column;flex:1 1 45%;min-width:0;min-height:0;overflow:hidden}
+.panel-col{display:none;flex:1 1 55%;min-width:0;flex-direction:column;border-left:1px solid var(--border);background:var(--navy2);overflow:hidden}
+.panel-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+.panel-hdr .pt{font-size:12px;font-weight:700;color:white;text-transform:capitalize}
+.panel-toggle-btn{background:var(--navy3);border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:5px 10px;font-size:11px;cursor:pointer;font-family:inherit}
+.panel-body{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+.pc-empty{color:var(--muted);font-size:12px;text-align:center;padding:20px 0}
+.pc-card{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:12px;padding:12px}
+.pc-badges{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.pc-badge{font-size:9.5px;font-weight:700;letter-spacing:.04em;border-radius:6px;padding:3px 7px}
+.pc-badge.fc{background:rgba(245,158,11,.12);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
+.pc-badge.td{background:rgba(20,184,166,.12);color:#2dd4bf;border:1px solid rgba(20,184,166,.3)}
+.pc-badge.gold{background:rgba(245,158,11,.12);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
+.pc-row1,.pc-row2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.pc-addr{font-size:13px;font-weight:700;color:white}
+.pc-date{font-size:11px;color:var(--muted);white-space:nowrap}
+.pc-city{font-size:11.5px;color:var(--muted)}
+.pc-days{font-size:10px;color:var(--orange);white-space:nowrap;font-weight:600}
+.pc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:10px 0}
+.pc-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.pc-val{font-size:12.5px;font-weight:700;color:white;font-family:'SF Mono',monospace}
+.pc-parity{font-size:10.5px;font-weight:600;margin-bottom:10px}
+.pc-parity.ok{color:var(--green)}
+.pc-parity.warn{color:var(--orange)}
+.pc-parity.bad{color:#f87171}
+.pc-actions{display:flex;gap:8px;flex-wrap:wrap}
+.pc-buy{flex:1;text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap}
+.pc-maps{flex:1;text-align:center;background:var(--navy3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:600;text-decoration:none;white-space:nowrap}
+.pc-maps.disabled{opacity:.4;cursor:not-allowed}
+@media(max-width:768px){.split{flex-direction:column}.chat-col{flex:1 1 auto;min-height:0}.panel-col{border-left:none;border-top:1px solid var(--border);max-height:46vh;flex:0 0 auto}}
 </style>
 </head>
 <body>
@@ -839,6 +999,8 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
   <a href="/subscribe?tier=investor" class="upgrade-btn">⚡ $99/mo</a>
 </header>
 
+<div class="split">
+  <div class="chat-col">
 ${countyBar}
 
 <div class="msgs" id="msgs">
@@ -877,6 +1039,16 @@ ${countyBar}
     </button>
   </div>
   <div class="disclaimer-bar">Informational only — not legal, financial, or investment advice. <a href="/disclaimer" target="_blank">Disclaimer</a></div>
+</div>
+  </div>
+
+  <div class="panel-col" id="panel-col">
+    <div class="panel-hdr">
+      <span class="pt" id="panel-title">Properties</span>
+      <button class="panel-toggle-btn" id="panel-toggle" type="button">Hide ▸</button>
+    </div>
+    <div class="panel-body" id="panel-body"></div>
+  </div>
 </div>
 
 <script>
@@ -1027,6 +1199,79 @@ function formatInline(escaped){
   return out;
 }
 
+// Strips the trailing [PROPERTIES_LOADED:county:count] control token from the
+// displayed text — pure string scan, no regex (see mdToHtml note above).
+function stripPropertiesMarker(s){
+  const start=s.indexOf('[PROPERTIES_LOADED:');
+  if(start===-1)return s;
+  const end=s.indexOf(']',start);
+  if(end===-1)return s;
+  return (s.slice(0,start)+s.slice(end+1)).trim();
+}
+
+// ── Property cards right panel ──────────────────────────────────────────────
+let panelOpen=false;
+function fmtMoneyP(n){if(n===null||n===undefined||n==='')return'N/A';return'$'+Math.round(Number(n)).toLocaleString('en-US');}
+function fmtDateP(d){if(!d)return'TBD';const dt=new Date(d+'T00:00:00');return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
+function cardSortKey(a){
+  if(!a.property_address)return 3;
+  if(a.parity_status==='matched_clean')return 0;
+  if(a.parity_status==='mca_only')return 1;
+  return 2;
+}
+function parityInfo(p){
+  if(p==='matched_clean')return{cls:'ok',label:'✓ Data verified',tip:''};
+  if(p==='matched_divergent')return{cls:'bad',label:'⚠ Data conflict',tip:''};
+  return{cls:'warn',label:'⚠ Data unverified',tip:'This property is on our platform but has not been cross-verified with county records'};
+}
+function badgeSaleType(t){
+  if(t==='foreclosure')return'<span class="pc-badge fc">FORECLOSURE</span>';
+  if(t==='tax_deed')return'<span class="pc-badge td">TAX DEED</span>';
+  return'';
+}
+function buildCard(a){
+  const hasAddr=!!a.property_address;
+  const addrParts=hasAddr?a.property_address.split(','):[];
+  const line1=hasAddr?addrParts[0].trim():('Address not yet available — Case #'+esc(a.case_number||''));
+  const line2=hasAddr?addrParts.slice(1).join(',').trim():'';
+  const pinfo=parityInfo(a.parity_status);
+  const mapsUrl=hasAddr?('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(a.property_address)):'';
+  const buyUrl='/buy-report?mca_id='+encodeURIComponent(a.id)+'&address='+encodeURIComponent(a.property_address||'')+'&county='+encodeURIComponent(a.county||'')+'&date='+encodeURIComponent(a.auction_date||'');
+  let html='<div class="pc-card">';
+  html+='<div class="pc-badges">'+badgeSaleType(a.sale_type)+(a.is_gold_standard?'<span class="pc-badge gold">⭐ GOLD STANDARD</span>':'')+'</div>';
+  html+='<div class="pc-row1"><div class="pc-addr">'+esc(line1)+'</div><div class="pc-date">'+esc(fmtDateP(a.auction_date))+'</div></div>';
+  html+='<div class="pc-row2"><div class="pc-city">'+esc(line2)+'</div><div class="pc-days">'+(a.days_until_auction!=null?(a.days_until_auction+' days away'):'')+'</div></div>';
+  html+='<div class="pc-grid"><div><div class="pc-lbl">Opening Bid</div><div class="pc-val">'+fmtMoneyP(a.opening_bid)+'</div></div>'+
+        '<div><div class="pc-lbl">Assessed Value</div><div class="pc-val">'+fmtMoneyP(a.assessed_value)+'</div></div>'+
+        '<div><div class="pc-lbl">Equity Gap</div><div class="pc-val">'+fmtMoneyP(a.equity_gap)+'</div></div></div>';
+  html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
+  html+='<div class="pc-actions"><a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
+        (hasAddr?('<a class="pc-maps" href="'+mapsUrl+'" target="_blank" rel="noopener">View on Maps ↗</a>'):'<span class="pc-maps disabled">View on Maps ↗</span>')+'</div>';
+  html+='</div>';
+  return html;
+}
+function renderPropertyPanel(payload){
+  const col=document.getElementById('panel-col');
+  const body=document.getElementById('panel-body');
+  const title=document.getElementById('panel-title');
+  if(!col||!body)return;
+  const list=(payload.auctions||[]).slice().sort(function(a,b){return cardSortKey(a)-cardSortKey(b);});
+  if(title)title.textContent=(payload.county?payload.county.split('_').join(' '):'Properties')+' — '+list.length+' upcoming';
+  body.innerHTML=list.length?list.map(buildCard).join(''):'<div class="pc-empty">No upcoming auctions found for this county right now.</div>';
+  col.style.display='flex';
+  panelOpen=true;
+  const toggle=document.getElementById('panel-toggle');
+  if(toggle)toggle.textContent='Hide ▸';
+  body.style.display='block';
+}
+const panelToggleBtn=document.getElementById('panel-toggle');
+if(panelToggleBtn)panelToggleBtn.addEventListener('click',function(){
+  panelOpen=!panelOpen;
+  const body=document.getElementById('panel-body');
+  if(body)body.style.display=panelOpen?'block':'none';
+  panelToggleBtn.textContent=panelOpen?'Hide ▸':'Show ▾';
+});
+
 function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTop=m.scrollHeight;}}
 
 function addMsg(role,content){
@@ -1074,17 +1319,25 @@ async function send(){
     m.appendChild(row);scrollBottom();
     const bbl=document.getElementById('sbbl');
     const reader=res.body.getReader();const decoder=new TextDecoder();
-    let fullText='',buf='';
+    let fullText='',buf='',pendingEvent=null;
     while(true){
       const{done,value}=await reader.read();if(done)break;
       buf+=decoder.decode(value,{stream:true});
       const lines=buf.split(String.fromCharCode(10));buf=lines.pop()||'';
       for(const line of lines){
+        if(line.indexOf('event: ')===0){pendingEvent=line.slice(7).trim();continue;}
         if(!line.startsWith('data: '))continue;
-        const data=line.slice(6).trim();if(data==='[DONE]')break;
-        try{const evt=JSON.parse(data);if(evt.text){fullText+=evt.text;bbl.innerHTML=mdToHtml(fullText);scrollBottom();}}catch(e){}
+        const data=line.slice(6).trim();
+        if(data==='[DONE]'){pendingEvent=null;break;}
+        if(pendingEvent==='properties'){
+          try{renderPropertyPanel(JSON.parse(data));}catch(e){}
+          pendingEvent=null;continue;
+        }
+        try{const evt=JSON.parse(data);if(evt.text){fullText+=evt.text;bbl.innerHTML=mdToHtml(stripPropertiesMarker(fullText));scrollBottom();}}catch(e){}
       }
     }
+    fullText=stripPropertiesMarker(fullText);
+    bbl.innerHTML=mdToHtml(fullText);
     bbl.id='';
     H.push({role:'assistant',content:fullText});
     // Show S5 CTA after 2nd message
@@ -1251,7 +1504,8 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
   <div class="upl">Not legal advice. BidDeed.AI is an information and analytics platform, not a law firm or title company. Auction data and bid estimates are informational and must be independently verified — always consult a licensed Florida attorney before bidding. See <a href="/disclaimer">full disclaimer</a>.</div>
 </div>
 <script>
-var selected={county:null,county_name:null,case_number:null,property_address:null,auction_date:null,opening_bid:null,sale_type:null};
+var selected={county:null,county_name:null,case_number:null,property_address:null,auction_date:null,opening_bid:null,sale_type:null,mca_id:null};
+var PREFILL = "PREFILL_PLACEHOLDER";
 
 function showStep(n){
   document.getElementById('step-county').style.display=(n===1)?'block':'none';
@@ -1272,33 +1526,68 @@ function fmtMoney(n){
   return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0});
 }
 
-// ── Step 1: counties ──────────────────────────────────────────────────────
-fetch('/buy-report/counties').then(function(r){return r.json();}).then(function(counties){
+// ── Prefill flow — arrived from a property card in chat (?mca_id=&address=&county=&date=) ──
+if (PREFILL && PREFILL.mca_id) {
   document.getElementById('county-loading').style.display='none';
-  var sel=document.getElementById('county-select');
-  if(!counties || !counties.length){
-    document.getElementById('county-err').textContent='No certified counties with upcoming auctions right now — check back soon.';
-    document.getElementById('county-err').style.display='block';
-    return;
-  }
-  var opts='<option value="">Select a county…</option>';
-  counties.forEach(function(c){
-    opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'">'+c.display+' ('+c.upcoming+' upcoming)</option>';
+  selected.county=PREFILL.county||null;
+  selected.county_name=PREFILL.county_name||PREFILL.county||'';
+  selected.property_address=PREFILL.address||null;
+  selected.auction_date=PREFILL.date||null;
+  selected.mca_id=PREFILL.mca_id;
+  document.getElementById('back-to-auction').style.display='none';
+  goToCheckout();
+  document.getElementById('btn').disabled=true;
+  document.getElementById('btn').textContent='Loading property…';
+  fetch('/property/'+encodeURIComponent(PREFILL.mca_id)).then(function(r){return r.json();}).then(function(d){
+    if (d && d.case_number) {
+      selected.case_number=d.case_number;
+      selected.county=d.county||selected.county;
+      selected.property_address=d.property_address||selected.property_address;
+      selected.auction_date=d.auction_date||selected.auction_date;
+      selected.opening_bid=d.opening_bid;
+      selected.sale_type=d.sale_type;
+      document.getElementById('btn').disabled=false;
+      document.getElementById('btn').textContent='Get My Shapira Report — $25';
+      goToCheckout();
+    } else {
+      document.getElementById('btn').textContent='Property not found';
+      document.getElementById('err').textContent='Could not load this property — the link may be out of date.';
+      document.getElementById('err').style.display='block';
+    }
+  }).catch(function(){
+    document.getElementById('btn').textContent='Property not found';
+    document.getElementById('err').textContent='Could not load this property — please try again.';
+    document.getElementById('err').style.display='block';
   });
-  sel.innerHTML=opts;
-  sel.style.display='block';
-  var btn=document.getElementById('county-continue');
-  btn.style.display='block';
-  sel.addEventListener('change',function(){ btn.disabled=!sel.value; });
-  btn.addEventListener('click',function(){
-    var opt=sel.options[sel.selectedIndex];
-    selected.county=sel.value;
-    selected.county_name=opt.getAttribute('data-name');
-    loadAuctions();
+} else {
+  // ── Step 1: counties ──────────────────────────────────────────────────────
+  fetch('/buy-report/counties').then(function(r){return r.json();}).then(function(counties){
+    document.getElementById('county-loading').style.display='none';
+    var sel=document.getElementById('county-select');
+    if(!counties || !counties.length){
+      document.getElementById('county-err').textContent='No certified counties with upcoming auctions right now — check back soon.';
+      document.getElementById('county-err').style.display='block';
+      return;
+    }
+    var opts='<option value="">Select a county…</option>';
+    counties.forEach(function(c){
+      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'">'+c.display+' ('+c.upcoming+' upcoming)</option>';
+    });
+    sel.innerHTML=opts;
+    sel.style.display='block';
+    var btn=document.getElementById('county-continue');
+    btn.style.display='block';
+    sel.addEventListener('change',function(){ btn.disabled=!sel.value; });
+    btn.addEventListener('click',function(){
+      var opt=sel.options[sel.selectedIndex];
+      selected.county=sel.value;
+      selected.county_name=opt.getAttribute('data-name');
+      loadAuctions();
+    });
+  }).catch(function(){
+    document.getElementById('county-loading').textContent='Could not load counties. Please refresh.';
   });
-}).catch(function(){
-  document.getElementById('county-loading').textContent='Could not load counties. Please refresh.';
-});
+}
 
 // ── Step 2: auctions ──────────────────────────────────────────────────────
 function loadAuctions(){
@@ -1338,7 +1627,7 @@ document.getElementById('back-to-county').addEventListener('click',function(){ s
 function goToCheckout(){
   document.getElementById('checkout-summary').innerHTML=
     '<div class="addr">'+(selected.property_address||'Address pending')+'</div>'+
-    'Case '+selected.case_number+' · '+selected.county_name+' County · '+fmtDate(selected.auction_date)+'<br>'+
+    (selected.case_number?('Case '+selected.case_number+' · '):'')+selected.county_name+' County · '+fmtDate(selected.auction_date)+'<br>'+
     'Opening bid: '+fmtMoney(selected.opening_bid)+' · '+(selected.sale_type||'');
   showStep(3);
 }
@@ -1351,7 +1640,7 @@ document.getElementById('f').addEventListener('submit', function(e){
   var marketing_consent=document.getElementById('consent').checked;
   err.style.display='none';
   btn.disabled=true; btn.textContent='Redirecting to checkout...';
-  fetch('/buy-report/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,county:selected.county,case_number:selected.case_number,marketing_consent:marketing_consent})})
+  fetch('/buy-report/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,county:selected.county,case_number:selected.case_number,mca_id:selected.mca_id,marketing_consent:marketing_consent})})
     .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })
     .then(function(r){
       if(r.ok && r.data.url){ window.location.href=r.data.url; }

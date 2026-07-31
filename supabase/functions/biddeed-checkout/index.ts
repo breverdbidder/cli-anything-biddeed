@@ -67,7 +67,7 @@ const REPORT_CANCEL_URL = "https://biddeed.ai/buy-report";
 const S5_ONETIME_AMOUNT_CENTS = 2500; // $25 fixed server-side — never trust a client-supplied price
 
 async function handleS5OnetimeCheckout(body: any): Promise<Response> {
-  const { county, case_number: caseNumber, customer_email: customerEmail } = body;
+  const { county, case_number: caseNumber, customer_email: customerEmail, mca_id: mcaId } = body;
   if (!county || typeof county !== "string") return jsonRes({ error: "county required" }, 400);
   if (!caseNumber || typeof caseNumber !== "string") return jsonRes({ error: "case_number required" }, 400);
   if (!customerEmail || typeof customerEmail !== "string") return jsonRes({ error: "customer_email required" }, 400);
@@ -115,6 +115,7 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
     "metadata[case_number]": caseNumber,
     "metadata[county]": countySlug,
     "metadata[customer_email]": customerEmail,
+    ...(mcaId && typeof mcaId === "string" ? { "metadata[mca_id]": mcaId } : {}),
   });
 
   const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
