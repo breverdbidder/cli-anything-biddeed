@@ -1,0 +1,72 @@
+session:
+  repo: cli-anything-biddeed
+  dispatch_id: e8926b0a-9997-471b-82f3-00a092c1eb19
+  chat_session: architect-20260731T080000
+  shard: "gold-standard-shard14-bay"
+  county: bay
+  session_started: "2026-07-31T08:00:00Z"
+  session_ended: "2026-07-31T08:35:00Z"
+  note: "session_ended is approximate (no logged final-tool-call timestamp)"
+
+decisions:
+  - step: 1
+    action: "Query live pencil_dod_evaluate_county('bay') at session start rather than trust the dispatch brief's pasted numbers"
+    result: "Confirmed brief exactly: 7/10, C/D FAIL 93.2 (matched_clean/matched_any=178), I FAIL 94.2 (card_complete=180 of 191)"
+    reason: "HONESTY PROTOCOL -- re-verify claims fresh, don't chain off a stale brief"
+  - step: 2
+    action: "Pulled the 13 C/D-failing rows and 11 I-failing rows directly by replaying the evaluator's own SQL predicates (from supabase/migrations/20260718_gtm22_phase1_3_pencil_dod_snapshot_param_and_loop_rewire.sql) instead of guessing"
+    result: "C/D gap = 13 tax_deed rows, all auction_date=2026-09-01 (the one calendar date not yet harvested). I gap = 7 tax_deed rows (geo/zoning) + 4 foreclosure rows (address/parcel)"
+    reason: "ground every downstream fix in the exact rows that fail, not a general county sweep"
+  - step: 3
+    action: "Searched scripts/ before writing anything new"
+    result: "Found two directly-reusable, previously-proven bay-specific scripts: shard9_run6046_bay_cd_future_harvest.py (live RealTaxDeed AJAX harvest -> parity match) and gold_standard_shard9_bay_run6253_i_fix.py (gis.baycountyfl.gov TEST_Parcels geocode+zoning backfill). Also found gold_standard_shard4_bay_i_tail_case_clerk_ocr_fix.py, which had already exhaustively researched and correctly BLOCKED the 4 foreclosure I-gap rows in a prior session"
+    reason: "SEARCH-FIRST MANDATE + K3 surgical changes -- reuse proven tooling, don't rebuild"
+  - step: 4
+    action: "Ran shard9_run6046_bay_cd_future_harvest.py against bay tax_deed 2026-09-01 only"
+    result: "13/13 calendar items matched by case_number -> parity_status=matched_clean. C/D flipped 93.2->100.0 live"
+    reason: "targeted the single unharvested date rather than a full county re-harvest"
+  - step: 5
+    action: "Ran gold_standard_shard9_bay_run6253_i_fix.py unmodified"
+    result: "6/6 tax-deed rows geocoded, 5/6 got a real parcel_zones row from the same live GIS source; TIMESHARE parcel_id and one ambiguous-jurisdiction row correctly left alone (BLANK>WRONG)"
+    reason: "idempotent, PATCH-only-on-NULL script -- safe to re-run without re-deriving logic"
+  - step: 6
+    action: "Investigated the 1 remaining zoning-linked-but-still-failing tax-deed row (case 2026-0831TD) by hand instead of re-running a script"
+    result: "Found a prior 2026-07-29 session had ALREADY GIS-verified the real zone (RG, Mexico Beach) but keyed it to the correct parcel_id spelling (04875-080-000) while multi_county_auctions carried the county's malformed extra-zero spelling (04875-080-0000) -- pure data-typo mismatch, not a missing-data gap"
+    reason: "before writing a fix, confirm whether the data already exists under a different key -- cheaper and more honest than re-scraping"
+  - step: 7
+    action: "First fix attempt: UPDATE multi_county_auctions.parcel_id to the correct spelling"
+    result: "Verified live via RETURNING clause it landed. Re-ran pencil_dod_evaluate_county('bay') -> I PASS 97.4% (186/191). Reported this as the shipped state and launched a 3-agent adversarial ULTRALOOP verification Workflow (per this campaign's mandatory ULTRALOOP PROTOCOL, ultracode opted in) for C/D/I"
+    reason: "protocol requires independent adversarial verification before any claim ships, even when self-verified"
+  - step: 8
+    action: "I's refuter (independent agent, not the fixer) re-ran pencil_dod_evaluate_county('bay') live and found I at 96.9% (185/191), not 186 -- REFUTED the original claim"
+    result: "Root-caused live: a bay scraper cron re-touched case 2026-0831TD at 2026-07-31T08:25:00Z (scraped_at/last_changed_at) and reverted parcel_id back to the malformed spelling, undoing the step-7 patch within minutes"
+    reason: "this is exactly the class of false-positive ULTRALOOP exists to catch -- logged as survived=false in gold_standard_ultraloop_audit rather than silently re-patching and re-claiming without evidence"
+  - step: 9
+    action: "Corrected fix: instead of re-patching the mutable multi_county_auctions.parcel_id (which the scraper will keep clobbering every cycle), inserted a second parcel_zones row aliasing the scraper-persistent malformed spelling to the same real GIS-sourced zone_code=RG"
+    result: "Join is now spelling-invariant for this parcel regardless of which form the scraper writes on future cycles"
+    reason: "fix the stable side of the join, not fight a recurring automated process -- addresses the actual root cause instead of the symptom"
+  - step: 10
+    action: "Independent second verifier (different agent than the one who applied step 9) re-checked live: confirmed both parcel_zones rows are real (same GIS source, same centroid), confirmed no double-counting in v_zoning_gold_standard_kpi_v3 (G metric unchanged), confirmed full A-J zero regression"
+    result: "survived=true -- corrected I claim confirmed durable"
+    reason: "protocol: the verifier of a fix is never the agent that wrote it"
+  - step: 11
+    action: "Logged 4 rows to gold_standard_ultraloop_audit (C survived=true, D survived=true, I original survived=false, I corrected survived=true) and did NOT run gold_standard_loop()/gold_standard_certify()"
+    result: "bay confirmed 10/10 via direct pencil_dod_evaluate_county RPC; gold_standard_scoreboard table itself still shows the prior 07:30Z loop run (7/10) as of session end and will pick up bay's 10/10 on the next scheduled fleet-wide loop run"
+    reason: "PARALLEL-FLEET RULES: do not run the shared county-wide loop/certify mid-session while other shards may be concurrently working other counties"
+
+artifacts:
+  - GOLD_STANDARD_SHARD14_BAY_DISPATCH_E8926B0A_SESSION_REPORT.md
+  - gold_standard_ultraloop_audit rows 11553-11556 (live DB)
+  - parcel_zones row id=849895 (live DB, new)
+  - multi_county_auctions 13 rows parity-promoted for case 2026-09-01 tax_deed calendar (live DB)
+
+verification:
+  - check: "pencil_dod_evaluate_county('bay') before vs after"
+    proof: "before: A64/B100.0/C93.2/D93.2/E98.4/F100.0/G97.0/H0.1/I94.2/J100.0 (7/10). after: A64/B100.0/C100.0/D100.0/E98.4/F100.0/G97.0/H0.1/I97.4/J100.0 (10/10)"
+    status: VERIFIED
+  - check: "no regression on untouched letters A/B/E/F/G/H/J"
+    proof: "identical metric values before/after in both adversarial verification passes"
+    status: VERIFIED
+  - check: "I durability under the live scraper"
+    proof: "step 8 caught a real revert within ~1 scrape cycle; step 9/10 fix independently re-confirmed after the revert was already known to have occurred, not before"
+    status: VERIFIED
