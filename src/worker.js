@@ -870,6 +870,10 @@ function buildChatPage(county, hook, ref) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content">
 <title>BidDeed.AI · Auction Intelligence</title>
+<script>
+!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+posthog.init("phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14", {api_host: "https://us.i.posthog.com"});
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
@@ -998,6 +1002,8 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .pc-maps.disabled{opacity:.4;cursor:not-allowed}
 .btn-bid{display:block;border:1px solid var(--orange);color:var(--orange);padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none;text-align:center;transition:background .15s}
 .btn-bid:hover{background:rgba(245,158,11,.13)}
+.btn-locked{display:block;width:100%;border:1px solid var(--border);background:var(--navy3);color:var(--muted);padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;cursor:pointer;font-family:inherit}
+.btn-locked:hover{border-color:var(--orange);color:var(--orange)}
 .btn-po{display:block;text-align:center;font-size:10.5px;color:var(--muted);text-decoration:underline;padding:2px 0}
 @media(max-width:768px){.split{flex-direction:column}.chat-col{flex:1 1 auto;min-height:0}.panel-col{border-left:none;border-top:1px solid var(--border);max-height:46vh;flex:0 0 auto}}
 </style>
@@ -1245,6 +1251,9 @@ function badgeSaleType(t){
   if(t==='tax_deed')return'<span class="pc-badge td">TAX DEED</span>';
   return'';
 }
+function showUpgradePrompt(){
+  window.location.href='/subscribe?tier=investor';
+}
 function buildCard(a){
   const hasAddr=!!a.property_address;
   const addrParts=hasAddr?a.property_address.split(','):[];
@@ -1261,7 +1270,8 @@ function buildCard(a){
         '<div><div class="pc-lbl">Assessed Value</div><div class="pc-val">'+fmtMoneyP(a.assessed_value)+'</div></div>'+
         '<div><div class="pc-lbl">Equity Gap</div><div class="pc-val">'+fmtMoneyP(a.equity_gap)+'</div></div></div>';
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
-  html+='<div class="pc-actions"><a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
+  html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt()">🔒 Place Bid — Upgrade to Unlock</button>'+
+        '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
         (hasAddr?('<a class="pc-maps" href="'+mapsUrl+'" target="_blank" rel="noopener">View on Maps ↗</a>'):'<span class="pc-maps disabled">View on Maps ↗</span>')+
         (a.po_url?('<a class="btn-po" href="'+esc(a.po_url)+'" target="_blank" rel="noopener">PropertyOnion details ↗</a>'):'')+'</div>';
