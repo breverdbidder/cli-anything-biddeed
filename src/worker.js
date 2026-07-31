@@ -323,6 +323,19 @@ function toDisplay(slug) {
   return COUNTY_DISPLAY[slug] || slug.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 
+// ── Cheap character-range language detection — skips relying on the model to
+// infer language from content alone, so the system prompt can name the target
+// language up front instead of the model figuring it out mid-response ────────
+function detectLanguage(text) {
+  const s = String(text || '');
+  if (/[֐-׿]/.test(s)) return 'he'; // Hebrew
+  if (/[؀-ۿ]/.test(s)) return 'ar'; // Arabic
+  if (/[一-鿿]/.test(s)) return 'zh'; // Chinese
+  if (/[а-яА-Я]/.test(s)) return 'ru'; // Russian
+  return 'en';
+}
+const LANG_NAMES = { he: 'Hebrew (עברית)', ar: 'Arabic (العربية)', zh: 'Chinese (中文)', ru: 'Russian (Русский)' };
+
 // ── FL county name detection from free text (chat intent routing) ────────────
 const COUNTY_TEXT_ALIASES = {
   'saint johns': 'st_johns',
@@ -649,7 +662,14 @@ export default {
           propertyPanelCtx = `\n\nLIVE AUCTION DATA for ${toDisplay(intentCounty)} County (next 21 days): ${JSON.stringify(propertyPanelCards)}. Summarize these properties naturally. Do not list all fields — highlight the best opportunities by equity gap. Mention the opening bids and dates. End your response with exactly (nothing after it): [PROPERTIES_LOADED:${intentCounty}:${propertyPanelCards.length}]`;
         }
 
-        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx + propertyPanelCtx;
+        // Cheap character-range detection up front — the model no longer has to infer
+        // the reply language from content alone, which shortens time-to-first-token.
+        const detectedLang = detectLanguage(String(messages[messages.length - 1]?.content || ''));
+        const langInstruction = detectedLang !== 'en'
+          ? `\n\nRespond in ${LANG_NAMES[detectedLang]}. Property data (addresses, dates, amounts) stay in English.`
+          : '';
+
+        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx + propertyPanelCtx + langInstruction;
         const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the Shapira Max Bid Formula.
 
 ${countyCtx}
@@ -715,6 +735,13 @@ ${DISCLAIMER_SHORT}`;
         const writer = writable.getWriter();
         const encoder = new TextEncoder();
 
+        // Heartbeat to prevent mobile browsers from killing an idle SSE connection —
+        // ": "-prefixed lines are SSE comments, ignored by the client parser but keep
+        // the TCP connection alive while Anthropic is still generating.
+        const heartbeatInterval = setInterval(() => {
+          writer.write(encoder.encode(': heartbeat\n\n')).catch(() => {});
+        }, 5000);
+
         ctx.waitUntil((async () => {
           const reader = anthropicRes.body.getReader();
           const decoder = new TextDecoder();
@@ -751,6 +778,7 @@ ${DISCLAIMER_SHORT}`;
           } catch(e) {
             await logErr(env, '/chat/api', 'Stream pipe error', String(e), 500);
           } finally {
+            clearInterval(heartbeatInterval);
             await writer.close();
           }
         })());
@@ -1112,7 +1140,8 @@ const COUNTY = ${JSON.stringify(county)};
 const HOOK   = ${JSON.stringify(hook)};
 const AUTO   = ${JSON.stringify(autoMsg)};
 const S5_URL = ${JSON.stringify(MINDSTUDIO_S5_URL)};
-let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0;
+let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0, retryCount = 0;
+const MAX_RETRIES = 3;
 
 // County bar
 if (COUNTY) {
@@ -1346,6 +1375,14 @@ function showS5CTA(){
 
 function ask(t){document.getElementById('inp').value=t;send();}
 
+function showSystemMessage(text){
+  const m=document.getElementById('msgs');
+  const d=document.createElement('div');d.className='msg assistant';
+  d.innerHTML='<div class="av ai">BD</div><div class="bbl ai" style="opacity:.65;font-style:italic">'+esc(text)+'</div>';
+  m.appendChild(d);scrollBottom();
+  return d;
+}
+
 async function send(){
   if(busy)return;
   const inp=document.getElementById('inp');
@@ -1359,22 +1396,41 @@ async function send(){
   const tv=document.createElement('div');tv.id='typing';tv.className='typing-row';
   tv.innerHTML='<div class="av ai">BD</div><div class="typing-bbl"><div class="td"></div><div class="td"></div><div class="td"></div></div>';
   m.appendChild(tv);scrollBottom();
+  retryCount=0;
+  await attemptStream();
+  busy=false;document.getElementById('snd').disabled=false;inp.focus();
+}
+
+async function attemptStream(){
+  const m=document.getElementById('msgs');
+  const controller=new AbortController();
+  // Mobile timeout: abort if no data (including heartbeat comments) for 30 seconds
+  let lastDataTime=Date.now();
+  const timeoutChecker=setInterval(function(){
+    if(Date.now()-lastDataTime>30000)controller.abort();
+  },5000);
+  let fullText='';
   try{
-    const res=await fetch('/chat/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:H,county:COUNTY,hook:HOOK})});
+    const res=await fetch('/chat/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:H,county:COUNTY,hook:HOOK}),signal:controller.signal});
     document.getElementById('typing')?.remove();
-    if(!res.ok){addMsg('assistant','Error '+res.status+'. Please try again.');busy=false;document.getElementById('snd').disabled=false;inp.focus();return;}
+    if(!res.ok){addMsg('assistant','Error '+res.status+'. Please try again.');return;}
     document.getElementById('welcome')?.remove();
-    const row=document.createElement('div');row.className='msg assistant';
-    row.innerHTML='<div class="av ai">BD</div><div class="bbl ai" id="sbbl"></div>';
-    m.appendChild(row);scrollBottom();
-    const bbl=document.getElementById('sbbl');
+    let bbl=document.getElementById('sbbl');
+    if(!bbl){
+      const row=document.createElement('div');row.className='msg assistant';
+      row.innerHTML='<div class="av ai">BD</div><div class="bbl ai" id="sbbl"></div>';
+      m.appendChild(row);scrollBottom();
+      bbl=document.getElementById('sbbl');
+    }
     const reader=res.body.getReader();const decoder=new TextDecoder();
-    let fullText='',buf='',pendingEvent=null;
+    let buf='',pendingEvent=null;
     while(true){
       const{done,value}=await reader.read();if(done)break;
+      lastDataTime=Date.now();
       buf+=decoder.decode(value,{stream:true});
       const lines=buf.split(String.fromCharCode(10));buf=lines.pop()||'';
       for(const line of lines){
+        if(line.indexOf(': ')===0)continue; // SSE comment — e.g. ": heartbeat" keepalive, ignore
         if(line.indexOf('event: ')===0){pendingEvent=line.slice(7).trim();continue;}
         if(!line.startsWith('data: '))continue;
         const data=line.slice(6).trim();
@@ -1390,15 +1446,28 @@ async function send(){
     bbl.innerHTML=mdToHtml(fullText);
     bbl.id='';
     H.push({role:'assistant',content:fullText});
+    retryCount=0;
     // Show S5 CTA after 2nd message
     if(msgCount>=2&&!s5Shown)showS5CTA();
     // Show email capture after 3rd message
     if(!emailDone&&msgCount>=3)showEmailCapture();
   }catch(e){
     document.getElementById('typing')?.remove();
-    addMsg('assistant','Connection error. Check your internet and try again.');
+    if(e.name==='AbortError'&&retryCount<MAX_RETRIES){
+      retryCount++;
+      const delay=retryCount*2000; // 2s, 4s, 6s backoff
+      const sysMsg=showSystemMessage('Connection timeout — retrying ('+retryCount+'/'+MAX_RETRIES+')...');
+      await new Promise(function(resolve){setTimeout(resolve,delay);});
+      sysMsg.remove();
+      clearInterval(timeoutChecker);
+      await attemptStream();
+      return;
+    }
+    addMsg('assistant','Connection lost. Please try again.');
+    retryCount=0;
+  }finally{
+    clearInterval(timeoutChecker);
   }
-  busy=false;document.getElementById('snd').disabled=false;inp.focus();
 }
 
 function showEmailCapture(){
