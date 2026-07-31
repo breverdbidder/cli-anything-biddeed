@@ -1316,14 +1316,14 @@ function buildCard(a){
         '<div><div class="pc-lbl">Assessed Value</div><div class="pc-val">'+fmtMoneyP(a.assessed_value)+'</div></div>'+
         '<div><div class="pc-lbl">Equity Gap</div><div class="pc-val">'+fmtMoneyP(a.equity_gap)+'</div></div></div>';
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
-  html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt(\'bid_link\',\''+esc(a.case_number||'')+'\',\''+esc(a.county||'')+'\')">🔒 Place Bid — Upgrade to Unlock</button>'+
+  html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt(\\'bid_link\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')">🔒 Place Bid — Upgrade to Unlock</button>'+
         '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
-        '<div class="btn-locked" onclick="showUpgradePrompt(\'maps\',\''+esc(a.case_number||'')+'\',\''+esc(a.county||'')+'\')" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
+        '<div class="btn-locked" onclick="showUpgradePrompt(\\'maps\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
         (a.po_url?('<a class="btn-po" href="'+esc(a.po_url)+'" target="_blank" rel="noopener">PropertyOnion details ↗</a>'):'')+'</div>';
   if(a.appraiser_url){
     html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">'+
-          '<a href="'+esc(a.appraiser_url)+'" target="_blank" rel="noopener" onclick="trackOutbound(\'appraiser\',\''+esc(a.case_number||'')+'\',\''+esc(a.county||'')+'\')" style="font-size:12px;color:#64748b;text-decoration:none;">📋 Property Appraiser Record ↗</a>'+
+          '<a href="'+esc(a.appraiser_url)+'" target="_blank" rel="noopener" onclick="trackOutbound(\\'appraiser\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')" style="font-size:12px;color:#64748b;text-decoration:none;">📋 Property Appraiser Record ↗</a>'+
           '</div>';
   }
   html+='</div>';
