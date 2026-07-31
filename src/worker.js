@@ -30,7 +30,6 @@
 const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw';
 const STRIPE_INVESTOR_URL = 'https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00';
-const MINDSTUDIO_S5_URL = 'https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427';
 const DISCLAIMER_SHORT = 'Informational only — not legal, financial, or investment advice. Verify independently & consult a licensed attorney before bidding.';
 
 // ── PostHog — single shared init snippet, injected into every page's <head> ──
@@ -1139,7 +1138,6 @@ ${countyBar}
 const COUNTY = ${JSON.stringify(county)};
 const HOOK   = ${JSON.stringify(hook)};
 const AUTO   = ${JSON.stringify(autoMsg)};
-const S5_URL = ${JSON.stringify(MINDSTUDIO_S5_URL)};
 let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0, retryCount = 0;
 const MAX_RETRIES = 3;
 
@@ -1369,7 +1367,7 @@ function showS5CTA(){
   s5Shown=true;
   const m=document.getElementById('msgs');
   const d=document.createElement('div');d.id='s5cta';d.className='s5-cta';
-  d.innerHTML='<div class="s5-cta-text"><div class="title">💼 Get a Shapira S5 Report</div><div class="desc">Full AI max-bid analysis for a specific property — lien stack, plaintiff intel, zoning, BID/SKIP recommendation.</div></div><a href="'+S5_URL+'" target="_blank" class="s5-btn">$25 — Get Report →</a>';
+  d.innerHTML='<div class="s5-cta-text"><div class="title">💼 Get a Shapira S5 Report</div><div class="desc">Full AI max-bid analysis for a specific property — lien stack, plaintiff intel, zoning, BID/SKIP recommendation.</div></div><a href="/buy-report" class="s5-btn">$25 — Get Report →</a>';
   m.appendChild(d);scrollBottom();
 }
 
@@ -2320,7 +2318,6 @@ const COUNTY_SLUG = "COUNTY_SLUG_PLACEHOLDER";
 const COUNTY_TITLE_JS = "COUNTY_TITLE_PLACEHOLDER";
 const S5_CERTIFIED_COUNTIES = S5_COUNTIES_PLACEHOLDER;
 const S5_AVAILABLE = S5_CERTIFIED_COUNTIES.includes(COUNTY_SLUG);
-const MINDSTUDIO_S5_URL = "https://app.mindstudio.ai/agents/64fc28ea-edaa-40d7-a0ab-1b79d721e427";
 const SUPABASE_URL = "https://mocerqjnksmhcjzxrewo.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODc0Nzc1MTksImV4cCI6MjAwMzA1MzUxOX0.VFl2gOfVWMRFQPiWxkpRf-GH5Vc_9bRHhK5bnAHmLNA";
 </script>
@@ -2416,12 +2413,11 @@ function app() {
     buyS5(d) {
       if (!d || !S5_AVAILABLE) return;
       const params = new URLSearchParams({
-        mode: 'report',
         county: COUNTY_SLUG,
-        case_number: d.tax_deed_case || '',
         address: d.street_address || d.full_address || '',
+        date: d.auction_date || '',
       });
-      window.open(MINDSTUDIO_S5_URL + '?' + params.toString(), '_blank');
+      window.location.href = '/buy-report?' + params.toString();
     },
     getSigClass(sig) { return (SIG_META[sig] && SIG_META[sig].cls) || 'sig-out'; },
     getSigLabel(sig) { return (SIG_META[sig] && SIG_META[sig].label) || sig; },
