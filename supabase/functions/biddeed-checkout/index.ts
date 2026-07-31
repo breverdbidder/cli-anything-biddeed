@@ -52,6 +52,104 @@ async function resolveStripeKey(): Promise<string | null> {
   return Deno.env.get("STRIPE_SECRET_KEY") ?? null;
 }
 
+// WEBSITE-FIX (dispatch 93fc7abd): the $25 one-time Shapira report purchase.
+// TEST-mode only — resolves ONLY 'stripe_test_secret_key', never falls back
+// to the live key resolveStripeKey() uses, so a missing test-mode secret
+// fails closed (503) instead of ever silently creating a real charge.
+async function resolveTestStripeKey(): Promise<string | null> {
+  const { data, error } = await supabase.rpc("get_vault_secret_mcp", { p_name: "stripe_test_secret_key" });
+  if (!error && data) return String(data);
+  return Deno.env.get("STRIPE_TEST_SECRET_KEY") ?? null;
+}
+
+const REPORT_SUCCESS_URL = "https://biddeed.ai/report-success";
+const REPORT_CANCEL_URL = "https://biddeed.ai/buy-report";
+const S5_ONETIME_AMOUNT_CENTS = 2500; // $25 fixed server-side — never trust a client-supplied price
+
+async function handleS5OnetimeCheckout(body: any): Promise<Response> {
+  const { county, case_number: caseNumber, customer_email: customerEmail } = body;
+  if (!county || typeof county !== "string") return jsonRes({ error: "county required" }, 400);
+  if (!caseNumber || typeof caseNumber !== "string") return jsonRes({ error: "case_number required" }, 400);
+  if (!customerEmail || typeof customerEmail !== "string") return jsonRes({ error: "customer_email required" }, 400);
+
+  const countySlug = county.toLowerCase().replace(/-/g, "_");
+
+  // Defense in depth: the /buy-report frontend already restricts the picker to
+  // certified + matched_clean + upcoming, but a direct API call must not be trusted.
+  const { data: certRows } = await supabase
+    .from("v_certified_counties")
+    .select("county_slug")
+    .eq("county_slug", countySlug)
+    .limit(1);
+  if (!certRows?.length) {
+    return jsonRes({ error: `county '${countySlug}' is not currently Gold Standard certified` }, 400);
+  }
+
+  const { data: auctionRows, error: auctionErr } = await supabase
+    .from("multi_county_auctions")
+    .select("case_number")
+    .eq("case_number", caseNumber)
+    .eq("county", countySlug)
+    .limit(1);
+  if (auctionErr || !auctionRows?.length) {
+    return jsonRes({ error: `case_number '${caseNumber}' not found in ${countySlug}` }, 404);
+  }
+
+  const stripeKey = await resolveTestStripeKey();
+  if (!stripeKey) {
+    return jsonRes({
+      error: "stripe_test_secret_key not configured in vault — s5_onetime checkout is TEST-mode only until it is added (see WEBSITE-FIX dispatch 93fc7abd)",
+    }, 503);
+  }
+
+  const params = new URLSearchParams({
+    mode: "payment",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][product_data][name]": `BidDeed.AI Shapira Report — Case ${caseNumber} (${countySlug})`,
+    "line_items[0][price_data][unit_amount]": String(S5_ONETIME_AMOUNT_CENTS),
+    "line_items[0][quantity]": "1",
+    customer_email: customerEmail,
+    success_url: `${REPORT_SUCCESS_URL}?session={CHECKOUT_SESSION_ID}&email=${encodeURIComponent(customerEmail)}`,
+    cancel_url: `${REPORT_CANCEL_URL}?checkout=cancelled`,
+    "metadata[product]": "s5_onetime",
+    "metadata[case_number]": caseNumber,
+    "metadata[county]": countySlug,
+    "metadata[customer_email]": customerEmail,
+  });
+
+  const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${stripeKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+
+  if (!stripeRes.ok) {
+    const errText = await stripeRes.text();
+    console.error("stripe checkout.sessions.create (s5_onetime) failed:", stripeRes.status, errText.slice(0, 300));
+    return jsonRes({ error: "stripe session creation failed" }, 502);
+  }
+
+  const session = await stripeRes.json();
+
+  const { error: insertErr } = await supabase.from("report_delivery_queue").insert({
+    case_number: caseNumber,
+    county: countySlug,
+    customer_email: customerEmail,
+    stripe_session_id: session.id,
+    stripe_payment_intent: session.payment_intent ?? null,
+    status: "pending",
+  });
+  if (insertErr) {
+    console.error("report_delivery_queue insert failed:", insertErr.message);
+    return jsonRes({ error: "session created in Stripe but failed to record locally" }, 500);
+  }
+
+  return jsonRes({ url: session.url, session_id: session.id });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS });
@@ -65,6 +163,10 @@ Deno.serve(async (req: Request) => {
     body = await req.json();
   } catch {
     return jsonRes({ error: "invalid JSON body" }, 400);
+  }
+
+  if (body.tier === "s5_onetime") {
+    return handleS5OnetimeCheckout(body);
   }
 
   const { api_key: apiKey, tier } = body;

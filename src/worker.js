@@ -14,8 +14,10 @@
  *   GET  /subscribe           → Stripe checkout redirect
  *   GET  /success             → Post-payment key delivery page
  *   GET  /subscribe/status    → Poll for API key after payment
- *   GET  /buy-report          → $25 one-time Shapira report checkout page
- *   POST /buy-report/checkout → Creates biddeed-checkout session (mode=report)
+ *   GET  /buy-report          → $25 one-time Shapira report checkout page (county->auction->email)
+ *   GET  /buy-report/counties → JSON: certified counties with purchasable upcoming auctions
+ *   GET  /buy-report/auctions → JSON: purchasable auctions for ?county=slug
+ *   POST /buy-report/checkout → Creates biddeed-checkout session (tier=s5_onetime)
  *   GET  /report-success      → Post-payment report key delivery page
  *   GET  /terms               → Terms of Service
  *   GET  /privacy             → Privacy Policy
@@ -175,6 +177,50 @@ async function fetchCountyLots(county) {
   } catch(_) { return []; }
 }
 
+// ── Buy-report picker: certified counties with purchasable upcoming auctions ──
+// "Purchasable" = certified AND matched_clean AND still upcoming — the same
+// bar predict_auction_outcome's CERT_REQUIRED gate holds cases to, so a report
+// bought here is never for an auction the Shapira pipeline would refuse.
+async function fetchReportCounties(rtConfig) {
+  try {
+    const cacheKey = new Request('https://biddeed.ai/_internal/buy-report-counties');
+    const cache = caches.default;
+    const cached = await cache.match(cacheKey);
+    if (cached) return await cached.json();
+
+    const gold = (rtConfig && rtConfig.goldCounties && rtConfig.goldCounties.length) ? rtConfig.goldCounties : GOLD_COUNTIES;
+    const today = new Date().toISOString().slice(0,10);
+    const counts = await Promise.all(gold.map(async (slug) => {
+      try {
+        const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(slug)}&auction_date=gte.${today}&auction_status=eq.upcoming&parity_status=eq.matched_clean&select=id&limit=1`;
+        const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Prefer': 'count=exact' } });
+        if (!res.ok) return { county_slug: slug, upcoming: 0 };
+        const range = res.headers.get('content-range') || '';
+        const upcoming = Number(range.split('/')[1] || 0);
+        return { county_slug: slug, upcoming };
+      } catch(_) { return { county_slug: slug, upcoming: 0 }; }
+    }));
+    const result = counts
+      .filter(c => c.upcoming > 0)
+      .map(c => ({ county_slug: c.county_slug, display: toDisplay(c.county_slug), upcoming: c.upcoming }))
+      .sort((a, b) => a.display.localeCompare(b.display));
+
+    const resp = new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=120' } });
+    await cache.put(cacheKey, resp.clone());
+    return result;
+  } catch(_) { return []; }
+}
+
+async function fetchReportAuctions(county) {
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_status=eq.upcoming&parity_status=eq.matched_clean&order=auction_date.asc&limit=50&select=case_number,property_address,auction_date,opening_bid,sale_type`;
+    const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch(_) { return []; }
+}
+
 // ── Tier badge ────────────────────────────────────────────────────────────────
 function tierBadge(bid) {
   if (!bid || bid <= 0) return '';
@@ -249,19 +295,42 @@ export default {
         return new Response(BUY_REPORT_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
+      // ── GET /buy-report/counties — certified counties w/ purchasable auctions ──
+      if (path === '/buy-report/counties' && method === 'GET') {
+        const rtConfig = await fetchRuntimeConfig();
+        const counties = await fetchReportCounties(rtConfig);
+        return new Response(JSON.stringify(counties), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=120', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /buy-report/auctions?county=slug — purchasable auctions for a county ──
+      if (path === '/buy-report/auctions' && method === 'GET') {
+        const rtConfig = await fetchRuntimeConfig();
+        const goldSet = new Set((rtConfig.goldCounties && rtConfig.goldCounties.length) ? rtConfig.goldCounties : GOLD_COUNTIES);
+        const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
+        if (!county || !goldSet.has(county)) {
+          return new Response(JSON.stringify({ error: 'county must be a certified county' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const auctions = await fetchReportAuctions(county);
+        return new Response(JSON.stringify(auctions), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=60', ...corsHeaders(origin) } });
+      }
+
       // ── POST /buy-report/checkout — create Stripe checkout session ──────
       if (path === '/buy-report/checkout' && method === 'POST') {
         let body = {};
         try { body = await request.json(); } catch(_) {
           return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
-        const { email, marketing_consent } = body;
-        if (!email) return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const { email, county, case_number, marketing_consent } = body;
+        if (!email)       return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!county)      return new Response(JSON.stringify({ error: 'county required — select an auction first' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!case_number) return new Response(JSON.stringify({ error: 'case_number required — select an auction first' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         try {
+          // Price is never trusted from the client — biddeed-checkout fixes
+          // the s5_onetime amount at $25 server-side.
           const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY },
-            body: JSON.stringify({ customer_email: email, mode: 'report', marketing_consent: !!marketing_consent }),
+            body: JSON.stringify({ tier: 's5_onetime', customer_email: email, county, case_number, marketing_consent: !!marketing_consent }),
           });
           if (!res.ok) {
             const err = await res.text();
@@ -1118,47 +1187,179 @@ const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
 body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
-.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:460px;width:100%}
+.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
-h1{font-size:1.6rem;color:white;margin-bottom:.5rem}
+.steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
+.steps span{flex:1;height:3px;border-radius:2px;background:var(--border)}
+.steps span.done,.steps span.active{background:var(--orange)}
+h1{font-size:1.5rem;color:white;margin-bottom:.5rem}
 p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:.92rem}
 label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
-input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:#020617;color:var(--text);font-size:.95rem;margin-bottom:1rem}
+select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:#020617;color:var(--text);font-size:.95rem;margin-bottom:1rem;font-family:inherit}
 .consent{display:flex;align-items:flex-start;gap:.5rem;margin-bottom:1.25rem;font-size:.8rem;color:var(--dim)}
 .consent input{margin-top:3px}
 .btn{display:block;width:100%;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#020617;padding:14px;border:none;border-radius:10px;font-weight:700;font-size:.95rem;cursor:pointer}
 .btn:disabled{opacity:.6;cursor:not-allowed}
+.back{background:none;border:none;color:var(--dim);font-size:.85rem;cursor:pointer;margin-bottom:1rem;padding:0}
+.back:hover{color:var(--orange)}
 .err{color:#f87171;font-size:.85rem;margin-top:.75rem;display:none}
 .upl{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);line-height:1.6}
 .upl a{color:var(--orange)}
+.auctions{max-height:340px;overflow-y:auto;margin-bottom:1rem;display:flex;flex-direction:column;gap:.6rem}
+.auction-card{border:1px solid var(--border);border-radius:10px;padding:.85rem 1rem;cursor:pointer;transition:border-color .15s}
+.auction-card:hover{border-color:rgba(245,158,11,.5)}
+.auction-card.selected{border-color:var(--orange);background:rgba(245,158,11,.08)}
+.auction-card .addr{font-weight:600;font-size:.9rem;color:white;margin-bottom:.3rem}
+.auction-card .meta{font-size:.78rem;color:var(--dim);display:flex;gap:.75rem;flex-wrap:wrap}
+.summary{border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:1.25rem;font-size:.85rem;color:var(--muted)}
+.summary .addr{font-weight:600;color:white;margin-bottom:.4rem}
+.empty{color:var(--dim);font-size:.85rem;padding:1rem 0}
+.spin{color:var(--dim);font-size:.85rem;padding:1rem 0}
 </style></head><body>
 <div class="card">
   <div class="badge">ONE-TIME · NO SUBSCRIPTION</div>
-  <h1>One Shapira Report — $25</h1>
-  <p>Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. No subscription required.</p>
-  <form id="f">
-    <label for="email">Email address</label>
-    <input type="email" id="email" name="email" required placeholder="you@example.com">
-    <label class="consent"><input type="checkbox" id="consent" name="consent"> Send me occasional auction intelligence updates (optional)</label>
-    <button type="submit" class="btn" id="btn">Buy One Report — $25</button>
-    <div class="err" id="err"></div>
-  </form>
+  <div class="steps"><span id="dot1" class="active"></span><span id="dot2"></span><span id="dot3"></span></div>
+
+  <div id="step-county">
+    <h1>Pick your county</h1>
+    <p>Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction — $25, no subscription.</p>
+    <div id="county-loading" class="spin">Loading certified counties…</div>
+    <select id="county-select" style="display:none"></select>
+    <button class="btn" id="county-continue" disabled style="display:none">Continue</button>
+    <div class="err" id="county-err"></div>
+  </div>
+
+  <div id="step-auction" style="display:none">
+    <button class="back" id="back-to-county">&larr; Change county</button>
+    <h1>Pick your auction</h1>
+    <p>Upcoming certified auctions in <span id="auction-county-name"></span>.</p>
+    <div id="auction-loading" class="spin" style="display:none">Loading auctions…</div>
+    <div id="auctions" class="auctions"></div>
+  </div>
+
+  <div id="step-checkout" style="display:none">
+    <button class="back" id="back-to-auction">&larr; Change auction</button>
+    <h1>One Shapira Report — $25</h1>
+    <div class="summary" id="checkout-summary"></div>
+    <form id="f">
+      <label for="email">Email address (report delivered here)</label>
+      <input type="email" id="email" name="email" required placeholder="you@example.com">
+      <label class="consent"><input type="checkbox" id="consent" name="consent"> Send me occasional auction intelligence updates (optional)</label>
+      <button type="submit" class="btn" id="btn">Get My Shapira Report — $25</button>
+      <div class="err" id="err"></div>
+    </form>
+  </div>
+
   <div class="upl">Not legal advice. BidDeed.AI is an information and analytics platform, not a law firm or title company. Auction data and bid estimates are informational and must be independently verified — always consult a licensed Florida attorney before bidding. See <a href="/disclaimer">full disclaimer</a>.</div>
 </div>
 <script>
-document.getElementById('f').addEventListener('submit', async function(e){
+var selected={county:null,county_name:null,case_number:null,property_address:null,auction_date:null,opening_bid:null,sale_type:null};
+
+function showStep(n){
+  document.getElementById('step-county').style.display=(n===1)?'block':'none';
+  document.getElementById('step-auction').style.display=(n===2)?'block':'none';
+  document.getElementById('step-checkout').style.display=(n===3)?'block':'none';
+  document.getElementById('dot1').className=(n>=1)?'done':'';
+  document.getElementById('dot2').className=(n===2)?'active':(n>2?'done':'');
+  document.getElementById('dot3').className=(n===3)?'active':'';
+}
+
+function fmtDate(d){
+  if(!d) return 'TBD';
+  var dt=new Date(d+'T00:00:00');
+  return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+function fmtMoney(n){
+  if(!n) return 'N/A';
+  return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0});
+}
+
+// ── Step 1: counties ──────────────────────────────────────────────────────
+fetch('/buy-report/counties').then(function(r){return r.json();}).then(function(counties){
+  document.getElementById('county-loading').style.display='none';
+  var sel=document.getElementById('county-select');
+  if(!counties || !counties.length){
+    document.getElementById('county-err').textContent='No certified counties with upcoming auctions right now — check back soon.';
+    document.getElementById('county-err').style.display='block';
+    return;
+  }
+  var opts='<option value="">Select a county…</option>';
+  counties.forEach(function(c){
+    opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'">'+c.display+' ('+c.upcoming+' upcoming)</option>';
+  });
+  sel.innerHTML=opts;
+  sel.style.display='block';
+  var btn=document.getElementById('county-continue');
+  btn.style.display='block';
+  sel.addEventListener('change',function(){ btn.disabled=!sel.value; });
+  btn.addEventListener('click',function(){
+    var opt=sel.options[sel.selectedIndex];
+    selected.county=sel.value;
+    selected.county_name=opt.getAttribute('data-name');
+    loadAuctions();
+  });
+}).catch(function(){
+  document.getElementById('county-loading').textContent='Could not load counties. Please refresh.';
+});
+
+// ── Step 2: auctions ──────────────────────────────────────────────────────
+function loadAuctions(){
+  document.getElementById('auction-county-name').textContent=selected.county_name;
+  var list=document.getElementById('auctions');
+  list.innerHTML='';
+  document.getElementById('auction-loading').style.display='block';
+  showStep(2);
+  fetch('/buy-report/auctions?county='+encodeURIComponent(selected.county)).then(function(r){return r.json();}).then(function(auctions){
+    document.getElementById('auction-loading').style.display='none';
+    if(!auctions || !auctions.length){
+      list.innerHTML='<div class="empty">No purchasable auctions found for this county right now.</div>';
+      return;
+    }
+    auctions.forEach(function(a,i){
+      var card=document.createElement('div');
+      card.className='auction-card';
+      card.innerHTML='<div class="addr">'+(a.property_address||'Address pending')+'</div>'+
+        '<div class="meta"><span>'+fmtDate(a.auction_date)+'</span><span>Opening bid: '+fmtMoney(a.opening_bid)+'</span><span>'+(a.sale_type||'')+'</span></div>';
+      card.addEventListener('click',function(){
+        selected.case_number=a.case_number;
+        selected.property_address=a.property_address;
+        selected.auction_date=a.auction_date;
+        selected.opening_bid=a.opening_bid;
+        selected.sale_type=a.sale_type;
+        goToCheckout();
+      });
+      list.appendChild(card);
+    });
+  }).catch(function(){
+    document.getElementById('auction-loading').textContent='Could not load auctions. Please go back and try again.';
+  });
+}
+document.getElementById('back-to-county').addEventListener('click',function(){ showStep(1); });
+
+// ── Step 3: email + buy ───────────────────────────────────────────────────
+function goToCheckout(){
+  document.getElementById('checkout-summary').innerHTML=
+    '<div class="addr">'+(selected.property_address||'Address pending')+'</div>'+
+    'Case '+selected.case_number+' · '+selected.county_name+' County · '+fmtDate(selected.auction_date)+'<br>'+
+    'Opening bid: '+fmtMoney(selected.opening_bid)+' · '+(selected.sale_type||'');
+  showStep(3);
+}
+document.getElementById('back-to-auction').addEventListener('click',function(){ showStep(2); });
+
+document.getElementById('f').addEventListener('submit', function(e){
   e.preventDefault();
-  const btn=document.getElementById('btn'), err=document.getElementById('err');
-  const email=document.getElementById('email').value.trim();
-  const marketing_consent=document.getElementById('consent').checked;
+  var btn=document.getElementById('btn'), err=document.getElementById('err');
+  var email=document.getElementById('email').value.trim();
+  var marketing_consent=document.getElementById('consent').checked;
   err.style.display='none';
   btn.disabled=true; btn.textContent='Redirecting to checkout...';
-  try{
-    const res=await fetch('/buy-report/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,marketing_consent})});
-    const data=await res.json();
-    if(res.ok && data.url){ window.location.href=data.url; }
-    else{ err.textContent=data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Buy One Report — $25'; }
-  }catch(ex){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Buy One Report — $25'; }
+  fetch('/buy-report/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,county:selected.county,case_number:selected.case_number,marketing_consent:marketing_consent})})
+    .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })
+    .then(function(r){
+      if(r.ok && r.data.url){ window.location.href=r.data.url; }
+      else{ err.textContent=r.data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My Shapira Report — $25'; }
+    })
+    .catch(function(){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My Shapira Report — $25'; });
 });
 </script></body></html>`;
 

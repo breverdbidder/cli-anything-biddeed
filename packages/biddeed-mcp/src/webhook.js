@@ -5,9 +5,12 @@
 // Idempotent: event_id is the stripe_webhook_events primary key, so Stripe
 // retries/re-deliveries upsert rather than duplicate.
 import Stripe from 'stripe';
+import { predict_auction_outcome } from './tools/shapira.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const WEBSITE_FIX_DISPATCH_ID = '93fc7abd-0189-4062-ae6f-934bc6ba3188';
 
 let stripeClient = null;
 function getStripe() {
@@ -37,6 +40,32 @@ async function sbFetch(path, opts = {}) {
     },
   });
   if (res.status >= 300) throw new Error(`Supabase ${path} → HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+}
+
+async function getVaultSecret(name) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_name: name }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data || null;
+  } catch (_) { return null; }
+}
+
+async function logOpsResult(caseNumber, sessionId, status, severity, evidence) {
+  await sbFetch('agent_ops_log', {
+    method: 'POST',
+    body: JSON.stringify({
+      dispatch_id: WEBSITE_FIX_DISPATCH_ID,
+      task: 's5_onetime_delivery',
+      status,
+      severity,
+      evidence: `case_number=${caseNumber} session=${sessionId}: ${String(evidence).slice(0, 400)}`,
+    }),
+  }).catch(() => {});
 }
 
 async function resolveCustomerId(stripeCustomerId) {
@@ -82,6 +111,85 @@ async function processCheckoutCompletion(session) {
       revoked_at: null,
     }),
   });
+}
+
+// WEBSITE-FIX (dispatch 93fc7abd) — the $25 one-time Shapira report purchase.
+// Calls predict_auction_outcome's underlying report pipeline (composer.js +
+// pdf.js) directly, NOT through the MCP billing wrapper — this purchase was
+// already paid via Stripe Checkout, so it must never touch the taxi-meter.
+async function processS5OnetimeCompletion(session) {
+  const metadata = session.metadata || {};
+  if (metadata.product !== 's5_onetime') return;
+
+  const paymentIntent = session.payment_intent || null;
+  const filter = paymentIntent
+    ? `stripe_payment_intent=eq.${encodeURIComponent(paymentIntent)}`
+    : `stripe_session_id=eq.${encodeURIComponent(session.id)}`;
+
+  await sbFetch(`report_delivery_queue?${filter}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'paid' }),
+  });
+
+  const caseNumber = metadata.case_number;
+  const county = metadata.county;
+  const email = metadata.customer_email;
+  if (!caseNumber || !county || !email) {
+    await sbFetch(`report_delivery_queue?${filter}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: 'missing metadata on checkout session' }) });
+    await logOpsResult(caseNumber || 'unknown', session.id, 'BLOCKED', 'blocker', 'missing case_number/county/customer_email metadata');
+    return;
+  }
+
+  let result;
+  try {
+    result = await predict_auction_outcome({ case_number: caseNumber, county });
+  } catch (err) {
+    await sbFetch(`report_delivery_queue?${filter}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: `report generation error: ${err.message}`.slice(0, 500) }) });
+    await logOpsResult(caseNumber, session.id, 'BLOCKED', 'blocker', `report generation error: ${err.message}`);
+    return;
+  }
+  if (result?.error) {
+    await sbFetch(`report_delivery_queue?${filter}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: result.message || result.error }) });
+    await logOpsResult(caseNumber, session.id, 'BLOCKED', 'blocker', result.message || result.error);
+    return;
+  }
+
+  const resendKey = await getVaultSecret('resend_api_key');
+  const resendFrom = await getVaultSecret('resend_from_address');
+  if (!resendKey || !resendFrom) {
+    await sbFetch(`report_delivery_queue?${filter}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: 'resend_api_key/resend_from_address not configured in vault' }) });
+    await logOpsResult(caseNumber, session.id, 'BLOCKED', 'blocker', 'resend_api_key/resend_from_address not configured');
+    return;
+  }
+
+  const cover = result.report?.cover || {};
+  const emailRes = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${resendKey}` },
+    body: JSON.stringify({
+      from: resendFrom,
+      to: [email],
+      subject: `Your BidDeed.AI Shapira Report — Case ${caseNumber}`,
+      text: `Your Shapira Report for case ${caseNumber} (${county} County, FL) is attached.\n\n` +
+        `Verdict: ${cover.verdict || 'see attached'}  ·  Investment Grade: ${cover.investment_grade || 'see attached'}\n\n` +
+        `This is informational only — not legal, financial, or investment advice. Verify independently and consult a licensed Florida attorney before bidding.`,
+      attachments: [{ filename: `biddeed-report-${caseNumber}.pdf`, content: result.pdf_base64 }],
+    }),
+  });
+
+  if (!emailRes.ok) {
+    const errText = await emailRes.text();
+    await sbFetch(`report_delivery_queue?${filter}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed', error: `resend send failed: ${errText}`.slice(0, 500) }) });
+    await logOpsResult(caseNumber, session.id, 'BLOCKED', 'blocker', `resend send failed: ${errText}`);
+    return;
+  }
+
+  await sbFetch(`report_delivery_queue?${filter}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'delivered', delivered_at: new Date().toISOString() }),
+  });
+
+  await logOpsResult(caseNumber, session.id, 'VERIFIED', 'info', `delivered to ${email}`);
 }
 
 export async function handleStripeWebhook(req, res) {
@@ -146,6 +254,9 @@ export async function handleStripeWebhook(req, res) {
   if (event.type === 'checkout.session.completed') {
     await processCheckoutCompletion(event.data.object).catch(err => {
       process.stderr.write(`[stripe/webhook] checkout completion post-processing failed for ${event.id}: ${err.message}\n`);
+    });
+    await processS5OnetimeCompletion(event.data.object).catch(err => {
+      process.stderr.write(`[stripe/webhook] s5_onetime completion post-processing failed for ${event.id}: ${err.message}\n`);
     });
   }
 
