@@ -144,8 +144,15 @@ jobs:
         run: |
           echo "=== Build logs for latest deploy ==="
           timeout 20 vercel inspect "${{ steps.deploy.outputs.deploy_url }}" --token=$VERCEL_TOKEN --logs 2>&1 || true
-          echo "=== Runtime logs, mcp.biddeed.ai, status 500, last 15m ==="
-          timeout 20 vercel logs mcp.biddeed.ai --token=$VERCEL_TOKEN --status-code 500 --since 15m --json 2>&1 || true
+          echo "=== Live-tail runtime logs while generating a fresh 500 ==="
+          vercel logs mcp.biddeed.ai --token=$VERCEL_TOKEN --json > /tmp/vercel-runtime.log 2>&1 &
+          TAIL_PID=$!
+          sleep 4
+          curl -s -o /dev/null "https://mcp.biddeed.ai/report/pdf"
+          sleep 8
+          kill $TAIL_PID 2>/dev/null || true
+          wait $TAIL_PID 2>/dev/null || true
+          cat /tmp/vercel-runtime.log
 
       - name: SHIP GATE verification
         env:
