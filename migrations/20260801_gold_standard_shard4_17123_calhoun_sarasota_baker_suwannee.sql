@@ -1,0 +1,112 @@
+-- Gold Standard Shard-4 Issue #17123 — calhoun/sarasota/baker/suwannee
+-- Dispatch: 61cdbda5-c47b-46e0-adca-64b627bbea64
+-- Session: 2026-08-01T08:00Z
+-- Mode: Fallback ultraloop (Python scripts + REST API, no native Workflow tool)
+--
+-- SUMMARY OF SESSION FINDINGS:
+--
+-- This migration documents the session's structural blocker confirmations and
+-- the automated enrichment logic deployed via gold-standard-shard4-17123.yml.
+-- The ACTIVE writes were executed via the GHA workflow, not this SQL file directly.
+-- This file is committed for audit provenance (per repo convention).
+--
+-- ============================================================
+-- CALHOUN (8/10): B/F STRUCTURALLY BLOCKED — no action taken
+-- ============================================================
+-- Prior state confirmed: A/C/D/E/G/H/I/J PASS, B/F FAIL null.
+-- Root cause (verified by 7+ consecutive sessions):
+--   - 0 closed sales exist in multi_county_auctions for calhoun.
+--   - calhounclerk.com WP REST API shows only 'scheduled'/'cancelled' auction_status.
+--   - Tax-deed-overbid feed (FL Stat 197.582) confirms no sales via surplus mechanism.
+--   - calhoun.realforeclose.com / calhoun.realtaxdeed.com verified dark (no listings).
+-- B/F remain NULL by construction until a sale actually closes.
+-- Harvester: calhoun-clerk-harvest.yml (05:45 UTC daily) — live and correctly wired.
+-- Action: none — correctly BLANK>WRONG.
+--
+-- Issue brief shows fc=2 td=6 (A=2) — consistent with prior session's fc=2 td=5
+-- (one new tax deed added, no closed sales). The harvester runs daily and would
+-- have picked this up automatically.
+--
+-- ============================================================
+-- SARASOTA (8/10 in brief, was 9/10 on 2026-07-25): G/J fail
+-- ============================================================
+-- G BLOCKER (pk1000 structural, 3rd+ consecutive session confirming):
+--   - v_zoning_gold_standard_kpi_v3 shows pk1000_applicable_parcels=12, 6 of 12 populated.
+--   - The 4 blocking districts (CN, PID, CT, DTC) have USE-TYPE-KEYED parking ordinances —
+--     there is no single district-wide parking_per_1000sf value in the ordinance.
+--   - Sarasota County Sec. 124-120(g)(2) explicitly applies uniformly across all base/2050/PD
+--     districts with no CN/PID-to-use-type mapping.
+--   - 3 of the 5 blocking parcels are vacant/unaddressed — no dependable use-type signal.
+--   - This is a FLEET-WIDE POLICY DECISION needed (same root cause as Bay county dispatch 9f070f2b).
+--   - Writing a number without a verified per-district citation = fabrication (refused).
+--   - Action: none for G. Recommend Ariel pick one of:
+--       (a) exclude use-type-only jurisdictions from pk1000_applicable entirely (metric-definition change)
+--       (b) approve modal/most-common use-type proxy with explicit confidence_score < 1.0
+--
+-- J STATUS (was 343/365 = 94.0% as of 2026-07-31):
+--   - Issue brief shows metric=93.0 (174/187) — from an older loop run with smaller denominator.
+--   - Current denominator is ~365. 22 auctions genuinely lack reliable data (14 no parcel_id,
+--     3 no fl_parcels match, 5 <3 comps) — these are correctly left NULL (BLANK>WRONG).
+--   - If new auctions have been added since 2026-07-31, the GHA workflow extends the
+--     real-comps methodology (fl_parcels p75 comps, same as dispatch_44c8ac10) to them.
+--   - The 22 genuinely-blocked auctions cannot be filled without new source data.
+--
+-- ============================================================
+-- BAKER (6/10): C/D/E/I CAPTCHA-BLOCKED — no action taken
+-- ============================================================
+-- Prior state confirmed: A/B/F/G/H/J PASS (B=100% with 1/1 verified, J=100%),
+-- C/D/E/I FAIL at 20%.
+-- Root cause (verified by 4+ consecutive sessions via live Playwright):
+--   - 6 zero-data cases (12 rows): no owner_name/property_address/parcel_id.
+--   - civitekflorida.com/ocrs/county/02 gated by Cloudflare Turnstile checkbox CAPTCHA.
+--   - bakerclerk.com also gated by Cloudflare JS challenge (confirmed Playwright).
+--   - bakerpa.com: up (200) but only supports owner/parcel/address search — requires
+--     owner name to search, unusable without OCRS access.
+--   - baker.realforeclose.com: 3 remaining cases show empty parcel/address in SOURCE data
+--     (not a parser bug — confirmed by comparing to working case 022025CA000038CAAXMX).
+-- Action: none — CAPTCHA bypass not in scope. No fabrication.
+--
+-- ============================================================
+-- SUWANNEE (4/10 in brief, was 8/10 on 2026-07-25): regression diagnosis
+-- ============================================================
+-- The issue brief shows td=31 vs 14 from the 2026-07-25 session report.
+-- ~17 new tax deed auctions were added. These likely lack:
+--   - parcel_id (C/D/E metric)
+--   - property_address (I metric card_complete)
+--   - bid_decisions (J metric)
+-- The GHA workflow (STEP 2+3) backfills bid_decisions for new auctions using
+-- real assessed_value from multi_county_auctions as ARV, with the disclosed
+-- methodology from shard8_run6080_suwannee_j_generator_real.py.
+--
+-- B/F: structurally blocked — same as calhoun/sarasota. Suwannee foreclosure
+-- sales are courthouse-steps (not electronic). Civitek OCRS blocked by Turnstile.
+-- 3 past-due cases confirmed 'Redeemed' (no sale) or absent from electronic records.
+--
+-- Note on E/C/D regression: if new td rows came from the existing pipeline (realtaxdeed),
+-- they may already have parcel_id populated from the auction page. If td=31 is from a
+-- wholesale re-scrape, some may lack parcel_ids until the PA lookup runs.
+-- The suwannee-search.gsacorp.io GSA property appraiser API is available for lookup by
+-- parcel_id or address.
+--
+-- ============================================================
+-- ULTRALOOP AUDIT ENTRIES (logged via GHA workflow)
+-- ============================================================
+-- All claims are logged to gold_standard_ultraloop_audit with dispatch_id=61cdbda5...
+-- Letters logged:
+--   calhoun/B: survived=true (structural block confirmed)
+--   baker/E: survived=true (CAPTCHA block confirmed)
+--   suwannee/J: survived=true if rows inserted (bid_decisions extended)
+--   sarasota/J: survived=true if new auctions found (real comps extended)
+--
+-- ============================================================
+-- NO DDL IN THIS FILE — DML executed via GHA workflow
+-- ============================================================
+-- The bid_decisions INSERTs and ultraloop_audit INSERTs are executed by the
+-- gold-standard-shard4-17123.yml workflow triggered after this migration is committed.
+-- This file is for provenance/documentation only per repo convention.
+
+-- Verify state (run after workflow completes):
+-- SELECT public.pencil_dod_evaluate_county('calhoun');
+-- SELECT public.pencil_dod_evaluate_county('sarasota');
+-- SELECT public.pencil_dod_evaluate_county('baker');
+-- SELECT public.pencil_dod_evaluate_county('suwannee');
