@@ -97,13 +97,21 @@ function computeValueEstimate(auction, priors, cma) {
 // scaled by the XGBoost sell-probability), not a flat closing-cost buffer.
 // Falls back to a conservative default only when no row exists for this
 // county/sale_type — never silently reuses another county's fit.
-async function computeShapiraCeiling(auction, county, arv, sellProb, { get }) {
+//
+// property_type is constrained to [this parcel's dor_uc, "ALL"] — without it,
+// ORDER BY sample_size DESC can pick an unrelated property-type row whose
+// sample happens to be larger than ALL's (confirmed live for duval/tax_deed:
+// property_type='001' carries sample_size=1693 vs ALL's 669, so every Duval
+// tax-deed report was silently scored with single-family params regardless
+// of the subject's actual type).
+async function computeShapiraCeiling(auction, county, arv, sellProb, propertyType, { get }) {
   if (arv == null) return { ceiling: null, floor: null, cap: null, source: null };
   const countySlug = String(county).toLowerCase();
   const saleType = auction.sale_type === 'tax_deed' ? 'tax_deed' : 'foreclosure';
+  const propertyTypeFilter = [...new Set([propertyType || 'ALL', 'ALL'])].join(',');
 
   const rows = await get(
-    `shapira_formula_params?county=eq.${countySlug}&sale_type=eq.${saleType}&select=optimal_bid_pct_of_assessed,bid_floor_pct,bid_ceiling_pct,plaintiff_discount_factor,sample_size,model_version&order=sample_size.desc&limit=1`
+    `shapira_formula_params?county=eq.${countySlug}&sale_type=eq.${saleType}&property_type=in.(${propertyTypeFilter})&select=optimal_bid_pct_of_assessed,bid_floor_pct,bid_ceiling_pct,plaintiff_discount_factor,sample_size,model_version&order=sample_size.desc&limit=1`
   ).catch(() => []);
   const row = rows?.[0];
   const p = row
@@ -187,7 +195,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   const model = await scoreModel(auction, county, { get });
   const value = computeValueEstimate(auction, priors, cma);
   const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
-  const shapira = await computeShapiraCeiling(auction, county, value.midpoint ?? auction.assessed_value, sellProb, { get });
+  const shapira = await computeShapiraCeiling(auction, county, value.midpoint ?? auction.assessed_value, sellProb, parcel?.dor_uc, { get });
   const ceiling = shapira.ceiling;
   // Entry bid preference: opening_bid (rare — usually null in this feed) >
   // plaintiff_max_bid (the plaintiff's disclosed credit-bid floor, when not
