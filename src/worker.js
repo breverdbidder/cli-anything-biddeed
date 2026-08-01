@@ -457,6 +457,46 @@ export default {
         if (!email)       return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (!county)      return new Response(JSON.stringify({ error: 'county required — select an auction first' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (!case_number) return new Response(JSON.stringify({ error: 'case_number required — select an auction first' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
+        // ── Parity gate — server-side safety net ──────────────────────────
+        // Never trust the client's mca_id: it can be stale (deep-link prefill
+        // left over after the user re-picked a different auction in the same
+        // session). Re-look the auction up by case_number+county — the pair
+        // actually submitted. (county, case_number) is NOT a unique key in
+        // multi_county_auctions (duplicate rows exist across sale_type, which
+        // the checkout payload doesn't carry) — so when mca_id isn't given we
+        // can't disambiguate which row the buyer meant. Require every matching
+        // row to pass rather than picking one arbitrarily.
+        try {
+          const lookupUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&case_number=eq.${encodeURIComponent(case_number)}&select=id,parity_status,auction_status,auction_date`;
+          const lookupRes = await fetch(lookupUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+          let rows = lookupRes.ok ? await lookupRes.json() : [];
+          if (!Array.isArray(rows)) rows = [];
+          if (mca_id) rows = rows.filter(r => String(r.id) === String(mca_id));
+
+          if (!rows.length) {
+            return new Response(JSON.stringify({ error: 'Property not found' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+          const now = new Date();
+          const bad = rows.find(r =>
+            r.auction_status !== 'upcoming' ||
+            r.parity_status !== 'matched_clean' ||
+            (r.auction_date && new Date(r.auction_date) < now)
+          );
+          if (bad) {
+            if (bad.auction_status !== 'upcoming') {
+              return new Response(JSON.stringify({ error: 'This auction is no longer upcoming' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            if (bad.auction_date && new Date(bad.auction_date) < now) {
+              return new Response(JSON.stringify({ error: 'This auction date has passed' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            return new Response(JSON.stringify({ error: 'This auction is pending calendar verification. Please check back in 24 hours or contact hello@biddeed.ai' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+        } catch(e) {
+          await logErr(env, '/buy-report/checkout', 'Parity gate lookup failed', String(e), 500);
+          return new Response(JSON.stringify({ error: 'Could not verify this auction. Please try again.' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+
         try {
           // Price is never trusted from the client — biddeed-checkout fixes
           // the s5_onetime amount at $25 server-side.
@@ -1804,7 +1844,7 @@ function loadAuctions(){
   fetch('/buy-report/auctions?county='+encodeURIComponent(selected.county)).then(function(r){return r.json();}).then(function(auctions){
     document.getElementById('auction-loading').style.display='none';
     if(!auctions || !auctions.length){
-      list.innerHTML='<div class="empty">No purchasable auctions found for this county right now.</div>';
+      list.innerHTML='<p style="color:#f59e0b">Calendar sync in progress for '+(selected.county_name||'this county')+'. Check back in 24 hours or <a href="/chat" style="color:#f59e0b">browse live auctions in chat</a>.</p>';
       return;
     }
     auctions.forEach(function(a,i){
@@ -1818,6 +1858,7 @@ function loadAuctions(){
         selected.auction_date=a.auction_date;
         selected.opening_bid=a.opening_bid;
         selected.sale_type=a.sale_type;
+        selected.mca_id=null;
         try{if(window.posthog)posthog.capture('buy_report_auction_selected',{county:selected.county,case_number:selected.case_number,property_address:selected.property_address,auction_date:selected.auction_date,opening_bid:selected.opening_bid});}catch(e){}
         goToCheckout();
       });
