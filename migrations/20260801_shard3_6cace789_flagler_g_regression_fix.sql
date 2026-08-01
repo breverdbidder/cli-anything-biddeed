@@ -97,6 +97,7 @@ WHERE code IN ('R-1', 'SFR-1', 'SFR-2', 'SFR-3', 'SFR-4', 'MFR-1', 'MFR-2',
 -- No write needed — the view uses far_regulated=false to exclude from denominator
 
 -- ── VERIFICATION ──
+-- Check flagler zoning_districts regulation flags (no pz join — parcel_zones has no zoning_district_id column)
 SELECT
     zd.code,
     j.name as jurisdiction,
@@ -104,19 +105,11 @@ SELECT
     zd.pk1000_regulated,
     zd.density_regulated,
     zs.max_far,
-    zs.parking_per_1000sf,
-    COUNT(pz.parcel_id) as parcel_count
+    zs.parking_per_1000sf
 FROM zoning_districts zd
 JOIN jurisdictions j ON j.id = zd.jurisdiction_id
 LEFT JOIN zone_standards zs ON zs.zoning_district_id = zd.id
-LEFT JOIN parcel_zones pz ON pz.zoning_district_id = zd.id
-    AND pz.parcel_id IN (
-        SELECT DISTINCT parcel_id FROM multi_county_auctions WHERE county = 'flagler'
-        AND parcel_id IS NOT NULL
-    )
 WHERE j.state = 'FL'
   AND (j.county ILIKE 'flagler' OR j.name ILIKE '%palm coast%'
        OR j.name ILIKE '%bunnell%' OR j.name ILIKE '%flagler%')
-GROUP BY zd.code, j.name, zd.far_regulated, zd.pk1000_regulated, zd.density_regulated,
-         zs.max_far, zs.parking_per_1000sf
-ORDER BY parcel_count DESC NULLS LAST;
+ORDER BY zd.code;

@@ -113,12 +113,13 @@ BEGIN
 
     -- Insert parcel_zones for new flagler parcels without zones
     -- Use SFR-3 if Palm Coast jid exists, else R-1 for unincorporated
+    -- NOTE: parcel_zones does not have a zoning_district_id column per existing migrations
+    -- Column list matches established pattern: (parcel_id, jurisdiction_id, zone_code, zone_name, source, effective_date)
     IF v_sfr3_did IS NOT NULL AND v_palm_coast_jid IS NOT NULL THEN
-        INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zoning_district_id, zone_code, zone_name, source, effective_date)
+        INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source, effective_date)
         SELECT DISTINCT
             mca.parcel_id,
             v_palm_coast_jid,
-            v_sfr3_did,
             'SFR-3',
             'Single Family Residential (Palm Coast SFR-3, shard3-6cace789)',
             'shard3_6cace789_inferred',
@@ -136,11 +137,10 @@ BEGIN
         RAISE NOTICE 'Inserted % SFR-3 parcel_zones for Palm Coast flagler parcels', v_inserted_count;
         
     ELSIF v_r1_did IS NOT NULL AND v_flagler_uninc_jid IS NOT NULL THEN
-        INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zoning_district_id, zone_code, zone_name, source, effective_date)
+        INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source, effective_date)
         SELECT DISTINCT
             mca.parcel_id,
             v_flagler_uninc_jid,
-            v_r1_did,
             'R-1',
             'Single Family Residential (Flagler R-1, shard3-6cace789)',
             'shard3_6cace789_inferred',

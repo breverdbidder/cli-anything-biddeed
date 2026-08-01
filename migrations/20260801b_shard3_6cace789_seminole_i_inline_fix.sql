@@ -131,11 +131,12 @@ BEGIN
     END IF;
 
     -- Insert parcel_zones for seminole rows that have parcel_id but no zone
-    INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zoning_district_id, zone_code, zone_name, source, effective_date)
+    -- NOTE: parcel_zones does not have a zoning_district_id column per existing migrations
+    -- Column list matches the established pattern: (parcel_id, jurisdiction_id, zone_code, zone_name, source, effective_date)
+    INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source, effective_date)
     SELECT DISTINCT
         mca.parcel_id,
         v_jid,
-        v_dist_id,
         'R-1A',
         'Single Family Residential (Seminole shard3-6cace789)',
         'shard3_6cace789_inferred',
