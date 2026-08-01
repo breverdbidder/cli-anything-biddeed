@@ -1,6 +1,11 @@
 name: "MCP HTTP — Deploy to Vercel (biddeed.ai/api/mcp)"
 # Deploys api/mcp.js serverless function to Vercel
-# Requires: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID secrets
+# Requires: VERCEL_TOKEN secret.
+# VERCEL_ORG_ID/VERCEL_PROJECT_ID were never set as secrets — previously this
+# caused `vercel pull` to silently create a brand-new, wrong Vercel project
+# instead of targeting the real "biddeed-mcp" project bound to mcp.biddeed.ai
+# (root cause of the /report/pdf 404, found 2026-08-01). The "Resolve Vercel
+# project" step below looks the project up by name via the Vercel API instead.
 
 on:
   workflow_dispatch:
@@ -31,11 +36,50 @@ jobs:
         working-directory: packages/biddeed-mcp
         run: npm install
 
+      - name: Resolve Vercel project (name=biddeed-mcp)
+        id: resolve
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          find_project() {
+            local qs="$1"
+            curl -s "https://api.vercel.com/v9/projects?search=biddeed-mcp&limit=20${qs}" \
+              -H "Authorization: Bearer $VERCEL_TOKEN" || echo '{"projects":[]}'
+          }
+          extract() {
+            python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          ps = [p for p in d.get('projects', []) if p.get('name') == 'biddeed-mcp']
+          print(ps[0]['id'] if ps else '')
+          print(ps[0].get('accountId', '') if ps else '')
+          "
+          }
+
+          RESP="$(find_project '')"
+          read -r PROJECT_ID ORG_ID <<< "$(echo "$RESP" | extract | tr '\n' ' ')"
+
+          if [ -z "$PROJECT_ID" ]; then
+            echo "No 'biddeed-mcp' project in personal scope — trying known team scope"
+            RESP="$(find_project '&teamId=team_hnNsngSBFPRmWAzVPkxTCMgu')"
+            read -r PROJECT_ID ORG_ID <<< "$(echo "$RESP" | extract | tr '\n' ' ')"
+            [ -n "$PROJECT_ID" ] && ORG_ID="team_hnNsngSBFPRmWAzVPkxTCMgu"
+          fi
+
+          if [ -z "$PROJECT_ID" ]; then
+            echo "::error::Could not resolve a Vercel project named 'biddeed-mcp' in personal or team scope. Deploy would create a new project and silently miss mcp.biddeed.ai — aborting."
+            exit 1
+          fi
+
+          echo "Resolved biddeed-mcp → project_id=$PROJECT_ID org_id=${ORG_ID:-<personal>}"
+          echo "project_id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}' "$PROJECT_ID" "$ORG_ID" > .vercel/project.json
+
       - name: Pull Vercel environment
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           vercel pull --yes --environment=${{ inputs.environment }} --token=$VERCEL_TOKEN
 
@@ -43,22 +87,22 @@ jobs:
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
+          set -o pipefail
           if [ "${{ inputs.environment }}" = "production" ]; then
-            DEPLOY_URL=$(vercel deploy --prod --token=$VERCEL_TOKEN 2>&1 | tail -1)
+            vercel deploy --prod --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
           else
-            DEPLOY_URL=$(vercel deploy --token=$VERCEL_TOKEN 2>&1 | tail -1)
+            vercel deploy --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
           fi
+          DEPLOY_URL=$(grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' /tmp/vercel-deploy.log | tail -1)
           echo "deploy_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
           echo "Deploy URL: $DEPLOY_URL"
 
       - name: Verify /api/mcp responds
         run: |
           URL="${{ steps.deploy.outputs.deploy_url }}"
-          if [ -z "$URL" ] || [[ "$URL" == *"Error"* ]]; then
-            echo "::warning::Could not extract deploy URL"
+          if [ -z "$URL" ]; then
+            echo "::warning::Could not extract deploy URL from vercel CLI output"
             exit 0
           fi
           sleep 5
@@ -68,6 +112,21 @@ jobs:
             echo "✅ /api/mcp endpoint live (HTTP ${HTTP} = expected — 401 = auth required)"
           else
             echo "::warning::Unexpected HTTP ${HTTP} — manual check needed"
+          fi
+
+      - name: Verify /report/pdf is wired on production domain
+        if: inputs.environment == 'production'
+        run: |
+          sleep 5
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" "https://mcp.biddeed.ai/report/pdf")
+          echo "GET /report/pdf (no auth) on mcp.biddeed.ai → HTTP ${HTTP}"
+          if [ "$HTTP" = "401" ]; then
+            echo "✅ /report/pdf route live (401 = auth required, as expected with no key)"
+          elif [ "$HTTP" = "404" ]; then
+            echo "::error::/report/pdf still 404s on mcp.biddeed.ai after deploy — production alias may not have updated"
+            exit 1
+          else
+            echo "::warning::Unexpected HTTP ${HTTP} for /report/pdf — manual check needed"
           fi
 
       - name: SHIP GATE verification
