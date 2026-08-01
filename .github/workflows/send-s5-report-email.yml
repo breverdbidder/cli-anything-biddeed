@@ -109,26 +109,24 @@ jobs:
                   "content": pdf_b64,
               }],
           }
-
-          req = urllib.request.Request(
-              "https://api.resend.com/emails",
-              data=json.dumps(payload).encode(),
-              headers={
-                  "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
-          )
-          try:
-              with urllib.request.urlopen(req) as resp:
-                  body = json.loads(resp.read())
-                  print(f"Resend send id: {body.get('id')}")
-                  with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-                      out.write(f"resend_id={body.get('id','')}\n")
-          except urllib.error.HTTPError as e:
-              print(f"::error::Resend HTTP {e.code}: {e.read().decode()}")
-              raise
+          with open('/tmp/resend_payload.json', 'w') as f:
+              json.dump(payload, f)
           PYEOF
+
+          # curl instead of Python's urllib -- Resend sits behind Cloudflare
+          # bot protection that 403s (error 1010) urllib's default fingerprint.
+          HTTP=$(curl -s -o /tmp/resend_resp.json -w "%{http_code}" -X POST "https://api.resend.com/emails" \
+            -H "Authorization: Bearer ${RESEND_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/resend_payload.json)
+          echo "Resend HTTP ${HTTP}"
+          cat /tmp/resend_resp.json
+          if [ "$HTTP" -ge 300 ]; then
+            echo "::error::Resend send failed"
+            exit 1
+          fi
+          RESEND_ID=$(python3 -c "import json; print(json.load(open('/tmp/resend_resp.json')).get('id',''))")
+          echo "resend_id=$RESEND_ID" >> "$GITHUB_OUTPUT"
 
       - name: Log to agent_ops_log
         if: always()
