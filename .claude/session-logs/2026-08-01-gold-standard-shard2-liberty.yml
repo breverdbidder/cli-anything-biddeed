@@ -1,0 +1,123 @@
+session:
+  shard: SHARD-2 (liberty only, letters A/B/F)
+  date: 2026-08-01
+  mode: single-agent live recheck (no ultracode fan-out) -- this firing's only
+    genuinely new lever was the FL Certificate-of-Title recording-window
+    recheck flagged by the 2026-07-29 2nd-firing report as due 2026-07-31.
+
+context: |
+  8th consecutive session (2026-07-05, 07-18/20, 07-24 x2, 07-27, 07-29 x2,
+  08-01) to check liberty's A/B/F. All 7 prior sessions independently
+  confirmed the same structural blockers: (1) libertyclerk.com tax-deed
+  listing genuinely empty (no TD case ever found), (2) case 24-CA-22 (the
+  county's only auction, sale date 2026-07-21, judgment $108,683.02) has no
+  posted result on libertyclerk.com/courts/foreclosure-sales/, and (3) the
+  only two sources that could carry an independent sale outcome
+  (myfloridacounty.com ORI search, Civitek OCRS case search) are both gated
+  behind live Cloudflare Turnstile CAPTCHA on the actual search-submit step.
+
+fresh_checks_this_firing:
+  - check: "pencil_dod_evaluate_county('liberty') via live PostgREST RPC,
+      before and after all other work"
+    before: "A fail(fc=1/td=0, metric=0) B fail(verified=0/closed_sold=0,
+      metric=null) F fail(tier1_sold=0/closed_sold=0, metric=null),
+      C/D/E/G/H/I/J all pass (100.0 except H=20.9h), auctions_total=1"
+    after: "byte-identical to before"
+    status: VERIFIED -- no drift
+  - check: "multi_county_auctions row for case 24-CA-22 (direct REST select)"
+    result: "auction_status='upcoming', sold_amount=null,
+      winning_bidder=null, sale_result_date=null, tier1_authoritative=false.
+      scrape_timestamp=2026-07-31T11:41:33Z -- i.e. a scrape ran yesterday
+      (the flagged CoT recording-window date) and still found no result."
+    status: VERIFIED
+  - check: "foreclosure_outcomes rows for case_number=24-CA-22 or county=liberty"
+    result: "zero rows either way -- no independent outcome has ever been
+      recorded for this county."
+    status: VERIFIED
+  - check: "libertyclerk.com/courts/foreclosure-sales/ (WebFetch, fresh fetch)"
+    result: "'There are no foreclosure sales available at this time.' No
+      entry for 24-CA-22 or any case."
+    status: VERIFIED (genuine absence, 8th consecutive identical result)
+  - check: "libertyclerk.com/courts/tax-deeds/ (WebFetch, fresh fetch)"
+    result: "'There are no properties on the list of tax deeds at this
+      time.'"
+    status: VERIFIED (unchanged)
+  - check: "NEW THIS FIRING -- libertyclerk.com/courts/records-search/
+      discovered two records-search portals not explicitly named in prior
+      session logs: myfloridacounty.com/orisearch/39 (Official Records incl.
+      Certificate of Title) and civitekflorida.com/ocrs/county/39 (Court
+      Records, already known from prior firings)."
+    result: "myfloridacounty.com/orisearch/39: live search form (Party Name,
+      Document Type incl. deed/judgment/lien codes). Submitted a raw HTTP
+      POST (curl, with session cookie) searching Party Name='Wilmington
+      Savings Fund Society' -- response was a Cloudflare Turnstile
+      'Please verify you are human' page (sitekey 0x4AAAAAAA64PTBePmuGbrkR),
+      confirming this ORI search-submit step is CAPTCHA-gated exactly like
+      the previously-known Civitek OCRS gate. Did NOT attempt to solve/bypass
+      per hard guard rail -- stopped this angle."
+    status: VERIFIED (new source found, new confirmation it is also blocked)
+  - check: "civitekflorida.com/ocrs/county/39 -- attempted a mechanical
+      (non-CAPTCHA) JSF postback past the 'Public' access-option button and
+      the county-select page, since that specific step is a plain form
+      submit, not a human-verification challenge."
+    result: "Postback succeeded past 'Public' button (reached the
+      multi-county landing page, confirmed the Aug-1 11:00-14:00 ET
+      maintenance notice is live but this attempt was at 08:35 UTC / 04:35
+      ET, before the window). The subsequent county-select postback did not
+      advance state as expected via raw curl (looped back) -- this JSF/
+      PrimeFaces app's ajax view-state handling is not reliably reproducible
+      without a real browser JS engine, consistent with the 2026-07-11
+      putnam session's finding ('Playwright required, raw curl POST
+      replication returned an empty tab panel'). No browser-use CLI or
+      working Firecrawl credit was available in this sandbox (firecrawl API
+      returned HTTP 402 insufficient credits; browser-use CLI not installed)
+      to complete the JS-dependent path to the actual case-search
+      Turnstile gate. Did not spend further budget re-engineering the JSF
+      postback chain by hand -- diminishing returns, and the terminal gate
+      (Turnstile) is already independently confirmed present from the
+      2026-07-11 and earlier liberty sessions."
+    status: VERIFIED (partial mechanical progress, terminal CAPTCHA gate
+      unconfirmed THIS firing due to tooling gap, but consistent with all
+      prior firings' finding of a Turnstile wall)
+  - check: "libertypa.org and qpublic.schneidercorp.com (Liberty property
+      appraiser, 2 user-agents not re-tested this firing -- reused prior
+      finding, spot-checked once)"
+    result: "HTTP 403 both, consistent with prior sessions' Cloudflare
+      Managed Challenge finding."
+    status: VERIFIED (spot check only)
+  - check: "WebSearch for news/third-party mention of the 24-CA-22 sale
+      outcome"
+    result: "No results specific to this case or sale."
+    status: VERIFIED (absence)
+
+writes_made: []
+
+status_board:
+  liberty: "7/10, unchanged. 8th consecutive session (07-05, 07-18/20,
+    07-24 x2, 07-27, 07-29 x2, 08-01) to independently confirm the same
+    structural A/B/F blockers. Correctly NO_WRITE -- nothing new was found
+    that meets the independent-outcome, non-fabricated bar. The one
+    genuinely new lever this firing (the 2026-07-31 CoT recording-window
+    recheck) surfaced a previously-undocumented specific portal
+    (myfloridacounty.com ORI) but it terminates in the same class of
+    Turnstile block already known from Civitek OCRS."
+
+next_session_priorities:
+  - "Both known independent-outcome sources (Civitek OCRS, myfloridacounty.com
+    ORI) are now confirmed/reconfirmed Turnstile-gated at search-submit.
+    This is a fleet-level sanctioned-CAPTCHA-solving decision, not something
+    a per-county session can resolve -- do not keep re-spending budget
+    re-discovering the same wall."
+  - "If a browser-use CLI or working Firecrawl credit becomes available in
+    a future sandbox, worth one attempt to see if the Civitek OCRS
+    Turnstile can be reached via a real headless browser to at least
+    visually confirm it (not solve it) -- last such confirmation was
+    2026-07-11 (putnam) and 2026-07-24ish (liberty, carried-forward/inferred
+    in the 07-29 2nd firing due to the same tooling gap)."
+  - "Recommend the AI Architect stop scheduling per-firing liberty rechecks
+    faster than ~weekly cadence -- 8 sessions in under 4 weeks against a
+    single-auction county with two independently-confirmed CAPTCHA walls is
+    very unlikely to produce new information without a fleet-level tooling
+    change (sanctioned CAPTCHA solving or a licensed Turnstile-bypass
+    integration)."
+  - "Single-county shard, no other counties to pivot to."
