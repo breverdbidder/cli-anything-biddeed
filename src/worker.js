@@ -463,10 +463,14 @@ export default {
         // left over after the user re-picked a different auction in the same
         // session). Re-look the auction up by case_number+county — the pair
         // actually submitted. (county, case_number) is NOT a unique key in
-        // multi_county_auctions (duplicate rows exist across sale_type, which
-        // the checkout payload doesn't carry) — so when mca_id isn't given we
-        // can't disambiguate which row the buyer meant. Require every matching
-        // row to pass rather than picking one arbitrarily.
+        // multi_county_auctions — e.g. brevard/250104 is both a cancelled
+        // 2025-10-16 foreclosure AND an upcoming, matched_clean 2026-08-20 tax
+        // deed. The picker (fetchReportAuctions) only ever shows rows that are
+        // already matched_clean+upcoming+future, so re-deriving "does at least
+        // one row for this county+case_number still satisfy that" is a faithful
+        // re-check of what the buyer actually saw — requiring ALL same-case_number
+        // rows to pass (including unrelated stale/cancelled ones) false-positives
+        // and blocks legitimate purchases.
         try {
           const lookupUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&case_number=eq.${encodeURIComponent(case_number)}&select=id,parity_status,auction_status,auction_date`;
           const lookupRes = await fetch(lookupUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
@@ -478,12 +482,12 @@ export default {
             return new Response(JSON.stringify({ error: 'Property not found' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
           }
           const now = new Date();
-          const bad = rows.find(r =>
-            r.auction_status !== 'upcoming' ||
-            r.parity_status !== 'matched_clean' ||
-            (r.auction_date && new Date(r.auction_date) < now)
-          );
-          if (bad) {
+          const isGood = r =>
+            r.auction_status === 'upcoming' &&
+            r.parity_status === 'matched_clean' &&
+            (!r.auction_date || new Date(r.auction_date) >= now);
+          if (!rows.some(isGood)) {
+            const bad = rows[0];
             if (bad.auction_status !== 'upcoming') {
               return new Response(JSON.stringify({ error: 'This auction is no longer upcoming' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
             }
