@@ -1,0 +1,173 @@
+-- GOLD STANDARD dispatch: miami_dade, criterion I (property card completeness)
+-- BEFORE: FAIL 76.7% (card_complete=339 of 442)
+-- AFTER:  PASS 96.4% (card_complete=426 of 442)
+-- Session: 2026-08-01, chat_session architect-20260801
+--
+-- This file documents live writes already applied via the Supabase
+-- Management API / PostgREST (service-role key) -- psql direct connection
+-- was unavailable in this sandbox, consistent with the established pattern
+-- in this repo's other Gold Standard migration files.
+--
+-- ROOT CAUSE (CONFIRMED via live SQL against pencil_dod_evaluate_county's
+-- own card_complete query, decomposed into two buckets):
+--   bucket (a) field-missing: 52 of 103 gap rows failed on missing
+--     property_address / lat-long / assessed_value / parcel_id.
+--   bucket (b) zoning-link-only: 51 of 103 gap rows had ALL 4 required
+--     fields but their parcel_id did not appear in
+--     v_zoning_gold_standard_card with zone_code IS NOT NULL (i.e. no
+--     parcel_zones row for that folio) -- same root-cause class as the
+--     documented Brevard G diagnosis in CLAUDE.md ("G/I fix is loading
+--     zoning layers per county, not auction work").
+--
+-- STEP 1 (bucket a, 36 of 52 rows fixed) --
+-- scripts/gold_standard_miami_dade_i_geo_backfill_20260801.py
+-- 36 rows had a real numeric parcel_id but NULL latitude/longitude.
+-- fl_parcels (co_no=23 -- CONFIRMED live this is Miami-Dade's actual code in
+-- this table, not 13 as originally assumed) has SPARSE centroid_lat/lng
+-- coverage for Miami-Dade; 10 rows resolved via fl_parcels' own precomputed
+-- centroid, the remaining 26 via a LIVE query against FL GIO's Statewide
+-- Cadastral ArcGIS FeatureServer (returnGeometry=true, outSR=4326),
+-- computing a genuine centroid from the returned polygon's outer-ring
+-- vertex average -- 7 direct exact-folio matches, 19 via the condo
+-- BUILDING's base-unit folio (suffix '0001', same real building footprint,
+-- same pattern as this county's prior-session Euclid Ave cross-check).
+-- NULL-only PATCH via PostgREST, never overwrote existing data.
+-- Result: I metric moved from 339->... (see below -- these 36 rows revealed
+-- they ALSO failed the zoning-link check once geo was fixed, moving them
+-- into bucket b rather than immediately passing).
+--
+-- STEP 2 (bucket b, 50 of 51 rows fixed) --
+-- scripts/gold_standard_miami_dade_i_zoning_spatial_research_20260801.py
+-- (research, no writes) +
+-- scripts/gold_standard_miami_dade_i_zoning_apply_20260801.py (writes)
+-- Point-in-polygon spatial join of all 87 zoning-link-gap rows (51 original
+-- + 36 revealed by Step 1) against Miami-Dade's own countywide
+-- MunicipalZone_gdb ArcGIS layer
+--   (services.arcgis.com/8Pc9XBTAsYuxx9Ny/.../MunicipalZone_gdb/FeatureServer/0)
+-- found 51 rows landing inside a real INCORPORATED municipality with a real
+-- ZONE code (36 landed in "UNINCORPORATED" with ZONE='NONE' -- a genuine
+-- dead-end from this layer, handled in Step 3). Of those 51:
+--   - 6 municipalities (Bal Harbour, El Portal, Florida City, Miami Shores,
+--     North Bay Village, West Miami) had ZERO jurisdiction row in the DB at
+--     all -- inserted via `jurisdictions` (name/county/state/county_name).
+--   - 35 distinct (jurisdiction, zone_code) pairs needed a `zoning_districts`
+--     row check; 21 were genuinely new, 14 already existed. For every NEW
+--     row, far_regulated/density_regulated/pk1000_regulated were set
+--     EXPLICITLY from MunicipalZone_gdb's own FAR/DENSITY fields (never left
+--     to the view's category-guess default) SPECIFICALLY to avoid the
+--     documented G-regression precedent from this same county's prior
+--     session (GOLD_STANDARD_SHARD12_MIAMI_DADE_RUN3786 / the 83c11ccb
+--     research script): an unresolved zone_code makes
+--     v_zoning_district_applicability default far/pk1000_applicable to
+--     TRUE with NULL standards, dragging G below its 95% gate.
+--       density_regulated = true for all 21 (DENSITY always populated,
+--         real sourced du/acre cap)
+--       far_regulated = true only when FAR is a parseable positive number
+--         (Miami transect zones reporting FAR=0 treated as not-regulated,
+--         per the source layer's own convention, not fabricated)
+--       pk1000_regulated = false for all 21 (MunicipalZone_gdb has no
+--         parking field; FL residential codes regulate parking per-unit,
+--         not per-1000sf -- honest not-applicable, shrinks G's denominator
+--         instead of inflating its NULL-numerator problem)
+--   - zone_standards populated (max_far, max_density_du_acre, source_url)
+--     for the 21 new districts as enrichment (not required for letter I,
+--     improves G accuracy).
+--   - 50 of 51 parcel_zones rows inserted (1 pre-existed from a prior
+--     session, idempotent skip). parcel_id stored HYPHENATED, matching
+--     multi_county_auctions.parcel_id verbatim (confirmed against the 142
+--     existing Miami-jurisdiction rows' format -- NOT digit-stripped).
+--
+-- STEP 2b (G-regression fix, same session) --
+-- scripts/gold_standard_miami_dade_g_density_backfill_20260801.py
+-- The Step 2 parcel_zones inserts linked additional parcels into EXISTING,
+-- pre-session zoning_districts codes (Miami Gardens R-1/R-15, Homestead
+-- PUD/R-TH/R-1, North Miami Beach RM-23/RS-4/MU-IB, Doral MF-1/PUD) that
+-- were already missing zone_standards.max_density_du_acre BEFORE this
+-- session -- surfacing, not creating, a pre-existing data gap. Live
+-- v_zoning_gold_standard_kpi_v3 check showed G's density sub-metric dip
+-- 99.3%->94.1% (FAIL) immediately after Step 2. Backfilled ONLY
+-- max_density_du_acre (NULL-only) for these 10 exact pairs using the SAME
+-- real DENSITY field already captured from MunicipalZone_gdb in Step 2's
+-- research output (not a new source, not guessed). G verified back to
+-- 99.7% PASS (net improvement over the pre-session 99.3%, since 2 more
+-- parcels are now correctly resolved instead of missing).
+--
+-- STEP 3 (unincorporated bucket, 36 of 36 rows fixed) --
+-- scripts/gold_standard_miami_dade_i_unincorporated_zoning_research_20260801.py
+-- (research) + scripts/gold_standard_miami_dade_i_unincorporated_zoning_apply_20260801.py
+-- (writes)
+-- Miami-Dade publishes a SEPARATE ArcGIS layer specifically for
+-- unincorporated-county zoning: gisweb.miamidade.gov's MD_MDCZoning
+-- MapServer, layer 6 ("Unincorporated Zoning"), fields ZONE/MUNC/ZONE_DESC/
+-- SHORT_DESC. Point-in-polygon queried against all 36 UNINCORPORATED/NONE
+-- dead-end rows from Step 2 -- ALL 36 matched with a real zone code.
+--   - 30 of 36 used codes ALREADY present under jurisdiction 626
+--     (Miami-Dade County Unincorporated): RU-1, RU-2, RU-3M, RU-4L, BU-1 --
+--     zero G-regression risk, applicability already resolved.
+--   - 6 genuinely new codes (GU, EU-M, RU-TH, RU-1MA, RU-1Z, RU-4M) got a
+--     zoning_districts row with density_regulated/max_density_du_acre
+--     parsed DIRECTLY from the layer's own ZONE_DESC text where a real
+--     "N units/net acre" figure is stated (RU-TH=8.5, RU-4M=35.9,
+--     density_regulated=true for these two); GU/EU-M/RU-1MA/RU-1Z are
+--     minimum-LOT-AREA codes (e.g. "5,000 ft2 net"), not density-cap codes
+--     -- density_regulated=FALSE set honestly rather than fabricate a
+--     du/acre figure the source doesn't provide (same "honest not-
+--     applicable" pattern as this repo's Kissimmee FBC precedent).
+--     far_regulated=false / pk1000_regulated=false for all 6 (single-family/
+--     townhouse residential, no FAR/parking field in this source layer).
+--   - 36 of 36 parcel_zones rows inserted (0 pre-existed).
+--
+-- LIVE VERIFICATION (SELECT public.pencil_dod_evaluate_county('miami_dade'),
+-- re-run fresh at session close, 2026-08-01T08:35:23Z):
+--   BEFORE: I FAIL 76.7% (card_complete=339 of 442); all other letters
+--     (A,B,C,D,E,F,G,H,J) already PASS.
+--   AFTER:  I PASS 96.4% (card_complete=426 of 442). G PASS 99.7%
+--     (density=99.7 far=100.0 pk1000=100.0 -- improved vs the pre-session
+--     99.3%, net positive, no regression after the Step 2b fix).
+--     A/B/C/D/E/F/H/J unchanged PASS. auctions_total unchanged at 442.
+--     Full result:
+--       {"A":{"pass":true,"metric":111},"B":{"pass":true,"metric":100},
+--        "C":{"pass":true,"metric":95.2,"detail":"matched_clean=421"},
+--        "D":{"pass":true,"metric":95.2,"detail":"matched_any=421"},
+--        "E":{"pass":true,"metric":97.1,"detail":"parcel_linked=429"},
+--        "F":{"pass":true,"metric":100},
+--        "G":{"pass":true,"metric":99.7,"detail":"density=99.7 far=100.0 pk1000=100.0"},
+--        "H":{"pass":true,"metric":0},
+--        "I":{"pass":true,"metric":96.4,"detail":"card_complete=426 of 442"},
+--        "J":{"pass":true,"metric":95.5},"auctions_total":442}
+--
+-- RESIDUAL (16 of 442 rows, NOT fixed, NOT guessed):
+--   - Most are `realtaxdeed`-sourced rows with a placeholder market_value of
+--     exactly $150,000.00 and NO parcel_id/address at all -- the auction
+--     calendar source itself never carried a folio for these listings
+--     (confirmed pattern from prior miami_dade I sessions: "Parcel ID:"
+--     anchor renders literal text with an empty folio query param).
+--   - 2 rows literally have parcel_id='Property Appraiser' (a rendering
+--     artifact from the source calendar, not a real folio).
+--   - 1 row (case 2026A00187, assessed_value=$217) has parcel_id but no
+--     address on file anywhere checked.
+--   All genuinely blocked at the calendar-source level -- login-walled /
+--   no public secondary listing -- per HARD RULE 11, left as BLANK, not
+--   guessed. A follow-up session with Firecrawl/authenticated-session
+--   access to RealTaxDeed/RealForeclose detail pages could potentially
+--   close some of these, per the prior session's same finding.
+--
+-- Guard rails followed: no PropertyOnion data used or written; cron jobs
+-- 109/111/115 and gold_standard_loop/gold_standard_certify untouched;
+-- gold_standard_loop()/gold_standard_certify() NOT invoked (verification
+-- was via pencil_dod_evaluate_county only); no other counties touched
+-- (concurrent parcel_zones writes observed from other in-flight shards,
+-- e.g. suwannee, were not modified or reverted).
+--
+-- Files: scripts/gold_standard_miami_dade_i_geo_backfill_20260801.py,
+--   scripts/gold_standard_miami_dade_i_zoning_spatial_research_20260801.py,
+--   scripts/gold_standard_miami_dade_i_zoning_apply_20260801.py,
+--   scripts/gold_standard_miami_dade_g_density_backfill_20260801.py,
+--   scripts/gold_standard_miami_dade_i_unincorporated_zoning_research_20260801.py,
+--   scripts/gold_standard_miami_dade_i_unincorporated_zoning_apply_20260801.py
+--
+-- This migration file is a documentation-only no-op when applied via
+-- `supabase db push` -- all real writes were already applied live via the
+-- scripts above (idempotent, safe to re-run if this file's SELECT is used
+-- to spot-check).
+SELECT 1 AS gold_standard_miami_dade_i_fix_documented;
