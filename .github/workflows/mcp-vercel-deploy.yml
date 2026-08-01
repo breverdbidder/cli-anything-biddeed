@@ -83,16 +83,53 @@ jobs:
         run: |
           vercel pull --yes --environment=${{ inputs.environment }} --token=$VERCEL_TOKEN
 
-      - name: Deploy to Vercel
+      - name: Build locally (so we can smoke-test the exact deployed bundle)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            vercel build --prod --token=$VERCEL_TOKEN
+          else
+            vercel build --token=$VERCEL_TOKEN
+          fi
+
+      - name: Smoke-test the built function bundle (catch a crash before shipping it)
+        run: |
+          FUNC_DIR=".vercel/output/functions/api/mcp.func"
+          if [ ! -d "$FUNC_DIR" ]; then
+            echo "::error::$FUNC_DIR not found after vercel build — cannot smoke-test"
+            exit 1
+          fi
+          cd "$FUNC_DIR"
+          node -e "
+          import('./api/mcp.js').then(async m => {
+            const handler = m.default;
+            const { EventEmitter } = await import('node:events');
+            const req = Object.assign(new EventEmitter(), { method: 'GET', url: '/report/pdf', headers: { host: 'mcp.biddeed.ai' } });
+            const res = {
+              setHeader(){}, headersSent: false,
+              writeHead(code, headers) { this.statusCode = code; console.log('[smoke] writeHead', code, headers); },
+              end(body) { console.log('[smoke] end', body ? String(body).slice(0, 200) : body); },
+            };
+            await handler(req, res);
+            if (res.statusCode !== 401) {
+              console.error('[smoke] expected 401 (no auth header), got', res.statusCode);
+              process.exit(1);
+            }
+            console.log('[smoke] OK — bundle loads and /report/pdf returns 401 with no key, as expected');
+          }).catch(e => { console.error('[smoke] IMPORT/HANDLER CRASH:', e); process.exit(1); });
+          "
+
+      - name: Deploy to Vercel (prebuilt — same artifact just smoke-tested)
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -o pipefail
           if [ "${{ inputs.environment }}" = "production" ]; then
-            vercel deploy --prod --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
+            vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
           else
-            vercel deploy --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
+            vercel deploy --prebuilt --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
           fi
           DEPLOY_URL=$(grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' /tmp/vercel-deploy.log | tail -1)
           echo "deploy_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
