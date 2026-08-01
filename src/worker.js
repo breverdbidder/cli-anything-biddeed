@@ -8,7 +8,7 @@
  *   GET  /chat                → Chatbot UI
  *   GET  /county/:name        → County deep-link landing page
  *   GET  /counties            → All counties index
- *   POST /chat/api            → Streaming SSE chat (Anthropic)
+ *   POST /chat/api            → Streaming SSE chat (via anthropic-proxy Smart Router — never api.anthropic.com directly)
  *   POST /chat/lead           → Email capture → Supabase lead_profiles
  *   GET  /chat/county-data    → County card JSON
  *   GET  /auctions            → Property cards JSON for the chat right panel (?county=&days=&type=&limit=)
@@ -713,14 +713,19 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - If this message included a "LIVE AUCTION DATA ... End your response with exactly" instruction, obey it literally: put that [PROPERTIES_LOADED:...] token as the very last thing in your reply, on its own, with nothing after it. It is a control token for the UI, not a link — never wrap it in markdown or explain it to the user.
 ${DISCLAIMER_SHORT}`;
 
-        // tier=free routes to Gemini Flash when GEMINI_API_KEY is bound; otherwise every
-        // tier falls through to Haiku so a missing/unset Gemini secret never breaks chat.
+        // tier=free routes to Gemini Flash directly when GEMINI_API_KEY is bound (no
+        // Anthropic involvement either way). Every other tier routes through the
+        // anthropic-proxy Supabase edge function — an Anthropic Messages
+        // API-compatible shim in front of the in-Postgres Smart Router
+        // (Claude Max OAuth tier 1, Gemini free-tier fallback tier 2; see
+        // supabase/functions/anthropic-proxy/README.md). The Worker NEVER calls
+        // api.anthropic.com with an ANTHROPIC_API_KEY — that binding is retired.
         const geminiKey = env.GEMINI_API_KEY;
         const useGemini = tier === 'free' && !!geminiKey;
 
-        const anthropicKey = env.ANTHROPIC_KEY;
-        if (!useGemini && !anthropicKey) {
-          await logErr(env, '/chat/api', 'Missing ANTHROPIC_KEY binding', '', 500);
+        const routerProxyKey = env.ROUTER_PROXY_KEY;
+        if (!useGemini && !routerProxyKey) {
+          await logErr(env, '/chat/api', 'Missing ROUTER_PROXY_KEY binding', '', 500);
           return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
@@ -736,11 +741,11 @@ ${DISCLAIMER_SHORT}`;
               }),
             });
           } else {
-            upstreamRes = await fetch('https://api.anthropic.com/v1/messages', {
+            upstreamRes = await fetch(`${SUPABASE_URL}/functions/v1/anthropic-proxy/v1/messages`, {
               method: 'POST',
-              headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+              headers: { 'x-api-key': routerProxyKey, 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                model: 'claude-haiku-4-5',
+                model: 'claude-haiku-4-5-20251001',
                 max_tokens: 1024,
                 stream: true,
                 system: systemPrompt,
@@ -749,13 +754,13 @@ ${DISCLAIMER_SHORT}`;
             });
           }
         } catch(e) {
-          await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'Anthropic') + ' fetch failed', String(e), 502);
+          await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'anthropic-proxy') + ' fetch failed', String(e), 502);
           return new Response(JSON.stringify({ error: 'AI service unavailable' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
         if (!upstreamRes.ok) {
           const errText = await upstreamRes.text();
-          await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'Anthropic') + ' non-200', errText, upstreamRes.status);
+          await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'anthropic-proxy') + ' non-200', errText, upstreamRes.status);
           return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
@@ -765,7 +770,7 @@ ${DISCLAIMER_SHORT}`;
 
         // Heartbeat to prevent mobile browsers from killing an idle SSE connection —
         // ": "-prefixed lines are SSE comments, ignored by the client parser but keep
-        // the TCP connection alive while Anthropic is still generating.
+        // the TCP connection alive while the upstream model is still generating.
         const heartbeatInterval = setInterval(() => {
           writer.write(encoder.encode(': heartbeat\n\n')).catch(() => {});
         }, 5000);

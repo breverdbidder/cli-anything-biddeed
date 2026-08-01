@@ -946,18 +946,21 @@ ${liveDataCtx}${langNote}
 
 ${DISCLAIMER_SHORT}`;
 
-        const anthropicKey = env.ANTHROPIC_KEY;
-        if (!anthropicKey) {
+        // Routed through the anthropic-proxy Supabase edge function (Claude Max
+        // OAuth tier 1, Gemini fallback tier 2) — never api.anthropic.com
+        // directly with an ANTHROPIC_API_KEY. Same fix as src/worker.js /chat/api.
+        const routerProxyKey = env.ROUTER_PROXY_KEY;
+        if (!routerProxyKey) {
           return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
         let anthropicRes;
         try {
-          anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+          anthropicRes = await fetch(`${SUPABASE_URL}/functions/v1/anthropic-proxy/v1/messages`, {
             method: 'POST',
-            headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+            headers: { 'x-api-key': routerProxyKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'claude-haiku-4-5',
+              model: 'claude-haiku-4-5-20251001',
               max_tokens: 1024,
               stream: true,
               system: SYSTEM_PROMPT,

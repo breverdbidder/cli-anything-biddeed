@@ -18,4 +18,6 @@ zone_name = "biddeed.ai"
 
 # [vars]
 # Non-secret config here. Secrets live in encrypted CF Worker secret bindings:
-#   ANTHROPIC_KEY — same binding name/value as the production worker
+#   ROUTER_PROXY_KEY — same binding name/value as the production worker.
+#     REQUIRED — set via: wrangler secret put ROUTER_PROXY_KEY --config wrangler-staging.toml
+#     See wrangler.toml for the full explanation and the deploy-ordering warning.
