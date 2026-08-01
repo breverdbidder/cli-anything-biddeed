@@ -99,6 +99,7 @@ jobs:
           echo "Deploy URL: $DEPLOY_URL"
 
       - name: Verify /api/mcp responds
+        id: verify_mcp
         run: |
           URL="${{ steps.deploy.outputs.deploy_url }}"
           if [ -z "$URL" ]; then
@@ -110,9 +111,23 @@ jobs:
           echo "Health check GET /api/mcp → HTTP ${HTTP}"
           if [ "$HTTP" = "401" ] || [ "$HTTP" = "200" ]; then
             echo "✅ /api/mcp endpoint live (HTTP ${HTTP} = expected — 401 = auth required)"
+          elif [ "$HTTP" = "500" ]; then
+            echo "http_500=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::HTTP 500 — will pull runtime logs in next step"
           else
             echo "::warning::Unexpected HTTP ${HTTP} — manual check needed"
           fi
+
+      - name: Fetch Vercel runtime logs (only if 500 above)
+        if: steps.verify_mcp.outputs.http_500 == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          URL="${{ steps.deploy.outputs.deploy_url }}"
+          echo "=== Build logs ==="
+          timeout 20 vercel inspect "$URL" --token=$VERCEL_TOKEN --logs 2>&1 || true
+          echo "=== Runtime logs (status 500, last 15m) ==="
+          timeout 20 vercel logs "$URL" --token=$VERCEL_TOKEN --status-code 500 --since 15m --json 2>&1 || true
 
       - name: Verify /report/pdf is wired on production domain
         if: inputs.environment == 'production'
