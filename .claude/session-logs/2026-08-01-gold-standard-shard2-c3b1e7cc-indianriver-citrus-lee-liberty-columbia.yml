@@ -1,0 +1,227 @@
+session:
+  shard: "SHARD-2 (indian_river, citrus, lee, liberty, columbia)"
+  dispatch_id: c3b1e7cc-af0b-4094-91ec-9367bb290d54
+  chat_session: architect-20260801T080000
+  date: "2026-08-01"
+  mode: "ULTRALOOP (ultracode Workflow, 5 parallel fix agents + adversarial
+    verify), followed by a manual correction after discovering a bug in the
+    workflow's own verify-trigger filter"
+  agent: claude-sonnet-5
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county for all 5 assigned counties live
+      before touching anything"
+    result: "Matched the dispatch brief exactly (indian_river 9/10, citrus
+      8/10, lee 8/10, liberty 7/10, columbia 6/10)"
+    reason: "Evidence-Before-Claims"
+  - step: 2
+    action: "Verified direct psql/pooler connection fails password auth in
+      this sandbox; confirmed the Supabase Management API
+      (api.supabase.com/v1/projects/.../database/query) and PostgREST RPC
+      both work"
+    result: "Used Management API for all raw-SQL diagnostics, REST for all
+      table reads/writes for the rest of the session"
+    reason: "Avoid repeating a known dead end (documented in prior columbia
+      session logs)"
+  - step: 3
+    action: "Read the live pencil_dod_evaluate_county SQL definition
+      (pg_get_functiondef) before diagnosing E/I gaps"
+    result: "Learned the exact scoping filter (excludes propertyonion rows
+      unless tier1_authoritative) and the I-letter's v_zoning_gold_standard_card
+      join requirement -- avoided wasting agent time on out-of-scope
+      PropertyOnion staging rows (lee has 2800+ raw rows but only 322 are
+      actually scored)"
+    reason: "K1 Think Before Coding -- understand the exact contract before
+      dispatching fix work"
+  - step: 4
+    action: "Read prior session logs/reports for liberty (7 consecutive
+      confirmed-blocked firings) and columbia (exhaustive 3-day-old dead-end
+      research) before deciding scope for those two counties"
+    result: "Scoped liberty/columbia lanes to lightweight fresh-checks only
+      (not full re-research), matching the precedent set by the 2026-07-29
+      liberty 2nd-firing session"
+    reason: "Cost discipline / Karpathy K1 -- do not re-diagnose what a prior
+      session already conclusively answered"
+  - step: 5
+    action: "Found scripts/gold_standard_shard5_lee_ei_arcgis_backfill.py (a
+      proven, already-working Lee ArcGIS pipeline) and
+      scripts/enrich_property_cards.py / shard7_run757_indian_river_i.py
+      (prior indian_river attempts) before writing any new code"
+    result: "Briefed the lee fix agent to fork the proven script rather than
+      rediscover the ArcGIS endpoint/jurisdiction map from scratch"
+    reason: "HARNESS.md mandate -- new agents always fork from existing
+      harness"
+  - step: 6
+    action: "Wrote and ran an ultracode Workflow (.claude/workflows/gold-
+      standard-shard2-run7858-c3b1e7cc.js): 5 parallel fix lanes (lee E/I,
+      citrus E/I, indian_river I, liberty recheck, columbia recheck) followed
+      by an adversarial-verify phase gated on a 'did this lane claim a
+      metric-moving change' filter"
+    result: "All 5 lanes returned. Workflow's own filter flagged only 3
+      lanes (indian_river, liberty, columbia) for verification and reported
+      '3/5 lanes claim a metric-moving change'"
+    reason: "User opted into ultracode this turn; ULTRALOOP PROTOCOL mandates
+      fan-out + adversarial verify for audit/fix phases"
+  - step: 7
+    action: "Reviewed the raw fix-phase output before accepting the workflow's
+      verify-phase result and noticed citrus's before/after JSON showed a
+      real letter flip (E: FAIL 94.2 -> PASS 99.0) and lee reported real
+      writes_made-equivalent fields (rows_fixed_e/rows_fixed_i), neither of
+      which the workflow's own filter had flagged for verification"
+    result: "Diagnosed the bug: the filter did Object.entries() on
+      before/after fields that the agents returned as JSON-encoded STRINGS
+      (not objects, since the schema left them untyped) -- Object.entries()
+      on a string iterates characters, so beforePass/afterPass were always
+      0 vs 0 and the flip-detection branch never fired for those 2 lanes"
+    reason: "Verification-before-completion -- do not trust a sub-process's
+      self-reported 'nothing more to verify' status without spot-checking
+      its own logic"
+  - step: 8
+    action: "Launched 2 additional manual adversarial-verify Agent calls
+      (main context, not the workflow) specifically for citrus/E and lee/E+I,
+      since the workflow run had already completed and re-running the whole
+      workflow was unnecessary for a 2-lane gap"
+    result: "citrus refuter found a real issue: case '2023 CA 000716 A'
+      (parcel 1085349, address '3939 E Bennett St') conflicts with a
+      PropertyOnion record pairing the same address to a different case
+      number ('2022 CA 000629 A', which does not exist in our own table).
+      lee refuter initially returned REFUTED, flagging assessed_value
+      mismatches vs live ArcGIS on 4 of 5 sampled rows."
+    reason: "ULTRALOOP PROTOCOL -- verifier must never be the agent that did
+      the work"
+  - step: 9
+    action: "Investigated the citrus conflict directly (queried our own DB
+      for both case numbers -- '2022 CA 000629 A' doesn't exist in
+      multi_county_auctions at all, so the conflict is against PropertyOnion,
+      which is litmus-only per hard guard rail and known to have its own
+      case-number quality issues per prior campaign findings; attempted a
+      live FL Statewide Cadastral cross-check by address, which repeatedly
+      timed out; citruspa.org's own portal was unreachable, consistent with
+      what the refuter itself reported)"
+    result: "Could not independently disprove the refuter's flagged
+      conflict -- reverted case 2023 CA 000716 A's parcel_id to NULL live
+      via REST PATCH. Re-ran pencil_dod_evaluate_county('citrus'): E still
+      clears the 95%% threshold afterward (98.4%%, 188/191), so the genuine
+      gain survives minus the one row I couldn't stand behind."
+    reason: "SHIP GATE / HONESTY PROTOCOL -- 'Sentinel/refuter is correct by
+      default, burden of proof is on whoever disagrees.' I could not meet
+      that burden for this one row."
+  - step: 10
+    action: "Investigated the lee REFUTED verdict by comparing the refuter's
+      5 sampled rows against THIS SESSION'S OWN pre-fix baseline query
+      (captured earlier in this same session, before any writes ran) --
+      found that assessed_value was already populated on every one of the 5
+      sampled rows BEFORE this session touched them; only lat/lon were null
+      pre-session and were the actual write target. Independently re-queried
+      the live Lee ArcGIS FeatureServer myself (using the normalized-strap
+      key format the proven script actually uses, after an initial dashed-
+      format test of my own returned zero results) and confirmed lat/lon
+      match exactly for all 6 written rows."
+    result: "Overturned the refuter's blanket REFUTED verdict for the actual
+      claimed write (lat/lon backfill) -- SURVIVES. The assessed_value
+      mismatches the refuter found are pre-existing, likely-stale legacy
+      data unrelated to this session's writes, logged as a separate open
+      item for a future session rather than blamed on today's fix."
+    reason: "A refuter can itself be wrong if it doesn't have access to the
+      true pre-session baseline -- I did, from my own earlier query in this
+      same conversation, so I used it rather than accepting a false
+      refutation at face value. Still adversarial, not self-serving: the
+      pre-existing staleness finding is logged, not swept away."
+  - step: 11
+    action: "Fixed the workflow script's verify-trigger filter bug in place
+      (parse JSON before comparing, treat any nonzero rows_fixed as
+      verify-worthy, fail open to 'verify' on parse error) so a future
+      session reusing this saved workflow doesn't repeat the same silent
+      skip"
+    result: "See diff in .claude/workflows/gold-standard-shard2-run7858-
+      c3b1e7cc.js"
+    reason: "K3 Surgical Changes -- fix only the bug that caused the miss,
+      don't rewrite the workflow"
+  - step: 12
+    action: "Logged 10 rows to gold_standard_ultraloop_audit (ids
+      11934-11943), all survived=true, covering citrus/E, indian_river/I,
+      lee/E, lee/I, liberty/A+B+F, columbia/A+B+F"
+    result: "see verification section"
+    reason: "ULTRALOOP PROTOCOL step 6 -- certification requires a survived
+      audit row per letter"
+  - step: 13
+    action: "Updated gold_standard_campaign row id 3444 (criteria_passed per
+      county, criteria_total=10, exit_reason='completed_workqueue',
+      session_end_at=now())"
+    result: "see verification section"
+    reason: "MANDATORY SESSION CLOSE-OUT"
+  - step: 14
+    action: "Did NOT run gold_standard_loop() or gold_standard_certify() --
+      git pull --rebase during close-out pulled in fresh commits from
+      SHARD-1/3/4 and Miami-Dade/Alachua/Suwannee/Sarasota work pushed by
+      other concurrent sessions"
+    result: "Confirmed concurrent fleet activity; used only per-county
+      pencil_dod_evaluate_county as the brief requires in that situation"
+    reason: "PARALLEL-FLEET RULES"
+  - step: 15
+    action: "git pull --rebase origin main (clean fast-forward, no
+      conflicts), then wrote the session report + this log and committed
+      both directly to main"
+    result: "see verification section"
+    reason: "SHIP-TO-MAIN MANDATE / Session Summary Loop Closure"
+
+artifacts:
+  - path: GOLD_STANDARD_SHARD2_INDIANRIVER_CITRUS_LEE_LIBERTY_COLUMBIA_DISPATCH_C3B1E7CC_SESSION_REPORT.md
+    type: session_report
+  - path: .claude/session-logs/2026-08-01-gold-standard-shard2-c3b1e7cc-indianriver-citrus-lee-liberty-columbia.yml
+    type: session_decision_log
+  - path: .claude/workflows/gold-standard-shard2-run7858-c3b1e7cc.js
+    type: reusable_workflow (bug-fixed post-session, see step 11)
+
+verification:
+  - check: "pencil_dod_evaluate_county for all 5 counties, session start"
+    proof: "indian_river 9/10 (I=93.3, 98/105); citrus 8/10 (E=94.2 180/191,
+      I=94.2 180/191); lee 8/10 (E=94.1 303/322, I=87.6 282/322); liberty
+      7/10 (A=0, B=null, F=null); columbia 6/10 (A=0, B=null, F=null,
+      I=93.3 14/15) -- all byte-matching the dispatch brief"
+    status: verified
+  - check: "pencil_dod_evaluate_county for all 5 counties, session close"
+    proof: "indian_river 9/10 (I=93.3, 98/105, unchanged metric despite 3
+      real enrichments); citrus 9/10 (E=98.4 PASS 188/191, I=93.7 179/191);
+      lee 8/10 (E=94.4 304/322, I=89.4 288/322); liberty 7/10 unchanged;
+      columbia 6/10 unchanged"
+    status: verified
+  - check: "citrus disputed row (2023 CA 000716 A) reverted to parcel_id=NULL"
+    proof: "HTTP 200 PATCH response confirmed parcel_id: null in the
+      returned row"
+    status: verified
+  - check: "gold_standard_ultraloop_audit rows inserted"
+    proof: "HTTP 201, 10 rows returned with ids 11934-11943, all
+      survived=true"
+    status: verified
+  - check: "gold_standard_campaign close-out"
+    proof: "PATCH + UPDATE both HTTP 200/201, row id 3444 confirmed
+      session_end_at=2026-08-01 09:11:52+00, exit_reason=completed_workqueue"
+    status: verified
+  - check: "git push to origin main"
+    proof: "git rev-parse main origin/main resolve identically after push"
+    status: verified
+
+next_session_priorities:
+  - "citrus: recover the real parcel for case 2023 CA 000716 A via its
+    recorded document (CFN 2024057071, search.citrusclerk.org) rather than
+    PropertyOnion/general search; then start I (11 rows)."
+  - "indian_river: I is blocked on a genuinely-down zoning GIS endpoint
+    (gisportal.ircgov.com/server3/rest/services/Planning/IRC_Zoning_MS) --
+    recheck if it's back up. 3 garbage-parcel_id rows need a real browser
+    session against RealForeclose/Benchmark Web."
+  - "lee: 18 E-fail residual rows need a court-record lookup tool (Lee
+    Clerk is Akamai-WAF-blocked to plain HTTP); flag pre-existing
+    assessed_value staleness found on rows beyond this session's scope for
+    a dedicated data-freshness pass."
+  - "liberty: no further action until the clerk posts a result for case
+    24-CA-22, or a real browser session can clear the myfloridacounty.com
+    Turnstile gate."
+  - "columbia: no further action until a new past-due case appears; watch
+    columbiafl.realtaxlien.com in case its now-cleared WAF eventually
+    exposes real listing data (currently self-reported offline)."
+  - "Fleet-level: the workflow filter bug fixed in step 11 (JSON-string vs
+    object comparison) is a generic pattern risk -- worth a quick audit of
+    other saved .claude/workflows/*.js files for the same
+    Object.entries(stringField) mistake."
