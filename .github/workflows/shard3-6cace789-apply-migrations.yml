@@ -1,0 +1,152 @@
+name: "Shard3-6cace789: Apply & Verify Migrations"
+# Auto-triggered workflow for dispatch 6cace789-2a45-46e3-ac05-a1a65f1e1efb
+# Counties: seminole, hamilton, union, flagler, lake
+# Loop run: 7858
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to comment results to'
+        required: false
+        default: '17125'
+
+jobs:
+  apply-and-verify:
+    name: "Apply Shard3 Migrations + Capture Before/After"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REF: mocerqjnksmhcjzxrewo
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/issue-17125-20260801-0801
+
+      - name: "Capture BEFORE state (all 5 counties)"
+        run: |
+          set -euo pipefail
+          rpc_eval() {
+            local county="$1"
+            python3 -c "
+          import json, sys
+          print(json.dumps({'county_slug_arg': sys.argv[1]}))" "$county" > /tmp/rpc_payload.json
+            curl -s -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              --data @/tmp/rpc_payload.json
+          }
+
+          echo "=== BEFORE STATE ===" | tee /tmp/before.txt
+          for county in seminole hamilton union flagler lake; do
+            echo -n "BEFORE ${county}: " | tee -a /tmp/before.txt
+            rpc_eval "$county" | tee -a /tmp/before.txt
+            echo | tee -a /tmp/before.txt
+          done
+          cat /tmp/before.txt
+
+      - name: "Migration 1: flagler G regression fix"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260801_shard3_6cace789_flagler_g_regression_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/resp.json
+          echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 1 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 1 (flagler G) OK"
+
+      - name: "Migration 2: seminole I inline fix"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260801b_shard3_6cace789_seminole_i_inline_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/resp.json
+          echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 2 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 2 (seminole I) OK"
+
+      - name: "Migration 3: flagler C/D/I fix"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260801c_shard3_6cace789_flagler_cd_i_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/resp.json
+          echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 3 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 3 (flagler C/D/I) OK"
+
+      - name: "Migration 4: ultraloop audit + session close-out"
+        run: |
+          set -euo pipefail
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260801d_shard3_6cace789_ultraloop_and_closeout.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/resp.json
+          echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 4 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 4 (ultraloop + close-out) OK"
+
+      - name: "Capture AFTER state (all 5 counties)"
+        run: |
+          set -euo pipefail
+          rpc_eval() {
+            local county="$1"
+            python3 -c "
+          import json, sys
+          print(json.dumps({'county_slug_arg': sys.argv[1]}))" "$county" > /tmp/rpc_payload.json
+            curl -s -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              --data @/tmp/rpc_payload.json
+          }
+
+          echo "=== AFTER STATE ===" | tee /tmp/after.txt
+          for county in seminole hamilton union flagler lake; do
+            echo -n "AFTER ${county}: " | tee -a /tmp/after.txt
+            rpc_eval "$county" | tee -a /tmp/after.txt
+            echo | tee -a /tmp/after.txt
+          done
+          cat /tmp/after.txt
+
+      - name: "Post results to GitHub issue"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          BEFORE=$(cat /tmp/before.txt)
+          AFTER=$(cat /tmp/after.txt)
+          ISSUE="${{ github.event.inputs.issue_number }}"
+          ISSUE="${ISSUE:-17125}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue comment "$ISSUE" --repo breverdbidder/cli-anything-biddeed \
+            --body "### Shard3-6cace789 Migration Results (dispatch 6cace789, loop 7858)
+
+**${BEFORE}**
+
+**${AFTER}**
+
+GHA run: ${RUN_URL}"
