@@ -97,6 +97,7 @@ const PARCEL_1771 = { parcel_id: '3578-025-012', co_no: 52, phy_addr1: '4551 SW 
 function mockGetFor(parcelByAddr) {
   return async (pathStr) => {
     if (pathStr.startsWith('multi_county_auctions')) return MARION_PRIORS_ROWS;
+    if (pathStr.startsWith('county_co_no_resolution')) return [{ co_no: 52 }]; // marion, live-confirmed
     if (pathStr.startsWith('fl_parcels')) {
       const match = decodeURIComponent(pathStr).match(/phy_addr1=eq\.([^&]+)/);
       const addr = match?.[1];
@@ -104,16 +105,30 @@ function mockGetFor(parcelByAddr) {
       return found ? [found] : [];
     }
     if (pathStr.startsWith('zoning_assignments')) return []; // Marion: 0 rows, confirmed live
+    // Live snapshot, 2026-08-01: marion/foreclosure "ALL" row from
+    // shapira_formula_params (sample_size=514). Marion foreclosure plaintiffs
+    // rarely discount off judgment (plaintiff_discount_factor=0.2872), which
+    // is why fixture 414 below now lands SKIP under this formula even though
+    // the old flat-buffer formula rendered it BID-family (see the updated
+    // assertion below).
+    if (pathStr.startsWith('shapira_formula_params')) return [{ optimal_bid_pct_of_assessed: 0.7647, bid_floor_pct: 0.7746, bid_ceiling_pct: 1.2920, plaintiff_discount_factor: 0.2872, sample_size: 514, model_version: 'formula_v1' }];
     return [];
   };
 }
 
-test('414: locatable, resolves state parcel, BID-family verdict with a real value estimate', async () => {
+test('414: locatable, resolves state parcel, shapira_formula_params-driven verdict with a real value estimate', async () => {
   installTinyModel();
   const get = mockGetFor({ '14470 SE 91ST TER': PARCEL_414 });
   const report = await buildReport(AUCTION_414, { get });
   assert.equal(report.cover.case_number, '422021CA000414CAAXXX');
-  assert.ok(['BID', 'BID (conditional)', 'REVIEW'].includes(report.cover.verdict), `expected a locatable-property verdict, got ${report.cover.verdict}`);
+  // Under the county-calibrated shapira_formula_params formula (marion
+  // foreclosure plaintiff_discount_factor=0.2872 — plaintiffs rarely
+  // discount off judgment), the Shapira ceiling ($16,213) lands well below
+  // the $71,980 entry bid, so this fixture is correctly SKIP — not the
+  // BID-family result the old flat-buffer formula produced. See the
+  // shapira_formula_params mock comment above.
+  assert.equal(report.cover.verdict, 'SKIP', `expected SKIP under the recalibrated formula, got ${report.cover.verdict}`);
+  assert.ok(report.cover.shapira_max_bid.source.includes('shapira_formula_params'), 'shapira_max_bid.source must disclose the shapira_formula_params provenance');
   assert.ok(report.value_estimate, 'a locatable property with priors must carry a value estimate');
   assert.equal(report.zoning.state_parcel_id, '4593-018-011');
   assert.equal(report.zoning.dor_use_code, '002');

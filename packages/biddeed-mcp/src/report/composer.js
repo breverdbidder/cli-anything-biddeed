@@ -92,16 +92,37 @@ function computeValueEstimate(auction, priors, cma) {
   return { anchors, midpoint, low: Math.round(midpoint * (1 - spreadPct)), high: Math.round(midpoint * (1 + spreadPct)) };
 }
 
-// Shapira Max Bid ceiling — the top defensible bid for a hold/rental
-// strategy: value estimate less a flat closing-cost/margin-of-safety buffer
-// (the larger of $10k or 5% of value). This is deliberately gentler than a
-// flip-repair formula (predict_auction_outcome's older ARV-based heuristic)
-// because these fixtures are occupied/rental-grade properties, not
-// gut-rehab flips — see issue #12853 report for the live comparison that
-// drove this calibration.
-function computeCeiling(valueMidpoint) {
-  if (valueMidpoint == null) return null;
-  return Math.round(valueMidpoint - Math.max(10000, valueMidpoint * 0.05));
+// Shapira Max Bid ceiling — county+sale_type-specific RL-fit parameters from
+// shapira_formula_params (optimal_bid_pct_of_assessed × plaintiff_discount_factor,
+// scaled by the XGBoost sell-probability), not a flat closing-cost buffer.
+// Falls back to a conservative default only when no row exists for this
+// county/sale_type — never silently reuses another county's fit.
+async function computeShapiraCeiling(auction, county, arv, sellProb, { get }) {
+  if (arv == null) return { ceiling: null, floor: null, cap: null, source: null };
+  const countySlug = String(county).toLowerCase();
+  const saleType = auction.sale_type === 'tax_deed' ? 'tax_deed' : 'foreclosure';
+
+  const rows = await get(
+    `shapira_formula_params?county=eq.${countySlug}&sale_type=eq.${saleType}&select=optimal_bid_pct_of_assessed,bid_floor_pct,bid_ceiling_pct,plaintiff_discount_factor,sample_size,model_version&order=sample_size.desc&limit=1`
+  ).catch(() => []);
+  const row = rows?.[0];
+  const p = row
+    ? {
+        optimal_bid_pct_of_assessed: Number(row.optimal_bid_pct_of_assessed),
+        bid_floor_pct: Number(row.bid_floor_pct),
+        bid_ceiling_pct: Number(row.bid_ceiling_pct),
+        plaintiff_discount_factor: Number(row.plaintiff_discount_factor),
+        sample_size: row.sample_size,
+        model_version: row.model_version,
+      }
+    : { optimal_bid_pct_of_assessed: 0.70, bid_floor_pct: 0.50, bid_ceiling_pct: 0.90, plaintiff_discount_factor: 0.85, sample_size: 0, model_version: 'default (no shapira_formula_params row for this county/sale_type)' };
+
+  const mlAdj = 0.5 + (sellProb * 0.5);
+  const ceiling = Math.round(arv * p.optimal_bid_pct_of_assessed * p.plaintiff_discount_factor * mlAdj);
+  const floor = Math.round(arv * p.bid_floor_pct);
+  const cap = Math.round(arv * p.bid_ceiling_pct);
+  const source = `shapira_formula_params: county=${countySlug} sale_type=${saleType} optimal_bid_pct=${p.optimal_bid_pct_of_assessed} plaintiff_discount=${p.plaintiff_discount_factor} sample_size=${p.sample_size} ml_adj=${mlAdj.toFixed(3)} model=${p.model_version}`;
+  return { ceiling, floor, cap, source };
 }
 
 async function scoreModel(auction, county, deps) {
@@ -160,11 +181,14 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   }
 
   const match = await matchStateParcel(county, auction.property_address, { get });
+  const parcel = match.matched ? match.parcel : null;
   const zoning = await buildZwSection(auction, { get });
-  const cma = await buildCma(match.matched ? match.parcel : null, { get });
+  const cma = await buildCma(parcel, { get });
   const model = await scoreModel(auction, county, { get });
   const value = computeValueEstimate(auction, priors, cma);
-  const ceiling = computeCeiling(value.midpoint);
+  const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
+  const shapira = await computeShapiraCeiling(auction, county, value.midpoint ?? auction.assessed_value, sellProb, { get });
+  const ceiling = shapira.ceiling;
   // Entry bid preference: opening_bid (rare — usually null in this feed) >
   // plaintiff_max_bid (the plaintiff's disclosed credit-bid floor, when not
   // hidden) > judgment_amount (conservative fallback when no bid figure is
@@ -197,7 +221,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       property_address: auction.property_address,
       verdict,
       investment_grade: grade(marginPct ?? -1, true),
-      shapira_max_bid: money(ceiling, 'Shapira anchor formula (0.70×value − 0.15×value − $10k − margin buffer)'),
+      shapira_max_bid: { ...money(ceiling, shapira.source), bid_floor: shapira.floor, bid_ceiling: shapira.cap },
       entry_bid: money(entryBid, entryBidSource),
     },
     value_estimate: value.midpoint == null ? null : {
@@ -211,14 +235,20 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       prior_sale_date: auction.prior_sale_date || null,
       prior_sale_price: (auction.prior_sale_price > MIN_PRICE_SIGNAL) ? money(auction.prior_sale_price, 'prior_sale_price') : { value: auction.prior_sale_price ?? null, display: auction.prior_sale_price != null ? 'no price signal (sub-$1,000/quitclaim pattern)' : 'Pending — no prior sale on file', source: 'prior_sale_price' },
     },
+    // auction.* (owner-observed docket data) wins when present; falls back to
+    // the matched fl_parcels row (state cadastral data) rather than rendering
+    // Pending when the auction feed simply never carried the field for this
+    // county (Marion property-appraiser enrichment gap, SSOT §5). beds/baths
+    // stay Pending on the fallback — fl_parcels has no such columns, and
+    // guessing them would be fabrication.
     property_record: {
-      property_type: auction.property_type || 'Pending — not on file',
+      property_type: auction.property_type || (parcel?.dor_uc ? `DOR use code ${parcel.dor_uc} (fl_parcels)` : 'Pending — not on file'),
       beds: auction.bedrooms ?? 'Pending',
       baths: auction.bathrooms ?? 'Pending',
-      living_area_sqft: auction.living_area_sqft ?? 'Pending',
-      year_built: auction.year_built ?? 'Pending',
-      lot_size_acres: auction.lot_size ?? 'Pending',
-      homestead_status: auction.homestead_status || 'Pending',
+      living_area_sqft: auction.living_area_sqft ?? (parcel?.tot_lvg_ar != null ? Number(parcel.tot_lvg_ar) : 'Pending'),
+      year_built: auction.year_built ?? (parcel?.act_yr_blt ?? 'Pending'),
+      lot_size_acres: auction.lot_size ?? (parcel?.lnd_sqfoot != null ? Number((parcel.lnd_sqfoot / 43560).toFixed(3)) : 'Pending'),
+      homestead_status: auction.homestead_status || (parcel?.jv_hmstd != null ? (Number(parcel.jv_hmstd) > 0 ? 'homestead (fl_parcels jv_hmstd>0)' : 'non-homestead (fl_parcels jv_hmstd=0)') : 'Pending'),
     },
     auction_listing: {
       case_number: auction.case_number,

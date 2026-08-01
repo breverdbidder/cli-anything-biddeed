@@ -10,14 +10,21 @@
 // disagree with the ingested data for at least this county. Do not trust
 // fl_counties.co_no or DOR_COUNTIES for resolution — per the brief's
 // standing instruction, resolve per county via address match + census, never
-// assume. CONFIRMED_CO_NO below holds only empirically re-verified values;
-// anything else must be re-verified live before use, not guessed from either
-// registry.
+// assume.
+//
+// co_no resolution reads the live `county_co_no_resolution` table (28 rows /
+// 20 confirmed as of 2026-08-01) rather than a hardcoded per-county constant,
+// so newly re-verified counties are picked up without a code deploy. Only
+// is_confirmed=true rows are trusted — an unconfirmed or absent row is
+// refused, never guessed.
 import { get as defaultGet } from '../supabase.js';
 
-export const CONFIRMED_CO_NO = {
-  marion: 52, // live-verified 2026-07-20 against Marion auction addresses (Ocala/Dunnellon/Summerfield)
-};
+async function resolveCoNo(countySlug, get) {
+  const rows = await get(
+    `county_co_no_resolution?county_slug=eq.${countySlug}&is_confirmed=eq.true&select=co_no&limit=1`
+  ).catch(() => []);
+  return rows?.[0]?.co_no ?? null;
+}
 
 function normalizeStreet(addr) {
   return String(addr || '')
@@ -39,9 +46,9 @@ function splitAddress(fullAddress) {
 // disambiguation found live for fixture 414's neighborhood).
 export async function matchStateParcel(county, propertyAddress, { get = defaultGet } = {}) {
   const countySlug = county.toLowerCase();
-  const coNo = CONFIRMED_CO_NO[countySlug];
+  const coNo = await resolveCoNo(countySlug, get);
   if (!coNo) {
-    return { matched: false, reason: `co_no not empirically confirmed for county "${county}" — refusing to guess from fl_counties/DOR registry (see parcel-match.js header)` };
+    return { matched: false, reason: `co_no not empirically confirmed for county "${county}" — refusing to guess (see county_co_no_resolution / parcel-match.js header)` };
   }
   const { street, city } = splitAddress(propertyAddress);
   if (!street) {
