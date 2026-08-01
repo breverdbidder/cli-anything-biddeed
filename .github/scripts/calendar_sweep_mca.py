@@ -407,7 +407,7 @@ _BASE_COLUMNS = [
 _STATUS_COLUMNS = ('auction_status', 'auction_date')
 _OPTIONAL_FIELDS = (
     'property_address', 'opening_bid', 'parcel_id',
-    'judgment_amount', 'plaintiff', 'plaintiff_max_bid',
+    'judgment_amount', 'plaintiff', 'plaintiff_max_bid', 'auction_url',
 )
 # Auctions already resolved to one of these -- with a verified sold amount on
 # file -- must not be re-flagged 'upcoming' by a live calendar page that
@@ -519,6 +519,7 @@ def upsert_to_mca(cards: list[dict], auction_date: date) -> tuple[int, list[str]
             'judgment_amount':   c.get('judgment_amount'),      # None if not found
             'plaintiff':         c.get('plaintiff') or None,
             'plaintiff_max_bid': c.get('plaintiff_max_bid'),    # None if not found or Hidden
+            'auction_url':       f'{BASE_URL}/index.cfm?zaction=auction&zmethod=details&AID={c["aid"]}' if c.get('aid') else None,
             '_protect_status':   cn in protected_cases,
         })
 
