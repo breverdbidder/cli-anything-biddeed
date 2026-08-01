@@ -1,0 +1,84 @@
+-- GOLD STANDARD, county=miami_dade only, letters C and D.
+-- AUDIT-TRAIL ONLY -- no DDL executed. All writes in this session were performed
+-- via PostgREST PATCH against multi_county_auctions by
+-- scripts/gold_standard_shard2_miamidade_cd_residual_reharvest_20260801.py
+-- (idempotent, only patches NULL card fields, only promotes parity when the
+-- row is not already tier1-labeled matched_clean).
+--
+-- No schema changes were needed or made. This file documents, for the repo's
+-- audit trail, the equivalent of the REST operations actually executed live
+-- against Supabase (mocerqjnksmhcjzxrewo) this session.
+--
+-- BEFORE (fresh live query at session start):
+--   SELECT public.pencil_dod_evaluate_county('miami_dade')
+--   C: FAIL matched_clean=401 metric=90.7  D: FAIL matched_any=401 metric=90.7
+--   auctions_total=442
+--
+-- ROOT CAUSE (confirmed live 2026-08-01): the daily cron
+-- .github/workflows/gold-standard-shard2-daily.yml -> scripts/shard2_main_executor.py
+-- covers miami_dade's H-freshness SLA every day (UPDATE last_seen_at), but its
+-- run_cd_parity() step was DISABLED 2026-07-04 (commit 25fafcd5, after commit
+-- 0c1bbd79 -- see git log on scripts/shard2_main_executor.py) following a
+-- ghost-success incident on okaloosa where the same function blindly promoted
+-- rows to matched_clean without any real comparison. It is now READ-ONLY: it
+-- only SELECTs and prints matched_clean/matched_any counts, it never re-invokes
+-- the AJAX harvest + match/patch step. No other scheduled job re-runs the
+-- actual matcher for miami_dade. Consequently every auction row scraped into
+-- multi_county_auctions since 2026-07-04 (plus a residual tail of older rows
+-- that predate that date) accumulates with parity_status/parity_source NULL
+-- forever, until a one-off shard script re-harvests it manually. This is the
+-- same shape as the palm_beach C/D root cause from 2026-07-31: a recurring job
+-- silently stopped doing its real work while the wrapper kept reporting
+-- "healthy" / running unrelated freshness updates.
+--
+-- Diagnosis (live REST query, scoring-eligible population = data_source <>
+-- 'propertyonion' OR tier1_authoritative=true):
+--   gap_count = 40 rows, parity_status IS NULL AND parity_source IS NULL
+--   earliest created_at = 2026-03-08, latest = 2026-08-01 (today)
+--   7 distinct (sale_type, auction_date) pairs:
+--     foreclosure 2026-03-09 (1), foreclosure 2026-03-16 (2),
+--     foreclosure 2026-06-29 (6), tax_deed 2026-06-29 (2),
+--     tax_deed 2026-07-27 (9), foreclosure 2026-08-03 (6),
+--     foreclosure 2026-08-04 (14)
+--
+-- Action: re-invoked the EXISTING (unmodified) tier1 RealAuction/RealTaxDeed
+-- AJAX harvester (scripts/shard2_run2450_ajax_realforeclose_harvest.py's
+-- harvest_date(), reused verbatim -- no new parity engine built) against
+-- miamidade.realforeclose.com / miamidade.realtaxdeed.com for exactly these
+-- 7 (sale_type, auction_date) pairs, matching by normalized case_number, then:
+--   (a) promote parity_status='matched_clean',
+--       parity_source='tier1:gold_standard_shard2_miamidade_residual_20260801:<sale_type>:<date>'
+--       for every exact case_number match found live on the calendar
+--   (b) backfill parcel_id/property_address/assessed_value ONLY where the
+--       existing DB value was NULL, and ONLY from a real harvested item
+--       (never fabricated)
+--
+-- RESULT (live, this session):
+--   foreclosure 2026-03-09: calendar had 27 items, target case# NOT present -- no match (date has aged out of the platform's live calendar)
+--   foreclosure 2026-03-16: calendar had 31 items, 0/2 target case#s present -- no match (aged out)
+--   foreclosure 2026-06-29: calendar had 38 items, 0/6 target case#s present -- no match (aged out)
+--   tax_deed    2026-06-29: calendar had 38 items, 0/2 target case#s present -- no match (aged out)
+--   tax_deed    2026-07-27: calendar had 21 items, 0/9 target case#s present -- no match (aged out)
+--   foreclosure 2026-08-03: calendar had 32 items, 6/6 target case#s matched -- parity_promoted=6
+--   foreclosure 2026-08-04: calendar had 19 items, 14/14 target case#s matched -- parity_promoted=14
+--   TOTAL parity_promoted=20, card_backfilled=0 (no NULL parcel_id/address/assessed_value
+--     fields among the 20 matched rows -- those fields were already populated by
+--     the original scrape)
+--
+-- RESIDUAL (not fixed this session -- BLANK > WRONG, no guessing):
+--   20 case_numbers across 5 auction dates (2026-03-09, 2026-03-16, 2026-06-29
+--   x2, 2026-07-27) remain parity_status/parity_source NULL. Root cause:
+--   RealAuction/RealTaxDeed's AJAX PREVIEW calendar only serves the *current
+--   live* auction batch for a subdomain; auction dates that have already
+--   passed (all 5 of these are before today, 2026-08-01) return a calendar
+--   that no longer contains the original case list, so no live-source match
+--   is possible via this mechanism for past-dated rows. Fixing these would
+--   require a different tier1-authoritative source (e.g. county clerk's
+--   post-sale results feed, similar to the 'realtdm_clerk_verify' marker
+--   already present on some existing matched_clean rows in this county) --
+--   flagged for a follow-up session, not guessed at here.
+--
+-- AFTER (fresh live query, same session, post-fix):
+--   SELECT public.pencil_dod_evaluate_county('miami_dade')
+--   C: PASS matched_clean=421 metric=95.2  D: PASS matched_any=421 metric=95.2
+--   auctions_total=442 (unchanged)
