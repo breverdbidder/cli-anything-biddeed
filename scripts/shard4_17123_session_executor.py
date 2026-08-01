@@ -220,7 +220,7 @@ def get_fl_parcel_comps(co_no, phy_zipcd, dor_uc, limit=500):
             "dor_uc": f"eq.{dor_uc}",
             "sale_yr1": "gte.2022",
             "sale_prc1": "gt.10000",
-            "select": "sale_prc1,living_area_sqft",
+            "select": "sale_prc1,tot_lvg_ar",
             "limit": limit,
             "order": "sale_prc1.asc",
         },
@@ -573,7 +573,7 @@ def fix_sarasota_j():
         fl_parcel = get_rows("fl_parcels", {
             "co_no": f"eq.{CO_NO}",
             "parcel_id": f"eq.{parcel_id}",
-            "select": "parcel_id,phy_zipcd,dor_uc,sale_prc1,living_area_sqft",
+            "select": "parcel_id,phy_zipcd,dor_uc,sale_prc1,tot_lvg_ar",
             "limit": 1,
         })
         
