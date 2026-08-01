@@ -1,0 +1,150 @@
+name: "Send S5 Report PDF via Resend"
+# Fetches a generated S5 report PDF from mcp.biddeed.ai/report/pdf and emails
+# it via Resend. Logs the send to public.agent_ops_log. Runs entirely inside
+# the runner so RESEND_API_KEY / SUPABASE_SERVICE_ROLE_KEY are never printed
+# or handled from a chat session (CREDENTIAL HANDLING, CLAUDE.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      case_number:
+        description: "Auction case_number"
+        required: true
+      county:
+        description: "County slug (e.g. marion)"
+        required: true
+      mca_id:
+        description: "multi_county_auctions.id (for filename/context only)"
+        required: false
+        default: ""
+      bd_api_key:
+        description: "bd_live_ MCP API key to call /report/pdf with"
+        required: true
+      to_email:
+        description: "Recipient email"
+        required: true
+        default: "EverestCapital8@gmail.com"
+      subject:
+        description: "Email subject"
+        required: true
+      dispatch_id:
+        description: "Issue/dispatch id for agent_ops_log"
+        required: false
+        default: ""
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch PDF from mcp.biddeed.ai
+        id: fetch
+        env:
+          BD_API_KEY: ${{ inputs.bd_api_key }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${BD_API_KEY}"
+          HTTP=$(curl -s -o /tmp/report.pdf -w "%{http_code}" \
+            "https://mcp.biddeed.ai/report/pdf?case_number=${{ inputs.case_number }}&county=${{ inputs.county }}&mca_id=${{ inputs.mca_id }}" \
+            -H "Authorization: Bearer ${BD_API_KEY}")
+          SIZE=$(stat -c%s /tmp/report.pdf)
+          echo "Fetched PDF: HTTP ${HTTP}, ${SIZE} bytes"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::report/pdf returned HTTP ${HTTP}, not sending email"
+            cat /tmp/report.pdf
+            exit 1
+          fi
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Send via Resend
+        id: send
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TO_EMAIL: ${{ inputs.to_email }}
+          SUBJECT: ${{ inputs.subject }}
+          CASE_NUMBER: ${{ inputs.case_number }}
+          COUNTY: ${{ inputs.county }}
+        run: |
+          python3 - <<'PYEOF'
+          import base64, json, os, urllib.request
+
+          with open('/tmp/report.pdf', 'rb') as f:
+              pdf_b64 = base64.b64encode(f.read()).decode()
+
+          # Match the already-working sender identity used by webhook.js's
+          # processS5OnetimeCompletion (vault: resend_from_address) instead
+          # of guessing a domain that may not be verified in Resend.
+          from_addr = "BidDeed.AI Reports <reports@biddeed.ai>"
+          try:
+              req = urllib.request.Request(
+                  f"{os.environ['SUPABASE_URL']}/rest/v1/rpc/get_vault_secret_mcp",
+                  data=json.dumps({"p_name": "resend_from_address"}).encode(),
+                  headers={
+                      "apikey": os.environ["SUPABASE_KEY"],
+                      "Authorization": f"Bearer {os.environ['SUPABASE_KEY']}",
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(req) as resp:
+                  val = json.loads(resp.read())
+                  if val:
+                      from_addr = val
+          except Exception as e:
+              print(f"::warning::could not read resend_from_address from vault, using default: {e}")
+
+          payload = {
+              "from": from_addr,
+              "to": [os.environ["TO_EMAIL"]],
+              "subject": os.environ["SUBJECT"],
+              "html": (
+                  f"<p>Attached: BidDeed.AI S5 report for case "
+                  f"{os.environ['CASE_NUMBER']} ({os.environ['COUNTY'].title()} County, FL), "
+                  f"generated live via mcp.biddeed.ai/report/pdf.</p>"
+              ),
+              "attachments": [{
+                  "filename": f"BidDeed-S5-{os.environ['COUNTY']}-{os.environ['CASE_NUMBER']}.pdf",
+                  "content": pdf_b64,
+              }],
+          }
+
+          req = urllib.request.Request(
+              "https://api.resend.com/emails",
+              data=json.dumps(payload).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  body = json.loads(resp.read())
+                  print(f"Resend send id: {body.get('id')}")
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                      out.write(f"resend_id={body.get('id','')}\n")
+          except urllib.error.HTTPError as e:
+              print(f"::error::Resend HTTP {e.code}: {e.read().decode()}")
+              raise
+          PYEOF
+
+      - name: Log to agent_ops_log
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_ID: ${{ steps.send.outputs.resend_id }}
+          PDF_SIZE: ${{ steps.fetch.outputs.size }}
+          STATUS: ${{ job.status }}
+          DISPATCH_ID: ${{ inputs.dispatch_id }}
+        run: |
+          STATUS_VAL="VERIFIED"
+          if [ "$STATUS" != "success" ]; then STATUS_VAL="BLOCKED"; fi
+          curl -sf -X POST "${SUPABASE_URL}/rest/v1/agent_ops_log" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"dispatch_id\":\"${DISPATCH_ID}\",\"task\":\"send-s5-report-email\",\"status\":\"${STATUS_VAL}\",\"evidence\":\"resend_id=${RESEND_ID} pdf_bytes=${PDF_SIZE}\",\"severity\":\"info\"}" \
+            || echo "::warning::agent_ops_log insert failed (non-fatal)"
