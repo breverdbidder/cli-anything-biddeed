@@ -1,0 +1,54 @@
+-- Jefferson County B/F fix attempt: case 25-CA-164 (foreclosure, sale 2026-06-25)
+-- Target: multi_county_auctions row auction_status='sold' but sold_amount/sale_result_date NULL,
+-- which is why jefferson B and F both FAIL with closed_sold=0.
+--
+-- OUTCOME: UNKNOWN — no write performed. This file documents the research trail per the
+-- Honesty Protocol ("blank > wrong"). NO fabricated sold_amount was written to
+-- foreclosure_outcomes or multi_county_auctions.
+--
+-- Sources checked live on 2026-08-01, all primary/authoritative:
+--   1. https://jeffersonclerk.com/clerk-services/property-sales/foreclosures/
+--      -> static procedural page, no per-case sale results.
+--   2. Source PDF already on file (multi_county_auctions.clerk_url for this case):
+--      https://jeffersonclerk.s3.amazonaws.com/uploads/2026/06/22073402/Foreclosure-Sales.pdf
+--      -> confirmed this is a PRE-sale notice list dated "UPDATED 6/22/2026" (3 days before
+--         the 6/25/2026 sale). Contains case #, plaintiff (THE BANK OF NEW YORK F/K/A THE BANK
+--         OF NEW YORK AS TRUSTEE FOR NATIONSTAR HOME EQUITY LOAN), defendant (JAMES W. THOMPSON
+--         AKA JAMES THOMPSON ET AL), final judgment ($86,285.09), property address
+--         (340 MARVIN ST MONTICELLO, FL 32344) -- but NOT a winning bid or outcome, because it
+--         predates the sale. This PDF cannot be the source of a sold_amount.
+--   3. Civitek OCRS public case search (https://www.civitekflorida.com/ocrs/county/33/):
+--      reached the "Case Search" tab, correctly filled Year=2025, Court Type=Circuit Civil (CA),
+--      Sequence#=164 -- submission is gated by a Cloudflare Turnstile human-verification
+--      challenge (challenges.cloudflare.com iframe confirmed). Not bypassed -- this is an
+--      intentional anti-automation control, not a technical bug to route around.
+--   4. myfloridacounty.com Official Records search for Jefferson (county code 33)
+--      (https://www.myfloridacounty.com/orisearch/33): same Civitek backend, same Turnstile
+--      gate hit when searching party name "Thompson" for a Certificate of Title/deed recorded
+--      after 2026-06-25.
+--   5. jeffersonpa.net (Property Appraiser): site currently returning Cloudflare 5xx error
+--      (down). search.jeffersonpa.net subdomain unreachable/timed out.
+--   6. FL GIO statewide cadastral ArcGIS FeatureServer
+--      (services9.arcgis.com/.../Florida_Statewide_Cadastral/FeatureServer/0): queried by
+--      parcel_id '00-00-00-0220-0000-0310' + CO_NO=33, zero features returned (parcel_id
+--      format mismatch vs FL GIO's PARCEL_ID convention) -- and even if matched, an assessed
+--      SALE_PRC field would only be an INFERRED proxy for winning bid, not verified, and FL
+--      deed considerations are frequently nominal/non-representative.
+--   7. General web search: no indexed results for this case (search engines conflate with
+--      the much larger Jefferson County NY/CO/KY).
+--   8. Firecrawl API: out of credits (insufficient credits error), could not render JS pages
+--      as an alternative to Playwright for the gated portals.
+--
+-- CONCLUSION: The only two systems Jefferson County exposes for post-sale case outcomes
+-- (Civitek OCRS case docket, myfloridacounty official records/Certificate of Title search)
+-- are both behind a live Cloudflare Turnstile challenge that must not be automated around.
+-- No other primary source (clerk site, property appraiser, FL GIO) yields the winning bid.
+--
+-- STATUS: sold_amount for 25-CA-164 remains UNKNOWN. No row written to foreclosure_outcomes.
+-- No update to multi_county_auctions.sold_amount / tier1_sold_amount / sold_amount_source.
+--
+-- Verification query (re-run to confirm no drift from baseline):
+SELECT case_number, county, sale_type, auction_date, auction_status,
+       sold_amount, tier1_sold_amount, sale_result_date, sold_amount_source
+FROM multi_county_auctions
+WHERE county = 'jefferson' AND case_number = '25-CA-164';
