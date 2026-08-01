@@ -17,7 +17,7 @@
  *   GET  /success             → Post-payment key delivery page
  *   GET  /subscribe/status    → Poll for API key after payment
  *   GET  /buy-report          → $25 one-time Shapira report checkout page (county->auction->email)
- *   GET  /buy-report/counties → JSON: certified counties with purchasable upcoming auctions
+ *   GET  /buy-report/counties → JSON: all counties with purchasable upcoming auctions (is_gold_standard flag)
  *   GET  /buy-report/auctions → JSON: purchasable auctions for ?county=slug
  *   POST /buy-report/checkout → Creates biddeed-checkout session (tier=s5_onetime)
  *   GET  /report-success      → Post-payment report key delivery page
@@ -193,13 +193,14 @@ async function fetchCountyLots(county) {
   } catch(_) { return []; }
 }
 
-// ── Buy-report picker: full-S5 counties with purchasable upcoming auctions ──
-// "Full S5" = gold_standard_certifications.certified AND county_co_no_resolution
-// .is_confirmed — a county missing either only gets a partial S5 card (no
-// Shapira Max Bid, no ML prediction, no ZoneWise). get_s5_ready_counties()
-// also scopes to parity_status='matched_clean', the same bar
-// predict_auction_outcome's CERT_REQUIRED gate holds cases to, so a report
-// bought here is never for an auction the Shapira pipeline would refuse.
+// ── Buy-report picker: ALL counties with purchasable upcoming auctions ──────
+// Option A (approved by Ariel Aug 1 2026): Gold Standard is a data-quality
+// SIGNAL only, never a customer access gate. Every county with an upcoming
+// auction is purchasable for $25 — Gold Standard counties get the full
+// 18-section report (CMA, ZoneWise, Shapira Max Bid); non-certified counties
+// get the sections their data supports, clearly labeled. get_all_counties_
+// with_status() is the single source of truth for that full list so the
+// worker doesn't hand-roll it per endpoint.
 async function fetchReportCounties() {
   try {
     const cacheKey = new Request('https://biddeed.ai/_internal/buy-report-counties');
@@ -207,17 +208,19 @@ async function fetchReportCounties() {
     const cached = await cache.match(cacheKey);
     if (cached) return await cached.json();
 
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_s5_ready_counties`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_all_counties_with_status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
       body: '{}',
     });
     const rows = res.ok ? await res.json() : [];
     const result = (Array.isArray(rows) ? rows : []).map(r => ({
-      county_slug: r.county_slug,
-      display: toDisplay(r.county_slug),
-      upcoming: Number(r.upcoming_count) || 0,
-      next_auction_date: r.next_auction_date || null,
+      county_slug: r.county,
+      display: r.county_display || toDisplay(r.county),
+      upcoming: Number(r.upcoming) || 0,
+      next_auction_date: r.next_auction || null,
+      is_gold_standard: !!r.is_gold_standard,
+      sale_types: r.sale_types || null,
     }));
 
     const resp = new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=120' } });
@@ -427,19 +430,18 @@ export default {
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': prefill ? 'no-store' : 'public,max-age=300' } });
       }
 
-      // ── GET /buy-report/counties — full-S5 counties w/ purchasable auctions ──
+      // ── GET /buy-report/counties — all counties w/ purchasable upcoming auctions ──
       if (path === '/buy-report/counties' && method === 'GET') {
         const counties = await fetchReportCounties();
         return new Response(JSON.stringify(counties), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=120', ...corsHeaders(origin) } });
       }
 
       // ── GET /buy-report/auctions?county=slug — purchasable auctions for a county ──
+      // Option A: any county is purchasable — Gold Standard no longer gates this.
       if (path === '/buy-report/auctions' && method === 'GET') {
-        const rtConfig = await fetchRuntimeConfig();
-        const s5Set = new Set(rtConfig.s5Counties || []);
         const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
-        if (!county || !s5Set.has(county)) {
-          return new Response(JSON.stringify({ error: 'county must be a full-S5 (certified + parcel-confirmed) county' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!county) {
+          return new Response(JSON.stringify({ error: 'county required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         const auctions = await fetchReportAuctions(county);
         return new Response(JSON.stringify(auctions), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=60', ...corsHeaders(origin) } });
@@ -506,20 +508,12 @@ export default {
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
-      // ── GET /auctions?county=&days=&type=&limit=&mode= — property cards for chat ──
-      // mode=s5 (default all): only serve counties with full S5 capability
-      // (Gold Standard certified + parcel co_no confirmed).
+      // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
+      // Option A: all counties are served — Gold Standard is a badge (is_gold_standard
+      // field per card), never an access gate.
       if (path === '/auctions' && method === 'GET') {
         const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
         if (!county) return new Response(JSON.stringify({ error: 'county required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const mode = (url.searchParams.get('mode') || 'all').toLowerCase();
-        if (mode === 's5') {
-          const rtConfig = await fetchRuntimeConfig();
-          const s5Set = new Set(rtConfig.s5Counties || []);
-          if (!s5Set.has(county)) {
-            return new Response(JSON.stringify({ error: 'county is not full-S5 (certified + parcel-confirmed)' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-          }
-        }
         let days = parseInt(url.searchParams.get('days') || '14', 10);
         if (!Number.isFinite(days) || days <= 0) days = 14;
         days = Math.min(days, 90);
@@ -695,13 +689,13 @@ ${countyCtx}
 Your capabilities:
 - Analyze foreclosure and tax deed auctions across all 67 Florida counties
 - Explain and apply the Shapira Max Bid Formula (exact ceiling before bidding)
-- Identify Gold Standard certified counties (verified data quality)
+- Cover all 67 Florida counties, and identify which ones are Gold Standard certified (verified data quality)
 - Explain lien priority, HOA foreclosure risks, and surplus funds
 - Answer questions about ZoneWise zoning intelligence
 - Respond in the same language the user writes in (English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese, French, Italian, German, Japanese, Korean, etc.)
 
 Key facts:
-- Gold Standard certified counties (verified data quality): ${goldListForPrompt}
+- All 67 FL counties are available. Gold Standard counties (verified data quality — currently: ${goldListForPrompt}) have full S5 capability including CMA and ZoneWise. All other counties have Shapira Max Bid and opening bid analysis.
 - Marion County proof: Case 422021CA000414CAAXXX — Shapira Max Bid $82,000, actual sale $73,501. Ceiling held by $8,499.
 - Shapira S5 reports: $25 each — full AI-powered max-bid analysis for one specific property
 - Investor tier: $99/month — unlimited property cards, 10 S5 reports/mo, daily digest all 67 counties
@@ -1066,6 +1060,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .pc-badge.fc{background:rgba(245,158,11,.12);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
 .pc-badge.td{background:rgba(20,184,166,.12);color:#2dd4bf;border:1px solid rgba(20,184,166,.3)}
 .pc-badge.gold{background:rgba(245,158,11,.12);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
+.pc-badge.review{background:rgba(148,163,184,.1);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
 .pc-row1,.pc-row2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .pc-addr{font-size:13px;font-weight:700;color:white}
 .pc-date{font-size:11px;color:var(--muted);white-space:nowrap}
@@ -1350,7 +1345,7 @@ function buildCard(a){
   const pinfo=parityInfo(a.parity_status);
   const buyUrl='/buy-report?mca_id='+encodeURIComponent(a.id)+'&address='+encodeURIComponent(a.property_address||'')+'&county='+encodeURIComponent(a.county||'')+'&date='+encodeURIComponent(a.auction_date||'');
   let html='<div class="pc-card">';
-  html+='<div class="pc-badges">'+badgeSaleType(a.sale_type)+(a.is_gold_standard?'<span class="pc-badge gold">⭐ GOLD STANDARD</span>':'')+'</div>';
+  html+='<div class="pc-badges">'+badgeSaleType(a.sale_type)+(a.is_gold_standard?'<span class="pc-badge gold">⭐ GOLD STANDARD</span>':'<span class="pc-badge review">⚠️ Data under review</span>')+'</div>';
   html+='<div class="pc-row1"><div class="pc-addr">'+esc(line1)+'</div><div class="pc-date">'+esc(fmtDateP(a.auction_date))+'</div></div>';
   html+='<div class="pc-row2"><div class="pc-city">'+esc(line2)+'</div><div class="pc-days">'+(a.days_until_auction!=null?(a.days_until_auction+' days away'):'')+'</div></div>';
   html+='<div class="pc-grid"><div><div class="pc-lbl">Opening Bid</div><div class="pc-val">'+fmtMoneyP(a.opening_bid)+'</div></div>'+
@@ -1662,20 +1657,20 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
   <div id="step-county">
     <h1>Pick your county</h1>
     <p>Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction — $25, no subscription.</p>
-    <div id="county-loading" class="spin">Loading certified counties…</div>
+    <div id="county-loading" class="spin">Loading counties…</div>
     <select id="county-select" style="display:none"></select>
     <button class="btn" id="county-continue" disabled style="display:none">Continue</button>
     <div class="err" id="county-err"></div>
-    <p id="county-note" style="display:none;font-size:13px;color:#94a3b8;margin-top:8px;">
-      ⭐ Gold Standard counties only — full 18-section Shapira report guaranteed.
-      <a href="/chat" style="color:#f59e0b;">Browse all 67 counties →</a>
+    <p id="county-note" style="display:none;font-size:12px;color:#94a3b8;margin-top:8px;">
+      ⭐ Gold Standard counties include full CMA, ZoneWise zoning, and ML prediction.
+      All counties include Shapira Max Bid and opening bid analysis.
     </p>
   </div>
 
   <div id="step-auction" style="display:none">
     <button class="back" id="back-to-county">&larr; Change county</button>
     <h1>Pick your auction</h1>
-    <p>Upcoming certified auctions in <span id="auction-county-name"></span>.</p>
+    <p>Upcoming auctions in <span id="auction-county-name"></span>.</p>
     <div id="auction-loading" class="spin" style="display:none">Loading auctions…</div>
     <div id="auctions" class="auctions"></div>
   </div>
@@ -1767,13 +1762,14 @@ if (PREFILL && PREFILL.mca_id) {
     document.getElementById('county-loading').style.display='none';
     var sel=document.getElementById('county-select');
     if(!counties || !counties.length){
-      document.getElementById('county-err').textContent='No certified counties with upcoming auctions right now — check back soon.';
+      document.getElementById('county-err').textContent='No counties with upcoming auctions right now — check back soon.';
       document.getElementById('county-err').style.display='block';
       return;
     }
     var opts='<option value="">Select a county…</option>';
     counties.forEach(function(c){
-      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'" data-upcoming="'+c.upcoming+'">'+c.display+' ⭐ — '+c.upcoming+' upcoming · Next: '+fmtShortDate(c.next_auction_date)+'</option>';
+      var label=(c.is_gold_standard?c.display+' ⭐':c.display)+' — '+c.upcoming+' upcoming · Next: '+fmtShortDate(c.next_auction_date)+(c.is_gold_standard?'':' · Data under review');
+      opts+='<option value="'+c.county_slug+'" data-name="'+c.display+'" data-upcoming="'+c.upcoming+'">'+label+'</option>';
     });
     sel.innerHTML=opts;
     sel.style.display='block';
