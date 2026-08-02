@@ -1,0 +1,107 @@
+-- Gold Standard SHARD-3 issue#17343 — escambia + suwannee
+-- Dispatch: b69ca511-b7e7-4831-a784-eeebf403dd04
+-- Session: 2026-08-02T16:00Z
+-- Mode: Fallback ultraloop (Python scripts + REST API)
+--
+-- ============================================================
+-- ESCAMBIA (8/10 → target 10/10): C/D FAIL, G structural
+-- ============================================================
+-- State at session start:
+--   A PASS metric=57 [fc=57 td=343]
+--   B PASS metric=100.0 [verified=2 closed_sold=2]
+--   C FAIL metric=89.0 [matched_clean=356]
+--   D FAIL metric=89.0 [matched_any=356]
+--   E PASS metric=99.8 [parcel_linked=399]
+--   F PASS metric=100.0 [tier1_sold=2 closed_sold=2]
+--   G PASS metric=95.2 [density=100.0 far=100.0 pk1000=95.2]
+--   H PASS metric=0.1 [hours since last_seen]
+--   I PASS metric=97.8 [card_complete=391 of 400]
+--   J PASS metric=98.8 [deal_complete=395]
+--
+-- Wait — G shows 95.2% PASS in the issue brief. So escambia is actually 8/10.
+-- C/D at 89% is the only active failure target.
+--
+-- Root cause (from shard14/shard9 sessions):
+--   44 gap rows (parity_status IS NULL). Same root cause documented 3+ sessions:
+--   RealTaxDeed's live TD cert list for far-future dates diverges from our
+--   calendar-sweep source. As dates approach, real matches emerge (11 on 07-20,
+--   4 more on 07-20 later, 14 on 07-24). The idempotent re-harvest closes the
+--   gap incrementally. New gap rows from freshly-scraped auctions are also caught.
+--
+-- Action:
+--   scripts/escambia_shard3_17343_cd_fix.py — live-queries all gap dates,
+--   harvests from escambia.realforeclose.com + escambia.realtaxdeed.com,
+--   promotes matched_clean on exact case_number match. No fuzzy arm (sentinel-guard).
+--
+-- ============================================================
+-- SUWANNEE (6/10 → target 8+/10): I/J FAIL, B/F structural
+-- ============================================================
+-- State at session start:
+--   A PASS metric=4 [fc=4 td=31]
+--   B FAIL metric=null [verified=0 closed_sold=0]  — STRUCTURAL BLOCK
+--   C PASS metric=100.0 [matched_clean=35]
+--   D PASS metric=100.0 [matched_any=35]
+--   E PASS metric=100.0 [parcel_linked=35]
+--   F FAIL metric=null [tier1_sold=0 closed_sold=0]  — STRUCTURAL BLOCK
+--   G PASS metric=100.0 [density/far/pk1000=100.0]
+--   H PASS metric=0.1 [hours since last_seen]
+--   I FAIL metric=71.4 [card_complete=25 of 35]
+--   J FAIL metric=74.3 [deal_complete=26 of 35]
+--
+-- B/F STRUCTURAL BLOCK (CONFIRMED, BLANK>WRONG):
+--   Suwannee foreclosure + some tax-deed sales: courthouse-steps / in-person only.
+--   suwannee.realforeclose.com: no calendar entries (HTTP 200, zero dayid).
+--   myfloridacounty.com/orisearch/61: Cloudflare Turnstile hard-blocks.
+--   suwgov.org foreclosure-list DOCX: unchanged since 2026-07-20 (7+ sessions).
+--   No electronic verified-outcome source exists. BLANK>WRONG applies.
+--   B=null and F=null are CORRECT representations of the data reality.
+--
+-- I GAP (25/35 = 71.4%): 10 auctions missing address/geo/value/parcel_zone.
+--   These are the 09/03/2026 batch of tax-deed cases (added since last session).
+--   suwannee.realtaxdeed.com has not yet posted property records for that
+--   far-out auction date. As of 08-01 session: zero items on that harvest date.
+--   The enrich script (suwannee_shard3_17343_ij_fix.py) will catch them as
+--   soon as the platform posts parcel data (idempotent, runs daily via GHA).
+--
+-- J GAP (26/35 = 74.3%): 9 auctions missing bid_decisions.
+--   Same 9 rows as the I gap (case numbers 4677-4681, 4741, 4752, 4758, 4760).
+--   All have sale_type=tax_deed, auction_date=2026-09-03, data_source=
+--   calendar_sweep_mca_v3. ALL have NULL assessed_value/market_value
+--   (no property record posted yet). BLANK>WRONG: not using opening_bid as ARV.
+--   Generator will fill them once values appear.
+--
+-- Action:
+--   scripts/suwannee_shard3_17343_ij_fix.py — combined I+J fix:
+--     Step 1: harvest all auction_date values from realtaxdeed.com AJAX
+--     Step 2: C/D parity promotion (parcel_id confirmed match)
+--     Step 3: I enrichment (address→census_geocode, address→GSA value lookup,
+--             parcel_zones INSERT for card_complete zoning link)
+--     Step 4: J bid_decisions INSERT for rows with assessed/market value
+--             (Shapira formula: ARV from tax roll, tiered repairs, max_bid,
+--              5 factor keys, honesty_marker=INFERRED)
+--
+-- ============================================================
+-- WIRING: GHA workflow gold-standard-shard3-17343-escambia-suwannee.yml
+-- ============================================================
+-- Schedule: 09:15 UTC daily (offset to avoid fleet collisions)
+-- Jobs: escambia-cd | suwannee-ij | evaluate | closeout
+-- The pipeline is idempotent — daily runs catch new auction rows automatically.
+--
+-- ============================================================
+-- ULTRALOOP AUDIT ENTRIES (logged via GHA workflow closeout job)
+-- ============================================================
+-- county/letter/claim/survived logged to gold_standard_ultraloop_audit:
+--   escambia/C: survived=true (live RealAuction harvest idempotent gap-closer)
+--   suwannee/B: survived=true (structural block confirmed, BLANK>WRONG)
+--   suwannee/F: survived=true (structural block confirmed, same root cause as B)
+--   suwannee/I: survived=true (if enrichment rows written)
+--   suwannee/J: survived=true (if bid_decisions rows written)
+--
+-- ============================================================
+-- NO DDL IN THIS FILE — DML executed via GHA workflow scripts
+-- ============================================================
+-- This file is committed for audit provenance per repo convention.
+
+-- Verify state after workflow runs:
+-- SELECT public.pencil_dod_evaluate_county('escambia');
+-- SELECT public.pencil_dod_evaluate_county('suwannee');
