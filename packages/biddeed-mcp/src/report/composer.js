@@ -17,7 +17,7 @@ import { buildZwSection } from './zw-section.js';
 import { buildCma } from './cma.js';
 import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
-import { predict as xgbPredict } from './xgboost-model.js';
+import { predictEnsemble } from './ensemble-model.js';
 import { deriveRedFlags } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
@@ -137,14 +137,12 @@ async function scoreModel(auction, county, deps) {
   const countyEncoding = await computeCountyTargetEncoding(county, deps).catch(() => null);
   const { array, byName } = buildFeatureVector(auction, countyEncoding);
   try {
-    const result = await xgbPredict(array);
+    const result = await predictEnsemble(array, deps);
     return {
       available: true,
-      model_version: result.model_version,
-      probability_third_party_purchase: Number(result.probability.toFixed(4)),
+      ...result,
       feature_vector: byName,
       county_target_enc: countyEncoding,
-      caveat: 'Probability uses a best-effort feature reconstruction (see feature-vector.js) — the original training-time feature-engineering source is not in this repo. Treat as directional, not exact.',
     };
   } catch (err) {
     return {
@@ -183,7 +181,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       red_flags: redFlags,
       auction_outcome: buildOutcomeSection(auction, { ceiling: null, value: null, entryBid: null }),
       composition: sectionComposition({ locatable: false }),
-      provenance: buildProvenance(auction, { modelAvailable: false }),
+      provenance: buildProvenance(auction, { model: { available: false } }),
       disclaimer: DISCLAIMER_FULL,
     };
   }
@@ -285,7 +283,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     red_flags: redFlags,
     auction_outcome: outcome,
     composition: sectionComposition({ locatable: true }),
-    provenance: buildProvenance(auction, { modelAvailable: model.available }),
+    provenance: buildProvenance(auction, { model }),
     disclaimer: DISCLAIMER_FULL,
   };
 }
@@ -304,14 +302,29 @@ function sectionComposition({ locatable }) {
   };
 }
 
-function buildProvenance(auction, { modelAvailable }) {
+function buildProvenance(auction, { model }) {
+  const available = model?.available === true;
+  const ensemble = available && model?.ensemble === true;
+
+  let modelDisclosure;
+  if (!available) {
+    modelDisclosure = 'Verdict/value-estimate math is a deterministic prior/anchor framework, NOT an ML model. The v14.0 XGBoost artifact was not available at scoring time for this call — no probability is rendered (see context_layers.ml_model).';
+  } else if (ensemble) {
+    modelDisclosure = `Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. This is informational, not the deal verdict driver.
+
+ML Stack: SUMMIT-B V4 Stacked Ensemble (Patent Claim 8), model_version=${model.model_version}
+- XGBoost v14.0 — LIVE (native JS gbtree inference, see xgboost-model.js)
+- LightGBM, CatBoost, RF meta-learner — trained (scripts/train_v4_ensemble.py) but stored as a Python pickle this Node process cannot execute; approximated via XGBoost weighting rather than independent inference (see context_layers.ml_model.caveat)
+- Ensemble AUC: ${model.ensemble_auc} (from shapira_models, live at scoring time — not the same as the accuracy of the weighted approximation actually served here)`;
+  } else {
+    modelDisclosure = 'Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. A single XGBoost v14.0 classifier additionally scores third-party-purchase probability as a directional signal in context_layers.ml_model — this is informational, not the deal verdict driver.';
+  }
+
   return {
     section: 17,
     title: 'Provenance & Methodology',
-    generated_from: 'multi_county_auctions (live), fl_parcels (live), zoning_assignments (live), shapira_models v14.0 (Supabase storage)',
-    model_disclosure: modelAvailable
-      ? 'Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. A single XGBoost v14.0 classifier (72.2% accuracy, 0.7834 AUC, trained 2026-05-27) additionally scores third-party-purchase probability as a directional signal in context_layers.ml_model — this is informational, not the deal verdict driver.'
-      : 'Verdict/value-estimate math is a deterministic prior/anchor framework, NOT an ML model. The v14.0 XGBoost artifact was not available at scoring time for this call — no probability is rendered (see context_layers.ml_model).',
+    generated_from: 'multi_county_auctions (live), fl_parcels (live), zoning_assignments (live), shapira_models (Supabase — V4 stacked ensemble when in production, v14.0 XGBoost fallback otherwise)',
+    model_disclosure: modelDisclosure,
     certification_disclosure: 'Delivered under Gold Standard certification gating (v_certified_counties) — this report tool is CERT_REQUIRED and will refuse an uncertified county before any charge is made.',
     kpi_coverage: null, // populated by caller once composed against zonewise_kpis (298 total) — see issue report for the disclosed approximation
     generated_at_field: 'stamped by caller at response time (composer.js is deterministic and takes no wall-clock dependency of its own)',
