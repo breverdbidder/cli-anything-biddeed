@@ -175,21 +175,48 @@ const SECTION_RENDERERS = {
   },
 
   value_estimate(doc, report, section) {
-    const value = report.value_estimate;
-    const cover = report.cover || {};
+    const value  = report.value_estimate;
+    const cover  = report.cover || {};
+    const cb     = value?.clearing_band;
+    const mb     = value?.market_band;
     if (value && value.midpoint != null) {
-      // KPI strip
-      const y = doc.y;
-      doc.rect(36, y, doc.page.width - 72, 44).fill(LIGHT);
-      doc.fillColor(NAVY).fontSize(20).font('Helvetica-Bold')
-        .text(`${money(value.low)} – ${money(value.high)}`, 44, y + 6);
-      doc.fillColor(MUTED).fontSize(9).font('Helvetica')
-        .text(`Midpoint ${money(value.midpoint)}  ·  Investment Grade ${cover.investment_grade || '—'}  ·  Shapira Max Bid ${money(cover.shapira_max_bid)}`, 44, y + 30);
-      doc.y = y + 50;
-      // Anchors
+      // ── Clearing band (expected auction price) ────────────────────────────
+      const y1 = doc.y;
+      doc.rect(36, y1, doc.page.width - 72, 42).fill(LIGHT);
+      doc.fillColor(AMBER).fontSize(8).font('Helvetica-Bold').text('EXPECTED CLEARING PRICE (Distressed)', 44, y1 + 4);
+      doc.fillColor(NAVY).fontSize(16).font('Helvetica-Bold')
+        .text(cb?.low != null ? `${money(cb.low)} – ${money(cb.high)}` : 'Pending', 44, y1 + 14);
+      doc.fillColor(MUTED).fontSize(8).font('Helvetica')
+        .text(cb?.midpoint != null ? `Midpoint ${money(cb.midpoint)}` : '', 44, y1 + 32);
+      doc.y = y1 + 48;
+      // ── Market band (retail ARV / exit value) ─────────────────────────────
+      const y2 = doc.y;
+      doc.rect(36, y2, doc.page.width - 72, 42).fill('#F0FDF4');
+      doc.fillColor(GREEN).fontSize(8).font('Helvetica-Bold').text('RETAIL ARV — OPEN MARKET EXIT VALUE', 44, y2 + 4);
+      doc.fillColor(NAVY).fontSize(16).font('Helvetica-Bold')
+        .text(mb?.low != null ? `${money(mb.low)} – ${money(mb.high)}` : 'Pending', 44, y2 + 14);
+      doc.fillColor(MUTED).fontSize(8).font('Helvetica')
+        .text(mb?.midpoint != null
+          ? `Midpoint ${money(mb.midpoint)}  ·  Investment Grade ${cover.investment_grade || '—'}  ·  Shapira Max Bid ${money(cover.shapira_max_bid)}`
+          : '', 44, y2 + 32);
+      doc.y = y2 + 48;
+      // ── Equity strip ─────────────────────────────────────────────────────
+      if (cover.equity_at_entry_bid != null) {
+        const y3 = doc.y;
+        doc.rect(36, y3, doc.page.width - 72, 20).fill(GREEN);
+        doc.fillColor(WHITE).fontSize(9).font('Helvetica-Bold')
+          .text(
+            `Day-1 Equity at Entry Bid: ${money(cover.equity_at_entry_bid)}   ·   Equity at Ceiling: ${money(cover.equity_at_ceiling)}`,
+            44, y3 + 6
+          );
+        doc.y = y3 + 24;
+      }
+      // ── Anchors detail ────────────────────────────────────────────────────
+      doc.y += 4;
       if (value.anchors?.length) {
+        doc.fillColor(MUTED).fontSize(7).font('Helvetica-Bold').text('Value Anchors:', 44, doc.y); doc.y += 10;
         value.anchors.forEach((a, i) => {
-          row(doc, a.key.replace(/_/g,' '), a.value != null ? `${money(a.value)}  (${a.source})` : `Pending — ${a.source}`, i % 2 === 0);
+          row(doc, a.key.replace(/_/g,' '), a.value != null ? `${money(a.value)}  ·  ${a.source}` : `Pending — ${a.source}`, i % 2 === 0);
         });
       }
     } else {
@@ -199,37 +226,89 @@ const SECTION_RENDERERS = {
   },
 
   market_and_comps(doc, report, section) {
-    const priors = report.county_stats || report.county_market_priors;
-    const cma    = report.cma || {};
-    const comps  = Array.isArray(cma.comps) ? cma.comps : [];
-    // County clearance priors
-    doc.fillColor(NAVY).fontSize(8).font('Helvetica-Bold').text('County Auction-Cleared Priors', 44, doc.y + 2); doc.y += 14;
-    if (priors && !priors.insufficient) {
+    const priors       = report.county_stats || report.county_market_priors;
+    const cma          = report.cma || {};            // Layer 2 retail
+    const distressed   = report.cma_distressed || {}; // Layer 1 auction-cleared
+    const retailComps  = Array.isArray(cma.comps) ? cma.comps : [];
+    const auctionComps = Array.isArray(distressed.comps) ? distressed.comps : [];
+
+    // ── LAYER 1: Distressed Market CMA ─────────────────────────────────────
+    doc.fillColor(NAVY).fontSize(9).font('Helvetica-Bold')
+      .text('LAYER 1 — Auction Market Comps (Distressed) · What similar properties cleared for at auction', 44, doc.y + 2);
+    doc.y += 16;
+    if (distressed.n_county_outcomes > 0) {
       twoCol(doc, [
-        ['Dataset',            `${priors.n_outcomes || priors.n || '—'} outcomes (2024→)`],
-        ['Sold/Assessed Med',  priors.median_sold_to_assessed ? pct(priors.median_sold_to_assessed) : '—'],
-        ['Sold/Judgment Med',  priors.median_sold_to_judgment ? pct(priors.median_sold_to_judgment) : '—'],
-        ['p25',                priors.p25 ? pct(priors.p25) : '—'],
-        ['p75',                priors.p75 ? pct(priors.p75) : '—'],
-        ['Confidence',         priors.confidence || '—'],
+        ['County Outcomes',       `${distressed.n_county_outcomes} sold (${distressed.since_year}→)`],
+        ['Median Clearing Ratio', distressed.median_clearing_ratio_sold_to_assessed
+          ? pct(distressed.median_clearing_ratio_sold_to_assessed) + ' of assessed' : '—'],
+        ['Median Judgment Ratio', distressed.median_judgment_ratio_sold_to_judgment
+          ? pct(distressed.median_judgment_ratio_sold_to_judgment) + ' of FJ' : '—'],
+        ['Distressed Median $',   money(distressed.median_distressed_price)],
+        ['Implied Clearing (Subject)', money(distressed.implied_clearing_price_for_subject)],
+        ['Comp Scope',            distressed.n_comps_shown ? `${distressed.n_comps_shown} comps shown` : '—'],
       ]);
+      if (auctionComps.length > 0) {
+        doc.y += 2;
+        doc.fillColor(MUTED).fontSize(7).font('Helvetica-Bold')
+          .text('  ADDRESS                          SQFT   ASSESSED      SOLD       CLEARING%   DATE', 44, doc.y); doc.y += 10;
+        auctionComps.forEach((c, i) => {
+          if (doc.y > doc.page.height - 40) doc.addPage();
+          const y = doc.y;
+          doc.rect(36, y, doc.page.width - 72, 16).fill(i % 2 === 0 ? LIGHT : WHITE);
+          doc.fillColor('#111827').fontSize(7.5).font('Helvetica')
+            .text(c.address || '—', 44, y + 4, { width: 160 });
+          doc.text(c.sqft ? String(c.sqft) : '—', 210, y + 4, { width: 40 });
+          doc.text(money(c.assessed_value), 252, y + 4, { width: 70 });
+          doc.fillColor(GREEN).font('Helvetica-Bold')
+            .text(money(c.sold_amount), 325, y + 4, { width: 70 });
+          doc.fillColor(c.clearing_pct_of_assessed > 80 ? AMBER : GREEN).font('Helvetica-Bold')
+            .text(c.clearing_pct_of_assessed != null ? `${c.clearing_pct_of_assessed}%` : '—', 398, y + 4, { width: 50 });
+          doc.fillColor(MUTED).font('Helvetica')
+            .text(c.auction_date ? String(c.auction_date).slice(0, 10) : '—', 452, y + 4, { width: 80 });
+          doc.y = y + 18;
+        });
+      }
     } else {
-      row(doc, 'County Priors', 'Insufficient sample (< 10 verified outcomes)');
+      row(doc, 'Distressed CMA', distressed.note || 'Pending — no auction-cleared comps found for this county/sqft range');
     }
-    // CMA comps
-    doc.y += 4;
-    doc.fillColor(NAVY).fontSize(8).font('Helvetica-Bold').text('Comparable Sales (same zip / DOR use / ±30% sqft / 2yr)', 44, doc.y + 2); doc.y += 14;
-    if (comps.length > 0) {
-      comps.slice(0, 6).forEach((c, i) => compRow(doc, c, i));
+
+    doc.y += 8;
+
+    // ── LAYER 2: Retail ARV CMA ─────────────────────────────────────────────
+    doc.fillColor(NAVY).fontSize(9).font('Helvetica-Bold')
+      .text('LAYER 2 — Retail Market Comps (Open Market ARV) · Exit value after acquisition', 44, doc.y + 2);
+    doc.y += 16;
+    if (retailComps.length > 0) {
+      retailComps.forEach((c, i) => compRow(doc, c, i));
       if (cma.median_sale_price) {
         doc.y += 2;
         doc.fillColor(MUTED).fontSize(8).font('Helvetica')
-          .text(`Comp stats: median ${money(cma.median_sale_price)} · n=${cma.n} · dispersion ${cma.dispersion || '—'}`, 44, doc.y);
+          .text(
+            `Retail stats: median ${money(cma.median_sale_price)} · n=${cma.n} · dispersion ${cma.dispersion_flag || '—'}` +
+            (cma.jv_twin ? ` · JV-twin: ${cma.jv_twin.address} sold ${money(cma.jv_twin.retail_indication)}` : ''),
+            44, doc.y, { width: doc.page.width - 80 }
+          );
         doc.y += 12;
       }
     } else {
-      row(doc, 'Retail Comps', cma.note || 'Pending — no comps returned for this parcel');
+      row(doc, 'Retail ARV Comps', cma.note || 'Pending — no retail comps returned for this parcel');
     }
+
+    // ── THE SPREAD ──────────────────────────────────────────────────────────
+    const cover       = report.cover || {};
+    const distMid     = distressed.implied_clearing_price_for_subject || distressed.median_distressed_price;
+    const retailMid   = cma.median_sale_price;
+    if (distMid && retailMid) {
+      doc.y += 4;
+      doc.rect(36, doc.y, doc.page.width - 72, 22).fill('#F0FDF4');
+      doc.fillColor(GREEN).fontSize(9).font('Helvetica-Bold')
+        .text(
+          `THE SPREAD (investment thesis): Distressed clearing ${money(distMid)} → Retail ARV ${money(retailMid)} → Day-1 equity ~${money(retailMid - distMid)}`,
+          44, doc.y + 6, { width: doc.page.width - 80 }
+        );
+      doc.y += 26;
+    }
+
     liabilityNote(doc, section.liability_note);
   },
 
