@@ -21,6 +21,12 @@ import { predictEnsemble } from './ensemble-model.js';
 import { deriveRedFlags } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
+import { loadTemplate } from './pdf.js';
+
+// SSOT RULE: section template lives in public.v_s5_report_template (Supabase).
+// pdf.js owns the loader and renderer; composer.js re-exports loadTemplate so
+// callers can pre-warm the cache without importing pdf.js directly.
+export { loadTemplate };
 
 const NO_ESTIMATE_REFUSAL = "An estimate here would be fabrication; BidDeed declines where HouseCanary would extrapolate.";
 const MIN_PRICE_SIGNAL = 1000;
