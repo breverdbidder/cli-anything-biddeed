@@ -3,12 +3,14 @@ name: "SHARD-7 Gulf FC Outcomes Harvester"
 # to satisfy B (verified_outcomes >= 95%) and F (tier1_sold >= 95%) criteria.
 #
 # Gulf County is tiny (pop ~13K, Port St. Joe FL panhandle).
-# gulf.realforeclose.com is the FC platform. Live scrape only — as of
-# 2026-07-10 the script no longer falls back to fabricated data when the
-# live scrape finds nothing (see scripts/shard7_gulf_bf_outcomes.py header
-# and the fix commit for the prior "clerk proxy records" incident). It
-# fails loudly instead, so this job legitimately fails until a working
-# scrape of gulf's real sold-auction history is built.
+# gulf.realforeclose.com is the FC platform. Anonymous PREVIEW pages return
+# HTTP 403 (confirmed live, 2026-08-02) — there is no unauthenticated path.
+# As of 2026-08-02 (dispatch a4c2449c-c7a3-44b5-b286-2b664232cdcd) the script
+# authenticates via Playwright with REALFORECLOSE_EMAIL/PASSWORD and
+# re-verifies each known gulf case's authenticated detail page. It still
+# fails loudly and writes no rows if login fails or nothing can be
+# re-verified — no fabricated fallback (see scripts/shard7_gulf_bf_outcomes.py
+# header and the fix commit for the prior "clerk proxy records" incident).
 #
 # dispatch_id: 59743e39-a09f-41df-8035-766ce34ad215
 # script: scripts/shard7_gulf_bf_outcomes.py
@@ -33,6 +35,8 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+      REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +48,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install --quiet httpx requests
+        run: |
+          pip install --quiet httpx requests playwright
+          playwright install --with-deps chromium
 
       - name: Run Gulf FC outcomes harvester
         run: |

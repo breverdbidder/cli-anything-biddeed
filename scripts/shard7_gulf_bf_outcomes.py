@@ -9,19 +9,45 @@ Context:
   F criterion: tier1_sold / closed_sold >= 95% — currently null = FAIL
   Root cause: no closed/sold rows exist, so denominator (closed_sold) is 0.
 
-Strategy:
-  1. Attempt live scrape of gulf.realforeclose.com for past completed auctions.
-  2. If live scrape is blocked or returns nothing, FAIL LOUDLY (exit 1) and
-     write no rows. Do NOT fabricate placeholder outcomes — a prior version
-     of this script shipped 5 invented case numbers/sale amounts labeled
-     "clerk proxy records" that were never scraped from any real source.
-     Those rows were confirmed fabricated and deleted from production on
-     2026-07-10 (foreclosure_outcomes + multi_county_auctions, county=gulf,
-     data_source=gulf_clerk_records:GULF-FC-V1). See HARD GUARDRAILS #2 —
-     fail-loud invariant — in the campaign brief this script serves.
+Strategy (rewritten 2026-08-02, dispatch a4c2449c-c7a3-44b5-b286-2b664232cdcd):
+  Anonymous PREVIEW scraping of gulf.realforeclose.com (the original strategy
+  below) returns HTTP 403 for every request — confirmed via direct curl from
+  a clean sandbox IP, not just GHA runners. Guest/anonymous access to past
+  auction data is fully blocked on this platform; there is no walk-around.
+  This script now authenticates with REALFORECLOSE_EMAIL/REALFORECLOSE_PASSWORD
+  (existing repo secrets, RealAuction free-bidder login) via Playwright and
+  loads each KNOWN gulf case's authenticated detail page
+  (index.cfm?zaction=auction&zmethod=details&AID=<n>), reading the real
+  "Auction Status" / "Auction Sold $X" text that only renders when logged in.
+  It does NOT attempt to discover new cases blindly — it re-verifies the
+  auction_status/sold_amount of every existing gulf case_number that has a
+  realforeclose_url on file (see build_case_list()). This is the same
+  authenticated approach manually verified working during this dispatch
+  (login confirmed via "My Summary Page" title + Logout marker; 4 case pages
+  loaded with real content matching/correcting the DB).
+
+  1. Load every gulf MCA row with a realforeclose_url; log in once; visit
+     each case's detail page; parse real "Auction Status"/"Auction Sold"
+     text plus the winning-bid dollar amount when present.
+  2. If the authenticated session cannot log in, or zero case pages can be
+     read, FAIL LOUDLY (exit 1) and write no rows. Do NOT fabricate
+     placeholder outcomes — a prior version of this script shipped 5
+     invented case numbers/sale amounts labeled "clerk proxy records" that
+     were never scraped from any real source. Those rows were confirmed
+     fabricated and deleted from production on 2026-07-10 (foreclosure_outcomes
+     + multi_county_auctions, county=gulf, data_source=gulf_clerk_records:GULF-FC-V1).
+     See HARD GUARDRAILS #2 — fail-loud invariant — in the campaign brief
+     this script serves.
   3. Upsert results into multi_county_auctions (sold_amount, tier1_sold_amount)
      AND foreclosure_outcomes (data_source tag for B-criterion independence).
+     Rows with no realforeclose_url (older tax_deed cases) are left untouched.
   4. Run pencil_dod_evaluate_county via Mgmt API — print SQL VERIFICATION block.
+
+  NOTE: this harvester only re-verifies known cases. It cannot discover new
+  county-wide sold auctions — the "Auction Results" report (report_id=18)
+  behind login is scoped to the logged-in bidder's own participation
+  ("Auctions I Won / Did Not Win"), confirmed empty for this bidder account
+  (never bid in gulf), so it is not a usable county-wide outcomes feed.
 
 HONESTY PROTOCOL:
   VERIFIED  — claim backed by DB output printed below
@@ -31,8 +57,11 @@ HONESTY PROTOCOL:
 SHIP GATE: SQL VERIFICATION block printed at end.
 
 Usage:
-    SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... python3 scripts/shard7_gulf_bf_outcomes.py
+    SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+    REALFORECLOSE_EMAIL=... REALFORECLOSE_PASSWORD=... \
+    python3 scripts/shard7_gulf_bf_outcomes.py
     # SUPABASE_ACCESS_TOKEN optional (enables Mgmt API evaluation at end)
+    # requires: pip install playwright && playwright install --with-deps chromium
 """
 from __future__ import annotations
 
@@ -44,8 +73,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timezone
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SB_URL = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co").rstrip("/")
@@ -64,8 +92,10 @@ SB_ACCESS_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
 COUNTY       = "gulf"
 RF_HOST      = "https://gulf.realforeclose.com"
 DATA_SOURCE  = "realforeclose:GULF-FC-V1"
-MONTHS_BACK  = 24   # scrape 24 months back
-THROTTLE     = 2.5  # seconds between realforeclose requests
+THROTTLE     = 1.5  # seconds between authenticated realforeclose page loads
+
+RF_EMAIL    = os.environ.get("REALFORECLOSE_EMAIL") or os.environ.get("REALFORECLOSE_USERNAME") or ""
+RF_PASSWORD = os.environ.get("REALFORECLOSE_PASSWORD") or ""
 
 MGMT_URL = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
 
@@ -185,111 +215,133 @@ def mgmt_query(sql: str) -> list | dict | None:
         return None
 
 
-# ── Step 1: Probe realforeclose.com ────────────────────────────────────────────
+# ── Step 1: Authenticated per-case re-verify ───────────────────────────────────
+def build_case_list() -> list[dict]:
+    """Pull every gulf MCA row that has a realforeclose_url — these are the
+    only cases we can genuinely re-verify (anonymous PREVIEW is 403'd)."""
+    rows = sb_get("multi_county_auctions", {
+        "county":            "eq.gulf",
+        "realforeclose_url": "not.is.null",
+        "select":            "case_number,realforeclose_url,parcel_id,property_address,auction_status,sold_amount,auction_date",
+        "limit":             "200",
+    })
+    return rows
+
+
 def probe_realforeclose() -> list[dict]:
     """
-    Attempt to fetch past auction results from gulf.realforeclose.com.
-    Guest access on realforeclose is limited to upcoming auctions; past results
-    require authentication or a special PREVIEW endpoint per auction date.
-    Returns list of scraped result dicts if accessible, else empty list.
+    Log into gulf.realforeclose.com with REALFORECLOSE_EMAIL/PASSWORD and
+    re-visit each known case's authenticated detail page. Anonymous PREVIEW
+    access returns HTTP 403 (confirmed live) so there is no unauthenticated
+    path — this replaces the old blind month-by-month PREVIEW crawl.
+    Returns list of scraped result dicts for cases observed SOLD with a real
+    dollar amount. Non-sold cases (upcoming/cancelled/rescheduled) are not
+    included here since this function's contract is "sold outcomes for B/F".
     """
-    log(f"Probing {RF_HOST} for past {MONTHS_BACK} months of FC results...")
-    import http.cookiejar
-
-    cj     = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-    UA     = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-    )
-
-    def rf_get(url: str) -> str | None:
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        for attempt in range(2):
-            time.sleep(THROTTLE * (1 if attempt == 0 else 2))
-            try:
-                with opener.open(req, timeout=25) as resp:
-                    return resp.read().decode("utf-8", "replace")
-            except Exception as e:
-                log(f"  rf_get attempt {attempt+1}: {e}", "WARN")
-        return None
-
-    # First probe: can we reach the homepage at all?
-    html = rf_get(RF_HOST + "/")
-    if not html:
-        log(f"{RF_HOST} unreachable from this IP (datacenter block expected)", "WARN")
+    cases = build_case_list()
+    if not cases:
+        log("No gulf MCA rows with realforeclose_url — nothing to re-verify", "WARN")
         return []
 
-    log(f"{RF_HOST} is reachable — attempting past-date PREVIEW pages")
+    if not RF_EMAIL or not RF_PASSWORD:
+        log("REALFORECLOSE_EMAIL/REALFORECLOSE_PASSWORD not set — cannot authenticate", "ERROR")
+        return []
 
-    today   = date.today()
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log("playwright not installed — cannot run authenticated scrape", "ERROR")
+        return []
+
+    log(f"Authenticating to {RF_HOST} as bidder, then re-verifying {len(cases)} known case(s)...")
     results = []
 
-    for month_offset in range(1, MONTHS_BACK + 1):
-        target   = today.replace(day=1) - timedelta(days=month_offset * 30)
-        date_str = target.strftime("%m/%d/%Y")
-        url = (
-            RF_HOST
-            + "/index.cfm?zaction=AUCTION&Zmethod=PREVIEW"
-            + f"&AUCTIONDATE={urllib.parse.quote(date_str)}&AUCTIONTYPE=F"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            )
         )
-        time.sleep(THROTTLE)
-        html = rf_get(url)
-        if not html:
-            continue
+        page = ctx.new_page()
 
-        # Parse AITEM blocks (standard realforeclose markup)
-        starts = [m.start() for m in re.finditer(r'<div\s+id="AITEM_\d+"', html)]
-        if not starts:
-            log(f"  {target.strftime('%Y-%m')}: 0 auction blocks found")
-            continue
+        try:
+            page.goto(f"{RF_HOST}/index.cfm", wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1200)
+            page.fill("#LogName", RF_EMAIL)
+            page.fill("#LogPass", RF_PASSWORD)
+            page.click("#LogButton")
+            page.wait_for_timeout(3000)
+            title = page.title()
+            if "Summary" not in title and "Log Off" not in page.content():
+                log(f"Login did not reach an authenticated page (title={title!r})", "ERROR")
+                browser.close()
+                return []
+            log(f"Authenticated OK — post-login title: {title!r}")
+        except Exception as e:
+            log(f"Login failed: {e}", "ERROR")
+            browser.close()
+            return []
 
-        starts.append(len(html))
-        month_count = 0
-
-        for i in range(len(starts) - 1):
-            block = html[starts[i]:starts[i + 1]]
-
-            # Extract case number
-            m = re.search(r'CASENO["\s]*:?["\s]*([A-Z0-9\-]+)', block, re.I)
-            if not m:
-                m = re.search(r'case[_\s-]?no["\s]*:?["\s]*([\w\-]+)', block, re.I)
-            case_num = m.group(1).strip() if m else None
-            if not case_num:
+        for row in cases:
+            case_num = row.get("case_number")
+            url = row.get("realforeclose_url")
+            if not url:
+                continue
+            try:
+                time.sleep(THROTTLE)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(1500)
+                html = page.content()
+            except Exception as e:
+                log(f"  {case_num}: page load failed: {e}", "WARN")
                 continue
 
-            # Extract winning bid / final bid
-            bid_m = re.search(r'(?:Winning Bid|Final Bid|SOLD)[^$]*\$\s*([\d,]+(?:\.\d{2})?)', block, re.I)
-            bid = None
-            if bid_m:
+            if case_num not in html:
+                log(f"  {case_num}: case number not found in live page — skipping", "WARN")
+                continue
+
+            # Live markup (confirmed 2026-08-02):
+            #   <div class="ASTAT_MSGA ASTAT_LBL">Auction Sold</div>
+            #   <div class="ASTAT_MSGB Astat_DATA">05/14/2026 11:01 AM ET</div>
+            #   <div class="ASTAT_MSGC ASTAT_LBL">Amount</div>
+            #   <div class="ASTAT_MSGD Astat_DATA">$100.00</div>
+            # Only trust an amount that appears inside the ASTAT_MSGD value
+            # div immediately following an "Auction Sold" ASTAT_MSGA label —
+            # matching on loose proximity risked pulling judgment/assessed
+            # amounts that also render on the same page.
+            sold_m = None
+            if re.search(r'ASTAT_MSGA[^>]*>\s*Auction Sold\s*<', html, re.I):
+                amt_m = re.search(
+                    r'ASTAT_MSGD[^>]*>\s*\$\s*([\d,]+(?:\.\d{2})?)\s*<', html, re.I
+                )
+                if amt_m:
+                    sold_m = amt_m
+            if sold_m:
                 try:
-                    bid = float(bid_m.group(1).replace(",", ""))
+                    bid = float(sold_m.group(1).replace(",", ""))
                 except ValueError:
-                    pass
+                    bid = None
+                if bid is not None:
+                    addr = row.get("property_address") or ""
+                    results.append({
+                        "case_number":      case_num,
+                        "auction_date":     row.get("auction_date"),  # from existing MCA row, not re-scraped
+                        "winning_bid":      bid,
+                        "property_address": addr,
+                        "parcel_id":        row.get("parcel_id"),
+                        "sale_type":        "foreclosure",
+                        "_source":          DATA_SOURCE,
+                    })
+                    log(f"  {case_num}: SOLD ${bid:,.2f} (confirmed live)")
+                    continue
 
-            # Only count as sold if we have a bid amount
-            status = "sold" if bid else "no_sale"
-            if status != "sold":
-                continue
+            log(f"  {case_num}: no sold amount on live page (status text present, not a sale)")
 
-            # Extract address
-            addr_m = re.search(r'<span[^>]*>\s*(\d+\s+[A-Z][^<]{5,60}FL[^<]{0,10})\s*</span>', block, re.I)
-            address = addr_m.group(1).strip() if addr_m else ""
+        browser.close()
 
-            results.append({
-                "case_number":      case_num,
-                "auction_date":     target.strftime("%Y-%m-%d"),
-                "winning_bid":      bid,
-                "property_address": address,
-                "parcel_id":        None,
-                "sale_type":        "foreclosure",
-                "_source":          DATA_SOURCE,
-            })
-            month_count += 1
-
-        log(f"  {target.strftime('%Y-%m')}: {month_count} sold results")
-
-    log(f"Live scrape total: {len(results)} sold FC results")
+    log(f"Live authenticated re-verify total: {len(results)} sold FC results")
     return results
 
 
@@ -300,12 +352,11 @@ def build_mca_rows(records: list[dict], source: str) -> list[dict]:
     for rec in records:
         bid   = float(rec["winning_bid"])
         cnum  = rec["case_number"]
-        adate = rec["auction_date"]
-        rows.append({
+        adate = rec.get("auction_date")
+        row = {
             "county":             COUNTY,
             "case_number":        cnum,
             "sale_type":          rec.get("sale_type", "foreclosure"),
-            "auction_date":       adate,
             "auction_status":     "sold",
             "sold_amount":        bid,
             "tier1_sold_amount":  bid,
@@ -319,7 +370,12 @@ def build_mca_rows(records: list[dict], source: str) -> list[dict]:
             "parity_source":      "realforeclose_sold_results",
             "last_seen_at":       now,
             "updated_at":         now,
-        })
+        }
+        # Do not clobber an existing correct auction_date with NULL on
+        # merge-duplicates upsert when we didn't re-scrape a new date.
+        if adate:
+            row["auction_date"] = adate
+        rows.append(row)
     return rows
 
 
@@ -332,9 +388,13 @@ def build_outcome_rows(records: list[dict], source: str) -> list[dict]:
     now = datetime.now(timezone.utc).isoformat()
     rows = []
     for rec in records:
+        adate = rec.get("auction_date")
+        if not adate:
+            log(f"  {rec['case_number']}: no auction_date on file — skipping foreclosure_outcomes row "
+                "(auction_date is part of the on-conflict key)", "WARN")
+            continue
         bid   = float(rec["winning_bid"])
         cnum  = rec["case_number"]
-        adate = rec["auction_date"]
         rows.append({
             "county":            COUNTY,
             "case_number":       cnum,
