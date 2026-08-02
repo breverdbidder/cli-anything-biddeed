@@ -105,7 +105,7 @@ function compRow(doc, comp, i) {
 
 // ─── Main render ────────────────────────────────────────────────────────────
 
-export function renderPDF(report) {
+export function renderReportPdf(report) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margins: { top: 36, bottom: 36, left: 36, right: 36 }, bufferPages: true });
     const chunks = [];
@@ -403,3 +403,6 @@ export function renderPDF(report) {
     doc.end();
   });
 }
+
+// Backward compat alias
+export { renderReportPdf as renderPDF };
