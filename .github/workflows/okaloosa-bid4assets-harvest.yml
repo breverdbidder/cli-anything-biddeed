@@ -48,6 +48,12 @@ jobs:
             exit "$EXIT"
           fi
 
+      - name: "Post-harvest enrichment: GIS parcel_id + zoning substrate + bid_decisions"
+        run: |
+          set -euo pipefail
+          python3 scripts/okaloosa_post_harvest_enrich.py
+        continue-on-error: false
+
       - name: "Verify: B/C/D/E/F/I metrics via evaluator RPC"
         run: |
           set -euo pipefail
