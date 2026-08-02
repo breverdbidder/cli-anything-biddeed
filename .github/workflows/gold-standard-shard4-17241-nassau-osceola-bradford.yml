@@ -1,0 +1,199 @@
+name: "Gold Standard SHARD-4 #17241 (nassau, osceola, bradford)"
+# Dispatch: 41bd7ce3-a9f5-465d-99a1-a3ed447d8ce4
+# Session: architect-20260802T080000
+# Run: 8166
+# Targets: nassau (C/D/I), osceola (G/I), bradford (B/F ceiling documented)
+# SHIP-TO-MAIN: direct push, DB changes via REST API in scripts
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Phase to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - nassau_cdi
+          - osceola_g
+          - osceola_i
+          - verify
+
+concurrency:
+  group: gold-standard-shard4-17241-nassau-osceola-bradford
+  cancel-in-progress: false
+
+jobs:
+  nassau-cdi:
+    name: "Nassau C/D/I — new auction parity+zone fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.inputs.phase == 'all' || github.event.inputs.phase == 'nassau_cdi'
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run nassau C/D/I fix
+        run: python3 scripts/shard4_17241_nassau_cdi_new_auctions_fix.py
+
+  osceola-g:
+    name: "Osceola G — pk1000 + RS-2/FAR fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: nassau-cdi
+    if: always() && (github.event.inputs.phase == 'all' || github.event.inputs.phase == 'osceola_g')
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run osceola G fix
+        run: python3 scripts/shard4_17241_osceola_g_pk1000_fix.py
+
+  osceola-i:
+    name: "Osceola I — incomplete cards geo/value/zone backfill"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: osceola-g
+    if: always() && (github.event.inputs.phase == 'all' || github.event.inputs.phase == 'osceola_i')
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run osceola I fix
+        run: python3 scripts/shard4_17241_osceola_i_incomplete_cards_fix.py
+
+  verify:
+    name: "Verify all 3 counties (pencil_dod_evaluate_county)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [nassau-cdi, osceola-g, osceola-i]
+    if: always()
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify all counties + session close-out
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          SB_URL = os.environ.get('SUPABASE_URL', '').rstrip('/')
+          SB_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          if not SB_URL or not SB_KEY:
+              print("No SUPABASE credentials — cannot verify")
+              exit(0)
+
+          headers = {
+              'apikey': SB_KEY,
+              'Authorization': f'Bearer {SB_KEY}',
+              'Content-Type': 'application/json',
+          }
+
+          def rpc(fn, params):
+              url = f"{SB_URL}/rest/v1/rpc/{fn}"
+              req = urllib.request.Request(url, data=json.dumps(params).encode(), headers=headers, method='POST')
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          now_iso = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          print(f"\n### SQL VERIFICATION — SHARD-4 dispatch 41bd7ce3")
+          print(f"Timestamp UTC: {now_iso}")
+          print("SELECT public.pencil_dod_evaluate_county('<county>');\n")
+
+          COUNTIES = ['nassau', 'osceola', 'bradford']
+          results = {}
+
+          for county in COUNTIES:
+              try:
+                  r = rpc('pencil_dod_evaluate_county', {'p_county': county})
+                  results[county] = r
+                  if isinstance(r, dict):
+                      passes = sum(1 for ltr in 'ABCDEFGHIJ'
+                                   if isinstance(r.get(ltr), dict) and r[ltr].get('pass'))
+                      detail = ' '.join(
+                          f"{ltr}={'PASS' if isinstance(r.get(ltr), dict) and r[ltr].get('pass') else 'FAIL'}"
+                          f"({r.get(ltr, {}).get('metric') if isinstance(r.get(ltr), dict) else '?'})"
+                          for ltr in 'ABCDEFGHIJ'
+                      )
+                      print(f"{county} [{passes}/10]: {detail}")
+                      print(f"  JSON: {json.dumps(r)}\n")
+              except Exception as e:
+                  print(f"{county}: EVAL ERROR — {e}")
+
+          # Session close-out: update gold_standard_campaign checkpoint
+          print("\n### SESSION CLOSE-OUT")
+          try:
+              # Find the dispatch row for this session
+              dispatch_rows_url = (
+                  f"{SB_URL}/rest/v1/summit_chat_dispatch"
+                  f"?state=eq.processing&order=updated_at.desc&limit=5&select=id,state,created_at"
+              )
+              req = urllib.request.Request(dispatch_rows_url, headers=headers)
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  dispatch_rows = json.loads(r.read())
+              print(f"Processing dispatches: {dispatch_rows}")
+
+              DISPATCH_ID = '41bd7ce3-a9f5-465d-99a1-a3ed447d8ce4'
+
+              for county in COUNTIES:
+                  r = results.get(county, {})
+                  if not isinstance(r, dict):
+                      continue
+                  criteria_passed = {
+                      ltr: bool(isinstance(r.get(ltr), dict) and r[ltr].get('pass'))
+                      for ltr in 'ABCDEFGHIJ'
+                  }
+                  update_body = {
+                      'criteria_passed': criteria_passed,
+                      'criteria_total': 10,
+                      'exit_reason': 'timeout',
+                      'session_end_at': now_iso,
+                  }
+                  update_url = (
+                      f"{SB_URL}/rest/v1/gold_standard_campaign"
+                      f"?county_slug=eq.{county}&dispatch_id=eq.{DISPATCH_ID}"
+                  )
+                  update_req = urllib.request.Request(
+                      update_url, data=json.dumps(update_body).encode(),
+                      headers={**headers, 'Prefer': 'return=minimal'},
+                      method='PATCH'
+                  )
+                  try:
+                      with urllib.request.urlopen(update_req, timeout=15) as r2:
+                          r2.read()
+                      print(f"  {county}: gold_standard_campaign updated OK")
+                  except Exception as e2:
+                      print(f"  {county}: campaign update failed (may not exist): {e2}")
+
+          except Exception as e:
+              print(f"Close-out error: {e}")
+
+          print("\nDone.")
+          PYEOF
