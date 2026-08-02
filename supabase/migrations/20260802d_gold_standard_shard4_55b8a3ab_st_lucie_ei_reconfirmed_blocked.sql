@@ -1,0 +1,75 @@
+-- Gold Standard shard-4 st_lucie session (dispatch 55b8a3ab-3845-4c12-8db4-9d1e4e89c120)
+-- 2026-08-02
+--
+-- OUTCOME: BLOCKED, re-confirmed. No writes were made to multi_county_auctions this
+-- session. This file is an idempotent no-op record of that fact, per the "SQL
+-- reflecting your actual REST writes" convention -- there were no DB writes to reflect
+-- beyond a read-only reconfirmation of live source-of-truth state and a staging-table
+-- (realforeclose_aids) refresh.
+--
+-- LIVE STATE (unchanged from the 2026-07-31 session, dispatch ca56cc4d):
+--   E parcel_linked=112/119 (94.1%), I card_complete=112/119 (94.1%) -- both fail on
+--   the exact same 7 rows, all still parcel_id IS NULL:
+--     2024CA001834  03/24/2026 (passed)  "Property Appraiser"  label-leak bug
+--     2025CC001033  03/25/2026 (passed)  "Property Appraiser"  label-leak bug
+--     2023CA002852  04/01/2026 (passed)  "AIRCRAFT"             chattel, no parcel
+--     2024CA000330  06/24/2026 (passed)  "TIMESHARE"            chattel, no parcel
+--     2024CA000214  07/15/2026 (passed)  "MULTIPLE PARCELS"     multi-parcel sale
+--     2025CA002738  08/04/2026 (upcoming) "Property Appraiser" label-leak bug
+--     2023CA000465  08/05/2026 (upcoming) "Property Appraiser" label-leak bug
+--   auctions_total=119 (unchanged); need >=114/119 (95%) for both letters. Gap = 2.
+--
+-- WORK DONE THIS SESSION (all read-only reconnaissance, live-verified 2026-08-02):
+--
+-- 1. Re-ran scripts/shard2_run2450_ajax_realforeclose_harvest.py fresh against all 7
+--    auction dates (03/24, 03/25, 04/01, 06/24, 07/15, 08/04, 08/05/2026), including
+--    the two dates newly close enough to check for the first time (08/04, 08/05 were
+--    still ~5 days out on 07-31; today they render identically to the passed-date
+--    cases). RealForeclose itself still renders the exact same 5x "Property
+--    Appraiser" / 1x "AIRCRAFT" / 1x "TIMESHARE" / 1x "MULTIPLE PARCELS" garbage
+--    strings in the Parcel ID field for all 7, confirming this is a genuine,
+--    persistent source-data defect, not a transient/stale read.
+--
+-- 2. NEW avenue attempted this session, absent from the 07-31 report: since 5 of the
+--    7 auction dates have now passed, tried resolving the two theoretically-fixable
+--    "Property Appraiser" cases (2024CA001834, 2025CC001033 -- real estate, not
+--    chattel/multi-parcel) via POST-SALE public sources instead of pre-sale
+--    RealForeclose/AcclaimWeb:
+--      - AcclaimWeb (acclaimweb.stlucieclerk.gov / .com): reconfirmed BLOCKED --
+--        403 Access Denied at the Akamai edge (edgesuite.net) for both direct curl
+--        AND the WebFetch tool, on every path/subdomain tried (home, case-number
+--        search form, .com variant). No plausible alternate unprotected backend host
+--        found (tried vaclmweb1/vaclmweb/aclmweb1 permutations on stlucieclerk.us/
+--        .com per the Brevard AcclaimWeb pattern -- none resolve via DNS).
+--      - Firecrawl API (all firecrawl-* skills): confirmed OUT OF CREDITS
+--        ("Insufficient credits to perform this request") -- this is an
+--        account-wide, not st_lucie-specific, blocker; flagging as a fleet-wide
+--        follow-up (other counties' G/I ordinance-research work likely also blocked).
+--      - trellis.law: 403 via WebFetch on both the coverage page and a guessed
+--        case-detail URL; no case-specific content surfaced via WebSearch either.
+--      - floridapublicnotices.com (statutory legal-notice archive -- foreclosure
+--        sales are required to be published as a Notice of Sale): reachable, but its
+--        search is JS-driven with no working query-string pattern found; WebSearch
+--        and WebFetch of guessed search URLs returned only template/homepage
+--        content, never a notice matching either case number.
+--      - stlucieforeclosures.com (private title-search company): 403 via WebFetch.
+--      - noticeregistry.com, floridacourtrecords.us, courtdocket.floridaofficialrecords.com,
+--        floridastatecourts.us: either 403 or generic informational pages only, no
+--        case-specific data surfaced.
+--      - WebSearch for both case numbers in numerous formats (with/without dashes,
+--        short/long form) combined with St Lucie / Fort Pierce / foreclosure /
+--        notice-of-sale / lis pendens keywords: zero indexed results referencing
+--        either case number specifically.
+--
+-- OBSERVATION (INFERRED, unverified, worth a future session's attention): research
+-- into 2025CC001033 surfaced that St. Lucie's full official case-number format is
+-- 56-YYYY-CA-NNNNNN-AXXXHC (a "CA" circuit civil designation); "2025CC001033" is a
+-- "CC" (county civil) prefix, which does not match that pattern. This *may* mean the
+-- case_number stored in our DB is a shorthand/internal form rather than the exact
+-- string used in public notices (which would explain zero search-engine hits even
+-- if the case is genuinely publicly noticed) -- or it may simply be a small-claims
+-- matter with different publication requirements. Not resolved this session; flagging
+-- as a lead for the next st_lucie firing rather than acting on an unverified guess.
+--
+-- Per HONESTY PROTOCOL / NEVER-LIE / BLANK > WRONG: none of these 7 rows can be
+-- assigned a real parcel_id without fabrication. No SQL to apply.

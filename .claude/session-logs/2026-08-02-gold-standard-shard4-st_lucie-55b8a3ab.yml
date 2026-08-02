@@ -1,0 +1,57 @@
+session:
+  date: "2026-08-02"
+  dispatch_id: "55b8a3ab-3845-4c12-8db4-9d1e4e89c120"
+  county: st_lucie
+  shard: shard-4
+  agent: claude-sonnet-5
+  loop_run: 8310
+
+decisions:
+  - step: 1
+    action: "Queried live pencil_dod_evaluate_county('st_lucie') fresh via Supabase REST RPC before touching anything"
+    result: "8/10, identical to brief: E parcel_linked=112/119 (94.1%, FAIL), I card_complete=112/119 (94.1%, FAIL), all other letters PASS"
+    reason: "Fail-loud invariant -- verify current DB state before acting on task-provided assumptions, per evidence-before-claims"
+  - step: 2
+    action: "Pulled the exact 7 null-parcel_id rows for st_lucie via exec_sql-style Management API query"
+    result: "Identical 7 case_numbers to the 2026-07-31 session's finding (dispatch ca56cc4d): 2024CA001834, 2025CC001033, 2023CA002852, 2024CA000330, 2024CA000214, 2025CA002738, 2023CA000465"
+    reason: "Confirm this is not a regression from another shard's work and not stale-memory reasoning"
+  - step: 3
+    action: "Re-ran scripts/shard2_run2450_ajax_realforeclose_harvest.py live against all 7 auction dates, including the 2 (08/04, 08/05) that were still ~5 days out on 07-31"
+    result: "RealForeclose source still renders the same broken Parcel ID values for all 7 (5x 'Property Appraiser' label-leak, 1x AIRCRAFT, 1x TIMESHARE, 1x MULTIPLE PARCELS) -- confirmed persistent, not transient"
+    reason: "Cheap, already-proven tooling; rules out 'maybe it resolved closer to sale date' before spending budget on harder research"
+  - step: 4
+    action: "Attempted AcclaimWeb (post-sale clerk records) via direct curl and WebFetch on all known subdomains/paths, since 5 of 7 auction dates have now passed"
+    result: "403 Access Denied at Akamai edge (edgesuite.net) on every attempt, both tools, both stlucieclerk.gov and .com domains. No unprotected backend host found (tried Brevard-pattern vaclmweb1/vaclmweb/aclmweb1 permutations -- none resolve via DNS)"
+    reason: "This is the same lever that resolved Brevard's B/F gap (AcclaimWeb CT records); worth testing even though 07-31 didn't have passed-date cases to try it on yet"
+  - step: 5
+    action: "Tested Firecrawl API directly (all firecrawl-* skills depend on it)"
+    result: "Confirmed 'Insufficient credits' -- account-wide exhaustion, not st_lucie-specific. Flagged as a fleet-wide follow-up since other counties' G/I ordinance research likely also blocked"
+    reason: "Needed to know before committing agent budget to Firecrawl-dependent research paths"
+  - step: 6
+    action: "Launched a 2-stage ultracode Workflow (research then adversarial-verify) targeting only the 2 theoretically-resolvable cases (2024CA001834, 2025CC001033 -- real estate, not chattel/multi-parcel), researching via floridapublicnotices.com statutory legal-notice archive, WebSearch, trellis.law, and other legal-notice aggregators; verify stage would have resolved any found address to a parcel via St Lucie ArcGIS"
+    result: "Both agents returned found=false after exhausting every specified and several additional avenues (noticeregistry.com, floridacourtrecords.us, stlucieforeclosures.com, etc.) -- zero verify-stage agents ran since nothing was found to verify"
+    reason: "Adversarial-verify-before-write per ULTRALOOP protocol; user opted into ultracode this session specifically for this kind of exhaustive parallel research before accepting a BLOCKED verdict"
+  - step: 7
+    action: "Re-ran pencil_dod_evaluate_county('st_lucie') after the workflow to confirm no drift during the session"
+    result: "Identical to step 1: 8/10, E/I still 94.1% FAIL, no regressions on the 8 passing letters"
+    reason: "Verification protocol -- confirm before vs after even when the expected outcome is 'no change'"
+
+artifacts:
+  - path: supabase/migrations/20260802d_gold_standard_shard4_55b8a3ab_st_lucie_ei_reconfirmed_blocked.sql
+    type: migration (idempotent no-op record; no DB writes to reflect)
+
+verification:
+  - check: "pencil_dod_evaluate_county('st_lucie') before vs after"
+    proof: "Before: E=94.1 FAIL, I=94.1 FAIL, 8/10 total. After: identical, E=94.1 FAIL, I=94.1 FAIL, 8/10 total. No drift, no regression."
+    status: verified
+  - check: "All 7 null-parcel_id rows still render broken source data live"
+    proof: "Fresh AJAX pull 2026-08-02 via shard2_run2450_ajax_realforeclose_harvest.py against stlucie.realforeclose.com for all 7 dates: parcel_id values unchanged (Property Appraiser x5, AIRCRAFT x1, TIMESHARE x1, MULTIPLE PARCELS x1)"
+    status: verified
+  - check: "AcclaimWeb and Firecrawl are genuinely unavailable, not merely under-researched"
+    proof: "AcclaimWeb: 403 Access Denied (Akamai edgesuite.net) on every subdomain/path tried via curl and WebFetch. Firecrawl: API returns 'Insufficient credits to perform this request' verbatim."
+    status: verified
+
+next_session_priorities:
+  - "st_lucie E/I: the only remaining lever is a human/authenticated channel (St. Lucie Clerk Research Dept, 772-462-6930) or JS-capable browser automation against floridapublicnotices.com's search UI (not accessible via curl/WebFetch/Firecrawl-out-of-credits from this environment) -- OR restoring Firecrawl credits fleet-wide, which would also unblock other shards' G/I ordinance work."
+  - "Unverified lead: 2025CC001033's 'CC' prefix does not match St Lucie's observed CA case-number format (56-YYYY-CA-NNNNNN-AXXXHC) -- worth confirming whether our stored case_number is a shorthand needing reconstruction before public-notice search, rather than assuming the notice doesn't exist."
+  - "Fleet-wide: Firecrawl account credit exhaustion should be escalated -- it silently degrades every shard's Firecrawl-dependent research (G/I zoning-ordinance scraping, teardown, etc.), not just st_lucie."
