@@ -1,0 +1,78 @@
+-- Gold Standard shard-4 (dispatch 41bd7ce3-a9f5-465d-99a1-a3ed447d8ce4): bradford.
+-- This is the 7th session to work bradford's B/F gap, following:
+--   supabase/migrations/20260725_gold_standard_shard5_bradford_i_bf_residual_confirmation.sql       (1st/2nd)
+--   supabase/migrations/20260725c_gold_standard_shard13_bradford_i_real_fix_bf_3rd_reconfirm.sql     (3rd)
+--   supabase/migrations/20260725d_gold_standard_shard13_bradford_bf_4th_reconfirm_ori_turnstile.sql  (4th)
+--   supabase/migrations/20260729_gold_standard_shard6_bradford_bf_5th_reconfirm_civitek_turnstile.sql (5th)
+--   GOLD_STANDARD_SHARD10_BRADFORD_SEMINOLE_DISPATCH_96A9BC5D_SESSION_REPORT.md                       (6th, 2026-07-31)
+-- for the full exhausted-source history.
+--
+-- Baseline (VERIFIED via pencil_dod_evaluate_county('bradford'), live 2026-08-02
+-- before and after this session's work -- IDENTICAL, no drift): 8/10.
+-- A=1(fc=4 td=1) C=100(matched_clean=5) D=100(matched_any=5) E=100(parcel_linked=5)
+-- G=100(density=100) H=1.8h I=100(card_complete=5 of 5) J=100(deal_complete=5) all PASS.
+-- B=null(verified=0 closed_sold=0) F=null(tier1_sold=0 closed_sold=0) FAIL.
+-- auctions_total=5. Single lever unchanged: case 25000457CAAXMX (VyStar Credit
+-- Union v. Unknown Heirs of Debra Ilene Hunter, 18737 Charlotte Ave, Brooker FL
+-- 32622, parcel_id 00273-0-01000), sale date 2026-07-16, now 17 days lapsed,
+-- still auction_status='upcoming', sold_amount still null.
+--
+-- This session's scope was deliberately small (reconfirmation, not a full 7th
+-- research sweep) per dispatch instructions: budget cap ~15-20% of available
+-- time, one fresh check of whether any dead-end source changed state, plus one
+-- opportunistic new-lead search. Turnstile/CAPTCHA-gated sources (civitekflorida.com
+-- /ocrs/county/04, myfloridacounty.com/orisearch) were intentionally NOT
+-- re-probed -- hard no per campaign rules, unchanged since the 4th/5th sessions.
+--
+-- ================================================================================
+-- FRESH STATE CHECK: bradfordclerk.com -- STILL CLOUDFLARE-BLOCKED, NO CHANGE
+-- ================================================================================
+-- Re-probed both the domain root and a newly-surfaced subpath
+-- (bradfordclerk.com/foreclosures/, found via this session's web search, not
+-- explicitly logged by name in any prior migration). Both returned HTTP 403
+-- with the same "Just a moment..." Cloudflare JS-challenge page as every prior
+-- session. No state change.
+--
+-- ================================================================================
+-- FRESH STATE CHECK: bctelegraph.com -- REACHABLE, NO POST-SALE NOTICE
+-- ================================================================================
+-- bctelegraph.com/?s=25000457CAAXMX -> HTTP 200, "Nothing found".
+-- bctelegraph.com/?s=Debra+Ilene+Hunter -> HTTP 200, returns only the same
+-- pre-sale legal-notice issues already known from prior sessions (earliest:
+-- 7-2-26 issue, containing the standard lis-pendens surplus-funds boilerplate
+-- notice, not an actual sale-outcome report).
+-- bctelegraph.com/legal-notices-for-7-30-26/ (the most recent published issue
+-- as of this session) -> HTTP 200, grepped for case number / party names /
+-- property address, zero matches.
+-- bctelegraph.com/legal-notices-for-8-6-26/ -> HTTP 404 (next issue not yet
+-- published as of 2026-08-02).
+--
+-- ================================================================================
+-- NEW-LEAD SEARCH (opportunistic, per dispatch instructions): NOTHING NEW FOUND
+-- ================================================================================
+-- WebSearch "25000457CAAXMX" OR "Debra Ilene Hunter" Bradford County foreclosure
+--   -> only generic county-wide foreclosure listing aggregator sites
+--      (foreclosure.com, foreclosurelistings.com, redfin.com, auctions.com),
+--      none case-specific.
+-- WebSearch "18737 Charlotte Ave" Brooker FL foreclosure sale surplus
+--   -> resurfaces the same pre-sale lis-pendens surplus-funds notice already
+--      found in the bctelegraph.com direct search above; no independently new
+--      source, no actual sale outcome/amount.
+-- No genuinely new, non-CAPTCHA-gated lead was found this session.
+--
+-- ================================================================================
+-- Conclusion: NO UPDATE issued. No fabrication.
+-- ================================================================================
+-- 7th consecutive confirmed-exhausted pass. B/F remain FAIL. Per the campaign's
+-- fail-loud / BLANK > WRONG invariant, this is reported as a valid, honest
+-- residual outcome, not forced. pipeline.counties.notes for bradford appended
+-- (not overwritten) with this session's findings so an 8th session can skip
+-- straight to "still blocked" without re-deriving the dead-end list, unless a
+-- human phone/records-request outreach flag has been set in the interim -- that
+-- outreach remains the only lever outside this campaign's autonomous scope.
+--
+-- Audit trail: 2 rows inserted into public.gold_standard_ultraloop_audit
+-- (dispatch_id 41bd7ce3-a9f5-465d-99a1-a3ed447d8ce4, letters B/F,
+-- ultraloop_mode='fallback', survived=true -- ids 12089-12090).
+
+SELECT public.pencil_dod_evaluate_county('bradford');
