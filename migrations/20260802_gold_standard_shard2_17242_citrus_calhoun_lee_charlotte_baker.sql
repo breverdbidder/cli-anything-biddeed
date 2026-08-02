@@ -1,0 +1,125 @@
+-- Gold Standard SHARD-2 Issue #17242 — citrus/calhoun/lee/charlotte/baker
+-- Dispatch: c8b9e77d-8c88-4bbb-8df9-dc7107eb3f83
+-- Session: 2026-08-02T08:00Z
+-- Workflow: gold-standard-shard2-17242-citrus-calhoun-lee-charlotte-baker.yml
+--
+-- ============================================================
+-- EXECUTIVE SUMMARY
+-- ============================================================
+-- citrus (9/10): I=93.7% — targeting FL GIO ArcGIS enrichment for parcel rows
+--   missing geo/value. Prior session confirmed 11 structural dead ends.
+-- calhoun (8/10): B/F=null — STRUCTURAL BLOCK: 0 closed sales in DB.
+--   Confirmed 7+ consecutive sessions. calhoun.realforeclose.com/realtaxdeed.com dark.
+--   Harvester (calhoun-clerk-harvest.yml) runs daily. No action this session.
+-- lee (8/10): E=94.4% I=89.4% — ArcGIS backfill for parcel_zones + geo/value gaps.
+-- charlotte (7/10): C/D/I regressed since 2026-07-24 fix (dispatch 549b0e98 = 10/10).
+--   New auctions added. Fix: re-run RealForeclose AJAX litmus for NULL-parity rows +
+--   tier1_ prefix repair + FL GIO enrichment for I.
+-- baker (6/10): C/D/E/I CAPTCHA-blocked — civitekflorida Turnstile + bakerclerk
+--   Cloudflare JS. Source data on RealAuction genuinely missing. 5+ sessions confirm.
+--   No action.
+--
+-- ============================================================
+-- CALHOUN B/F STRUCTURAL BLOCK
+-- ============================================================
+-- Root cause (VERIFIED by 7+ consecutive sessions):
+--   SELECT COUNT(*) FROM multi_county_auctions
+--   WHERE county='calhoun' AND auction_status IN ('sold','closed') = 0
+-- B/F remain NULL by construction until a sale actually closes.
+-- Harvester: calhoun-clerk-harvest.yml (05:45 UTC daily) — live and wired.
+-- Action: none — correctly BLANK>WRONG.
+--
+-- ============================================================
+-- BAKER C/D/E/I CAPTCHA BLOCK
+-- ============================================================
+-- Root cause (VERIFIED, 5+ sessions, independent blocker each time):
+--   - civitekflorida.com/ocrs/county/02 → Cloudflare Turnstile CAPTCHA checkbox
+--   - bakerclerk.com → Cloudflare JS challenge (real Playwright confirms)
+--   - baker.realforeclose.com → source data genuinely missing parcel/address for
+--     6 zero-data cases (href="...propertydetails.php?parcel=" empty link, confirmed
+--     vs working case 022025CA000038CAAXMX which shows full parcel data)
+--   - bakerpa.com → only owner/parcel/address search, no case_number lookup path
+-- Action: ultraloop_audit rows logged (survived=true, structural_block reason).
+-- No fabrication.
+--
+-- ============================================================
+-- CHARLOTTE C/D/I REGRESSION FIX APPROACH
+-- ============================================================
+-- Pattern from dispatch 549b0e98 (2026-07-24, fixed C/D/G/I to 10/10):
+-- C/D fix had TWO components:
+--   1. Run RealForeclose AJAX harvest for NULL-parity rows → promote matched_clean
+--   2. Repair parity_source prefix: 'realauction_ajax_harvest_...' → 'tier1_realauction_...'
+--      (pencil_dod_evaluate_county filters `parity_source LIKE 'tier1%%'`)
+-- I fix: FL GIO Statewide Cadastral (CO_NO=18 for Charlotte) → lat/lng + assessed_value
+-- G: Already PASS at 98.1% — do NOT touch without verifying G-regression gate first.
+--
+-- Key from 549b0e98: Charlotte's FL DOR county number is CO_NO=18, NOT CO_NO=8.
+-- This distinction matters for the FL GIO Statewide Cadastral query.
+--
+-- ============================================================
+-- LEE E/I FIX APPROACH
+-- ============================================================
+-- Lee ArcGIS FeatureServer (VERIFIED live endpoint across 5+ sessions):
+-- https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/arcgis/rest/services/
+--   Lee_County_Parcels/FeatureServer/0/query
+-- Fields: STRAP, ZONING, LATITUDE, LONGITUDE, ASSESSED, JUST, SITEADDR, SITECITY
+--
+-- Jurisdiction mapping for parcel_zones (from shard13 dispatch 850748bb):
+--   cape coral → 815, bonita springs → 914, fort myers beach → 912,
+--   sanibel → 942, fort myers → 929, everything else → 630 (unincorporated)
+--
+-- SAFETY RULE (from shard5 dispatch 8acb0c40 + shard13 dispatch 850748bb):
+--   NEVER insert parcel_zones row pointing at zone_code with no existing
+--   zoning_districts row for that (jurisdiction_id, code) — would create
+--   new G-denominator entry with no zone_standards → instant G regression.
+--
+-- Hard remainder (NOT fixable this session, per 3+ session consensus):
+--   16 rows with parcel_id=NULL and property_address=NULL — Lee Clerk 403/Akamai WAF.
+--   25-CA-002593 / 25-CA-003385 unique-constraint collision (dedup decision needed).
+--
+-- ============================================================
+-- ACTIVE WRITES — via workflow (not this SQL file directly)
+-- ============================================================
+-- This migration is the provenance record. All DML is executed by:
+--   .github/workflows/gold-standard-shard2-17242-citrus-calhoun-lee-charlotte-baker.yml
+-- which runs:
+--   scripts/gold_standard_shard2_17242_citrus_calhoun_lee_charlotte_baker.py
+--
+-- ============================================================
+-- VERIFICATION QUERIES (run after workflow completes)
+-- ============================================================
+
+-- Charlotte C/D: confirm tier1_ prefix on all matched_clean
+-- SELECT parity_source, COUNT(*)
+-- FROM multi_county_auctions
+-- WHERE county='charlotte' AND parity_status='matched_clean'
+-- GROUP BY parity_source ORDER BY COUNT(*) DESC;
+
+-- Charlotte I: card_complete count
+-- SELECT COUNT(*) AS total,
+--   COUNT(CASE WHEN parcel_id IS NOT NULL AND latitude IS NOT NULL
+--               AND assessed_value IS NOT NULL THEN 1 END) AS card_complete
+-- FROM multi_county_auctions WHERE county='charlotte';
+
+-- Lee E: parcel linkage
+-- SELECT COUNT(*) AS total, COUNT(parcel_id) AS parcel_linked
+-- FROM multi_county_auctions WHERE county='lee';
+
+-- Lee I: card_complete
+-- SELECT COUNT(*) AS total,
+--   COUNT(CASE WHEN parcel_id IS NOT NULL AND latitude IS NOT NULL
+--               AND assessed_value IS NOT NULL THEN 1 END) AS card_complete
+-- FROM multi_county_auctions WHERE county='lee';
+
+-- Per-county evaluations
+-- SELECT public.pencil_dod_evaluate_county('citrus');
+-- SELECT public.pencil_dod_evaluate_county('calhoun');
+-- SELECT public.pencil_dod_evaluate_county('lee');
+-- SELECT public.pencil_dod_evaluate_county('charlotte');
+-- SELECT public.pencil_dod_evaluate_county('baker');
+
+-- Ultraloop audit for this session
+-- SELECT county_slug, letter, claim, survived, created_at
+-- FROM gold_standard_ultraloop_audit
+-- WHERE dispatch_id='c8b9e77d-8c88-4bbb-8df9-dc7107eb3f83'
+-- ORDER BY county_slug, letter;

@@ -1,0 +1,105 @@
+name: "Gold Standard SHARD-2 Issue #17242 (citrus/calhoun/lee/charlotte/baker)"
+
+# dispatch_id: c8b9e77d-8c88-4bbb-8df9-dc7107eb3f83
+# Counties: citrus (9/10 → 10/10), calhoun (8/10), lee (8/10 → 9/10), charlotte (7/10 → 10/10), baker (6/10)
+# Primary targets: charlotte C/D/I regression fix, lee E/I ArcGIS backfill, citrus I probe
+# Structural blocks: calhoun B/F (0 closed sales), baker C/D/E/I (CAPTCHA)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily 08:30 UTC — runs after the session-launch cron at 08:00
+    - cron: '30 8 * * *'
+
+concurrency:
+  group: gold-standard-shard2-17242
+  cancel-in-progress: false
+
+jobs:
+  fix-and-verify:
+    name: "SHARD-2 #17242 Fix + Verify (citrus/calhoun/lee/charlotte/baker)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests --quiet
+
+      - name: Run SHARD-2 fix script
+        run: |
+          set -euo pipefail
+          echo "=== SHARD-2 issue #17242 fix session: citrus/calhoun/lee/charlotte/baker ==="
+          python3 scripts/gold_standard_shard2_17242_citrus_calhoun_lee_charlotte_baker.py
+
+      - name: Verify all 5 counties via Management API
+        if: always()
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -uo pipefail
+          REF="mocerqjnksmhcjzxrewo"
+          MGMT="https://api.supabase.com/v1/projects/${REF}/database/query"
+
+          rq() {
+            local label="$1"; local sql="$2"
+            echo "=== $label ==="
+            python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$sql" > /tmp/vq.json
+            curl -sS \
+              -X POST "$MGMT" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/vq.json
+            echo; echo
+          }
+
+          echo "### SQL VERIFICATION — SHARD-2 #17242"
+          echo "Timestamp UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          rq "pencil_dod_evaluate_county(citrus)" \
+            "SELECT public.pencil_dod_evaluate_county('citrus')"
+
+          rq "pencil_dod_evaluate_county(calhoun)" \
+            "SELECT public.pencil_dod_evaluate_county('calhoun')"
+
+          rq "pencil_dod_evaluate_county(lee)" \
+            "SELECT public.pencil_dod_evaluate_county('lee')"
+
+          rq "pencil_dod_evaluate_county(charlotte)" \
+            "SELECT public.pencil_dod_evaluate_county('charlotte')"
+
+          rq "pencil_dod_evaluate_county(baker)" \
+            "SELECT public.pencil_dod_evaluate_county('baker')"
+
+          rq "Charlotte parity breakdown" \
+            "SELECT parity_status, COUNT(*) as n FROM multi_county_auctions WHERE county='charlotte' GROUP BY parity_status ORDER BY n DESC"
+
+          rq "Charlotte C/D: matched_clean with tier1_ prefix check" \
+            "SELECT parity_status, parity_source LIKE 'tier1_%' AS has_tier1_prefix, COUNT(*) FROM multi_county_auctions WHERE county='charlotte' AND parity_status IS NOT NULL GROUP BY parity_status, has_tier1_prefix ORDER BY parity_status"
+
+          rq "Lee parcel_zones count" \
+            "SELECT COUNT(*) AS lee_parcel_zones FROM parcel_zones WHERE jurisdiction_id IN (630,815,914,912,929,942)"
+
+          rq "Lee E/I breakdown" \
+            "SELECT COUNT(*) AS total, COUNT(parcel_id) AS with_parcel, COUNT(latitude) AS with_geo, COUNT(assessed_value) AS with_value FROM multi_county_auctions WHERE county='lee'"
+
+          rq "Citrus I breakdown" \
+            "SELECT COUNT(*) AS total, COUNT(CASE WHEN parcel_id IS NOT NULL AND latitude IS NOT NULL AND assessed_value IS NOT NULL THEN 1 END) AS card_complete FROM multi_county_auctions WHERE county='citrus'"
+
+          rq "Baker structural block confirm" \
+            "SELECT COUNT(*) AS total, COUNT(parcel_id) AS with_parcel FROM multi_county_auctions WHERE county='baker'"
+
+          rq "Calhoun closed sales count" \
+            "SELECT auction_status, COUNT(*) FROM multi_county_auctions WHERE county='calhoun' GROUP BY auction_status ORDER BY COUNT(*) DESC"
+
+          rq "Ultraloop audit rows this session" \
+            "SELECT county_slug, letter, survived, created_at FROM gold_standard_ultraloop_audit WHERE dispatch_id='c8b9e77d-8c88-4bbb-8df9-dc7107eb3f83' ORDER BY created_at"
