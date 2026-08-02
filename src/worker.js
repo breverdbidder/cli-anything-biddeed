@@ -787,7 +787,7 @@ ${DISCLAIMER_SHORT}`;
           } else {
             upstreamRes = await fetch(`${SUPABASE_URL}/functions/v1/anthropic-proxy/v1/messages`, {
               method: 'POST',
-              headers: { 'x-api-key': routerProxyKey, 'Content-Type': 'application/json' },
+              headers: { 'x-api-key': routerProxyKey, 'Content-Type': 'application/json', 'x-traffic-source': 'biddeed-chat' },
               body: JSON.stringify({
                 model: 'claude-haiku-4-5-20251001',
                 max_tokens: 1024,
