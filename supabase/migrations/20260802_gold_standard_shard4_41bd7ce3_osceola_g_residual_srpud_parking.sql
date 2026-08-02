@@ -1,0 +1,103 @@
+-- GOLD STANDARD shard-4, county=osceola only, letter G.
+-- dispatch_id=41bd7ce3-a9f5-465d-99a1-a3ed447d8ce4
+-- AUDIT-TRAIL ONLY -- no DDL/DML executed against zone_standards or
+-- v_zoning_district_applicability this session. This file documents the
+-- research performed and why no write was made (BLANK > WRONG).
+--
+-- BEFORE (fresh live query at session start, this session):
+--   SELECT public.pencil_dod_evaluate_county('osceola')
+--   G: FAIL detail="density=97.6 far= pk1000=90.0" metric=90.0
+--   auctions_total=137
+--
+-- ROOT CAUSE (re-confirmed live, this session, matches brief exactly):
+--   zone_standards.id=5515 (zoning_districts.id=13180, jurisdiction_id=957
+--   "Kissimmee", zone_code="SRPUD" -- Short-Term Rental Planned Unit
+--   Development District) has parking_per_1000sf = NULL.
+--   zoning_districts.pk1000_regulated = true (explicit override set by a
+--   prior session), so v_zoning_district_applicability.pk1000_applicable =
+--   true for this district -- it IS in-scope for the pk1000 metric, not a
+--   candidate for an applicability=false row. Exactly 1 osceola parcel
+--   (parcel_id=192529124700010570, parcel_zones.id=843969) is zoned SRPUD,
+--   making this district the single binding constraint keeping G's pk1000
+--   sub-metric at 90.0 instead of >=95.0.
+--
+-- PRIOR SESSION'S RESEARCH TRAIL (2026-07-31, unmodified, still accurate):
+--   ordinance_section: "Kissimmee LDC Sec. 14-4-8.C (SRPUD) and
+--   Sec. 14-4-8.B.4 (RPUD site design standards, incorporated by
+--   reference); density N/A per Sec. 14-4-8.B.4.a.i ... Parking ratio not
+--   found in Sec. 14-4-8 text; leaving null pending citywide
+--   parking-chapter (14-6) lookup."
+--   source_url: https://www.zoneomics.com/code/kissimmee-FL/chapter_8
+--
+-- THIS SESSION'S FINDING (VERIFIED via WebFetch of the same zoneomics.com
+-- mirror the prior session cited):
+--   Sec. 14-4-8.B.4.g.iii reads verbatim: "Parking and access: Chapter
+--   14-7." Sec. 14-4-8.C.4 (SRPUD) explicitly incorporates 14-4-8.B.4 site
+--   design standards by reference. So the correct citywide parking chapter
+--   is Chapter 14-7 "ACCESS, CIRCULATION, AND PARKING"
+--   (nodeId=PTIIILADECO_CH14-7ACCIPA on library.municode.com), NOT Chapter
+--   14-6 as the prior session's leaving-null note assumed -- Chapter 14-6
+--   is actually "STANDARDS FOR ACCESSORY, TEMPORARY AND OTHER USES", a
+--   different chapter entirely. Municode/Zoneomics chapter numbering has
+--   NOT shifted since 2026-07-31; the prior session's citation of "14-6"
+--   for the parking lookup was simply the wrong chapter number, corrected
+--   here to 14-7 (specifically the referenced section 14-7-22 per multiple
+--   independent WebSearch hits).
+--
+--   The 14-4-8 ordinance text itself confirmed to contain NO numeric
+--   parking ratio for RPUD/SRPUD -- it is a pure cross-reference, so a
+--   real value must come from Chapter 14-7's own text, which could NOT be
+--   retrieved this session despite exhausting every available channel:
+--     - library.municode.com/.../PTIIILADECO_CH14-7ACCIPA... -> HTTP 403
+--       (Akamai WAF) on every nodeId variant tried via WebFetch
+--     - images1.showcase.com/d2/.../document.pdf (city-hosted LDC chapter
+--       PDF mirror, worked historically for other chapters per search
+--       results) -> HTTP 403 Akamai edge block, confirmed via BOTH WebFetch
+--       AND direct curl with a standard browser User-Agent
+--     - Firecrawl API (search + scrape) -> "Insufficient credits" error,
+--       zero results returned
+--     - browser-use CLI -> not installed in this environment ("command not
+--       found"); `browser-use doctor` unavailable
+--     - kissimmee-fl.elaws.us (third-party mirror) -> ECONNRESET / 60s
+--       timeout on every fetch attempt; its indexed search snippets show
+--       PRE-RENUMBERING section IDs (14-2-50 RPUD, 14-2-51 SRPUD) that
+--       predate the current 14-4-8 structure Zoneomics/Municode use today,
+--       so even if reachable it would not be a reliable current-code
+--       source without independently confirming which edition is live
+--
+-- DECISION (per campaign brief: "do NOT just fabricate applicability,
+-- verify it against the ordinance" / "Do NOT fabricate ... a 'close
+-- enough' placeholder"):
+--   Did NOT write any numeric parking_per_1000sf value -- no citable real
+--   number was retrievable this session.
+--   Did NOT write a v_zoning_district_applicability override to mark
+--   pk1000_applicable=false for district 13180 -- the ordinance
+--   AFFIRMATIVELY states Chapter 14-7 governs parking for RPUD/SRPUD (this
+--   is not a case of "fully discretionary via site plan review with no
+--   numeric minimum"; it is a case of "a numeric minimum almost certainly
+--   exists in Chapter 14-7 but the text is unreachable this session").
+--   Flipping applicability to false here would be exactly the kind of
+--   fabricated-inapplicability shortcut the brief explicitly prohibits.
+--   zone_standards.id=5515 and zoning_districts.id=13180 are UNCHANGED by
+--   this session.
+--
+-- RESIDUAL (not fixed this session -- scoped out per budget, genuine
+-- source exhaustion):
+--   Real fix requires either (a) Firecrawl credits refilled + a scrape of
+--   the Chapter 14-7 nodeId, (b) an authenticated/allowlisted browser
+--   session capable of passing Municode's Akamai bot detection, or (c) a
+--   different city-hosted PDF host for Chapter 14-7 that is not behind the
+--   same Akamai edge block as images1.showcase.com. None of these were
+--   available this session. Next session should retry with (a) first --
+--   lowest cost, highest odds of success.
+--
+-- AFTER (fresh live query, same session, post-decision -- unchanged, as
+-- expected since no write was made):
+--   SELECT public.pencil_dod_evaluate_county('osceola')
+--   G: FAIL detail="density=97.6 far= pk1000=90.0" metric=90.0
+--   auctions_total=137 (unchanged)
+--
+-- Full ULTRALOOP audit row logged to public.gold_standard_ultraloop_audit
+-- (id=12091, dispatch_id=41bd7ce3-a9f5-465d-99a1-a3ed447d8ce4, letter='G',
+-- survived=true) with complete refuter_evidence jsonb documenting every
+-- blocked channel above.
