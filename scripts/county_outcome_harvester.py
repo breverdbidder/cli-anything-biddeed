@@ -528,6 +528,183 @@ def scrape_realforeclose_results() -> list[dict]:
     log(f"Live scrape total: {len(results)} outcomes")
     return results
 
+
+# ── Step 7b: Auction Detail Page Parser ───────────────────────────────────────
+# Fetches the individual Auction Details page on RealForeclose for a single
+# case and extracts:
+#   - winning_bidder  ("Name On Title" field)
+#   - plaintiff        (Party Details tab, role=Plaintiff)
+#   - tier1_buyer_type (third_party when winner != plaintiff, else plaintiff)
+#
+# Page structure (confirmed live Marion 2026-07-20, case 422021CA000414CAAXXX):
+#   GET /index.cfm?zaction=AUCTION&Zmethod=DETAIL&AIS={auction_id}
+#   OR  GET /index.cfm?zaction=AUCTION&Zmethod=DETAIL&CASENUM={case_number}
+#
+# "Name On Title" appears as:
+#   <span class="ASTAT_MSGB Astat_DATA">SpaceCoast18</span>  (after label)
+#   OR in a table cell after a <td> containing "Name On Title"
+#
+# Plaintiff appears in the Party Details section:
+#   <td>Plaintiff</td><td>US BANK TRUST NATIONAL ASSOCIATION...</td>
+
+def parse_auction_detail_page(opener, rf_host: str, case_number: str,
+                               auction_id: str | None = None) -> dict:
+    """
+    Fetch and parse an Auction Details page.
+    Returns dict with keys: winning_bidder, plaintiff, tier1_buyer_type, detail_url
+    All values may be None if not found or page unreachable.
+    """
+    result = {"winning_bidder": None, "plaintiff": None,
+              "tier1_buyer_type": None, "detail_url": None}
+
+    # Build URL — try by CASENUM first (works without auth), fall back to AIS
+    urls_to_try = []
+    if case_number:
+        urls_to_try.append(
+            f"{rf_host}/index.cfm?zaction=AUCTION&Zmethod=DETAIL"
+            f"&CASENUM={urllib.parse.quote(case_number)}"
+        )
+    if auction_id:
+        urls_to_try.append(
+            f"{rf_host}/index.cfm?zaction=AUCTION&Zmethod=DETAIL"
+            f"&AIS={urllib.parse.quote(str(auction_id))}"
+        )
+
+    html = None
+    for url in urls_to_try:
+        time.sleep(THROTTLE)
+        UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        for attempt in range(2):
+            try:
+                with opener.open(req, timeout=20) as resp:
+                    html = resp.read().decode("utf-8", "replace")
+                    result["detail_url"] = url
+                    break
+            except Exception as e:
+                log(f"  detail page {url} attempt {attempt+1}: {e}", "WARN")
+                time.sleep(THROTTLE * 2)
+        if html:
+            break
+
+    if not html:
+        return result
+
+    # ── Extract winning_bidder ("Name On Title") ───────────────────────────
+    # Pattern 1: label cell followed by value cell
+    m = re.search(
+        r'Name\s+On\s+Title[^<]*</td>\s*<td[^>]*>([^<]+)',
+        html, re.IGNORECASE
+    )
+    if not m:
+        # Pattern 2: ASTAT_MSGB span after "Name On Title" label
+        m = re.search(
+            r'Name\s+On\s+Title.*?<span[^>]*class="[^"]*ASTAT[^"]*"[^>]*>([^<]+)',
+            html, re.IGNORECASE | re.DOTALL
+        )
+    if not m:
+        # Pattern 3: any cell after a cell containing "Name On Title"
+        m = re.search(
+            r'Name\s+On\s+Title[^<]*<[^>]+>([^<]{3,80})',
+            html, re.IGNORECASE
+        )
+    if m:
+        winner = m.group(1).strip()
+        if winner and len(winner) > 1 and winner.lower() not in ("n/a", "pending", ""):
+            result["winning_bidder"] = winner
+
+    # ── Extract plaintiff from Party Details ───────────────────────────────
+    # Pattern: <td>Plaintiff</td><td>NAME</td>  (or with whitespace/attributes)
+    m = re.search(
+        r'Plaintiff[^<]*</td>\s*<td[^>]*>\s*([^<]{5,200}?)\s*</td>',
+        html, re.IGNORECASE
+    )
+    if not m:
+        # Pattern 2: Plaintiff role in a structured party table
+        m = re.search(
+            r'<td[^>]*>\s*Plaintiff\s*</td>\s*(?:<td[^>]*>[^<]*</td>\s*)*<td[^>]*>([^<]{5,200})</td>',
+            html, re.IGNORECASE
+        )
+    if m:
+        plaintiff = m.group(1).strip()
+        # Clean HTML entities
+        plaintiff = plaintiff.replace("&amp;", "&").replace("&#39;", "'")
+        if plaintiff and len(plaintiff) > 3:
+            result["plaintiff"] = plaintiff
+
+    # ── Derive buyer_type from winner vs plaintiff ─────────────────────────
+    if result["winning_bidder"] and result["plaintiff"]:
+        winner_norm   = result["winning_bidder"].lower().strip()
+        plaintiff_norm = result["plaintiff"].lower().strip()
+        # Check if winner IS the plaintiff (plaintiff takes the deed at their credit bid)
+        if (winner_norm in plaintiff_norm or plaintiff_norm in winner_norm or
+                winner_norm[:20] == plaintiff_norm[:20]):
+            result["tier1_buyer_type"] = "plaintiff"
+        else:
+            result["tier1_buyer_type"] = "third_party"
+    elif result["winning_bidder"]:
+        # Winner present but no plaintiff to compare — classify by name pattern
+        w = result["winning_bidder"].lower()
+        if any(k in w for k in ("bank", "trust", "mortgage", "llc", "corp",
+                                  "fund", "asset", "capital", "investment")):
+            result["tier1_buyer_type"] = "third_party"
+        else:
+            result["tier1_buyer_type"] = "unknown"
+
+    return result
+
+
+def enrich_winner_plaintiff(opener, rf_host: str, county: str,
+                             rows: list[dict], max_detail_calls: int = 50) -> int:
+    """
+    For SOLD rows missing winning_bidder or plaintiff, fetch the Auction Details
+    page and write winning_bidder, plaintiff, tier1_buyer_type back to
+    multi_county_auctions.
+
+    Capped at max_detail_calls to avoid hammering RealForeclose in one run.
+    Designed for incremental enrichment: run daily T+1, cap advances each run.
+    """
+    candidates = [
+        r for r in rows
+        if (r.get("tier1_sale_status") == "SOLD" or
+            (r.get("auction_status") or "").lower() == "sold")
+        and (not r.get("winning_bidder") or not r.get("plaintiff"))
+        and r.get("case_number")
+    ]
+    log(f"enrich_winner_plaintiff: {len(candidates)} SOLD rows missing winner/plaintiff "
+        f"(cap={max_detail_calls})")
+
+    enriched = 0
+    for row in candidates[:max_detail_calls]:
+        case_num = row["case_number"]
+        detail = parse_auction_detail_page(opener, rf_host, case_num)
+        if not detail["winning_bidder"] and not detail["plaintiff"]:
+            continue  # page unreachable or no data — skip this row, try next run
+
+        patch_payload = {"updated_at": datetime.now(timezone.utc).isoformat()}
+        if detail["winning_bidder"] and not row.get("winning_bidder"):
+            patch_payload["winning_bidder"] = detail["winning_bidder"]
+        if detail["plaintiff"] and not row.get("plaintiff"):
+            patch_payload["plaintiff"] = detail["plaintiff"]
+        if detail["tier1_buyer_type"] and not row.get("tier1_buyer_type"):
+            patch_payload["tier1_buyer_type"] = detail["tier1_buyer_type"]
+
+        if len(patch_payload) <= 1:
+            continue  # nothing new
+
+        row_id = row.get("id")
+        if not row_id:
+            continue
+        n = sb_patch("multi_county_auctions", f"id=eq.{row_id}", patch_payload)
+        if n:
+            enriched += 1
+            log(f"  enriched {case_num}: winner={detail['winning_bidder']} "
+                f"plaintiff={detail['plaintiff']} type={detail['tier1_buyer_type']}")
+
+    log(f"enrich_winner_plaintiff: {enriched} rows enriched")
+    return enriched
+
 # ── Step 8: Final audit ───────────────────────────────────────────────────────
 def final_audit() -> dict:
     log(f"\n=== FINAL B/C/D/F AUDIT — {COUNTY.upper()} ===")
@@ -629,11 +806,44 @@ def main() -> int:
     log("SKIPPED: build_outcome_records/load_outcomes/fix_parity_status/"
         "fix_tier1_sold_amount -- self-referential ghost-success generators, disabled", "WARN")
 
+    import http.cookiejar as _hcj
+    _cj     = _hcj.CookieJar()
+    _opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cj))
+    _UA     = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+    # Auth if credentials available
+    if RF_EMAIL and RF_PW:
+        try:
+            _req = urllib.request.Request(
+                RF_HOST + "/index.cfm",
+                data=urllib.parse.urlencode({
+                    "LogName": RF_EMAIL, "LogPass": RF_PW, "LogButton": "Login"
+                }).encode(),
+                headers={"User-Agent": _UA, "Content-Type": "application/x-www-form-urlencoded"},
+            )
+            with _opener.open(_req, timeout=20) as _r:
+                _auth_html = _r.read().decode("utf-8", "replace")
+            if "logout" in _auth_html.lower():
+                log("pre-enrichment login: authenticated")
+        except Exception as _e:
+            log(f"pre-enrichment login failed: {_e}", "WARN")
+
+    # Step 7a: calendar scrape for bulk outcome capture
     live_results = scrape_realforeclose_results()
     if live_results:
         live_n = sb_upsert("foreclosure_outcomes", live_results,
                             conflict_cols="county,case_number,auction_date")
         log(f"Live scrape loaded: {live_n} additional outcomes")
+
+    # Step 7b: detail-page enrichment — winning_bidder + plaintiff + buyer_type
+    # Fetch all MCA rows for this county (we need winning_bidder/plaintiff status)
+    enrich_rows = sb_get("multi_county_auctions", {
+        "county": f"eq.{COUNTY}",
+        "select": "id,case_number,auction_status,tier1_sale_status,winning_bidder,plaintiff,tier1_buyer_type",
+        "limit":  "5000",
+    })
+    enrich_winner_plaintiff(_opener, RF_HOST, COUNTY, enrich_rows, max_detail_calls=75)
 
     verdict = final_audit()
     if verdict.get("REST_UNAVAILABLE"):
