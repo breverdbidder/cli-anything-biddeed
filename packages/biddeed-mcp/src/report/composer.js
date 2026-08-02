@@ -14,19 +14,13 @@
 import { get as defaultGet } from '../supabase.js';
 import { getCountyClearancePriors } from './priors.js';
 import { buildZwSection } from './zw-section.js';
-import { buildCma } from './cma.js';
+import { buildCma, buildDistressedCma } from './cma.js';
 import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
 import { predictEnsemble } from './ensemble-model.js';
 import { deriveRedFlags } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
-import { loadTemplate } from './pdf.js';
-
-// SSOT RULE: section template lives in public.v_s5_report_template (Supabase).
-// pdf.js owns the loader and renderer; composer.js re-exports loadTemplate so
-// callers can pre-warm the cache without importing pdf.js directly.
-export { loadTemplate };
 
 const NO_ESTIMATE_REFUSAL = "An estimate here would be fabrication; BidDeed declines where HouseCanary would extrapolate.";
 const MIN_PRICE_SIGNAL = 1000;
@@ -59,43 +53,145 @@ function grade(marginPct, locatable) {
 
 const STALE_SALE_YEARS = 5; // beyond this, a raw sale price is historical context only, not a value anchor
 
-// Anchor-average value estimate. Three DB-derived anchors plus a CMA anchor
-// when enough comps exist — averaged over whichever have a real basis.
-// Never invents an anchor with no data behind it (sub-$1000/quitclaim sale,
-// or a sale stale enough that unadjusted extrapolation would be a guess).
-function computeValueEstimate(auction, priors, cma) {
-  const anchors = [];
+// DUAL-BAND value estimate — separates two fundamentally different quantities:
+//
+//   CLEARING BAND  (expected auction price)
+//     Anchors: county sold/assessed prior · county sold/FJ prior · Layer 1 distressed CMA median
+//     → What this property will likely SELL FOR at auction
+//
+//   MARKET BAND    (retail ARV / exit value)
+//     Anchors: prior arm's-length sale · Layer 2 retail CMA median · JV-twin retail indication
+//     → What this property is worth on the OPEN MARKET after acquisition
+//
+// THE SPREAD = THE INVESTMENT THESIS: buying inside the clearing band while
+// the market band represents your exit means every dollar below the ceiling
+// is day-one equity.
+//
+// Shapira Max Bid formula uses MARKET BAND midpoint as ARV (not clearing band).
+// Layer 1 distressed CMA feeds the clearing band context only.
+//
+// KNOWN METHODOLOGY NOTE: prior bids averaged a single band blending both —
+// which was ambiguous when scoring a realised auction price against the band.
+// This split resolves it: the scorecard in §18 now grades clearing vs clearing
+// and market vs market independently.
+function computeValueEstimate(auction, priors, cma, distressedCma) {
+  const clearingAnchors = [];
+  const marketAnchors   = [];
 
+  // ── Clearing anchors (county priors + Layer 1) ────────────────────────────
   if (priors && !priors.insufficient && priors.median_sold_to_assessed && auction.assessed_value > 0) {
-    anchors.push({ key: 'county_clearance_prior', value: auction.assessed_value * priors.median_sold_to_assessed, source: `county clearance prior (median sold/assessed=${priors.median_sold_to_assessed.toFixed(3)}, n=${priors.n_sold_to_assessed})` });
+    clearingAnchors.push({
+      key: 'county_clearance_prior',
+      value: auction.assessed_value * priors.median_sold_to_assessed,
+      source: `county clearance prior (median sold/assessed=${priors.median_sold_to_assessed.toFixed(3)}, n=${priors.n_sold_to_assessed})`,
+    });
   }
   if (priors && !priors.insufficient && priors.median_sold_to_judgment && auction.judgment_amount > 0) {
-    anchors.push({ key: 'judgment_ratio_prior', value: auction.judgment_amount * priors.median_sold_to_judgment, source: `county clearance prior (median sold/FJ=${priors.median_sold_to_judgment.toFixed(3)}, n=${priors.n_sold_to_judgment})` });
+    clearingAnchors.push({
+      key: 'judgment_ratio_prior',
+      value: auction.judgment_amount * priors.median_sold_to_judgment,
+      source: `county clearance prior (median sold/FJ=${priors.median_sold_to_judgment.toFixed(3)}, n=${priors.n_sold_to_judgment})`,
+    });
+  }
+  // Layer 1 distressed CMA median (from multi_county_auctions)
+  if (distressedCma?.median_distressed_price > 0) {
+    clearingAnchors.push({
+      key: 'layer1_distressed_cma_median',
+      value: distressedCma.median_distressed_price,
+      source: `Layer 1 distressed CMA median of ${distressedCma.n_county_outcomes} auction outcomes in ${distressedCma.county} county (${distressedCma.since_year}→)`,
+    });
+  }
+  // Layer 1 implied clearing price for THIS property at county median ratio
+  if (distressedCma?.implied_clearing_price_for_subject > 0) {
+    clearingAnchors.push({
+      key: 'layer1_implied_clearing_for_subject',
+      value: distressedCma.implied_clearing_price_for_subject,
+      source: `Layer 1 implied: assessed $${(auction.assessed_value||0).toLocaleString()} × clearing ratio ${distressedCma.median_clearing_ratio_sold_to_assessed}`,
+    });
   }
 
+  // ── Market anchors (prior sale + Layer 2 retail CMA) ─────────────────────
   const priorSaleYear = auction.prior_sale_date ? new Date(auction.prior_sale_date).getUTCFullYear() : null;
-  const auctionYear = auction.auction_date ? new Date(auction.auction_date).getUTCFullYear() : new Date().getUTCFullYear();
+  const auctionYear   = auction.auction_date ? new Date(auction.auction_date).getUTCFullYear() : new Date().getUTCFullYear();
   const yearsSinceSale = priorSaleYear ? auctionYear - priorSaleYear : null;
   const hasPriorSalePriceSignal = auction.prior_sale_price > MIN_PRICE_SIGNAL && auction.prior_sale_date;
 
   if (hasPriorSalePriceSignal && yearsSinceSale != null && yearsSinceSale <= STALE_SALE_YEARS) {
-    anchors.push({ key: 'prior_arms_length_sale', value: auction.prior_sale_price, source: `prior sale ${auction.prior_sale_date} at $${auction.prior_sale_price.toLocaleString()}` });
+    marketAnchors.push({
+      key: 'prior_arms_length_sale',
+      value: auction.prior_sale_price,
+      source: `prior arm's-length sale ${auction.prior_sale_date} at $${auction.prior_sale_price.toLocaleString()}`,
+    });
   } else if (hasPriorSalePriceSignal) {
-    anchors.push({ key: 'prior_arms_length_sale', value: null, source: `prior sale ${auction.prior_sale_date} at $${auction.prior_sale_price.toLocaleString()} is ${yearsSinceSale}yr stale — shown in transaction_history, excluded as a value anchor (no appreciation model to extrapolate it forward without guessing)` });
+    marketAnchors.push({
+      key: 'prior_arms_length_sale',
+      value: null,
+      source: `prior sale ${auction.prior_sale_date} at $${auction.prior_sale_price.toLocaleString()} is ${yearsSinceSale}yr stale — shown in transaction_history, excluded as market anchor (no appreciation model)`,
+    });
   } else if (auction.prior_sale_price != null) {
-    anchors.push({ key: 'prior_arms_length_sale', value: null, source: 'no price signal — prior sale below $1,000/quitclaim-pattern, excluded as a comp' });
+    marketAnchors.push({
+      key: 'prior_arms_length_sale',
+      value: null,
+      source: 'no price signal — prior sale below $1,000/quitclaim-pattern, excluded',
+    });
   }
 
-  if (cma && cma.n >= 3 && cma.median_sale_price != null) {
-    anchors.push({ key: 'cma_median', value: cma.median_sale_price, source: `CMA median of ${cma.n} comps (±30% sqft, same zip+DOR-use, sale within 2yr)` });
+  // Layer 2 retail CMA median
+  if (cma?.n >= 3 && cma?.median_sale_price != null) {
+    marketAnchors.push({
+      key: 'layer2_retail_cma_median',
+      value: cma.median_sale_price,
+      source: `Layer 2 retail CMA median of ${cma.n} comps (±30% sqft, same zip+DOR-use, sale within 2yr)`,
+    });
+  }
+  // JV-twin retail indication — single comp most comparable by assessed value
+  if (cma?.jv_twin?.retail_indication > 0) {
+    marketAnchors.push({
+      key: 'layer2_jv_twin_retail',
+      value: cma.jv_twin.retail_indication,
+      source: `Layer 2 JV-twin: ${cma.jv_twin.address} (JV ratio ${cma.jv_twin.jv_ratio}) sold $${cma.jv_twin.retail_indication.toLocaleString()}`,
+    });
   }
 
-  const usable = anchors.filter(a => a.value != null).map(a => a.value);
-  if (!usable.length) return { anchors, midpoint: null, low: null, high: null };
-
-  const midpoint = usable.reduce((a, b) => a + b, 0) / usable.length;
+  // ── Band arithmetic ───────────────────────────────────────────────────────
   const spreadPct = priors?.confidence === 'HIGH' ? 0.06 : priors?.confidence === 'MEDIUM' ? 0.10 : 0.15;
-  return { anchors, midpoint, low: Math.round(midpoint * (1 - spreadPct)), high: Math.round(midpoint * (1 + spreadPct)) };
+
+  const usableClearing = clearingAnchors.filter(a => a.value != null).map(a => a.value);
+  const clearingMid    = usableClearing.length
+    ? Math.round(usableClearing.reduce((a, b) => a + b, 0) / usableClearing.length)
+    : null;
+
+  const usableMarket = marketAnchors.filter(a => a.value != null).map(a => a.value);
+  const marketMid    = usableMarket.length
+    ? Math.round(usableMarket.reduce((a, b) => a + b, 0) / usableMarket.length)
+    : null;
+
+  // Legacy midpoint = market band (used by Shapira formula). Clearing band
+  // is surfaced separately for the §2-3 display and §18 scorecard.
+  const midpoint = marketMid ?? clearingMid;
+
+  return {
+    // Legacy fields (backward compat — used by computeShapiraCeiling)
+    anchors: [...clearingAnchors, ...marketAnchors],
+    midpoint,
+    low:  midpoint != null ? Math.round(midpoint * (1 - spreadPct)) : null,
+    high: midpoint != null ? Math.round(midpoint * (1 + spreadPct)) : null,
+    // Split bands
+    clearing_band: {
+      anchors:  clearingAnchors,
+      midpoint: clearingMid,
+      low:      clearingMid != null ? Math.round(clearingMid * (1 - spreadPct)) : null,
+      high:     clearingMid != null ? Math.round(clearingMid * (1 + spreadPct)) : null,
+      label:    'Expected Auction Clearing Price',
+    },
+    market_band: {
+      anchors:  marketAnchors,
+      midpoint: marketMid,
+      low:      marketMid != null ? Math.round(marketMid * (1 - spreadPct)) : null,
+      high:     marketMid != null ? Math.round(marketMid * (1 + spreadPct)) : null,
+      label:    'Retail ARV (Open Market Exit Value)',
+    },
+  };
 }
 
 // Shapira Max Bid ceiling — county+sale_type-specific RL-fit parameters from
@@ -196,8 +292,9 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   const parcel = match.matched ? match.parcel : null;
   const zoning = await buildZwSection(auction, { get });
   const cma = await buildCma(parcel, { get });
+  const distressedCma = await buildDistressedCma(parcel, auction, { get });
   const model = await scoreModel(auction, county, { get });
-  const value = computeValueEstimate(auction, priors, cma);
+  const value = computeValueEstimate(auction, priors, cma, distressedCma);
   const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
   const shapira = await computeShapiraCeiling(auction, county, value.midpoint ?? auction.assessed_value, sellProb, parcel?.dor_uc, { get });
   const ceiling = shapira.ceiling;
@@ -233,14 +330,25 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       property_address: auction.property_address,
       verdict,
       investment_grade: grade(marginPct ?? -1, true),
+      // Equity at acquisition (day-one, as-is)
+      equity_at_entry_bid: (value.market_band?.midpoint != null && entryBid != null)
+        ? Math.round(value.market_band.midpoint - entryBid)
+        : null,
+      equity_at_ceiling: (value.market_band?.midpoint != null && shapira.ceiling != null)
+        ? Math.round(value.market_band.midpoint - shapira.ceiling)
+        : null,
       shapira_max_bid: { ...money(ceiling, shapira.source), bid_floor: shapira.floor, bid_ceiling: shapira.cap },
       entry_bid: money(entryBid, entryBidSource),
     },
     value_estimate: value.midpoint == null ? null : {
-      low: value.low,
-      high: value.high,
+      // Legacy flat band (backward compat)
+      low:      value.low,
+      high:     value.high,
       midpoint: Math.round(value.midpoint),
-      anchors: value.anchors,
+      anchors:  value.anchors,
+      // Split bands — use these for display and scoring
+      clearing_band: value.clearing_band,
+      market_band:   value.market_band,
     },
     county_stats: priors,
     transaction_history: {
@@ -275,6 +383,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     },
     zoning,
     cma,
+    cma_distressed: distressedCma,
     opinion_of_price_bid_card: {
       entry_bid: entryBid,
       shapira_ceiling: ceiling,
