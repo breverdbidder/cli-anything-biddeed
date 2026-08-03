@@ -1,0 +1,76 @@
+-- Gold Standard shard-2: bradford + madison lightweight freshness recheck (8th/4th session respectively)
+-- Date: 2026-08-03
+-- NOTE: supabase CLI / db push unavailable this session (SUPABASE_DB_PASSWORD pooler auth broken in
+-- this runner). This file is written to disk for audit trail per repo protocol; no SQL herein was
+-- executed live because NO WRITES WERE MADE -- this session found zero new independently-sourced
+-- data and therefore made no DML/DDL changes. Baseline and post-check pencil_dod_evaluate_county()
+-- results are identical (pasted in session report). This is a genuine no-op recheck, not a partial
+-- or abandoned fix.
+--
+-- ============================================================================
+-- BRADFORD (county-level A currently PASS, B/F FAIL -- 8th consecutive session on B/F)
+-- ============================================================================
+-- A: fc=4 td=1 -- PASS, re-verified unchanged from baseline (see report). No action needed.
+--
+-- B/F: verified=0 closed_sold=0 / tier1_sold=0 closed_sold=0 -- FAIL, unchanged.
+-- Root cause (confirmed again this session, 8th time): all 5 qualifying bradford rows have
+-- sold_amount IS NULL because none have reached a recorded sale outcome yet from an independent
+-- source. The one row with a PAST auction_date (25000457CAAXMX, VyStar Credit Union v. Unknown
+-- Heirs of Debra Ilene Hunter, 18737 Charlotte Ave, Brooker FL, parcel 00273-0-01000,
+-- auction_date=2026-07-16, now 18 days past due as of this session 2026-08-03) remains
+-- structurally blocked: bradfordclerk.com root and /tax-deeds-and-foreclosure-sales/ both still
+-- return HTTP 403 (Cloudflare JS challenge), confirmed via both raw curl and WebFetch this session
+-- (identical to all 7 prior sessions back to 2026-07-03). bctelegraph.com legal notices carry only
+-- pre-sale lis pendens boilerplate, no post-sale results. Turnstile-gated portals
+-- (civitekflorida.com/ocrs, myfloridacounty.com/orisearch) are NOT re-probed per campaign hard-no
+-- rule (CAPTCHA evasion is out of scope). Tax deed lane (A's td=1) confirmed genuinely operating;
+-- the B/F blocker is specific to case-outcome data for the 4 foreclosure rows + 1 tax deed row,
+-- none of which have sold yet.
+-- Only remaining lever: human phone/records-request outreach to Bradford Clerk (outside autonomous
+-- scope, flagged to Ariel by prior sessions, still open).
+-- NO WRITES THIS SESSION -- confirmed-exhausted, consistent with 7th-session conclusion.
+--
+-- ============================================================================
+-- MADISON (A FAIL fc=5 td=0 -- structural; B/F FAIL -- 4th+ session)
+-- ============================================================================
+-- A: fc=5 td=0 -- FAIL BY DESIGN, re-confirmed this session. Checked pipeline.counties.taxdeed_url
+-- (madisonclerk.com/departments-services/property-sales/tax-deed-sales/) directly: the clerk's own
+-- page explicitly states zero tax deed properties currently listed (consistent with 2026-07-10 and
+-- 2026-07-28 prior findings). This is NOT a missing-integration gap -- Madison genuinely has no
+-- active tax-deed sales scheduled right now. pipeline.counties.taxdeed_platform is already correctly
+-- registered as clerk_html pointing at the real page (repaired 2026-07-10, shard9 run3534). No
+-- RealAuction/RealTaxDeed presence found for Madison (madison.realtaxdeed.com 403's, not pursued,
+-- clerk's own authoritative page already answers the question). Conclusion unchanged: A stays FAIL
+-- until Madison actually schedules a tax deed sale; nothing to wire up, the lane exists and is
+-- correctly configured, it is just currently empty.
+--
+-- B/F: verified=0 closed_sold=0 / tier1_sold=0 closed_sold=0 -- FAIL, unchanged.
+-- Of the 5 qualifying madison rows, 2 have already passed their auction_date:
+--   - 24-62-CA (Rutha Brown, 204 SW Church Ave, judgment $127,543.12, auction_date 2026-07-28):
+--     multi_county_auctions already shows auction_status='sold', tier1_authoritative=true,
+--     tier1_sale_status='SOLD', winning_bidder='Plaintiff (reverted, no 3rd-party bid per
+--     Auction.com)', sourced from an existing foreclosure_outcomes row (data_source =
+--     'auction.com listing ... trustee_sale_number 2024000062CAAXMX, listing_status=NO_SALE/
+--     Reverted, live_auction.status=COMPLETED', created 2026-07-30). BUT sold_amount and
+--     tier1_sold_amount / winning_bid are all still NULL -- the disposition (reverted to plaintiff)
+--     is known, the dollar figure is not. Re-attempted this session: auction.com listing page
+--     (JS-rendered, no data via fetch), madisonclerk.com foreclosure-sales page (calendar-only, no
+--     results/archive section -- confirmed fresh this session, unchanged from prior), Madison
+--     County official records / Civitek OCRS (confirmed by 2026-07-30 session to be Cloudflare
+--     Turnstile-gated on both Case Search and Person Search forms -- explicitly flagged do-not-
+--     re-attempt, CAPTCHA evasion out of scope). No independent dollar figure found this session.
+--   - 21-36-CA (Toby Ray Earnhardt, 1638 SW SR 14, judgment $329,222.83, auction_date 2026-07-16):
+--     still vanished from the clerk calendar with no archive/results section, same as 3 prior
+--     sessions back to 2026-07-10. No new lead found.
+-- The remaining 3 rows (25-128-CA, 25-79-CA, 26-20-CA) are still future-dated (2026-08-25,
+-- 2026-09-08, 2026-08-05 respectively) and have not reached a sale outcome yet -- expected, not a
+-- gap.
+-- Only remaining lever for both 24-62-CA and 21-36-CA: phone call to Madison Clerk (850-973-1500),
+-- outside autonomous scope, already escalated to Ariel by the 2026-07-30 session. Do not re-attempt
+-- browser automation against civitekflorida.com/ocrs/county/40/ case/person search -- confirmed
+-- dead end (Turnstile).
+-- NO WRITES THIS SESSION.
+--
+-- No DDL or DML in this migration -- documentation-only recheck, matching the "genuinely nothing
+-- has changed" expected outcome for this task.
+SELECT 1; -- no-op, migration file intentionally contains no schema/data changes
