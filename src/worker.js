@@ -3203,8 +3203,14 @@ code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <li>📋 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/VENDOR_SUB_PROCESSOR_LIST.md" target="_blank" rel="noopener">Vendor &amp; Sub-Processor List</a> — every third party that touches customer data, with sourced security-page links.</li>
 <li>🗓 <a href="/data-retention">Data Retention &amp; Deletion Policy</a> — what we keep, for how long, and how to request deletion.</li>
 <li>📊 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/EXTERNAL_SCAN_SUMMARY.md" target="_blank" rel="noopener">External Scan Results</a> — Mozilla HTTP Observatory (C+, up from F) + SSL Labs (A on TLS), raw output attached.</li>
+<li>✅ <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/CAIQ-v4.1-BidDeed-Completed.md" target="_blank" rel="noopener">CAIQ Self-Assessment</a> — CSA-domain-structured control answers, including the gaps, not just the passes.</li>
+<li>🤖 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/AI-CAIQ-v1.1-BidDeed-Completed.md" target="_blank" rel="noopener">AI Security Self-Assessment</a> — prompt-injection controls, model governance, and disclosed AI-specific gaps.</li>
+<li>❓ <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/SECURITY_QUESTIONNAIRE_ANSWERS.md" target="_blank" rel="noopener">Common Questionnaire Answers</a> — pre-written answers to the 50 questions vendor security reviews ask most.</li>
 <li>📦 Request the full Security Evidence Pack (architecture, controls, compliance posture) — email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a>.</li>
 </ul>
+
+<h2>🏢 Enterprise Trust Portal</h2>
+<p>A gated self-serve portal (<code>trust.biddeed.ai</code>, via SafeBase) is in setup — not live yet. Once it launches it will host the documents linked above plus any completed penetration test report, in one request-access location for procurement teams. Until then, use the GitHub links above or email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a> directly — same documents, no waiting on the portal.</p>
 
 <h2>📧 Security Contact</h2>
 <p>Found an issue? Email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a>. We aim to respond within 48 hours. Responsible disclosure is welcome — please give us a reasonable window to fix before public disclosure.</p>

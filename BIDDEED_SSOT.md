@@ -79,6 +79,22 @@ found `mcp.biddeed.ai` serving Vercel response headers, which conflicts with
 §1's "no Vercel project exists for biddeed" — flagged there as unresolved,
 not corrected in §1 without a dedicated verification session.
 
+## 6.2 ENTERPRISE TRUST PORTAL (CAIQ / AI-CAIQ)
+Self-serve vendor-security-review documentation, added 2026-08-03:
+`docs/security/CAIQ-v4.1-BidDeed-Completed.md` (CSA-domain self-assessment),
+`docs/security/AI-CAIQ-v1.1-BidDeed-Completed.md` (AI-specific self-assessment),
+`docs/security/SECURITY_QUESTIONNAIRE_ANSWERS.md` (50-question lookup bank),
+`docs/security/SAFEBASE_SETUP_GUIDE.md` (manual setup steps for Ariel).
+Both CAIQ/AI-CAIQ docs open with a "Corrections from the originating brief"
+table — several capabilities an earlier brief assumed (LlamaFirewall/LLM
+Guard, a completed OWASP ZAP scan, Garak, a `mcp_usage_log` table, confirmed
+MFA, an executing secret-rotation cadence) did not match live evidence
+gathered the same session and are answered honestly (NO/PARTIAL), not as
+the brief assumed. Do not restate those as YES elsewhere without re-verifying.
+`trust.biddeed.ai` (SafeBase) is **not live** — portal signup requires
+Ariel's browser session (§ SAFEBASE_SETUP_GUIDE.md); `biddeed.ai/security`
+links the docs above directly in the meantime and says so explicitly.
+
 ---
 
 ## 7. MACHINE SSOT (Supabase) — this file defers to it for inventory
