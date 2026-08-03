@@ -1,11 +1,16 @@
 name: Verify PostHog Error Capture
 
-# One-off verification: confirms a specific test $exception event actually
-# landed in PostHog after hitting biddeed.ai/test-error-capture. Uses
-# posthog_personal_api_key (read-only query scope) from the vault. Per
-# CLAUDE.md CREDENTIAL HANDLING (GTM-22D): fetch + query happen in the same
-# masked GHA step; only a boolean/count is ever written to the job log —
-# the key value itself is never printed or exported as a job output.
+# Reusable check: confirms an $exception event with the given distinct_id
+# landed in PostHog. Useful after any change to captureError() in
+# src/worker.js — hit /test-error-capture-style trigger manually, then
+# dispatch this to confirm delivery. Uses posthog_personal_api_key
+# (read-only query scope) from the vault. Per CLAUDE.md CREDENTIAL
+# HANDLING (GTM-22D): fetch + query happen in the same masked GHA step;
+# only a count/sample is ever written to the job log — the key value
+# itself is never printed or exported as a job output.
+#
+# ClickHouse ingestion lag observed 2026-08-03: allow ~45-60s between
+# triggering an event and querying for it, or this will false-negative.
 
 on:
   workflow_dispatch:
@@ -22,7 +27,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Query PostHog for the test $exception event
+      - name: Query PostHog for the exception event
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           DISTINCT_ID: ${{ inputs.distinct_id }}
@@ -48,42 +53,6 @@ jobs:
             exit 1
           fi
           echo "Resolved project_id=$project_id"
-
-          echo "--- diagnostic: does posthog_project_key itself work against the capture endpoint? ---"
-          pkpayload=$(jq -nc --arg q "SELECT vault_secret('posthog_project_key') AS v;" '{query: $q}')
-          pkresp=$(curl -sS -X POST "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query" \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: cli-anything-biddeed-cc/1.0" \
-            -d "$pkpayload")
-          pkey=$(echo "$pkresp" | jq -r '.[0].v // empty')
-          if [ -n "$pkey" ]; then
-            echo "::add-mask::$pkey"
-            capbody=$(jq -nc --arg k "$pkey" '{api_key:$k, event:"$exception", distinct_id:"gha-diag-probe", properties:{"$exception_message":"gha diagnostic probe"}}')
-            capout=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "https://us.i.posthog.com/capture/" \
-              -H "Content-Type: application/json" -d "$capbody")
-            echo "Direct capture call result: $capout"
-          else
-            echo "::error::posthog_project_key not returned for direct-capture diagnostic"
-          fi
-
-          echo "--- waiting 45s for ClickHouse ingestion before querying ---"
-          sleep 45
-
-          echo "--- diagnostic: query by distinct_id only, no event-name filter (30min, incl an older run's gha-diag-probe) ---"
-          diag2=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
-            -H "Authorization: Bearer $key" \
-            --data-urlencode "distinct_id=gha-diag-probe" \
-            --data-urlencode "after=-30m" \
-            --data-urlencode "limit=10")
-          echo "$diag2" | jq '[.results[] | {event, distinct_id, timestamp}]'
-
-          echo "--- diagnostic: any events at all on this project in the last 15min? ---"
-          diag=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
-            -H "Authorization: Bearer $key" \
-            --data-urlencode "after=-15m" \
-            --data-urlencode "limit=20")
-          echo "$diag" | jq '[.results[] | {event, distinct_id, timestamp}]'
 
           events=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
             -H "Authorization: Bearer $key" \

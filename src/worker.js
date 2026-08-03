@@ -396,10 +396,9 @@ function withSecurityHeaders(response, path) {
 // never adopted here, blocked on browser signup) ───────────────────────────────
 async function captureError(error, request, env) {
   const phKey = env.POSTHOG_PROJECT_KEY;
-  console.log('[posthog-diag] captureError called, hasKey=' + !!phKey);
   if (!phKey) return;
   try {
-    const r = await fetch('https://us.i.posthog.com/capture/', {
+    await fetch('https://us.i.posthog.com/capture/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -418,9 +417,8 @@ async function captureError(error, request, env) {
         }
       })
     });
-    console.log('[posthog-diag] capture response status=' + r.status + ' body=' + await r.text());
   } catch (e) {
-    console.log('[posthog-diag] capture fetch threw: ' + (e && e.stack || e));
+    // Never let error reporting break the worker
   }
 }
 
@@ -457,8 +455,6 @@ async function handleRequest(request, env, ctx) {
       if (path === '/terms' || path === '/tos') return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/privacy')                  return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/disclaimer')                return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/test-error-capture')        throw new Error('deliberate test error — verifying PostHog capture (posthog-error-monitor)');
-      if (path === '/test-error-capture-diag')   return new Response(JSON.stringify({ hasKey: !!env.POSTHOG_PROJECT_KEY, keyLength: (env.POSTHOG_PROJECT_KEY || '').length }), { headers: { 'Content-Type': 'application/json' } });
       if (path === '/security')                  return new Response(SECURITY_HTML,   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/data-retention')            return new Response(DATA_RETENTION_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
