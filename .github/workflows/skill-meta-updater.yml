@@ -20,6 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          set -euo pipefail
+          gh label create "automation" --repo "${{ github.repository }}" --color "0E8A16" --description "Automated dispatch, not human-authored" --force
+          gh label create "skill-meta-updater" --repo "${{ github.repository }}" --color "5319E7" --description "skill-meta-updater.yml auto-dispatched brief" --force
+
       - name: Create skill-meta-update issue from template
         id: create_issue
         env:
