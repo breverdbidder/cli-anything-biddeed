@@ -997,6 +997,7 @@ ${DISCLAIMER_SHORT}`;
 
     } catch(e) {
       await logErr(env, path, 'Unhandled error', String(e), 500);
+      ctx.waitUntil(captureError(e, request, env));
       return new Response('Internal server error', { status: 500 });
     }
 }
