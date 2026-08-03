@@ -50,9 +50,9 @@ async function validateProxyKey(key: string): Promise<boolean> {
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
 
-// gemini-2.0-flash: no thinking budget overhead, reliable for tool-call LLM workloads
-// gemini-2.5-flash requires large thinking budgets (500+ tokens) and is inconsistent from edge fn
-const GEMINI_MODEL = "gemini-2.0-flash";
+// gemini-2.5-flash: 2.0-flash deprecated Aug 2026 — updated to 2.5-flash
+// thinking budget set low (0) to avoid overhead on simple tool-call workloads
+const GEMINI_MODEL = "gemini-2.5-flash"; // updated: 2.0-flash deprecated Aug 2026
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function toGeminiContents(messages: any[]) {
