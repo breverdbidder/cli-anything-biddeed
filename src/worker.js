@@ -785,15 +785,12 @@ FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - If this message included a "LIVE AUCTION DATA ... End your response with exactly" instruction, obey it literally: put that [PROPERTIES_LOADED:...] token as the very last thing in your reply, on its own, with nothing after it. It is a control token for the UI, not a link — never wrap it in markdown or explain it to the user.
 ${DISCLAIMER_SHORT}`;
 
-        // tier=free routes to Gemini Flash directly when GEMINI_API_KEY is bound (no
-        // Anthropic involvement either way). Every other tier routes through the
-        // anthropic-proxy Supabase edge function — an Anthropic Messages
-        // API-compatible shim in front of the in-Postgres Smart Router
-        // (Claude Max OAuth tier 1, Gemini free-tier fallback tier 2; see
-        // supabase/functions/anthropic-proxy/README.md). The Worker NEVER calls
-        // api.anthropic.com with an ANTHROPIC_API_KEY — that binding is retired.
-        const geminiKey = env.GEMINI_API_KEY;
-        const useGemini = tier === 'free' && !!geminiKey;
+        // ALL tiers route through claude-router (Smart Router) which manages its own
+        // LLM cascade internally (gemini-2.5-flash → DeepSeek → Claude fallback).
+        // The Worker's GEMINI_API_KEY binding is retired — it hit quota limits.
+        // claude-router uses vault-stored keys that are separate and working.
+        const geminiKey = null;   // retired — quota exhausted on Worker-bound key
+        const useGemini = false;  // always use claude-router
 
         const routerProxyKey = env.ROUTER_PROXY_KEY;
         if (!useGemini && !routerProxyKey) {
@@ -831,32 +828,8 @@ ${DISCLAIMER_SHORT}`;
               const errText = await routerResp.text();
               await logErr(env, '/chat/api', 'claude-router non-200 — falling back to Gemini', errText, routerResp.status);
               // Fallback: call Gemini directly when claude-router is down
-              const fbKey = env.GEMINI_API_KEY;
-              if (fbKey) {
-                try {
-                  const fbRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${fbKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      system_instruction: { parts: [{ text: systemPrompt }] },
-                      contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] })),
-                      generationConfig: { maxOutputTokens: 1024 },
-                    }),
-                  });
-                  if (fbRes.ok) {
-                    const fbData = await fbRes.json();
-                    aiText = fbData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                  } else {
-                    await logErr(env, '/chat/api', 'Gemini fallback also failed', await fbRes.text(), fbRes.status);
-                    return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-                  }
-                } catch(fbErr) {
-                  await logErr(env, '/chat/api', 'Gemini fallback exception', String(fbErr), 502);
-                  return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-                }
-              } else {
-                return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-              }
+              // claude-router is the only LLM path — no Worker-side key fallback
+              return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again in a moment.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
             } else {
               const routerData = await routerResp.json();
               aiText = routerData.text || '';
