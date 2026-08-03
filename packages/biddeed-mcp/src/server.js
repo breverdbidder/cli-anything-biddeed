@@ -7,6 +7,7 @@ import { validateOAuthToken, resolveCustomerFromOAuth, isJwtLike } from './oauth
 import { recordBilling, checkChargeAllowance, logChargeOutcome } from './billing.js';
 import { computeIdempotencyKey, claimIdempotencyKey, completeIdempotencyKey } from './idempotency.js';
 import { captureToolCall } from './posthog.js';
+import { logUsage } from './usage-log.js';
 import { TOOL_STREAM } from './constants.js';
 import { assertCountyCertified, resolveAuctionCounty } from './cert-gate.js';
 import { DISCLAIMER_SHORT } from './disclaimer.js';
@@ -340,6 +341,19 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
     county: args.county || null,
     cacheHit: result?.cache_hit ?? null,
     errorClass,
+  });
+
+  // GTM-22 SECURITY — anomaly-detection usage log. Non-blocking, mirrors the
+  // captureToolCall hook above (see usage-log.js header for the ip_address
+  // deviation).
+  logUsage({
+    credential,
+    customerId: customerRecord.customer_id,
+    toolName: name,
+    county: args.county || null,
+    latencyMs,
+    success: !toolError,
+    tier: customerRecord.tier,
   });
 
   return response;
