@@ -765,7 +765,7 @@ ${DISCLAIMER_SHORT}`;
         // supabase/functions/anthropic-proxy/README.md). The Worker NEVER calls
         // api.anthropic.com with an ANTHROPIC_API_KEY — that binding is retired.
         const geminiKey = env.GEMINI_API_KEY;
-        const useGemini = false; // all traffic via claude-router (vault key)
+        const useGemini = tier === 'free' && !!geminiKey;
 
         const routerProxyKey = env.ROUTER_PROXY_KEY;
         if (!useGemini && !routerProxyKey) {
@@ -776,7 +776,7 @@ ${DISCLAIMER_SHORT}`;
         let upstreamRes;
         try {
           if (useGemini) {
-            upstreamRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${geminiKey}`, {
+            upstreamRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${geminiKey}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -785,17 +785,43 @@ ${DISCLAIMER_SHORT}`;
               }),
             });
           } else {
-            upstreamRes = await fetch(`${SUPABASE_URL}/functions/v1/anthropic-proxy/v1/messages`, {
-              method: 'POST',
-              headers: { 'x-api-key': routerProxyKey, 'Content-Type': 'application/json', 'x-traffic-source': 'biddeed-chat' },
-              body: JSON.stringify({
-                model: 'claude-haiku-4-5-20251001',
-                max_tokens: 1024,
-                stream: true,
-                system: systemPrompt,
-                messages: messages.map(m => ({ role: m.role, content: String(m.content) })),
-              }),
+            // Route through claude-router (manages Gemini/DeepSeek/Claude cascade via vault)
+            const routerBody = JSON.stringify({
+              messages: messages.map(m => ({ role: m.role, content: String(m.content) })),
+              system: systemPrompt,
+              max_tokens: 1024,
+              stream: false,
+              source: 'biddeed-chat',
             });
+            const routerResp = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
+              method: 'POST',
+              headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
+              body: routerBody,
+            });
+            if (!routerResp.ok) {
+              const errText = await routerResp.text();
+              await logErr(env, '/chat/api', 'claude-router non-200', errText, routerResp.status);
+              return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            const routerData = await routerResp.json();
+            const aiText = routerData.text || '';
+            // Stream the response as SSE
+            const { readable, writable } = new TransformStream();
+            const writer = writable.getWriter();
+            const encoder = new TextEncoder();
+            (async () => {
+              // Emit the full response as a single SSE chunk then DONE
+              for (const word of aiText.split(' ')) {
+                await writer.write(encoder.encode(\`data: \${JSON.stringify({ text: word + ' ' })}
+
+\`));
+              }
+              await writer.write(encoder.encode('data: [DONE]
+
+'));
+              await writer.close();
+            })();
+            upstreamRes = new Response(readable, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
           }
         } catch(e) {
           await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'anthropic-proxy') + ' fetch failed', String(e), 502);
