@@ -72,7 +72,11 @@ against `cron.job`.
 1. Rotate the Supabase service-role key (Dashboard → Settings → API).
 2. Rotate the Cloudflare deploy token (Dashboard → My Profile → API Tokens).
 3. Rotate the Anthropic API key (console.anthropic.com) if the breach could
-   have exposed it.
+   have exposed it. If the exposure could reach the Worker's chat-routing
+   path specifically, also rotate `vault.router_proxy_key` (the
+   Cloudflare Worker secret documented in `wrangler.toml` as
+   `ROUTER_PROXY_KEY`, used to call the `anthropic-proxy` Supabase edge
+   function) via `wrangler secret put ROUTER_PROXY_KEY`.
 4. Disable affected API keys:
    ```sql
    UPDATE mcp_api_keys SET is_active = false WHERE api_key_hash = '<hash>';
