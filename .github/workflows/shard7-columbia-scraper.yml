@@ -19,6 +19,16 @@ name: "SHARD-7 Columbia County Daily Scraper"
 # zero upcoming sales ("There are no properties on the list of tax deeds at this
 # time.") -- genuinely empty, not a scraper gap; this cron will pick up tax deed
 # listings automatically once the county schedules one.
+#
+# 2026-08-03 (shard-2 dispatch dd959980): columbiaclerk.com was rebuilt on a
+# new Vue/Tailwind theme -- the old columbia_clerk_html_harvest.py selectors no
+# longer match the tax-deed page DOM at all (confirmed live). The tax-deed lane
+# is NOT actually empty anymore: 19 real scheduled sales exist on the new
+# /tax-deed-sales/ page. Added columbia_taxdeed_html_harvest_v2.py as a second
+# step targeting the new DOM (self-dedupes on cert_number+parcel_id, since this
+# table has no unique constraint covering case_number-less tax-deed rows).
+# columbia_clerk_html_harvest.py is left in place for the foreclosure lane,
+# which still uses the old page structure.
 
 on:
   schedule:
@@ -51,10 +61,15 @@ jobs:
           set -euo pipefail
           which google-chrome-stable || which google-chrome || which chromium-browser || which chromium
 
-      - name: "Scrape columbiaclerk.com (foreclosure + tax deed)"
+      - name: "Scrape columbiaclerk.com (foreclosure -- old page structure)"
         run: |
           set -euo pipefail
           python3 scripts/columbia_clerk_html_harvest.py
+
+      - name: "Scrape columbiaclerk.com (tax deed -- new Vue/Tailwind page structure)"
+        run: |
+          set -euo pipefail
+          python3 scripts/columbia_taxdeed_html_harvest_v2.py
 
   # NOTE: the former "columbia-realforeclose" / "columbia-realtaxdeed" credential-gated
   # jobs were REMOVED 2026-07-05 (SHARD-2 run 2753) -- columbia has no RealAuction
