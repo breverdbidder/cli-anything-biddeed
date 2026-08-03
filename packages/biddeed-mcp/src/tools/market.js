@@ -159,18 +159,9 @@ function parseExaSunBizResult(text, buyerName) {
   const phoneMatch = text.match(/\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/);
   if (phoneMatch) result.phone = phoneMatch[0].replace(/\s/g, '');
 
-  // Extract principal officers block — SunBiz lists them as "Title
-NAME
-ADDRESS"
+  // Extract principal officers block — SunBiz lists them as "Title / NAME / ADDRESS".
   // Pattern: name lines followed by address lines before the next "Title" block
-  const titleBlocks = text.matchAll(/Title\s*
-?\s*([\w]+)\s*
-([^
-]+)
-([^
-]+(?:
-[^
-]+){0,3})/gi);
+  const titleBlocks = text.matchAll(/Title\s*\n?\s*([\w]+)\s*\n([^\n]+)\n([^\n]+(?:\n[^\n]+){0,3})/gi);
   for (const block of titleBlocks) {
     const name = block[2]?.trim();
     const addr = block[3]?.trim();
@@ -180,11 +171,7 @@ ADDRESS"
   }
 
   // Registered agent
-  const agentMatch = text.match(/Registered Agent[^:]*:\s*
-?([^
-]{5,60})
-([^
-]+)/i);
+  const agentMatch = text.match(/Registered Agent[^:]*:\s*\n?([^\n]{5,60})\n([^\n]+)/i);
   if (agentMatch) {
     result.registered_agent = {
       name: agentMatch[1].trim(),
@@ -193,20 +180,12 @@ ADDRESS"
   }
 
   // Mailing / principal address
-  const addrMatch = text.match(/(?:Principal|Mailing)\s+Address[^
-]*
-([^
-]+
-(?:[^
-]+
-){0,2})/i);
-  if (addrMatch) result.mailing_address = addrMatch[1].replace(/
-/g, ', ').trim();
+  const addrMatch = text.match(/(?:Principal|Mailing)\s+Address[^\n]*\n([^\n]+\n(?:[^\n]+\n){0,2})/i);
+  if (addrMatch) result.mailing_address = addrMatch[1].replace(/\n/g, ', ').trim();
 
   // Fall back to any FL address pattern if nothing found
   if (!result.mailing_address && result.principals.length === 0) {
-    const flAddr = text.match(/\d+[^,
-]{5,40},?\s+(?:FL|Florida)\s+\d{5}/i);
+    const flAddr = text.match(/\d+[^,\n]{5,40},?\s+(?:FL|Florida)\s+\d{5}/i);
     if (flAddr) result.mailing_address = flAddr[0];
   }
 

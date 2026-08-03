@@ -380,9 +380,12 @@ export default {
       }
 
       // ── Legal ────────────────────────────────────────────────────────────
-      if (path === '/terms')      return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/privacy')    return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/disclaimer') return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      // /tos is an alias for /terms (same content) — kept as a distinct route
+      // rather than a redirect so both URLs return 200 directly.
+      if (path === '/terms' || path === '/tos') return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/privacy')                  return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/disclaimer')                return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/security')                  return new Response(SECURITY_HTML,   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
       // ── /subscribe ───────────────────────────────────────────────────────
       // Served as an HTML interstitial (not a raw 302) so PostHog can record
@@ -994,7 +997,7 @@ footer a{color:var(--muted);text-decoration:none}
   <div class="counties-grid">${rows}</div>
 </div>
 <footer>
-  <p>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a></p>
+  <p>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a></p>
 </footer>
 </body></html>`;
 }
@@ -2941,7 +2944,7 @@ ${POSTHOG_SCRIPT}
   <p class="cn">Free · No credit card · <a href="/subscribe?tier=investor">Upgrade to Investor $99/mo →</a></p>
 </section>
 
-<footer><p>© 2026 BidDeed.AI · Everest Capital USA · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a> &nbsp;·&nbsp; <a href="#pricing">Pricing</a> &nbsp;·&nbsp; <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a> &nbsp;·&nbsp; <a href="/disclaimer">Disclaimer</a></p><p style="margin-top:.6rem;font-size:.72rem;color:var(--muted);max-width:820px;margin-left:auto;margin-right:auto">BidDeed.AI is an information and analytics platform, not a law firm or financial advisor. Nothing here is legal, financial, or investment advice. Foreclosure and tax-deed investing carries risk of loss. Verify all data independently and consult a licensed Florida attorney before bidding.</p></footer>
+<footer><p>© 2026 BidDeed.AI · Everest Capital USA · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a> &nbsp;·&nbsp; <a href="#pricing">Pricing</a> &nbsp;·&nbsp; <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a> &nbsp;·&nbsp; <a href="/disclaimer">Disclaimer</a> &nbsp;·&nbsp; <a href="/security">Security</a></p><p style="margin-top:.6rem;font-size:.72rem;color:var(--muted);max-width:820px;margin-left:auto;margin-right:auto">BidDeed.AI is an information and analytics platform, not a law firm or financial advisor. Nothing here is legal, financial, or investment advice. Foreclosure and tax-deed investing carries risk of loss. Verify all data independently and consult a licensed Florida attorney before bidding.</p></footer>
 </body></html>`;
 
 const TERMS_HTML = `<!doctype html><html lang="en"><head>
@@ -2978,7 +2981,7 @@ footer a{color:var(--muted)}
         <h2>8. Governing law</h2><p>These Terms are governed by the laws of the State of Florida. Venue for any dispute lies in the state or federal courts located in Brevard County, Florida.</p>
         <h2>9. Changes</h2><p>We may update these Terms; continued use after changes constitutes acceptance.</p>
         <h2>10. Contact</h2><p><a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></p></div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
 const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
@@ -3017,7 +3020,7 @@ footer a{color:var(--muted)}
       <h2>7. Children</h2><p>The service is not directed to individuals under 18, and we do not knowingly collect their information.</p>
       <h2>8. Changes</h2><p>We may update this policy; the "last updated" date reflects the latest revision.</p>
       <h2>9. Contact</h2><p><a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></p></div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
 const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
@@ -3046,5 +3049,78 @@ footer a{color:var(--muted)}
         <h2>Informational purpose only</h2><p>All content, data, analytics, county intelligence, auction calendars, and the Shapira Max Bid Formula are provided for general informational purposes. Property values, opening bids, judgment amounts, liens, and outcomes are sourced from public records and third parties and are provided "as is" without warranty of accuracy, completeness, or fitness for a particular purpose.</p>
         <h2>No guarantee of results</h2><p>Past results (including any example outcomes shown on this site) do not guarantee future performance. A "max bid" figure is an estimate, not a recommendation to bid, and not a prediction of sale price or profit.</p>
         <h2>Independent verification required</h2><p>You are solely responsible for verifying all information with the county clerk, property appraiser, and a licensed attorney before participating in any auction.</p></div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+</body></html>`;
+
+const SECURITY_LAST_REVIEWED = 'August 2026';
+
+const SECURITY_HTML = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Security — BidDeed.AI</title>
+${POSTHOG_SCRIPT}
+<style>
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+*{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
+.wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
+a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
+h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .6rem;color:#fff}
+.upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
+p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.45rem}
+ul{padding-left:1.3rem}
+.box{background:#0b1220;border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
+.box strong{color:#fff}
+.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
+nav.top a{color:#fff;font-weight:700}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
+footer a{color:var(--muted)}
+code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
+</style></head><body>
+<nav class="top"><a href="/">BidDeed.AI</a></nav>
+<div class="wrap"><a class="back" href="/">← Back to home</a><h1>Security at BidDeed.AI</h1><div class="upd">Last reviewed: ${SECURITY_LAST_REVIEWED}</div>
+
+<div class="box"><strong>No fake badges.</strong> Everything below is either directly verifiable (a live endpoint, a public repo file, a database query) or explicitly labeled as in-progress. We don't display compliance marks we haven't earned.</div>
+
+<h2>🔒 Data Protection</h2>
+<ul>
+<li>TLS in transit on every request (Vercel + Cloudflare edge termination).</li>
+<li>Encryption at rest on the primary database (Supabase).</li>
+<li>Row-Level Security is enabled on 723 of 728 public database tables (99%) — verified by direct query against <code>pg_class.relrowsecurity</code>, ${SECURITY_LAST_REVIEWED}. The remaining tables are reference/lookup data with no customer or credential content.</li>
+</ul>
+
+<h2>🔑 Access Control</h2>
+<ul>
+<li>MCP access uses OAuth 2.1 (WorkOS AuthKit) via RFC 9728 protected-resource discovery, or a scoped <code>bd_live_*</code> API key — both validated server-side on every call.</li>
+<li>Secrets are never committed to source. Vault access from any automated agent goes through gated accessor functions with name allow-lists, not direct table reads.</li>
+<li>Cloudflare and GitHub deploy tokens are scoped to the minimum permissions and single zone/repo they operate on.</li>
+</ul>
+
+<h2>🤖 AI Security</h2>
+<ul>
+<li>The MCP server's 25 tools run every call through a single canonical pipeline (auth → cert gate → billing → tool handler) — nothing bypasses it.</li>
+<li>Pattern-based prompt-injection and secret-leak scanning runs on tool arguments and tool results at that pipeline's single chokepoint.</li>
+<li>Every tool response carries an explicit notice: scraped county records and case data are untrusted external data, never instructions.</li>
+<li>All 25 tools are billing-gated and idempotency-keyed — a retried or replayed call cannot double-charge or double-execute.</li>
+</ul>
+
+<h2>🔍 Audit &amp; Monitoring</h2>
+<ul>
+<li>Every pull request to this codebase runs an automated security gate: Semgrep SAST, Gitleaks secret scanning, and dependency audit (npm/pip) — CRITICAL/HIGH findings block the merge.</li>
+<li>Independent DAST scan (OWASP ZAP) and LLM red-team probing: not yet run against production as of ${SECURITY_LAST_REVIEWED} — scheduled as a follow-up, pending scope confirmation for live scanning of customer-facing infrastructure.</li>
+<li>Known open item: a legacy vault-read database function is more broadly grantable than intended and is flagged internally for tightening — tracked, not hidden.</li>
+</ul>
+
+<h2>📋 Compliance Posture</h2>
+<ul>
+<li>SOC 2 Type I — in preparation, not yet certified.</li>
+<li>CASA Tier 2 — planned.</li>
+<li>Florida financial/public-record data handling per FS 197.552 and FS 713.07.</li>
+<li>Governing law: State of Florida. See our <a href="/terms">Terms of Service</a>.</li>
+</ul>
+
+<h2>📧 Security Contact</h2>
+<p>Found an issue? Email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a>. We aim to respond within 48 hours. Responsible disclosure is welcome — please give us a reasonable window to fix before public disclosure.</p>
+
+</div>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;

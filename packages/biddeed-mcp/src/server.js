@@ -10,6 +10,7 @@ import { captureToolCall } from './posthog.js';
 import { TOOL_STREAM } from './constants.js';
 import { assertCountyCertified, resolveAuctionCounty } from './cert-gate.js';
 import { DISCLAIMER_SHORT } from './disclaimer.js';
+import { scanInput, scanOutput, logSecurityEvent, UNTRUSTED_DATA_NOTICE } from './security/guardrails.js';
 
 // Tool schemas
 import { schemas as discoverySchemas } from './tools/discovery.js';
@@ -175,6 +176,19 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
     throw err;
   }
 
+  // Prompt-injection guard — scans caller-supplied args before anything is
+  // claimed/charged. Untrusted county-scraped text mostly re-enters via tool
+  // *results* (see the output scan below), but caller args are scanned too
+  // since nothing stops a client from passing injection-styled text directly.
+  const inputScan = scanInput(args);
+  if (!inputScan.safe) {
+    logSecurityEvent('prompt_injection_blocked', `tool=${name} reason=${inputScan.reason}`, 'blocker');
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: 'Request rejected: unsafe input detected', code: 'INPUT_REJECTED' }) }],
+      isError: true,
+    };
+  }
+
   // GTM-22 Task 2 — idempotency. Derived from API key + tool + JSON-RPC id +
   // request body, so a client retry (same id, same body) after a 5xx never
   // bills or re-executes twice. Fails open on infra errors: an idempotency-
@@ -255,12 +269,22 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
   }
   const latencyMs = Date.now() - startedAt;
 
+  // Secret-leak guard — scraped county documents or an upstream error string
+  // could in principle echo back a credential; never let that reach the
+  // caller or get cached for idempotent replay.
+  const outputScan = scanOutput(result);
+  if (!outputScan.safe) {
+    logSecurityEvent('secret_leak_blocked', `tool=${name}`, 'blocker');
+    result = { error: 'Response withheld: output failed security scan', tool: name };
+    toolError = true;
+  }
+
   // UPL/legal disclaimer — every tool response payload carries it, success
   // or tool-level error. Mutating `result` here (rather than the `response`
   // envelope below) means the disclaimer also rides along into whatever
   // gets cached for idempotent replay (completeIdempotencyKey below).
   if (result && typeof result === 'object' && !Array.isArray(result)) {
-    result = { ...result, disclaimer: DISCLAIMER_SHORT };
+    result = { ...result, disclaimer: DISCLAIMER_SHORT, security_notice: UNTRUSTED_DATA_NOTICE };
   }
 
   // GTM-22 Task 3, Failure B — build and validate the wire payload BEFORE
