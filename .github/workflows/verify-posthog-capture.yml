@@ -49,10 +49,18 @@ jobs:
           fi
           echo "Resolved project_id=$project_id"
 
+          echo "--- diagnostic: any events at all on this project in the last 15min? ---"
+          diag=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
+            -H "Authorization: Bearer $key" \
+            --data-urlencode "after=-15m" \
+            --data-urlencode "limit=20")
+          echo "$diag" | jq '[.results[] | {event, distinct_id, timestamp}]'
+
           events=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
             -H "Authorization: Bearer $key" \
             --data-urlencode "event=\$exception" \
             --data-urlencode "distinct_id=${DISTINCT_ID}" \
+            --data-urlencode "after=-30m" \
             --data-urlencode "limit=5")
           count=$(echo "$events" | jq '.results | length')
           echo "Matching \$exception events for distinct_id=${DISTINCT_ID}: $count"
