@@ -941,7 +941,8 @@ ${DISCLAIMER_SHORT}`;
                   const evt = JSON.parse(data);
                   const deltaText = useGemini
                     ? evt.candidates?.[0]?.content?.parts?.[0]?.text
-                    : (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta' ? evt.delta.text : null);
+                    : (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta' ? evt.delta.text
+                      : (typeof evt.text === 'string' ? evt.text : null));
                   if (deltaText) {
                     fullText += deltaText;
                     await writer.write(encoder.encode(`data: ${JSON.stringify({ text: deltaText })}\n\n`));
