@@ -765,7 +765,7 @@ ${DISCLAIMER_SHORT}`;
         // supabase/functions/anthropic-proxy/README.md). The Worker NEVER calls
         // api.anthropic.com with an ANTHROPIC_API_KEY — that binding is retired.
         const geminiKey = env.GEMINI_API_KEY;
-        const useGemini = tier === 'free' && !!geminiKey;
+        const useGemini = false; // all traffic via claude-router (vault key)
 
         const routerProxyKey = env.ROUTER_PROXY_KEY;
         if (!useGemini && !routerProxyKey) {
