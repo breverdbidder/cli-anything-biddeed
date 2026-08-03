@@ -95,6 +95,19 @@ the brief assumed. Do not restate those as YES elsewhere without re-verifying.
 Ariel's browser session (§ SAFEBASE_SETUP_GUIDE.md); `biddeed.ai/security`
 links the docs above directly in the meantime and says so explicitly.
 
+## 6.3 INTERNAL EMAIL REGISTRY
+
+| Address | Purpose | From identity | Consumers |
+|---|---|---|---|
+| `activate@biddeed.ai` | Customer-facing activation emails only. | `resend_from_address` (vault) | B2C trial/activation flow — **not touched by the 2026-08-03 alerts work.** |
+| `alerts@biddeed.ai` | Internal ops alerts only (security P0/P1, secret rotation reminders). Added 2026-08-03. | `alerts_from_email` (vault) → `brevardbidderai@gmail.com` (`alerts_to_email`, vault) | `sweep_security_alerts()` (P0/P1 security events, cron `*/15`), `check_secret_rotation_due()` (cron Mon 09:00 UTC). **Not yet wired:** PostHog Worker-error relay (blocked on issue #17634/#17631, see §5) and weekly control-test report emailing (blocked — `scripts/generate_control_report.py` and `weekly-control-tests.yml` do not exist yet; that pipeline is issue #17584's scope, not built here). |
+
+Both `sweep_security_alerts()` and `check_secret_rotation_due()` send email via a direct
+`net.http_post` to Resend from inside the SECURITY DEFINER function (same pattern as the
+existing Telegram sends) — the Resend key never leaves Postgres. Email is best-effort:
+`IF v_resend_key IS NOT NULL AND v_to_email IS NOT NULL` guards each send, so a missing
+vault entry silently skips email without blocking the Telegram leg (or vice versa).
+
 ---
 
 ## 7. MACHINE SSOT (Supabase) — this file defers to it for inventory
