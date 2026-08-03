@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 /**
  * BidDeed.AI — Daily Branded Digest
- * Fixed: Jul 2026 → Aug 2026
- * - Removed .catch() on supabase.rpc() (not a native Promise)
- * - Snapshot now refreshed inline from multi_county_auctions (no missing RPC)
- * - digest@biddeed.ai from address (matches verified Resend domain)
+ * Node 22+ required (native WebSocket — no ws package needed)
+ * Fixed: Aug 3 2026 — removed ws transport, use Node 22 native WebSocket
  */
 
 const { createClient } = require('@supabase/supabase-js');
 const { Resend }       = require('resend');
 const { format, addDays } = require('date-fns');
 
+// Node 22 has native WebSocket — createClient works without ws transport
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -22,37 +21,34 @@ const TODAY  = format(new Date(), 'yyyy-MM-dd');
 const END30  = format(addDays(new Date(), 30), 'yyyy-MM-dd');
 const LABEL  = format(new Date(), 'EEEE, MMMM d, yyyy');
 
-// ── STEP 1: Refresh + pull twin snapshot ─────────────────────────────────────
+// ── STEP 1: Build twin snapshot from live MCA data ────────────────────────────
 async function getTwinSnapshot() {
-  console.log('Refreshing county_twin_snapshot from live data...');
+  console.log('Building county snapshot from live multi_county_auctions...');
 
-  // Upsert today's snapshot directly from multi_county_auctions
-  const { error: upsertErr } = await supabase.rpc('upsert_twin_snapshot_today').catch(() => ({ error: null }));
-  if (upsertErr) console.log('RPC upsert skipped, building inline...');
-
-  // Always query live from multi_county_auctions as fallback
-  const { data: live, error: liveErr } = await supabase
+  const { data: live, error } = await supabase
     .from('multi_county_auctions')
     .select('county, sale_type, auction_date')
     .in('auction_status', ['upcoming', 'scheduled'])
     .gte('auction_date', TODAY)
     .lte('auction_date', END30);
 
-  if (liveErr || !live?.length) {
-    // Last resort: use stale snapshot regardless of date
+  if (error || !live?.length) {
+    console.log(`Live query returned nothing (${error?.message}), trying stale snapshot...`);
     const { data: stale } = await supabase
       .from('county_twin_snapshot')
       .select('*')
       .order('snapshot_date', { ascending: false })
       .limit(67);
-    console.log(`Using stale snapshot: ${stale?.length || 0} counties`);
+    console.log(`Stale snapshot: ${stale?.length || 0} counties`);
     return stale || [];
   }
 
   // Aggregate inline
   const map = {};
   for (const row of live) {
-    if (!map[row.county]) map[row.county] = { county: row.county, fc_upcoming_30d: 0, td_upcoming_30d: 0, fc_next_auction_date: null, td_next_auction_date: null, is_gold_standard: false };
+    if (!map[row.county]) {
+      map[row.county] = { county: row.county, fc_upcoming_30d: 0, td_upcoming_30d: 0, fc_next_auction_date: null, td_next_auction_date: null, is_gold_standard: false };
+    }
     const isFC = row.sale_type === 'foreclosure';
     if (isFC) {
       map[row.county].fc_upcoming_30d++;
@@ -65,23 +61,25 @@ async function getTwinSnapshot() {
     }
   }
 
-  // Enrich with gold standard flags
+  // Gold standard flags
   const { data: gold } = await supabase
     .from('gold_standard_scoreboard')
     .select('county_slug, gold_standard')
     .eq('gold_standard', true);
   const goldSet = new Set((gold || []).map(g => g.county_slug));
+
   const snapshot = Object.values(map).map(c => ({
     ...c,
     total_upcoming_30d: c.fc_upcoming_30d + c.td_upcoming_30d,
     is_gold_standard: goldSet.has(c.county),
-  })).filter(c => c.total_upcoming_30d > 0).sort((a, b) => b.total_upcoming_30d - a.total_upcoming_30d);
+  })).filter(c => c.total_upcoming_30d > 0)
+    .sort((a, b) => b.total_upcoming_30d - a.total_upcoming_30d);
 
-  console.log(`✅ Live snapshot: ${snapshot.length} counties, ${live.length} auctions`);
+  console.log(`✅ Snapshot: ${snapshot.length} counties, ${live.length} auctions`);
   return snapshot;
 }
 
-// ── STEP 2: Pull top upcoming auctions for a county ──────────────────────────
+// ── STEP 2: Top auctions for county ──────────────────────────────────────────
 async function getTopAuctions(county) {
   const { data } = await supabase
     .from('multi_county_auctions')
@@ -100,7 +98,7 @@ async function getTopAuctions(county) {
 // ── STEP 3: Pull leads ────────────────────────────────────────────────────────
 async function getLeads() {
   if (process.env.TEST_EMAIL) {
-    console.log(`🧪 TEST MODE → ${process.env.TEST_EMAIL}`);
+    console.log(`TEST MODE → ${process.env.TEST_EMAIL}`);
     return [{ id: 'test', email: process.env.TEST_EMAIL, name: 'Ariel', county: 'brevard', stage: 'lead', hooks_triggered: [], messages_count: 0, score: 0, tier: null }];
   }
   const { data, error } = await supabase
@@ -113,7 +111,7 @@ async function getLeads() {
   return data || [];
 }
 
-// ── STEP 4: Hook classifier ───────────────────────────────────────────────────
+// ── Hook classifier ───────────────────────────────────────────────────────────
 function classifyHook(lead) {
   const hooks = lead.hooks_triggered || [];
   if (lead.tier && lead.tier !== 'free') return 'SCALE';
@@ -125,7 +123,7 @@ function classifyHook(lead) {
   return 'PROOF';
 }
 
-// ── STEP 5: County table rows ─────────────────────────────────────────────────
+// ── County table rows ─────────────────────────────────────────────────────────
 function countyRows(snapshot, leadCounty) {
   const sorted = [...snapshot].sort((a, b) => {
     if (a.county === leadCounty) return -1;
@@ -163,17 +161,15 @@ function countyRows(snapshot, leadCounty) {
   }).join('');
 }
 
-// ── STEP 6: Featured property card ───────────────────────────────────────────
+// ── Featured property card ────────────────────────────────────────────────────
 function featuredCard(auctions, county) {
   if (!auctions?.length) return '';
   const top = auctions[0];
   const addr = top.property_address?.split(',')[0] || 'FL Property';
   const bid  = top.opening_bid ? `$${Number(top.opening_bid).toLocaleString()}` : '—';
   const asmnt = top.assessed_value ? `$${Number(top.assessed_value).toLocaleString()}` : '—';
-  const typeColor = top.sale_type === 'foreclosure' ? '#F59E0B' : '#03B3CB';
   const typeLabel = top.sale_type === 'foreclosure' ? 'Foreclosure' : 'Tax Deed';
   const cLabel = county.charAt(0).toUpperCase() + county.slice(1).replace(/_/g,' ');
-  const chatUrl = `${BASE}/chat?county=${county}&case=${top.case_number}&type=${top.sale_type}&ref=email_featured`;
   const auctionDate = top.auction_date ? format(new Date(top.auction_date + 'T12:00:00'), 'MMM d, yyyy') : '';
 
   return `
@@ -205,14 +201,14 @@ function featuredCard(auctions, county) {
         </td>
         <td width="4%"></td>
         <td width="48%">
-          <a href="${chatUrl}" style="display:block;background:#1E3A5F;color:#e2e8f0;font-weight:600;font-size:13px;padding:10px;border-radius:8px;text-align:center;border:1px solid #162D4A;text-decoration:none;">Full County Docket</a>
+          <a href="${BASE}/chat?county=${county}&ref=email_docket" style="display:block;background:#1E3A5F;color:#e2e8f0;font-weight:600;font-size:13px;padding:10px;border-radius:8px;text-align:center;border:1px solid #162D4A;text-decoration:none;">Full County Docket</a>
         </td>
       </tr></table>
     </td></tr>
   </table>`;
 }
 
-// ── STEP 7: Hook CTA ──────────────────────────────────────────────────────────
+// ── Hook CTA ──────────────────────────────────────────────────────────────────
 function hookCTA(hook, lead, snapshot) {
   const county = lead.county || 'florida';
   const cd = snapshot.find(c => c.county === county);
@@ -222,12 +218,12 @@ function hookCTA(hook, lead, snapshot) {
   const cLabel = county.charAt(0).toUpperCase() + county.slice(1).replace(/_/g,' ');
 
   const defs = {
-    QUICK_DEMO:  { h:`${fc + td} auctions coming in ${cLabel}`, b:`<strong style="color:#F59E0B">${fc} foreclosures</strong> + <strong style="color:#03B3CB">${td} tax deeds</strong> in the next 30 days. Run one Shapira preview — see what's worth bidding on.`, c1:{t:'Try Free Preview',u:`${BASE}/chat?action=preview&county=${county}&ref=email_cta`}, c2:{t:'See Full Docket',u:`${BASE}/chat?view=docket&county=${county}&ref=email_docket`} },
-    PROOF:       { h:'The formula held again', b:`Marion County: predicted $82,000 ceiling → sold $73,501. <strong style="color:#10B981">Ceiling held. $8,499 edge confirmed.</strong> Third-party winner, not the bank. Shapira Formula working live.`, c1:{t:'See Full Analysis',u:`${BASE}/chat?hook=PROOF&ref=email_cta`}, c2:{t:'Run Your Property',u:`${BASE}/chat?action=analyze&ref=email_analyze`} },
-    PRICING:     { h:'One analysis pays for itself', b:`$25/call. One Shapira analysis that stops a bad bid = $900+ saved minimum. <strong style="color:#F59E0B">Investor tier ($99/mo)</strong> gives you 10 analyses — that's $10 each.`, c1:{t:'Start $25 Analysis',u:`${BASE}/buy-report?ref=email_cta`}, c2:{t:'Investor $99/mo',u:`${BASE}/subscribe?ref=email_investor`} },
-    CONVERSION:  { h:`${name}, one step away`, b:`You've been analyzing the right properties. The next auction in your county closes soon. <strong style="color:#F59E0B">Investor tier activates in 2 minutes.</strong>`, c1:{t:'Activate — $99/mo',u:`${BASE}/subscribe?ref=email_convert`}, c2:{t:'View My County',u:`${BASE}/chat?county=${county}&ref=email_county`} },
-    FRICTION:    { h:'Something stopped you — let me fix it', b:`Marion result: predicted $82K → sold $73,501. Ceiling held. $8,499 edge. Third-party confirmed.`, c1:{t:'Continue Analysis',u:`${BASE}/chat?hook=FRICTION&ref=email_friction`}, c2:{t:'Ask a Question',u:`${BASE}/chat?action=ask&ref=email_ask`} },
-    SCALE:       { h:'More counties, more deals', b:`You're already subscribed. Pro tier adds <strong style="color:#F59E0B">50 S5 analyses, deal memos, and CMAs</strong> — evaluate an entire county docket in one session.`, c1:{t:'Upgrade to Pro — $199/mo',u:`${BASE}/subscribe?tier=pro&ref=email_scale`}, c2:{t:'View Pro Features',u:`${BASE}/chat?view=pricing&ref=email_pricing`} },
+    QUICK_DEMO:  { h:`${fc + td} auctions coming in ${cLabel}`, b:`<strong style="color:#F59E0B">${fc} foreclosures</strong> + <strong style="color:#03B3CB">${td} tax deeds</strong> in the next 30 days.`, c1:{t:'Try Free Preview',u:`${BASE}/chat?county=${county}&ref=email_cta`}, c2:{t:'See Full Docket',u:`${BASE}/chat?county=${county}&ref=email_docket`} },
+    PROOF:       { h:'The formula held again', b:`Marion: predicted $82,000 ceiling → sold $73,501. <strong style="color:#10B981">Ceiling held. $8,499 edge.</strong> Third-party confirmed.`, c1:{t:'See Full Analysis',u:`${BASE}/chat?hook=PROOF&ref=email_cta`}, c2:{t:'Run Your Property',u:`${BASE}/chat?ref=email_analyze`} },
+    PRICING:     { h:'One analysis pays for itself', b:`$25/call. One Shapira analysis stopping a bad bid = $900+ saved. <strong style="color:#F59E0B">Investor ($99/mo)</strong> = 10 analyses at $10 each.`, c1:{t:'Start $25 Analysis',u:`${BASE}/buy-report?ref=email_cta`}, c2:{t:'Investor $99/mo',u:`${BASE}/subscribe?ref=email_investor`} },
+    CONVERSION:  { h:`${name}, one step away`, b:`You've been analyzing the right properties. <strong style="color:#F59E0B">Investor tier activates in 2 minutes.</strong>`, c1:{t:'Activate — $99/mo',u:`${BASE}/subscribe?ref=email_convert`}, c2:{t:'View My County',u:`${BASE}/chat?county=${county}&ref=email_county`} },
+    FRICTION:    { h:'Something stopped you — let me fix it', b:`Marion result: predicted $82K → sold $73,501. Ceiling held. $8,499 edge.`, c1:{t:'Continue Analysis',u:`${BASE}/chat?hook=FRICTION&ref=email_friction`}, c2:{t:'Ask a Question',u:`${BASE}/chat?ref=email_ask`} },
+    SCALE:       { h:'More counties, more deals', b:`Pro tier: <strong style="color:#F59E0B">50 S5 analyses, deal memos, and CMAs</strong> per month.`, c1:{t:'Upgrade to Pro — $199/mo',u:`${BASE}/subscribe?tier=pro&ref=email_scale`}, c2:{t:'View Pro Features',u:`${BASE}/chat?view=pricing&ref=email_pricing`} },
   };
   const d = defs[hook] || defs.QUICK_DEMO;
   return `
@@ -244,7 +240,7 @@ function hookCTA(hook, lead, snapshot) {
   </table>`;
 }
 
-// ── STEP 8: Build full HTML email ─────────────────────────────────────────────
+// ── Build full HTML email ─────────────────────────────────────────────────────
 function buildEmail({ lead, hook, snapshot, auctions }) {
   const firstName = lead.name?.split(' ')[0] || 'there';
   const county    = lead.county || 'florida';
@@ -255,14 +251,13 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
   const totalAuctions = snapshot.reduce((s, c) => s + c.total_upcoming_30d, 0);
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>BidDeed.AI Daily Digest — ${LABEL}</title></head>
+<title>BidDeed.AI — ${LABEL}</title></head>
 <body style="margin:0;padding:0;background:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
-<div style="display:none;max-height:0;overflow:hidden;">${fc} FC + ${td} TD auctions in ${county.replace(/_/g,' ')} this month — Shapira analysis inside · ${LABEL}</div>
+<div style="display:none;max-height:0;overflow:hidden;">${fc} FC + ${td} TD in ${county.replace(/_/g,' ')} · ${totalAuctions.toLocaleString()} FL auctions · ${LABEL}</div>
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:20px 0;">
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-  <!-- HEADER -->
   <tr><td style="background:#020617;border-radius:12px 12px 0 0;padding:24px 32px;">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
       <td>
@@ -283,26 +278,23 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
     </tr></table>
   </td></tr>
 
-  <!-- PROOF BAR -->
   <tr><td style="background:#0F2035;padding:14px 32px;border-left:4px solid #10B981;">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
       <td>
-        <div style="color:#10B981;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">✓ Verified Result — Marion County · Jul 20, 2026</div>
-        <div style="color:#e2e8f0;font-size:13px;margin-top:3px;line-height:1.5;">Predicted ceiling <strong style="color:#F59E0B;">$82,000</strong> → Sold <strong style="color:#10B981;">$73,501</strong>. Ceiling held. $8,499 edge. 3rd-party confirmed.</div>
+        <div style="color:#10B981;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">✓ Verified — Marion County · Jul 20, 2026</div>
+        <div style="color:#e2e8f0;font-size:13px;margin-top:3px;">Predicted ceiling <strong style="color:#F59E0B;">$82,000</strong> → Sold <strong style="color:#10B981;">$73,501</strong>. Ceiling held. $8,499 edge. 3rd-party confirmed.</div>
       </td>
       <td width="130" align="right" style="vertical-align:middle;padding-left:12px;">
-        <a href="${BASE}/chat?hook=PROOF&ref=email_proof" style="display:inline-block;background:linear-gradient(135deg,#F59E0B,#D97706);color:#020617;font-weight:700;font-size:12px;padding:8px 14px;border-radius:8px;text-decoration:none;white-space:nowrap;">Full Analysis →</a>
+        <a href="${BASE}/chat?hook=PROOF&ref=email_proof" style="display:inline-block;background:linear-gradient(135deg,#F59E0B,#D97706);color:#020617;font-weight:700;font-size:12px;padding:8px 14px;border-radius:8px;text-decoration:none;">Full Analysis →</a>
       </td>
     </tr></table>
   </td></tr>
 
-  <!-- GREETING -->
   <tr><td style="background:#020617;padding:22px 32px 12px;">
     <p style="color:#e2e8f0;font-size:15px;line-height:1.6;margin:0 0 10px;">Hi ${firstName},</p>
-    <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0;">Your daily twin pipeline — <strong style="color:#F59E0B;">foreclosure + tax deed</strong> auctions across FL. Every link opens inside BidDeed analysis.</p>
+    <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0;">Your daily FL auction pipeline — <strong style="color:#F59E0B;">foreclosure + tax deed</strong> side by side.</p>
   </td></tr>
 
-  <!-- COUNTY TABLE -->
   <tr><td style="background:#020617;padding:4px 32px 0;">
     <div style="border-top:1px solid #1E3A5F;padding-top:16px;margin-bottom:12px;">
       <div style="color:#F59E0B;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">📋 30-Day Auction Pipeline</div>
@@ -325,15 +317,13 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
   </td></tr>
 
   ${auctions?.length ? `
-  <!-- FEATURED PROPERTY -->
   <tr><td style="background:#020617;padding:20px 32px 0;">
     <div style="border-top:1px solid #1E3A5F;padding-top:16px;margin-bottom:12px;">
-      <div style="color:#F59E0B;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">🏠 Featured — ${(county.charAt(0).toUpperCase()+county.slice(1).replace(/_/g,' '))} County</div>
+      <div style="color:#F59E0B;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">🏠 Featured — ${(county.charAt(0).toUpperCase()+county.slice(1).replace(/_/g,' '))}</div>
     </div>
     ${featuredCard(auctions, county)}
   </td></tr>` : ''}
 
-  <!-- HOOK CTA -->
   <tr><td style="background:#020617;padding:20px 32px 0;">
     <div style="border-top:1px solid #1E3A5F;padding-top:16px;margin-bottom:12px;">
       <div style="color:#F59E0B;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">💡 Your Next Move</div>
@@ -341,13 +331,11 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
     ${hookCTA(hook, lead, snapshot)}
   </td></tr>
 
-  <!-- FOOTER -->
-  <tr><td style="background:#0F2035;border-radius:0 0 12px 12px;padding:18px 32px;margin-top:4px;">
+  <tr><td style="background:#0F2035;border-radius:0 0 12px 12px;padding:18px 32px;">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
       <td>
         <div style="color:#475569;font-size:11px;line-height:1.6;">
-          <strong style="color:#94a3b8;">BidDeed.AI</strong> · Everest Capital USA<br/>
-          Shapira Formula™ · 21,138 verified outcomes · FL all 67 counties<br/>
+          <strong style="color:#94a3b8;">BidDeed.AI</strong> · Everest Capital USA · Shapira Formula™<br/>
           <a href="${BASE}" style="color:#F59E0B;text-decoration:none;">biddeed.ai</a>
         </div>
       </td>
@@ -365,14 +353,14 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log(`\n🚀 BidDeed Daily Digest — ${LABEL}\n`);
+  console.log(`\nBidDeed Daily Digest — ${LABEL}\n`);
 
   const [snapshot, leads] = await Promise.all([getTwinSnapshot(), getLeads()]);
 
-  if (!snapshot.length) { console.log('⚠️  No auction data found.'); return; }
-  if (!leads.length)    { console.log('⚠️  No leads found.'); return; }
+  if (!snapshot.length) { console.log('No auction data.'); return; }
+  if (!leads.length)    { console.log('No leads.'); return; }
 
-  console.log(`\nSending to ${leads.length} recipients, ${snapshot.length} counties in snapshot\n`);
+  console.log(`Sending to ${leads.length} recipients across ${snapshot.length} counties\n`);
 
   let sent = 0, failed = 0;
 
@@ -386,26 +374,26 @@ async function main() {
       const cd = snapshot.find(c => c.county === county);
       const fc = cd?.fc_upcoming_30d || 0;
       const td = cd?.td_upcoming_30d || 0;
-      const subjectMap = {
-        QUICK_DEMO:  `📋 ${format(new Date(), 'MMM d')} — ${fc} FC + ${td} TD in ${county.replace(/_/g,' ')}`,
-        PROOF:       `✓ Ceiling held again — Marion $82K → $73,501`,
-        PRICING:     `$25 analysis vs $900+ saved — the math`,
-        CONVERSION:  `${lead.name?.split(' ')[0] || 'Hey'}, your county's next auction closes soon`,
-        FRICTION:    `Pick up where you left off — BidDeed.AI`,
+      const subjects = {
+        QUICK_DEMO:  `${format(new Date(), 'MMM d')} — ${fc} FC + ${td} TD in ${county.replace(/_/g,' ')}`,
+        PROOF:       `Ceiling held again — Marion $82K → $73,501`,
+        PRICING:     `$25 analysis vs $900+ saved`,
+        CONVERSION:  `${lead.name?.split(' ')[0] || 'Hey'}, your county closes soon`,
+        FRICTION:    `Pick up where you left off`,
         SCALE:       `50 analyses/mo — time to upgrade?`,
       };
 
       const { data, error } = await resend.emails.send({
         from:    'Ariel @ BidDeed.AI <digest@biddeed.ai>',
         to:      [lead.email],
-        subject: subjectMap[hook] || subjectMap.QUICK_DEMO,
+        subject: subjects[hook] || subjects.QUICK_DEMO,
         html,
         tags: [{ name:'hook', value:hook }, { name:'stage', value:lead.stage||'lead' }],
       });
 
-      if (error) { console.error(`❌ ${lead.email}:`, error.message || error); failed++; continue; }
+      if (error) { console.error(`FAIL ${lead.email}:`, error.message || JSON.stringify(error)); failed++; continue; }
 
-      // Log + update (non-blocking)
+      // Non-blocking log
       supabase.from('digest_history').insert({
         user_id: lead.id, digest_date: TODAY, status: 'delivered',
         delivered_at: new Date().toISOString(),
@@ -418,16 +406,16 @@ async function main() {
         updated_at: new Date().toISOString(),
       }).eq('id', lead.id).then(() => {}).catch(() => {});
 
-      console.log(`✅ ${lead.email} | Hook:${hook} | ${data?.id}`);
+      console.log(`SENT ${lead.email} | ${hook} | ${data?.id}`);
       sent++;
       await new Promise(r => setTimeout(r, 400));
     } catch(e) {
-      console.error(`❌ ${lead.email}:`, e.message);
+      console.error(`FAIL ${lead.email}:`, e.message);
       failed++;
     }
   }
 
-  console.log(`\n📊 Done: ${sent} sent, ${failed} failed\n`);
+  console.log(`\nDone: ${sent} sent, ${failed} failed`);
 }
 
 main().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
