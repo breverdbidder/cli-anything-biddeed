@@ -793,8 +793,7 @@ ${DISCLAIMER_SHORT}`;
               stream: false,
               source: 'biddeed-chat',
             });
-            const routerUrl = SUPABASE_URL + '/functions/v1/claude-router';
-            const routerResp = await fetch(routerUrl, {
+            const routerResp = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
               method: 'POST',
               headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
               body: routerBody,
@@ -806,13 +805,14 @@ ${DISCLAIMER_SHORT}`;
             }
             const routerData = await routerResp.json();
             const aiText = routerData.text || '';
+            // Stream the response as SSE
             const { readable, writable } = new TransformStream();
             const writer = writable.getWriter();
             const encoder = new TextEncoder();
             (async () => {
-              for (const word of aiText.split(' ')) {
-                const chunk = 'data: ' + JSON.stringify({ text: word + ' ' }) + '\n\n';
-                await writer.write(encoder.encode(chunk));
+              if (aiText) {
+                const sseData = 'data: ' + JSON.stringify({ text: aiText }) + '\n\n';
+                await writer.write(encoder.encode(sseData));
               }
               await writer.write(encoder.encode('data: [DONE]\n\n'));
               await writer.close();
