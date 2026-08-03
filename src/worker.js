@@ -793,7 +793,8 @@ ${DISCLAIMER_SHORT}`;
               stream: false,
               source: 'biddeed-chat',
             });
-            const routerResp = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
+            const routerUrl = SUPABASE_URL + '/functions/v1/claude-router';
+            const routerResp = await fetch(routerUrl, {
               method: 'POST',
               headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
               body: routerBody,
@@ -805,20 +806,15 @@ ${DISCLAIMER_SHORT}`;
             }
             const routerData = await routerResp.json();
             const aiText = routerData.text || '';
-            // Stream the response as SSE
             const { readable, writable } = new TransformStream();
             const writer = writable.getWriter();
             const encoder = new TextEncoder();
             (async () => {
-              // Emit the full response as a single SSE chunk then DONE
               for (const word of aiText.split(' ')) {
-                await writer.write(encoder.encode(\`data: \${JSON.stringify({ text: word + ' ' })}
-
-\`));
+                const chunk = 'data: ' + JSON.stringify({ text: word + ' ' }) + '\n\n';
+                await writer.write(encoder.encode(chunk));
               }
-              await writer.write(encoder.encode('data: [DONE]
-
-'));
+              await writer.write(encoder.encode('data: [DONE]\n\n'));
               await writer.close();
             })();
             upstreamRes = new Response(readable, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
