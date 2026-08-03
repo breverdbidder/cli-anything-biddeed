@@ -392,10 +392,49 @@ function withSecurityHeaders(response, path) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// ── Error monitoring — PostHog exception capture (replaces Sentry; Sentry was
+// never adopted here, blocked on browser signup) ───────────────────────────────
+async function captureError(error, request, env) {
+  const phKey = env.POSTHOG_PROJECT_KEY;
+  if (!phKey) return;
+  try {
+    await fetch('https://us.i.posthog.com/capture/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: phKey,
+        event: '$exception',
+        distinct_id: 'biddeed-worker',
+        properties: {
+          $exception_type: error?.name || 'Error',
+          $exception_message: error?.message,
+          $exception_stack_trace_raw: error?.stack,
+          url: request?.url,
+          method: request?.method,
+          timestamp: new Date().toISOString(),
+          environment: 'production',
+          service: 'biddeed-cloudflare-worker'
+        }
+      })
+    });
+  } catch (e) {
+    // Never let error reporting break the worker
+  }
+}
+
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
   async fetch(request, env, ctx) {
-    return withSecurityHeaders(await handleRequest(request, env, ctx), new URL(request.url).pathname);
+    const path = new URL(request.url).pathname;
+    try {
+      return withSecurityHeaders(await handleRequest(request, env, ctx), path);
+    } catch (error) {
+      ctx.waitUntil(captureError(error, request, env));
+      return withSecurityHeaders(new Response(JSON.stringify({ error: 'Internal server error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }), path);
+    }
   }
 };
 
@@ -416,6 +455,7 @@ async function handleRequest(request, env, ctx) {
       if (path === '/terms' || path === '/tos') return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/privacy')                  return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/disclaimer')                return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/test-error-capture')        throw new Error('deliberate test error — verifying PostHog capture (posthog-error-monitor)');
       if (path === '/security')                  return new Response(SECURITY_HTML,   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/data-retention')            return new Response(DATA_RETENTION_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
@@ -3193,6 +3233,7 @@ code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <h2>🔍 Audit &amp; Monitoring</h2>
 <ul>
 <li>Every pull request to this codebase runs an automated security gate: Semgrep SAST, Gitleaks secret scanning, and dependency audit (npm/pip) — CRITICAL/HIGH findings block the merge.</li>
+<li>Error monitoring via PostHog (100K events/month free tier) — unhandled exceptions in the Cloudflare Worker are captured server-side and reported, no browser SDK required.</li>
 <li>Independent DAST scan (OWASP ZAP) and LLM red-team probing: not yet run against production as of ${SECURITY_LAST_REVIEWED} — scheduled as a follow-up, pending scope confirmation for live scanning of customer-facing infrastructure.</li>
 <li>Known open item: a legacy vault-read database function is more broadly grantable than intended and is flagged internally for tightening — tracked, not hidden.</li>
 </ul>

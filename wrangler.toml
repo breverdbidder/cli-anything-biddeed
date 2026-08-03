@@ -26,3 +26,9 @@ account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 #     "Missing ROUTER_PROXY_KEY binding" on every /chat/api call. Before
 #     merging: run `wrangler secret put ROUTER_PROXY_KEY` (and on
 #     wrangler-staging.toml too) and smoke-test /chat/api end-to-end.
+#   POSTHOG_PROJECT_KEY — OPTIONAL. set via: .github/workflows/set-posthog-worker-secret.yml
+#     (workflow_dispatch; pulls vault.posthog_project_key, never printed).
+#     captureError() in src/worker.js posts unhandled exceptions to PostHog's
+#     capture API as $exception events. Unset = captureError() no-ops silently
+#     (unlike ROUTER_PROXY_KEY above, this one is safe to deploy before
+#     provisioning — error reporting is best-effort, never load-bearing).

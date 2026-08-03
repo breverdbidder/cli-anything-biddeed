@@ -1,0 +1,63 @@
+name: Verify PostHog Error Capture
+
+# One-off verification: confirms a specific test $exception event actually
+# landed in PostHog after hitting biddeed.ai/test-error-capture. Uses
+# posthog_personal_api_key (read-only query scope) from the vault. Per
+# CLAUDE.md CREDENTIAL HANDLING (GTM-22D): fetch + query happen in the same
+# masked GHA step; only a boolean/count is ever written to the job log —
+# the key value itself is never printed or exported as a job output.
+
+on:
+  workflow_dispatch:
+    inputs:
+      distinct_id:
+        description: 'distinct_id to search for in the $exception event'
+        required: false
+        default: 'biddeed-worker'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query PostHog for the test $exception event
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DISTINCT_ID: ${{ inputs.distinct_id }}
+        run: |
+          set -euo pipefail
+          payload=$(jq -nc --arg q "SELECT vault_secret('posthog_personal_api_key') AS v;" '{query: $q}')
+          resp=$(curl -sS -X POST "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: cli-anything-biddeed-cc/1.0" \
+            -d "$payload")
+          key=$(echo "$resp" | jq -r '.[0].v // empty')
+          if [ -z "$key" ]; then
+            echo "::error::posthog_personal_api_key not returned from vault_secret()"
+            exit 1
+          fi
+          echo "::add-mask::$key"
+
+          project_id=$(curl -sS "https://us.posthog.com/api/projects/@current/" \
+            -H "Authorization: Bearer $key" | jq -r '.id // empty')
+          if [ -z "$project_id" ]; then
+            echo "::error::Could not resolve PostHog project id from @current"
+            exit 1
+          fi
+          echo "Resolved project_id=$project_id"
+
+          events=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
+            -H "Authorization: Bearer $key" \
+            --data-urlencode "event=\$exception" \
+            --data-urlencode "distinct_id=${DISTINCT_ID}" \
+            --data-urlencode "limit=5")
+          count=$(echo "$events" | jq '.results | length')
+          echo "Matching \$exception events for distinct_id=${DISTINCT_ID}: $count"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::No matching \$exception event found in PostHog"
+            exit 1
+          fi
+          echo "$events" | jq '[.results[] | {timestamp, properties: {exception_message: .properties["$exception_message"], url: .properties.url}}]'
