@@ -250,3 +250,6 @@ SELECT public.log_cc_session_cost(
 - This call is idempotent-safe — duplicate calls create duplicate rows (acceptable)
 
 ---
+
+## AUTO-LEARNINGS (do not hand-edit below this line)
+<!-- skill-meta-updater: last updated PLACEHOLDER -->

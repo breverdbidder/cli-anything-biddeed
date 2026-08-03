@@ -1,0 +1,61 @@
+name: Skill Meta Updater
+# Closes the skill self-improvement loop: every push to docs/skill-audits/**
+# on main opens a CC brief (from .github/ISSUE_TEMPLATE/skill-meta-update.md)
+# and dispatches cc-runner-ghonly.yml (workflow ID 297104962) to append the
+# audit's findings into the ## AUTO-LEARNINGS section of CC_META_PROMPT.md.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/skill-audits/**'
+
+concurrency:
+  group: skill-meta-updater
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create skill-meta-update issue from template
+        id: create_issue
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          set -euo pipefail
+          TODAY="$(date -u +%F)"
+          # Strip the YAML frontmatter (the first --- ... --- block) from the template.
+          python3 - "$TODAY" <<'PYEOF' > /tmp/issue_body.md
+          import sys
+          today = sys.argv[1]
+          with open('.github/ISSUE_TEMPLATE/skill-meta-update.md') as f:
+              text = f.read()
+          parts = text.split('---\n', 2)
+          body = parts[2] if len(parts) == 3 else text
+          print(body.replace('<date>', today), end='')
+          PYEOF
+          ISSUE_URL=$(gh issue create --repo "${{ github.repository }}" \
+            --title "[skill-meta-updater] Auto-learn from skill-audit ${TODAY}" \
+            --label "automation,skill-meta-updater" \
+            --body-file /tmp/issue_body.md)
+          echo "Created issue: $ISSUE_URL"
+          ISSUE_NUM="${ISSUE_URL##*/}"
+          echo "issue_number=${ISSUE_NUM}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch cc-runner-ghonly.yml (workflow ID 297104962)
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+        run: |
+          set -euo pipefail
+          ISSUE_NUM="${{ steps.create_issue.outputs.issue_number }}"
+          IN_FLIGHT=$(gh run list --workflow=297104962 --status=in_progress --json databaseId --jq 'length' --repo "${{ github.repository }}")
+          QUEUED=$(gh run list --workflow=297104962 --status=queued --json databaseId --jq 'length' --repo "${{ github.repository }}")
+          if [ "$IN_FLIGHT" != "0" ] || [ "$QUEUED" != "0" ]; then
+            echo "cc-runner-ghonly.yml already has a run in-progress/queued ($IN_FLIGHT in_progress, $QUEUED queued) — skipping dispatch for issue ${ISSUE_NUM}. Re-run manually once clear."
+            exit 0
+          fi
+          echo "Dispatching cc-runner-ghonly.yml for issue ${ISSUE_NUM}"
+          gh workflow run 297104962 -f issues="${ISSUE_NUM}" --repo "${{ github.repository }}"
