@@ -826,13 +826,41 @@ ${DISCLAIMER_SHORT}`;
               headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
               body: routerBody,
             });
+            let aiText = '';
             if (!routerResp.ok) {
               const errText = await routerResp.text();
-              await logErr(env, '/chat/api', 'claude-router non-200', errText, routerResp.status);
-              return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+              await logErr(env, '/chat/api', 'claude-router non-200 — falling back to Gemini', errText, routerResp.status);
+              // Fallback: call Gemini directly when claude-router is down
+              const fbKey = env.GEMINI_API_KEY;
+              if (fbKey) {
+                try {
+                  const fbRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${fbKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      system_instruction: { parts: [{ text: systemPrompt }] },
+                      contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] })),
+                      generationConfig: { maxOutputTokens: 1024 },
+                    }),
+                  });
+                  if (fbRes.ok) {
+                    const fbData = await fbRes.json();
+                    aiText = fbData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                  } else {
+                    await logErr(env, '/chat/api', 'Gemini fallback also failed', await fbRes.text(), fbRes.status);
+                    return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+                  }
+                } catch(fbErr) {
+                  await logErr(env, '/chat/api', 'Gemini fallback exception', String(fbErr), 502);
+                  return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+                }
+              } else {
+                return new Response(JSON.stringify({ error: 'AI service error' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+              }
+            } else {
+              const routerData = await routerResp.json();
+              aiText = routerData.text || '';
             }
-            const routerData = await routerResp.json();
-            const aiText = routerData.text || '';
             // Stream the response as SSE
             const { readable, writable } = new TransformStream();
             const writer = writable.getWriter();
