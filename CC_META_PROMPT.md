@@ -252,4 +252,16 @@ SELECT public.log_cc_session_cost(
 ---
 
 ## AUTO-LEARNINGS (do not hand-edit below this line)
-<!-- skill-meta-updater: last updated PLACEHOLDER -->
+<!-- skill-meta-updater: last updated 2026-08-03 -->
+[2026-08-03] PATTERN: Wrong pooler region (us-east-1 vs us-west-2) caused 4.5mo silent skills_catalog failure.
+[2026-08-03] PATTERN: Bare except:Exception swallowed upsert failures; job reported success with 0 rows written.
+[2026-08-03] PATTERN: Hardcoded Telegram success strings in YAML lie regardless of outcome — compute from real output.
+[2026-08-03] PATTERN: `|| echo may-exist` masked a real DB connection failure — never swallow errors optimistically.
+[2026-08-03] PATTERN: Supabase Management API 1010s without explicit User-Agent header — always set one.
+[2026-08-03] PATTERN: Expired Hetzner Claude OAuth silently zeroed autoloop 2+ months; grep logs for auth-failure text.
+[2026-08-03] PATTERN: Invalid workflow YAML blocks workflow_dispatch registration (422), not just the job run itself.
+[2026-08-03] PATTERN: Multi-line bash MSG= in `run: |` can dedent and break YAML scalar parsing — validate with PyYAML.
+[2026-08-03] PATTERN: Cross-repo GH_PAT failed on one checkout, working elsewhere — check repo scope, not rotation age.
+[2026-08-03] PATTERN: autoloop.yml schedule trigger ignores skill input, defaults to 1 of 16 skills nightly.
+[2026-08-03] PATTERN: `disabled_manually` workflow state persists silently for months — check `gh api workflows/<id>`.
+[2026-08-03] PATTERN: A fixed pooler-region bug recurred in 9 other workflows — grep repo-wide before closing bug class.
