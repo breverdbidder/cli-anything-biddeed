@@ -1,0 +1,103 @@
+-- Gold Standard shard (dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae, "gold-criteria-2-shard")
+-- Scope: madison ONLY. Letters in scope: A (dual_product_coverage), B (verified_realized_outcomes),
+-- F (tier1_authoritative_sold).
+-- Date: 2026-08-03 ~18:10 UTC. This is the 9th+ consecutive session on this same A/B/F blocker,
+-- following dispatches 2f4312f9 (07-28), 32b4833c (07-30, loop 7519), f8aa86b0 (08-01),
+-- b4525c8a (08-03 09:03 UTC), and the same-day 20260803_gold_standard_shard2_bradford_madison_recheck.sql
+-- (08-03, "no writes" recheck read at the start of this session).
+--
+-- ============================================================================
+-- STEP 0 -- BASELINE (pencil_dod_evaluate_county('madison'), loop_run_id 8584, evaluated
+-- 2026-08-03 16:59:19 UTC, read fresh at session start via gold_standard_county_status):
+--   A FAIL  detail="fc=5 td=0"
+--   B FAIL  detail="verified=0 closed_sold=0"
+--   C PASS  100.0
+--   D PASS  100.0
+--   E PASS  100.0
+--   F FAIL  detail="tier1_sold=0 closed_sold=0"
+--   G PASS  100.0
+--   H PASS  8.8h since last_seen
+--   I PASS  100.0 (5 of 5 cards complete)
+--   J PASS  100.0 (5/5 deal_complete)
+--   pass_count = 7/10
+-- Identical to today's earlier 09:03 UTC audit (b4525c8a) and to the shard2 recheck migration.
+-- No drift since 2026-07-10.
+--
+-- ============================================================================
+-- LETTER A -- dual_product_coverage (FAIL, fc=5 td=0)
+-- ============================================================================
+-- pencil_dod_evaluate_county requires A = (foreclosure_count>0 AND tax_deed_count>0) from
+-- multi_county_auctions for county='madison'. Madison currently has 5 real foreclosure rows
+-- (case numbers 21-36-CA, 24-62-CA, 26-20-CA, 25-128-CA, 25-79-CA) and ZERO tax_deed rows.
+-- pipeline.counties.taxdeed_platform is already correctly wired (clerk_html ->
+-- madisonclerk.com/departments-services/property-sales/tax-deed-sales/), repaired 2026-07-10
+-- (shard9 run3534). This is NOT a missing-integration gap.
+--
+-- Fresh live re-check this session (WebFetch, 2026-08-03 ~18:05 UTC):
+--   https://www.madisonclerk.com/departments-services/property-sales/tax-deed-sales/
+--   Verbatim page text: "There are no properties on the list of tax deeds at this time."
+-- Additional lever attempted THIS session (not tried in any prior firing per notes review):
+--   https://madison.realtaxdeed.com/  -> still HTTP 403 (curl, 15s timeout), same as prior
+--   sessions' inconclusive finding. Not pursued further -- clerk's own page is authoritative
+--   and unambiguous; RealTaxDeed 403 is consistent, not a new lead.
+--   madisonclerk.com/departments-services/official-records/ -> HTTP 404 (does not exist as a
+--   standalone page under that path). No case-outcome search surface found there either.
+-- CONCLUSION: A remains FAIL BY DESIGN. Madison genuinely has zero active tax-deed sales
+-- right now. No fabricated row inserted. No write applied. Re-check when the county actually
+-- schedules a tax deed sale (event-driven, not session-driven).
+--
+-- ============================================================================
+-- LETTER B -- verified_realized_outcomes (FAIL, verified=0 closed_sold=0)
+-- ============================================================================
+-- B requires sold_amount IS NOT NULL AND a matching foreclosure_outcomes/tax_deed_outcomes row,
+-- as a fraction of closed_sold (sold_amount IS NOT NULL), between 95-105%. Currently
+-- closed_sold=0 (NULLIF makes the ratio NULL -> FAIL) because none of madison's 5 rows carry a
+-- sold_amount.
+-- Two rows have passed their auction_date and are the only ones that could move this metric:
+--   24-62-CA (Rutha Brown, 204 SW Church Ave, judgment $127,543.12, orig. auction_date
+--     2026-07-28): already has a real, non-fabricated foreclosure_outcomes row (id
+--     2b59dc74-a036-4870-aace-d53c3b37b215, data_source = Auction.com listing, trustee_sale_number
+--     2024000062CAAXMX, outcome='sold', winner_type='plaintiff_reverted', opening_bid=$100,
+--     winning_bid=NULL). The disposition (reverted to plaintiff, no 3rd-party bid) IS known and
+--     already correctly captured -- but there is no sold dollar amount to record because none was
+--     realized (a reverted/no-sale outcome has no winning bid by definition). Re-fetched
+--     auction.com listing this session: still JS-rendered SPA, no server-side HTML data on raw
+--     fetch (same as all prior sessions).
+--   21-36-CA (Toby Ray Earnhardt, 1638 SW SR 14, judgment $329,222.83, orig. auction_date
+--     2026-07-16): re-fetched madisonclerk.com/foreclosure-sales/ live this session -- still
+--     absent from the calendar, no results/archive section exists on the site (confirmed
+--     verbatim: only 26-20-CA, 25-128-CA, 25-79-CA are listed, all status=scheduled/future).
+-- Independent-source options re-examined this session (no re-attempt of confirmed dead ends):
+--   - Civitek OCRS (civitekflorida.com/ocrs/county/40/): confirmed by the 2026-07-30 session
+--     (playwright+chromium, real click-through to Case Search) to be gated by an interactive
+--     Cloudflare Turnstile human-verification challenge. Explicitly flagged do-not-re-attempt
+--     (CAPTCHA evasion out of scope per campaign rules). NOT re-attempted this session.
+--   - myfloridacounty.com/orisearch (Official Records): requires party name, not case number;
+--     we do not have a reliable defendant name lookup path independent of the two hallucinated
+--     WebSearch results already discarded in the 2026-07-28/07-30 sessions.
+--   - qpublic/madisonpa.com: bot-blocked (403), confirmed again structurally unchanged.
+-- CONCLUSION: B remains FAIL. Root cause is a genuine data-availability gap (no independently
+-- reachable results archive or case-lookup surface for these 2 cases), not a scraper/integration
+-- defect. Only remaining lever: phone call to Madison County Clerk (850-973-1500) for 21-36-CA's
+-- and 24-62-CA's exact disposition/amount -- outside autonomous scope, already escalated to
+-- Ariel by 3 prior sessions (2026-07-30, 2026-08-01, 2026-08-03 09:03 UTC). No write applied.
+--
+-- ============================================================================
+-- LETTER F -- tier1_authoritative_sold (FAIL, tier1_sold=0 closed_sold=0)
+-- ============================================================================
+-- F requires tier1_sold_amount IS NOT NULL AND sold_amount IS NOT NULL. F shares its root cause
+-- with B exactly (same 2 past-due cases, same missing dollar figure) -- F cannot pass before B's
+-- underlying sold_amount gap is closed. No independent lever exists for F beyond what was
+-- attempted for B above. No write applied.
+--
+-- ============================================================================
+-- VERIFICATION -- re-ran pencil_dod_evaluate_county('madison') after this session's (zero) writes:
+-- IDENTICAL to baseline: A FAIL fc=5/td=0, B FAIL verified=0/closed_sold=0, F FAIL
+-- tier1_sold=0/closed_sold=0, pass_count=7/10. No regression, no drift, no fabrication.
+--
+-- NO FABRICATION: zero rows inserted/updated in multi_county_auctions, foreclosure_outcomes, or
+-- tax_deed_outcomes this session. BLANK > WRONG. All three letters (A, B, F) are genuinely
+-- structurally blocked pending either (1) Madison County actually scheduling a tax deed sale
+-- (A), or (2) human phone/records-request outreach to the Clerk for 2 specific case dispositions
+-- (B, F) -- both outside autonomous scope, both already escalated to Ariel by prior sessions.
+SELECT 1; -- no-op: documentation-only, no schema/data changes this session

@@ -1,0 +1,143 @@
+-- Gold Standard shard (dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae): lake, letters C/E/I/J
+-- Session: 2026-08-03. Applied LIVE via Supabase Management API SQL endpoint.
+--
+-- SCOPE: county='lake' only. Did not touch any other county, biddeed Worker, Stripe, or S5.
+--
+-- ENTRY STATE (fresh pencil_dod_evaluate_county('lake') read at session start, confirming
+-- the scoreboard snapshot was NOT stale -- today's earlier same-day migrations
+-- (20260803_gold_standard_shard2_lake_c_status_recheck.sql,
+--  20260803_gold_standard_shard2_lee_lake_e_parcel_linkage.sql,
+--  20260803_gold_standard_shard2_lee_lake_i_zone_gap.sql,
+--  20260803_gold_standard_shard2_charlotte_lake_g_zoning.sql,
+--  20260803_gold_standard_shard2_lee_lake_g_regression_fix.sql)
+-- had already been applied and their effects were already fully reflected):
+--   A=PASS B=PASS C=FAIL(93.6, matched_clean=103/110) D=PASS(99.1)
+--   E=FAIL(72.7, parcel_linked=80/110) F=PASS G=PASS(98.1) H=PASS
+--   I=FAIL(71.8, card_complete=79/110) J=FAIL(72.7, deal_complete=80/110)
+--
+-- ===========================================================================
+-- LETTER I: 1 genuine fix applied (the only lever found this session)
+-- ===========================================================================
+-- Residual I gap query (has_addr/has_geo/has_val all true, parcel_id present,
+-- but no matching parcel_zones row) found exactly 1 row beyond the 30 rows
+-- that are structurally blocked identically to E (see below): case_number
+-- 2025CC004659, 3010 BRIGHTON RD, parcel_id 331826060000002700, assessed_value
+-- 324625 (all already on file -- not a data-entry gap, a zone-substrate gap
+-- exactly like the 12 rows fixed in this morning's
+-- 20260803_gold_standard_shard2_lee_lake_i_zone_gap.sql, which this migration
+-- missed).
+--
+-- VERIFIED live via Lake County GIS ArcGIS REST:
+--   https://gis.lakecountyfl.gov/lakegis/rest/services/InteractiveMap/MapServer/26
+--   point-intersect query (geometry=-81.717079,28.875452, inSR=4326) ->
+--   {"City":"EUSTIS"} -- parcel falls inside City of Eustis limits.
+--   Parcel identity cross-checked via InteractiveMap/MapServer/20 (Tax Parcels),
+--   where=ParcelNumber='331826060000002700' -> PropertyAddress "3010 BRIGHTON RD",
+--   OwnerName "KHAN NASIR" -- confirms correct parcel.
+--   Same structural note as this morning's fix: City of Eustis has NO zoning
+--   layer in either LocalGov/CityZoning/MapServer (11 other Lake munis covered,
+--   Eustis absent) or CityView/MapServer (Eustis group layer 28 has only a
+--   Future Land Use sublayer, no Zoning sublayer). Countywide unincorporated
+--   zoning layer (InteractiveMap/MapServer/50) returns 0 features here (expected,
+--   parcel is inside Eustis, not unincorporated). Only a Future Land Use code
+--   is publishable: FLUCode "SR" (Suburban Residential), verified via
+--   CityView/MapServer/29 and LocalGov/CityFLU/MapServer/2, both point-intersect.
+--
+-- This is the exact same "Eustis has no zoning map, FLU is the operative
+-- regulatory proxy" situation already established and documented in
+-- 20260803_gold_standard_shard2_lee_lake_i_zone_gap.sql (8 other Eustis rows,
+-- same zoning_districts row jurisdiction_id=969 code='SR' already exists from
+-- that migration -- reused here via ON CONFLICT DO NOTHING, no new
+-- zoning_districts row needed).
+--
+-- RESULT: I card_complete 79 -> 80 of 110 (71.8% -> 72.7%). Still FAIL.
+INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source)
+VALUES (
+  '331826060000002700', 969, 'SR',
+  'Suburban Residential (Eustis Future Land Use -- used as zoning proxy, Eustis has no separate zoning map)',
+  'lake_shard_df5a4f3a_i_zonegap_eustis_flu_arcgis_point_match'
+)
+ON CONFLICT DO NOTHING;
+
+-- ===========================================================================
+-- LETTER E: re-verified STRUCTURAL CEILING, no new write (no fabrication)
+-- ===========================================================================
+-- Residual gap: 30 of 110 rows, parcel_id IS NULL, ALL data_source =
+-- 'lake_clerk_foreclosure_calendar_v1' with NULL property_address. This is the
+-- IDENTICAL row set (same 30 case numbers) already documented as unresolvable
+-- in 20260724_lake_e_parcel_linkage_ceiling_audit.sql AND re-confirmed
+-- unresolvable earlier TODAY in 20260803_gold_standard_shard2_lee_lake_e_parcel_linkage.sql
+-- (0 of 30 recovered that session too). No new lever exists: Lake Clerk's
+-- case-record portals remain login-gated / JS-SPA-with-no-API, and no
+-- browser-automation tool is available in this environment. Re-attempting the
+-- same exhausted script this session would be pure budget waste with a known
+-- zero-yield outcome -- not attempted. E remains 80/110 (72.7%). STRUCTURAL
+-- CEILING, confirmed for a third time (2026-07-24, and twice on 2026-08-03).
+--
+-- ===========================================================================
+-- LETTER C: re-verified STRUCTURAL CEILING, no new write (no fabrication)
+-- ===========================================================================
+-- Residual gap: 6 rows still not matched_clean (2021CA001385, 2022CA001313,
+-- 2025CA000447 [mca_only], 2025CA001088, 2025CA001415, 2025CA001565,
+-- 2025CA001984 -- 7 listed in this morning's C migration as "cannot verify",
+-- live requery this session shows 6 actually remain non-matched_clean; the
+-- 7th, 2025CA000447, is 'mca_only' not 'matched_divergent', a related but
+-- distinct non-matched_clean state; no action possible on it either).
+-- Re-verified LIVE, fresh this session, all 3 litmus sources from
+-- cd_litmus_hierarchy:
+--   1. lake.realforeclose.com -- HTTP 200, exhaustively parsed all 94 "Jump To"
+--      county/site options: only "Lake Taxdeed" exists, still no "Lake
+--      Foreclosure" platform. Unchanged from 2026-07-24 finding.
+--   2. officialrecords.lakecountyclerk.org -- HTTP 200 but page body contains
+--      Login/Password/Username/Search fields; confirmed still login-gated.
+--      courtrecords.lakecountyclerk.org/showcaseweb -- confirmed still an
+--      Angular SPA (ng-app="sc") with no working GET/query-string case API;
+--      2 plausible API paths tried, both returned the SPA HTML shell not JSON.
+--   3. floridabidder.com -- NOW returns Cloudflare 403 "Attention Required!"
+--      at the raw-fetch level (2 different desktop UAs tried) -- this is a
+--      HARDER block than the prior session's "readable, Lake absent from the
+--      18-county list" finding. Per HONESTY PROTOCOL, downgrading this
+--      specific sub-claim to UNKNOWN this session rather than carrying
+--      forward "confirmed absent" as if freshly re-verified -- it was not;
+--      the site itself could not be read at all today.
+-- C remains 103/110 (93.6%). STRUCTURAL CEILING for the residual 6 rows,
+-- re-confirmed live this session (with the floridabidder caveat noted above).
+--
+-- ===========================================================================
+-- LETTER J: re-verified STRUCTURAL CEILING, no new write (no fabrication)
+-- ===========================================================================
+-- Confirmed live: 0 rows exist for lake where parcel_id IS NOT NULL AND the
+-- bid_decisions completeness predicate fails. J's deal_complete=80/110 is
+-- numerically IDENTICAL to and fully explained by E's parcel_linked=80/110 --
+-- every gap row lacks a parcel_id (hence no assessed_value to derive a real
+-- ARV from), consistent with the honest ghost-purge finding already recorded
+-- in 20260724v_shard2_lake_j_ghost_purge_full_regen.sql ("deal_complete=80 of
+-- 109 -- matches letter E's own honest linkage ceiling exactly"). J cannot
+-- move independently of E; closing J further requires closing E first. No
+-- fabricated bid_decisions rows were written for the 30 unlinked cases.
+--
+-- ===========================================================================
+-- G REGRESSION CHECK (mandatory per session brief -- G was fixed same-day,
+-- flagged fragile)
+-- ===========================================================================
+-- Re-ran pencil_dod_evaluate_county('lake') immediately after the I fix above
+-- (the only write in this migration touching parcel_zones, which G's KPI view
+-- also reads from). G: pass=true, density=98.1, far=100.0 -- IDENTICAL to the
+-- pre-fix reading. No regression. This migration did not touch
+-- zoning_assignments or zoning_districts beyond reusing the pre-existing
+-- Eustis/SR district row (ON CONFLICT DO NOTHING, no-op).
+--
+-- ===========================================================================
+-- EXIT STATE (pencil_dod_evaluate_county('lake'), post-fix, live-verified)
+-- ===========================================================================
+--   A=PASS B=PASS C=FAIL(93.6, 103/110) D=PASS(99.1) E=FAIL(72.7, 80/110)
+--   F=PASS G=PASS(98.1, unchanged) H=PASS
+--   I=FAIL(72.7, 80/110 -- up from 79/110 / 71.8%) J=FAIL(72.7, 80/110)
+--   pass_count still 6/10. C/E/J are genuine, re-confirmed structural
+--   ceilings this session, not gaps left un-worked. I moved by exactly 1 row,
+--   the only real lever found.
+--
+-- Adversarial audit entries logged to gold_standard_ultraloop_audit for all
+-- four letters (dispatch_id='df5a4f3a-b78a-493b-976e-6081a988c1ae',
+-- county_slug='lake', survived=true for each -- all claims held up under
+-- re-check).

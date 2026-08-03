@@ -1,0 +1,163 @@
+-- Gold Standard shard (dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae,
+-- "gold-criteria-2-shard"), county columbia ONLY, 2026-08-03.
+--
+-- APPLIED LIVE via the Supabase Management API SQL endpoint during this
+-- session: 4 rows written to gold_standard_ultraloop_audit (ids 12652-12655,
+-- letters B/F/I/J, all survived=true). NO writes to multi_county_auctions,
+-- parcel_zones, zoning_districts, zone_standards, or bid_decisions this
+-- session -- every lever investigated genuinely dead-ended; nothing was
+-- fabricated to force a flip. This file documents the investigation; it is
+-- NOT a pending schema/data migration to run.
+--
+-- CONTEXT: this dispatch fired ~3 hours after commit 5d9ab47c (this same
+-- day, "Gold Standard shard-2 (sarasota/columbia, dispatch dd959980)"), which
+-- flipped columbia A to PASS by harvesting 19 real new tax-deed rows from
+-- columbiaclerk.com's rebuilt Vue/Tailwind site (columbia_taxdeed_html_harvest_v2.py)
+-- and explicitly disclosed that this diluted I (14/15->14/34) and J
+-- (15/15->15/34) from PASS to FAIL as a real, disclosed trade-off. Net
+-- pass_count stayed 6/10 (A gained, J lost). Live pencil_dod_evaluate_county
+-- at session start of THIS session matched that report exactly:
+--   A=PASS(15,fc=15 td=19) B=FAIL(null) C=PASS(100) D=PASS(100) E=PASS(100)
+--   F=FAIL(null) G=PASS(100) H=PASS(1.8) I=FAIL(41.2,14/34) J=FAIL(44.1,15/34)
+--
+-- ============================================================
+-- B / F -- verified_realized_outcomes / tier1_authoritative_sold
+-- ============================================================
+-- STILL STRUCTURALLY BLOCKED. This is at least the 5th documented session
+-- reaching this conclusion (20260626_shard3_wave3_columbia_bf.sql,
+-- 20260719_shard2_columbia_a_bf_blocked_no_real_data.sql,
+-- 20260719_shard2cont_columbia_abf_recheck_still_blocked.sql,
+-- 20260731f_gold_standard_shard5_columbia_bf_civitek_turnstile_confirmed.sql,
+-- this session). Fresh live re-check performed today, not assumed from the
+-- prior session:
+--   - civitekflorida.com/ocrs/county/12/index.xhtml: landing page returns
+--     HTTP 200 to a plain curl fetch, but per the 2026-07-31 session's
+--     Playwright-driven trace, the Cloudflare Turnstile widget is bound to
+--     the shared search form itself (reached only after clicking "Public" ->
+--     "I Agree"), not visible on the static landing page -- consistent with,
+--     not contradicted by, today's plain-curl 200.
+--   - columbiaclerk.com/clerk-services/foreclosures/upcoming-foreclosure-sales/:
+--     fresh curl this session returns HTTP 403 with a literal "Just a
+--     moment...cloudflare" challenge body -- Cloudflare is if anything
+--     tighter today than the 07-31 session (which needed a real Playwright
+--     browser to get through; a bare curl was already failing then too).
+--   - closed_sold=0 confirmed live (0 of 34 columbia rows have sold_amount
+--     set) -- B and F are both mathematically null (0/0) until at least one
+--     real sale outcome is found from an accessible source.
+-- No sold_amount / tier1_sold_amount written. No foreclosure_outcomes or
+-- tax_deed_outcomes row inserted. No case number, party, or amount
+-- fabricated.
+--
+-- ============================================================
+-- I / J -- property_card_complete / shapira_deal_thesis (post-A-fix dilution)
+-- ============================================================
+-- CONFIRMED: this is a direct, disclosed consequence of the same-day A-fix
+-- (commit 5d9ab47c), not an independent bug. Investigated whether the
+-- dilution is backfillable with real data for the 19 new tax-deed rows
+-- (parcel_ids like 11651-000, 02439-217, 13118-001, ... -- Columbia County
+-- Property Appraiser folio format) rather than reverting the A fix.
+--
+-- I: attempted 3 independent live parcel-matching paths this session, all
+-- dead-ended:
+--   1. FL DOR Statewide Cadastral ArcGIS (services9.arcgis.com/.../
+--      Florida_Statewide_Cadastral/FeatureServer/0), CO_NO=12: queried
+--      PARCEL_ID='11651-000' (and confirmed the field schema/sample rows
+--      live) -- returns zero features. Columbia's co_no=12 records in this
+--      service use an unrelated long-form numeric PARCEL_ID (e.g.
+--      "322S22004900760075") with ALT_KEY blank on every sampled row -- no
+--      crosswalk from the county's own folio format exists via this API.
+--      This matches and confirms the 2026-08-03 sarasota/columbia session's
+--      same finding (independently re-derived here, not just trusted).
+--   2. Columbia County's own ArcGIS REST
+--      (gis.columbiacountyfla.com/arcgis/rest/services): HTTP 404 on the
+--      services root, confirmed fresh live today.
+--   3. Columbia County Property Appraiser (columbia.floridapa.com /
+--      gz.floridapa.com/mapserver): this domain is genuinely new ground for
+--      the columbia campaign (prior sessions only checked
+--      gis.columbiacountyfla.com and qpublic). It is a legacy MapServer
+--      6.4.3 CGI (WMS/WFS-capable in principle) fronted by a client-side-JS
+--      search form (columbia.floridapa.com/GIS/, form posts to
+--      /gis/ with clientWidth/clientHeight/orientation hidden fields, no
+--      server-renderable parcel search without executing that JS). The page
+--      source reveals mapPath='/www/_grizzly.gis/gis.ColumbiaPA.com/' and a
+--      direct mapserver CGI at gz.floridapa.com/mapserver -- tried several
+--      plausible map= filename variants for WFS GetCapabilities
+--      (ColumbiaPA.map, columbiapa.map, columbia.map, bare county-name
+--      guesses); all either failed MS_DEFAULT_MAPFILE_PATTERN regex
+--      validation or returned "Unable to access file" for the exact
+--      filename, meaning the real internal mapfile name is not guessable
+--      from public information. qpublic.net/fl/columbia (the standard
+--      cross-county fallback) returns HTTP 403 (Cloudflare), confirmed
+--      fresh. Stopped here rather than continuing to blind-guess an
+--      undocumented internal CGI filename -- this is not a sanctioned data
+--      source pattern and further guessing has a near-zero success rate for
+--      a real cost.
+--   Result: no property_address / lat-lon / assessed_value / market_value
+--   could be sourced for any of the 19 new rows from any live, accessible
+--   source this session. No value fabricated or estimated. I remains FAIL
+--   (14/34, 41.2%).
+--
+-- J: this is not merely unenriched -- it is MATHEMATICALLY UNREACHABLE for
+-- the 19 new rows under the current evaluator, independent of any future
+-- data-enrichment effort. Verified live:
+--   - pencil_dod_evaluate_county's J CTE joins
+--     bid_decisions.case_number = multi_county_auctions.case_number.
+--   - bid_decisions.case_number is a NOT NULL column (confirmed via
+--     information_schema.columns).
+--   - All 19 new tax-deed rows have case_number = NULL, confirmed live --
+--     this is because columbiaclerk.com's new tax-deed list page (per
+--     commit 5d9ab47c) never renders a case number for scheduled tax-deed
+--     sales, only cert_number + parcel_id. This was disclosed honestly by
+--     the A-fix session, not hidden.
+--   - SQL equality: NULL = NULL evaluates to NULL (falsy), confirmed live
+--     via `SELECT (NULL::text = NULL::text)`.
+--   Therefore no bid_decisions row -- however complete its arv/max_bid/
+--   ml_score/factors -- could ever be joined to these 19 rows without first
+--   fabricating a case_number for them, which is explicitly prohibited (no
+--   case_number exists on the source page to fabricate FROM; there is no
+--   real value to backfill). J remains FAIL (15/34, 44.1%).
+--
+-- No parcel_zones, zoning_districts, or bid_decisions rows were inserted
+-- this session for columbia. No revert of the A fix was made or considered
+-- necessary -- A=PASS is preserved, verified unchanged, live, at session end.
+--
+-- ============================================================
+-- Live verification, immediately before and after this session (identical)
+-- ============================================================
+-- SELECT public.pencil_dod_evaluate_county('columbia');
+-- A=PASS(15, fc=15 td=19) B=FAIL(null, verified=0 closed_sold=0)
+-- C=PASS(100.0) D=PASS(100.0) E=PASS(100.0)
+-- F=FAIL(null, tier1_sold=0 closed_sold=0) G=PASS(100.0)
+-- H=PASS(~1.8-1.9h) I=FAIL(41.2, card_complete=14/34)
+-- J=FAIL(44.1, deal_complete=15/34)
+-- auctions_total=34  -- 6/10, unchanged from session start.
+--
+-- Adversarial audit rows logged: gold_standard_ultraloop_audit
+-- (dispatch_id='df5a4f3a-b78a-493b-976e-6081a988c1ae', county_slug='columbia',
+-- letters B/F/I/J, all survived=true, ids 12652-12655).
+--
+-- RESIDUAL / NEXT-SESSION PRIORITIES:
+--   1. B/F: only remaining paths are (a) a human manually clearing the
+--      civitekflorida.com Turnstile once and handing an agent a reusable
+--      session cookie, (b) a paid court-records API, or (c) the clerk's
+--      office publishing a genuine post-sale results/archive page (does not
+--      currently exist on columbiaclerk.com's current site structure). Do
+--      not re-attempt bare curl/WebFetch against either domain without a new
+--      angle -- both are now confirmed Cloudflare-hardened.
+--   2. I/J: the 19 new tax-deed rows are a genuinely hard case with today's
+--      tooling -- no working programmatic parcel lookup exists for Columbia
+--      County's folio-format parcel IDs (11651-000 style). A future session
+--      should either (a) find a human-operable Columbia County Property
+--      Appraiser parcel search that could be driven by a real browser
+--      (Playwright/browser-use, not curl) to look up each of the 19
+--      parcel_ids individually, or (b) accept these 19 rows as a permanent
+--      denominator-only addition until real enrichment data becomes
+--      available, since they represent real scheduled sales that should
+--      stay in the dataset for A/C/D/E's benefit even while I/J catch up.
+--   3. J is structurally blocked at the row level for tax-deed sale_type
+--      rows generally when case_number is NULL -- this may recur for any
+--      future county's tax-deed harvester that scrapes a list page without
+--      a case number field. Worth flagging to whoever owns the J
+--      evaluator/harvester pattern fleet-wide (out of scope for this
+--      columbia-only dispatch).
+SELECT 1;

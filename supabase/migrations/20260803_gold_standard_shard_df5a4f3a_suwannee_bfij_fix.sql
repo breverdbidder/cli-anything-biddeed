@@ -1,0 +1,88 @@
+-- Gold Standard shard dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae ("gold-criteria-2-shard")
+-- Scope: suwannee ONLY. Criteria targeted: B (verified_realized_outcomes),
+-- F (tier1_authoritative_sold), I (property_card_complete), J (shapira_deal_thesis).
+--
+-- CONTEXT: this dispatch fired ~16 minutes after dispatch 72fc52cc-5c4b-45bb-b7f4-bef4dd882aa0
+-- (commit 4c43dcf9, "suwannee shard-4 session -- I geo backfill, purge re-fabricated J deal
+-- thesis") completed on the SAME county on the SAME day. That session already:
+--   - Re-researched B/F exhaustively (4+ channels), found genuinely blocked, made no write.
+--   - Geocoded 10 tax-deed rows for I (card_complete 25->26 of 35 = 74.3%), hit a structural
+--     cap: 9 of 10 remaining rows are genuinely addressless vacant/timberland parcels per
+--     Suwannee Property Appraiser + Tax Collector cross-check.
+--   - Found J's 100% PASS had been RE-FABRICATED after its 2026-07-21 purge (fixed-ratio
+--     arv=assessed_value, cma_resale/cma_distressed = fixed ratios of arv, clustered/constant
+--     ml_score fallback). Purged 35 fabricated bid_decisions rows live. J correctly regressed
+--     to FAIL (deal_complete=0).
+--
+-- THIS SESSION (dispatch df5a4f3a): re-verified all of the above fresh via
+-- pencil_dod_evaluate_county('suwannee') and live queries. Result: state is IDENTICAL to what
+-- 72fc52cc left it at (6/10: A,C,D,E,G,H pass; B,F,I,J fail). No regression, no drift.
+--
+-- NO DATA WRITES WERE MADE THIS SESSION. This migration is documentation-only, recording:
+--   1. Fresh evaluator proof that state is unchanged and the purge held (bid_decisions
+--      count for suwannee = 0, confirmed live).
+--   2. A NEW root-cause finding for why J cannot be genuinely rebuilt yet (see below) --
+--      this is new information beyond what 72fc52cc documented, not a repeat.
+--   3. Fresh B/F re-check: both candidate cases (25-CA-197, 25-CA-170) still auction_status=
+--      'upcoming', last_seen_at refreshed today by the routine harvester (pipeline is live,
+--      not stale) -- still no disposition anywhere. No new channel found this session.
+--
+-- ============================================================================
+-- NEW FINDING THIS SESSION: root cause for why J's real fix (gen_valuations_comps_batch,
+-- flagged as the residual next-step in 4c43dcf9) is NOT safely buildable yet for suwannee.
+-- ============================================================================
+--
+-- gen_valuations_comps_batch() is the only genuine comps-CMA generator in this schema. It
+-- joins public.parcels / public.fl_parcels on raw parcel_id. Verified live:
+--   - fl_parcels co_no=70 (Suwannee) has 99,234 REAL rows (statewide FL GIO cadastral data,
+--     not fabricated) -- but keyed by STRAP-format parcel_id (e.g. 'K15Y037').
+--   - multi_county_auctions.parcel_id for suwannee's 35 auction rows is numeric format
+--     (e.g. '9873002000').
+--   - 0 of 35 suwannee auction parcel_ids format-match fl_parcels co_no=70 on this join.
+--   - A naive check showed 3 apparent matches (2220000000, 2490003000, 11787000000) -- these
+--     were independently verified to be SPURIOUS cross-county collisions (co_no 51, 65, 13
+--     respectively, none of which is Suwannee/70).
+--   - No numeric<->STRAP crosswalk table exists in this schema (checked information_schema
+--     .tables for %strap%/%crosswalk%/%parcel_map%: zero results).
+--
+-- Building an ad-hoc crosswalk this session without a verified authoritative mapping source
+-- would risk assigning the wrong parcel's comps to the wrong auction row -- functionally the
+-- same fabrication-adjacent risk already purged TWICE for this exact county (2026-07-21 and
+-- 2026-08-03 ~16:42 UTC). Per this dispatch's explicit instruction and the repo's
+-- HONESTY PROTOCOL (BLANK > WRONG), J is left FAILING rather than force a fix.
+--
+-- NO J ROWS WERE ADDED OR MODIFIED. bid_decisions for county_slug='suwannee' remains 0 rows
+-- (verified live this session, matching the post-purge state left by 72fc52cc).
+--
+-- RESIDUAL for a future dedicated session: build a verified Suwannee-specific numeric-parcel_id
+-- -> STRAP crosswalk (e.g. via the Suwannee Property Appraiser's own parcel search, which
+-- likely exposes both identifiers per parcel), THEN run gen_valuations_comps_batch-style
+-- real comps against fl_parcels co_no=70. Do not attempt without a citable per-parcel source
+-- for each crosswalk mapping.
+--
+-- ============================================================================
+-- SQL VERIFICATION
+-- ============================================================================
+-- query: SELECT public.pencil_dod_evaluate_county('suwannee');
+-- result (2026-08-03T~18:12 UTC):
+-- {"A":{"pass":true,"metric":4},"B":{"pass":false,"metric":null},"C":{"pass":true,"metric":100.0},
+--  "D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},"F":{"pass":false,"metric":null},
+--  "G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.0},
+--  "I":{"pass":false,"metric":74.3,"detail":"card_complete=26 of 35"},
+--  "J":{"pass":false,"metric":0.0,"detail":"deal_complete=0"}}
+-- -- IDENTICAL to the state left by dispatch 72fc52cc. No drift, no regression, no new writes.
+--
+-- query: SELECT county_slug, COUNT(*) FROM bid_decisions WHERE county_slug='suwannee' GROUP BY county_slug;
+-- result: [] (0 rows) -- purge held, no re-fabrication occurred.
+--
+-- gold_standard_ultraloop_audit rows logged this session (dispatch_id=df5a4f3a-b78a-493b-976e-6081a988c1ae):
+--   id 12664 (J, survived=true) -- STRAP/numeric format-mismatch root cause, documented above.
+--   id 12665 (B, survived=true) -- fresh re-check, still upcoming/undisposed, no new channel.
+--   id 12666 (F, survived=true) -- same fresh re-check, tier1_sold=0 closed_sold=0.
+--   id 12667 (I, survived=true) -- re-confirmed 72fc52cc's 26/35 fix persisted, no regression.
+--
+-- No schema/data DDL/DML in this migration -- it is a documentation-only record, consistent
+-- with "no writes this session" being the honest, correct outcome for a duplicate/near-
+-- simultaneous dispatch on a county whose only real prior session already exhausted every
+-- currently-available lever.
+SELECT 1; -- no-op; this migration is a documentation record only, no schema/data changes

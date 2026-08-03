@@ -1,0 +1,124 @@
+-- Gold Standard shard (dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae,
+-- "gold-criteria-2-shard"), scope: baker ONLY, letters C/D/E/I.
+--
+-- This is a FRESH LIVE RE-CHECK session, not a new fix. The immediately
+-- preceding session (20260803_gold_standard_shard5_be7c06d5_baker_cdi_gilchrist_recheck.sql,
+-- same day, earlier run) already moved baker C/D/I from 20.0% (3/15) to
+-- 46.7% (7/15) via real data (Unincorporated Baker County jurisdiction +
+-- AG 7.5 zoning district/standards + 2 new parcel_zones rows + parity
+-- backfill on 2 case numbers). This session independently re-verified that
+-- state is still live and unregressed, then spent the full session trying
+-- new/repeated angles on the remaining 8-row gap before concluding: still
+-- genuinely blocked, zero fabrication, ZERO new writes to
+-- multi_county_auctions/jurisdictions/zoning_districts/zone_standards/
+-- parcel_zones this session.
+--
+-- ROOT CAUSE OF THE REMAINING GAP (CONFIRMED live, 2026-08-03 ~18:00-18:15 UTC):
+--   auctions_total=15 across 8 unique case numbers. 7 rows (4 case numbers:
+--   022025CA000038CAAXMX, 022025CA000148CAAXMX, 022026CA000018CAAXMX,
+--   022026XX000002TDAXMX) have full parcel_id/address/geo/value/parity data
+--   and already-linked zoning (v_zoning_gold_standard_card confirms zone_code
+--   for all 4 distinct parcels: 043S22000000000540=CITY,
+--   073S22023800000290=CITY, 121S20000000000021=AG 7.5,
+--   35-2S-20-0000-0000-0035=CBD). The remaining 8 rows (4 case numbers:
+--   022025CA000108CAAXMX, 022025CA000117CAAXMX, 022025CA000124CAAXMX,
+--   022026CA000007CAAXMX) have NULL parcel_id/address/geo/value/parity --
+--   these are the exact same 4 (of the original 6) cases documented as
+--   structurally blocked across three prior sessions
+--   (20260724_shard2_baker_c_d_e_i_property_appraiser_purge.sql,
+--   20260724b_..._regression_repurge.sql, 20260725_..._purge_executed.sql,
+--   and 20260803_..._be7c06d5_baker_cdi_gilchrist_recheck.sql), MINUS the 2
+--   cases the be7c06d5 session already resolved.
+--
+--   Fresh live checks THIS session (all four cases, all sources):
+--     1. baker.realforeclose.com -- session-warmed (PREVIEW then UPDATE with
+--        cookies + Referer, matching calendar_sweep_mca.py's real request
+--        shape) across every discoverable upcoming AuctionDate
+--        (07/16/2026, 08/13/2026, 08/20/2026) and both AREA=W and AREA=R.
+--        022025CA000108/117/124 do NOT appear on the live calendar at all
+--        (any date, any area) -- they have fallen off the auction docket
+--        entirely (sold/cancelled/postponed-indefinitely -- cannot tell
+--        which from this source, no outcome text visible for absent cases).
+--        022026CA000007CAAXMX DOES still appear (08/13/2026, AREA=W,
+--        aid=1510240) -- raw fragment:
+--          Parcel ID:...<a href="http://bakerpa.com/propertydetails.php?parcel="
+--          ...>Property Appraiser</a>
+--        i.e. the anchor text is still literally "Property Appraiser" and
+--        the href parcel= param is still empty -- Baker County itself has
+--        not linked a parcel to this case, and there is no Property Address
+--        row in the card at all (matches the exact ghost-anchor pattern the
+--        07-24/07-25 migrations purged from our own DB -- confirming that
+--        purge was correct and this is the source's real state, not a
+--        scraper artifact).
+--     2. baker.realtaxdeed.com -- same session-warmed method, same 3 dates,
+--        AREA=W. Same 2 cases visible (022025CA000148, 022026CA000007),
+--        same empty-parcel state for 022026CA000007. The 3 missing cases
+--        are absent here too.
+--     3. bakerpa.com -- now HTTP 200 (was Cloudflare 521 on 2026-07-24,
+--        confirmed recovered as of 2026-08-03). However it remains a
+--        parcel-number lookup only (propertydetails.php?parcel=<id>) with
+--        no case-number, owner-name, or address search field -- and we have
+--        no parcel/address/owner for any of the 4 blocked cases to look up.
+--     4. floridapublicnotices.com case-number search -- "No results" for
+--        all 3 fully-missing case numbers (same angle the be7c06d5 session
+--        used for gilchrist; applied here fresh for baker's remaining gap).
+--     5. bakerclerk.com / qpublic.schneidercorp.com (Baker) --
+--        HTTP 403 (WAF-blocked), consistent with all prior sessions.
+--     6. Civitek-style OCRS / Trellis / UniCourt / alternate Baker clerk
+--        domains (officialrecords.mybakerclerk.com, mybakerclerk.com,
+--        bakercountyclerk.com) -- DNS failure (Could not resolve host) or
+--        JS/Turnstile-gated search forms not reachable via plain curl.
+--     7. public.foreclosure_outcomes / public.tax_deed_outcomes -- zero rows
+--        for any of the 4 case numbers (checked live via Management API).
+--
+-- CONCLUSION: no independently verifiable parcel_id, property_address,
+-- lat/long, assessed/market value, or parity match exists anywhere publicly
+-- reachable for these 4 case numbers as of this session. Writing anything
+-- here would repeat the exact ghost-success pattern already purged twice
+-- in this county's history. NO WRITES MADE to multi_county_auctions,
+-- jurisdictions, zoning_districts, zone_standards, or parcel_zones this
+-- session -- this file exists only to record the fresh re-check and link
+-- the adversarial audit trail (gold_standard_ultraloop_audit rows below).
+--
+-- ADVERSARIAL AUDIT TRAIL (already inserted live this session via
+-- Management API, mirrored here for the record):
+--   INSERT INTO gold_standard_ultraloop_audit (dispatch_id, ultraloop_mode,
+--     county_slug, letter, claim, refuter_evidence, survived) VALUES
+--     (..., 'fallback', 'baker', 'C', <claim>, <evidence jsonb>, true),
+--     (..., 'fallback', 'baker', 'D', <claim>, <evidence jsonb>, true),
+--     (..., 'fallback', 'baker', 'E', <claim>, <evidence jsonb>, true),
+--     (..., 'fallback', 'baker', 'I', <claim>, <evidence jsonb>, true);
+--   -- ids 12656-12659, created_at 2026-08-03T18:12:22Z UTC. All 4 claims
+--   -- of "still structurally blocked, no drift" SURVIVED their own
+--   -- refuter pass (each claim was checked against a live source in the
+--   -- same session before being logged, per the HONESTY PROTOCOL).
+--
+-- This migration intentionally contains no DML/DDL -- it is a documentation
+-- record only, per the CLAUDE.md instruction to write a migration file
+-- documenting exactly what was done even when the conclusion is BLOCKED.
+
+-- SQL VERIFICATION (run 2026-08-03T18:1x UTC, this session, live Management
+-- API):
+--
+-- SELECT public.pencil_dod_evaluate_county('baker');
+--   BEFORE (start of this session, matches end of be7c06d5 session):
+--     A=PASS(7) B=PASS(100) C=FAIL(46.7, matched_clean=7)
+--     D=FAIL(46.7, matched_any=7) E=FAIL(46.7, parcel_linked=7) F=PASS(100)
+--     G=PASS(100) H=PASS(0) I=FAIL(46.7, card_complete=7 of 15) J=PASS(100)
+--     auctions_total=15, 6/10 pass.
+--   AFTER (this session, zero writes made): IDENTICAL on every letter --
+--     no drift, no regression, confirmed live via re-run of the same
+--     function immediately before writing this file.
+--
+-- SELECT case_number, count(*) FROM multi_county_auctions
+--   WHERE lower(county)='baker' GROUP BY case_number ORDER BY case_number;
+--   8 unique case numbers, 15 total rows (7 x2 + 1 x1), matching
+--   auctions_total=15 exactly:
+--     022025CA000038CAAXMX (2, complete), 022025CA000108CAAXMX (2, NULL),
+--     022025CA000117CAAXMX (2, NULL), 022025CA000124CAAXMX (2, NULL),
+--     022025CA000148CAAXMX (2, complete), 022026CA000007CAAXMX (2, NULL),
+--     022026CA000018CAAXMX (2, complete), 022026XX000002TDAXMX (1, complete).
+--
+-- Still 6/10 overall (A,B,F,G,H,J pass; C,D,E,I fail). NOT certified --
+-- certification decided centrally by the fleet-wide loop run, not by this
+-- session. Timestamp: 2026-08-03T18:15:00Z UTC.

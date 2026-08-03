@@ -1,0 +1,115 @@
+-- Gold Standard shard-2 st_lucie session (dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae)
+-- 2026-08-03
+--
+-- OUTCOME: BLOCKED, 4th independent reconfirmation. No writes were made to
+-- multi_county_auctions this session. This file is a no-op record per the
+-- "SQL reflecting your actual REST writes" convention -- the only live writes
+-- this session were two INSERTs into gold_standard_ultraloop_audit (below),
+-- documenting a read-only reconfirmation.
+--
+-- ============================================================================
+-- PART 1: E/I re-check (per gold_standard_decisions row
+-- st_lucie_EI_nonstandard_collateral_denominator_2026)
+-- ============================================================================
+--
+-- Prior state: E (parcel_linkage) and I (property_card_complete) independently
+-- reconfirmed BLOCKED three times already (2026-07-30 dispatch 8c78a8df,
+-- 2026-07-31 dispatch 3ff137ad, 2026-08-01, 2026-08-02 dispatch 55b8a3ab).
+--
+-- This session (4th reconfirmation): re-ran the exact proven live RealForeclose
+-- AJAX harvest mechanism (scripts/shard2_run2450_ajax_realforeclose_harvest.py
+-- ::harvest_date, fresh session cookie, current timestamp) against all 7
+-- target auction dates (03/24, 03/25, 04/01, 06/24, 07/15, 08/04, 08/05/2026).
+-- Result: byte-identical to every prior session --
+--   2024CA001834  "Property Appraiser"  (label-leak, real estate collateral)
+--   2025CC001033  "Property Appraiser"  (label-leak, real estate collateral)
+--   2023CA002852  "AIRCRAFT"            (chattel, no parcel exists)
+--   2024CA000330  "TIMESHARE"           (chattel, no parcel exists)
+--   2024CA000214  "MULTIPLE PARCELS"    (compound sale, no single parcel_id)
+--   2025CA002738  "Property Appraiser"  (label-leak, real estate collateral)
+--   2023CA000465  "Property Appraiser"  (label-leak, real estate collateral)
+--
+-- Independent case/clerk sources re-tested live today, identical results to
+-- all 3 prior sessions:
+--   acclaimweb.stlucieclerk.com  -> HTTP 403 (Akamai edge)
+--   courtcasesearch.stlucieclerk.gov -> HTTP 403 (Akamai edge)
+--   unicourt.com                 -> HTTP 405
+--   trellis.law                  -> HTTP 403
+--
+-- DB row check: all 7 rows still parcel_id IS NULL, updated_at unchanged since
+-- 2026-08-01 (confirms zero writes across every intervening session).
+--
+-- E = parcel_linked 112/119 = 94.1% (need >=95%, gap=2)
+-- I = card_complete  112/119 = 94.1% (need >=95%, gap=2)
+--
+-- CONCLUSION: this is a genuine source-data defect (the county's own
+-- RealForeclose system stores non-parcel collateral-type text in the Parcel
+-- ID field for these 7 cases), not a scraper parsing bug and not an access
+-- gap that a different session/tool could close. No new fix lever found this
+-- session. Per HONESTY PROTOCOL / BLANK > WRONG: no parcel_id fabricated, no
+-- write made. E/I remain FAIL and correctly so.
+--
+-- The only real remaining lever -- wiring gold_standard_exclusions into
+-- pencil_dod_evaluate_county's E/I CTEs so genuinely-verified non-standard-
+-- collateral rows are excluded from the denominator -- is a FLEET-WIDE
+-- canonical scoring change to a shared SECURITY DEFINER function (affects all
+-- 67 counties, not just st_lucie). Per gold_standard_decisions row
+-- st_lucie_EI_nonstandard_collateral_denominator_2026 (decided=false), this
+-- requires Ariel's sign-off before landing and is NOT applied by this session.
+--
+-- Logged as the 4th reconfirmation to gold_standard_ultraloop_audit (see the
+-- two INSERTs that were actually executed live this session, ids 12661/12662,
+-- dispatch_id=df5a4f3a-b78a-493b-976e-6081a988c1ae, letter='E' and 'I',
+-- survived=true).
+--
+-- ============================================================================
+-- PART 2: parity_ok / denom_ok precert guard investigation
+-- ============================================================================
+--
+-- v_gold_cert_health shows st_lucie parity_ok=false, denom_ok=false. Read
+-- gold_standard_denominator_guard() and gold_calendar_parity_cycle() (the two
+-- functions named in the dispatch) via pg_get_functiondef -- neither is the
+-- actual writer of the fleet-wide gold_standard_precert_guards rows:
+--   - gold_standard_denominator_guard() is HARD-CODED to duval only (reads
+--     v_zoning_gold_standard_kpi_auction / v_pencil_duval_dod, writes
+--     county_slug='duval' literally in its INSERT). Not callable per-county,
+--     not related to st_lucie at all.
+--   - gold_calendar_parity_cycle() (the cron job actually named
+--     "gold-calendar-parity-cycle", */5 * * * *) only promotes tier1 cards and
+--     dispatches scrapes off discovered auction dates. It does not write to
+--     gold_standard_precert_guards.
+--
+-- Traced the real writer: scripts/gold_standard_precert_guard_refresh.py (not
+-- a DB function/cron job -- an external script, presumably GHA-scheduled).
+-- Its own docstring + logic: it refreshes calendar_parity/denominator_integrity
+-- guard rows ONLY for counties currently passing 10/10 on the latest
+-- gold_standard_loop() run (`HAVING count(*) FILTER (WHERE status='PASS')=10`).
+--
+-- Cross-checked against gold_standard_county_status history for st_lucie:
+--   loop_run_id 6905 (2026-07-27 19:30 UTC): pass_count=10 (last 10/10 run)
+--   loop_run_id 6938 (2026-07-28 01:30 UTC): pass_count=8 (E/I first failed)
+--   every run since (through loop_run_id 8584, 2026-08-03 16:59 UTC): 8/10
+--     (briefly dipped to 5-6/10 on 2026-07-30, recovered to 8/10 same day)
+--
+-- gold_standard_precert_guards confirms: st_lucie's last calendar_parity/
+-- denominator_integrity rows are dated 2026-07-27 13:28:31 UTC -- the last
+-- day it qualified for the refresh script's 10/10 filter. Every other
+-- currently-10/10 county (41 counties checked) has a fresh row today
+-- (2026-08-03), confirming the refresh script ran fleet-wide as designed and
+-- correctly excluded st_lucie because it has not been 10/10 since.
+--
+-- CONCLUSION: parity_ok=false / denom_ok=false is NOT an independent guard
+-- malfunction and NOT a separate bug to fix. It is the correct, expected
+-- downstream consequence of E/I failing -- the guard-refresh script only
+-- operates on 10/10 counties by design, and st_lucie has been 8/10 (E/I FAIL)
+-- continuously since 2026-07-28. There is no genuine ad-hoc "run the guard for
+-- just st_lucie" lever available: the guard is gated on the same root cause as
+-- E/I, not a separate mechanism. Forcing a fresh guard row with passed=true
+-- for st_lucie right now, while E/I are FAIL, would be fabricating a pass and
+-- was NOT done.
+--
+-- No SQL fix applies here -- this is a diagnosis-only finding. Once (and only
+-- if) E/I are genuinely resolved (either new source data surfaces for the 7
+-- cases, or Ariel approves the exclusions-table wiring described in Part 1),
+-- st_lucie will become eligible for the next scheduled guard-refresh run
+-- automatically, with no code change needed.

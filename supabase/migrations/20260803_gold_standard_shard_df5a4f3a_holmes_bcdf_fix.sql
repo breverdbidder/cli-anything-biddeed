@@ -1,0 +1,104 @@
+-- GOLD STANDARD shard (dispatch df5a4f3a-b78a-493b-976e-6081a988c1ae, "gold-criteria-2-shard")
+-- county: holmes ONLY (6/10 -> still 6/10, zero drift -- structural ceiling reconfirmed live, 15th+ session)
+--
+-- ============================================================================
+-- SCOPE
+-- ============================================================================
+-- This dispatch's brief instructed reading the full prior history first (4 docs
+-- + 2 skills + DB audit tables) and, if B/C/D/F have been repeatedly reconfirmed
+-- structurally blocked with fresh evidence and nothing has changed, to do a
+-- single fresh live re-check and report BLOCKED rather than refabricate.
+--
+-- Prior history reviewed this session (all read in full before any action):
+--   - docs/gold-standard/shard-holmes-dispatch-0f64d3fa-refire-recheck.md (2026-07-24)
+--   - docs/gold-standard/shard7-run3713-holmes-closeout.md (2026-07-11)
+--   - supabase/migrations/20260711t_gold_standard_shard6_dixie_holmes_cd_bf_findings.sql (2026-07-11)
+--   - supabase/migrations/20260711u_gold_standard_shard6_dixie_holmes_refire_addendum.sql (2026-07-11)
+--   - supabase/migrations/20260724_gold_standard_shard1_holmes_i_j_ghost_success_real_flgio_fix.sql
+--     (2026-07-24, I/J fix -- confirmed still PASS this session, NOT touched/regressed)
+--   - GOLD_STANDARD_SHARD5_HOLMES_DISPATCH_F60CABE3_SESSION_REPORT.md (2026-08-01)
+--   - GOLD_STANDARD_SHARD1_BREVARD_JEFFERSON_HOLMES_DISPATCH_A42BF937_SESSION_REPORT.md (2026-08-02)
+--   - migrations/20260801_gold_standard_shard5_holmes_run7963_closeout.sql (2026-08-01)
+--   - gold_standard_ultraloop_audit rows for county_slug='holmes' (most recent: dispatch
+--     c0a789df, earlier on 2026-08-03, B/C marked survived=false -- this is an HONEST
+--     self-labeling by that session of its own confidence, not a refutation of the
+--     structural block itself; its own conclusion text still reads "genuinely blocked in
+--     this environment this session")
+--
+-- Combined, this is the 15th+ independent session confirming the identical B/C/D/F gap
+-- on holmes since 2026-07-10. Every online, non-CAPTCHA-gated avenue has been checked
+-- multiple times: holmesclerk.com (forward-looking notice board, zero disposition page),
+-- myfloridacounty.com/orisearch/30 + civitekflorida.com/ocrs/county/30 (Turnstile-gated on
+-- the search POST), qpublic.net (both .schneidercorp.com and .net/fl/holmes variants,
+-- Cloudflare-gated), GovEase/LienHub/Bid4Assets/taxsaleresources.com/taxcertsale.com (no
+-- Holmes listing or signup-gated with no visible data), F.S. 197.582 surplus-funds list
+-- (email-request-only), fltreasurehunt.gov (WAF-gated), floridapublicnotices.com (yields
+-- only pre-sale application notices, F.S. 197.512 does not require a post-sale notice),
+-- Wayback Machine (zero XHR/JSON captures, page is client-side SPA), and Firecrawl
+-- (exhausted credits since 2026-07-10, re-confirmed negative every session since).
+--
+-- ============================================================================
+-- THIS SESSION'S FRESH LIVE RE-CHECK (2026-08-03, per the brief's mandate)
+-- ============================================================================
+-- 1. SELECT public.pencil_dod_evaluate_county('holmes') at session start: byte-identical
+--    to the dispatch brief's snapshot (6/10; A/E/G/H/I/J pass; B/C/D/F fail;
+--    matched_clean=matched_any=8/13=61.5%; verified=0 closed_sold=0; tier1_sold=0).
+-- 2. Firecrawl credit-usage endpoint (api.firecrawl.dev/v1/team/credit-usage) re-checked
+--    live: remaining_credits=-4 (still exhausted, unchanged from the 2026-08-01/08-02
+--    sessions that flagged "re-attempt if restored").
+-- 3. holmesclerk.com/courts/foreclosures-tax-deeds/foreclosures/ re-fetched live (HTTP 200).
+--    The only "sold" text on the page is boilerplate ("scheduled to be sold to the highest
+--    bidder at the front door of the Holmes County Courthouse") -- confirmed NOT a
+--    disposition/winning-bid field.
+-- 4. holmesclerk.com/courts/foreclosures-tax-deeds/tax-deeds/ re-fetched live (HTTP 200).
+--    Grepped for all 5 gap case numbers (TD#2023-225, TD#2023-185, TD#2023-496,
+--    TD#2023-584, TD#2020-589): zero occurrences of any of the 5 in the live page HTML,
+--    consistent with every prior session -- these cases have rolled off the only
+--    real listing source with no archive/results mechanism on this domain.
+-- 5. myfloridacounty.com/orisearch/30 landing page re-fetched live (HTTP 200, plain GET,
+--    no interactive session token yet). No CAPTCHA/Turnstile/reCAPTCHA markup is present
+--    on the GET landing page itself; the search form action is a jsessionid-bound POST
+--    endpoint. This is consistent with 5+ prior sessions' finding that the Turnstile gate
+--    triggers on the search POST, not the landing page load. Per the hard rule against
+--    ever attempting to solve/bypass a CAPTCHA/Cloudflare Turnstile wall, this session did
+--    NOT attempt the POST submission -- doing so would either hit the documented gate
+--    (no new information) or constitute an out-of-bounds bypass attempt.
+--
+-- Net: zero new information that changes any conclusion. No new avenue was identified
+-- that wasn't already exhausted by a prior session. Firecrawl remains the single
+-- documented condition ("if credits are restored, re-attempt qpublic/OCRS via browser
+-- render") that has not yet triggered.
+--
+-- ============================================================================
+-- WRITES THIS SESSION
+-- ============================================================================
+-- Zero writes to multi_county_auctions, tax_deed_outcomes, foreclosure_outcomes,
+-- parity_status, or any scoring table. No fabricated sold_amount, disposition, or
+-- parity match was introduced. Per HONESTY PROTOCOL (BLANK > WRONG), a confirmed
+-- structural absence is reported as BLOCKED, not refabricated.
+--
+-- 4 fresh gold_standard_ultraloop_audit rows were logged (dispatch_id
+-- df5a4f3a-b78a-493b-976e-6081a988c1ae, letters B/C/D/F, all survived=true) carrying
+-- this session's live evidence, to keep the certify-gate freshness window current.
+-- These INSERTs were executed directly via the Supabase Management API in this
+-- session (not re-stated here as DDL/DML, since they were already applied live);
+-- see verification query below to re-confirm.
+--
+-- I/J regression check: confirmed NOT touched, NOT regressed. Live evaluator shows
+-- I: card_complete=13 of 13 (100%), J: deal_complete=13 (100%) -- unchanged from the
+-- 20260724_gold_standard_shard1_holmes_i_j_ghost_success_real_flgio_fix.sql fix.
+--
+-- ============================================================================
+-- VERIFICATION (run to reproduce this session's findings)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('holmes');
+--   Expected: 6/10 -- A,E,G,H,I,J pass; B,C,D,F fail; matched_clean=matched_any=8 (61.5%);
+--   verified=0/closed_sold=0; tier1_sold=0/closed_sold=0. (H's freshness metric will
+--   drift upward with time since last_seen_at -- this alone is not a regression.)
+--
+-- SELECT letter, survived, created_at FROM public.gold_standard_ultraloop_audit
+--   WHERE dispatch_id = 'df5a4f3a-b78a-493b-976e-6081a988c1ae' ORDER BY letter;
+--   Expected: 4 rows (B, C, D, F), all survived=true, created_at ~2026-08-03T18:09Z.
+--
+-- No gold_standard_loop()/gold_standard_certify() invoked -- this session touched
+-- holmes only, per dispatch scope (PARALLEL-FLEET RULES, other shards may be mid-session).
