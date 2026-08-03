@@ -1,0 +1,66 @@
+name: competitive-intelligence-pipeline
+on:
+  workflow_dispatch:
+    inputs:
+      competitor:
+        description: "Competitor slug (e.g. property_onion)"
+        required: true
+        default: "property_onion"
+  schedule:
+    - cron: "0 12 * * 1"   # weekly Monday 8am ET
+
+jobs:
+  intel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPETITOR: ${{ inputs.competitor || 'property_onion' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scrape competitor (placeholder)
+        run: |
+          mkdir -p ci-output
+          echo '{"competitor": "${{ env.COMPETITOR }}", "findings": []}' > ci-output/findings.json
+
+      - name: Update Agent Memory
+        id: memory-writer
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node scripts/ci-memory-writer.js \
+            --competitor "${{ env.COMPETITOR }}" \
+            --run-id "$(uuidgen)" \
+            --findings-file ./ci-output/findings.json
+
+      - name: Slack Alert (threshold-based)
+        if: steps.memory-writer.outputs.alert_worthy == 'true'
+        uses: slackapi/slack-github-action@v1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":rotating_light: *CI Alert: ${{ env.COMPETITOR }}*\n${{ steps.memory-writer.outputs.alert_reason }}\nMagnitude: ${{ steps.memory-writer.outputs.change_magnitude }}"
+            }
+
+      - name: Generate Full Report
+        if: |
+          steps.memory-writer.outputs.change_magnitude == 'moderate' ||
+          steps.memory-writer.outputs.change_magnitude == 'major'
+        run: |
+          if [ -f scripts/generate-ci-report.js ]; then
+            node scripts/generate-ci-report.js --competitor "${{ env.COMPETITOR }}"
+          else
+            echo "scripts/generate-ci-report.js not found — skipping (not part of this deliverable)"
+          fi

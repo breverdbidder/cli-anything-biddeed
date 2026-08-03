@@ -2,7 +2,9 @@
   "type": "module",
   "dependencies": {
     "@_davideast/stitch-mcp": "^0.5.1",
+    "@anthropic-ai/sdk": "^0.68.0",
     "@google/stitch-sdk": "^0.0.3",
+    "@supabase/supabase-js": "^2.109.0",
     "pg": "^8.20.0"
   },
   "devDependencies": {
