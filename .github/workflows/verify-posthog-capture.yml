@@ -67,6 +67,9 @@ jobs:
             echo "::error::posthog_project_key not returned for direct-capture diagnostic"
           fi
 
+          echo "--- waiting 45s for ClickHouse ingestion before querying ---"
+          sleep 45
+
           echo "--- diagnostic: query by distinct_id only, no event-name filter (30min, incl an older run's gha-diag-probe) ---"
           diag2=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
             -H "Authorization: Bearer $key" \
