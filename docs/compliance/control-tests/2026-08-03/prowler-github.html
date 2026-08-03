@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <!-- Required meta tags -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <style>
+        .read-more {color: #00f;}
+
+        .bg-success-custom {background-color: #98dea7 !important;}
+
+        .bg-danger {background-color: #f28484 !important;}
+    </style>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css"
+        integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous" />
+    <!-- https://datatables.net/download/index with jQuery, DataTables, Buttons, SearchPanes, and Select //-->
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.datatables.net/v/dt/jqc-1.12.4/dt-1.10.25/b-1.7.1/sp-1.4.0/sl-1.3.3/datatables.min.css" />
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
+        integrity="sha384-AYmEC3Yw5cVb3ZcuHtOA93w35dYTsvhLPVnYs9eStHfGJvOvKxVfELGroGkvsg+p" crossorigin="anonymous" />
+    <style>
+        .show-read-more .more-text {display: none;}
+
+        .dataTable {font-size: 14px;}
+
+        .container-fluid {font-size: 14px;}
+
+        .float-left { float: left !important; max-width: 100%; }
+    </style>
+    <title>Prowler - The Handy Cloud Security Tool</title>
+    </head>
+    <body>
+    <div class="container-fluid">
+        <div class="row mt-3">
+        <div class="col-md-4">
+            <a href="https://github.com/prowler-cloud/prowler/"><img class="float-left card-img-left mt-4 mr-4 ml-4"
+                        src=https://raw.githubusercontent.com/prowler-cloud/prowler/dc7d2d5aeb92fdf12e8604f42ef6472cd3e8e889/docs/img/prowler-logo-black.png
+                        alt="prowler-logo"
+                        style="width: 15rem; height:auto;"/></a>
+            <div class="card">
+            <div class="card-header">
+                Report Information
+            </div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                <div class="row">
+                    <div class="col-md-auto">
+                    <b>Version:</b> 5.36.0
+                    </div>
+                </div>
+                </li>
+                <li class="list-group-item">
+                <b>Parameters used:</b> github --compliance cis_1.2.0_github --output-formats json-ocsf html --output-filename prowler-github --output-directory docs/compliance/control-tests/2026-08-03 --personal-access-token REDACTED --repository breverdbidder/cli-anything-biddeed --no-github-actions
+                </li>
+                <li class="list-group-item">
+                <b>Date:</b> 2026-08-03T10:24:01.749756
+                </li>
+            </ul>
+            </div>
+        </div>
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-header">
+                            GitHub Assessment Summary
+                        </div>
+                        <ul class="list-group list-group-flush">
+                            
+                            <li class="list-group-item">
+                                <b>GitHub account:</b> breverdbidder
+                            </li>
+                            
+                        </ul>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            GitHub Credentials
+                        </div>
+                        <ul class="list-group list-group-flush">
+                            
+                            <li class="list-group-item">
+                                <b>GitHub authentication method:</b> Personal Access Token
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            <div class="col-md-2">
+            <div class="card">
+                <div class="card-header">
+                    Assessment Overview
+                </div>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">
+                        <b>Total Findings:</b> 17
+                    </li>
+                    <li class="list-group-item">
+                        <b>Passed:</b> 2
+                    </li>
+                    <li class="list-group-item">
+                        <b>Passed (Muted):</b> 0
+                    </li>
+                    <li class="list-group-item">
+                        <b>Failed:</b> 15
+                    </li>
+                    <li class="list-group-item">
+                        <b>Failed (Muted):</b> 0
+                    </li>
+                    <li class="list-group-item">
+                        <b>Total Resources:</b> 1
+                    </li>
+                </ul>
+            </div>
+        </div>
+        </div>
+        </div>
+        <div class="row-mt-3">
+        <div class="col-md-12">
+            <table class="table compact stripe row-border ordering" id="findingsTable" data-order='[[ 5, "asc" ]]' data-page-length='100'>
+            <thead class="thead-light">
+                <tr>
+                    <th scope="col">Status</th>
+                    <th scope="col">Severity</th>
+                    <th scope="col">Service Name</th>
+                    <th scope="col">Region</th>
+                    <th style="width:20%" scope="col">Check ID</th>
+                    <th style="width:20%" scope="col">Check Title</th>
+                    <th scope="col">Resource ID</th>
+                    <th scope="col">Resource Tags</th>
+                    <th scope="col">Status Extended</th>
+                    <th scope="col">Risk</th>
+                    <th scope="col">Recommendation</th>
+                    <th scope="col">Compliance</th>
+                </tr>
+            </thead>
+            <tbody>
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>low</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_branch<wbr />_delete<wbr />_on<wbr />_merge<wbr />_enabled</td>
+                            <td>Repository deletes branches after pull request merge</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not delete branches on merge in default branch (main).</td>
+                            <td><p class="show-read-more">Without automatic deletion, merged branches persist, weakening <strong>integrity</strong> and <strong>confidentiality</strong>: outdated code may be reused, secret remnants can linger, and reviews become ambiguous. Stale refs can still trigger CI with obsolete workflows, raising risks of supply-chain tampering and faulty deployments.</p></td>
+                            <td><p class="show-read-more">Enable <strong>automatic head-branch deletion</strong> after merges to minimize stale refs and confusion.<br />
+- Enforce <strong>least privilege</strong> for branch creation<br />
+- Apply <strong>branch protection</strong> and rulesets<br />
+- Prefer short-lived feature branches with periodic pruning<br />
+- Guard CI to avoid runs from obsolete branches</p> <a class="read-more" href="https://hub.prowler.com/check/repository_branch_delete_on_merge_enabled"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.8
+
+&#x2022;CIS-1.0: 1.1.8
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>medium</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_deletion<wbr />_disabled</td>
+                            <td>Repository denies default branch deletion</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does allow default branch deletion.</td>
+                            <td><p class="show-read-more">Permitting default branch deletion undermines <strong>availability</strong> by breaking CI/CD, releases, and PR targets.<br />
+<br />
+It also impacts <strong>integrity</strong>: the canonical ref can be removed, enabling history tampering, branch hijacking, and harder audits/rollbacks.</p></td>
+                            <td><p class="show-read-more">Disable deletions on the <strong>default branch</strong> using <strong>branch protection</strong> or <strong>rulesets</strong> (<code>Allow deletions=false</code>). Apply controls to admins, minimize bypass lists, and enforce <strong>least privilege</strong>. Combine with required pull requests and status checks for <strong>defense in depth</strong>.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_deletion_disabled"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.17
+
+&#x2022;CIS-1.0: 1.1.17
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_disallows<wbr />_force<wbr />_push</td>
+                            <td>Repository default branch denies force pushes</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does allow force pushes on default branch (main).</td>
+                            <td><p class="show-read-more">Allowing <strong>force pushes on the default branch</strong> erodes <strong>integrity</strong> and <strong>auditability</strong> by enabling history rewrites and deletion of commits. Attackers or insiders can inject unreviewed code, bypass reviews and status checks, and corrupt PRs, risking supply-chain compromise and reduced <strong>availability</strong>.</p></td>
+                            <td><p class="show-read-more">Disable <code>Allow force pushes</code> on the default branch. Enforce PR-based changes with required reviews and status checks, require signed commits and linear history, and restrict bypass to minimal actors. Apply protections to admins too to uphold <strong>least privilege</strong> and <strong>defense in depth</strong>.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_disallows_force_push"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.16
+
+&#x2022;CIS-1.0: 1.1.16
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_dismisses<wbr />_stale<wbr />_reviews</td>
+                            <td>Repository default branch dismisses stale pull request approvals</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not dismiss stale pull request approvals when new commits are pushed.</td>
+                            <td><p class="show-read-more">Without this setting, a contributor can receive approvals on a clean version of their code, then push malicious or unauthorized changes afterward. The pull request retains its approvals and can be merged without anyone reviewing the new changes, bypassing the entire code review process.</p></td>
+                            <td><p class="show-read-more">Enable "Dismiss stale pull request approvals when new commits are pushed" in your branch protection rules. This ensures every code change undergoes a fresh review before merging.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_dismisses_stale_reviews"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.4
+
+&#x2022;CIS-1.0: 1.1.4
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_protection<wbr />_applies<wbr />_to<wbr />_admins</td>
+                            <td>Repository default branch protection applies to administrators</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not enforce administrators to be subject to the same branch protection rules as other users.</td>
+                            <td><p class="show-read-more">Without admin enforcement, privileged users can bypass reviews and checks, enabling <strong>unauthorized code changes</strong>. A compromised admin token can inject backdoors, alter dependencies, or disable safeguards, undermining <strong>integrity</strong>, exposing secrets (<strong>confidentiality</strong>), and causing outages (<strong>availability</strong>).</p></td>
+                            <td><p class="show-read-more">Enable <strong>branch protection for administrators</strong> and disallow bypasses. Apply <strong>least privilege</strong> and <strong>separation of duties</strong> by requiring PR reviews, required status checks, and signed commits on critical branches. Limit force pushes and deletions, and regularly review admin roles and audit logs.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_protection_applies_to_admins"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.14
+
+&#x2022;CIS-1.0: 1.1.14
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_protection<wbr />_enabled</td>
+                            <td>Repository enforces branch protection on the default branch</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not enforce branch protection on default branch (main).</td>
+                            <td><p class="show-read-more">Without default-branch protection, changes can bypass reviews and checks, enabling:<br />
+- Unauthorized direct pushes/force pushes<br />
+- Malicious code injection and workflow tampering<br />
+- Accidental deletions or unstable releases<br />
+This undermines code <strong>integrity</strong> and service <strong>availability</strong>.</p></td>
+                            <td><p class="show-read-more">Enforce <strong>branch protection</strong> on the default branch:<br />
+- Require pull requests with approvals (least privilege)<br />
+- Enforce required status checks and conversation resolution<br />
+- Require signed commits and linear history; block force pushes/deletions<br />
+- Restrict push to trusted actors and apply rules to admins<br />
+Use <strong>CODEOWNERS</strong> to strengthen review accountability.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_protection_enabled"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.20
+
+&#x2022;CIS-1.0: 1.1.20
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_requires<wbr />_codeowners<wbr />_review</td>
+                            <td>Repository default branch requires code owner approval for changes to owned code</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not require code owner approval for changes to owned code.</td>
+                            <td><p class="show-read-more">Without required <strong>Code Owners</strong> review, non-owners can merge changes to sensitive code, undermining <strong>integrity</strong>.<br />
+This increases the chance of <strong>malicious code injection</strong>, hidden backdoors, or fragile changes that enable <strong>data exfiltration</strong> or cause outages, impacting confidentiality and availability.</p></td>
+                            <td><p class="show-read-more">Enforce <strong>Code Owners</strong> review on the default branch and keep <code>CODEOWNERS</code> accurate and team-based.<br />
+Apply <strong>least privilege</strong>, require <strong>status checks</strong> and <strong>signed commits</strong>, extend protections to admins, and audit ownership regularly. Co-own critical paths to ensure coverage and reduce single-point approval gaps.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_requires_codeowners_review"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.7
+
+&#x2022;CIS-1.0: 1.1.7
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>medium</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_requires<wbr />_conversation<wbr />_resolution</td>
+                            <td>Repository default branch requires conversation resolution before merging</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not require conversation resolution on default branch (main).</td>
+                            <td><p class="show-read-more">Unresolved threads let code with known concerns reach default, weakening <strong>integrity</strong> and <strong>confidentiality</strong>. Insecure changes or secrets may ship, enabling injection, auth bypass, or data exposure. <strong>Availability</strong> can suffer from regressions; review accountability is reduced.</p></td>
+                            <td><p class="show-read-more">Enable <code>Require conversation resolution before merging</code> on the default branch.<br />
+<br />
+Also enforce:<br />
+- Required approvals and CI checks<br />
+- <strong>CODEOWNERS</strong> on critical paths<br />
+- <strong>Least privilege</strong> for merge rights<br />
+- Apply rules to admins to prevent bypass</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_requires_conversation_resolution"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.11
+
+&#x2022;CIS-1.0: 1.1.11
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>low</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_requires<wbr />_linear<wbr />_history</td>
+                            <td>Repository default branch requires linear history</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not require linear history on default branch (main).</td>
+                            <td><p class="show-read-more">Without a <strong>linear history</strong>, commit provenance is harder to verify, weakening <strong>integrity</strong> and <strong>accountability</strong>.<br />
+<br />
+Merge commits can obscure diffs entering the default branch, hindering audits and rollbacks, enabling unnoticed <strong>malicious or unreviewed code</strong>, and delaying incident response.</p></td>
+                            <td><p class="show-read-more">Enable <code>Require linear history</code> on the default branch and allow only <code>squash</code> or <code>rebase</code> merges.<br />
+<br />
+Reinforce with <strong>branch protection</strong>: require pull requests and reviews, <strong>status checks</strong>, and <strong>signed commits</strong>. Limit bypass to trusted roles (least privilege) to preserve <strong>traceability</strong> and <strong>defense in depth</strong>.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_requires_linear_history"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.13
+
+&#x2022;CIS-1.0: 1.1.13
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>medium</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_requires<wbr />_multiple<wbr />_approvals</td>
+                            <td>Repository default branch requires at least 2 approvals for code changes</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not enforce at least 2 approvals for code changes.</td>
+                            <td><p class="show-read-more">Without multi-review approval on the default branch, a single actor can merge changes, degrading <strong>integrity</strong> and <strong>accountability</strong>. This enables:<br />
+- supply-chain tampering or backdoors<br />
+- introduction of exploitable bugs<br />
+- bypass of change control via compromised accounts</p></td>
+                            <td><p class="show-read-more">Enforce the <strong>four-eyes principle</strong> by requiring at least <code>2</code> approvals for merges to the default branch.<br />
+<br />
+Strengthen with <strong>separation of duties</strong> using code owner reviews, dismiss stale approvals, apply protections to admins, and pair with required status checks for <strong>defense in depth</strong>.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_requires_multiple_approvals"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.3
+
+&#x2022;CIS-1.0: 1.1.3
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_requires<wbr />_signed<wbr />_commits</td>
+                            <td>Repository default branch requires signed commits</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not require signed commits on default branch (main).</td>
+                            <td><p class="show-read-more">Without required signing, commit authorship can be spoofed and unverified changes added, impacting integrity.<br />
+- Backdoor injection<br />
+- History tampering and forged identities<br />
+- Release pipeline abuse and supply-chain compromise</p></td>
+                            <td><p class="show-read-more">Enforce <code>Require signed commits</code> on default and release branches.<br />
+- Standardize GPG/SSH/S/MIME for humans and bots<br />
+- Protect and rotate signing keys; least privilege on bypass<br />
+- Pair with required reviews and status checks for defense-in-depth</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_requires_signed_commits"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.12
+
+&#x2022;CIS-1.0: 1.1.12
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_default<wbr />_branch<wbr />_status<wbr />_checks<wbr />_required</td>
+                            <td>Repository default branch requires status checks</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not enforce status checks.</td>
+                            <td><p class="show-read-more">Without required checks, unvetted commits can be merged, degrading code <strong>integrity</strong> and <strong>availability</strong>. Skipped or failing validations may introduce vulnerable dependencies, break builds, or allow malicious code, enabling supply-chain compromise and rapid propagation to production.</p></td>
+                            <td><p class="show-read-more">Enforce branch protection to require <strong>status checks</strong> on the default branch.<br />
+- Gate merges on build, tests, and security scans<br />
+- Use <code>require up-to-date</code> behavior to reduce integration risk<br />
+- Apply to admins and limit bypasses<br />
+- Combine with <strong>least privilege</strong> and required reviews for defense in depth</p> <a class="read-more" href="https://hub.prowler.com/check/repository_default_branch_status_checks_required"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.9
+
+&#x2022;CIS-1.0: 1.1.9
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_dependency<wbr />_scanning<wbr />_enabled</td>
+                            <td>Repository has package vulnerability scanning (Dependabot alerts) enabled</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not have package vulnerability scanning (Dependabot alerts) enabled.</td>
+                            <td><p class="show-read-more">Without automated scanning, known vulnerable dependencies may persist unnoticed, enabling supply-chain compromise. Exploits in third-party libraries can drive RCE, data theft, or build tampering, undermining confidentiality, integrity, and availability across code and CI/CD.</p></td>
+                            <td><p class="show-read-more">Enable <strong>dependency vulnerability scanning</strong> with <code>Dependabot alerts</code> or an equivalent SCA tool across repositories. Apply <strong>defense in depth</strong>: keep manifests and lockfiles current, triage alerts quickly, use automated security updates with required reviews, and surface results in PR checks and notifications.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_dependency_scanning_enabled"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.5.5
+
+&#x2022;CIS-1.0: 1.5.5
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>medium</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_has<wbr />_codeowners<wbr />_file</td>
+                            <td>Repository has a CODEOWNERS file</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not have a CODEOWNERS file.</td>
+                            <td><p class="show-read-more">Missing <code>CODEOWNERS</code> undermines <strong>integrity</strong> and <strong>separation of duties</strong>:<br />
+- PRs can merge without accountable, domain reviews<br />
+- Critical paths risk unauthorized or low-quality changes<br />
+This raises <strong>software supply chain</strong> exposure, enabling code tampering, hidden backdoors, and unsafe config modifications.</p></td>
+                            <td><p class="show-read-more">Define and maintain a <code>CODEOWNERS</code> file mapping sensitive paths to responsible teams or users, preferring teams for resilience. Combine with branch protections requiring code-owner reviews to enforce <strong>separation of duties</strong> and <strong>least privilege</strong>. Keep entries current and cover critical directories to avoid pattern gaps.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_has_codeowners_file"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.6
+
+&#x2022;CIS-1.0: 1.1.6
+</p></td>
+                        </tr>
+                        
+                        <tr class="p-3 mb-2 bg-success-custom">
+                            <td>PASS</td>
+                            <td>medium</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_inactive<wbr />_not<wbr />_archived</td>
+                            <td>Repository is archived or active within the configured inactivity threshold</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed has been active within the last 180 days (0 days ago).</td>
+                            <td><p class="show-read-more">Unarchived, long-inactive repos expand attack surface. Stale code and dependencies can hide unpatched flaws; writable state enables <strong>integrity</strong> compromise via malicious commits or workflow abuse; exposed secrets threaten <strong>confidentiality</strong>. Attackers can leverage them for lateral movement and supply-chain tampering.</p></td>
+                            <td><p class="show-read-more">Adopt <strong>lifecycle management</strong>:<br />
+- Archive or delete repos no longer needed<br />
+- If retained, update dependencies, rotate secrets, disable unused workflows, and restrict writes under <strong>least privilege</strong><br />
+- Define an inactivity policy (e.g., <code>180</code> days) with periodic reviews to prevent dormant, writable codebases</p> <a class="read-more" href="https://hub.prowler.com/check/repository_inactive_not_archived"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.1.8
+
+&#x2022;CIS-1.0: 1.1.8
+</p></td>
+                        </tr>
+                        
+                        <tr class="table-danger">
+                            <td>FAIL</td>
+                            <td>low</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_public<wbr />_has<wbr />_securitymd<wbr />_file</td>
+                            <td>Public repository has a SECURITY.md file</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed does not have a SECURITY.md file.</td>
+                            <td><p class="show-read-more">Without <strong>SECURITY.md</strong>, reporters may use public issues or ad-hoc channels, causing premature disclosure or missed reports. This widens the exploit window and impacts <strong>confidentiality</strong> (leaked details), <strong>integrity</strong> (unauthorized changes), and <strong>availability</strong> (DoS from unpatched flaws).</p></td>
+                            <td><p class="show-read-more">Publish a clear <code>SECURITY.md</code> for each public repo or an org default. Include private reporting channels, optional encryption keys, scope/supported versions, disclosure timelines, and safe-harbor terms. Link to any bounty program and review regularly. Align with <strong>accountability</strong> and <strong>defense in depth</strong> principles.</p> <a class="read-more" href="https://hub.prowler.com/check/repository_public_has_securitymd_file"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.2.1
+
+&#x2022;CIS-1.0: 1.2.1
+</p></td>
+                        </tr>
+                        
+                        <tr class="p-3 mb-2 bg-success-custom">
+                            <td>PASS</td>
+                            <td>high</td>
+                            <td>repository</td>
+                            <td>breverdbidder</td>
+                            <td>repository<wbr />_secret<wbr />_scanning<wbr />_enabled</td>
+                            <td>Repository has secret scanning enabled to detect sensitive data</td>
+                            <td>1178756441</td>
+                            <td></td>
+                            <td>Repository cli-anything-biddeed has secret scanning enabled to detect sensitive data.</td>
+                            <td><p class="show-read-more">Without <strong>secret scanning</strong>, exposed credentials can persist unnoticed, enabling:<br />
+- Unauthorized access to cloud and third-party services<br />
+- <strong>Supply-chain compromise</strong> via tampered pipelines<br />
+- Data exfiltration and repo takeover<br />
+<br />
+This degrades <strong>confidentiality</strong> and <strong>integrity</strong>, and increases blast radius of a single leaked key.</p></td>
+                            <td><p class="show-read-more">Enable <strong>secret scanning</strong> (and <strong>push protection</strong> where available) across repositories.<br />
+- Store secrets in a dedicated <strong>secrets manager</strong>, never in code<br />
+- Define custom patterns and enable generic detection for org-specific secrets<br />
+- Rotate and revoke exposed credentials quickly<br />
+- Enforce <strong>least privilege</strong> and add <strong>defense-in-depth</strong> monitoring</p> <a class="read-more" href="https://hub.prowler.com/check/repository_secret_scanning_enabled"><i class="fas fa-external-link-alt"></i></a></td>
+                            <td><p class="show-read-more">
+&#x2022;CIS-1.2.0: 1.5.1
+
+&#x2022;CIS-1.0: 1.5.1
+</p></td>
+                        </tr>
+                        
+            </tbody>
+            </table>
+        </div>
+    </div>
+    <!-- Table search and paginator -->
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"
+        integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.bundle.min.js"
+        integrity="sha384-1CmrxMRARb6aLqgBO7yyAxTOQE2AKb9GfXnEo760AUcUmFx3ibVJJAzGytlQcNXd"
+        crossorigin="anonymous"></script>
+    <!-- https://datatables.net/download/index with jQuery, DataTables, Buttons, SearchPanes, and Select //-->
+    <script type="text/javascript"
+        src="https://cdn.datatables.net/v/dt/jqc-1.12.4/dt-1.10.25/b-1.7.1/sp-1.4.0/sl-1.3.3/datatables.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            // Initialise the table with 50 rows, and some search/filtering panes
+            $('#findingsTable').DataTable({
+                responsive: true,
+                // Show 25, 50, 100 and All records
+                lengthChange: true,
+                lengthMenu: [[25, 50, 100, -1], [25, 50, 100, "All"]],
+                searchPanes: {
+                    cascadePanes: true,
+                    viewTotal: true,
+                },
+                dom: 'Blfrtip',
+                language: {
+                    // To enable a filter button instead of the filter row
+                    searchPanes: {
+                        clearMessage: 'Clear Filters',
+                        collapse: { 0: 'Filters', _: 'Filters (%d)' },
+                        initCollapsed: true
+
+                    }
+                },
+                buttons: [
+                    {
+                        extend: 'searchPanes',
+                        config: {
+                            cascadePanes: true,
+                            viewTotal: true,
+                            orderable: false
+                        }
+                    }
+                ],
+                columnDefs: [
+                    {
+                        searchPanes: {
+                            show: true,
+                            pagingType: 'numbers',
+                            searching: true
+                        },
+                        // Show all filters
+                        targets: [0, 1, 2, 3, 5, 7]
+                    }
+                ]
+            });
+            var maxLength = 30;
+            // ReadMore ReadLess
+            $(".show-read-more").each(function () {
+                var myStr = $(this).html();
+                var textLength = $(this).text().length;
+                if (textLength > maxLength) {
+                    // Find the position where to cut while preserving HTML tags and breaking at word boundaries
+                    var cutPosition = 0;
+                    var currentLength = 0;
+                    var inTag = false;
+                    var lastWordBoundary = 0;
+                    var tagStack = [];
+
+                    for (var i = 0; i < myStr.length; i++) {
+                        if (myStr[i] === '<') {
+                            inTag = true;
+                            // Track opening tags
+                            if (myStr[i + 1] !== '/') {
+                                var tagEnd = myStr.indexOf('>', i);
+                                if (tagEnd !== -1) {
+                                    var tagName = myStr.substring(i + 1, tagEnd).split(' ')[0];
+                                    tagStack.push(tagName);
+                                }
+                            } else {
+                                // Closing tag
+                                var tagEnd = myStr.indexOf('>', i);
+                                if (tagEnd !== -1) {
+                                    var tagName = myStr.substring(i + 2, tagEnd).split(' ')[0];
+                                    if (tagStack.length > 0) {
+                                        tagStack.pop();
+                                    }
+                                }
+                            }
+                        } else if (myStr[i] === '>') {
+                            inTag = false;
+                        } else if (!inTag) {
+                            currentLength++;
+                            // Only consider word boundaries if we're not inside any HTML tags
+                            if (tagStack.length === 0 && (myStr[i] === ' ' || myStr[i] === '.' || myStr[i] === ',' || myStr[i] === ';' || myStr[i] === ':' || myStr[i] === '!' || myStr[i] === '?')) {
+                                lastWordBoundary = i + 1;
+                            }
+
+                            if (currentLength >= maxLength) {
+                                // If we're inside HTML tags, find the next closing tag
+                                if (tagStack.length > 0) {
+                                    // Find the next closing tag for the current open tag
+                                    var nextClosingTag = '</' + tagStack[tagStack.length - 1] + '>';
+                                    var closingTagPos = myStr.indexOf(nextClosingTag, i);
+                                    if (closingTagPos !== -1) {
+                                        cutPosition = closingTagPos + nextClosingTag.length;
+                                    } else {
+                                        // If no closing tag found, use current position
+                                        cutPosition = i + 1;
+                                    }
+                                } else {
+                                    // Use the last word boundary if available, otherwise use current position
+                                    cutPosition = lastWordBoundary > 0 ? lastWordBoundary : i + 1;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    var newStr = myStr.substring(0, cutPosition);
+                    var removedStr = myStr.substring(cutPosition);
+                    $(this).empty().html(newStr);
+                    $(this).append(' <a href="javascript:void(0);" class="read-more">read more...</a>');
+                    $(this).append('<span class="more-text">' + removedStr + '</span>');
+                }
+            });
+            $(".read-more").click(function () {
+                $(this).siblings(".more-text").contents().unwrap();
+                $(this).remove();
+            });
+        });
+    </script>
+</body>
+
+</html>

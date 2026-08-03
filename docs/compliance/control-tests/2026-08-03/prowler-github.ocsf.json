@@ -1,0 +1,2409 @@
+[{
+    "message": "Repository cli-anything-biddeed does not delete branches on merge in default branch (main).",
+    "metadata": {
+        "event_code": "repository_branch_delete_on_merge_enabled",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 2,
+    "severity": "Low",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not delete branches on merge in default branch (main).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-the-automatic-deletion-of-branches",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.8"
+            ],
+            "CIS-1.0": [
+                "1.1.8"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository** setting that enables **automatic deletion of head branches** when pull requests merge into the default branch (`delete_branch_on_merge`).",
+        "title": "Repository deletes branches after pull request merge",
+        "types": [],
+        "uid": "prowler-github-repository_branch_delete_on_merge_enabled-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable **automatic head-branch deletion** after merges to minimize stale refs and confusion.\n- Enforce **least privilege** for branch creation\n- Apply **branch protection** and rulesets\n- Prefer short-lived feature branches with periodic pruning\n- Guard CI to avoid runs from obsolete branches",
+        "references": [
+            "https://hub.prowler.com/check/repository_branch_delete_on_merge_enabled"
+        ]
+    },
+    "risk_details": "Without automatic deletion, merged branches persist, weakening **integrity** and **confidentiality**: outdated code may be reused, secret remnants can linger, and reviews become ambiguous. Stale refs can still trigger CI with obsolete workflows, raising risks of supply-chain tampering and faulty deployments.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does allow default branch deletion.",
+    "metadata": {
+        "event_code": "repository_default_branch_deletion_disabled",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does allow default branch deletion.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.17"
+            ],
+            "CIS-1.0": [
+                "1.1.17"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** have **branch protections** or **rulesets** with `Allow deletions` disabled.",
+        "title": "Repository denies default branch deletion",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_deletion_disabled-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Disable deletions on the **default branch** using **branch protection** or **rulesets** (`Allow deletions=false`). Apply controls to admins, minimize bypass lists, and enforce **least privilege**. Combine with required pull requests and status checks for **defense in depth**.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_deletion_disabled"
+        ]
+    },
+    "risk_details": "Permitting default branch deletion undermines **availability** by breaking CI/CD, releases, and PR targets.\n\nIt also impacts **integrity**: the canonical ref can be removed, enabling history tampering, branch hijacking, and harder audits/rollbacks.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does allow force pushes on default branch (main).",
+    "metadata": {
+        "event_code": "repository_default_branch_disallows_force_push",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does allow force pushes on default branch (main).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#allow-force-pushes",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.16"
+            ],
+            "CIS-1.0": [
+                "1.1.16"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** blocks **force pushes** through branch protection.\n\nEvaluates whether the default branch permits force pushes. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch denies force pushes",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_disallows_force_push-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Disable `Allow force pushes` on the default branch. Enforce PR-based changes with required reviews and status checks, require signed commits and linear history, and restrict bypass to minimal actors. Apply protections to admins too to uphold **least privilege** and **defense in depth**.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_disallows_force_push"
+        ]
+    },
+    "risk_details": "Allowing **force pushes on the default branch** erodes **integrity** and **auditability** by enabling history rewrites and deletion of commits. Attackers or insiders can inject unreviewed code, bypass reviews and status checks, and corrupt PRs, risking supply-chain compromise and reduced **availability**.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not dismiss stale pull request approvals when new commits are pushed.",
+    "metadata": {
+        "event_code": "repository_default_branch_dismisses_stale_reviews",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not dismiss stale pull request approvals when new commits are pushed.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "identity-access"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#dismiss-stale-pull-request-approvals-when-new-commits-are-pushed"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.4"
+            ],
+            "CIS-1.0": [
+                "1.1.4"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "GitHub repository default branch ensures that when new commits are pushed to an open pull request, any previously granted approvals are automatically dismissed, requiring fresh reviews before the pull request can be merged.",
+        "title": "Repository default branch dismisses stale pull request approvals",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_dismisses_stale_reviews-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable \"Dismiss stale pull request approvals when new commits are pushed\" in your branch protection rules. This ensures every code change undergoes a fresh review before merging.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_dismisses_stale_reviews"
+        ]
+    },
+    "risk_details": "Without this setting, a contributor can receive approvals on a clean version of their code, then push malicious or unauthorized changes afterward. The pull request retains its approvals and can be merged without anyone reviewing the new changes, bypassing the entire code review process.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not enforce administrators to be subject to the same branch protection rules as other users.",
+    "metadata": {
+        "event_code": "repository_default_branch_protection_applies_to_admins",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not enforce administrators to be subject to the same branch protection rules as other users.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "identity-access"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#do-not-allow-bypassing-the-above-settings",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.14"
+            ],
+            "CIS-1.0": [
+                "1.1.14"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** applies **branch protection rules** to **administrators** via `enforce_admins`, holding admin pushes to the same requirements as other contributors (reviews, status checks, and push restrictions). This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch protection applies to administrators",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_protection_applies_to_admins-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable **branch protection for administrators** and disallow bypasses. Apply **least privilege** and **separation of duties** by requiring PR reviews, required status checks, and signed commits on critical branches. Limit force pushes and deletions, and regularly review admin roles and audit logs.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_protection_applies_to_admins"
+        ]
+    },
+    "risk_details": "Without admin enforcement, privileged users can bypass reviews and checks, enabling **unauthorized code changes**. A compromised admin token can inject backdoors, alter dependencies, or disable safeguards, undermining **integrity**, exposing secrets (**confidentiality**), and causing outages (**availability**).",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not enforce branch protection on default branch (main).",
+    "metadata": {
+        "event_code": "repository_default_branch_protection_enabled",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not enforce branch protection on default branch (main).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "identity-access",
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.20"
+            ],
+            "CIS-1.0": [
+                "1.1.20"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** has **branch protection rules** enabled to restrict direct changes and require reviewed, validated merges. The evaluation determines whether the default branch enforces such rules. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository enforces branch protection on the default branch",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_protection_enabled-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enforce **branch protection** on the default branch:\n- Require pull requests with approvals (least privilege)\n- Enforce required status checks and conversation resolution\n- Require signed commits and linear history; block force pushes/deletions\n- Restrict push to trusted actors and apply rules to admins\nUse **CODEOWNERS** to strengthen review accountability.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_protection_enabled"
+        ]
+    },
+    "risk_details": "Without default-branch protection, changes can bypass reviews and checks, enabling:\n- Unauthorized direct pushes/force pushes\n- Malicious code injection and workflow tampering\n- Accidental deletions or unstable releases\nThis undermines code **integrity** and service **availability**.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not require code owner approval for changes to owned code.",
+    "metadata": {
+        "event_code": "repository_default_branch_requires_codeowners_review",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not require code owner approval for changes to owned code.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-review-from-code-owners",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.7"
+            ],
+            "CIS-1.0": [
+                "1.1.7"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** requires **Code Owners** approval for pull requests that modify paths declared in `CODEOWNERS`. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch requires code owner approval for changes to owned code",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_requires_codeowners_review-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enforce **Code Owners** review on the default branch and keep `CODEOWNERS` accurate and team-based.\nApply **least privilege**, require **status checks** and **signed commits**, extend protections to admins, and audit ownership regularly. Co-own critical paths to ensure coverage and reduce single-point approval gaps.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_requires_codeowners_review"
+        ]
+    },
+    "risk_details": "Without required **Code Owners** review, non-owners can merge changes to sensitive code, undermining **integrity**.\nThis increases the chance of **malicious code injection**, hidden backdoors, or fragile changes that enable **data exfiltration** or cause outages, impacting confidentiality and availability.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not require conversation resolution on default branch (main).",
+    "metadata": {
+        "event_code": "repository_default_branch_requires_conversation_resolution",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not require conversation resolution on default branch (main).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.11"
+            ],
+            "CIS-1.0": [
+                "1.1.11"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** uses **branch protection** to require **conversation resolution** on pull requests (`Require conversation resolution before merging`). This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch requires conversation resolution before merging",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_requires_conversation_resolution-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable `Require conversation resolution before merging` on the default branch.\n\nAlso enforce:\n- Required approvals and CI checks\n- **CODEOWNERS** on critical paths\n- **Least privilege** for merge rights\n- Apply rules to admins to prevent bypass",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_requires_conversation_resolution"
+        ]
+    },
+    "risk_details": "Unresolved threads let code with known concerns reach default, weakening **integrity** and **confidentiality**. Insecure changes or secrets may ship, enabling injection, auth bypass, or data exposure. **Availability** can suffer from regressions; review accountability is reduced.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not require linear history on default branch (main).",
+    "metadata": {
+        "event_code": "repository_default_branch_requires_linear_history",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 2,
+    "severity": "Low",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not require linear history on default branch (main).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-linear-history",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.13"
+            ],
+            "CIS-1.0": [
+                "1.1.13"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** enforces `Require linear history`, blocking merge commits and allowing only `squash` or `rebase` merges. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch requires linear history",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_requires_linear_history-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable `Require linear history` on the default branch and allow only `squash` or `rebase` merges.\n\nReinforce with **branch protection**: require pull requests and reviews, **status checks**, and **signed commits**. Limit bypass to trusted roles (least privilege) to preserve **traceability** and **defense in depth**.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_requires_linear_history"
+        ]
+    },
+    "risk_details": "Without a **linear history**, commit provenance is harder to verify, weakening **integrity** and **accountability**.\n\nMerge commits can obscure diffs entering the default branch, hindering audits and rollbacks, enabling unnoticed **malicious or unreviewed code**, and delaying incident response.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not enforce at least 2 approvals for code changes.",
+    "metadata": {
+        "event_code": "repository_default_branch_requires_multiple_approvals",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not enforce at least 2 approvals for code changes.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "ci-cd",
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/approving-a-pull-request-with-required-reviews",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-pull-request-reviews-before-merging",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.3"
+            ],
+            "CIS-1.0": [
+                "1.1.3"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** enforces **required reviews** with a minimum of `2` approving reviews before a pull request can be merged.\n\nAssesses whether an approval threshold of at least `2` is configured for code changes targeting the default branch. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch requires at least 2 approvals for code changes",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_requires_multiple_approvals-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enforce the **four-eyes principle** by requiring at least `2` approvals for merges to the default branch.\n\nStrengthen with **separation of duties** using code owner reviews, dismiss stale approvals, apply protections to admins, and pair with required status checks for **defense in depth**.",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_requires_multiple_approvals"
+        ]
+    },
+    "risk_details": "Without multi-review approval on the default branch, a single actor can merge changes, degrading **integrity** and **accountability**. This enables:\n- supply-chain tampering or backdoors\n- introduction of exploitable bugs\n- bypass of change control via compromised accounts",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not require signed commits on default branch (main).",
+    "metadata": {
+        "event_code": "repository_default_branch_requires_signed_commits",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not require signed commits on default branch (main).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-signed-commits",
+            "https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.12"
+            ],
+            "CIS-1.0": [
+                "1.1.12"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** enforces **signed and verified commits** (`Require signed commits`), allowing only commits with valid cryptographic signatures to be pushed or merged. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch requires signed commits",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_requires_signed_commits-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enforce `Require signed commits` on default and release branches.\n- Standardize GPG/SSH/S/MIME for humans and bots\n- Protect and rotate signing keys; least privilege on bypass\n- Pair with required reviews and status checks for defense-in-depth",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_requires_signed_commits"
+        ]
+    },
+    "risk_details": "Without required signing, commit authorship can be spoofed and unverified changes added, impacting integrity.\n- Backdoor injection\n- History tampering and forged identities\n- Release pipeline abuse and supply-chain compromise",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not enforce status checks.",
+    "metadata": {
+        "event_code": "repository_default_branch_status_checks_required",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not enforce status checks.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "ci-cd"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/managing-a-branch-protection-rule",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging",
+            "https://docs.gearset.com/en/articles/2437757-managing-status-check-rules-in-github",
+            "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.9"
+            ],
+            "CIS-1.0": [
+                "1.1.9"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository default branch** uses **required status checks**, indicating whether merges are gated by successful check results on pull requests. This protection can be enforced through classic **branch protection** or repository **rulesets**.",
+        "title": "Repository default branch requires status checks",
+        "types": [],
+        "uid": "prowler-github-repository_default_branch_status_checks_required-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enforce branch protection to require **status checks** on the default branch.\n- Gate merges on build, tests, and security scans\n- Use `require up-to-date` behavior to reduce integration risk\n- Apply to admins and limit bypasses\n- Combine with **least privilege** and required reviews for defense in depth",
+        "references": [
+            "https://hub.prowler.com/check/repository_default_branch_status_checks_required"
+        ]
+    },
+    "risk_details": "Without required checks, unvetted commits can be merged, degrading code **integrity** and **availability**. Skipped or failing validations may introduce vulnerable dependencies, break builds, or allow malicious code, enabling supply-chain compromise and rapid propagation to production.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not have package vulnerability scanning (Dependabot alerts) enabled.",
+    "metadata": {
+        "event_code": "repository_dependency_scanning_enabled",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not have package vulnerability scanning (Dependabot alerts) enabled.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "vulnerabilities",
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.5.5"
+            ],
+            "CIS-1.0": [
+                "1.5.5"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repositories** are assessed for **dependency vulnerability scanning** enabled via `Dependabot alerts`, which monitors the dependency graph for known vulnerable packages and versions.",
+        "title": "Repository has package vulnerability scanning (Dependabot alerts) enabled",
+        "types": [],
+        "uid": "prowler-github-repository_dependency_scanning_enabled-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable **dependency vulnerability scanning** with `Dependabot alerts` or an equivalent SCA tool across repositories. Apply **defense in depth**: keep manifests and lockfiles current, triage alerts quickly, use automated security updates with required reviews, and surface results in PR checks and notifications.",
+        "references": [
+            "https://hub.prowler.com/check/repository_dependency_scanning_enabled"
+        ]
+    },
+    "risk_details": "Without automated scanning, known vulnerable dependencies may persist unnoticed, enabling supply-chain compromise. Exploits in third-party libraries can drive RCE, data theft, or build tampering, undermining confidentiality, integrity, and availability across code and CI/CD.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not have a CODEOWNERS file.",
+    "metadata": {
+        "event_code": "repository_has_codeowners_file",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not have a CODEOWNERS file.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners",
+            "https://github.blog/news-insights/product-news/introducing-code-owners/"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.6"
+            ],
+            "CIS-1.0": [
+                "1.1.6"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "GitHub repositories declare **code ownership** via a `CODEOWNERS` file mapping file patterns to users or teams. This evaluation checks whether such a file exists in standard locations (`/`, `.github/`, or `docs/`) to enable automatic reviewer assignment.",
+        "title": "Repository has a CODEOWNERS file",
+        "types": [],
+        "uid": "prowler-github-repository_has_codeowners_file-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Define and maintain a `CODEOWNERS` file mapping sensitive paths to responsible teams or users, preferring teams for resilience. Combine with branch protections requiring code-owner reviews to enforce **separation of duties** and **least privilege**. Keep entries current and cover critical directories to avoid pattern gaps.",
+        "references": [
+            "https://hub.prowler.com/check/repository_has_codeowners_file"
+        ]
+    },
+    "risk_details": "Missing `CODEOWNERS` undermines **integrity** and **separation of duties**:\n- PRs can merge without accountable, domain reviews\n- Critical paths risk unauthorized or low-quality changes\nThis raises **software supply chain** exposure, enabling code tampering, hidden backdoors, and unsafe config modifications.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed has been active within the last 180 days (0 days ago).",
+    "metadata": {
+        "event_code": "repository_inactive_not_archived",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status": "New",
+    "status_code": "PASS",
+    "status_detail": "Repository cli-anything-biddeed has been active within the last 180 days (0 days ago).",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/repositories/archiving-a-github-repository/archiving-repositories"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.1.8"
+            ],
+            "CIS-1.0": [
+                "1.1.8"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository** that remains **unarchived** and show no activity beyond a configured inactivity window (e.g., `180` days) are identified. The evaluation considers the most recent repository activity to surface long-idle codebases that are still unarchived.",
+        "title": "Repository is archived or active within the configured inactivity threshold",
+        "types": [],
+        "uid": "prowler-github-repository_inactive_not_archived-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Adopt **lifecycle management**:\n- Archive or delete repos no longer needed\n- If retained, update dependencies, rotate secrets, disable unused workflows, and restrict writes under **least privilege**\n- Define an inactivity policy (e.g., `180` days) with periodic reviews to prevent dormant, writable codebases",
+        "references": [
+            "https://hub.prowler.com/check/repository_inactive_not_archived"
+        ]
+    },
+    "risk_details": "Unarchived, long-inactive repos expand attack surface. Stale code and dependencies can hide unpatched flaws; writable state enables **integrity** compromise via malicious commits or workflow abuse; exposed secrets threaten **confidentiality**. Attackers can leverage them for lateral movement and supply-chain tampering.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed does not have a SECURITY.md file.",
+    "metadata": {
+        "event_code": "repository_public_has_securitymd_file",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 2,
+    "severity": "Low",
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Repository cli-anything-biddeed does not have a SECURITY.md file.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "software-supply-chain"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository",
+            "https://github.blog/changelog/2019-05-23-security-policy/"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.2.1"
+            ],
+            "CIS-1.0": [
+                "1.2.1"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub public repository** include a `SECURITY.md` policy file that tells researchers how to report vulnerabilities. The evaluation focuses on the presence of this file in public repositories.",
+        "title": "Public repository has a SECURITY.md file",
+        "types": [],
+        "uid": "prowler-github-repository_public_has_securitymd_file-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Publish a clear `SECURITY.md` for each public repo or an org default. Include private reporting channels, optional encryption keys, scope/supported versions, disclosure timelines, and safe-harbor terms. Link to any bounty program and review regularly. Align with **accountability** and **defense in depth** principles.",
+        "references": [
+            "https://hub.prowler.com/check/repository_public_has_securitymd_file"
+        ]
+    },
+    "risk_details": "Without **SECURITY.md**, reporters may use public issues or ad-hoc channels, causing premature disclosure or missed reports. This widens the exploit window and impacts **confidentiality** (leaked details), **integrity** (unauthorized changes), and **availability** (DoS from unpatched flaws).",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+},{
+    "message": "Repository cli-anything-biddeed has secret scanning enabled to detect sensitive data.",
+    "metadata": {
+        "event_code": "repository_secret_scanning_enabled",
+        "product": {
+            "name": "Prowler",
+            "uid": "prowler",
+            "vendor_name": "Prowler",
+            "version": "5.36.0"
+        },
+        "profiles": [
+            "cloud",
+            "datetime"
+        ],
+        "version": "1.5.0"
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status": "New",
+    "status_code": "PASS",
+    "status_detail": "Repository cli-anything-biddeed has secret scanning enabled to detect sensitive data.",
+    "status_id": 1,
+    "unmapped": {
+        "related_url": "",
+        "categories": [
+            "secrets"
+        ],
+        "depends_on": [],
+        "related_to": [],
+        "additional_urls": [
+            "https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning"
+        ],
+        "notes": "",
+        "compliance": {
+            "CIS-1.2.0": [
+                "1.5.1"
+            ],
+            "CIS-1.0": [
+                "1.5.1"
+            ]
+        },
+        "scan_id": "019fc726-e0d5-79aa-8fd4-d00af9021462",
+        "provider_uid": "breverdbidder",
+        "provider": "github"
+    },
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+        "created_time": 1785752641,
+        "created_time_dt": "2026-08-03T10:24:01.749756",
+        "desc": "**GitHub repository** configuration for **secret scanning**-which detects secrets (API keys, tokens, passwords) in commits and Git history-is evaluated to determine if detection is active.",
+        "title": "Repository has secret scanning enabled to detect sensitive data",
+        "types": [],
+        "uid": "prowler-github-repository_secret_scanning_enabled-breverdbidder-breverdbidder-cli-anything-biddeed"
+    },
+    "resources": [
+        {
+            "region": "breverdbidder",
+            "data": {
+                "details": "",
+                "metadata": {
+                    "id": 1178756441,
+                    "name": "cli-anything-biddeed",
+                    "owner": "breverdbidder",
+                    "full_name": "breverdbidder/cli-anything-biddeed",
+                    "immutable_releases_enabled": false,
+                    "default_branch": {
+                        "name": "main",
+                        "protected": false,
+                        "protected_source": null,
+                        "default_branch": true,
+                        "require_pull_request": false,
+                        "require_pull_request_source": null,
+                        "approval_count": 0,
+                        "approval_count_source": null,
+                        "required_linear_history": false,
+                        "required_linear_history_source": null,
+                        "allow_force_pushes": true,
+                        "allow_force_pushes_source": null,
+                        "branch_deletion": true,
+                        "branch_deletion_source": null,
+                        "status_checks": false,
+                        "status_checks_source": null,
+                        "enforce_admins": false,
+                        "enforce_admins_source": null,
+                        "require_code_owner_reviews": false,
+                        "require_code_owner_reviews_source": null,
+                        "require_signed_commits": false,
+                        "require_signed_commits_source": null,
+                        "conversation_resolution": false,
+                        "conversation_resolution_source": null,
+                        "dismiss_stale_reviews": false,
+                        "dismiss_stale_reviews_source": null
+                    },
+                    "private": false,
+                    "archived": false,
+                    "pushed_at": "2026-08-03 10:10:37+00:00",
+                    "securitymd": false,
+                    "codeowners_exists": false,
+                    "secret_scanning_enabled": true,
+                    "dependabot_alerts_enabled": false,
+                    "delete_branch_on_merge": false
+                }
+            },
+            "group": {
+                "name": "repository"
+            },
+            "labels": [],
+            "name": "cli-anything-biddeed",
+            "type": "NotDefined",
+            "uid": "1178756441"
+        }
+    ],
+    "category_name": "Findings",
+    "category_uid": 2,
+    "class_name": "Detection Finding",
+    "class_uid": 2004,
+    "cloud": {
+        "account": {
+            "name": "breverdbidder",
+            "type": "Other",
+            "type_id": 99,
+            "uid": "breverdbidder",
+            "labels": []
+        },
+        "org": {},
+        "provider": "github",
+        "region": "breverdbidder"
+    },
+    "remediation": {
+        "desc": "Enable **secret scanning** (and **push protection** where available) across repositories.\n- Store secrets in a dedicated **secrets manager**, never in code\n- Define custom patterns and enable generic detection for org-specific secrets\n- Rotate and revoke exposed credentials quickly\n- Enforce **least privilege** and add **defense-in-depth** monitoring",
+        "references": [
+            "https://hub.prowler.com/check/repository_secret_scanning_enabled"
+        ]
+    },
+    "risk_details": "Without **secret scanning**, exposed credentials can persist unnoticed, enabling:\n- Unauthorized access to cloud and third-party services\n- **Supply-chain compromise** via tampered pipelines\n- Data exfiltration and repo takeover\n\nThis degrades **confidentiality** and **integrity**, and increases blast radius of a single leaked key.",
+    "time": 1785752641,
+    "time_dt": "2026-08-03T10:24:01.749756",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create"
+}]
