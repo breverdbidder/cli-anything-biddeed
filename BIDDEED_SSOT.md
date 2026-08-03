@@ -43,6 +43,28 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
 - `NPM_TOKEN` absent — npm channel dark (owner decision).
 - A GitHub PAT was exposed in plaintext in a March 2026 session — rotation recommended (owner-only).
 - Issue #12745 (GTM-22 parent) parked in `needs_dod`.
+- **Secret rotation (2026-08-03 audit):** 35 of 37 tracked secrets have never
+  had a rotation date recorded (`public.secret_rotation_registry`). Weekly
+  Telegram reminder now live (`secret-rotation-check` cron, Mondays 09:00 UTC)
+  but nothing has actually been rotated yet except Cloudflare's deploy token
+  and the gh-aw Anthropic API key (both 2026-07-28). `service_role_key` and
+  `anthropic_oauth_bearer` in particular are still unrotated. See
+  `docs/security/vault-audit-2026-08-03.md`.
+- **No Supabase network restriction is possible today without a tradeoff**:
+  Vercel egress IPs are dynamic/unpublished unless the $100/mo Static IPs
+  add-on is purchased (not provisioned, purchase forbidden by this audit's
+  scope); GitHub Actions' published IP range (7,297 CIDRs) is too broad to be
+  a meaningful allowlist. Project remains fully open (`0.0.0.0/0`). See
+  `docs/security/ip-allowlist-research.md`.
+- **Vault secret access is not audited**: no `vault_access_log`, no `pgaudit`
+  extension. Platform limitation, not a config gap — cannot verify who reads
+  `vault.decrypted_secrets` and when. See CREDENTIAL HANDLING section of
+  `CLAUDE.md` for the `get_vault_secret_mcp()` open finding this compounds.
+- `cc-login-telegram.yml` and `claude-login-telegram.yml` (OAuth-refresh-
+  adjacent) both last ran 2026-04-03 (4 months stale as of 2026-08-03);
+  `claude-login-telegram.yml` failing on its last 3 observed runs. Not
+  investigated further — out of scope for the 2026-08-03 security audit,
+  flagged as a finding.
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
