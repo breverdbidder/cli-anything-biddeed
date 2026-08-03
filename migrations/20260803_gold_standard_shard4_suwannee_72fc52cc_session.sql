@@ -1,0 +1,57 @@
+-- Gold Standard SHARD-4 suwannee — dispatch 72fc52cc
+-- Session: architect-20260803T160000
+-- Issue: #17644
+-- Loop run: 8552
+--
+-- SUWANNEE (7/10 in brief: A,C,D,E,G,H,J pass; B,F,I fail)
+--
+-- DIAGNOSIS:
+--
+-- B FAIL (metric=null, verified=0, closed_sold=0):
+--   STRUCTURAL BLOCK — confirmed across 7+ consecutive sessions (2026-07-11 through 2026-08-03):
+--   1. Suwannee foreclosure sales are COURTHOUSE-STEPS only (per suwgov.org docx:
+--      "All sales begin at 11:00 a.m. and take place on the front steps of the Courthouse")
+--   2. myfloridacounty.com/orisearch/61 is Cloudflare Turnstile-gated (confirmed by 3+ sessions
+--      with fresh Playwright renders — sitekey 0x4AAAAAAA64PTBePmuGbrkR)
+--   3. suwannee.realforeclose.com: 0 dayid entries on calendar (platform has no FC listings)
+--   4. 3 past-due cases: 4666/4667 Redeemed (no sale occurred), 25-CA-197/25-CA-170 courthouse-only
+--   5. All 31 TD cases for 08-06-2026 and 09-03-2026 batches: genuinely future-dated or
+--      not yet posted as closed on the platform
+--   ACTION: BLANK > WRONG. No writes. Awaiting: (a) suwgov.org docx Last-Modified to change
+--   (currently 2026-07-20T15:32:50Z), or (b) CAPTCHA-solving tooling authorization.
+--
+-- F FAIL (metric=null, tier1_sold=0, closed_sold=0):
+--   Direct consequence of B. 0 closed sales = 0 tier1 amounts to promote.
+--   The tier1-promote-hourly autoloop runs correctly but has nothing to promote.
+--   ACTION: None. Unblocks automatically when B unblocks.
+--
+-- I FAIL (metric=71.4, card_complete=25/35):
+--   The regression from 100% (14/14 on 2026-07-25) is caused by ~17 new auctions added.
+--   Gap breakdown:
+--   - 9 rows for auction_date=2026-09-03: realtaxdeed.com has NOT posted parcel records for this
+--     sale date yet (>1 month out). No address/value available from any source. UNTESTED whether
+--     the 2026-08-06 batch (8 rows) also has a platform lag — probe attempted in this session.
+--   - 1 additional row (case_number varies per live state) may have address but failed geocoding.
+--   ENRICHMENT PIPELINE (deployed via gold-standard-shard4-suwannee-72fc52cc.yml):
+--   1. Harvest realtaxdeed.com AJAX for each distinct auction_date -> address map
+--   2. For rows with address: Census Geocoder (free, no key) -> lat/lon
+--   3. GSA-corp PA lookup (suwannee-search.gsacorp.io) -> market_value/assessed_value + use_code
+--   4. parcel_zones INSERT for newly-resolved parcels (jurisdiction_id=895, DOR use_code map)
+--   All writes via PostgREST (direct psql auth not available in GHA runner for this session).
+--
+-- WIRING: gold-standard-shard4-suwannee-72fc52cc.yml dispatched via workflow_dispatch.
+-- The workflow runs scripts/suwannee_72fc52cc_session_query.py for the DML writes.
+--
+-- ============================================================
+-- NO DDL IN THIS FILE — DML executed via GHA workflow
+-- ============================================================
+-- The enrichment INSERTs/PATCHes and ultraloop_audit INSERTs are executed by the
+-- gold-standard-shard4-suwannee-72fc52cc.yml workflow.
+-- This file is for provenance/documentation only per repo convention.
+
+-- Verify state (run after workflow completes):
+-- SELECT public.pencil_dod_evaluate_county('suwannee');
+-- SELECT id, letter, survived, created_at
+-- FROM public.gold_standard_ultraloop_audit
+-- WHERE dispatch_id = '72fc52cc-5c4b-45bb-b7f4-bef4dd882aa0'
+-- ORDER BY letter;
