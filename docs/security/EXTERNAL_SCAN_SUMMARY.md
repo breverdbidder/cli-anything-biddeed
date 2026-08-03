@@ -41,10 +41,42 @@ nonce-based or externalized. That conversion is a real code change across a
 "pure documentation, zero cost" session. It is logged here as the specific,
 named follow-up rather than silently left for someone to discover.
 
-**Status:** fix committed; grade re-scan pending deploy via
-`.github/workflows/deploy-worker.yml`. See the `POST-DEPLOY RESULT` section
-below once available — do not treat the pre-fix F grade as current after
-this commit lands.
+## POST-DEPLOY RESULT (verified)
+
+Commit `95d8c2ff` deployed via `.github/workflows/deploy-worker.yml` (run
+`30803730257`, success, 2026-08-03 ~10:00 UTC). Re-scanned immediately after:
+
+| Target | Grade | Score | Tests passed | Raw file |
+|---|---|---|---|---|
+| biddeed.ai | **C+** | 60/100 | 8/10 | `mozilla-observatory-biddeed-after.json` |
+
+**This does not meet the "A or above" target stated in the brief.** Reporting
+that honestly rather than rounding up. History from the scanner itself:
+F(10) → C+(60) in the same host record, confirming the header fix is what
+moved the grade, not scan noise. `curl -I` against the live site (checked
+5x post-deploy) confirms all 6 new headers present: `strict-transport-security`,
+`content-security-policy`, `permissions-policy`, `referrer-policy`,
+`x-frame-options`, `x-content-type-options`.
+
+**Why C+ and not A:** this API version doesn't return a per-test breakdown,
+but per the "Known limitation" above, Mozilla's algorithm caps CSP credit
+when `script-src`/`style-src` include `'unsafe-inline'` — which this fix
+still does, on purpose, because removing it requires converting every inline
+`<script>` block in `src/worker.js` (PostHog init, per-page interaction
+handlers) to a nonce-based or externalized pattern. That is a real code
+change, not a header addition, and was out of scope for this
+"pure-documentation, zero-cost" session per the goal statement. Full detail
+at https://developer.mozilla.org/en-US/observatory/analyze?host=biddeed.ai
+
+**Named follow-up to actually reach A:** externalize or nonce the inline
+scripts in `src/worker.js`, then re-scan. Tracked here, not silently
+dropped.
+
+**Transient note during verification:** in the ~90 seconds after deploy,
+`/data-retention` alternated between 200 (new code) and 404 (old code) across
+different Cloudflare edge colos — normal rolling propagation, not a bug.
+Stabilized to 200 across 5 consecutive checks afterward; confirmed again at
+scan time (`status_code: 200` in the Observatory result above).
 
 ## SSL Labs (TLS configuration)
 
@@ -81,8 +113,8 @@ verified session.
 
 | Item | Status | Evidence |
 |---|---|---|
-| biddeed.ai missing security headers | FIXED (code) / PENDING (deploy) | `src/worker.js` `withSecurityHeaders()` |
+| biddeed.ai missing security headers | FIXED and DEPLOYED — verified live (F→C+, 10→60) | `mozilla-observatory-biddeed-after.json`, deploy run `30803730257` |
 | biddeed.ai TLS | Already A — no action needed | `ssllabs-biddeed.json` |
 | mcp.biddeed.ai security headers | Not modified this session — Vercel-hosted, outside `src/worker.js`'s scope | `response-headers-mcp.txt` |
 | mcp.biddeed.ai TLS | UNKNOWN — scanner could not complete; not a confirmed fail | `ssllabs-mcp.json` |
-| CSP `unsafe-inline` | Open, named follow-up | See "Known limitation" above |
+| CSP `unsafe-inline` (blocks reaching A) | OPEN, named follow-up — not done this session | See "Why C+ and not A" above |

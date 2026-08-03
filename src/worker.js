@@ -3164,6 +3164,7 @@ code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <li>TLS in transit on every request (Vercel + Cloudflare edge termination).</li>
 <li>Encryption at rest on the primary database (Supabase).</li>
 <li>Row-Level Security is enabled on 723 of 728 public database tables (99%) — verified by direct query against <code>pg_class.relrowsecurity</code>, ${SECURITY_LAST_REVIEWED}. The remaining tables are reference/lookup data with no customer or credential content.</li>
+<li>HTTP security headers (HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy) on every response from this site — Mozilla HTTP Observatory grade C+, up from F before ${SECURITY_LAST_REVIEWED}. Not yet A: our CSP still allows inline scripts for a PostHog snippet that isn't nonce-based yet — tracked as an open item, not hidden.</li>
 </ul>
 
 <h2>🔑 Access Control</h2>
@@ -3201,7 +3202,7 @@ code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <li>📄 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/INCIDENT_RESPONSE_PLAN.md" target="_blank" rel="noopener">Incident Response Plan</a> — severity classification, detection sources, response playbooks.</li>
 <li>📋 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/VENDOR_SUB_PROCESSOR_LIST.md" target="_blank" rel="noopener">Vendor &amp; Sub-Processor List</a> — every third party that touches customer data, with sourced security-page links.</li>
 <li>🗓 <a href="/data-retention">Data Retention &amp; Deletion Policy</a> — what we keep, for how long, and how to request deletion.</li>
-<li>📊 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/EXTERNAL_SCAN_SUMMARY.md" target="_blank" rel="noopener">External Scan Results</a> — Mozilla HTTP Observatory + SSL Labs, raw output attached.</li>
+<li>📊 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/EXTERNAL_SCAN_SUMMARY.md" target="_blank" rel="noopener">External Scan Results</a> — Mozilla HTTP Observatory (C+, up from F) + SSL Labs (A on TLS), raw output attached.</li>
 <li>📦 Request the full Security Evidence Pack (architecture, controls, compliance posture) — email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a>.</li>
 </ul>
 

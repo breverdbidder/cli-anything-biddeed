@@ -75,7 +75,7 @@ is flagged for owner follow-up, not silently resolved.
 | Rate limiting / abuse control | Billing-gated, idempotency-keyed MCP tool calls (no double-charge/double-execute on retry) | VERIFIED — per `/security` page |
 | Logging / monitoring | `security_events`, `security_scan_results`, `taxi_meter_streams`/`taxi_meter_tools` | VERIFIED — tables exist live (REST HEAD checks, 2026-08-03) |
 | CI security gate | Semgrep SAST + Gitleaks + npm/pip audit on every PR (`.github/workflows/security-scan.yml`) | VERIFIED — workflow file present |
-| HTTP security headers (biddeed.ai) | HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy | FIXED this session (`src/worker.js`), pending deploy — see `EXTERNAL_SCAN_SUMMARY.md` |
+| HTTP security headers (biddeed.ai) | HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy | FIXED and deployed this session — Mozilla Observatory grade F(10)→C+(60), verified live post-deploy. Not yet A — CSP still allows `unsafe-inline` pending an inline-script refactor; see `EXTERNAL_SCAN_SUMMARY.md` |
 | External DAST (OWASP ZAP) | Not yet run against production | OPEN — flagged on `/security` page as not yet performed, pending scope confirmation |
 
 ## 4. Compliance Posture
