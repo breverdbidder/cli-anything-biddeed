@@ -67,6 +67,14 @@ jobs:
             echo "::error::posthog_project_key not returned for direct-capture diagnostic"
           fi
 
+          echo "--- diagnostic: query by distinct_id only, no event-name filter (30min, incl an older run's gha-diag-probe) ---"
+          diag2=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
+            -H "Authorization: Bearer $key" \
+            --data-urlencode "distinct_id=gha-diag-probe" \
+            --data-urlencode "after=-30m" \
+            --data-urlencode "limit=10")
+          echo "$diag2" | jq '[.results[] | {event, distinct_id, timestamp}]'
+
           echo "--- diagnostic: any events at all on this project in the last 15min? ---"
           diag=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
             -H "Authorization: Bearer $key" \
