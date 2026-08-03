@@ -396,9 +396,10 @@ function withSecurityHeaders(response, path) {
 // never adopted here, blocked on browser signup) ───────────────────────────────
 async function captureError(error, request, env) {
   const phKey = env.POSTHOG_PROJECT_KEY;
+  console.log('[posthog-diag] captureError called, hasKey=' + !!phKey);
   if (!phKey) return;
   try {
-    await fetch('https://us.i.posthog.com/capture/', {
+    const r = await fetch('https://us.i.posthog.com/capture/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -417,8 +418,9 @@ async function captureError(error, request, env) {
         }
       })
     });
+    console.log('[posthog-diag] capture response status=' + r.status + ' body=' + await r.text());
   } catch (e) {
-    // Never let error reporting break the worker
+    console.log('[posthog-diag] capture fetch threw: ' + (e && e.stack || e));
   }
 }
 
