@@ -49,6 +49,24 @@ jobs:
           fi
           echo "Resolved project_id=$project_id"
 
+          echo "--- diagnostic: does posthog_project_key itself work against the capture endpoint? ---"
+          pkpayload=$(jq -nc --arg q "SELECT vault_secret('posthog_project_key') AS v;" '{query: $q}')
+          pkresp=$(curl -sS -X POST "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: cli-anything-biddeed-cc/1.0" \
+            -d "$pkpayload")
+          pkey=$(echo "$pkresp" | jq -r '.[0].v // empty')
+          if [ -n "$pkey" ]; then
+            echo "::add-mask::$pkey"
+            capbody=$(jq -nc --arg k "$pkey" '{api_key:$k, event:"$exception", distinct_id:"gha-diag-probe", properties:{"$exception_message":"gha diagnostic probe"}}')
+            capout=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST "https://us.i.posthog.com/capture/" \
+              -H "Content-Type: application/json" -d "$capbody")
+            echo "Direct capture call result: $capout"
+          else
+            echo "::error::posthog_project_key not returned for direct-capture diagnostic"
+          fi
+
           echo "--- diagnostic: any events at all on this project in the last 15min? ---"
           diag=$(curl -sS -G "https://us.posthog.com/api/projects/${project_id}/events" \
             -H "Authorization: Bearer $key" \
