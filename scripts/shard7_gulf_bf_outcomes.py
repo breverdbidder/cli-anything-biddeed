@@ -158,11 +158,14 @@ def sb_upsert(table: str, rows: list[dict], on_conflict: str) -> int:
     if not rows:
         return 0
     body = json.dumps(rows).encode()
+    # on_conflict MUST be a URL query param — PostgREST does not honor an
+    # "on-conflict=" token inside the Prefer header, it silently falls back
+    # to the primary key and then raises 23505 on the real unique constraint.
     req = urllib.request.Request(
-        f"{SB_URL}/rest/v1/{table}",
+        f"{SB_URL}/rest/v1/{table}?on_conflict={urllib.parse.quote(on_conflict)}",
         data=body,
         headers=_sb_headers({
-            "Prefer": f"resolution=merge-duplicates,return=minimal,on-conflict={on_conflict}",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
         }),
         method="POST",
     )
@@ -362,19 +365,25 @@ def build_mca_rows(records: list[dict], source: str) -> list[dict]:
             "tier1_sold_amount":  bid,
             "tier1_buyer_type":   "third_party",
             "tier1_verified_at":  now,
-            "property_address":   rec.get("property_address") or "",
-            "parcel_id":          rec.get("parcel_id"),
             "source_platform":    "realforeclose",
             "source_url":         RF_HOST,
             "parity_status":      "matched_clean",
-            "parity_source":      "realforeclose_sold_results",
+            # C/D criterion requires parity_source LIKE 'tier1%%' — an
+            # authenticated realforeclose re-verify IS a tier1 source.
+            "parity_source":      "tier1_realforeclose_sold_results",
             "last_seen_at":       now,
             "updated_at":         now,
         }
-        # Do not clobber an existing correct auction_date with NULL on
-        # merge-duplicates upsert when we didn't re-scrape a new date.
+        # Do not clobber existing correct values with NULL/empty on a
+        # merge-duplicates upsert when the live re-verify page didn't
+        # surface these fields (e.g. realforeclose's results-report view
+        # has no parcel_id/address column) — only include them if scraped.
         if adate:
             row["auction_date"] = adate
+        if rec.get("property_address"):
+            row["property_address"] = rec["property_address"]
+        if rec.get("parcel_id"):
+            row["parcel_id"] = rec["parcel_id"]
         rows.append(row)
     return rows
 
@@ -421,7 +430,7 @@ def write_mca_rows(mca_rows: list[dict]) -> int:
         n = sb_upsert(
             "multi_county_auctions",
             mca_rows[i:i + BATCH],
-            "county,case_number",
+            "county,case_number,sale_type",
         )
         total += n
         log(f"  MCA batch {i // BATCH + 1}: {n} rows written")
