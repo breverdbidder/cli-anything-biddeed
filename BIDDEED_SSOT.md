@@ -69,6 +69,16 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
 
+## 6.1 SECURITY EVIDENCE PACK
+Investor/enterprise due-diligence security documentation lives at
+`docs/security/SECURITY_EVIDENCE_PACK.md` (index), with `INCIDENT_RESPONSE_PLAN.md`,
+`VENDOR_SUB_PROCESSOR_LIST.md`, `EXTERNAL_SCAN_SUMMARY.md` alongside it and
+`docs/legal/DATA_RETENTION_POLICY.md` (live at `biddeed.ai/data-retention`).
+Public summary at `biddeed.ai/security`. Built 2026-08-03; that session's scan
+found `mcp.biddeed.ai` serving Vercel response headers, which conflicts with
+§1's "no Vercel project exists for biddeed" — flagged there as unresolved,
+not corrected in §1 without a dedicated verification session.
+
 ---
 
 ## 7. MACHINE SSOT (Supabase) — this file defers to it for inventory

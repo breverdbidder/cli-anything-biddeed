@@ -24,6 +24,8 @@
  *   GET  /terms               → Terms of Service
  *   GET  /privacy             → Privacy Policy
  *   GET  /disclaimer          → Disclaimer
+ *   GET  /security            → Security overview
+ *   GET  /data-retention      → Data Retention & Deletion Policy
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -366,9 +368,31 @@ function detectFLCounty(text) {
 }
 const AUCTION_INTENT_RE = /(?:show|find|list|what|upcoming|auction|properties?|foreclosure|tax.?deed)/i;
 
+// ── Security response headers ───────────────────────────────────────────────
+// Applied to every response from this worker. script-src/style-src keep
+// 'unsafe-inline' because the site's inline <script> blocks (PostHog init,
+// per-page interaction JS) are not yet nonce-based — tightening that is a
+// follow-up, not a header-only change. See docs/security/EXTERNAL_SCAN_SUMMARY.md.
+const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://us.i.posthog.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+function withSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', SECURITY_CSP);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
   async fetch(request, env, ctx) {
+    return withSecurityHeaders(await handleRequest(request, env, ctx));
+  }
+};
+
+async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -386,6 +410,7 @@ export default {
       if (path === '/privacy')                  return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/disclaimer')                return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/security')                  return new Response(SECURITY_HTML,   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/data-retention')            return new Response(DATA_RETENTION_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
       // ── /subscribe ───────────────────────────────────────────────────────
       // Served as an HTML interstitial (not a raw 302) so PostHog can record
@@ -925,8 +950,7 @@ ${DISCLAIMER_SHORT}`;
       await logErr(env, path, 'Unhandled error', String(e), 500);
       return new Response('Internal server error', { status: 500 });
     }
-  }
-};
+}
 
 // ── County deep-link landing page ─────────────────────────────────────────────
 function buildCountyPage(slug, d, lots, rtConfig) {
@@ -3052,6 +3076,60 @@ footer a{color:var(--muted)}
 <footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
+const DATA_RETENTION_HTML = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Data Retention Policy — BidDeed.AI</title>
+${POSTHOG_SCRIPT}
+<style>
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+*{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
+.wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
+a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
+h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .6rem;color:#fff}
+.upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
+p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.45rem}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.88rem}
+th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--border);color:var(--muted)}
+th{color:#fff;font-weight:600}
+.box{background:#0b1220;border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
+.box strong{color:#fff}
+.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
+nav.top a{color:#fff;font-weight:700}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
+footer a{color:var(--muted)}
+code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
+</style></head><body>
+<nav class="top"><a href="/">BidDeed.AI</a></nav>
+<div class="wrap"><a class="back" href="/">← Back to home</a><h1>Data Retention &amp; Deletion Policy</h1><div class="upd">Last updated: August 3, 2026</div>
+
+<div class="box"><strong>This is not legal advice.</strong> BidDeed.AI is an information and analytics platform, not a law firm or title company.</div>
+
+<h2>What we retain, and for how long</h2>
+<table>
+<tr><th>Data</th><th>Retention</th><th>Why</th></tr>
+<tr><td>Customer account data (email, Stripe customer ID)</td><td>Active + 7 years after closure</td><td>Florida business records practice</td></tr>
+<tr><td>API/tool usage metering</td><td>Retained per billing cycle</td><td>Billing accuracy, abuse investigation</td></tr>
+<tr><td>Payment records</td><td>7 years</td><td>IRS recordkeeping requirement</td></tr>
+<tr><td>Security event logs</td><td>1 year, then purged</td><td>Incident investigation window</td></tr>
+<tr><td>Chat history</td><td>30 days, then purged</td><td>Support/debugging only — not a system of record</td></tr>
+<tr><td>Florida property/auction data</td><td>Indefinite</td><td>Public government records; no personal data</td></tr>
+</table>
+
+<h2>Right to deletion</h2>
+<p>You may request deletion of your personal data (email, payment-related identifiers) by emailing <a href="mailto:privacy@biddeed.ai">privacy@biddeed.ai</a>. We will process deletion requests within 30 days.</p>
+<p>Florida public-record data (property records, auction/case data) is sourced from county government systems and cannot be deleted from our copy — it was never personal to you; it is the county's own public filing.</p>
+
+<h2>Florida-specific notice</h2>
+<p>Under Florida's Information Protection Act (FS 501.171), if a breach affects more than 500 Florida residents, we will notify the Florida Department of Legal Affairs and affected individuals within 30 days of determining the breach occurred.</p>
+
+<h2>Contact</h2>
+<p>Policy questions: <a href="mailto:privacy@biddeed.ai">privacy@biddeed.ai</a> &nbsp;·&nbsp; Security incidents: <a href="mailto:security@biddeed.ai">security@biddeed.ai</a></p>
+
+</div>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="/data-retention">Data Retention</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+</body></html>`;
+
 const SECURITY_LAST_REVIEWED = 'August 2026';
 
 const SECURITY_HTML = `<!doctype html><html lang="en"><head>
@@ -3116,6 +3194,15 @@ code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <li>CASA Tier 2 — planned.</li>
 <li>Florida financial/public-record data handling per FS 197.552 and FS 713.07.</li>
 <li>Governing law: State of Florida. See our <a href="/terms">Terms of Service</a>.</li>
+</ul>
+
+<h2>📚 Security Documentation</h2>
+<ul>
+<li>📄 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/INCIDENT_RESPONSE_PLAN.md" target="_blank" rel="noopener">Incident Response Plan</a> — severity classification, detection sources, response playbooks.</li>
+<li>📋 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/VENDOR_SUB_PROCESSOR_LIST.md" target="_blank" rel="noopener">Vendor &amp; Sub-Processor List</a> — every third party that touches customer data, with sourced security-page links.</li>
+<li>🗓 <a href="/data-retention">Data Retention &amp; Deletion Policy</a> — what we keep, for how long, and how to request deletion.</li>
+<li>📊 <a href="https://github.com/breverdbidder/cli-anything-biddeed/blob/main/docs/security/EXTERNAL_SCAN_SUMMARY.md" target="_blank" rel="noopener">External Scan Results</a> — Mozilla HTTP Observatory + SSL Labs, raw output attached.</li>
+<li>📦 Request the full Security Evidence Pack (architecture, controls, compliance posture) — email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a>.</li>
 </ul>
 
 <h2>📧 Security Contact</h2>

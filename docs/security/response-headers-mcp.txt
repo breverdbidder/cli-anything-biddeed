@@ -1,0 +1,10 @@
+HTTP/2 404 
+cache-control: public, max-age=0, must-revalidate
+content-type: text/plain; charset=utf-8
+date: Mon, 03 Aug 2026 09:56:18 GMT
+server: Vercel
+strict-transport-security: max-age=63072000
+x-vercel-error: NOT_FOUND
+x-vercel-id: cle1::bq7s8-1785750978158-603c25df32de
+content-length: 79
+
