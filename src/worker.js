@@ -373,22 +373,29 @@ const AUCTION_INTENT_RE = /(?:show|find|list|what|upcoming|auction|properties?|f
 // 'unsafe-inline' because the site's inline <script> blocks (PostHog init,
 // per-page interaction JS) are not yet nonce-based — tightening that is a
 // follow-up, not a header-only change. See docs/security/EXTERNAL_SCAN_SUMMARY.md.
+//
+// /chat is embedded same-origin via <iframe src="https://biddeed.ai/chat">
+// on the homepage (see HOMEPAGE_HTML .cfw block), so it needs frame-ancestors
+// 'self' / X-Frame-Options SAMEORIGIN instead of the site-wide 'none'/DENY —
+// otherwise the browser blocks the frame and it renders as a broken box.
 const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://us.i.posthog.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
-function withSecurityHeaders(response) {
+const SECURITY_CSP_CHAT = SECURITY_CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
+function withSecurityHeaders(response, path) {
   const headers = new Headers(response.headers);
+  const isChatFrame = path === '/chat' || (path && path.startsWith('/chat'));
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('X-Frame-Options', 'DENY');
+  headers.set('X-Frame-Options', isChatFrame ? 'SAMEORIGIN' : 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
-  if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', SECURITY_CSP);
+  if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', isChatFrame ? SECURITY_CSP_CHAT : SECURITY_CSP);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
   async fetch(request, env, ctx) {
-    return withSecurityHeaders(await handleRequest(request, env, ctx));
+    return withSecurityHeaders(await handleRequest(request, env, ctx), new URL(request.url).pathname);
   }
 };
 
