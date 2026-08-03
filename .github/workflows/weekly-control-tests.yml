@@ -1,0 +1,32 @@
+name: Weekly Control Report
+
+# Weekly summary of cc_session_cost, agent_ops_log, and gold_standard_certifications
+# over the trailing 7 days, emailed via Resend to vault.alerts_to_email.
+# See scripts/generate_control_report.py (dispatch 59f3574e).
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'  # Monday 09:00 ET (13:00 UTC, EDT — adjust if DST matters)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  control-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Generate and email control report
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python3 scripts/generate_control_report.py
