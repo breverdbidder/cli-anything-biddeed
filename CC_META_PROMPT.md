@@ -144,6 +144,20 @@ have succeeded.
 
 ---
 
+## SESSION DISCIPLINE — CACHE INTEGRITY
+
+- **Never switch models mid-session.** Model is set at dispatch (see issue brief).
+  Switching triggers a full prompt-cache bust: the next turn is billed at the
+  cache-write rate instead of the cache-read rate — roughly a 20x cost spike.
+- **Never change effort_level mid-session**, for the same reason.
+- **Set MCP servers in `CLAUDE.md` / `.mcp.json` before session start**, not
+  mid-flight — changing the tool schema block mid-session also busts the cache.
+- **At session end, report cache metrics** in the `agent_ops_log` evidence
+  field: `cache_read=<n> cache_write=<n> hit_pct=<n>%`. See SESSION TEARDOWN
+  below for the exact call.
+
+---
+
 ## 6. REPORTING FORMAT
 
 Post one issue comment. It must contain, in this order:
@@ -238,6 +252,25 @@ SELECT public.log_cc_session_cost(
 - Check the Claude Code session summary at end of run (CC prints usage stats)
 - If usage stats unavailable, use 0 for all token fields — the row still lands
 - Model: check `claude --version` output or the model field in session metadata
+
+### FINAL STEP — cache hit rate (mandatory before session ends)
+Run `/cost` or read the `current_usage` object for token counts, then call:
+
+```sql
+SELECT public.record_session_cache_metrics(
+  p_run_id       => '<GHA_RUN_ID from env>',
+  p_issue        => <issue_number>,
+  p_model        => '<model string>',
+  p_cache_read   => <cache_read_input_tokens>,
+  p_cache_write  => <cache_creation_input_tokens>,
+  p_input        => <input_tokens>,
+  p_output       => <output_tokens>
+);
+```
+
+This is separate from `log_cc_session_cost` above — it writes a dedicated
+`cache_hit_pct` row to `agent_ops_log` (warns at <30% hit rate) instead of
+folding cache figures into a free-text evidence string. Run both calls.
 
 ### Why this matters
 - $767 was burned in July with zero visibility into which sessions cost what
