@@ -21,6 +21,7 @@
  *   GET  /buy-report/auctions → JSON: purchasable auctions for ?county=slug
  *   POST /buy-report/checkout → Creates biddeed-checkout session (tier=s5_onetime)
  *   GET  /report-success      → Post-payment report key delivery page
+ *   GET  /report/:mca_id      → Interactive S5 Shapira report (Bearer key or ?key=)
  *   GET  /terms               → Terms of Service
  *   GET  /privacy             → Privacy Policy
  *   GET  /disclaimer          → Disclaimer
@@ -88,6 +89,370 @@ async function logErr(env, endpoint, message, detail, status, severity = 'error'
       body: JSON.stringify({ p_severity: severity, p_endpoint: endpoint, p_message: message, p_detail: String(detail || ''), p_status: status || 500 }),
     });
   } catch(_) {}
+}
+
+// ── S5 Interactive HTML Report — GET /report/:mca_id (issue #18307) ──────────
+async function sha256Hex(str) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// Renders a money-shaped { value, display, source } field, or a plain
+// scalar/null — never the raw `source` string (S5 SSOT v1.2: RL formula
+// coefficient names must never reach the page — see §15 note below).
+function dispVal(obj, fallback = 'Pending') {
+  if (obj == null) return fallback;
+  if (typeof obj === 'object') return obj.display != null ? escHtml(obj.display) : fallback;
+  return escHtml(String(obj));
+}
+
+async function fetchS5ReportAccess(apiKey, mcaId) {
+  const keyHash = await sha256Hex(apiKey);
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_s5_report_access`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    body: JSON.stringify({ p_key_hash: keyHash, p_mca_id: mcaId }),
+  });
+  if (!res.ok) return { ok: false, error: 'lookup_failed' };
+  return res.json();
+}
+
+function s5Section(num, title, bodyHtml, { open = false, headerBg = '#12283F', noBody = false } = {}) {
+  return `<details class="sec"${open ? ' open' : ''}>
+    <summary class="sec-h" style="background:${headerBg}">
+      <span class="sec-title">&sect;${escHtml(num)} &nbsp; ${escHtml(title)}</span>
+      <span class="sec-pill">${open ? 'COLLAPSE &#9652;' : 'EXPAND &#9662;'}</span>
+    </summary>
+    ${noBody ? '' : `<div class="sec-body">${bodyHtml}</div>`}
+  </details>`;
+}
+
+function s5Row(label, value) {
+  return `<div class="row"><span class="row-l">${escHtml(label)}</span><span class="row-v">${value}</span></div>`;
+}
+
+function s5CompTable(comps, cols) {
+  if (!Array.isArray(comps) || !comps.length) return '<div class="pending">No comps available.</div>';
+  const head = cols.map(c => `<th>${escHtml(c.label)}</th>`).join('');
+  const rows = comps.map(c => `<tr>${cols.map(col => `<td>${escHtml(col.get(c) ?? '&mdash;')}</td>`).join('')}</tr>`).join('');
+  return `<table class="comp-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// S5 SSOT v1.2 — the Shapira formula source string embeds the RL fit
+// coefficient NAMES (optimal_bid_pct_of_assessed, plaintiff_discount_factor)
+// for audit purposes in the API response. That string must never render on
+// the customer-facing page; only sample_size + county are shown here.
+function s5CalibrationFootnote(shapiraMaxBid, county) {
+  const src = shapiraMaxBid && typeof shapiraMaxBid === 'object' ? String(shapiraMaxBid.source || '') : '';
+  const m = src.match(/sample_size=(\d+)/);
+  const n = m ? m[1] : 'an undisclosed number of';
+  return `Calibrated on ${escHtml(n)} verified ${escHtml(toDisplay(county || ''))} County sales.`;
+}
+
+function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
+  const cover = report.cover || {};
+  const auction = report.auction_listing || {};
+  const value = report.value_estimate;
+  const cb = value?.clearing_band;
+  const mb = value?.market_band;
+  const priors = report.county_stats || {};
+  const cma = report.cma || {};
+  const distressed = report.cma_distressed || {};
+  const tx = report.transaction_history || {};
+  const prop = report.property_record || {};
+  const ml = report.context_layers?.ml_model || {};
+  const zw = report.zoning || {};
+  const opp = report.opinion_of_price_bid_card || {};
+  const judgment = report.judgment || {};
+  const flags = report.red_flags || [];
+  const prov = report.provenance || {};
+  const outcome = report.auction_outcome || {};
+  const disclaimer = report.disclaimer || 'Informational only — not legal, financial, or investment advice.';
+  const countyLabel = toDisplay(cover.county || '');
+  const generatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  const reportIdShort = String(mcaId).slice(0, 8) + '-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+  if (cover.locatable === false) {
+    return s5Page({
+      cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer,
+      body: `
+        <div class="bidcard" style="border-color:#475569">
+          <div class="verdict" style="color:#94a3b8">SKIP — UNLOCATABLE</div>
+          <p class="refusal">${escHtml(report.refusal || 'An estimate here would be fabrication.')}</p>
+        </div>
+        ${s5Section('ZW', 'ZoneWise Land & Zoning Intelligence', `<div class="pending">${escHtml(zw.verdict || 'Unavailable — subject unlocatable.')}</div>`, { headerBg: '#F97316' })}
+        ${s5Section('17', 'Provenance & Methodology', s5Row('Certification', dispVal(prov.certification_disclosure)), {})}
+      `,
+    });
+  }
+
+  // ── §1 Subject & Auction Identification ──────────────────────────────────
+  const sec1 = [
+    s5Row('Address', escHtml(cover.property_address)),
+    s5Row('County', `${escHtml(countyLabel)} County, Florida`),
+    s5Row('Case Number', escHtml(cover.case_number)),
+    s5Row('Auction Date', escHtml(auction.auction_date || 'Pending')),
+    s5Row('Plaintiff', dispVal(auction.plaintiff)),
+    s5Row('Assessed Value', dispVal(auction.assessed_value)),
+    s5Row('Final Judgment', dispVal(auction.judgment_amount)),
+    s5Row('Plaintiff Max Bid', dispVal(auction.plaintiff_max_bid)),
+  ].join('');
+
+  // ── §2-3 Value Estimate ───────────────────────────────────────────────────
+  let sec23 = '<div class="pending">Value estimate pending — parcel not located.</div>';
+  if (value && value.midpoint != null) {
+    const spread = (mb?.midpoint != null && cb?.midpoint != null) ? mb.midpoint - cb.midpoint : null;
+    sec23 = `
+      <div class="band-box" style="border-left-color:#F97316">
+        <div class="band-label">EXPECTED CLEARING PRICE (Distressed)</div>
+        <div class="band-range">${cb?.low != null ? `$${cb.low.toLocaleString()} &ndash; $${cb.high.toLocaleString()}` : 'Pending'}</div>
+        <div class="band-mid">${cb?.midpoint != null ? `Midpoint $${cb.midpoint.toLocaleString()}` : ''}</div>
+      </div>
+      <div class="band-box" style="border-left-color:#22c55e">
+        <div class="band-label">RETAIL ARV &mdash; OPEN MARKET EXIT VALUE</div>
+        <div class="band-range">${mb?.low != null ? `$${mb.low.toLocaleString()} &ndash; $${mb.high.toLocaleString()}` : 'Pending'}</div>
+        <div class="band-mid">${mb?.midpoint != null ? `Midpoint $${mb.midpoint.toLocaleString()}` : ''}</div>
+      </div>
+      ${spread != null ? `<div class="spread-strip">THE SPREAD: $${spread.toLocaleString()} between clearing and retail ARV midpoints</div>` : ''}
+      <div class="net-equity-row">
+        ${s5Row('Day-1 Equity at Entry Bid', dispVal({ display: cover.equity_at_entry_bid != null ? `$${cover.equity_at_entry_bid.toLocaleString()}` : null }))}
+        ${s5Row('Equity at Ceiling', dispVal({ display: cover.equity_at_ceiling != null ? `$${cover.equity_at_ceiling.toLocaleString()}` : null }))}
+      </div>`;
+  }
+
+  // ── §4-7 CMA (3 layers) ───────────────────────────────────────────────────
+  const sec47 = `
+    <div class="subhead">County Clearance Priors</div>
+    ${priors && !priors.insufficient ? `
+      ${s5Row('Median Sold/Assessed', priors.median_sold_to_assessed != null ? `${(priors.median_sold_to_assessed * 100).toFixed(1)}%` : 'Pending')}
+      ${s5Row('Median Sold/Judgment', priors.median_sold_to_judgment != null ? `${(priors.median_sold_to_judgment * 100).toFixed(1)}%` : 'Pending')}
+      ${s5Row('Confidence', escHtml(priors.confidence || 'Pending'))}
+    ` : `<div class="pending">Insufficient county sales history for reliable priors.</div>`}
+    <div class="subhead">Layer 1 &mdash; Auction Market Comps (Distressed)</div>
+    ${distressed.n_county_outcomes > 0 ? `
+      ${s5Row('County Outcomes', `${distressed.n_county_outcomes} sold (${escHtml(distressed.since_year)}&rarr;)`)}
+      ${s5Row('Distressed Median', distressed.median_distressed_price != null ? `$${distressed.median_distressed_price.toLocaleString()}` : 'Pending')}
+      ${s5CompTable(distressed.comps, [
+        { label: 'Address', get: c => c.address },
+        { label: 'Sold', get: c => c.sold_amount != null ? `$${Number(c.sold_amount).toLocaleString()}` : null },
+        { label: 'Clearing %', get: c => c.clearing_pct_of_assessed != null ? `${c.clearing_pct_of_assessed}%` : null },
+        { label: 'Date', get: c => c.auction_date },
+      ])}
+    ` : `<div class="pending">${escHtml(distressed.note || 'Pending — no auction-cleared comps found.')}</div>`}
+    <div class="subhead">Layer 2 &mdash; Retail Market Comps (Open Market ARV)</div>
+    ${Array.isArray(cma.comps) && cma.comps.length ? `
+      ${s5Row('Median Sale Price', cma.median_sale_price != null ? `$${cma.median_sale_price.toLocaleString()}` : 'Pending')}
+      ${s5Row('Comp Count', String(cma.n ?? 0))}
+      ${s5CompTable(cma.comps, [
+        { label: 'Address', get: c => c.address || c.property_address },
+        { label: 'Sold', get: c => (c.sale_price1 ?? c.sold_amount) != null ? `$${Number(c.sale_price1 ?? c.sold_amount).toLocaleString()}` : null },
+        { label: 'Sqft', get: c => c.tot_lvg_ar ?? c.living_area_sqft },
+        { label: 'Year Built', get: c => c.act_yr_blt ?? c.year_built },
+      ])}
+    ` : `<div class="pending">${escHtml(cma.note || 'Pending — no retail comps returned.')}</div>`}
+  `;
+
+  // ── §8 Transaction History ────────────────────────────────────────────────
+  const sec8 = [
+    s5Row('Prior Transfer Date', escHtml(tx.prior_sale_date || 'Pending')),
+    s5Row('Prior Transfer Price', dispVal(tx.prior_sale_price)),
+  ].join('');
+
+  // ── §9-10 Property Record ─────────────────────────────────────────────────
+  const sec910 = [
+    s5Row('Property Type', escHtml(prop.property_type || 'Pending')),
+    s5Row('Beds / Baths', `${escHtml(prop.beds ?? 'Pending')} / ${escHtml(prop.baths ?? 'Pending')}`),
+    s5Row('Living Area', prop.living_area_sqft ? `${escHtml(prop.living_area_sqft)} sqft` : 'Pending'),
+    s5Row('Year Built', escHtml(prop.year_built ?? 'Pending')),
+    s5Row('Lot Size', prop.lot_size_acres ? `${escHtml(prop.lot_size_acres)} ac` : 'Pending'),
+    s5Row('Homestead', escHtml(prop.homestead_status || 'Pending')),
+  ].join('');
+
+  // ── §11-14 Context Layers ─────────────────────────────────────────────────
+  const sec1114 = [
+    s5Row('Neighborhood', 'Pending &mdash; layer not yet wired for this county'),
+    s5Row('Schools', 'Pending &mdash; GreatSchools layer not yet wired'),
+    s5Row('Flood Zone', 'Pending &mdash; FEMA layer not yet wired; verify Zone X vs AE independently'),
+    s5Row('Median Income', 'Pending &mdash; layer not yet wired for this county'),
+  ].join('');
+
+  // ── §ML Shapira Models ────────────────────────────────────────────────────
+  const secML = [
+    s5Row('Model', escHtml(ml.model_version || 'v14.0 XGBoost')),
+    s5Row('3rd-Party Purchase Probability', typeof ml.probability_third_party_purchase === 'number'
+      ? `${(ml.probability_third_party_purchase * 100).toFixed(1)}%`
+      : 'Withheld &mdash; artifact not deployed at scoring time'),
+  ].join('');
+
+  // ── §ZW ZoneWise ──────────────────────────────────────────────────────────
+  const secZW = [
+    s5Row('State Parcel (DOR)', escHtml(zw.state_parcel_id || 'Pending')),
+    s5Row('Jurisdiction', escHtml(zw.jurisdiction || 'Pending')),
+    s5Row('DOR Land Use', escHtml(zw.dor_use_meaning || 'Pending')),
+    s5Row('DOR Just Value', zw.dor_just_value != null ? `$${Number(zw.dor_just_value).toLocaleString()}` : 'Pending'),
+    s5Row('Land Value', zw.land_value != null ? `$${Number(zw.land_value).toLocaleString()}${zw.land_psf ? ` ($${zw.land_psf}/sqft)` : ''}` : 'Pending'),
+    s5Row('Zoning District', escHtml(zw.zoning_district || 'PENDING')),
+    s5Row('Conforming-Use Read', escHtml(zw.conforming_use_read || 'Pending')),
+    `<div class="verdict-line">${escHtml(zw.verdict || '')}</div>`,
+  ].join('');
+
+  // ── §15 Bid Card — always open, never collapsible ────────────────────────
+  const verdict = cover.verdict || 'PENDING';
+  const verdictColor = verdict.startsWith('BID') ? (verdict.includes('conditional') ? '#F97316' : '#22c55e') : verdict === 'SKIP' ? '#ef4444' : '#eab308';
+  const bidCardHtml = `
+    <div class="bidcard">
+      <div class="verdict" style="color:${verdictColor}">${escHtml(verdict)}</div>
+      <div class="grade">Investment Grade ${escHtml(cover.investment_grade || '&mdash;')}</div>
+      <div class="maxbid-label">SHAPIRA MAX BID</div>
+      <div class="maxbid">${cover.shapira_max_bid && cover.shapira_max_bid.value != null ? `$${Number(cover.shapira_max_bid.value).toLocaleString()}` : 'Hidden'}</div>
+      <div class="bidcard-grid">
+        ${s5Row('Entry Bid', dispVal(opp.entry_bid != null ? { display: `$${Number(opp.entry_bid).toLocaleString()}` } : cover.entry_bid))}
+        ${s5Row('Value Midpoint', opp.value_midpoint != null ? `$${Number(opp.value_midpoint).toLocaleString()}` : 'Pending')}
+        ${s5Row('Walk Away Above', cover.shapira_max_bid && cover.shapira_max_bid.value != null ? `$${Number(cover.shapira_max_bid.value).toLocaleString()}` : 'Hidden')}
+      </div>
+      <div class="calibration-note">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
+    </div>`;
+
+  // ── §16 Judgment & Encumbrance ────────────────────────────────────────────
+  const sec16 = [
+    s5Row('Judgment Amount', judgment.judgment_amount != null ? `$${Number(judgment.judgment_amount).toLocaleString()}` : 'Pending'),
+    s5Row('Opening Bid', judgment.opening_bid != null ? `$${Number(judgment.opening_bid).toLocaleString()}` : 'Pending'),
+    s5Row('Bid/Judgment Ratio', judgment.bid_to_judgment_ratio != null ? judgment.bid_to_judgment_ratio : 'Pending'),
+    flags.length ? `<div class="flags">${flags.map(f => `<div class="flag flag-${escHtml(f.severity || 'info')}"><b>${escHtml(f.code || 'FLAG')}</b> ${escHtml(f.text || '')}</div>`).join('')}</div>` : '',
+  ].join('');
+
+  // ── §17 Provenance ────────────────────────────────────────────────────────
+  const sec17 = [
+    s5Row('Data Sources', escHtml(prov.generated_from || 'Pending')),
+    s5Row('Certification', escHtml(prov.certification_disclosure || 'Pending')),
+    `<div class="model-disclosure">${escHtml(prov.model_disclosure || '')}</div>`,
+  ].join('');
+
+  // ── §18 Auction Outcome ───────────────────────────────────────────────────
+  const outcomePending = !outcome.outcome_captured;
+  const sec18 = outcome.outcome_captured ? [
+    s5Row('Status', escHtml(outcome.status)),
+    s5Row('Sale Price', dispVal(outcome.sale_price)),
+    s5Row('Buyer Type', dispVal(outcome.buyer_type)),
+    outcome.scorecard?.ceiling_call ? s5Row('Ceiling Call', escHtml(outcome.scorecard.ceiling_call.text)) : '',
+  ].join('') : `<div class="pending">${escHtml(outcome.status || 'Pending &mdash; outcome not yet captured.')}</div>`;
+
+  const body = `
+    ${s5Section('1', 'Subject & Auction Identification', sec1)}
+    ${s5Section('2-3', 'BidDeed Value Estimate', sec23)}
+    ${s5Section('4-7', 'Comparable Sales & Market Priors', sec47)}
+    ${s5Section('8', 'Transaction History', sec8)}
+    ${s5Section('9-10', 'Property Record & Listing Details', sec910)}
+    ${s5Section('11-14', 'Context Layers', sec1114)}
+    ${s5Section('ML', 'Shapira Models &mdash; Third-Party Purchase Classifier', secML)}
+    ${s5Section('ZW', 'ZoneWise.AI Land & Zoning Intelligence', secZW, { headerBg: '#F97316' })}
+    <div class="sec bidcard-wrap">
+      <div class="sec-h" style="background:#12283F"><span class="sec-title">&sect;15 &nbsp; Shapira Bid Card &mdash; Opinion of Price</span></div>
+      ${bidCardHtml}
+    </div>
+    ${s5Section('16', 'Judgment & Encumbrance Summary', sec16)}
+    ${s5Section('17', 'Provenance & Methodology', sec17)}
+    ${s5Section('18', 'Auction Outcome & Prediction Scorecard', sec18, { headerBg: outcomePending ? '#3D2F0B' : '#12283F' })}
+  `;
+
+  return s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body });
+}
+
+function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body }) {
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BidDeed.AI S5 Report | ${escHtml(cover.property_address || cover.case_number || '')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+body{background:#0B1929;color:#e2e8f0;font-family:'Inter',sans-serif;padding:24px 16px 60px;min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace}
+.wrap{max-width:840px;margin:0 auto}
+.rpt-header{background:#12283F;border-radius:14px;padding:20px 24px;margin-bottom:16px;position:relative;overflow:hidden}
+.rpt-header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#F97316,#fb923c)}
+.wordmark{color:#F97316;font-weight:700;font-size:1.3rem}
+.tagline{color:#94a3b8;font-size:.85rem;margin-top:2px}
+.addr{color:#fff;font-weight:600;font-size:1.05rem;margin-top:10px}
+.meta-line{color:#94a3b8;font-size:.8rem;margin-top:4px}
+.toolbar{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.toolbar button{background:#1E293B;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-size:.8rem;font-weight:600;cursor:pointer}
+.toolbar button.primary{background:#F97316;color:#0B1929;border-color:#F97316}
+.sec{background:#1E293B;border-left:4px solid #F97316;border-radius:10px;margin-bottom:10px;overflow:hidden}
+.sec-h{list-style:none;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;cursor:pointer;user-select:none}
+.sec-h::-webkit-details-marker{display:none}
+.sec-title{font-weight:600;color:#fff;font-size:.92rem}
+.sec-pill{font-size:.68rem;font-weight:700;color:#F97316;border:1px solid #F97316;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.sec-body{padding:6px 18px 16px}
+.row{display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid #293548;font-size:.86rem}
+.row:last-child{border-bottom:none}
+.row-l{color:#94a3b8}
+.row-v{color:#e2e8f0;font-weight:600;font-family:'JetBrains Mono',monospace;text-align:right}
+.pending{color:#64748b;font-style:italic;font-size:.85rem;padding:8px 0}
+.subhead{color:#F97316;font-weight:700;font-size:.78rem;text-transform:uppercase;margin:14px 0 6px}
+.band-box{border-left:3px solid;padding:10px 14px;margin-bottom:8px;background:#182236;border-radius:6px}
+.band-label{color:#94a3b8;font-size:.68rem;font-weight:700;text-transform:uppercase}
+.band-range{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1.2rem;color:#fff;margin-top:4px}
+.band-mid{color:#94a3b8;font-size:.78rem;margin-top:2px}
+.spread-strip{background:#14301f;color:#22c55e;font-weight:600;font-size:.82rem;padding:8px 12px;border-radius:6px;margin:8px 0}
+.net-equity-row{margin-top:8px}
+.comp-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:.78rem}
+.comp-table th{text-align:left;color:#94a3b8;font-weight:600;padding:6px;border-bottom:1px solid #334155}
+.comp-table td{padding:6px;border-bottom:1px solid #293548;font-family:'JetBrains Mono',monospace}
+.verdict-line{color:#cbd5e1;font-size:.82rem;font-style:italic;margin-top:8px}
+.model-disclosure{color:#94a3b8;font-size:.76rem;margin-top:8px;line-height:1.5;white-space:pre-line}
+.flags{margin-top:10px}
+.flag{border-left:3px solid #ef4444;padding:6px 10px;margin-bottom:6px;font-size:.8rem;background:#1a1420;border-radius:4px}
+.flag-pending{border-left-color:#eab308}
+.flag-info{border-left-color:#22c55e}
+.bidcard-wrap{border:2px solid #F97316;border-radius:14px;box-shadow:0 0 24px rgba(249,115,22,.25);background:#1E293B;border-left:2px solid #F97316}
+.bidcard{padding:20px 24px}
+.verdict{font-size:1.5rem;font-weight:700;letter-spacing:.02em}
+.grade{color:#94a3b8;font-size:.85rem;margin-top:4px}
+.maxbid-label{color:#94a3b8;font-size:.72rem;font-weight:700;text-transform:uppercase;margin-top:16px}
+.maxbid{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:56px;color:#fff;line-height:1.1}
+.bidcard-grid{margin-top:14px}
+.calibration-note{color:#64748b;font-size:.72rem;margin-top:12px;font-style:italic}
+.rpt-footer{color:#64748b;font-size:.7rem;text-align:center;margin-top:28px;line-height:1.6}
+@media print{
+  [data-noprint]{display:none!important}
+  body{background:#fff;color:#000;padding:0}
+  .sec,.bidcard-wrap{break-inside:avoid;background:#fff;border:1px solid #ccc}
+}
+</style></head><body>
+<div class="wrap">
+  <div class="rpt-header">
+    <div class="wordmark">BidDeed.AI</div>
+    <div class="tagline">Shapira Auction Intelligence</div>
+    <div class="addr">${escHtml(cover.property_address || 'Address pending')}</div>
+    <div class="meta-line">${escHtml(countyLabel)} County &middot; Case ${escHtml(cover.case_number)} &middot; Sale ${escHtml(cover.auction_date || '')}</div>
+    <div class="toolbar" data-noprint>
+      <button id="expand-all">Expand all</button>
+      <button id="collapse-all">Collapse all</button>
+      <button id="dl-pdf" class="primary">&darr; Download PDF</button>
+    </div>
+  </div>
+  ${body}
+  <div class="rpt-footer">
+    Generated ${escHtml(generatedAt)} | Key: ....${escHtml(keyLast8)} | Report ID: ${escHtml(reportIdShort)}<br>
+    Informational only &mdash; not legal, financial, or investment advice. Not the unauthorized practice of law. Verify independently and consult a licensed Florida attorney before bidding.<br>
+    &copy; ${new Date().getUTCFullYear()} BidDeed.AI &middot; Everest Capital USA
+  </div>
+</div>
+<script>
+document.getElementById('expand-all').addEventListener('click', function(){ document.querySelectorAll('details.sec').forEach(function(d){ d.open = true; }); });
+document.getElementById('collapse-all').addEventListener('click', function(){ document.querySelectorAll('details.sec').forEach(function(d){ d.open = false; }); });
+document.getElementById('dl-pdf').addEventListener('click', function(){
+  document.querySelectorAll('details.sec').forEach(function(d){ d.open = true; });
+  setTimeout(function(){ window.print(); }, 350);
+});
+</script>
+</body></html>`;
 }
 
 // ── Rate limit ────────────────────────────────────────────────────────────────
@@ -599,6 +964,36 @@ async function handleRequest(request, env, ctx) {
       // ── GET /report-success — post-payment report key delivery page ─────
       if (path === '/report-success' && method === 'GET') {
         return new Response(REPORT_SUCCESS_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      }
+
+      // ── GET /report/:mca_id — interactive S5 Shapira report (issue #18307) ──
+      if (path.match(/^\/report\/[^/]+$/) && method === 'GET') {
+        const mcaId = decodeURIComponent(path.split('/')[2]);
+        const authHeader = request.headers.get('Authorization') || '';
+        const apiKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : (url.searchParams.get('key') || '');
+        if (!apiKey) {
+          return new Response(JSON.stringify({ error: 'Invalid or expired report key' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+        let access;
+        try {
+          access = await fetchS5ReportAccess(apiKey, mcaId);
+        } catch (e) {
+          await logErr(env, '/report/:mca_id', 'access lookup threw', String(e), 500);
+          return new Response(JSON.stringify({ error: 'Report generation in progress, try again in 30 seconds' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (!access || !access.ok) {
+          const err = access?.error || 'invalid_key';
+          if (err === 'no_purchase') {
+            return new Response(JSON.stringify({ error: 'No purchase found for this report' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response(JSON.stringify({ error: 'Invalid or expired report key' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (!access.report_json) {
+          return new Response(JSON.stringify({ error: 'Report generation in progress, try again in 30 seconds' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+        const keyLast8 = apiKey.slice(-8);
+        const html = renderS5ReportHtml(access.report_json, { mcaId, keyLast8 });
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'private,no-store' } });
       }
 
       // ── /county/:slug/lots — JSON feed for lots ──────────────────────────
@@ -2021,22 +2416,43 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 .btn{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#020617;padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;font-size:.95rem;margin-top:1rem}
 .status{font-size:.8rem;color:var(--muted);margin-top:1rem}
 .emailed{font-size:.8rem;color:var(--muted);margin-top:.5rem}
+.property-info{font-size:.85rem;color:var(--text);margin-bottom:1rem;padding:.75rem;background:#020617;border-radius:8px;border:1px solid var(--border);display:none}
+.report-btn{display:none;margin-top:.75rem}
 </style></head><body>
 <div class="card">
   <div class="icon">✅</div>
   <h1>Payment received — your S5 report credit is ready</h1>
   <p>Your Shapira Max Bid report is being activated. Your key will appear below momentarily.</p>
+  <div class="property-info" id="property-info"></div>
   <div class="key-box" id="key-box">Activating...</div>
   <div class="status" id="status">Checking activation status...</div>
   <div class="emailed" id="emailed"></div>
+  <a href="#" class="btn report-btn" id="report-btn">View Your Report →</a>
   <a href="/chat" class="btn">Open BidDeed.AI Chat →</a>
 </div>
 <script>
 const params=new URLSearchParams(location.search);
 const session_id=params.get('session')||params.get('session_id')||'';
 const email=params.get('email')||'';
+const mca_id=params.get('mca_id')||'';
 try{if(window.posthog)posthog.capture('report_purchased',{amount:25,county:params.get('county')||'unknown',session_id:params.get('session')||params.get('session_id')||'unknown'});}catch(e){}
 if(email) document.getElementById('emailed').textContent='We also emailed your key to '+email;
+if(mca_id){
+  fetch('/property/'+encodeURIComponent(mca_id)).then(r=>r.json()).then(d=>{
+    if(d && !d.error){
+      const el=document.getElementById('property-info');
+      el.textContent=(d.property_address||'Property')+(d.auction_date?' · Auction '+d.auction_date:'');
+      el.style.display='block';
+    }
+  }).catch(()=>{});
+}
+let currentKey=null;
+function showReportBtn(){
+  if(!mca_id||!currentKey) return;
+  const btn=document.getElementById('report-btn');
+  btn.href='/report/'+encodeURIComponent(mca_id)+'?key='+encodeURIComponent(currentKey);
+  btn.style.display='inline-block';
+}
 let attempts=0;
 async function poll(){
   if(!session_id){document.getElementById('key-box').textContent='No session ID found.';return;}
@@ -2044,7 +2460,7 @@ async function poll(){
   try{
     const res=await fetch('/subscribe/status?session_id='+encodeURIComponent(session_id));
     const d=await res.json();
-    if(d.key){document.getElementById('key-box').textContent=d.key;document.getElementById('status').textContent='Save this key — shown once.';}
+    if(d.key){document.getElementById('key-box').textContent=d.key;document.getElementById('status').textContent='Save this key — shown once.';currentKey=d.key;showReportBtn();}
     else if(d.active){document.getElementById('key-box').textContent='Key issued. Check your email.';document.getElementById('status').textContent='Activated ✓';}
     else if(attempts<8){document.getElementById('status').textContent='Activating... attempt '+attempts;setTimeout(poll,3000);}
     else{document.getElementById('key-box').textContent='Taking longer than expected.';document.getElementById('status').textContent='Email hello@biddeed.ai with your receipt if not resolved.';}

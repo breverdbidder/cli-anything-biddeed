@@ -175,23 +175,50 @@ async function sendKeyEmail(email, apiKey) {
   }
 }
 // NEW in v9 — separate report-download email. Deliberately never includes
-// the API key (that's sendKeyEmail's job, sent independently).
-async function sendReportEmail(email, { caseNumber, county, address, auctionDate, downloadUrl }) {
+// the API key in plaintext label ("your key") copy, but the interactive
+// report link IS key-bearing (?key=) since that's how /report/:mca_id
+// authenticates (see src/worker.js, issue #18307) — same exposure profile
+// as the signed PDF downloadUrl already sent here.
+// v10 (issue #18307) — adds the interactive HTML report CTA
+// (https://biddeed.ai/report/{mca_id}?key={api_key}) alongside the existing
+// PDF downloadUrl. verdict/maxBidDisplay are best-effort: when the report
+// step upstream fails, this function is simply never called (see
+// deliverReportPdf) — key issuance and sendKeyEmail already happened
+// unconditionally before this point, so the customer is never left without
+// any email even on a total report-generation failure.
+async function sendReportEmail(email, { caseNumber, county, address, auctionDate, downloadUrl, reportUrl, verdict, maxBidDisplay }) {
   const resendKey = await vaultSecret('resend_api_key');
   const fromAddr = await vaultSecret('resend_from_address');
   if (!resendKey || !fromAddr) return { ok: false, error: 'resend_api_key/resend_from_address not configured in vault' };
   const countyLabel = county ? county.charAt(0).toUpperCase() + county.slice(1) : '';
+  const addressLabel = address || `Case ${caseNumber}`;
+  const verdictLine = verdict ? `Verdict: ${verdict}${maxBidDisplay ? ` · Shapira Max Bid: ${maxBidDisplay}` : ''}` : null;
   const body = [
     `Your BidDeed.AI Shapira Report — Case ${caseNumber} (${countyLabel} County, FL)`,
     '',
     address ? `Property: ${address}` : null,
     auctionDate ? `Auction date: ${auctionDate}` : null,
+    verdictLine,
     '',
-    `Download your report (link valid 7 days): ${downloadUrl}`,
+    `View your interactive report: ${reportUrl}`,
+    `Download the PDF directly (link valid 7 days): ${downloadUrl}`,
     '',
     'Informational only — not legal, financial, or investment advice. Verify independently and consult a licensed Florida attorney before bidding.',
     'BidDeed.AI · Everest Capital USA · https://biddeed.ai/disclaimer'
   ].filter((l)=>l !== null).join('\n');
+  const html = [
+    '<div style="font-family:Inter,Arial,sans-serif;background:#020617;padding:32px 16px">',
+    '<div style="max-width:520px;margin:0 auto;background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:16px;padding:28px">',
+    '<div style="color:#F59E0B;font-weight:700;font-size:20px;margin-bottom:4px">BidDeed.AI</div>',
+    '<div style="color:#94a3b8;font-size:13px;margin-bottom:20px">Shapira Auction Intelligence</div>',
+    `<h1 style="color:#fff;font-size:18px;margin:0 0 8px">${escapeHtml(addressLabel)}</h1>`,
+    `<div style="color:#cbd5e1;font-size:13px;margin-bottom:4px">${escapeHtml(countyLabel)} County, FL${auctionDate ? ` · Auction ${escapeHtml(auctionDate)}` : ''}</div>`,
+    verdictLine ? `<div style="color:#F59E0B;font-weight:600;font-size:14px;margin:12px 0">${escapeHtml(verdictLine)}</div>` : '',
+    `<a href="${reportUrl}" style="display:inline-block;background:linear-gradient(135deg,#F59E0B,#F97316);color:#020617;padding:14px 28px;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px;margin-top:16px">View Your Interactive Report &rarr;</a>`,
+    '<div style="color:#64748b;font-size:12px;margin-top:14px">You can also download a PDF directly from the report page.</div>',
+    '<div style="color:#475569;font-size:11px;margin-top:24px;line-height:1.6">Informational only — not legal, financial, or investment advice. Verify independently and consult a licensed Florida attorney before bidding.<br>BidDeed.AI · Everest Capital USA · <a href="https://biddeed.ai/disclaimer" style="color:#475569">biddeed.ai/disclaimer</a></div>',
+    '</div></div>'
+  ].filter(Boolean).join('');
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -203,8 +230,9 @@ async function sendReportEmail(email, { caseNumber, county, address, auctionDate
       to: [
         email
       ],
-      subject: `Your BidDeed S5 Report - ${countyLabel} Case ${caseNumber}`,
-      text: body
+      subject: `Your BidDeed.AI S5 Report is Ready — ${addressLabel}`,
+      text: body,
+      html
     })
   });
   if (!r.ok) {
@@ -213,6 +241,9 @@ async function sendReportEmail(email, { caseNumber, county, address, auctionDate
   }
   const sent = await r.json().catch(()=>({}));
   return { ok: true, resendId: sent?.id ?? null };
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c)=>({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 // ----------------------------------------------------------------- customer
 async function findOrCreateCustomer(email) {
@@ -333,21 +364,72 @@ async function deliverReportPdf({ sessionId, paymentIntent, caseNumber, county, 
       return;
     }
     const mcaId = auction.id;
-    const pdfRes = await fetch(`${MCP_BASE_URL}/report/pdf?case_number=${encodeURIComponent(caseNumber)}&county=${encodeURIComponent(county)}`, {
+    // v10 (issue #18307) — calls /api/mcp (JSON-RPC tools/call) instead of
+    // the PDF-only /report/pdf surface, so this ONE billed
+    // predict_auction_outcome call yields both the PDF bytes AND the report
+    // JSON (persisted below as s5_pdf_cache.report_json). The Worker's
+    // GET /report/:mca_id route reads that column — it must never call
+    // predict_auction_outcome itself, since idempotency there is keyed on a
+    // per-call JSON-RPC request id, not case_number+county, so every repeat
+    // page view would re-run (and re-log-as-billed, see billing.js) the
+    // $25 tool. Using sessionId as the JSON-RPC id keeps this call itself
+    // idempotent against any webhook redelivery.
+    const rpcRes = await fetch(`${MCP_BASE_URL}/api/mcp`, {
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKeyPlaintext}`
-      }
+        Authorization: `Bearer ${apiKeyPlaintext}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream'
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: sessionId,
+        method: 'tools/call',
+        params: {
+          name: 'predict_auction_outcome',
+          arguments: { case_number: caseNumber, county }
+        }
+      })
     });
-    if (!pdfRes.ok) {
-      const errText = await pdfRes.text();
-      await reportQueuePatch(sessionId, { status: 'failed', error: `report/pdf ${pdfRes.status}: ${errText}`.slice(0, 500) });
-      await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: report/pdf ${pdfRes.status}: ${errText.slice(0, 300)}`);
+    if (!rpcRes.ok) {
+      const errText = await rpcRes.text();
+      await reportQueuePatch(sessionId, { status: 'failed', error: `api/mcp ${rpcRes.status}: ${errText}`.slice(0, 500) });
+      await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: api/mcp ${rpcRes.status}: ${errText.slice(0, 300)}`);
       return;
     }
-    const pdfBytes = new Uint8Array(await pdfRes.arrayBuffer());
+    const rawText = await rpcRes.text();
+    let payload;
+    try {
+      // Streamable HTTP transport may frame the JSON-RPC response as SSE.
+      const dataLine = rawText.split('\n').find((l)=>l.startsWith('data:'));
+      const jsonStr = dataLine ? dataLine.slice(5).trim() : rawText;
+      const envelope = JSON.parse(jsonStr);
+      payload = JSON.parse(envelope.result?.content?.[0]?.text ?? '{}');
+      if (envelope.result?.isError) {
+        await reportQueuePatch(sessionId, { status: 'failed', error: `tool error: ${JSON.stringify(payload).slice(0, 400)}` });
+        await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: tool isError: ${JSON.stringify(payload).slice(0, 300)}`);
+        return;
+      }
+    } catch (e) {
+      await reportQueuePatch(sessionId, { status: 'failed', error: `api/mcp response parse failed: ${e.message}`.slice(0, 500) });
+      await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: api/mcp response parse failed: ${e.message}`);
+      return;
+    }
+    if (payload.error) {
+      await reportQueuePatch(sessionId, { status: 'failed', error: `${payload.error}: ${payload.message ?? ''}`.slice(0, 500) });
+      await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: ${payload.error}: ${(payload.message ?? '').slice(0, 300)}`);
+      return;
+    }
+    const report = payload.report ?? null;
+    if (!payload.pdf_base64) {
+      await reportQueuePatch(sessionId, { status: 'failed', error: 'api/mcp response missing pdf_base64' });
+      await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: response missing pdf_base64`);
+      return;
+    }
+    const pdfBytes = Uint8Array.from(atob(payload.pdf_base64), (c)=>c.charCodeAt(0));
     const magic = new TextDecoder().decode(pdfBytes.slice(0, 4));
     if (magic !== '%PDF' || pdfBytes.length === 0) {
-      await reportQueuePatch(sessionId, { status: 'failed', error: 'report/pdf returned non-PDF or empty bytes' });
+      await reportQueuePatch(sessionId, { status: 'failed', error: 'pdf_base64 decoded to non-PDF or empty bytes' });
       await logOpsResult('s5_pdf_delivery', 'BLOCKED', 'blocker', `session=${sessionId} case=${caseNumber}: non-PDF/empty response (${pdfBytes.length} bytes)`);
       return;
     }
@@ -402,7 +484,8 @@ async function deliverReportPdf({ sessionId, paymentIntent, caseNumber, county, 
         auction_status_at_generation: isOutcomeComplete ? 'past' : 'upcoming',
         is_outcome_complete: isOutcomeComplete,
         file_size_bytes: pdfBytes.length,
-        pdf_version: 1
+        pdf_version: 1,
+        report_json: report
       })
     }).catch((e)=>console.error('s5_pdf_cache insert failed', e));
     await reportQueuePatch(sessionId, {
@@ -410,12 +493,16 @@ async function deliverReportPdf({ sessionId, paymentIntent, caseNumber, county, 
       report_pdf_url: downloadUrl,
       delivered_at: new Date().toISOString()
     });
+    const reportUrl = `https://biddeed.ai/report/${mcaId}?key=${encodeURIComponent(apiKeyPlaintext)}`;
     const emailResult = await sendReportEmail(email, {
       caseNumber,
       county,
       address: auction.property_address ?? null,
       auctionDate,
-      downloadUrl
+      downloadUrl,
+      reportUrl,
+      verdict: report?.cover?.verdict ?? null,
+      maxBidDisplay: report?.cover?.shapira_max_bid?.display ?? null
     });
     if (!emailResult.ok) {
       await logOpsResult('s5_pdf_delivery', 'PARTIAL', 'warn', `session=${sessionId} case=${caseNumber}: report_pdf_url set but report email failed: ${emailResult.error}`);

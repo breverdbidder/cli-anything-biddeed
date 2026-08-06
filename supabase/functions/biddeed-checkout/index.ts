@@ -67,7 +67,7 @@ const REPORT_CANCEL_URL = "https://biddeed.ai/buy-report";
 const S5_ONETIME_AMOUNT_CENTS = 2500; // $25 fixed server-side — never trust a client-supplied price
 
 async function handleS5OnetimeCheckout(body: any): Promise<Response> {
-  const { county, case_number: caseNumber, customer_email: customerEmail, mca_id: mcaId } = body;
+  const { county, case_number: caseNumber, customer_email: customerEmail } = body;
   if (!county || typeof county !== "string") return jsonRes({ error: "county required" }, 400);
   if (!caseNumber || typeof caseNumber !== "string") return jsonRes({ error: "case_number required" }, 400);
   if (!customerEmail || typeof customerEmail !== "string") return jsonRes({ error: "customer_email required" }, 400);
@@ -87,13 +87,18 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
 
   const { data: auctionRows, error: auctionErr } = await supabase
     .from("multi_county_auctions")
-    .select("case_number")
+    .select("id,case_number")
     .eq("case_number", caseNumber)
     .eq("county", countySlug)
     .limit(1);
   if (auctionErr || !auctionRows?.length) {
     return jsonRes({ error: `case_number '${caseNumber}' not found in ${countySlug}` }, 404);
   }
+  // Resolved server-side, never trusted from the client — same rationale as
+  // src/worker.js's /buy-report/checkout parity gate (issue #18307: the
+  // /report-success page and the post-purchase email both need a reliable
+  // mca_id to build the /report/:mca_id link).
+  const resolvedMcaId = auctionRows[0].id;
 
   const stripeKey = await resolveTestStripeKey();
   if (!stripeKey) {
@@ -109,13 +114,13 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
     "line_items[0][price_data][unit_amount]": String(S5_ONETIME_AMOUNT_CENTS),
     "line_items[0][quantity]": "1",
     customer_email: customerEmail,
-    success_url: `${REPORT_SUCCESS_URL}?session={CHECKOUT_SESSION_ID}&email=${encodeURIComponent(customerEmail)}`,
+    success_url: `${REPORT_SUCCESS_URL}?session={CHECKOUT_SESSION_ID}&email=${encodeURIComponent(customerEmail)}&mca_id=${encodeURIComponent(resolvedMcaId)}`,
     cancel_url: `${REPORT_CANCEL_URL}?checkout=cancelled`,
     "metadata[product]": "s5_onetime",
     "metadata[case_number]": caseNumber,
     "metadata[county]": countySlug,
     "metadata[customer_email]": customerEmail,
-    ...(mcaId && typeof mcaId === "string" ? { "metadata[mca_id]": mcaId } : {}),
+    "metadata[mca_id]": resolvedMcaId,
   });
 
   const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
