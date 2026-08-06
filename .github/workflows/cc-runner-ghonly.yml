@@ -88,6 +88,31 @@ jobs:
             if grep -qiE 'API Error: 5[0-9][0-9]|server error|overloaded|rate.?limit|timeout' /tmp/cc.log; then
               echo "transient error; retrying in 25s"; sleep 25; continue
             fi
+            # Weekly/session usage-cap messages ("You've hit your weekly limit · resets 1pm (UTC)",
+            # "Spending cap reached resets 1pm") are transient on a known clock, not a hard failure.
+            # If the printed reset time falls within this job's 360-minute ceiling, sleep to it and retry
+            # instead of burning the whole 6h window on a same-second exit (see issue #18065).
+            if grep -qiE "weekly limit|spending cap|usage limit" /tmp/cc.log; then
+              RESET_STR=$(grep -ioE '[0-9]{1,2}(:[0-9]{2})?\s*(am|pm)' /tmp/cc.log | head -1)
+              RESET_HOUR=$(echo "$RESET_STR" | grep -oE '^[0-9]{1,2}')
+              RESET_AMPM=$(echo "$RESET_STR" | grep -oiE 'am|pm' | tr '[:upper:]' '[:lower:]')
+              if [ -n "$RESET_HOUR" ] && [ -n "$RESET_AMPM" ]; then
+                H24=$RESET_HOUR
+                if [ "$RESET_AMPM" = "pm" ] && [ "$RESET_HOUR" -ne 12 ]; then H24=$((RESET_HOUR + 12)); fi
+                if [ "$RESET_AMPM" = "am" ] && [ "$RESET_HOUR" -eq 12 ]; then H24=0; fi
+                NOW_EPOCH=$(date -u +%s)
+                TARGET_EPOCH=$(date -u -d "today ${H24}:00" +%s)
+                if [ "$TARGET_EPOCH" -le "$NOW_EPOCH" ]; then TARGET_EPOCH=$(date -u -d "tomorrow ${H24}:00" +%s); fi
+                WAIT=$((TARGET_EPOCH - NOW_EPOCH + 60))
+                MAX_WAIT=$((300 * 60))
+                if [ "$WAIT" -le "$MAX_WAIT" ]; then
+                  echo "usage limit hit, reset ~${H24}:00 UTC — sleeping ${WAIT}s then retrying"
+                  sleep "$WAIT"
+                  continue
+                fi
+                echo "::error::usage-limit reset (${RESET_STR} UTC) is more than 5h away — cannot wait within job budget"; exit 1
+              fi
+            fi
             echo "::error::claude -p failed (exit=$CC_EXIT, non-transient)"; exit 1
           done
           echo "::error::claude -p failed after 3 attempts (transient)"; exit 1
