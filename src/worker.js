@@ -110,15 +110,37 @@ function dispVal(obj, fallback = 'Pending') {
   return escHtml(String(obj));
 }
 
+const MCP_BASE_URL = 'https://mcp.biddeed.ai';
+
+// Ownership gate — public.check_s5_report_access (added alongside this route
+// by a parallel session, commit bdd9c21a). Returns a single-row PostgREST
+// `table(...)` result (an array), never a bare object.
 async function fetchS5ReportAccess(apiKey, mcaId) {
   const keyHash = await sha256Hex(apiKey);
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_s5_report_access`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_s5_report_access`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     body: JSON.stringify({ p_key_hash: keyHash, p_mca_id: mcaId }),
   });
-  if (!res.ok) return { ok: false, error: 'lookup_failed' };
-  return res.json();
+  if (!res.ok) return { ok: false, reason: 'lookup_failed' };
+  const rows = await res.json().catch(() => null);
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  return row || { ok: false, reason: 'invalid_key' };
+}
+
+// Report content — GET /report/json on the MCP server (same commit).
+// Deliberately NOT the billed predict_auction_outcome path: this recomputes
+// buildReport() fresh on every view without touching billing_events or the
+// idempotency store, since a page view of an already-purchased report is not
+// a new $25 sale. Ownership was already confirmed by fetchS5ReportAccess
+// above — this call only re-validates that the key itself is live.
+async function fetchS5ReportJson(apiKey, mcaId) {
+  const res = await fetch(`${MCP_BASE_URL}/report/json?mca_id=${encodeURIComponent(mcaId)}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.report || null;
 }
 
 function s5Section(num, title, bodyHtml, { open = false, headerBg = '#12283F', noBody = false } = {}) {
@@ -982,17 +1004,24 @@ async function handleRequest(request, env, ctx) {
           return new Response(JSON.stringify({ error: 'Report generation in progress, try again in 30 seconds' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
         }
         if (!access || !access.ok) {
-          const err = access?.error || 'invalid_key';
-          if (err === 'no_purchase') {
+          const reason = access?.reason || 'invalid_key';
+          if (reason === 'no_purchase') {
             return new Response(JSON.stringify({ error: 'No purchase found for this report' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
           }
           return new Response(JSON.stringify({ error: 'Invalid or expired report key' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
         }
-        if (!access.report_json) {
+        let report;
+        try {
+          report = await fetchS5ReportJson(apiKey, mcaId);
+        } catch (e) {
+          await logErr(env, '/report/:mca_id', 'report/json lookup threw', String(e), 503);
+          report = null;
+        }
+        if (!report) {
           return new Response(JSON.stringify({ error: 'Report generation in progress, try again in 30 seconds' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
         }
         const keyLast8 = apiKey.slice(-8);
-        const html = renderS5ReportHtml(access.report_json, { mcaId, keyLast8 });
+        const html = renderS5ReportHtml(report, { mcaId, keyLast8 });
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'private,no-store' } });
       }
 
