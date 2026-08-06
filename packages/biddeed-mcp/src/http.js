@@ -7,6 +7,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { get as sbGet, storagePut } from './supabase.js';
 import { resolveApiKey, validateKey } from './auth.js';
 import { isJwtLike } from './oauth.js';
+import { buildReport } from './report/composer.js';
 
 // GTM-22 REPORT PDF ENDPOINT — GET /report/pdf. Delivers the same billable
 // $25 artifact as the predict_auction_outcome tool (issue #12853) over plain
@@ -98,6 +99,66 @@ export async function handleReportPdfRequest(req, res, apiKey) {
     'Content-Length': pdfBuffer.length,
   });
   res.end(pdfBuffer);
+}
+
+// GET /report/json?mca_id=... — issue #18307 (S5 v1.2 interactive HTML
+// report). Deliberately bypasses handleToolCall: this is a re-view of a
+// report the customer already paid for (ownership already verified
+// upstream by the Worker's check_s5_report_access RPC before this is ever
+// called), not a new $25 sale. Routing it through predict_auction_outcome's
+// full handleToolCall pipeline would re-run the CERT_REQUIRED gate on every
+// page view (wrong — cert status is a purchase-time gate, not a viewing-time
+// one) and log a fresh $25 billing_events row on every refresh. Still
+// requires a valid, active API key (validateKey) so this can't be scraped
+// anonymously for arbitrary mca_ids.
+export async function handleReportJsonRequest(req, res, apiKey) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const mcaId = url.searchParams.get('mca_id');
+
+  if (!mcaId) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'mca_id query param is required' }));
+    return;
+  }
+
+  try {
+    const credential = resolveApiKey(apiKey);
+    if (!isJwtLike(credential)) {
+      await validateKey(credential);
+    }
+  } catch (err) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message || 'Invalid API key' }));
+    return;
+  }
+
+  let auction;
+  try {
+    const rows = await sbGet(`multi_county_auctions?id=eq.${encodeURIComponent(mcaId)}&limit=1`);
+    auction = rows?.[0];
+  } catch (err) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Report generation in progress, try again in 30 seconds' }));
+    return;
+  }
+
+  if (!auction) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'AUCTION_NOT_FOUND', mca_id: mcaId }));
+    return;
+  }
+
+  let report;
+  try {
+    report = await buildReport(auction, {});
+  } catch (err) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Report generation in progress, try again in 30 seconds' }));
+    return;
+  }
+
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ mca_id: mcaId, report }));
 }
 
 function extractApiKey(req) {
@@ -227,6 +288,26 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // GET /report/json?mca_id=... — same auth as /mcp, no billing (see handler comment)
+  if (req.method === 'GET' && path === '/report/json') {
+    const apiKey = extractApiKey(req);
+    if (!apiKey) {
+      const resourceUrl = process.env.MCP_PUBLIC_URL || 'https://biddeed.ai/api/mcp';
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': wwwAuthenticateHeader(resourceUrl),
+      });
+      res.end(JSON.stringify({
+        error: 'Authorization required',
+        hint: 'Set header: Authorization: Bearer bd_live_xxx (API key) or a WorkOS OAuth access token',
+        get_key: 'https://biddeed.ai/dashboard',
+      }));
+      return;
+    }
+    await handleReportJsonRequest(req, res, apiKey);
+    return;
+  }
+
   // MCP over Streamable HTTP
   if (path === '/mcp' || path === '/api/mcp') {
     const apiKey = extractApiKey(req);
@@ -269,6 +350,6 @@ async function handleRequest(req, res) {
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({
     error: 'Not found',
-    endpoints: { mcp: '/mcp', health: '/health', report_pdf: '/report/pdf?case_number=...&county=...' },
+    endpoints: { mcp: '/mcp', health: '/health', report_pdf: '/report/pdf?case_number=...&county=...', report_json: '/report/json?mca_id=...' },
   }));
 }
