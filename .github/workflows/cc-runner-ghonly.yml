@@ -8,7 +8,7 @@ on:
         type: string
 concurrency:
   group: cc-ghonly-${{ inputs.issues }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
