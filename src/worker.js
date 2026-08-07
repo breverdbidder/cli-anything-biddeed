@@ -1410,7 +1410,7 @@ ${DISCLAIMER_SHORT}`;
         const hpConfig = await fetchRuntimeConfig();
         const goldChips = (hpConfig.goldCounties && hpConfig.goldCounties.length ? hpConfig.goldCounties : GOLD_COUNTIES).map(s => '<div class="cc">' + toDisplay(s) + '</div>').join('');
         const goldCount = (hpConfig.goldCounties && hpConfig.goldCounties.length ? hpConfig.goldCounties : GOLD_COUNTIES).length;
-        let hp = HOMEPAGE_HTML
+        let hp = buildHomepageHtml()
           .replace(/GOLD_CHIPS_PLACEHOLDER/, goldChips)
           .replace(/GOLD_COUNT_PLACEHOLDER/g, String(goldCount));
         return new Response(hp, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
@@ -3199,7 +3199,7 @@ function app() {
 </html>`;
 
 // ── Static HTML pages ────────────────────────────────────────────────────────
-const HOMEPAGE_HTML = `<!DOCTYPE html>
+function buildHomepageHtml() { return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -3741,7 +3741,7 @@ async function submitLead(){
     err.textContent='Something went wrong. Please try again.';
   }
 }
-\u003c/script>
+</script>
 </body>
 </html>`;
 
@@ -3801,9 +3801,9 @@ async function submitLead(){
     err.textContent='Something went wrong. Please try again.';
   }
 }
-\u003c/script>
+</script>
 </body>
-</html>`;
+</html>`; }
 
 const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
