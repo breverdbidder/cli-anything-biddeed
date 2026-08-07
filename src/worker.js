@@ -741,9 +741,9 @@ function toDisplay(slug) {
 function buildFreeReportFormHtml(prefillEmail, counties, prev) {
   prev = prev || {};
   const options = (counties || []).map(c =>
-    `<option value="${esc(c.county_slug)}"${prev.county === c.county_slug ? ' selected' : ''}>${esc(c.display)}${c.is_gold_standard ? ' ⭐' : ''} — ${c.upcoming} upcoming</option>`
+    `<option value="${escHtml(c.county_slug)}"${prev.county === c.county_slug ? ' selected' : ''}>${escHtml(c.display)}${c.is_gold_standard ? ' ⭐' : ''} — ${c.upcoming} upcoming</option>`
   ).join('');
-  const errBanner = prev.error ? `<div class="err" style="display:block">${esc(prev.error)}</div>` : '';
+  const errBanner = prev.error ? `<div class="err" style="display:block">${escHtml(prev.error)}</div>` : '';
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Get Your Free County Auction Report | BidDeed.AI</title>
@@ -774,9 +774,9 @@ select,input[type=email],input[type=tel]{width:100%;padding:12px 14px;border-rad
   ${errBanner}
   <form method="POST" action="/free-report/submit" id="f">
     <label for="email">Email address</label>
-    <input type="email" id="email" name="email" required value="${esc(prefillEmail)}" placeholder="you@example.com">
+    <input type="email" id="email" name="email" required value="${escHtml(prefillEmail)}" placeholder="you@example.com">
     <label for="phone">Phone number</label>
-    <input type="tel" id="phone" name="phone" required value="${esc(prev.phone || '')}" placeholder="(321) 555-0100">
+    <input type="tel" id="phone" name="phone" required value="${escHtml(prev.phone || '')}" placeholder="(321) 555-0100">
     <label for="county">County</label>
     <select id="county" name="county" required>
       <option value="">Select a county…</option>
@@ -809,7 +809,7 @@ function buildFreeReportDeliveryHtml(email, county, auctions, countyMeta, consen
   const rows = (auctions || []).map(a => {
     const saleBadge = a.sale_type === 'tax_deed' ? 'TD' : 'FC';
     return `<div class="auction-card">
-      <div class="addr">${esc(a.property_address || 'Address pending')}</div>
+      <div class="addr">${escHtml(a.property_address || 'Address pending')}</div>
       <div class="meta">
         <span class="tag">${saleBadge}</span>
         <span>${fmtDate(a.auction_date)}</span>
@@ -827,7 +827,7 @@ function buildFreeReportDeliveryHtml(email, county, auctions, countyMeta, consen
     : "You're signed up for the daily email digest for";
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Your Free ${esc(countyName)} County Auction Report | BidDeed.AI</title>
+<title>Your Free ${escHtml(countyName)} County Auction Report | BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -852,8 +852,8 @@ h1{font-size:1.6rem;color:white;margin-bottom:1.5rem}
 .upl a{color:var(--orange)}
 </style></head><body>
 <div class="wrap">
-  <div class="thanks">${consentLine} <strong>${esc(countyName)} County</strong>${email ? ` at ${esc(email)}` : ''}. You can unsubscribe from any digest email at any time.</div>
-  <h1>Top upcoming auctions in ${esc(countyName)} County</h1>
+  <div class="thanks">${consentLine} <strong>${escHtml(countyName)} County</strong>${email ? ` at ${escHtml(email)}` : ''}. You can unsubscribe from any digest email at any time.</div>
+  <h1>Top upcoming auctions in ${escHtml(countyName)} County</h1>
   ${rows}${empty}
   <div class="ctas">
     <a class="btn primary" href="/buy-report?county=${encodeURIComponent(county)}">Get the Full Shapira Analysis for any of these — $25</a>
