@@ -100,11 +100,9 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
   // mca_id to build the /report/:mca_id link).
   const resolvedMcaId = auctionRows[0].id;
 
-  const stripeKey = await resolveTestStripeKey();
+  const stripeKey = await resolveStripeKey();
   if (!stripeKey) {
-    return jsonRes({
-      error: "stripe_test_secret_key not configured in vault — s5_onetime checkout is TEST-mode only until it is added (see WEBSITE-FIX dispatch 93fc7abd)",
-    }, 503);
+    return jsonRes({ error: "stripe_secret_key not configured in vault" }, 503);
   }
 
   const params = new URLSearchParams({
