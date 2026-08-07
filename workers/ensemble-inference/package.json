@@ -3,15 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "build": "esbuild index.js --bundle --outfile=dist/index.js --format=esm --platform=browser --external:node:* --loader:.wasm=copy",
-    "deploy": "wrangler deploy --config wrangler.toml"
-  },
   "dependencies": {
     "onnxruntime-web": "^1.18.0"
   },
   "devDependencies": {
-    "esbuild": "^0.21.0",
     "wrangler": "^3.0.0"
   }
 }
