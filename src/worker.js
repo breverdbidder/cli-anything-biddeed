@@ -2377,7 +2377,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 @keyframes vp{0%,100%{opacity:.4;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
 .voice-status{display:none;font-size:10.5px;color:var(--muted);text-align:center;margin-top:4px}
 .voice-status.show{display:block}
-.voice-transcript{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);margin-top:4px;display:none;max-width:340px;text-align:left;line-height:1.4}
+.voice-transcript{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);margin-top:4px;display:none;max-width:340px;text-align:start;line-height:1.4}
 .voice-transcript.show{display:block}
 .voice-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:center;margin-top:2px}
 .attach-btn{display:none;align-items:center;gap:5px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent}
@@ -2936,6 +2936,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   }
   function showTranscript(who,text){
     transcriptEl.className='voice-transcript show';
+    transcriptEl.dir=/[\u0590-\u08FF]/.test(text)?'rtl':'ltr';
     transcriptEl.textContent=(who==='user'?'You: ':'Deed: ')+text;
   }
   function setAttachProgress(state,msg){
