@@ -152,14 +152,10 @@ function s5Section(num, title, bodyHtml, { open = false, isZW = false, isOutcome
   const tagHtml = tag ? `<span class="sec-tag ${tag.cls}">${escHtml(tag.text)}</span>` : '';
   return `<details class="sec"${open ? ' open' : ''}>
     <summary class="sec-h">
-      <span class="sec-h-left">
-        <span class="${badgeClass}">${escHtml(num)}</span>
-        <span class="sec-title">${escHtml(title)}</span>
-      </span>
-      <span class="sec-h-right">
-        ${tagHtml}
-        <span class="sec-pill" data-noprint>${open ? 'Collapse &#9652;' : 'Expand &#9662;'}</span>
-      </span>
+      <span class="${badgeClass}">${escHtml(num)}</span>
+      <span class="sec-title">${escHtml(title)}</span>
+      <span class="sec-pill" data-noprint>${open ? 'Collapse &#9652;' : 'Expand &#9662;'}</span>
+      ${tagHtml}
     </summary>
     ${noBody ? '' : `<div class="sec-body">${bodyHtml}</div>`}
   </details>`;
@@ -494,20 +490,20 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
 /* ── Sections ── */
 .sections{display:flex;flex-direction:column;gap:16px;margin-top:24px}
 .sec{background:#1E293B;border-radius:10px;overflow:hidden;border:1px solid rgba(148,163,184,.14)}
-.sec-h{display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto auto;align-items:start;gap:6px 10px;background:#12283F;border-left:4px solid #F97316;padding:12px 14px;cursor:pointer;user-select:none;list-style:none}
+.sec-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;background:#12283F;border-left:4px solid #F97316;padding:12px 14px;cursor:pointer;user-select:none;list-style:none}
 .sec-h::-webkit-details-marker{display:none}
 .sec-h-left{display:contents}
 .sec-h-right{display:contents}
-.sec-badge{font-family:'JetBrains Mono',monospace;font-size:11px;color:#0B1929;background:#F97316;border-radius:4px;padding:2px 7px;font-weight:700;grid-column:1;grid-row:1;align-self:center}
+.sec-badge{font-family:'JetBrains Mono',monospace;font-size:11px;color:#0B1929;background:#F97316;border-radius:4px;padding:2px 7px;font-weight:700;flex-shrink:0;order:1}
 .sec-badge.zw{background:#F97316}
 .sec-badge.green{background:#22C55E}
-.sec-title{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;line-height:1.35;grid-column:2;grid-row:1;align-self:center}
-.sec-tag{font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:999px;white-space:nowrap;grid-column:2;grid-row:2;justify-self:start;margin-top:2px}
+.sec-title{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;line-height:1.35;flex:1;min-width:0;order:2}
+.sec-pill{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f0f4f8;border:1px solid rgba(148,163,184,.45);border-radius:999px;padding:5px 12px;white-space:nowrap;background:rgba(148,163,184,.08);flex-shrink:0;order:3;margin-left:auto}
+.sec-tag{font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0;order:4;flex-basis:100%;margin-left:calc(11px + 2*7px + 8px + 4px)}
 .sec-tag.verified{background:rgba(34,197,94,.15);color:#22C55E}
 .sec-tag.gold{background:rgba(245,197,24,.15);color:#F5C518}
 .sec-tag.conf{background:rgba(245,158,11,.15);color:#F59E0B}
 .sec-tag.comps{background:rgba(34,197,94,.15);color:#22C55E}
-.sec-pill{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f0f4f8;border:1px solid rgba(148,163,184,.45);border-radius:999px;padding:5px 12px;white-space:nowrap;background:rgba(148,163,184,.08);grid-column:3;grid-row:1;align-self:center}
 .sec-body{padding:18px 22px 22px}
 /* ── Rows ── */
 .row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.12);font-size:13px}
