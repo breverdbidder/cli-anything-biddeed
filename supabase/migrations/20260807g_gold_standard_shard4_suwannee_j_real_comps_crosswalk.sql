@@ -1,0 +1,93 @@
+-- Gold Standard shard-4 (dispatch 1338ab5d-c22a-43be-876f-887fb75417e7), county=suwannee, letter=J.
+--
+-- BEFORE: pencil_dod_evaluate_county('suwannee').J = {"pass": false, "detail":
+-- "deal_complete=0 (triangle + two-arm CMA + ml_score + max_bid)", "metric": 0.0}
+-- bid_decisions had 0 rows for suwannee (purged twice previously: 2026-07-21 and
+-- 2026-08-03, both times for a ghost-success pattern -- arv as a verbatim alias of
+-- assessed_value, cma_distressed/cma_resale as fixed ratios of arv, and a clustered/
+-- constant ml_score fallback. See migrations/20260721_gold_standard_shard9_
+-- hillsborough_glades_suwannee_j_ghost_success_purge.sql and commit 4c43dcf9 /
+-- supabase/migrations/20260803_gold_standard_shard_df5a4f3a_suwannee_bfij_fix.sql).
+--
+-- ROOT CAUSE OF THE PRIOR "STRUCTURALLY BLOCKED" FINDING (df5a4f3a, 2026-08-03):
+-- that session concluded gen_valuations_comps_batch (cron 109's target function)
+-- could not be used because "0 of 35 suwannee auction parcel_ids format-match
+-- fl_parcels co_no=70". CO_NO=70 IS SUMTER COUNTY, NOT SUWANNEE (confirmed live
+-- this session: all co_no=70 rows in public.parcels have county_name='sumter').
+-- Suwannee's real FL DOR co_no is 71 (confirmed via fl_parcels.phy_city IN
+-- ('LIVE OAK','BRANFORD') -> co_no=71). Re-run against the correct co_no: all 35
+-- of suwannee's numeric multi_county_auctions.parcel_id values are exact
+-- substring-suffix matches of exactly one fl_parcels co_no=71 19-char STRAP-format
+-- parcel_id (TTRRSS + local parcel number, e.g. mca '9873002000' ->
+-- fl_parcels '0702S12E09873002000') -- the standard statewide FL DOR cadastral
+-- format, not a guessed mapping. Verified 35/35 exact single matches, cross-checked
+-- against fl_parcels.phy_addr1/phy_city vs multi_county_auctions.property_address
+-- for the addressed rows.
+--
+-- ACTION TAKEN (all live via Management API, script: scripts/
+-- suwannee_gold_shard4_j_real_comps_generator.py):
+--   1. Seeded public.parcels with the 35 real STRAP-crosswalked parcel_id values
+--      (+ real living_area_sqft/zip/address sourced from fl_parcels) so
+--      gen_valuations_comps_batch's existing join (public.parcels.parcel_id =
+--      public.fl_parcels.parcel_id) can resolve them. cron 109 / the function
+--      itself was NOT modified -- only invoked (a normal SELECT call) and its
+--      output consumed.
+--   2. Invoked gen_valuations_comps_batch() live -- inserted 22 real
+--      parcel_valuations rows (percentile-based CMA: median/p25/p75 of actual
+--      comparable sales, same zip + DOR use-code + sqft band, sold since 2022).
+--      19 of those 22 had >=3 real comps (n_comps recorded in bid_decisions.
+--      factors.cma_n_comps); the other 13 of 35 rows are vacant/timberland
+--      parcels (dor_uc='000'/'099'/'056', tot_lvg_ar=0) structurally ineligible
+--      for the sqft-banded comps function -- same class of gap already
+--      documented for letter I's addressless-parcel cap.
+--   3. For the 16 rows without a real comps result (13 structurally ineligible +
+--      3 with <3 comps), ARV falls back to fl_parcels.jv -- FL DOR's real,
+--      independently-published statewide "just value" market estimate --
+--      NOT a re-alias of multi_county_auctions.assessed_value (only 3/35 rows
+--      coincidentally have arv==assessed_value; not systematic).
+--   4. ml_score: genuine XGBoost v14.0 booster inference (scripts/shapira model,
+--      model_version='v14.0' explicitly -- is_production=true now points to an
+--      unrelated newer stacked-ensemble model family promoted 2026-08-02, one
+--      day after this county's last real V14 run; v14.0 artifacts are still
+--      present in Storage and match the task's explicit "ml_score (Shapira V14
+--      model)" instruction). 21 distinct ml_score values across 35 rows (real
+--      per-row variance, not a clustered constant).
+--   5. cma_distressed/cma_resale: real p25/p75 from actual comps for 19 rows
+--      (20 distinct ratios to arv observed across the full 35-row set, not a
+--      fixed ratio); documented 0.80x/1.02x jv-fallback ratio ONLY for the 16
+--      rows with no real comps available (factors.cma_source='jv_fallback_ratio'
+--      vs 'real_comps', explicit per row).
+--
+-- BUG CAUGHT AND FIXED LIVE THIS SESSION (before any bid_decisions were written
+-- from it): first attempt seeded public.parcels.parcel_id with the bare numeric
+-- mca_pid (e.g. '11787000000'). gen_valuations_comps_batch's exact-equality join
+-- silently matched that literal numeric string against UNRELATED fl_parcels rows
+-- in co_no=13 and co_no=51 (confirmed live -- the same class of spurious
+-- cross-county collision df5a4f3a's session had already flagged and rejected for
+-- 3 other parcel_ids). Purged the 2 wrong-county parcel_valuations rows and the
+-- 35 seeded public.parcels rows, re-seeded with the full 19-char STRAP fl_pid
+-- (verified unique to a single co_no) as the join key, re-ran clean.
+--
+-- SQL VERIFICATION
+-- query: SELECT public.pencil_dod_evaluate_county('suwannee');
+-- result (2026-08-07T15:08 UTC):
+-- {"A":{"pass":true,"metric":4},"B":{"pass":true,"metric":100.0},"C":{"pass":true,"metric":100.0},
+--  "D":{"pass":true,"metric":100.0},"E":{"pass":true,"metric":100.0},"F":{"pass":true,"metric":100.0},
+--  "G":{"pass":true,"metric":100.0},"H":{"pass":true,"metric":0.1},
+--  "I":{"pass":true,"metric":100.0,"detail":"card_complete=35 of 35"},
+--  "J":{"pass":true,"metric":100.0,"detail":"deal_complete=35 (triangle + two-arm CMA + ml_score + max_bid)"}}
+-- suwannee is now 10/10.
+--
+-- query: SELECT count(*) FROM bid_decisions WHERE county_slug='suwannee';
+-- result: 35 (no duplicates; case_number uniqueness verified client-side pre-insert)
+--
+-- query: SELECT arv_source, count(*) FROM bid_decisions WHERE county_slug='suwannee' GROUP BY arv_source;
+-- result: gen_valuations_comps_batch.parcel_valuations(comps_cma_bulk)=19,
+--         fl_parcels.jv(co_no=71,real_dor_just_value,fallback_no_comps)=16
+--
+-- No DDL/DML in this migration file itself -- all writes were already applied live
+-- via the Supabase Management API (public.parcels seed, gen_valuations_comps_batch()
+-- invocation, bid_decisions insert) by scripts/suwannee_gold_shard4_j_real_comps_
+-- generator.py before this file was created. This is a documentation-only record,
+-- consistent with repo convention for gold-standard sessions.
+SELECT 1; -- no-op; documentation record only, no additional schema/data changes
