@@ -1,0 +1,27 @@
+name = "ensemble-inference"
+main = "index.js"
+compatibility_date = "2024-09-23"
+account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
+
+# Secrets — set via: wrangler secret put <NAME> --config workers/ensemble-inference/wrangler.toml
+#   SUPABASE_URL         — https://mocerqjnksmhcjzxrewo.supabase.co
+#   SUPABASE_SERVICE_KEY — service role JWT (already in GH secret SUPABASE_SERVICE_ROLE_KEY)
+#   WORKER_AUTH_SECRET   — shared secret; set same value as ENSEMBLE_WORKER_SECRET on Vercel
+#
+# ONNX WASM note:
+# onnxruntime-web ships its own .wasm files. Wrangler bundles them automatically
+# when compatibility_date >= 2024-09-23 with nodejs_compat enabled.
+
+[build]
+command = "npm install && npm run build"
+
+[build.upload]
+format = "modules"
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
+[compatibility_flags]
+nodejs_compat = true
