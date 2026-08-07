@@ -81,9 +81,7 @@ def _load_ensemble():
     secrets=[secrets],
     timeout=60,
     # Keep 1 warm container — eliminates cold starts for active sessions
-    min_containers=1,
     # Allow up to 10 concurrent requests per container before spawning new one
-    allow_concurrent_inputs=10,
 )
 @modal.web_endpoint(method="POST", docs=False)
 def score(request: dict) -> dict:
