@@ -164,7 +164,7 @@ def main():
     rows = rest_get(
         "multi_county_auctions?county=eq.lake&parcel_id=is.null"
         "&or=(data_source.neq.propertyonion,tier1_authoritative.eq.true)"
-        "&select=id,case_number,owner_name,property_address,latitude,longitude,assessed_value")
+        "&select=id,case_number,owner_name,property_address,latitude,longitude,assessed_value,parity_source")
 
     receipt = []
     matched = 0
@@ -185,8 +185,18 @@ def main():
 
         patch_body = {
             "parcel_id": parcel_id,
-            "parity_source": f"e_match:lake_pa_ownername_v1:{method}",
         }
+        # DO NOT clobber an existing tier1%-prefixed parity_source -- the DoD
+        # evaluator's C/D matched_clean/matched_any counts filter on
+        # `parity_source LIKE 'tier1%'`, and rows can carry a NULL parcel_id
+        # while already being tier1-crosschecked matched_clean/matched_any
+        # via a different lane (e.g. clerk case-number crosscheck). Confirmed
+        # regression live 2026-08-07 on case 2025CA002152: overwriting
+        # parity_source here dropped C 103->102 and D 109->108 even though
+        # the parcel_id/address/value write itself was correct and additive.
+        existing_source = row.get("parity_source") or ""
+        if not existing_source.startswith("tier1"):
+            patch_body["parity_source"] = f"e_match:lake_pa_ownername_v1:{method}"
         if not row.get("property_address") and prop_addr:
             patch_body["property_address"] = prop_addr
         if not row.get("assessed_value") and isinstance(tjv, (int, float)):
