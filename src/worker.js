@@ -3029,7 +3029,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     capTimer=setTimeout(function(){
       if(!active||!ws||ws.readyState!==1)return;
       warnSent=true;
-      ws.send(JSON.stringify({type:'contextual_update',text:'System note: 2 minutes remain in this free session. If it fits naturally, you may mention that BidDeed Investor members ($99/mo) get unlimited conversation time with you, plus reports on every county. Do not interrupt the user\'s current point to say this — work it in naturally or wait for a pause.'}));
+      ws.send(JSON.stringify({type:'contextual_update',text:'System note: 2 minutes remain in this free session. If it fits naturally, you may mention that BidDeed Investor members ($99/mo) get unlimited conversation time with you, plus reports on every county. Do not interrupt what the user is currently saying — work it in naturally or wait for a pause.'}));
       capTimer=setTimeout(function(){
         if(!active)return;
         stopSession();
