@@ -3700,15 +3700,14 @@ function replayAuction(){
   status.textContent='Bidding in progress…';
   saleVal.style.color='var(--amber)';
 
-  // Use wall-clock setInterval — immune to rAF freeze on tab blur / scroll
-  const DURATION=2200;
-  const TICK_MS=16;
-  const startTs=performance.now();
+  const DURATION=2000;
+  const startTs=Date.now();
 
   setFill(ENTRY);
 
+  // Use 50ms ticks — coarse enough to survive Android throttling when off-screen
   const timer=setInterval(function(){
-    const elapsed=performance.now()-startTs;
+    const elapsed=Date.now()-startTs;
     const progress=Math.min(elapsed/DURATION,1);
     const eased=progress<0.5?2*progress*progress:1-Math.pow(-2*progress+2,2)/2;
     setFill(ENTRY+(FINAL-ENTRY)*eased);
@@ -3721,7 +3720,7 @@ function replayAuction(){
       animating=false;
       btn.disabled=false;
     }
-  }, TICK_MS);
+  }, 50);
 }
 
 // ── COUNTY SELECT → show upsell ──
@@ -3863,20 +3862,20 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 .ladder-wrap{margin-bottom:20px}
 .ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-top:56px;margin-bottom:48px}
 .ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));width:24.65%}
-.marker{position:absolute;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
+.marker{position:absolute;display:flex;flex-direction:column;align-items:flex-start}
 .marker-dot{width:9px;height:9px;border-radius:50%;position:absolute;transform:translateX(-50%)}
 .mgreen{background:var(--green);border:2px solid var(--green)}
 .mamber{background:var(--amber);border:2px solid var(--amber)}
 .morange{background:var(--orange);border:2px solid var(--orange)}
-.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:#e2eaf2;white-space:nowrap;text-align:center;line-height:1.5}
+.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:#e2eaf2;white-space:nowrap;text-align:left;line-height:1.5}
 /* Labels BELOW the bar */
 .marker.marker-below{top:14px}
 .marker.marker-below .marker-dot{top:-19px}
-.marker.marker-below .marker-label{margin-top:4px}
+.marker.marker-below .marker-label{margin-top:4px;transform:translateX(0);left:0;white-space:nowrap}
 /* Labels ABOVE the bar — ceiling floats up so it never overlaps */
 .marker.marker-above{top:-46px}
 .marker.marker-above .marker-dot{bottom:-19px;top:auto}
-.marker.marker-above .marker-label{margin-bottom:4px;order:-1}
+.marker.marker-above .marker-label{margin-bottom:4px;order:-1;text-align:right}
 
 /* REPLAY */
 .replay-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
@@ -4102,15 +4101,14 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <div class="ladder-wrap">
           <div class="ladder-track">
             <div class="ladder-fill" id="ladder-fill"></div>
-            <!-- markers: scale $70k–$84k = $14k. entry=72100 → 15%, plaintiff=71980 → 14.1%, ceiling=82000 → 85.7%, final=73501 → 24.65% -->
-            <!-- Plaintiff + Entry merged at ~14.5% — too close to separate on mobile -->
-            <div class="marker marker-below" style="left:14.5%">
-              <div class="marker-dot mamber" style="left:0"></div>
+            <!-- markers: scale $70k–$84k. Entry+Plaintiff at left:2% (left-anchored label). Ceiling right-anchored at right:12% -->
+            <div class="marker marker-below" style="left:2%">
+              <div class="marker-dot mgreen" style="left:0;top:-19px"></div>
               <div class="marker-label">ENTRY $72,100<br><span style="color:var(--amber)">PLAINTIFF $71,980</span></div>
             </div>
-            <div class="marker marker-above" style="left:85.7%">
-              <div class="marker-dot morange" style="left:0"></div>
-              <div class="marker-label">CEILING<br>$82,000</div>
+            <div class="marker marker-above" style="right:12%;left:auto">
+              <div class="marker-dot morange" style="left:0;bottom:-19px;top:auto"></div>
+              <div class="marker-label" style="text-align:right">CEILING<br>$82,000</div>
             </div>
           </div>
         </div>
