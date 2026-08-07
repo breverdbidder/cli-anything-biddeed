@@ -37,6 +37,9 @@ function sharedFlags(auction) {
   flags.push({ code: 'CONDITION', severity: 'pending',
     text: 'Pending — no condition/inspection report available; assume as-is, unseen-interior risk.' });
 
+  flags.push({ code: 'MECHANIC_LIEN_RISK', severity: 'pending',
+    text: 'Pending — mechanic/construction lien search not run. Mechanic liens filed within 90 days of work completion may survive both foreclosure and tax deed sales regardless of sale date (FL FS 713.07 / 713.10). Visible signs of recent construction, renovation, or unpermitted work elevate this risk. Order a mechanic lien search independently before closing.' });
+
   if (auction.homestead_status === 'homestead')
     flags.push({ code: 'HOMESTEAD_OCCUPIED', severity: 'risk',
       text: 'Homestead-exempt — likely owner-occupied; eviction/possession risk after sale.' });
