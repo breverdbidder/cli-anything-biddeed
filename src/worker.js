@@ -1058,7 +1058,7 @@ const AUCTION_INTENT_RE = /(?:show|find|list|what|upcoming|auction|properties?|f
 // on the homepage (see HOMEPAGE_HTML .cfw block), so it needs frame-ancestors
 // 'self' / X-Frame-Options SAMEORIGIN instead of the site-wide 'none'/DENY —
 // otherwise the browser blocks the frame and it renders as a broken box.
-const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://us.i.posthog.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://us.i.posthog.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co https://static.cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 const SECURITY_CSP_CHAT = SECURITY_CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
 function withSecurityHeaders(response, path) {
   const headers = new Headers(response.headers);
@@ -3805,7 +3805,7 @@ function buildHomepageHtml() { return `<!DOCTYPE html>
 *{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 :root{
   --navy:#0B1929;--navy-band:#0E2136;--header-strip:#12283F;--charcoal:#1E293B;
-  --orange:#F97316;--orange-hover:#FDBA74;--slate:#94A3B8;--slate-dim:#64748B;
+  --orange:#F97316;--orange-hover:#FDBA74;--slate:#e2eaf2;--slate-dim:#b8cfe0;
   --body-text:#f0f4f8;--green:#22C55E;--amber:#F59E0B;--red:#EF4444;
   --divider:rgba(148,163,184,0.12);--gold:#F5C518;
 }
@@ -3880,7 +3880,7 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 
 /* REPLAY */
 .replay-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.status-line{font-size:13px;color:var(--slate);font-style:italic;flex:1}
+.status-line{font-size:13px;color:#e2eaf2;font-style:italic;flex:1}
 .btn-replay{background:var(--orange);color:var(--navy);border:none;padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s;flex-shrink:0}
 .btn-replay:hover{background:var(--orange-hover)}
 .btn-replay:disabled{opacity:.55;cursor:default}
