@@ -2965,7 +2965,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   var conversationId=null;
   var voiceEmail=null;
   var capEl=document.getElementById('voice-cap');
-  var capTimer=null,warnSent=false;
+  var capNudgeTimer=null,capHardTimer=null,warnSent=false;
   var CAP_WARN_MS=8*60*1000,CAP_HARD_MS=10*60*1000;
   var vegEl=document.getElementById('voice-email-gate');
   var vegInput=document.getElementById('veg-email');
@@ -3021,21 +3021,28 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     btn.style.display='none';
   }
   function clearCapTimer(){
-    if(capTimer){clearTimeout(capTimer);capTimer=null;}
+    if(capNudgeTimer){clearTimeout(capNudgeTimer);capNudgeTimer=null;}
+    if(capHardTimer){clearTimeout(capHardTimer);capHardTimer=null;}
     warnSent=false;
   }
   function startCapTimer(){
     clearCapTimer();
-    capTimer=setTimeout(function(){
-      if(!active||!ws||ws.readyState!==1)return;
+    capNudgeTimer=setTimeout(function(){
       warnSent=true;
-      ws.send(JSON.stringify({type:'contextual_update',text:'System note: 2 minutes remain in this free session. If it fits naturally, you may mention that BidDeed Investor members ($99/mo) get unlimited conversation time with you, plus reports on every county. Do not interrupt what the user is currently saying — work it in naturally or wait for a pause.'}));
-      capTimer=setTimeout(function(){
-        if(!active)return;
-        stopSession();
-        showCapPanel();
-      },CAP_HARD_MS-CAP_WARN_MS);
+      console.log('[voice-cap] 8-min nudge firing — ws.readyState=',ws?ws.readyState:'no ws',', active=',active);
+      if(active&&ws&&ws.readyState===1){
+        try{
+          ws.send(JSON.stringify({type:'contextual_update',text:'System note: 2 minutes remain in this free session. If it fits naturally, you may mention that BidDeed Investor members ($99/mo) get unlimited conversation time with you, plus reports on every county. Do not interrupt what the user is currently saying — work it in naturally or wait for a pause.'}));
+        }catch(e){
+          console.warn('[voice-cap] contextual_update send failed:',e);
+        }
+      }
     },CAP_WARN_MS);
+    capHardTimer=setTimeout(function(){
+      if(!active)return;
+      stopSession();
+      showCapPanel();
+    },CAP_HARD_MS);
   }
 
   // Encode Float32 PCM to PCM16 base64
