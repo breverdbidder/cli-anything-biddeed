@@ -1,0 +1,141 @@
+-- Gold Standard Shard-4 Issue #18319
+-- dispatch_id: 1338ab5d-c22a-43be-876f-887fb75417e7
+-- Session: architect-20260807T080000
+-- Counties: sarasota, seminole, pasco, suwannee, hendry
+-- Loop run: 9488
+--
+-- ================================================================
+-- ENTRY STATE (from issue brief, loop run 9488)
+-- ================================================================
+-- sarasota: 9/10  G FAIL (density=93.0 far=95.0 pk1000=90.0)
+-- seminole: 8/10  G FAIL (density=95.8 far=92.9 pk1000=88.9)
+--                 I FAIL (card_complete=130/137=94.9%)
+-- pasco:    7/10  C FAIL (matched_clean=276=84.4%)
+--                 D FAIL (matched_any=276=84.4%)
+--                 I FAIL (card_complete=271/327=82.9%)
+-- suwannee: 6/10  B FAIL (null), F FAIL (null)
+--                 I FAIL (card_complete=26/35=74.3%)
+--                 J FAIL (deal_complete=0)
+-- hendry:   5/10  C FAIL (matched_clean=38=64.4%)
+--                 D FAIL (matched_any=38=64.4%)
+--                 E FAIL (parcel_linked=38=64.4%)
+--                 I FAIL (card_complete=38/59=64.4%)
+--                 J FAIL (deal_complete=38=64.4%)
+--
+-- ================================================================
+-- SARASOTA G — STRUCTURAL BLOCKER (4th+ consecutive session)
+-- ================================================================
+-- Root cause (VERIFIED across 4+ sessions):
+--   Sarasota County Sec. 124-120(g)(2) regulates parking BY USE TYPE
+--   (retail 1/250sf, industrial 1/500sf, warehouse 1/1000sf), not by
+--   zoning district. The 4 blocking districts (CN=12598, PID=12335,
+--   CT=12591, DTC=12902) have NO district-level parking_per_1000sf value
+--   in the ordinance itself.
+--   - zone_standards: ZERO rows for all 4 districts (INSERT required)
+--   - permitted_uses: ZERO rows for all 4 districts (no use-type signal)
+--   - 3 of 5 blocking parcels are vacant/unaddressed
+--   - Source URLs: HTTP 503/404/403 across all ordinance sources
+--
+-- ACTION: None. Requires fleet-wide policy decision from Ariel:
+--   (a) Exclude use-type-only jurisdictions from pk1000_applicable
+--       (metric-definition migration to v_zoning_gold_standard_kpi_v3)
+--   (b) Approve modal use-type proxy with confidence_score < 1.0
+--
+-- This is the SAME root cause as Bay County dispatch 9f070f2b.
+-- Decision needed before this letter can advance.
+--
+-- ================================================================
+-- SEMINOLE G — PUD-RES fix
+-- ================================================================
+-- Root cause (from prior session report):
+--   PUD-RES district in Altamonte Springs lacks zone_standards row.
+--   This was introduced as a side effect of 3 new parcel_zones inserts
+--   in the previous session (dispatch ccb82791 2nd firing, 2026-08-07).
+--   The orphaned PUD-RES zone_code triggers v_zoning_gold_standard_kpi_v3
+--   to count it as "applicable with no satisfying standard" → G fails.
+--
+-- Fix: classify PUD-RES as not-regulated on all 3 axes (same treatment
+-- as Venice PUD, Clay BFPUD, Clay RA — PUD standards are per-development-
+-- agreement, not fixed district-wide values).
+--
+-- Executed via gold_standard_shard4_18319_executor.py:fix_seminole_g()
+-- See zoning_districts.data_source = 'gold_standard_shard4_18319_g_fix'
+--
+-- ================================================================
+-- SUWANNEE B/F — STRUCTURAL BLOCKER (6th+ consecutive session)
+-- ================================================================
+-- Root cause (VERIFIED across 6+ sessions):
+--   - 0 closed foreclosure sales exist in multi_county_auctions
+--   - Suwannee foreclosure sales are courthouse-steps (not electronic)
+--   - myfloridacounty.com/orisearch/61 gated by Cloudflare Turnstile CAPTCHA
+--   - 2 tax deed cases (4666/4667) confirmed Redeemed (no sale)
+--   - 1 foreclosure case (25-CA-197) has no electronic calendar listing
+--
+-- ACTION: None for B/F. Wait for actual sales to close.
+-- Note: suwannee I/J regression (was 8/10 on 2026-07-25, now 6/10) is due
+-- to ~17-21 new tax deed auctions added since then. These are enrichable.
+--
+-- ================================================================
+-- PASCO C/D + I — REPEATED PATTERN
+-- ================================================================
+-- Root cause: new auctions added since last fix (2026-07-23 session,
+-- dispatch 8c8052cf which brought pasco to 10/10).
+-- Current gap: 327 total vs 257 from prior session = ~70 new rows.
+-- Fix: re-run proven scripts:
+--   scripts/shard_pasco_cd_i_fix.py (foreclosure lane)
+--   scripts/shard_pasco_cd_taxdeed_fix.py (tax deed lane)
+-- Plus parcel enrichment for new rows via FL GIO ArcGIS.
+-- FL GIO ArcGIS org_id UPDATED: Gh9awoU677aKree0 (was Gh9awoUAlNaqxRUn,
+-- confirmed stale HTTP 400 in shard13 batch4 session 2026-07-23).
+--
+-- ================================================================
+-- HENDRY C/D/E/I/J — NEW AUCTION SURGE
+-- ================================================================
+-- Entry state: 59 total vs 38 in prior session (dispatch bebd50e5 2nd firing)
+-- = 21 new auctions added without parcel linkage.
+-- Prior session had hendry at 9/10 (only F blocked).
+-- Fix path:
+--   E: Parcel linkage via Hendry ArcGIS (services7.arcgis.com/8l7Qq5t0CPLAJwJK)
+--      /Hendry_County_Parcels/FeatureServer/0 (LOCADD field)
+--      /Zoning/FeatureServer/1 (PARCELNO -> Current_Zo)
+--   I: Follows from E (parcel_id + zone_code needed for card_complete)
+--   C/D: Parity match via RealForeclose/RealTaxDeed for any NULL rows
+--   J: bid_decisions for parcel-linked rows with assessed_value
+--
+-- NOTE on Hendry F: Prior session (bebd50e5 2nd firing) showed F oscillating
+-- 90%↔PASS due to a race condition with scrape-realauction-county.yml
+-- re-canonicalizing case 25-100 as 'upcoming' (live preview page still shows
+-- it listed despite a 2026-07-16 result). Do NOT force-patch auction_status
+-- for this case — the scraper will overwrite it immediately. F resolves when
+-- the Hendry RealTaxDeed preview page actually delists the case.
+--
+-- ================================================================
+-- SUWANNEE I/J — NEW AUCTION BACKFILL
+-- ================================================================
+-- Entry state: td=35, prior was 14. ~21 new tax deed auctions.
+-- Fix: RealTaxDeed harvest for NULL parity rows + assessed_value-based
+-- bid_decisions for newly-linked parcels.
+-- Suwannee PA: suwanneepa.com (GrizzlyGIS, found in dispatch 6fe5726b).
+-- NOTE: honesty_marker = INFERRED on all bid_decisions factors when using
+-- assessed_value as ARV proxy. These are disclosed estimates, not fabrications.
+--
+-- ================================================================
+-- DML executed via: scripts/gold_standard_shard4_18319_executor.py
+-- Triggered via: .github/workflows/gold-standard-shard4-18319.yml
+-- ================================================================
+--
+-- Per PARALLEL-FLEET RULES: gold_standard_loop() / certify() NOT run
+-- (other shards may be mid-flight). Use pencil_dod_evaluate_county per county.
+
+-- Verification queries (run after executor completes):
+SELECT public.pencil_dod_evaluate_county('sarasota');
+SELECT public.pencil_dod_evaluate_county('seminole');
+SELECT public.pencil_dod_evaluate_county('pasco');
+SELECT public.pencil_dod_evaluate_county('suwannee');
+SELECT public.pencil_dod_evaluate_county('hendry');
+
+-- Ultraloop audit entries for this session:
+SELECT letter, county_slug, claim, survived, created_at
+FROM public.gold_standard_ultraloop_audit
+WHERE dispatch_id = '1338ab5d-c22a-43be-876f-887fb75417e7'
+ORDER BY created_at DESC;
