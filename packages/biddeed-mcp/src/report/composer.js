@@ -18,7 +18,7 @@ import { buildCma, buildDistressedCma } from './cma.js';
 import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
 import { predictEnsemble } from './ensemble-model.js';
-import { deriveRedFlags } from './red-flags.js';
+import { deriveRedFlags, hasJuniorLienRisk } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 
@@ -330,6 +330,11 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     verdict = 'REVIEW';
     redFlags.push({ code: 'LOW_3P_PROBABILITY', severity: 'pending', text: `Third-party probability ${Math.round(sellProb * 100)}% — model predicts plaintiff likely to credit-bid. Monitor; do not plan to win this lot.` });
   }
+  // Downgrade BID → REVIEW when junior/HOA lien risk detected and lien survival unconfirmed
+  if (verdict.startsWith('BID') && hasJuniorLienRisk(redFlags)) {
+    verdict = 'REVIEW';
+  }
+
   if (thinMargin && verdict.startsWith('BID')) {
     redFlags.push({ code: 'THIN_MARGIN', severity: 'risk', text: `Ceiling-to-entry margin is ${marginPct != null ? Math.round(marginPct * 100) : '?'}% — thin cushion, size accordingly.` });
   }
