@@ -227,11 +227,16 @@ async function computeShapiraCeiling(auction, county, arv, sellProb, propertyTyp
       }
     : { optimal_bid_pct_of_assessed: 0.70, bid_floor_pct: 0.50, bid_ceiling_pct: 0.90, plaintiff_discount_factor: 0.85, sample_size: 0, model_version: 'default (no shapira_formula_params row for this county/sale_type)' };
 
-  const mlAdj = 0.5 + (sellProb * 0.5);
-  const ceiling = Math.round(arv * p.optimal_bid_pct_of_assessed * p.plaintiff_discount_factor * mlAdj);
+  // sellProb gates the VERDICT (BID vs REVIEW), not the ceiling price.
+  // Compressing the dollar ceiling by sellProb produces absurd results when
+  // the model assigns low probability — a property can have strong equity
+  // but the formula collapses to an unbiddable number. The pre-sale Marion
+  // card (Jul 20, ceiling $82K, actual sale $73.5K, CEILING HELD) was correct
+  // precisely because it did NOT use sellProb as a ceiling multiplier.
+  const ceiling = Math.round(arv * p.optimal_bid_pct_of_assessed * p.plaintiff_discount_factor);
   const floor = Math.round(arv * p.bid_floor_pct);
   const cap = Math.round(arv * p.bid_ceiling_pct);
-  const source = `shapira_formula_params: county=${countySlug} sale_type=${saleType} optimal_bid_pct=${p.optimal_bid_pct_of_assessed} plaintiff_discount=${p.plaintiff_discount_factor} sample_size=${p.sample_size} ml_adj=${mlAdj.toFixed(3)} model=${p.model_version}`;
+  const source = `shapira_formula_params: county=${countySlug} sale_type=${saleType} optimal_bid_pct=${p.optimal_bid_pct_of_assessed} plaintiff_discount=${p.plaintiff_discount_factor} sample_size=${p.sample_size} model=${p.model_version}`;
   return { ceiling, floor, cap, source };
 }
 
