@@ -3222,13 +3222,13 @@ a{text-decoration:none;color:inherit}
 
 /* NAV */
 nav{position:sticky;top:0;z-index:100;background:rgba(11,25,41,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--orange);padding:0 2rem}
-.nav-i{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
-.logo{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:700;color:#fff;letter-spacing:-.02em}
+.nav-i{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px;gap:1rem}
+.logo{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:700;color:#fff;letter-spacing:-.02em;flex-shrink:0}
 .logo span{color:var(--orange)}
-.nav-links{display:flex;gap:1.75rem}
+.nav-links{display:flex;gap:1.5rem;flex-wrap:wrap}
 .nav-links a{color:var(--slate);font-size:14px;font-weight:500;transition:color .15s}
 .nav-links a:hover{color:#fff}
-.nav-cta{background:var(--orange);color:var(--navy);padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:.04em;transition:background .15s}
+.nav-cta{background:var(--orange);color:var(--navy);padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:.04em;transition:background .15s;white-space:nowrap;flex-shrink:0}
 .nav-cta:hover{background:var(--orange-hover)}
 
 /* HERO */
@@ -3237,9 +3237,9 @@ nav{position:sticky;top:0;z-index:100;background:rgba(11,25,41,0.92);backdrop-fi
 h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:1.12;letter-spacing:-.03em;margin-bottom:1.25rem}
 .hero-sub{font-size:17px;color:var(--slate);max-width:580px;margin:0 auto 2.25rem;line-height:1.7}
 .hero-ctas{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
-.btn-solid{background:var(--orange);color:var(--navy);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:700;transition:background .15s}
+.btn-solid{background:var(--orange);color:var(--navy);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:700;transition:background .15s;display:inline-block}
 .btn-solid:hover{background:var(--orange-hover)}
-.btn-outline{border:1px solid var(--slate);color:var(--body-text);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:600;transition:border-color .15s,color .15s}
+.btn-outline{border:1px solid var(--slate);color:var(--body-text);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:600;transition:border-color .15s,color .15s;display:inline-block}
 .btn-outline:hover{border-color:var(--orange);color:#fff}
 
 /* PROOF BAND */
@@ -3265,26 +3265,24 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 .tile-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:#fff}
 .tile-val.orange{color:var(--orange)}
 .tile-val.green{color:var(--green)}
-.tile-val.amber{color:var(--amber)}
 
 /* BID LADDER */
 .ladder-wrap{margin-bottom:20px}
-.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-bottom:8px;overflow:visible}
-.ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));transition:width .06s linear}
-.ladder-markers{position:relative;height:28px}
-.marker{position:absolute;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
-.marker-dot{width:8px;height:8px;border-radius:50%;border:2px solid;margin-bottom:3px}
-.marker-dot.green{border-color:var(--green);background:var(--green)}
-.marker-dot.amber{border-color:var(--amber);background:var(--amber)}
-.marker-dot.orange{border-color:var(--orange);background:var(--orange)}
-.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--slate);white-space:nowrap;text-align:center;line-height:1.2}
+.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-bottom:36px}
+.ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));width:24.65%;transition:width .06s linear}
+.marker{position:absolute;top:14px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
+.marker-dot{width:8px;height:8px;border-radius:50%;position:absolute;top:-19px;transform:translateX(-50%)}
+.mgreen{background:var(--green);border:2px solid var(--green)}
+.mamber{background:var(--amber);border:2px solid var(--amber)}
+.morange{background:var(--orange);border:2px solid var(--orange)}
+.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--slate);white-space:nowrap;text-align:center;line-height:1.3;margin-top:2px}
 
 /* REPLAY */
 .replay-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.status-line{font-size:13px;color:var(--slate);font-style:italic}
-.btn-replay{background:var(--orange);color:var(--navy);border:none;padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s}
+.status-line{font-size:13px;color:var(--slate);font-style:italic;flex:1}
+.btn-replay{background:var(--orange);color:var(--navy);border:none;padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s;flex-shrink:0}
 .btn-replay:hover{background:var(--orange-hover)}
-.btn-replay:disabled{opacity:.6;cursor:default}
+.btn-replay:disabled{opacity:.55;cursor:default}
 
 /* RESULT BANNER */
 .result-banner{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
@@ -3294,8 +3292,8 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 
 /* INSIDE THE REPORT */
 .inside-band{padding:5rem 2rem;background:var(--navy)}
-.inside-inner{max-width:1000px;margin:0 auto}
-.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:2rem 0 2.25rem}
+.inside-inner{max-width:1000px;margin:0 auto;text-align:center}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:2rem 0 2.25rem;text-align:left}
 .feat-card{background:var(--charcoal);border:1px solid var(--divider);border-radius:10px;padding:22px}
 .feat-section{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--orange);letter-spacing:.08em;margin-bottom:8px}
 .feat-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:8px}
@@ -3306,15 +3304,28 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 
 /* LEAD CAPTURE */
 .lead-band{padding:5rem 2rem;background:var(--navy-band)}
-.lead-inner{max-width:580px;margin:0 auto;text-align:center}
-.lead-form{display:flex;gap:10px;margin:1.75rem 0 .75rem;flex-wrap:wrap}
-.lead-input{flex:1;min-width:160px;background:var(--charcoal);border:1px solid var(--slate);border-radius:999px;padding:13px 20px;font-size:14px;color:#fff;outline:none;transition:border-color .15s}
+.lead-inner{max-width:600px;margin:0 auto;text-align:center}
+.county-select{width:100%;background:var(--charcoal);border:1px solid var(--slate);border-radius:999px;padding:13px 20px;font-size:14px;color:#fff;outline:none;appearance:none;-webkit-appearance:none;cursor:pointer;transition:border-color .15s;margin-top:1.75rem}
+.county-select:focus{border-color:var(--orange)}
+.county-select option{background:#1E293B;color:#fff}
+.lead-email-row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.lead-input{flex:1;min-width:200px;background:var(--charcoal);border:1px solid var(--slate);border-radius:999px;padding:13px 20px;font-size:14px;color:#fff;outline:none;transition:border-color .15s}
 .lead-input::placeholder{color:var(--slate-dim)}
 .lead-input:focus{border-color:var(--orange)}
 .lead-submit{background:var(--orange);color:var(--navy);border:none;padding:13px 26px;border-radius:999px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s}
 .lead-submit:hover{background:var(--orange-hover)}
-.lead-error{color:var(--red);font-size:12px;margin-top:.5rem;min-height:18px}
-.lead-success{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:20px;color:var(--green);font-size:15px;font-weight:600;display:none}
+.lead-error{color:var(--red);font-size:12px;margin-top:.5rem;min-height:18px;text-align:left;padding:0 8px}
+.lead-success{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:20px;color:var(--green);font-size:15px;font-weight:600;display:none;margin-top:1rem}
+.upsell-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:1.5rem}
+.upsell-card{background:var(--charcoal);border:1px solid var(--divider);border-radius:12px;padding:16px 20px;text-align:center;flex:1;min-width:180px;max-width:240px}
+.upsell-card.featured{border-color:var(--orange)}
+.upsell-tier{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);margin-bottom:4px}
+.upsell-price{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:#fff;margin-bottom:8px}
+.upsell-price span{font-size:13px;color:var(--slate);font-weight:400}
+.upsell-cta{display:block;background:var(--orange);color:var(--navy);padding:10px;border-radius:999px;font-size:13px;font-weight:700;margin-top:10px;transition:background .15s}
+.upsell-cta:hover{background:var(--orange-hover)}
+.upsell-cta.ghost{background:transparent;border:1px solid var(--slate);color:var(--body-text)}
+.upsell-cta.ghost:hover{border-color:var(--orange);color:#fff}
 
 /* PRICING */
 .pricing-band{padding:5rem 2rem;background:var(--navy)}
@@ -3332,12 +3343,23 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 .price-cta.ghost{background:transparent;border:1px solid var(--slate);color:var(--body-text)}
 .price-cta.ghost:hover{border-color:var(--orange);color:#fff}
 
+/* DISCLAIMER BAR */
+.disclaimer-bar{background:rgba(11,25,41,0.7);border-top:1px solid var(--divider);padding:12px 2rem;text-align:center;font-size:12px;color:var(--slate-dim);line-height:1.6}
+.disclaimer-bar a{color:var(--slate-dim);text-decoration:underline}
+
 /* FOOTER */
-footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
-.foot-brand{font-size:14px;font-weight:700;color:#fff;margin-bottom:.5rem}
+footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(--divider)}
+.foot-inner{max-width:1100px;margin:0 auto}
+.foot-top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:2rem;margin-bottom:2rem}
+.foot-brand{font-size:16px;font-weight:700;color:#fff}
 .foot-brand span{color:var(--orange)}
-.foot-upl{font-size:12px;color:var(--slate-dim);max-width:600px;margin:0 auto .5rem;line-height:1.6}
-.foot-copy{font-size:12px;color:var(--slate-dim)}
+.foot-tagline{font-size:13px;color:var(--slate);margin-top:4px}
+.foot-links{display:flex;gap:1.5rem;flex-wrap:wrap}
+.foot-links a{font-size:13px;color:var(--slate-dim);transition:color .15s}
+.foot-links a:hover{color:var(--orange)}
+.foot-bottom{border-top:1px solid var(--divider);padding-top:1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
+.foot-upl{font-size:11px;color:var(--slate-dim);line-height:1.6;max-width:620px}
+.foot-copy{font-size:11px;color:var(--slate-dim);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -3393,7 +3415,7 @@ footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
           </div>
           <div class="tile">
             <div class="tile-label">Actual Sale</div>
-            <div class="tile-val" id="sale-val">$73,501</div>
+            <div class="tile-val green" id="sale-val">$73,501</div>
           </div>
           <div class="tile">
             <div class="tile-label">Ceiling Call</div>
@@ -3401,22 +3423,21 @@ footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
           </div>
         </div>
 
-        <!-- BID LADDER -->
+        <!-- BID LADDER TRACK -->
         <div class="ladder-wrap">
           <div class="ladder-track">
-            <div class="ladder-fill" id="ladder-fill" style="width:24.65%"></div>
-          </div>
-          <div class="ladder-markers">
-            <div class="marker" style="left:15%">
-              <div class="marker-dot green"></div>
-              <div class="marker-label">ENTRY<br>$72,100</div>
-            </div>
+            <div class="ladder-fill" id="ladder-fill"></div>
+            <!-- markers: scale $70k–$84k = $14k. entry=72100 → 15%, plaintiff=71980 → 14.1%, ceiling=82000 → 85.7%, final=73501 → 24.65% -->
             <div class="marker" style="left:14.1%">
-              <div class="marker-dot amber"></div>
-              <div class="marker-label">PLAINTIFF<br>$71,980</div>
+              <div class="marker-dot mamber" style="left:0"></div>
+              <div class="marker-label">PLAINTIFF INTEL<br>$71,980</div>
+            </div>
+            <div class="marker" style="left:15%">
+              <div class="marker-dot mgreen" style="left:0"></div>
+              <div class="marker-label">ENTRY BID<br>$72,100</div>
             </div>
             <div class="marker" style="left:85.7%">
-              <div class="marker-dot orange"></div>
+              <div class="marker-dot morange" style="left:0"></div>
               <div class="marker-label">CEILING<br>$82,000</div>
             </div>
           </div>
@@ -3424,11 +3445,11 @@ footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
 
         <div class="replay-row">
           <button class="btn-replay" id="replay-btn" onclick="replayAuction()">▶ Replay the auction</button>
-          <div class="status-line" id="status-line">The sale stopped at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Press replay to watch it again.</div>
+          <div class="status-line" id="status-line">The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.</div>
         </div>
 
         <div class="result-banner">
-          <div class="result-text">✓ CEILING HELD — sale $8,499 below Shapira Max Bid. Disciplined bidder wins this lot.</div>
+          <div class="result-text">✓ CEILING HELD — the formula protected the margin. $8,499 left on the table, exactly as planned.</div>
           <div class="equity-chip">Buyer Equity ~$26,400</div>
         </div>
       </div>
@@ -3441,54 +3462,128 @@ footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
 <!-- INSIDE THE REPORT -->
 <section class="inside-band" id="report">
   <div class="inside-inner">
-    <div class="section-label" style="text-align:center">18 sections. One number that matters.</div>
-    <h2 class="section-h" style="text-align:center;font-size:clamp(1.6rem,3vw,2.25rem);font-weight:800;color:#fff;margin-bottom:2rem">18 sections. One number that matters.</h2>
+    <div class="section-label">18 sections. One number that matters.</div>
+    <h2 class="section-h" style="font-size:clamp(1.8rem,3.5vw,2.5rem);font-weight:800;color:#fff;letter-spacing:-.02em;margin-bottom:.5rem">18 sections. One number that matters.</h2>
+    <p style="color:var(--slate);font-size:15px;margin-bottom:2rem">Every number traced to a named source. No black boxes.</p>
 
     <div class="feature-grid">
       <div class="feat-card">
         <div class="feat-section">§15</div>
         <div class="feat-title">The Shapira Bid Card</div>
-        <div class="feat-desc">Your max bid, entry point, and a BID / REVIEW / SKIP verdict — calibrated per county on verified auction outcomes.</div>
+        <div class="feat-desc">Your max bid, entry point, and a BID / REVIEW / SKIP verdict — calibrated per county on verified auction outcomes. Walk in with a number, walk out with your margin.</div>
       </div>
       <div class="feat-card">
         <div class="feat-section">§2–7</div>
         <div class="feat-title">Two value bands, never averaged</div>
-        <div class="feat-desc">What it clears for at courthouse vs what it sells for retail — the gap is your day-1 equity surface, net of rehab.</div>
+        <div class="feat-desc">What it clears for at courthouse vs what it sells for retail — the gap is your day-1 equity surface, net of rehab. See exactly where your profit lives.</div>
       </div>
       <div class="feat-card">
         <div class="feat-section">§ML</div>
         <div class="feat-title">SCOREwise V4 competition read</div>
-        <div class="feat-desc">A stacked ensemble trained on 5,118 verified FL outcomes tells you whether the plaintiff walks or a bidding war shows up.</div>
+        <div class="feat-desc">A stacked ensemble trained on 5,118 verified FL outcomes tells you whether the plaintiff walks or a bidding war shows up — before you step into the room.</div>
       </div>
       <div class="feat-card">
         <div class="feat-section">§13–16</div>
-        <div class="feat-title">The traps, flagged in red</div>
-        <div class="feat-desc">Junior lien alerts, surviving mortgages, occupancy, flood zones, tax arrears — the reasons a cheap lot is expensive.</div>
+        <div class="feat-title">The traps, flagged before you bid</div>
+        <div class="feat-desc">Junior lien alerts, surviving mortgages, occupancy, flood zones, tax arrears — the reasons a cheap lot turns expensive, surfaced before the gavel falls.</div>
       </div>
     </div>
 
     <div class="cta-center">
-      <a class="btn-outline-orange" href="/report/0c301005-ae34-41da-a6a4-dc92c3e9b5cb?key=sample">Open the full sample report →</a>
+      <a class="btn-outline-orange" href="/report/0c301005-ae34-41da-a6a4-dc92c3e9b5cb?key=bd_live_S9KLXyeH9fV1epdliLz731n1">Open the full sample report →</a>
     </div>
   </div>
 </section>
 
-<!-- LEAD CAPTURE -->
+<!-- LEAD CAPTURE — FREE REPORT -->
 <section class="lead-band" id="lead">
   <div class="lead-inner">
     <div class="section-label">Get the next pre-sale report free.</div>
-    <h2 class="section-h" style="font-size:clamp(1.4rem,2.5vw,1.9rem);font-weight:800;color:#fff;margin-bottom:.5rem">Get the next pre-sale report free.</h2>
-    <p style="color:var(--slate);font-size:15px;line-height:1.6">Tell us your county. We'll send you one full S5 Shapira report from an upcoming sale — scorecard included when the outcome lands.</p>
+    <h2 class="section-h" style="font-size:clamp(1.4rem,2.5vw,2rem);font-weight:800;color:#fff;margin-bottom:.5rem;letter-spacing:-.02em">Get the next pre-sale report free.</h2>
+    <p style="color:var(--slate);font-size:15px;line-height:1.6">Choose your county. We'll send you one full S5 Shapira report from an upcoming sale — scorecard included when the outcome lands.</p>
 
     <div id="lead-form-wrap">
-      <div class="lead-form">
-        <input class="lead-input" id="lead-email" type="email" placeholder="you@example.com" autocomplete="email">
-        <input class="lead-input" id="lead-county" type="text" placeholder="County (e.g. Marion)" autocomplete="off">
+      <select class="county-select" id="lead-county">
+        <option value="" disabled selected>Select your county (55 available)</option>
+        <option value="alachua">Alachua — 29 upcoming</option>
+        <option value="baker">Baker — 16 upcoming</option>
+        <option value="bay">Bay — 27 upcoming</option>
+        <option value="bradford">Bradford — 4 upcoming</option>
+        <option value="brevard">Brevard — 7 upcoming</option>
+        <option value="broward">Broward — 24 upcoming</option>
+        <option value="calhoun">Calhoun — 5 upcoming</option>
+        <option value="charlotte">Charlotte ★ — 2 upcoming</option>
+        <option value="citrus">Citrus ★ — 18 upcoming</option>
+        <option value="clay">Clay — 56 upcoming</option>
+        <option value="collier">Collier — 59 upcoming</option>
+        <option value="columbia">Columbia — 27 upcoming</option>
+        <option value="desoto">Desoto — 2 upcoming</option>
+        <option value="dixie">Dixie ★ — 2 upcoming</option>
+        <option value="duval">Duval ★ — 27 upcoming</option>
+        <option value="escambia">Escambia — 273 upcoming</option>
+        <option value="flagler">Flagler ★ — 46 upcoming</option>
+        <option value="gadsden">Gadsden ★ — 12 upcoming</option>
+        <option value="gilchrist">Gilchrist — 10 upcoming</option>
+        <option value="hamilton">Hamilton — 1 upcoming</option>
+        <option value="hendry">Hendry — 1 upcoming</option>
+        <option value="hernando">Hernando — 26 upcoming</option>
+        <option value="highlands">Highlands ★ — 154 upcoming</option>
+        <option value="hillsborough">Hillsborough — 19 upcoming</option>
+        <option value="indian_river">Indian River — 6 upcoming</option>
+        <option value="jackson">Jackson — 14 upcoming</option>
+        <option value="lafayette">Lafayette ★ — 2 upcoming</option>
+        <option value="lake">Lake — 65 upcoming</option>
+        <option value="lee">Lee — 62 upcoming</option>
+        <option value="leon">Leon — 26 upcoming</option>
+        <option value="levy">Levy — 1 upcoming</option>
+        <option value="manatee">Manatee — 1 upcoming</option>
+        <option value="marion">Marion ★ — 97 upcoming</option>
+        <option value="martin">Martin — 9 upcoming</option>
+        <option value="miami_dade">Miami-Dade — 35 upcoming</option>
+        <option value="nassau">Nassau ★ — 3 upcoming</option>
+        <option value="okaloosa">Okaloosa — 2 upcoming</option>
+        <option value="okeechobee">Okeechobee — 25 upcoming</option>
+        <option value="orange">Orange — 6 upcoming</option>
+        <option value="palm_beach">Palm Beach — 23 upcoming</option>
+        <option value="pasco">Pasco — 76 upcoming</option>
+        <option value="pinellas">Pinellas — 1 upcoming</option>
+        <option value="polk">Polk — 40 upcoming</option>
+        <option value="putnam">Putnam — 298 upcoming</option>
+        <option value="santa_rosa">Santa Rosa ★ — 20 upcoming</option>
+        <option value="sarasota">Sarasota — 34 upcoming</option>
+        <option value="seminole">Seminole — 33 upcoming</option>
+        <option value="st_johns">St. Johns ★ — 24 upcoming</option>
+        <option value="st_lucie">St. Lucie — 19 upcoming</option>
+        <option value="suwannee">Suwannee — 23 upcoming</option>
+        <option value="taylor">Taylor — 6 upcoming</option>
+        <option value="union">Union — 2 upcoming</option>
+        <option value="volusia">Volusia — 26 upcoming</option>
+        <option value="wakulla">Wakulla ★ — 6 upcoming</option>
+        <option value="walton">Walton — 20 upcoming</option>
+      </select>
+      <div class="lead-email-row">
+        <input class="lead-input" id="lead-email" type="email" placeholder="your@email.com" autocomplete="email">
         <button class="lead-submit" onclick="submitLead()">Send my free report</button>
       </div>
       <div class="lead-error" id="lead-error"></div>
+
+      <!-- UPSELL — shown after county selected -->
+      <div class="upsell-row" id="upsell-row" style="display:none">
+        <div class="upsell-card">
+          <div class="upsell-tier">S5 Single Report</div>
+          <div class="upsell-price">$25<span> one-time</span></div>
+          <div style="font-size:12px;color:var(--slate);margin-bottom:2px">Get any property right now</div>
+          <a class="upsell-cta ghost" id="upsell-25" href="/buy-report">Get this county's report →</a>
+        </div>
+        <div class="upsell-card featured">
+          <div class="upsell-tier">Investor</div>
+          <div class="upsell-price">$99<span>/mo</span></div>
+          <div style="font-size:12px;color:var(--slate);margin-bottom:2px">Every lot, every sale, all year</div>
+          <a class="upsell-cta" href="https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00">Start Investor →</a>
+        </div>
+      </div>
     </div>
-    <div class="lead-success" id="lead-success">✓ You're on the list. We'll send your free report before the next auction.</div>
+    <div class="lead-success" id="lead-success">✓ You're on the list. We'll send your free report before the next auction in that county.</div>
   </div>
 </section>
 
@@ -3497,40 +3592,159 @@ footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
   <div class="pricing-inner">
     <div class="section-label" style="text-align:center">Pricing</div>
     <h2 class="section-h" style="text-align:center;font-size:clamp(1.6rem,3vw,2.25rem);font-weight:800;color:#fff;margin-bottom:.25rem">Cheaper than one bad bid.</h2>
+    <p style="text-align:center;color:var(--slate);font-size:15px;margin-top:.5rem">One wrong number at the courthouse costs more than a year of Investor.</p>
 
     <div class="pricing-grid">
       <div class="price-card">
         <div class="price-tier">S5 Single Report</div>
         <div class="price-amount">$25<span> one-time</span></div>
         <div class="price-desc">All 18 sections on one property. Full ZoneWise zoning intelligence. Free scorecard re-issue when the outcome lands.</div>
-        <a class="price-cta" href="/buy-report">Get a report</a>
+        <a class="price-cta" href="/buy-report">Get a report →</a>
       </div>
       <div class="price-card featured">
         <div class="popular-chip">Most Popular</div>
         <div class="price-tier">Investor</div>
         <div class="price-amount">$99<span>/mo</span></div>
-        <div class="price-desc">Reports on every lot in your counties' upcoming sales, daily digest, and chatbot property cards.</div>
-        <a class="price-cta" href="/subscribe?tier=investor">Get Investor</a>
+        <div class="price-desc">Reports on every lot in your counties' upcoming sales, daily digest, plaintiff intel, and chatbot property cards.</div>
+        <a class="price-cta" href="https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00">Start Investor →</a>
       </div>
       <div class="price-card">
         <div class="price-tier">Pro</div>
         <div class="price-amount">$199<span>/mo</span></div>
-        <div class="price-desc">Everything in Investor plus full SCOREwise V4 probabilities, SHAP feature drivers, and API access.</div>
-        <a class="price-cta ghost" href="/subscribe?tier=pro">Get Pro</a>
+        <div class="price-desc">Everything in Investor plus full SCOREwise V4 probabilities, SHAP feature drivers, and direct API access.</div>
+        <a class="price-cta ghost" href="/subscribe?tier=pro">Start Pro →</a>
       </div>
     </div>
   </div>
 </section>
 
+<!-- DISCLAIMER BAR -->
+<div class="disclaimer-bar">
+  BidDeed.AI is an investment decision-support tool — not legal advice, not an appraisal, not title insurance.
+  Auction data and bid estimates are informational only and must be independently verified.
+  Always consult a licensed Florida attorney and title professional before bidding. &nbsp;|&nbsp;
+  <a href="/disclaimer">Disclaimer</a> &nbsp;·&nbsp;
+  <a href="/terms">Terms</a> &nbsp;·&nbsp;
+  <a href="/privacy">Privacy</a> &nbsp;·&nbsp;
+  <a href="/security">Security</a>
+</div>
+
 <!-- FOOTER -->
 <footer>
-  <div class="foot-brand">BidDeed<span>.AI</span> · Shapira Auction Intelligence</div>
-  <p class="foot-upl">BidDeed.AI is an investment decision-support tool. Not legal advice. Not an appraisal. Not title insurance.</p>
-  <p class="foot-copy">© Everest Capital USA | <a href="https://biddeed.ai" style="color:var(--slate-dim)">biddeed.ai</a> | ariel@biddeed.ai</p>
+  <div class="foot-inner">
+    <div class="foot-top">
+      <div>
+        <div class="foot-brand">BidDeed<span>.AI</span></div>
+        <div class="foot-tagline">Shapira Auction Intelligence · Everest Capital USA</div>
+      </div>
+      <div class="foot-links">
+        <a href="#proof">The proof</a>
+        <a href="#report">Inside the report</a>
+        <a href="#pricing">Pricing</a>
+        <a href="/buy-report">Get a report</a>
+        <a href="/chat">Chat</a>
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/disclaimer">Disclaimer</a>
+        <a href="/security">Security</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <p class="foot-upl">BidDeed.AI is an investment decision-support tool. Not legal advice. Not an appraisal. Not title insurance. Verify all data independently and consult a licensed Florida attorney before bidding. © 2026 Everest Capital USA.</p>
+      <p class="foot-copy">biddeed.ai · ariel@biddeed.ai</p>
+    </div>
+  </div>
 </footer>
 
 <script>
-// AUCTION REPLAY
+// ── AUCTION REPLAY ──
+const MIN=70000,MAX=84000,FINAL=73501,ENTRY=72100;
+let animating=false,raf=null;
+
+function pct(v){return((v-MIN)/(MAX-MIN)*100).toFixed(3)+'%'}
+
+function setFill(v){
+  document.getElementById('ladder-fill').style.width=pct(v);
+  document.getElementById('sale-val').textContent='$'+v.toLocaleString();
+}
+
+// Init to final state
+setFill(FINAL);
+
+function replayAuction(){
+  if(animating)return;
+  animating=true;
+  const btn=document.getElementById('replay-btn');
+  const status=document.getElementById('status-line');
+  const saleVal=document.getElementById('sale-val');
+  btn.disabled=true;
+  status.textContent='Bidding in progress…';
+  saleVal.style.color='var(--amber)';
+
+  let cur=ENTRY;
+  setFill(cur);
+
+  let last=null;
+  const STEP=90, INTERVAL=60;
+
+  function tick(ts){
+    if(!last)last=ts;
+    const elapsed=ts-last;
+    if(elapsed>=INTERVAL){
+      last=ts;
+      cur=Math.min(cur+STEP,FINAL);
+      setFill(cur);
+      if(cur>=FINAL){
+        saleVal.style.color='var(--green)';
+        status.textContent='The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.';
+        animating=false;
+        btn.disabled=false;
+        return;
+      }
+    }
+    raf=requestAnimationFrame(tick);
+  }
+  raf=requestAnimationFrame(tick);
+}
+
+// ── COUNTY SELECT → show upsell ──
+document.getElementById('lead-county').addEventListener('change',function(){
+  const county=this.value;
+  if(!county)return;
+  const upsell=document.getElementById('upsell-row');
+  upsell.style.display='flex';
+  // Wire $25 link to buy-report with county pre-filled
+  document.getElementById('upsell-25').href='/buy-report?county='+encodeURIComponent(county);
+});
+
+// ── LEAD CAPTURE ──
+async function submitLead(){
+  const email=document.getElementById('lead-email').value.trim();
+  const county=document.getElementById('lead-county').value;
+  const err=document.getElementById('lead-error');
+  err.textContent='';
+  if(!county){err.textContent='Please select your county first.';return;}
+  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
+  try{
+    const r=await fetch('/chat/lead',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email,county,source:'landing_free_report'})
+    });
+    if(r.ok){
+      document.getElementById('lead-form-wrap').style.display='none';
+      document.getElementById('lead-success').style.display='block';
+    } else {
+      err.textContent='Something went wrong. Please try again.';
+    }
+  } catch(e){
+    err.textContent='Something went wrong. Please try again.';
+  }
+}
+</script>
+</body>
+</html>`;
+
 const MIN_BID=70000,MAX_BID=84000,FINAL=73501,ENTRY=72100;
 let animating=false,timer=null;
 function pct(v){return((v-MIN_BID)/(MAX_BID-MIN_BID)*100).toFixed(2)+'%'}
