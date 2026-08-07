@@ -172,7 +172,7 @@ const MARION_STATIC_REPORT = {
     clearing_band: { low: 74000, midpoint: 83384, high: 92768, confidence: 'HIGH' },
     market_band: { low: 95000, midpoint: 100000, high: 125014, confidence: 'HIGH' },
     confidence: 'HIGH',
-    basis: 'Marion county clearance priors n=172 + 2023 arm\'s-length prior sale $75,100',
+    basis: "Marion county clearance priors n=172 + 2023 arms-length prior sale $75,100",
   },
   opinion_of_price_bid_card: {
     entry_bid: { value: 72100, display: '$72,100' },
