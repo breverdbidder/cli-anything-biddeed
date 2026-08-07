@@ -27,9 +27,9 @@ function percentile(values, p) {
 
 // get: injected for testability (mirrors the pattern in other report modules
 // so tests can substitute a synthetic corpus without mocking global.fetch).
-export async function getCountyClearancePriors(county, { get = defaultGet, sinceYear = 2024 } = {}) {
+export async function getCountyClearancePriors(county, { get = defaultGet, sinceYear = 2024, saleType = 'foreclosure' } = {}) {
   const rows = await get(
-    `multi_county_auctions?county=eq.${encodeURIComponent(county.toLowerCase())}&sold_amount=gt.100&auction_date=gte.${sinceYear}-01-01&select=sold_amount,assessed_value,judgment_amount&limit=5000`
+    `multi_county_auctions?county=eq.${encodeURIComponent(county.toLowerCase())}&sold_amount=gt.100&auction_date=gte.${sinceYear}-01-01&sale_type=eq.${encodeURIComponent(saleType)}&select=sold_amount,assessed_value,judgment_amount&limit=5000`
   ).catch(() => []);
 
   const soldToAssessed = rows.filter(r => r.assessed_value > 0).map(r => r.sold_amount / r.assessed_value);

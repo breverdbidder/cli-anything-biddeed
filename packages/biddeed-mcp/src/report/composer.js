@@ -261,7 +261,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   const locatable = !!auction.property_address;
   const county = auction.county;
 
-  const priors = await getCountyClearancePriors(county, { get });
+  const priors = await getCountyClearancePriors(county, { get, saleType: auction.sale_type || 'foreclosure' });
 
   if (!locatable) {
     const redFlags = deriveRedFlags(auction);
