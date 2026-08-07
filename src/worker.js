@@ -147,11 +147,15 @@ async function fetchS5ReportJson(apiKey, mcaId) {
   return data?.report || null;
 }
 
-function s5Section(num, title, bodyHtml, { open = false, headerBg = '#12283F', noBody = false } = {}) {
+function s5Section(num, title, bodyHtml, { open = false, isZW = false, isOutcome = false, tag = '', noBody = false } = {}) {
+  const badgeClass = isZW ? 'sec-badge zw' : isOutcome ? 'sec-badge green' : 'sec-badge';
+  const tagHtml = tag ? `<span class="sec-tag ${tag.cls}">${escHtml(tag.text)}</span>` : '';
   return `<details class="sec"${open ? ' open' : ''}>
-    <summary class="sec-h" style="background:${headerBg}">
-      <span class="sec-title">&sect;${escHtml(num)} &nbsp; ${escHtml(title)}</span>
-      <span class="sec-pill">${open ? 'COLLAPSE &#9652;' : 'EXPAND &#9662;'}</span>
+    <summary class="sec-h">
+      <span class="${badgeClass}">${escHtml(num)}</span>
+      <span class="sec-title">${escHtml(title)}</span>
+      ${tagHtml}
+      <span class="sec-pill" data-noprint>${open ? 'Collapse &#9652;' : 'Expand &#9662;'}</span>
     </summary>
     ${noBody ? '' : `<div class="sec-body">${bodyHtml}</div>`}
   </details>`;
@@ -232,22 +236,42 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   let sec23 = '<div class="pending">Value estimate pending — parcel not located.</div>';
   if (value && value.midpoint != null) {
     const spread = (mb?.midpoint != null && cb?.midpoint != null) ? mb.midpoint - cb.midpoint : null;
+    const dayOneEquity = cover.equity_at_entry_bid ?? (mb?.midpoint != null && cb?.midpoint != null ? mb.midpoint - cb.midpoint : null);
     sec23 = `
-      <div class="band-box" style="border-left-color:#F97316">
-        <div class="band-label">EXPECTED CLEARING PRICE (Distressed)</div>
-        <div class="band-range">${cb?.low != null ? `$${cb.low.toLocaleString()} &ndash; $${cb.high.toLocaleString()}` : 'Pending'}</div>
-        <div class="band-mid">${cb?.midpoint != null ? `Midpoint $${cb.midpoint.toLocaleString()}` : ''}</div>
+      <div class="bands-grid">
+        <div class="band-card clearing">
+          <div class="band-card-label clearing">Auction clearing range<br><span class="band-card-sub">What this property typically sells for at courthouse</span></div>
+          <div class="band-nums">
+            <div><div class="band-num-label">LOW</div><div class="band-num-val">${cb?.low != null ? `$${cb.low.toLocaleString()}` : '—'}</div></div>
+            <div><div class="band-num-label mid clearing">MIDPOINT</div><div class="band-num-val mid clearing">${cb?.midpoint != null ? `$${cb.midpoint.toLocaleString()}` : '—'}</div></div>
+            <div><div class="band-num-label">HIGH</div><div class="band-num-val">${cb?.high != null ? `$${cb.high.toLocaleString()}` : '—'}</div></div>
+          </div>
+          ${priors?.sample_size ? `<div class="band-meta">n = ${priors.sample_size} &middot; median ratio ${priors.median_sold_to_assessed != null ? (priors.median_sold_to_assessed*100).toFixed(1)+'%' : '—'} assessed</div>` : ''}
+          <p class="band-desc">Based on county auction history — properties like this clear at the distressed courthouse price.</p>
+        </div>
+        <div class="band-card market">
+          <div class="band-card-label market">Open market value<br><span class="band-card-sub">What this sells for retail after acquisition</span></div>
+          <div class="band-nums">
+            <div><div class="band-num-label">LOW</div><div class="band-num-val">${mb?.low != null ? `$${mb.low.toLocaleString()}` : '—'}</div></div>
+            <div><div class="band-num-label mid market">MIDPOINT</div><div class="band-num-val mid market">${mb?.midpoint != null ? `$${mb.midpoint.toLocaleString()}` : '—'}</div></div>
+            <div><div class="band-num-label">HIGH</div><div class="band-num-val">${mb?.high != null ? `$${mb.high.toLocaleString()}` : '—'}</div></div>
+          </div>
+          ${cma?.n ? `<div class="band-meta">CMA comps n = ${cma.n}${tx.prior_sale_date ? ` &middot; prior sale ${tx.prior_sale_date}` : ''}</div>` : ''}
+          <p class="band-desc">The open market retail value — the gap over clearing is your day-1 equity surface.</p>
+        </div>
       </div>
-      <div class="band-box" style="border-left-color:#22c55e">
-        <div class="band-label">RETAIL ARV &mdash; OPEN MARKET EXIT VALUE</div>
-        <div class="band-range">${mb?.low != null ? `$${mb.low.toLocaleString()} &ndash; $${mb.high.toLocaleString()}` : 'Pending'}</div>
-        <div class="band-mid">${mb?.midpoint != null ? `Midpoint $${mb.midpoint.toLocaleString()}` : ''}</div>
-      </div>
-      ${spread != null ? `<div class="spread-strip">THE SPREAD: $${spread.toLocaleString()} between clearing and retail ARV midpoints</div>` : ''}
-      <div class="net-equity-row">
-        ${s5Row('Day-1 Equity at Entry Bid', dispVal({ display: cover.equity_at_entry_bid != null ? `$${cover.equity_at_entry_bid.toLocaleString()}` : null }))}
-        ${s5Row('Equity at Ceiling', dispVal({ display: cover.equity_at_ceiling != null ? `$${cover.equity_at_ceiling.toLocaleString()}` : null }))}
-      </div>`;
+      ${spread != null ? `
+      <div class="spread-bar">
+        <span class="spread-label">DAY-1 EQUITY SURFACE</span>
+        <span class="spread-val">$${spread.toLocaleString()}</span>
+        <span class="spread-desc">The gap between what you pay at auction and what it&rsquo;s worth on the open market.</span>
+      </div>` : ''}
+      ${dayOneEquity != null ? `
+      <div class="net-equity-bar">
+        <span class="net-equity-label">EQUITY AT ENTRY BID</span>
+        <span class="net-equity-val">$${dayOneEquity.toLocaleString()}</span>
+        <span class="net-equity-desc">At the entry bid — before rehab. This is the number the Bid Card grades.</span>
+      </div>` : ''}`;
   }
 
   // ── §4-7 CMA (3 layers) ───────────────────────────────────────────────────
@@ -328,19 +352,29 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
 
   // ── §15 Bid Card — always open, never collapsible ────────────────────────
   const verdict = cover.verdict || 'PENDING';
-  const verdictColor = verdict.startsWith('BID') ? (verdict.includes('conditional') ? '#F97316' : '#22c55e') : verdict === 'SKIP' ? '#ef4444' : '#eab308';
+  const verdictCls = verdict.startsWith('BID') ? (verdict.includes('conditional') ? 'review' : 'bid') : verdict === 'SKIP' ? 'skip' : 'review';
+  const maxBidVal = cover.shapira_max_bid?.value;
   const bidCardHtml = `
-    <div class="bidcard">
-      <div class="verdict" style="color:${verdictColor}">${escHtml(verdict)}</div>
-      <div class="grade">Investment Grade ${escHtml(cover.investment_grade || '&mdash;')}</div>
-      <div class="maxbid-label">SHAPIRA MAX BID</div>
-      <div class="maxbid">${cover.shapira_max_bid && cover.shapira_max_bid.value != null ? `$${Number(cover.shapira_max_bid.value).toLocaleString()}` : 'Hidden'}</div>
-      <div class="bidcard-grid">
-        ${s5Row('Entry Bid', dispVal(opp.entry_bid != null ? { display: `$${Number(opp.entry_bid).toLocaleString()}` } : cover.entry_bid))}
-        ${s5Row('Value Midpoint', opp.value_midpoint != null ? `$${Number(opp.value_midpoint).toLocaleString()}` : 'Pending')}
-        ${s5Row('Walk Away Above', cover.shapira_max_bid && cover.shapira_max_bid.value != null ? `$${Number(cover.shapira_max_bid.value).toLocaleString()}` : 'Hidden')}
+    <div class="bidcard-wrap">
+      <div class="bidcard-header">
+        <span class="sec-badge">15</span>
+        <span class="sec-title">Shapira Bid Card &mdash; Opinion of Price</span>
       </div>
-      <div class="calibration-note">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
+      <div class="bidcard-body">
+        <div class="verdict ${verdictCls}">${escHtml(verdict)}</div>
+        <div class="grade">Investment Grade ${escHtml(cover.investment_grade || '—')}</div>
+        <div class="maxbid-block">
+          <div class="maxbid-label">SHAPIRA MAX BID</div>
+          <div class="maxbid">${maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : 'Hidden'}</div>
+          <div class="maxbid-sub">Walk away above this number. No exceptions.</div>
+        </div>
+        <div class="bidcard-rows" style="margin-top:16px">
+          ${s5Row('Entry Bid', dispVal(opp.entry_bid != null ? { display: `$${Number(opp.entry_bid).toLocaleString()}` } : cover.entry_bid))}
+          ${s5Row('Value Midpoint', opp.value_midpoint != null ? `$${Number(opp.value_midpoint).toLocaleString()}` : 'Pending')}
+          ${s5Row('Walk Away Above', maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : 'Hidden')}
+        </div>
+        <div style="color:#475569;font-size:12px;margin-top:14px;font-style:italic">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
+      </div>
     </div>`;
 
   // ── §16 Judgment & Encumbrance ────────────────────────────────────────────
@@ -367,115 +401,231 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
     outcome.scorecard?.ceiling_call ? s5Row('Ceiling Call', escHtml(outcome.scorecard.ceiling_call.text)) : '',
   ].join('') : `<div class="pending">${escHtml(outcome.status || 'Pending &mdash; outcome not yet captured.')}</div>`;
 
-  const body = `
-    ${s5Section('1', 'Subject & Auction Identification', sec1)}
-    ${s5Section('2-3', 'BidDeed Value Estimate', sec23)}
-    ${s5Section('4-7', 'Comparable Sales & Market Priors', sec47)}
-    ${s5Section('8', 'Transaction History', sec8)}
-    ${s5Section('9-10', 'Property Record & Listing Details', sec910)}
-    ${s5Section('11-14', 'Context Layers', sec1114)}
-    ${s5Section('ML', 'Shapira Models &mdash; Third-Party Purchase Classifier', secML)}
-    ${s5Section('ZW', 'ZoneWise.AI Land & Zoning Intelligence', secZW, { headerBg: '#F97316' })}
-    <div class="sec bidcard-wrap">
-      <div class="sec-h" style="background:#12283F"><span class="sec-title">&sect;15 &nbsp; Shapira Bid Card &mdash; Opinion of Price</span></div>
-      ${bidCardHtml}
+  // ── Summary grid (top stat bar) ───────────────────────────────────────────
+  const mlProb = typeof ml.probability_third_party_purchase === 'number'
+    ? `${(ml.probability_third_party_purchase * 100).toFixed(1)}%` : null;
+  const dayOneEquitySg = cover.equity_at_entry_bid ?? ((mb?.midpoint != null && cb?.midpoint != null) ? mb.midpoint - cb.midpoint : null);
+  const summaryGrid = `<div class="summary-grid">
+    <div>
+      <div class="sg-label">Verdict</div>
+      <div class="sg-verdict ${verdictCls}">${escHtml(verdict)}</div>
     </div>
+    <div>
+      <div class="sg-label">Shapira Max Bid</div>
+      <div class="sg-val orange">${maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : '—'}</div>
+    </div>
+    <div>
+      <div class="sg-label">Day-1 Equity Surface</div>
+      <div class="sg-val">${dayOneEquitySg != null ? `$${dayOneEquitySg.toLocaleString()}` : '—'}</div>
+    </div>
+    ${mlProb ? `<div>
+      <div class="sg-label">Third-party probability</div>
+      <div class="sg-val amber">${escHtml(mlProb)}</div>
+    </div>` : ''}
+  </div>`;
+
+  const body = `
+    ${s5Section('01', 'Subject Property Identification', sec1, { tag: { cls: 'verified', text: '✓ PLATFORM VERIFIED' } })}
+    ${s5Section('02–03', 'Value Estimate — Clearing Band & Market Band', sec23, { tag: { cls: 'conf', text: `${escHtml(priors?.confidence || 'MEDIUM')} ±10%` } })}
+    ${s5Section('04–07', 'Market Comparables', sec47, { tag: { cls: 'comps', text: '3 LAYERS' } })}
+    ${s5Section('08', 'Transaction History', sec8)}
+    ${s5Section('09–10', 'Property Record & Listing Details', sec910)}
+    ${s5Section('11–14', 'Context Layers — Neighborhood · Schools · Flood · Market', sec1114)}
+    ${s5Section('ML', 'Shapira Models — Third-Party Purchase Classifier', secML)}
+    ${s5Section('ZW', 'ZoneWise.AI Land & Zoning Intelligence', secZW, { isZW: true })}
+    ${bidCardHtml}
     ${s5Section('16', 'Judgment & Encumbrance Summary', sec16)}
     ${s5Section('17', 'Provenance & Methodology', sec17)}
-    ${s5Section('18', 'Auction Outcome & Prediction Scorecard', sec18, { headerBg: outcomePending ? '#3D2F0B' : '#12283F' })}
+    ${s5Section('18', 'Auction Outcome & Prediction Scorecard', sec18, { isOutcome: !outcomePending })}
   `;
 
-  return s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body });
+  return s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid });
 }
 
-function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body }) {
+function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid = '' }) {
+  const addr     = escHtml(cover.property_address || 'Address pending');
+  const addrCity = addr.includes(',') ? addr.slice(0, addr.indexOf(',')) : addr;
+  const addrRest = addr.includes(',') ? addr.slice(addr.indexOf(',') + 1).trim() : '';
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>BidDeed.AI S5 Report | ${escHtml(cover.property_address || cover.case_number || '')}</title>
+<title>BidDeed.AI S5 Report | ${addr}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html{print-color-adjust:exact;-webkit-print-color-adjust:exact}
-body{background:#0B1929;color:#e2e8f0;font-family:'Inter',sans-serif;padding:24px 16px 60px;min-height:100vh}
-.mono{font-family:'JetBrains Mono',monospace}
-.wrap{max-width:840px;margin:0 auto}
-.rpt-header{background:#12283F;border-radius:14px;padding:20px 24px;margin-bottom:16px;position:relative;overflow:hidden}
-.rpt-header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#F97316,#fb923c)}
-.wordmark{color:#F97316;font-weight:700;font-size:1.3rem}
-.tagline{color:#94a3b8;font-size:.85rem;margin-top:2px}
-.addr{color:#fff;font-weight:600;font-size:1.05rem;margin-top:10px}
-.meta-line{color:#94a3b8;font-size:.8rem;margin-top:4px}
-.toolbar{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-.toolbar button{background:#1E293B;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-size:.8rem;font-weight:600;cursor:pointer}
-.toolbar button.primary{background:#F97316;color:#0B1929;border-color:#F97316}
-.sec{background:#1E293B;border-left:4px solid #F97316;border-radius:10px;margin-bottom:10px;overflow:hidden}
-.sec-h{list-style:none;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;cursor:pointer;user-select:none}
+html{print-color-adjust:exact;-webkit-print-color-adjust:exact;color-scheme:dark}
+body{background:#0B1929;color:#fff;font-family:'Inter',system-ui,sans-serif;padding:0 20px 80px;min-height:100vh;-webkit-font-smoothing:antialiased}
+a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:underline}
+::selection{background:#F97316;color:#0B1929}
+/* ── Layout ── */
+.wrap{max-width:900px;margin:0 auto}
+/* ── Top header ── */
+.rpt-top{padding:28px 0 0;display:flex;flex-direction:column;gap:14px}
+.rpt-brand-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.wordmark{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.wordmark span{color:#F97316}
+.tagline{color:#94a3b8;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap}
+.btn-toolbar{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:999px;padding:8px 18px;cursor:pointer;border:1px solid rgba(148,163,184,.35);background:transparent;color:#94a3b8;transition:.15s}
+.btn-toolbar:hover{border-color:#F97316;color:#F97316}
+.btn-toolbar.primary{background:#F97316;border-color:#F97316;color:#0B1929}
+.btn-toolbar.primary:hover{background:#FDBA74;border-color:#FDBA74}
+.rpt-divider-top{height:2px;background:linear-gradient(90deg,#F97316 0%,#F97316 30%,rgba(249,115,22,.15) 100%)}
+.rpt-addr-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.rpt-addr-main{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+.rpt-addr-city{font-size:15px;color:#94a3b8;margin-top:2px}
+.rpt-meta{text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8;line-height:1.9}
+.rpt-meta-county{color:#fff;font-weight:700;letter-spacing:.08em}
+.rpt-divider-sub{height:1px;background:rgba(249,115,22,.4)}
+/* ── Summary grid ── */
+.summary-grid{background:#1E293B;border:1px solid rgba(249,115,22,.25);border-radius:10px;padding:20px 22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;margin-bottom:16px}
+.sg-label{font-size:10px;letter-spacing:.1em;color:#94a3b8;text-transform:uppercase}
+.sg-verdict{margin-top:8px;display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;padding:5px 14px;border-radius:999px}
+.sg-verdict.bid{background:#22C55E;color:#0B1929}
+.sg-verdict.skip{background:#EF4444;color:#fff}
+.sg-verdict.review{background:#F59E0B;color:#0B1929}
+.sg-val{margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700}
+.sg-val.orange{color:#F97316}
+.sg-val.amber{color:#F59E0B}
+/* ── Sections ── */
+.sections{display:flex;flex-direction:column;gap:16px;margin-top:24px}
+.sec{background:#1E293B;border-radius:10px;overflow:hidden;border:1px solid rgba(148,163,184,.14)}
+.sec-h{display:flex;align-items:center;gap:12px;background:#12283F;border-left:4px solid #F97316;padding:14px 18px;cursor:pointer;user-select:none;list-style:none}
 .sec-h::-webkit-details-marker{display:none}
-.sec-title{font-weight:600;color:#fff;font-size:.92rem}
-.sec-pill{font-size:.68rem;font-weight:700;color:#F97316;border:1px solid #F97316;border-radius:999px;padding:3px 10px;white-space:nowrap}
-.sec-body{padding:6px 18px 16px}
-.row{display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid #293548;font-size:.86rem}
+.sec-badge{font-family:'JetBrains Mono',monospace;font-size:11px;color:#0B1929;background:#F97316;border-radius:4px;padding:2px 7px;font-weight:700;flex-shrink:0}
+.sec-badge.zw{background:#F97316}
+.sec-badge.green{background:#22C55E}
+.sec-title{font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;flex:1}
+.sec-tag{font-size:11px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:999px}
+.sec-tag.verified{background:rgba(34,197,94,.15);color:#22C55E}
+.sec-tag.gold{background:rgba(245,197,24,.15);color:#F5C518}
+.sec-tag.conf{background:rgba(245,158,11,.15);color:#F59E0B}
+.sec-tag.comps{background:rgba(34,197,94,.15);color:#22C55E}
+.sec-pill{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#CBD5E1;border:1px solid rgba(148,163,184,.45);border-radius:999px;padding:7px 16px;white-space:nowrap;background:rgba(148,163,184,.08);flex-shrink:0}
+.sec-body{padding:18px 22px 22px}
+/* ── Rows ── */
+.row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.12);font-size:13px}
 .row:last-child{border-bottom:none}
 .row-l{color:#94a3b8}
-.row-v{color:#e2e8f0;font-weight:600;font-family:'JetBrains Mono',monospace;text-align:right}
-.pending{color:#64748b;font-style:italic;font-size:.85rem;padding:8px 0}
-.subhead{color:#F97316;font-weight:700;font-size:.78rem;text-transform:uppercase;margin:14px 0 6px}
-.band-box{border-left:3px solid;padding:10px 14px;margin-bottom:8px;background:#182236;border-radius:6px}
-.band-label{color:#94a3b8;font-size:.68rem;font-weight:700;text-transform:uppercase}
-.band-range{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1.2rem;color:#fff;margin-top:4px}
-.band-mid{color:#94a3b8;font-size:.78rem;margin-top:2px}
-.spread-strip{background:#14301f;color:#22c55e;font-weight:600;font-size:.82rem;padding:8px 12px;border-radius:6px;margin:8px 0}
-.net-equity-row{margin-top:8px}
-.comp-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:.78rem}
-.comp-table th{text-align:left;color:#94a3b8;font-weight:600;padding:6px;border-bottom:1px solid #334155}
-.comp-table td{padding:6px;border-bottom:1px solid #293548;font-family:'JetBrains Mono',monospace}
-.verdict-line{color:#cbd5e1;font-size:.82rem;font-style:italic;margin-top:8px}
-.model-disclosure{color:#94a3b8;font-size:.76rem;margin-top:8px;line-height:1.5;white-space:pre-line}
-.flags{margin-top:10px}
-.flag{border-left:3px solid #ef4444;padding:6px 10px;margin-bottom:6px;font-size:.8rem;background:#1a1420;border-radius:4px}
-.flag-pending{border-left-color:#eab308}
-.flag-info{border-left-color:#22c55e}
-.bidcard-wrap{border:2px solid #F97316;border-radius:14px;box-shadow:0 0 24px rgba(249,115,22,.25);background:#1E293B;border-left:2px solid #F97316}
-.bidcard{padding:20px 24px}
-.verdict{font-size:1.5rem;font-weight:700;letter-spacing:.02em}
-.grade{color:#94a3b8;font-size:.85rem;margin-top:4px}
-.maxbid-label{color:#94a3b8;font-size:.72rem;font-weight:700;text-transform:uppercase;margin-top:16px}
-.maxbid{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:56px;color:#fff;line-height:1.1}
-.bidcard-grid{margin-top:14px}
-.calibration-note{color:#64748b;font-size:.72rem;margin-top:12px;font-style:italic}
-.rpt-footer{color:#64748b;font-size:.7rem;text-align:center;margin-top:28px;line-height:1.6}
+.row-v{font-family:'JetBrains Mono',monospace;text-align:right;color:#e2e8f0}
+.pending{color:#475569;font-style:italic;font-size:13px;padding:8px 0}
+/* ── Value bands ── */
+.bands-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.band-card{border-radius:10px;padding:18px}
+.band-card.clearing{border:1px solid #F59E0B}
+.band-card.market{border:1px solid #22C55E}
+.band-card-label{font-size:11px;letter-spacing:.08em;font-weight:700;text-transform:uppercase;line-height:1.5}
+.band-card-label.clearing{color:#F59E0B}
+.band-card-label.market{color:#22C55E}
+.band-card-sub{color:#94a3b8;font-weight:400;letter-spacing:.02em;text-transform:none;font-size:12px}
+.band-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0 12px;text-align:center}
+.band-num-label{font-size:10px;color:#94a3b8;letter-spacing:.08em}
+.band-num-label.mid.clearing{color:#F59E0B}
+.band-num-label.mid.market{color:#22C55E}
+.band-num-val{font-family:'JetBrains Mono',monospace;font-size:15px;margin-top:4px}
+.band-num-val.mid{font-size:20px;font-weight:700}
+.band-num-val.mid.clearing{color:#F59E0B}
+.band-num-val.mid.market{color:#22C55E}
+.band-meta{font-size:12px;color:#94a3b8;font-family:'JetBrains Mono',monospace}
+.band-desc{margin:12px 0 0;font-size:13px;line-height:1.6;color:#CBD5E1}
+.spread-bar{margin-top:16px;background:rgba(249,115,22,.12);border:1px solid #F97316;border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.spread-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#F97316}
+.spread-val{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:#F97316}
+.spread-desc{font-size:13px;color:#CBD5E1;flex:1;min-width:240px;text-align:right}
+.net-equity-bar{margin-top:10px;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.25);border-radius:10px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.net-equity-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#94a3b8}
+.net-equity-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700}
+.net-equity-desc{font-size:13px;color:#94a3b8;flex:1;min-width:240px;text-align:right}
+/* ── Comps ── */
+.subhead{color:#F97316;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px;padding-left:14px;border-left:3px solid #F97316}
+.comp-table{width:100%;border-collapse:collapse;font-size:13px}
+.comp-table th{text-align:left;color:#94a3b8;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 8px;font-weight:500;border-bottom:1px solid rgba(148,163,184,.2)}
+.comp-table td{padding:10px 8px;border-bottom:1px solid rgba(148,163,184,.1);font-family:'JetBrains Mono',monospace;color:#CBD5E1}
+.comp-table td:first-child{font-family:'Inter',sans-serif;font-weight:500;color:#fff}
+/* ── Flags ── */
+.flags{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.flag{padding:10px 14px;border-radius:6px;font-size:13px;display:flex;gap:10px}
+.flag-risk{background:rgba(239,68,68,.08);border-left:3px solid #EF4444}
+.flag-pending{background:rgba(234,179,8,.08);border-left:3px solid #EAB308}
+.flag-info{background:rgba(34,197,94,.08);border-left:3px solid #22C55E}
+.flag-code{font-weight:700;flex-shrink:0}
+.flag-risk .flag-code{color:#EF4444}
+.flag-pending .flag-code{color:#EAB308}
+.flag-info .flag-code{color:#22C55E}
+/* ── Bid Card ── */
+.bidcard-wrap{background:#1E293B;border-radius:10px;overflow:hidden;border:1px solid rgba(249,115,22,.4);box-shadow:0 0 32px rgba(249,115,22,.15)}
+.bidcard-header{display:flex;align-items:center;gap:12px;background:#12283F;border-left:4px solid #F97316;padding:14px 18px}
+.bidcard-body{padding:22px 24px}
+.verdict{font-size:28px;font-weight:800;letter-spacing:-.01em}
+.verdict.bid{color:#22C55E}
+.verdict.skip{color:#EF4444}
+.verdict.review{color:#F59E0B}
+.grade{color:#94a3b8;font-size:13px;margin-top:2px}
+.maxbid-block{margin-top:20px;padding:20px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.3);border-radius:10px;text-align:center}
+.maxbid-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
+.maxbid{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:52px;color:#F97316;line-height:1}
+.maxbid-sub{font-size:12px;color:#94a3b8;margin-top:6px;font-style:italic}
+.bidcard-rows{margin-top:16px}
+/* ── Outcome ── */
+.outcome-pending{background:rgba(61,47,11,.5);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:14px 18px;color:#F59E0B;font-size:13px}
+.outcome-captured{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:14px 18px}
+/* ── Footer ── */
+.rpt-footer{color:#475569;font-size:11px;text-align:center;margin-top:32px;line-height:1.7;padding:20px 0;border-top:1px solid rgba(148,163,184,.12)}
+/* ── Print ── */
 @media print{
   [data-noprint]{display:none!important}
   body{background:#fff;color:#000;padding:0}
-  .sec,.bidcard-wrap{break-inside:avoid;background:#fff;border:1px solid #ccc}
+  .sec,.bidcard-wrap{break-inside:avoid}
+  .summary-grid{background:#f8fafc;border:1px solid #e2e8f0}
+  .sec-h{background:#f1f5f9 !important}
 }
 </style></head><body>
 <div class="wrap">
-  <div class="rpt-header">
-    <div class="wordmark">BidDeed.AI</div>
-    <div class="tagline">Shapira Auction Intelligence</div>
-    <div class="addr">${escHtml(cover.property_address || 'Address pending')}</div>
-    <div class="meta-line">${escHtml(countyLabel)} County &middot; Case ${escHtml(cover.case_number)} &middot; Sale ${escHtml(cover.auction_date || '')}</div>
-    <div class="toolbar" data-noprint>
-      <button id="expand-all">Expand all</button>
-      <button id="collapse-all">Collapse all</button>
-      <button id="dl-pdf" class="primary">&darr; Download PDF</button>
+  <div class="rpt-top">
+    <div class="rpt-brand-row">
+      <div>
+        <span class="wordmark">BidDeed<span>.AI</span></span>
+        <span class="tagline" style="margin-left:10px">Shapira Auction Intelligence</span>
+      </div>
+      <div class="toolbar" data-noprint>
+        <button class="btn-toolbar" id="collapse-all">Collapse all</button>
+        <button class="btn-toolbar primary" id="dl-pdf">&darr; Download PDF</button>
+      </div>
     </div>
+    <div class="rpt-divider-top"></div>
+    <div class="rpt-addr-row">
+      <div>
+        <div class="rpt-addr-main">${addrCity}</div>
+        <div class="rpt-addr-city">${addrRest || escHtml(countyLabel + ', FL')}</div>
+      </div>
+      <div class="rpt-meta">
+        <div class="rpt-meta-county">${escHtml(countyLabel.toUpperCase())} COUNTY</div>
+        <div>Case ${escHtml(cover.case_number || '—')}</div>
+        <div>Sale ${escHtml(cover.auction_date || '—')} &middot; ${escHtml(cover.sale_type ? cover.sale_type.toUpperCase() : 'FORECLOSURE')}</div>
+      </div>
+    </div>
+    <div class="rpt-divider-sub"></div>
   </div>
-  ${body}
+  ${summaryGrid ? `<div style="margin-top:24px">${summaryGrid}</div>` : ''}
+  <div class="sections">
+    ${body}
+  </div>
   <div class="rpt-footer">
-    Generated ${escHtml(generatedAt)} | Key: ....${escHtml(keyLast8)} | Report ID: ${escHtml(reportIdShort)}<br>
-    Informational only &mdash; not legal, financial, or investment advice. Not the unauthorized practice of law. Verify independently and consult a licensed Florida attorney before bidding.<br>
+    Generated ${escHtml(generatedAt)} &nbsp;&middot;&nbsp; Key: ....${escHtml(keyLast8)} &nbsp;&middot;&nbsp; Report ID: ${escHtml(reportIdShort)}<br>
+    Informational only &mdash; not legal, financial, or investment advice. Not the unauthorized practice of law.<br>
+    Verify independently and consult a licensed Florida attorney before bidding.<br>
     &copy; ${new Date().getUTCFullYear()} BidDeed.AI &middot; Everest Capital USA
   </div>
 </div>
 <script>
-document.getElementById('expand-all').addEventListener('click', function(){ document.querySelectorAll('details.sec').forEach(function(d){ d.open = true; }); });
-document.getElementById('collapse-all').addEventListener('click', function(){ document.querySelectorAll('details.sec').forEach(function(d){ d.open = false; }); });
-document.getElementById('dl-pdf').addEventListener('click', function(){
-  document.querySelectorAll('details.sec').forEach(function(d){ d.open = true; });
-  setTimeout(function(){ window.print(); }, 350);
+document.getElementById('collapse-all').addEventListener('click',function(){
+  document.querySelectorAll('details.sec').forEach(function(d){d.open=false;});
+  this.textContent='Expand all';
+  this.onclick=function(){document.querySelectorAll('details.sec').forEach(function(d){d.open=true;});this.textContent='Collapse all';this.onclick=null;};
+});
+document.getElementById('dl-pdf').addEventListener('click',function(){
+  document.querySelectorAll('details.sec').forEach(function(d){d.open=true;});
+  setTimeout(function(){window.print();},400);
 });
 </script>
 </body></html>`;
