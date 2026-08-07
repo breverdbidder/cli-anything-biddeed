@@ -311,10 +311,19 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   const marginPct = (ceiling != null && entryBid) ? (ceiling - entryBid) / entryBid : null;
   const thinMargin = marginPct != null && marginPct >= 0 && marginPct < 0.10;
 
+  // Third-party probability gate: if model says <25% chance a third party wins,
+  // plaintiff is almost certainly credit-bidding it back — suppress BID to REVIEW
+  const LOW_3P_PROB = typeof sellProb === 'number' && sellProb < 0.25;
+
   let verdict = 'SKIP';
   if (ceiling != null && entryBid != null) {
     if (ceiling >= entryBid) verdict = (hasHiddenCap || thinMargin) ? 'BID (conditional)' : 'BID';
     else verdict = marginPct > -0.10 ? 'REVIEW' : 'SKIP';
+  }
+  // Downgrade BID → REVIEW when third-party probability is too low to justify entry
+  if (verdict.startsWith('BID') && LOW_3P_PROB) {
+    verdict = 'REVIEW';
+    redFlags.push({ code: 'LOW_3P_PROBABILITY', severity: 'pending', text: `Third-party probability ${Math.round(sellProb * 100)}% — model predicts plaintiff likely to credit-bid. Monitor; do not plan to win this lot.` });
   }
   if (thinMargin && verdict.startsWith('BID')) {
     redFlags.push({ code: 'THIN_MARGIN', severity: 'risk', text: `Ceiling-to-entry margin is ${marginPct != null ? Math.round(marginPct * 100) : '?'}% — thin cushion, size accordingly.` });
