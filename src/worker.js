@@ -2380,6 +2380,15 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .voice-transcript{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);margin-top:4px;display:none;max-width:340px;text-align:start;line-height:1.4}
 .voice-transcript.show{display:block}
 .voice-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:center;margin-top:2px}
+.veg{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.22);border-radius:10px;padding:10px 12px;margin-top:8px;display:none;max-width:340px;width:100%}
+.veg.show{display:block}
+.veg-lbl{font-size:11px;color:var(--orange);font-weight:600;margin-bottom:6px;text-align:center}
+.veg-row{display:flex;gap:6px}
+.veg input{flex:1;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:white;font-size:14px;outline:none;font-family:inherit;min-width:0;-webkit-appearance:none}
+.veg input:focus{border-color:var(--orange)}
+.veg button{background:linear-gradient(135deg,var(--orange),#f97316);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;-webkit-tap-highlight-color:transparent}
+.veg-err{font-size:10.5px;color:#f87171;margin-top:4px;display:none}
+.veg-err.show{display:block}
 .attach-btn{display:none;align-items:center;gap:5px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .attach-btn.visible{display:flex}
 .attach-btn:hover,.attach-btn:active{background:var(--navy3);border-color:var(--orange);color:white}
@@ -2463,6 +2472,14 @@ ${countyBar}
     <div class="voice-actions">
       <button class="voice-btn" id="voice-btn" type="button"><span class="voice-dot" id="voice-dot"></span><span id="voice-btn-label">🎙️ Talk to Deed</span></button>
       <button class="attach-btn" id="attach-btn" type="button" title="Attach PDF or image to this conversation">📎 Attach</button>
+    </div>
+    <div class="veg" id="voice-email-gate">
+      <div class="veg-lbl">Enter your email to start talking with Deed</div>
+      <div class="veg-row">
+        <input type="email" id="veg-email" placeholder="your@email.com" autocomplete="email">
+        <button id="veg-submit" type="button">Start →</button>
+      </div>
+      <div class="veg-err" id="veg-err">Please enter a valid email address.</div>
     </div>
     <input type="file" id="attach-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,application/pdf" style="display:none">
     <input type="text" class="attach-caption" id="attach-caption" placeholder="Optional caption (or just attach silently)…">
@@ -2929,6 +2946,36 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 
   var ws=null,audioCtx=null,processor=null,stream=null,active=false,agentAudioQueue=[],agentPlaying=false;
   var conversationId=null;
+  var voiceEmail=null;
+  var vegEl=document.getElementById('voice-email-gate');
+  var vegInput=document.getElementById('veg-email');
+  var vegSubmit=document.getElementById('veg-submit');
+  var vegErr=document.getElementById('veg-err');
+
+  function isValidEmail(e){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);}
+
+  function hideGate(){if(vegEl)vegEl.className='veg';}
+
+  function submitVoiceEmail(){
+    var email=(vegInput?vegInput.value:'').trim();
+    if(!isValidEmail(email)){
+      if(vegErr)vegErr.className='veg-err show';
+      return;
+    }
+    if(vegErr)vegErr.className='veg-err';
+    voiceEmail=email;
+    hideGate();
+    fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,source:'voice_gate'})})
+      .catch(function(e){console.warn('[voice-gate] lead capture failed:',e);});
+    startSession();
+  }
+
+  if(vegSubmit){
+    vegSubmit.addEventListener('click',submitVoiceEmail);
+  }
+  if(vegInput){
+    vegInput.addEventListener('keydown',function(e){if(e.key==='Enter')submitVoiceEmail();});
+  }
 
   function setStatus(msg){
     if(!msg){statusEl.className='voice-status';statusEl.textContent='';return;}
@@ -3151,8 +3198,15 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   btn.addEventListener('click',function(){
     if(active){
       stopSession();
-    }else{
+    }else if(voiceEmail){
       startSession();
+    }else{
+      if(vegEl){
+        var showing=vegEl.classList.contains('show');
+        if(showing){hideGate();}else{vegEl.className='veg show';if(vegInput)vegInput.focus();}
+      }else{
+        startSession();
+      }
     }
   });
 
