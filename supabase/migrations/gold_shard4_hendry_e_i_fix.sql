@@ -1,0 +1,25 @@
+-- Gold Standard shard-4 hendry E/I fix (key=hendry-root-cause)
+-- Backfills lat/lon + real zoning links for 21 tax_deed rows (auction_date
+-- 2026-08-13) whose parcel_id/assessed_value/parity_status were already
+-- populated live this session by scripts/shard11_run3534_hendry_cd_harvest.py
+-- (re-run of the existing proven RealTaxDeed AJAX harvester -- no changes to
+-- that script). Source: Hendry County Property Appraiser ArcGIS FeatureServer
+-- (services7.arcgis.com/8l7Qq5t0CPLAJwJK), layers Parcels_Feb2024 (LAT/LON)
+-- and Zoning (Current_Zo), queried live by the authoritative parcel_id.
+--
+-- Applied live via scripts/gold_shard4_hendry_e_i_arcgis_fix.py against the
+-- REST API (idempotent check-then-write); this file documents the resulting
+-- schema-relevant state for reproducibility. Re-running the Python script is
+-- the source of truth -- this SQL is a record, not a blind replay script,
+-- since multi_county_auctions.id values are not portable across environments.
+
+-- 20 of 21 target parcels got a real parcel_zones link (RR-F or RG-3, both
+-- pre-existing codes in zoning_districts for jurisdiction_id=1399, "Hendry
+-- County (Unincorporated)"). One parcel (2 29 43 02 670 000A-001.1, case
+-- 25-98, 506 DR M L KING JR BLVD, LaBelle) was deliberately left without a
+-- zoning link: Hendry's own Zoning FeatureServer returns Current_Zo='LABELLE'
+-- for it, a city-deferred placeholder (same convention as Clewiston's
+-- 'CLEWISTON-CITY-ZONED' stub) with no real zone code and no equivalent
+-- LaBelle stub yet defined in zoning_districts -- writing one would be
+-- fabrication. This is the sole remaining gap in hendry's I metric
+-- (58/59 = 98.3%, passes the >=95% threshold; not 59/59).
