@@ -1,5 +1,3 @@
-// TEMP DIAGNOSTIC — fetches worker.js server-side, attempts to parse (not execute) via new Function(),
-// returns SyntaxError message if invalid. PAT never leaves the server, source never returned to caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 Deno.serve(async (_req: Request) => {
@@ -13,11 +11,12 @@ Deno.serve(async (_req: Request) => {
       { headers: { Authorization: `Bearer ${ghPat}`, Accept: "application/vnd.github.raw+json", "User-Agent": "diag" } }
     );
     const src = await r.text();
+    const dataUrl = "data:application/javascript," + encodeURIComponent(src);
     try {
-      new Function(src);
-      return new Response(JSON.stringify({ ok: true, message: "no syntax error", len: src.length }), { headers: { "Content-Type": "application/json" } });
+      await import(dataUrl);
+      return new Response(JSON.stringify({ ok: true, message: "module parses and evaluates cleanly", len: src.length }), { headers: { "Content-Type": "application/json" } });
     } catch (e) {
-      return new Response(JSON.stringify({ ok: false, error: String(e), len: src.length }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ok: false, error: String(e), stack: (e as Error)?.stack?.slice(0,800), len: src.length }), { headers: { "Content-Type": "application/json" } });
     }
   } catch (outer) {
     return new Response(JSON.stringify({ ok: false, fatal: String(outer) }), { status: 500, headers: { "Content-Type": "application/json" } });
