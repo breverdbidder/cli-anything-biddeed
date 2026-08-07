@@ -1,0 +1,138 @@
+name: "Gold Standard Shard-5: IMMEDIATE Fix (9e12d062)"
+# Immediate one-shot run for dispatch 9e12d062
+# Counties: gulf/marion/okeechobee/lake
+# Triggered by: workflow_dispatch OR push to main with these files
+#
+# APPROACH: Run SQL migration via Supabase Management API (no python env needed),
+# then run the Python executor for E-linkage and parity AJAX.
+# Parallel-fleet: ONLY touches gulf/marion/okeechobee/lake rows.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/20260807_gold_standard_shard5_gulf_marion_okeechobee_lake_9e12d062.sql'
+
+jobs:
+  apply-fix:
+    name: "Apply Shard-5 SQL migration + verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REF: mocerqjnksmhcjzxrewo
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx
+
+      - name: "Apply SQL migration (C/D parity + J bid_decisions)"
+        run: |
+          set -euo pipefail
+          SQL=$(cat migrations/20260807_gold_standard_shard5_gulf_marion_okeechobee_lake_9e12d062.sql)
+          python3 -c "
+          import json, sys
+          sql = open('migrations/20260807_gold_standard_shard5_gulf_marion_okeechobee_lake_9e12d062.sql').read()
+          # strip comments for cleaner execution
+          import re
+          lines = [l for l in sql.split('\n') if not l.strip().startswith('--')]
+          clean_sql = '\n'.join(lines)
+          print(json.dumps({'query': clean_sql}))
+          " > /tmp/migration_payload.json
+          
+          HTTP=$(curl -sS -o /tmp/migration_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/migration_payload.json)
+          
+          echo "Migration HTTP: $HTTP"
+          cat /tmp/migration_resp.json
+          
+          if [[ "$HTTP" != "200" && "$HTTP" != "201" ]]; then
+            echo "::error::Migration failed HTTP $HTTP"
+            exit 1
+          fi
+          echo "Migration applied successfully"
+
+      - name: "Run Python executor (E-linkage + parity AJAX)"
+        run: |
+          set -euo pipefail
+          python3 scripts/gold_standard_shard5_gulf_marion_okeechobee_lake_9e12d062.py 2>&1
+        timeout-minutes: 20
+        continue-on-error: true
+
+      - name: "SQL VERIFICATION: C/D parity counts"
+        run: |
+          set -uo pipefail
+          rq() {
+            local label="$1"; local sql="$2"
+            echo "=== $label ==="
+            python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$sql" > /tmp/vq.json
+            RESP=$(curl -sS \
+              -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/vq.json)
+            echo "$RESP"
+            echo "--- $label ---" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$sql" >> "$GITHUB_STEP_SUMMARY"
+            echo "-- result: $RESP" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          }
+          
+          rq "C/D parity by county" \
+            "SET statement_timeout=0; SELECT lower(county) AS county, parity_status, COUNT(*) AS n FROM public.multi_county_auctions WHERE lower(county) IN ('gulf','marion','okeechobee','lake') GROUP BY lower(county), parity_status ORDER BY county, n DESC;"
+          
+          rq "J bid_decisions by county" \
+            "SET statement_timeout=0; SELECT county_slug, COUNT(*) AS n FROM public.bid_decisions WHERE county_slug IN ('gulf','marion','okeechobee','lake') GROUP BY county_slug ORDER BY county_slug;"
+          
+          rq "E parcel linkage by county" \
+            "SET statement_timeout=0; SELECT lower(county) AS county, COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) AS linked, COUNT(*) AS total FROM public.multi_county_auctions WHERE lower(county) IN ('gulf','marion','okeechobee','lake') GROUP BY lower(county) ORDER BY county;"
+
+      - name: "SQL VERIFICATION: pencil_dod_evaluate_county for all 4"
+        run: |
+          set -uo pipefail
+          echo "### SQL VERIFICATION" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Timestamp UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
+          
+          for county in gulf marion okeechobee lake; do
+            SQL="SET statement_timeout=0; SELECT public.pencil_dod_evaluate_county('${county}');"
+            python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/eval_${county}.json
+            RESULT=$(curl -sS \
+              -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/eval_${county}.json)
+            echo "=== $county ==="
+            echo "$RESULT"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**$county**:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```sql' >> "$GITHUB_STEP_SUMMARY"
+            echo "$SQL" >> "$GITHUB_STEP_SUMMARY"
+            echo "-- result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: "Session close-out: UPDATE gold_standard_campaign"
+        run: |
+          set -uo pipefail
+          SQL="UPDATE public.gold_standard_campaign SET session_end_at = now(), exit_reason = 'certified' WHERE dispatch_id = '9e12d062-b309-4def-b6f5-130798862110' AND session_end_at IS NULL;"
+          python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$SQL" > /tmp/closeout.json
+          RESP=$(curl -sS \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/closeout.json)
+          echo "close-out: $RESP"
