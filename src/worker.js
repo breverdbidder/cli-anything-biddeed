@@ -3953,6 +3953,80 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
 .foot-bottom{border-top:1px solid var(--divider);padding-top:1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}
 .foot-upl{font-size:11px;color:var(--slate-dim);line-height:1.6;max-width:620px}
 .foot-copy{font-size:11px;color:var(--slate-dim);white-space:nowrap}
+
+/* ── MOBILE RESPONSIVE ─────────────────────────────────────────────────────── */
+@media(max-width:767px){
+
+  /* NAV — logo left, CTA full-width below, hide text links */
+  nav{padding:0 1rem}
+  .nav-i{flex-wrap:wrap;height:auto;padding:10px 0;gap:6px}
+  .nav-links{display:none}
+  .logo{font-size:16px}
+  .nav-cta{order:3;width:100%;text-align:center;padding:12px 0;font-size:14px;border-radius:999px;margin-bottom:4px}
+
+  /* HERO */
+  .hero{padding:3rem 1.25rem 2.5rem}
+  h1{font-size:clamp(1.85rem,8vw,2.4rem)}
+  .hero-sub{font-size:15px}
+  .hero-ctas{flex-direction:column;gap:10px;align-items:stretch}
+  .btn-solid,.btn-outline{display:block;width:100%;text-align:center;padding:16px 20px;font-size:15px;min-height:52px}
+
+  /* PROOF SECTION */
+  .proof-band{padding:3rem 1.25rem}
+  .stat-tiles{grid-template-columns:repeat(2,1fr);gap:10px}
+  .tile-val{font-size:18px}
+  .ladder-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
+  .replay-row{flex-direction:column;align-items:flex-start;gap:10px}
+  .btn-replay{width:100%;justify-content:center}
+  .result-banner{flex-direction:column;align-items:flex-start;gap:8px}
+  .case-header{flex-direction:column;align-items:flex-start}
+
+  /* INSIDE THE REPORT */
+  .inside-band{padding:3rem 1.25rem}
+  .feature-grid{grid-template-columns:1fr;gap:12px}
+  .feat-card{padding:18px}
+
+  /* LEAD CAPTURE */
+  .lead-band{padding:3rem 1.25rem}
+  .lead-email-row{flex-direction:column;gap:10px}
+  .lead-input{min-width:unset;width:100%}
+  .lead-submit{width:100%;padding:14px}
+  .upsell-row{flex-direction:column;align-items:stretch}
+  .upsell-card{max-width:100%;min-width:unset}
+
+  /* COUNTY SELECT — searchable feel */
+  .county-select{font-size:16px;padding:14px 18px;border-radius:14px}
+
+  /* PRICING */
+  .pricing-band{padding:3rem 1.25rem}
+  .pricing-grid{grid-template-columns:1fr;gap:1.25rem}
+  /* Put Investor (featured) card first visually */
+  .price-card.featured{order:-1}
+  .price-amount{font-size:32px}
+  .price-desc{font-size:14px}
+  .price-cta{padding:14px;font-size:15px;min-height:52px}
+
+  /* FOOTER */
+  .foot-top{flex-direction:column;gap:1.25rem}
+  .foot-links{gap:1rem}
+  .foot-links a{font-size:14px;padding:4px 0;display:inline-block}
+  .foot-bottom{flex-direction:column;align-items:flex-start;gap:.5rem}
+  .disclaimer-bar{padding:12px 1.25rem;font-size:11px}
+  .disclaimer-bar a{padding:3px 0;display:inline-block}
+
+  /* SECTION HEADINGS */
+  .section-h{font-size:clamp(1.4rem,5vw,1.8rem)}
+  .proof-inner,.inside-inner,.lead-inner,.pricing-inner{padding:0}
+
+}
+
+/* Tight phones — 390px and below */
+@media(max-width:400px){
+  h1{font-size:1.75rem}
+  .tile-val{font-size:16px}
+  .tile{padding:10px 12px}
+  .feat-section{font-size:10px}
+}
 </style>
 </head>
 <body>
