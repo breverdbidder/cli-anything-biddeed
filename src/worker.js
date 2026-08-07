@@ -2379,6 +2379,20 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .voice-status.show{display:block}
 .voice-transcript{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);margin-top:4px;display:none;max-width:340px;text-align:left;line-height:1.4}
 .voice-transcript.show{display:block}
+.voice-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:center;margin-top:2px}
+.attach-btn{display:none;align-items:center;gap:5px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.attach-btn.visible{display:flex}
+.attach-btn:hover,.attach-btn:active{background:var(--navy3);border-color:var(--orange);color:white}
+.attach-btn:disabled{opacity:.4;cursor:not-allowed}
+.attach-caption{display:none;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:white;font-size:12px;font-family:inherit;width:220px;margin-top:4px;outline:none}
+.attach-caption.visible{display:block}
+.attach-caption:focus{border-color:var(--orange)}
+.attach-caption::placeholder{color:var(--muted)}
+.attach-progress{display:none;font-size:10.5px;text-align:center;margin-top:4px;padding:4px 8px;border-radius:6px}
+.attach-progress.show{display:block}
+.attach-progress.uploading{color:var(--orange);background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15)}
+.attach-progress.ok{color:var(--green);background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2)}
+.attach-progress.err{color:#f87171;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2)}
 
 /* SPLIT LAYOUT — property cards right panel */
 .split{flex:1;display:flex;min-height:0;overflow:hidden}
@@ -2446,8 +2460,14 @@ ${countyBar}
       <button class="qbtn" data-msg="How does the Shapira Max Bid formula work? Walk me through it.">🧮 Shapira Max Bid formula</button>
       <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a Shapira S5 Report?">💼 Get a $25 S5 Report</button>
     </div>
-    <button class="voice-btn" id="voice-btn" type="button"><span class="voice-dot" id="voice-dot"></span><span id="voice-btn-label">🎙️ Talk to Deed</span></button>
+    <div class="voice-actions">
+      <button class="voice-btn" id="voice-btn" type="button"><span class="voice-dot" id="voice-dot"></span><span id="voice-btn-label">🎙️ Talk to Deed</span></button>
+      <button class="attach-btn" id="attach-btn" type="button" title="Attach PDF or image to this conversation">📎 Attach</button>
+    </div>
+    <input type="file" id="attach-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,application/pdf" style="display:none">
+    <input type="text" class="attach-caption" id="attach-caption" placeholder="Optional caption (or just attach silently)…">
     <div class="voice-status" id="voice-status"></div>
+    <div class="attach-progress" id="attach-progress"></div>
     <div class="voice-transcript" id="voice-transcript"></div>
     <div class="lang-row">
       <span class="lchip">🇺🇸 English</span>
@@ -2888,18 +2908,27 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 // WebSocket protocol: https://elevenlabs.io/docs/eleven-agents/libraries/web-sockets
 // Server→Client events: conversation_initiation_metadata | audio | agent_response
 //                       user_transcript | interruption | ping
-// Client→Server events: conversation_initiation_client_data | audio | pong
+// Client→Server events: conversation_initiation_client_data | audio | pong | multimodal_message
 (function(){
   var AGENT_ID='agent_5301kzeg7pj8ezrbaarvkyyfgyd9';
   var SIGNED_URL_ENDPOINT='https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/elevenlabs-signed-url';
+  var UPLOAD_ENDPOINT='https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/elevenlabs-upload-file';
   var SAMPLE_RATE=16000;
+  var ALLOWED_TYPES=['application/pdf','image/png','image/jpeg','image/webp'];
+  var MAX_BYTES=20*1024*1024;
+
   var btn=document.getElementById('voice-btn');
   var btnLabel=document.getElementById('voice-btn-label');
   var statusEl=document.getElementById('voice-status');
   var transcriptEl=document.getElementById('voice-transcript');
+  var attachBtn=document.getElementById('attach-btn');
+  var attachFileInput=document.getElementById('attach-file-input');
+  var attachCaption=document.getElementById('attach-caption');
+  var attachProgress=document.getElementById('attach-progress');
   if(!btn)return;
 
   var ws=null,audioCtx=null,processor=null,stream=null,active=false,agentAudioQueue=[],agentPlaying=false;
+  var conversationId=null;
 
   function setStatus(msg){
     if(!msg){statusEl.className='voice-status';statusEl.textContent='';return;}
@@ -2908,6 +2937,15 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   function showTranscript(who,text){
     transcriptEl.className='voice-transcript show';
     transcriptEl.textContent=(who==='user'?'You: ':'Deed: ')+text;
+  }
+  function setAttachProgress(state,msg){
+    if(!state){attachProgress.className='attach-progress';attachProgress.textContent='';return;}
+    attachProgress.className='attach-progress show '+state;
+    attachProgress.textContent=msg;
+  }
+  function showAttachBtn(show){
+    if(show){attachBtn.classList.add('visible');attachCaption.classList.add('visible');}
+    else{attachBtn.classList.remove('visible');attachCaption.classList.remove('visible');setAttachProgress(null,'');}
   }
 
   // Encode Float32 PCM to PCM16 base64
@@ -2953,9 +2991,11 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 
   function stopSession(){
     active=false;
+    conversationId=null;
     btn.className='voice-btn';
     btnLabel.textContent='🎙️ Talk to Deed';
     setStatus('');
+    showAttachBtn(false);
     agentAudioQueue=[];agentPlaying=false;
     if(processor){try{processor.disconnect();}catch(e){}processor=null;}
     if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}
@@ -2995,7 +3035,6 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       return;
     }
     ws.onopen=function(){
-      // Step 1: send conversation_initiation_client_data immediately after open
       ws.send(JSON.stringify({type:'conversation_initiation_client_data',conversation_config_override:{}}));
     };
     ws.onmessage=function(evt){
@@ -3003,13 +3042,14 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       try{msg=JSON.parse(evt.data);}catch(e){return;}
       var t=msg.type;
       if(t==='conversation_initiation_metadata'){
-        // Connection ready — start streaming mic audio
+        var meta=msg.conversation_initiation_metadata_event;
+        if(meta&&meta.conversation_id)conversationId=meta.conversation_id;
         setStatus('🎙️ Listening…');
         btn.className='voice-btn listening';
         active=true;
+        showAttachBtn(true);
         startMicStream();
       } else if(t==='ping'){
-        // Must respond with pong using the same event_id
         var eid=(msg.ping_event&&msg.ping_event.event_id!=null)?msg.ping_event.event_id:0;
         ws.send(JSON.stringify({type:'pong',event_id:eid}));
       } else if(t==='audio'){
@@ -3039,7 +3079,6 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     var ctx=audioCtx||new (window.AudioContext||window.webkitAudioContext)({sampleRate:SAMPLE_RATE});
     audioCtx=ctx;
     var src=ctx.createMediaStreamSource(stream);
-    // ScriptProcessorNode is deprecated but universally supported with no build step
     processor=ctx.createScriptProcessor(4096,1,1);
     src.connect(processor);
     processor.connect(ctx.destination);
@@ -3051,12 +3090,78 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     };
   }
 
+  async function handleFileSelected(file){
+    setAttachProgress(null,'');
+    if(ALLOWED_TYPES.indexOf(file.type)===-1){
+      setAttachProgress('err','Invalid file type — PDF, PNG, JPEG, or WEBP only.');
+      attachFileInput.value='';
+      return;
+    }
+    if(file.size>MAX_BYTES){
+      setAttachProgress('err','File too large — maximum 20 MB.');
+      attachFileInput.value='';
+      return;
+    }
+    if(!conversationId||!ws||ws.readyState!==1){
+      setAttachProgress('err','No active conversation — start talking first.');
+      attachFileInput.value='';
+      return;
+    }
+    attachBtn.disabled=true;
+    setAttachProgress('uploading','Uploading '+file.name+'…');
+    var form=new FormData();
+    form.append('conversation_id',conversationId);
+    form.append('file',file);
+    var fileId;
+    try{
+      var res=await fetch(UPLOAD_ENDPOINT,{method:'POST',body:form});
+      var payload=await res.json();
+      if(!res.ok){
+        setAttachProgress('err','Upload failed: '+(payload.error||res.status));
+        attachBtn.disabled=false;
+        attachFileInput.value='';
+        return;
+      }
+      fileId=payload.file_id;
+      if(!fileId){
+        setAttachProgress('err','Upload error: no file_id returned.');
+        attachBtn.disabled=false;
+        attachFileInput.value='';
+        return;
+      }
+    }catch(e){
+      setAttachProgress('err','Upload failed — check connection.');
+      attachBtn.disabled=false;
+      attachFileInput.value='';
+      return;
+    }
+    var caption=(attachCaption.value||'').trim();
+    ws.send(JSON.stringify({
+      type:'multimodal_message',
+      file:{file_id:fileId,type:'file_input'},
+      text:{type:'user_message',text:caption}
+    }));
+    setAttachProgress('ok','✓ '+file.name+' sent'+(caption?' with caption':'')+'. Deed is reviewing it.');
+    attachCaption.value='';
+    attachFileInput.value='';
+    attachBtn.disabled=false;
+  }
+
   btn.addEventListener('click',function(){
     if(active){
       stopSession();
     }else{
       startSession();
     }
+  });
+
+  attachBtn.addEventListener('click',function(){
+    if(!conversationId){return;}
+    attachFileInput.click();
+  });
+
+  attachFileInput.addEventListener('change',function(){
+    if(attachFileInput.files&&attachFileInput.files[0])handleFileSelected(attachFileInput.files[0]);
   });
 })();
 </script>
