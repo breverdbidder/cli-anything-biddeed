@@ -1,21 +1,22 @@
 Deno.serve(async (_req: Request) => {
-  try {
-    const r = await fetch("https://biddeed.ai/chat");
-    const html = await r.text();
-    // extract the last (voice widget) inline <script> block
-    const matches = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-    const results = [];
-    for (const m of matches) {
-      const scriptBody = m[1];
-      try {
-        new Function(scriptBody);
-        results.push({ ok: true, len: scriptBody.length, preview: scriptBody.slice(0,80) });
-      } catch (e) {
-        results.push({ ok: false, len: scriptBody.length, error: String(e), preview: scriptBody.slice(0,80) });
-      }
+  const r = await fetch("https://biddeed.ai/chat");
+  const html = await r.text();
+  const matches = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  const scriptBody = matches[1][1];
+  // Bisect: find largest valid prefix by testing increasing lengths at line boundaries
+  const lines = scriptBody.split("\n");
+  let lastGoodLine = 0;
+  let firstBadLine = -1;
+  for (let i = 1; i <= lines.length; i++) {
+    const attempt = lines.slice(0, i).join("\n") + "\n}"; // best-effort close in case we're inside a fn
+    try {
+      new Function(lines.slice(0,i).join("\n"));
+      lastGoodLine = i;
+    } catch (e) {
+      if (firstBadLine === -1 && String(e).includes("identifier")) { firstBadLine = i; break; }
     }
-    return new Response(JSON.stringify({ scriptCount: matches.length, results }, null, 2), { headers: { "Content-Type": "application/json" } });
-  } catch (outer) {
-    return new Response(JSON.stringify({ ok: false, fatal: String(outer) }), { status: 500 });
   }
+  const contextStart = Math.max(0, firstBadLine - 4);
+  const contextLines = lines.slice(contextStart, firstBadLine + 2);
+  return new Response(JSON.stringify({ totalLines: lines.length, firstBadLine, contextStart, context: contextLines }, null, 2), { headers: { "Content-Type": "application/json" } });
 });
