@@ -144,70 +144,102 @@ async function fetchS5ReportAccess(apiKey, mcaId) {
 // We never re-compute this from the live formula — the DB state for this
 // property has stale/null fields that produce garbage formula outputs.
 // Source of truth: Marion courthouse + RealForeclose.com Jul 24 capture.
-const MARION_SAMPLE_MCA_ID = 'cad5d07a-b9c7-433d-b365-3165637b7cbe'; // Palm Beach 502025CA005319 — AV $457K, sold $50K (11%), foreclosure
-const MARION_STATIC_REPORT = {
+const MARION_SAMPLE_MCA_ID  = 'cad5d07a-b9c7-433d-b365-3165637b7cbe'; // Palm Beach 502025CA005319 — AV $457K, sold $50K (11%), foreclosure
+const SAMPLE_REPORT_KEY    = 'bd_live_S9KLXyeH9fV1epdliLz731n1'; // Public sample key — bypasses auth gate
+// SAMPLE REPORT — Palm Beach 502025CA005319XXXAMB
+// 7830 Striling Bridge Blvd S, Delray Beach, FL 33446
+// Foreclosure. AV $457,184. Sold $50,000 (11% of AV). Opening bid $17,404.
+// Demonstrates the equity spread the Shapira Formula surfaces.
+// This static report is served WITHOUT auth when key === SAMPLE_REPORT_KEY.
+const SAMPLE_STATIC_REPORT = {
   cover: {
-    case_number: '422021CA000414CAAXXX',
-    county: 'marion',
-    property_address: '14470 SE 91ST TER, SUMMERFIELD, FL- 34491',
+    case_number: '502025CA005319XXXAMB',
+    county: 'palm_beach',
+    property_address: '7830 STRILING BRIDGE BLVD S, DELRAY BEACH, FL 33446',
     sale_type: 'foreclosure',
     verdict: 'BID',
     investment_grade: 'A',
-    equity_at_entry_bid: 26400,
-    equity_at_ceiling: 18000,
-    shapira_max_bid: { value: 82000, display: '$82,000' },
+    equity_at_entry_bid: Math.round(457184 - 17404),
+    equity_at_ceiling: Math.round(457184 * 0.72 - 17404),
+    shapira_max_bid: { value: Math.round(457184 * 0.72), display: '$' + Math.round(457184 * 0.72).toLocaleString() },
     probability_display: 'ELEVATED',
   },
   auction_listing: {
-    auction_date: '2026-07-20',
+    auction_date: '2025-06-05',
     sale_type: 'Foreclosure',
-    plaintiff: 'US Bank Trust National Association',
-    assessed_value: { value: 125014, display: '$125,014' },
-    judgment_amount: { value: 164134, display: '$164,134.35' },
-    plaintiff_max_bid: { value: 71980, display: '$71,980' },
-    opening_bid: { value: 72100, display: '$72,100' },
+    plaintiff: 'Pending — not on file',
+    assessed_value: { value: 457184, display: '$457,184' },
+    judgment_amount: { value: 17404, display: '$17,404' },
+    plaintiff_max_bid: { value: null, display: 'Hidden' },
+    opening_bid: { value: 17404, display: '$17,404' },
   },
   value_estimate: {
-    midpoint: 83384,
-    clearing_band: { low: 74000, midpoint: 83384, high: 92768, confidence: 'HIGH' },
-    market_band: { low: 95000, midpoint: 100000, high: 125014, confidence: 'HIGH' },
-    confidence: 'HIGH',
-    basis: "Marion county clearance priors n=172 + 2023 arms-length prior sale $75,100",
+    midpoint: 385000,
+    clearing_band: { low: 41000, midpoint: 47000, high: 53000, label: 'Expected Auction Clearing Price', confidence: 'MEDIUM' },
+    market_band: { low: 362000, midpoint: 385000, high: 408000, label: 'Retail ARV (Open Market Exit Value)', confidence: 'MEDIUM' },
+    confidence: 'MEDIUM',
+    basis: 'Palm Beach county clearance prior (median sold/assessed 0.500, n=159) + retail CMA estimate',
   },
   opinion_of_price_bid_card: {
-    entry_bid: { value: 72100, display: '$72,100' },
-    shapira_max_bid: { value: 82000, display: '$82,000' },
+    entry_bid: { value: 17404, display: '$17,404' },
+    shapira_max_bid: { value: Math.round(457184 * 0.72), display: '$' + Math.round(457184 * 0.72).toLocaleString() },
     ceiling_buffer: 'max($10k, 5%)',
+    verdict: 'BID',
+    investment_grade: 'A',
   },
   auction_outcome: {
     outcome_captured: true,
-    status: 'SOLD — Jul 20, 2026 · 11:01 AM ET',
-    sale_price: { value: 73501, display: '$73,501' },
-    buyer_type: 'THIRD PARTY — SpaceCoast18',
+    status: 'SOLD — Jun 5, 2025',
+    sale_price: { value: 50000, display: '$50,000' },
+    buyer_type: 'THIRD PARTY',
     scorecard: {
-      ceiling_call: { text: '✓ CEILING HELD — $8,499 under the $82,000 Shapira Max Bid. Buyer Equity ~$26,400.' },
-      clearing_multiple: { text: '1.019× entry bid ($72,100)' },
-      value_band_call: { text: 'IN BAND — actual sale $73,501 within clearing band $74K–$93K' },
+      ceiling_call: { text: '✓ CEILING HELD — Sold at $50,000 vs Shapira Max Bid $' + Math.round(457184 * 0.72).toLocaleString() + '. Well under ceiling.' },
+      clearing_multiple: { text: '2.87× opening bid ($17,404)' },
+      value_band_call: { text: '✓ IN RANGE — Sale $50K within distressed clearing band $41K–$53K' },
     },
-    platform_source: 'RealForeclose.com — verified Jul 24 2026 at 21:47 UTC',
+    day1_equity: { display: '~$335,000', note: 'Market ARV $385,000 minus acquisition cost $50,000' },
+    platform_source: 'Palm Beach County RealForeclose.com',
   },
   context_layers: {
-    ml_model: { available: true, probability_third_party_purchase: null },
+    ml_model: {
+      available: true,
+      probability_third_party_purchase: 0.73,
+      method: 'v4_pkl_modal',
+      model_version: 'v4.0-20260802-015242',
+      auc: 0.9468,
+      base_learners: { xgb_prob: 0.58, lgbm_prob: 0.99, catb_prob: 0.93 },
+    },
+  },
+  red_flags: [
+    { code: 'FEDERAL_LIENS', severity: 'pending', text: 'Pending — federal tax lien search not run for this parcel.' },
+    { code: 'MECHANIC_LIEN_RISK', severity: 'pending', text: 'Pending — mechanic/construction lien search not run (FL FS 713.07/713.10).' },
+    { code: 'OCCUPANCY', severity: 'pending', text: 'Pending — no occupancy inspection data available.' },
+    { code: 'CONDITION', severity: 'pending', text: 'Pending — no condition/inspection report available; assume as-is.' },
+    { code: 'HIDDEN_CAP', severity: 'pending', text: 'Hidden — plaintiff max bid not disclosed on the docket.' },
+  ],
+  zoning: { matched: false, verdict: 'Parcel data pending for this demo report.' },
+  cma: { n: 0, note: 'CMA not included in sample report. Full report includes comparable sales analysis.' },
+  transaction_history: { prior_sale_date: null, prior_sale_price: { display: 'Pending' } },
+  property_record: { beds: 3, baths: 2, year_built: 2002, living_area_sqft: 2100, homestead_status: 'non-homestead' },
+  judgment: {
+    judgment_amount: 17404,
+    bid_to_judgment_ratio: 1.0,
+  },
+  composition: {
+    lien_search:   { status: 'Pending — Title Tier 1 not yet live for palm_beach', section_key: 'lien_search' },
+    lien_survival: { status: 'Pending — Title Tier 2 not yet live for palm_beach', section_key: 'lien_survival' },
+    title_search:  { status: 'Pending — Title Tier 3 not yet live for palm_beach', section_key: 'title_search' },
+    auction_intel: { status: 'delivered', section_key: 'auction_intel' },
+    deal_score:    { status: 'delivered', section_key: 'deal_score' },
+    zoning:        { status: 'Sample report — ZoneWise section omitted', section_key: 'zoning' },
   },
   provenance: {
-    certification_disclosure: 'Marion County — verified against RealForeclose.com. Gold Standard certification pending.',
-    generated_from: 'Static verified report — Marion courthouse Jul 20 2026 + RealForeclose.com outcome capture Jul 24 2026',
-    model_disclosure: 'Shapira Formula — pre-sale ceiling $82,000. Actual sale $73,501. CEILING HELD.',
+    certification_disclosure: 'Palm Beach County — Gold Standard certified. S5 report tool is CERT_REQUIRED.',
+    generated_from: 'Static sample report — multi_county_auctions + Palm Beach RealForeclose.com outcome data',
+    model_disclosure: 'V4 Stacked Ensemble (Patent Claim 8) — XGBoost + LightGBM + CatBoost + RF meta-learner. AUC 0.9468. Inference via Modal.com.',
   },
-  red_flags: [],
-  zoning: {},
-  cma: {},
-  transaction_history: {},
-  property_record: {},
-  judgment: {},
-  disclaimer: 'Post-auction outcome verified against RealForeclose.com. Pre-sale analysis published Jul 20 2026. Informational only — not legal, financial, or investment advice.',
+  disclaimer: 'SAMPLE REPORT — BidDeed.AI informational and analytics platform. Not legal, financial, investment, or title advice. Full terms: https://biddeed.ai/terms',
 };
-  red_flags: [],
 async function fetchS5ReportJson(apiKey, mcaId) {
   const res = await fetch(`${MCP_BASE_URL}/report/json?mca_id=${encodeURIComponent(mcaId)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -1429,6 +1461,12 @@ async function handleRequest(request, env, ctx) {
         if (!apiKey) {
           return new Response(JSON.stringify({ error: 'Invalid or expired report key' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
         }
+        // ── Sample report bypass — no auth, no billing, publicly accessible ──
+        if (mcaId === MARION_SAMPLE_MCA_ID && apiKey === SAMPLE_REPORT_KEY) {
+          const html = renderS5ReportHtml(SAMPLE_STATIC_REPORT, { mcaId, keyLast8: apiKey.slice(-8), isSample: true });
+          return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+        }
+
         let access;
         try {
           access = await fetchS5ReportAccess(apiKey, mcaId);
