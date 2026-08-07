@@ -18,7 +18,7 @@ import { buildCma, buildDistressedCma } from './cma.js';
 import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
 import { predictEnsemble } from './ensemble-model.js';
-import { deriveRedFlags, hasJuniorLienRisk } from './red-flags.js';
+import { deriveRedFlags, hasJuniorLienRisk, hasTaxDeedLienRisk } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 
@@ -308,11 +308,17 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   // hidden) > judgment_amount (conservative fallback when no bid figure is
   // on file at all — this is a worst-case ceiling-vs-bid comparison, not a
   // claim that the opening bid literally equals the judgment).
-  const entryBid = auction.opening_bid || auction.plaintiff_max_bid || auction.judgment_amount || null;
-  const entryBidSource = auction.opening_bid ? 'opening_bid' : auction.plaintiff_max_bid ? 'plaintiff_max_bid (disclosed credit-bid floor)' : 'judgment_amount (no opening bid or plaintiff max bid on file — conservative fallback)';
+  const isTaxDeed = (auction.sale_type || '').toLowerCase() === 'tax_deed';
+  const entryBid = isTaxDeed
+    ? (auction.opening_bid || null)
+    : (auction.opening_bid || auction.plaintiff_max_bid || auction.judgment_amount || null);
+  const entryBidSource = isTaxDeed
+    ? (auction.opening_bid ? 'opening_bid (unpaid taxes + certificate interest + fees)' : 'opening_bid (not on file)')
+    : (auction.opening_bid ? 'opening_bid' : auction.plaintiff_max_bid ? 'plaintiff_max_bid (disclosed credit-bid floor)' : 'judgment_amount (no opening bid or plaintiff max bid on file — conservative fallback)');
   const redFlags = deriveRedFlags(auction);
 
-  const hasHiddenCap = auction.plaintiff_max_bid == null;
+  // hasHiddenCap: foreclosure-only concept. Tax deeds have no plaintiff.
+  const hasHiddenCap = !isTaxDeed && auction.plaintiff_max_bid == null;
   const marginPct = (ceiling != null && entryBid) ? (ceiling - entryBid) / entryBid : null;
   const thinMargin = marginPct != null && marginPct >= 0 && marginPct < 0.10;
 
@@ -328,7 +334,10 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   // Downgrade BID → REVIEW when third-party probability is too low to justify entry
   if (verdict.startsWith('BID') && LOW_3P_PROB) {
     verdict = 'REVIEW';
-    redFlags.push({ code: 'LOW_3P_PROBABILITY', severity: 'pending', text: `Third-party probability ${Math.round(sellProb * 100)}% — model predicts plaintiff likely to credit-bid. Monitor; do not plan to win this lot.` });
+    const low3pText = isTaxDeed
+      ? `Third-party probability ${Math.round(sellProb * 100)}% — model predicts low competitive interest; county or municipality may take back. Monitor; do not plan to win this lot.`
+      : `Third-party probability ${Math.round(sellProb * 100)}% — model predicts plaintiff likely to credit-bid. Monitor; do not plan to win this lot.`;
+    redFlags.push({ code: 'LOW_3P_PROBABILITY', severity: 'pending', text: low3pText });
   }
   // Downgrade BID → REVIEW when junior/HOA lien risk detected and lien survival unconfirmed
   if (verdict.startsWith('BID') && hasJuniorLienRisk(redFlags)) {
@@ -389,7 +398,18 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       lot_size_acres: auction.lot_size ?? (parcel?.lnd_sqfoot != null ? Number((parcel.lnd_sqfoot / 43560).toFixed(3)) : 'Pending'),
       homestead_status: auction.homestead_status || (parcel?.jv_hmstd != null ? (Number(parcel.jv_hmstd) > 0 ? 'homestead (fl_parcels jv_hmstd>0)' : 'non-homestead (fl_parcels jv_hmstd=0)') : 'Pending'),
     },
-    auction_listing: {
+    auction_listing: isTaxDeed ? {
+      // §1 TAX DEED — no plaintiff, no judgment
+      case_number:            auction.case_number,
+      auction_date:           auction.auction_date,
+      assessed_value:         money(auction.assessed_value, 'assessed_value'),
+      taxing_authority:       auction.plaintiff || 'Pending — taxing authority not on file',
+      unpaid_taxes:           money(auction.opening_bid, 'opening_bid (unpaid taxes + certificate interest + fees)'),
+      irs_lien_risk:          'IRS federal tax liens survive FL tax deed sales — independent IRS lien search required (26 U.S.C. § 7425)',
+      hoa_lien_risk:          'HOA/COA liens may survive or re-attach (FL FS 720.3085 / 718.116) — confirm outstanding balance',
+      statutory_basis:        'FL FS 197.502 / 197.552 / 197.582',
+    } : {
+      // §1 FORECLOSURE — standard fields
       case_number: auction.case_number,
       auction_date: auction.auction_date,
       plaintiff: auction.plaintiff || 'Pending — not on file',
@@ -409,7 +429,13 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       value_midpoint: value.midpoint,
       verdict,
     },
-    judgment: {
+    judgment: isTaxDeed ? {
+      sale_type_note:           'Tax deed sale — no foreclosure judgment.',
+      unpaid_taxes:             auction.opening_bid,
+      irs_lien_survives:        true,
+      hoa_lien_may_survive:     true,
+      statutory_extinguishment: 'FL FS 197.552 extinguishes most state/county liens; does NOT extinguish federal liens or HOA liens under FL FS 720/718',
+    } : {
       judgment_amount: auction.judgment_amount,
       opening_bid: auction.opening_bid,
       bid_to_judgment_ratio: (auction.opening_bid && auction.judgment_amount) ? Number((auction.opening_bid / auction.judgment_amount).toFixed(3)) : null,
@@ -451,7 +477,9 @@ ML Stack: SUMMIT-B V4 Stacked Ensemble (Patent Claim 8), model_version=${model.m
 - LightGBM, CatBoost, RF meta-learner — trained (scripts/train_v4_ensemble.py) but stored as a Python pickle this Node process cannot execute; approximated via XGBoost weighting rather than independent inference (see context_layers.ml_model.caveat)
 - Ensemble AUC: ${model.ensemble_auc} (from shapira_models, live at scoring time — not the same as the accuracy of the weighted approximation actually served here)`;
   } else {
-    modelDisclosure = 'Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. A single XGBoost v14.0 classifier additionally scores third-party-purchase probability as a directional signal in context_layers.ml_model — this is informational, not the deal verdict driver.';
+    modelDisclosure = isTaxDeed
+      ? 'Verdict/value-estimate math uses county tax-deed clearance priors + prior sale anchors. Judgment ratio anchor NOT used (tax deed — no FJ). Third-party purchase probability is directional; tax deeds have different buyer dynamics than foreclosures.'
+      : 'Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. A single XGBoost v14.0 classifier additionally scores third-party-purchase probability as a directional signal in context_layers.ml_model — this is informational, not the deal verdict driver.';
   }
 
   return {
