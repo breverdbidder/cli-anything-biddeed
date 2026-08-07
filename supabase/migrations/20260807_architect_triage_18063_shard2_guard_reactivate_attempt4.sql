@@ -1,0 +1,65 @@
+-- ARCHITECT TRIAGE (4th firing / 2nd architect pass) for issue #18063
+-- (SHARD-2: broward/seminole/jefferson/clay/pasco)
+--
+-- DIAGNOSIS (VERIFIED live via Supabase REST, service role):
+--
+-- Attempt 3/3 (GHA run 31131948736) did ZERO new work -- self-detected as a
+-- duplicate re-fire of already-shipped attempt-2 work (verified
+-- gold_standard_campaign row id=3749 session_end_at + commit 2548d5e1 both
+-- already on main, live re-query of pencil_dod_evaluate_county('broward')
+-- matched the committed report exactly, no drift) and correctly declined to
+-- burn a 6h ultracode campaign for zero metric movement. That attempt's git
+-- diff was empty ("No file changes") and it ended with only the workflow's
+-- generic run-finished comment, no findings comment/tool-call -- a
+-- redispatch-protocol silent-end technically (binding rule #2: "COMMENT
+-- verified progress ... Silent end = failed session"), but not a work
+-- failure: its full analysis was captured in /tmp/cc.log and is reproduced
+-- in this session's issue comment.
+--
+-- NEW FINDING this firing (VERIFIED via live pencil_dod_evaluate_county_rows,
+-- not merely carried forward): broward has DRIFTED since firing 2's snapshot.
+-- Firing 2 believed broward was "1 confirming gold run away" (I fixed,
+-- consecutive_gold=1/2 at loop_run_id=9421). Live gold_standard_certifications
+-- now shows last_evaluated_run_id=9455, consecutive_gold=0,
+-- consecutive_non_gold=1 -- the required 2nd confirming run FAILED, not on I
+-- (which held at 95.4%, 705/739) but on a freshly-arrived gap on letter J
+-- (deal_complete 94.5%, 698/739, need 95%): the live auction-ingestion
+-- pipeline added 9 new rows (denominator 730->739) whose two-arm
+-- CMA/ml_score/bid-decision thesis has not been computed yet. This is a
+-- genuinely new gap, not a re-verification of the old one -- next engineer
+-- session should prioritize broward J (CMA/ml_score enrichment for the ~41
+-- deal_complete-incomplete rows) over re-chasing I.
+--
+-- seminole/clay/pasco: re-verified live, zero drift from firing 2's
+-- diagnosis (seminole I=94.8% zoning-linkage gap; clay C/D/I=89.8%;
+-- pasco C/D/I=83.9-85.4%). The clay/pasco RealAuction AJAX JS-wall/403 claim
+-- was NOT independently re-reproduced this firing (base-page curl returned
+-- HTTP 200 for both hosts; the wall was reported on an internal AJAX
+-- endpoint this session did not have the original request shape for) --
+-- flagged INFERRED, carried forward from firing 2, not re-stamped VERIFIED.
+--
+-- jefferson B/F: reconfirmed structurally blocked on its 13th firing --
+-- genuine 0-closed-sold denominator until its 2026-08-19 sale date. This is
+-- the 3rd architect session in this thread (995, 996, this one) to flag that
+-- the 5-county DoD as scoped cannot become true before 2026-08-19 regardless
+-- of engineering effort on the other 4. Recommending (not executing) a human
+-- decision on splitting jefferson out of this DoD's dod_sql scope -- did not
+-- unilaterally rewrite dod_sql this firing since its downstream consumers
+-- (GH auto-close reconciliation) were not fully verified within this
+-- session's budget.
+--
+-- SELF-RETRIGGER CONCERN (raised by firing 3, INVESTIGATED this firing,
+-- VERIFIED NOT A BUG): summit_chat_dispatch has exactly one row for
+-- github_issue_number=18063 (id=ccb82791, chat_session_id=
+-- architect-20260806T080000). cc_redispatch_guard's reactivate-and-let-cron-
+-- pick-up mechanism re-fires the SAME underlying dispatch/workflow rather
+-- than creating a new summit_chat_dispatch row per attempt -- this is by
+-- design (attempts/max_attempts on cc_redispatch_guard is the counter, not
+-- summit_chat_dispatch), not the R5 envelope-conquest.yml duplicate-dispatch
+-- class firing 3 suspected. No fix needed.
+UPDATE public.cc_redispatch_guard
+SET status = 'active',
+    max_attempts = 4,
+    last_error = 'architect_triage_18063_3rd_firing(shard2): attempt 3/3 (run 31131948736) correctly did ZERO new work -- self-detected as a duplicate re-fire of already-shipped attempt-2 work (verified gold_standard_campaign row 3749 session_end_at + commit 2548d5e1 already on main, live re-query matched exactly, no drift) and declined to burn a 6h ultracode campaign for no metric movement. That attempt ended with only the generic run-finished comment (no findings comment/tool-call) -- a redispatch-protocol silent-end technically, but not a work failure. THIS FIRING (architect, 4th) found NEW drift since firing 2: broward flipped from thought-1-tick-from-certified to a fresh FAIL on letter J (deal_complete 94.5%, need 95%) -- 41 new auction rows landed (denominator 730->739, live active pipeline) without the two-arm CMA/ml_score/bid-decision thesis computed yet; I still holds at 95.4% (barely). This is NOT a re-verification of the same gap -- it is a newly-arrived gap requiring real CMA/ml_score enrichment work, next session should target broward J first. seminole/clay/pasco unchanged from firing-2 diagnosis (re-verified live, zero drift): seminole I=94.8% zoning-linkage gap, clay C/D/I=89.8% zoning-linkage + RealAuction-wall carried-forward (not independently re-verified this firing, flagged INFERRED not VERIFIED), pasco C/D/I=83.9-85.4% same. jefferson B/F remains hard time-gated to 2026-08-19 sale date (13th reconfirm). Reactivated for legitimate continued work on broward/seminole/clay/pasco; jefferson cannot close before 2026-08-19 regardless of attempts -- 3rd time flagging this scope mismatch (see decision_log 995/996/this entry), recommend a human decision on splitting jefferson out of this DoD if a 4th flag is unwelcome.'
+WHERE issue_number = 18063
+  AND status = 'blocked';
