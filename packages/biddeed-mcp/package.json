@@ -17,7 +17,6 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "jose": "^6.2.3",
-    "onnxruntime-node": "^1.20.1",
     "pdfkit": "^0.19.1",
     "stripe": "^17.0.0"
   },
@@ -29,8 +28,6 @@
     "url": "https://github.com/breverdbidder/cli-anything-biddeed.git",
     "directory": "packages/biddeed-mcp"
   },
-  "publishConfig": {
-    "access": "public"
-  },
+  "publishConfig": { "access": "public" },
   "files": ["bin/","src/","README.md"]
 }
