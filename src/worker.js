@@ -3204,266 +3204,392 @@ const HOMEPAGE_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>BidDeed.AI — AI-Powered Foreclosure &amp; Tax Deed Auction Intelligence</title>
-<meta name="description" content="The only platform that tells you what's coming to auction, what to bid, and what the zoning allows — before you bid online or walk into the courthouse.">
+<meta name="description" content="Know your walk-away number before the gavel falls. One $25 report gives you the Shapira Max Bid, value bands, rehab budget, lien flags, and an ML read — 18 sections, every number traced to a named source.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 *{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b;--green:#10b981}
+:root{
+  --navy:#0B1929;--navy-band:#0E2136;--header-strip:#12283F;--charcoal:#1E293B;
+  --orange:#F97316;--orange-hover:#FDBA74;--slate:#94A3B8;--slate-dim:#64748B;
+  --body-text:#CBD5E1;--green:#22C55E;--amber:#F59E0B;--red:#EF4444;
+  --divider:rgba(148,163,184,0.12);--gold:#F5C518;
+}
 html{scroll-behavior:smooth}
-body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;font-size:17px;line-height:1.75;letter-spacing:0.01em}
-nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 2rem}
-.nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:64px}
-.logo{display:flex;align-items:center;gap:10px;text-decoration:none}
-.lm{width:34px;height:34px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:var(--navy);flex-shrink:0}
-.ln{font-size:16px;font-weight:700;color:white;letter-spacing:-.02em}.ln span{color:var(--orange)}
-.nav-links{display:flex;gap:1.5rem}.nav-links a{color:#e2e8f0;text-decoration:none;font-size:15px;font-weight:500}.nav-links a:hover{color:white}
-.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:9px 20px;border-radius:8px;font-size:15px;font-weight:700;text-decoration:none}
-.hero{padding:5rem 2rem 4rem;text-align:center;max-width:860px;margin:0 auto}
-.hbadge{display:inline-flex;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);padding:.35rem 1rem;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--orange);margin-bottom:1.5rem;letter-spacing:.06em}
-h1.hh1{font-family:'DM Serif Display',serif;font-size:clamp(2.2rem,5vw,3.6rem);color:white;line-height:1.15;letter-spacing:-.02em;margin-bottom:1.25rem}
-h1.hh1 em{color:var(--orange);font-style:normal}
-.hsub{font-size:1.1rem;color:var(--muted);max-width:560px;margin:0 auto 2rem;line-height:1.7}
-.hact{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-bottom:3rem}
-.bp{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:14px 28px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;display:inline-block}
-.bs{background:transparent;color:var(--text);padding:14px 28px;border-radius:10px;font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--border);display:inline-block}
-.hstats{display:flex;gap:2.5rem;justify-content:center;flex-wrap:wrap}
-.st .sn{font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:600;color:white}.st .sn span{color:var(--orange)}
-.st .sl{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:.2rem}
-.moat{padding:1.5rem 2rem;background:var(--navy2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
-.moat-i{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:center;gap:2rem;flex-wrap:wrap}
-.mi{display:flex;align-items:center;gap:.6rem;font-size:.85rem;color:var(--muted)}.mi strong{color:white}
-.msep{width:1px;height:20px;background:var(--border)}
-.sec{padding:4rem 2rem;max-width:1100px;margin:0 auto}
-.ey{display:inline-flex;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
-.st2{font-family:'DM Serif Display',serif;font-size:clamp(1.6rem,3vw,2.4rem);color:white;margin-bottom:.75rem;line-height:1.2}
-.ss{color:var(--muted);font-size:.95rem;margin-bottom:2rem;max-width:520px}
-.lps{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem}
-.lp{background:var(--navy3);border:1px solid var(--border);border-radius:20px;padding:.25rem .75rem;font-size:.72rem;color:var(--muted)}
-.cfw{background:var(--navy2);border:1px solid rgba(245,158,11,.15);border-radius:16px;overflow:hidden;box-shadow:0 0 60px rgba(245,158,11,.04)}
-.cfb{background:var(--navy3);padding:10px 18px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
-.cfd{width:10px;height:10px;border-radius:50%}
-.cfl{font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--muted);margin-left:auto}
-.cn{text-align:center;margin-top:1rem;font-size:.8rem;color:var(--muted)}.cn a{color:var(--orange);text-decoration:none;font-weight:600}
-.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-top:2rem}
-.sg{background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.25rem}
-.sn2{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--orange);letter-spacing:.08em;margin-bottom:.5rem}
-.sna{font-size:.95rem;font-weight:600;color:white;margin-bottom:.35rem}
-.sd{font-size:.8rem;color:var(--muted);line-height:1.5}
-.cgrid{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.5rem}
-.cc{background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:6px;padding:.3rem .75rem;font-size:.78rem;color:var(--green);font-weight:500}
-.cc::before{content:'✓ ';font-weight:700}
-.pc{background:var(--navy2);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:16px;padding:2rem}
-.pl{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--orange);letter-spacing:.08em;margin-bottom:.75rem}
-.pcase{font-size:1rem;font-weight:600;color:white;margin-bottom:1.25rem}
-.pgr{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:1rem}
-.pi label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-.pi value{display:block;font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:600;color:white;margin-top:.15rem}
-.pi value.g{color:var(--green)}.pi value.o{color:var(--orange)}
-.pv{margin-top:1.5rem;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:.75rem 1rem;font-size:.85rem;color:var(--green);font-weight:600}
-.prgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.25rem;margin-top:2rem}
-.pln{background:var(--navy2);border:1px solid var(--border);border-radius:16px;padding:1.75rem;position:relative}
-.pln.live{border-color:rgba(245,158,11,.4)}.pln.coming{opacity:1}
-.pbadge{position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-size:.65rem;font-weight:800;padding:.25rem .9rem;border-radius:20px;white-space:nowrap}
-.pbadge.hot{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy)}
-.pbadge.soon{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3)}
-.pname{font-size:.8rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem}
-.pprice{font-family:'DM Serif Display',serif;font-size:2.2rem;color:white;margin-bottom:.2rem}
-.pprice sub{font-family:'Inter',sans-serif;font-size:.85rem;color:var(--muted);font-weight:400}
-.pdesc{font-size:.8rem;color:var(--muted);margin-bottom:1.25rem;line-height:1.5}
-.pfeats{list-style:none;margin-bottom:1.5rem}
-.pfeats li{font-size:.83rem;color:var(--muted);padding:.35rem 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:flex-start;gap:.5rem}
-.pln.coming .pfeats li{color:rgba(255,255,255,.75)}
-.pln.coming .pname{color:rgba(255,255,255,.8)}
-.pln.coming .pprice{color:white}
-.pfeats li::before{content:'→';color:var(--orange);flex-shrink:0;font-weight:700}
-.pfeats li.sf::before{content:'⏳';font-size:.75rem}.pfeats li.sf{color:var(--muted)}
-.pcta{display:block;text-align:center;padding:12px;border-radius:10px;font-size:.88rem;font-weight:700;text-decoration:none}
-.pcta.hot{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy)}
-.pcta.off{background:var(--navy3);color:var(--muted);cursor:default;border:1px solid var(--border)}
-.pfree{background:var(--navy2);border:1px solid var(--border);border-radius:16px;padding:1.25rem 1.75rem;margin-top:1rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
-.pft strong{color:white;display:block;font-size:.95rem}.pft span{font-size:.8rem;color:var(--muted)}
-.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:1.25rem;margin-top:2rem}
-.fi{background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.5rem}
-.fi-ic{font-size:1.5rem;margin-bottom:.75rem}
-.fi-t{font-size:.95rem;font-weight:700;color:white;margin-bottom:.5rem}
-.fi-d{font-size:.82rem;color:var(--muted);line-height:1.6}
-.fcta{padding:5rem 2rem;text-align:center}
-.fcta h2{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.8rem);color:white;margin-bottom:1rem}
-.fcta p{color:var(--muted);margin-bottom:2rem}
-.crow{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
-footer{border-top:1px solid var(--border);padding:1.5rem 2rem;text-align:center;font-size:.78rem;color:var(--muted)}
-footer a{color:var(--muted);text-decoration:none}
-hr.dv{border:none;border-top:1px solid var(--border);max-width:1100px;margin:0 auto}
-@media(max-width:640px){.nav-links{display:none}.msep{display:none}}
+body{background:var(--navy);color:var(--body-text);font-family:Inter,sans-serif;overflow-x:hidden;font-size:17px;line-height:1.75}
+a{text-decoration:none;color:inherit}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:100;background:rgba(11,25,41,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--orange);padding:0 2rem}
+.nav-i{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:700;color:#fff;letter-spacing:-.02em}
+.logo span{color:var(--orange)}
+.nav-links{display:flex;gap:1.75rem}
+.nav-links a{color:var(--slate);font-size:14px;font-weight:500;transition:color .15s}
+.nav-links a:hover{color:#fff}
+.nav-cta{background:var(--orange);color:var(--navy);padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:.04em;transition:background .15s}
+.nav-cta:hover{background:var(--orange-hover)}
+
+/* HERO */
+.hero{padding:5.5rem 2rem 4.5rem;text-align:center;max-width:860px;margin:0 auto}
+.eyebrow{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--orange);margin-bottom:1.25rem}
+h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:1.12;letter-spacing:-.03em;margin-bottom:1.25rem}
+.hero-sub{font-size:17px;color:var(--slate);max-width:580px;margin:0 auto 2.25rem;line-height:1.7}
+.hero-ctas{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
+.btn-solid{background:var(--orange);color:var(--navy);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:700;transition:background .15s}
+.btn-solid:hover{background:var(--orange-hover)}
+.btn-outline{border:1px solid var(--slate);color:var(--body-text);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:600;transition:border-color .15s,color .15s}
+.btn-outline:hover{border-color:var(--orange);color:#fff}
+
+/* PROOF BAND */
+.proof-band{background:var(--navy-band);padding:5rem 2rem}
+.proof-inner{max-width:760px;margin:0 auto}
+.section-label{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--orange);margin-bottom:1rem;text-align:center}
+.section-h{font-size:clamp(1.6rem,3vw,2.25rem);font-weight:800;color:#fff;text-align:center;margin-bottom:.5rem;letter-spacing:-.02em}
+.section-sub{text-align:center;color:var(--slate);font-size:15px;margin-bottom:2.5rem}
+
+/* CASE CARD */
+.case-card{background:var(--navy);border:1px solid var(--charcoal);border-radius:14px;overflow:hidden}
+.case-header{background:var(--header-strip);border-left:4px solid var(--orange);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.case-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--orange);letter-spacing:.06em;text-transform:uppercase}
+.case-date{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--slate)}
+.case-address{font-size:16px;font-weight:700;color:#fff;margin-top:4px}
+.case-body{padding:24px 20px}
+
+/* STAT TILES */
+.stat-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+@media(max-width:600px){.stat-tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--charcoal);border-radius:10px;padding:14px 16px}
+.tile-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);margin-bottom:6px}
+.tile-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:#fff}
+.tile-val.orange{color:var(--orange)}
+.tile-val.green{color:var(--green)}
+.tile-val.amber{color:var(--amber)}
+
+/* BID LADDER */
+.ladder-wrap{margin-bottom:20px}
+.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-bottom:8px;overflow:visible}
+.ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));transition:width .06s linear}
+.ladder-markers{position:relative;height:28px}
+.marker{position:absolute;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
+.marker-dot{width:8px;height:8px;border-radius:50%;border:2px solid;margin-bottom:3px}
+.marker-dot.green{border-color:var(--green);background:var(--green)}
+.marker-dot.amber{border-color:var(--amber);background:var(--amber)}
+.marker-dot.orange{border-color:var(--orange);background:var(--orange)}
+.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--slate);white-space:nowrap;text-align:center;line-height:1.2}
+
+/* REPLAY */
+.replay-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.status-line{font-size:13px;color:var(--slate);font-style:italic}
+.btn-replay{background:var(--orange);color:var(--navy);border:none;padding:10px 20px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s}
+.btn-replay:hover{background:var(--orange-hover)}
+.btn-replay:disabled{opacity:.6;cursor:default}
+
+/* RESULT BANNER */
+.result-banner{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.result-text{color:var(--green);font-size:14px;font-weight:600}
+.equity-chip{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.25);border-radius:999px;padding:6px 14px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--green);font-weight:700}
+.proof-footnote{text-align:center;margin-top:1.25rem;font-size:13px;color:var(--slate-dim);line-height:1.6}
+
+/* INSIDE THE REPORT */
+.inside-band{padding:5rem 2rem;background:var(--navy)}
+.inside-inner{max-width:1000px;margin:0 auto}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:2rem 0 2.25rem}
+.feat-card{background:var(--charcoal);border:1px solid var(--divider);border-radius:10px;padding:22px}
+.feat-section{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--orange);letter-spacing:.08em;margin-bottom:8px}
+.feat-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:8px}
+.feat-desc{font-size:13px;color:var(--slate);line-height:1.6}
+.cta-center{text-align:center}
+.btn-outline-orange{border:1px solid var(--orange);color:var(--orange);padding:12px 28px;border-radius:999px;font-size:14px;font-weight:700;display:inline-block;transition:background .15s,color .15s}
+.btn-outline-orange:hover{background:var(--orange);color:var(--navy)}
+
+/* LEAD CAPTURE */
+.lead-band{padding:5rem 2rem;background:var(--navy-band)}
+.lead-inner{max-width:580px;margin:0 auto;text-align:center}
+.lead-form{display:flex;gap:10px;margin:1.75rem 0 .75rem;flex-wrap:wrap}
+.lead-input{flex:1;min-width:160px;background:var(--charcoal);border:1px solid var(--slate);border-radius:999px;padding:13px 20px;font-size:14px;color:#fff;outline:none;transition:border-color .15s}
+.lead-input::placeholder{color:var(--slate-dim)}
+.lead-input:focus{border-color:var(--orange)}
+.lead-submit{background:var(--orange);color:var(--navy);border:none;padding:13px 26px;border-radius:999px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s}
+.lead-submit:hover{background:var(--orange-hover)}
+.lead-error{color:var(--red);font-size:12px;margin-top:.5rem;min-height:18px}
+.lead-success{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:20px;color:var(--green);font-size:15px;font-weight:600;display:none}
+
+/* PRICING */
+.pricing-band{padding:5rem 2rem;background:var(--navy)}
+.pricing-inner{max-width:900px;margin:0 auto}
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.25rem;margin-top:2.5rem}
+.price-card{background:var(--charcoal);border:1px solid var(--divider);border-radius:14px;padding:28px;position:relative}
+.price-card.featured{border:2px solid var(--orange)}
+.popular-chip{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--orange);color:var(--navy);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:4px 14px;border-radius:999px;white-space:nowrap}
+.price-tier{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);margin-bottom:8px}
+.price-amount{font-family:'JetBrains Mono',monospace;font-size:40px;font-weight:700;color:#fff;margin-bottom:4px}
+.price-amount span{font-size:15px;color:var(--slate);font-weight:400}
+.price-desc{font-size:13px;color:var(--slate);line-height:1.6;margin:14px 0 20px}
+.price-cta{display:block;text-align:center;background:var(--orange);color:var(--navy);padding:12px;border-radius:999px;font-size:14px;font-weight:700;transition:background .15s}
+.price-cta:hover{background:var(--orange-hover)}
+.price-cta.ghost{background:transparent;border:1px solid var(--slate);color:var(--body-text)}
+.price-cta.ghost:hover{border-color:var(--orange);color:#fff}
+
+/* FOOTER */
+footer{padding:2rem;text-align:center;border-top:1px solid var(--divider)}
+.foot-brand{font-size:14px;font-weight:700;color:#fff;margin-bottom:.5rem}
+.foot-brand span{color:var(--orange)}
+.foot-upl{font-size:12px;color:var(--slate-dim);max-width:600px;margin:0 auto .5rem;line-height:1.6}
+.foot-copy{font-size:12px;color:var(--slate-dim)}
 </style>
-${POSTHOG_SCRIPT}
 </head>
 <body>
-<nav><div class="nav-inner">
-  <a href="/" class="logo"><div class="lm">BD</div><span class="ln">BidDeed<span>.AI</span></span></a>
-  <div class="nav-links"><a href="#chat">Try Free</a><a href="#pricing">How It Works</a><a href="#gold-standard">Gold Standard</a><a href="#pricing">Pricing</a></div>
-  <a href="/subscribe?tier=investor" class="nav-cta">Investor $99/mo</a>
-</div></nav>
 
+<!-- NAV -->
+<nav>
+  <div class="nav-i">
+    <a class="logo" href="/">BidDeed<span>.AI</span></a>
+    <div class="nav-links">
+      <a href="#proof">The proof</a>
+      <a href="#report">Inside the report</a>
+      <a href="#pricing">Pricing</a>
+    </div>
+    <a class="nav-cta" href="/buy-report">GET A REPORT — $25</a>
+  </div>
+</nav>
+
+<!-- HERO -->
 <section class="hero">
-  <div class="hbadge">AI AGENTS · ALL 67 FLORIDA COUNTIES</div>
-  <h1 class="hh1">AI-Powered Foreclosure &amp;<br><em>Tax Deed Auction Intelligence</em></h1>
-  <p class="hsub">The only platform that tells you what's coming to auction, what to bid, and what the zoning allows — before you bid online or walk into the courthouse.</p>
-  <div class="hact"><a href="#chat" class="bp">Try It Free — No Signup</a><a href="#pricing" class="bs">See Pricing</a></div>
-  <div class="hstats">
-    <div class="st"><div class="sn">67<span>+</span></div><div class="sl">Florida Counties</div></div>
-    <div class="st"><div class="sn">GOLD_COUNT_PLACEHOLDER<span>✓</span></div><div class="sl">Gold Standard</div></div>
-    <div class="st"><div class="sn">72K<span>+</span></div><div class="sl">Auctions Tracked</div></div>
-    <div class="st"><div class="sn">$25</div><div class="sl">Per Shapira Report</div></div>
+  <div class="eyebrow">Shapira Auction Intelligence · Florida Foreclosure &amp; Tax Deed</div>
+  <h1>Know your walk-away number<br>before the gavel falls.</h1>
+  <p class="hero-sub">One $25 report gives you the Shapira Max Bid, the value bands, the rehab budget, the lien flags, and an ML read on who else shows up — 18 sections, every number traced to a named source.</p>
+  <div class="hero-ctas">
+    <a class="btn-solid" href="#report">See a live sample report →</a>
+    <a class="btn-outline" href="#proof">Watch the formula hold ↓</a>
   </div>
 </section>
 
-<div class="moat"><div class="moat-i">
-  <div class="mi">🔍 <strong>Foreclosure + Tax Deed</strong> — both types, every county</div>
-  <div class="msep"></div>
-  <div class="mi">🧮 <strong>Shapira Max Bid Formula</strong> — exact ceiling before you bid</div>
-  <div class="msep"></div>
-  <div class="mi">🗺️ <strong>ZoneWise Zoning</strong> — setbacks, FAR, land use on every property</div>
-</div></div>
+<!-- FORMULA IN ACTION -->
+<section class="proof-band" id="proof">
+  <div class="proof-inner">
+    <div class="section-label">Real Outcome · Verified to the Cent</div>
+    <h2 class="section-h">The Formula in Action</h2>
+    <p class="section-sub">Marion County, Jul 20 2026 — published pre-sale, captured post-sale to the cent.</p>
 
+    <div class="case-card">
+      <div class="case-header">
+        <div>
+          <div class="case-meta">Case 422021CA000414CAAXXX · Marion County · Foreclosure</div>
+          <div class="case-address">14470 SE 91ST TER, Summerfield FL</div>
+        </div>
+        <div class="case-date">Sale Jul 20, 2026</div>
+      </div>
+      <div class="case-body">
+        <div class="stat-tiles">
+          <div class="tile">
+            <div class="tile-label">Entry Bid</div>
+            <div class="tile-val">$72,100</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Shapira Max Bid</div>
+            <div class="tile-val orange">$82,000</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Actual Sale</div>
+            <div class="tile-val" id="sale-val">$73,501</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Ceiling Call</div>
+            <div class="tile-val green">HELD ✓</div>
+          </div>
+        </div>
 
+        <!-- BID LADDER -->
+        <div class="ladder-wrap">
+          <div class="ladder-track">
+            <div class="ladder-fill" id="ladder-fill" style="width:24.65%"></div>
+          </div>
+          <div class="ladder-markers">
+            <div class="marker" style="left:15%">
+              <div class="marker-dot green"></div>
+              <div class="marker-label">ENTRY<br>$72,100</div>
+            </div>
+            <div class="marker" style="left:14.1%">
+              <div class="marker-dot amber"></div>
+              <div class="marker-label">PLAINTIFF<br>$71,980</div>
+            </div>
+            <div class="marker" style="left:85.7%">
+              <div class="marker-dot orange"></div>
+              <div class="marker-label">CEILING<br>$82,000</div>
+            </div>
+          </div>
+        </div>
 
-<hr class="dv">
+        <div class="replay-row">
+          <button class="btn-replay" id="replay-btn" onclick="replayAuction()">▶ Replay the auction</button>
+          <div class="status-line" id="status-line">The sale stopped at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Press replay to watch it again.</div>
+        </div>
 
-<section class="sec" id="proof">
-  <div class="ey">REAL OUTCOME · VERIFIED TO THE CENT</div>
-  <h2 class="st2">The Formula in Action</h2>
-  <p class="ss">Marion County, Jul 20 2026 — published pre-sale, captured post-sale to the cent.</p>
-  <div class="pc">
-    <div class="pl">CASE 422021CA000414CAAXXX · MARION COUNTY · FORECLOSURE</div>
-    <div class="pcase">14470 SE 91ST TER, Summerfield FL — Sale Jul 20, 2026</div>
-    <div class="pgr">
-      <div class="pi"><label>Entry Bid</label><value>$72,100</value></div>
-      <div class="pi"><label>Shapira Max Bid</label><value class="o">$82,000</value></div>
-      <div class="pi"><label>Actual Sale</label><value class="g">$73,501</value></div>
-      <div class="pi"><label>Ceiling Call</label><value class="g">HELD ✓</value></div>
-      <div class="pi"><label>Plaintiff Intel</label><value>$71,980</value></div>
-      <div class="pi"><label>Buyer Equity</label><value class="g">~$26,400</value></div>
+        <div class="result-banner">
+          <div class="result-text">✓ CEILING HELD — sale $8,499 below Shapira Max Bid. Disciplined bidder wins this lot.</div>
+          <div class="equity-chip">Buyer Equity ~$26,400</div>
+        </div>
+      </div>
     </div>
-    <div class="pv">✓ CEILING HELD — sale $8,499 below Shapira Max Bid. Disciplined bidder wins this lot.</div>
+
+    <p class="proof-footnote">Every Shapira report ships with this scorecard — the prediction is published pre-sale and graded automatically against the courthouse record within 24 hours.</p>
   </div>
 </section>
 
-<hr class="dv">
+<!-- INSIDE THE REPORT -->
+<section class="inside-band" id="report">
+  <div class="inside-inner">
+    <div class="section-label" style="text-align:center">18 sections. One number that matters.</div>
+    <h2 class="section-h" style="text-align:center;font-size:clamp(1.6rem,3vw,2.25rem);font-weight:800;color:#fff;margin-bottom:2rem">18 sections. One number that matters.</h2>
 
-<section class="sec" id="gold-standard">
-  <div class="ey">GOLD STANDARD CERTIFIED</div>
-  <h2 class="st2">GOLD_COUNT_PLACEHOLDER Florida Counties — Verified &amp; Ready</h2>
-  <p class="ss">Verified title records, current tax data, reliable auction timing, documented clearance patterns. More counties certified weekly.</p>
-  <div class="cgrid">
-    GOLD_CHIPS_PLACEHOLDER
-  </div>
-  <p style="margin-top:1.25rem;font-size:.8rem;color:var(--muted)">Uncertified county? <a href="mailto:hello@biddeed.ai" style="color:var(--orange)">hello@biddeed.ai</a></p>
-</section>
+    <div class="feature-grid">
+      <div class="feat-card">
+        <div class="feat-section">§15</div>
+        <div class="feat-title">The Shapira Bid Card</div>
+        <div class="feat-desc">Your max bid, entry point, and a BID / REVIEW / SKIP verdict — calibrated per county on verified auction outcomes.</div>
+      </div>
+      <div class="feat-card">
+        <div class="feat-section">§2–7</div>
+        <div class="feat-title">Two value bands, never averaged</div>
+        <div class="feat-desc">What it clears for at courthouse vs what it sells for retail — the gap is your day-1 equity surface, net of rehab.</div>
+      </div>
+      <div class="feat-card">
+        <div class="feat-section">§ML</div>
+        <div class="feat-title">SCOREwise V4 competition read</div>
+        <div class="feat-desc">A stacked ensemble trained on 5,118 verified FL outcomes tells you whether the plaintiff walks or a bidding war shows up.</div>
+      </div>
+      <div class="feat-card">
+        <div class="feat-section">§13–16</div>
+        <div class="feat-title">The traps, flagged in red</div>
+        <div class="feat-desc">Junior lien alerts, surviving mortgages, occupancy, flood zones, tax arrears — the reasons a cheap lot is expensive.</div>
+      </div>
+    </div>
 
-<hr class="dv">
-
-<section class="sec" id="pricing">
-  <div class="ey">PRICING</div>
-  <h2 class="st2">Start Free. Upgrade When Ready.</h2>
-  <p class="ss">No credit card for free tier. Shapira reports $25 each, bundled by tier.</p>
-  <div class="prgrid">
-    <div style="border:2px solid #f59e0b;border-radius:12px;padding:20px;margin-bottom:20px;background:#020617">
-      <div style="color:#f59e0b;font-size:12px;font-weight:600;letter-spacing:.1em">ONE-TIME · NO SUBSCRIPTION</div>
-      <div style="color:#fff;font-size:28px;font-weight:700;margin:8px 0">$25 <span style="font-size:16px;font-weight:400;color:#94a3b8">per report</span></div>
-      <div style="color:#94a3b8;margin-bottom:16px">Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. No subscription.</div>
-      <a href="/buy-report" style="display:block;text-align:center;background:#f59e0b;color:#020617;padding:12px;border-radius:8px;font-weight:600;text-decoration:none">Buy One Report — $25</a>
-    </div>
-    <div class="pln live">
-      <div class="pbadge hot">⚡ LIVE NOW</div>
-      <div class="pname">Investor</div><div class="pprice">$99<sub>/month</sub></div>
-      <div class="pdesc">Exact max bids, plaintiff intel, skip traces.</div>
-      <ul class="pfeats">
-        <li>Exact Shapira Max Bid</li><li>Unlimited property cards</li>
-        <li>Plaintiff identity + max bid intel</li><li>Outcome scorecard</li>
-        <li>10 Shapira S5 reports/mo</li><li>3 skip traces/mo</li>
-        <li>1 county monitor</li><li>Daily digest all 67 counties</li>
-      </ul>
-      <a href="/subscribe?tier=investor" class="pcta hot">Start Investor — $99/mo</a>
-    </div>
-    <div class="pln coming">
-      <div class="pbadge soon">COMING SOON</div>
-      <div class="pname">Pro</div><div class="pprice">$199<sub>/month</sub></div>
-      <div class="pdesc">Investor + full ZoneWise zoning on every property.</div>
-      <ul class="pfeats">
-        <li>Everything in Investor</li><li>Full ZoneWise zoning</li>
-        <li>Setbacks, parking, height, FAR</li><li>10 Shapira reports/mo</li>
-        <li>15 skip traces</li><li>3 monitors</li>
-        <li class="sf">Lien stack + title chain (coming)</li>
-      </ul>
-      <span class="pcta off">Notify Me When Live</span>
-    </div>
-    <div class="pln coming">
-      <div class="pbadge soon">COMING SOON</div>
-      <div class="pname">Pro Plus</div><div class="pprice">$299<sub>/month</sub></div>
-      <div class="pdesc">For serious deal hunters and firms.</div>
-      <ul class="pfeats">
-        <li>Everything in Pro</li><li>25 Shapira reports/mo</li>
-        <li>Entitlement feasibility</li><li>50 skip traces</li><li>10 monitors</li>
-        <li class="sf">Due diligence title report (coming)</li>
-      </ul>
-      <span class="pcta off">Notify Me When Live</span>
+    <div class="cta-center">
+      <a class="btn-outline-orange" href="/report/0c301005-ae34-41da-a6a4-dc92c3e9b5cb?key=sample">Open the full sample report →</a>
     </div>
   </div>
-  <div class="pfree">
-    <div class="pft"><strong>Free Forever — No Credit Card</strong><span>30-day snapshot · 3 previews/county · Blurred max bid · Daily email · AI chat any language</span></div>
-    <a href="#chat" class="bp" style="font-size:.85rem;padding:10px 20px">Try Free Now</a>
-  </div>
 </section>
 
-<hr class="dv">
+<!-- LEAD CAPTURE -->
+<section class="lead-band" id="lead">
+  <div class="lead-inner">
+    <div class="section-label">Get the next pre-sale report free.</div>
+    <h2 class="section-h" style="font-size:clamp(1.4rem,2.5vw,1.9rem);font-weight:800;color:#fff;margin-bottom:.5rem">Get the next pre-sale report free.</h2>
+    <p style="color:var(--slate);font-size:15px;line-height:1.6">Tell us your county. We'll send you one full S5 Shapira report from an upcoming sale — scorecard included when the outcome lands.</p>
 
-<section class="sec">
-  <div class="ey">PLATFORM CAPABILITIES</div>
-  <h2 class="st2">Built by an Investor, for Investors</h2>
-  <div class="fgrid">
-    <div class="fi"><div class="fi-ic">🔍</div><div class="fi-t">Lien Discovery Agent</div><div class="fi-d">Searches actual recorded documents. Detects HOA foreclosures where senior mortgages survive.</div></div>
-    <div class="fi"><div class="fi-ic">🧮</div><div class="fi-t">Shapira Max Bid Formula</div><div class="fi-d">20 years of auction experience. Exact ceiling from judgment, CMA, and county clearance priors.</div></div>
-    <div class="fi"><div class="fi-ic">🗺️</div><div class="fi-t">ZoneWise Zoning</div><div class="fi-d">Setbacks, parking, height limits, FAR, land use, permitted uses, overlay districts on every property.</div></div>
-    <div class="fi"><div class="fi-ic">🤖</div><div class="fi-t">ML Prediction Engine</div><div class="fi-d">XGBoost trained on 21,138 verified FL outcomes. Predicts third-party probability and clearing range.</div></div>
-    <div class="fi"><div class="fi-ic">📊</div><div class="fi-t">Outcome Scorecard</div><div class="fi-d">Every Shapira report graded post-sale. Ceiling held or missed. Verified to the cent.</div></div>
-    <div class="fi"><div class="fi-ic">🌐</div><div class="fi-t">Multilingual AI</div><div class="fi-d">English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese — responds in your language automatically.</div></div>
-  </div>
-</section>
-
-<section class="fcta">
-  <h2>Stop Guessing.<br>Start Bidding Smart.</h2>
-  <p>Florida's most advanced foreclosure and tax deed auction intelligence platform.</p>
-  <div class="crow">
-    <a href="#chat" class="bp">Try Free — No Signup</a>
-    <a href="/subscribe?tier=investor" class="bs">Get Investor Access — $99/mo</a>
-  </div>
-</section>
-
-<section class="sec" id="chat" style="max-width:100%;width:100%;padding-left:0;padding-right:0">
-  <div class="ey">LIVE · FREE · NO SIGNUP</div>
-  <h2 class="st2">Ask BidDeed.AI Anything</h2>
-  <p class="ss">Real auction data. Shapira Formula. Responds in your language automatically.</p>
-  <div class="lps">
-    <span class="lp">🇺🇸 English</span><span class="lp">🇮🇱 עברית</span><span class="lp">🇪🇸 Español</span>
-    <span class="lp">🇧🇷 Português</span><span class="lp">🇸🇦 العربية</span><span class="lp">🇷🇺 Русский</span><span class="lp">🇨🇳 中文</span>
-  </div>
-  <div class="cfw">
-    <div class="cfb">
-      <div class="cfd" style="background:#ef4444"></div>
-      <div class="cfd" style="background:var(--orange);margin-left:5px"></div>
-      <div class="cfd" style="background:var(--green);margin-left:5px"></div>
-      <div class="cfl">BidDeed.AI · Streaming Auction Intelligence</div>
+    <div id="lead-form-wrap">
+      <div class="lead-form">
+        <input class="lead-input" id="lead-email" type="email" placeholder="you@example.com" autocomplete="email">
+        <input class="lead-input" id="lead-county" type="text" placeholder="County (e.g. Marion)" autocomplete="off">
+        <button class="lead-submit" onclick="submitLead()">Send my free report</button>
+      </div>
+      <div class="lead-error" id="lead-error"></div>
     </div>
-    <iframe src="https://biddeed.ai/chat" width="100%" height="620" style="display:block;border:none" allow="clipboard-write" loading="lazy" title="BidDeed.AI Chat"></iframe>
+    <div class="lead-success" id="lead-success">✓ You're on the list. We'll send your free report before the next auction.</div>
   </div>
-  <p class="cn">Free · No credit card · <a href="/subscribe?tier=investor">Upgrade to Investor $99/mo →</a></p>
 </section>
 
-<footer><p>© 2026 BidDeed.AI · Everest Capital USA · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a> &nbsp;·&nbsp; <a href="#pricing">Pricing</a> &nbsp;·&nbsp; <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a> &nbsp;·&nbsp; <a href="/disclaimer">Disclaimer</a> &nbsp;·&nbsp; <a href="/security">Security</a></p><p style="margin-top:.6rem;font-size:.72rem;color:var(--muted);max-width:820px;margin-left:auto;margin-right:auto">BidDeed.AI is an information and analytics platform, not a law firm or financial advisor. Nothing here is legal, financial, or investment advice. Foreclosure and tax-deed investing carries risk of loss. Verify all data independently and consult a licensed Florida attorney before bidding.</p></footer>
-</body></html>`;
+<!-- PRICING -->
+<section class="pricing-band" id="pricing">
+  <div class="pricing-inner">
+    <div class="section-label" style="text-align:center">Pricing</div>
+    <h2 class="section-h" style="text-align:center;font-size:clamp(1.6rem,3vw,2.25rem);font-weight:800;color:#fff;margin-bottom:.25rem">Cheaper than one bad bid.</h2>
+
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="price-tier">S5 Single Report</div>
+        <div class="price-amount">$25<span> one-time</span></div>
+        <div class="price-desc">All 18 sections on one property. Full ZoneWise zoning intelligence. Free scorecard re-issue when the outcome lands.</div>
+        <a class="price-cta" href="/buy-report">Get a report</a>
+      </div>
+      <div class="price-card featured">
+        <div class="popular-chip">Most Popular</div>
+        <div class="price-tier">Investor</div>
+        <div class="price-amount">$99<span>/mo</span></div>
+        <div class="price-desc">Reports on every lot in your counties' upcoming sales, daily digest, and chatbot property cards.</div>
+        <a class="price-cta" href="/subscribe?tier=investor">Get Investor</a>
+      </div>
+      <div class="price-card">
+        <div class="price-tier">Pro</div>
+        <div class="price-amount">$199<span>/mo</span></div>
+        <div class="price-desc">Everything in Investor plus full SCOREwise V4 probabilities, SHAP feature drivers, and API access.</div>
+        <a class="price-cta ghost" href="/subscribe?tier=pro">Get Pro</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="foot-brand">BidDeed<span>.AI</span> · Shapira Auction Intelligence</div>
+  <p class="foot-upl">BidDeed.AI is an investment decision-support tool. Not legal advice. Not an appraisal. Not title insurance.</p>
+  <p class="foot-copy">© Everest Capital USA | <a href="https://biddeed.ai" style="color:var(--slate-dim)">biddeed.ai</a> | ariel@biddeed.ai</p>
+</footer>
+
+<script>
+// AUCTION REPLAY
+const MIN_BID=70000,MAX_BID=84000,FINAL=73501,ENTRY=72100;
+let animating=false,timer=null;
+function pct(v){return((v-MIN_BID)/(MAX_BID-MIN_BID)*100).toFixed(2)+'%'}
+function fmt(v){return'$'+v.toLocaleString()}
+function replayAuction(){
+  if(animating)return;
+  animating=true;
+  const fill=document.getElementById('ladder-fill');
+  const val=document.getElementById('sale-val');
+  const btn=document.getElementById('replay-btn');
+  const status=document.getElementById('status-line');
+  btn.disabled=true;
+  let cur=ENTRY;
+  fill.style.width=pct(cur);
+  val.style.color='var(--amber)';
+  val.textContent=fmt(cur);
+  status.textContent='Bidding in progress…';
+  timer=setInterval(()=>{
+    cur+=90;
+    if(cur>=FINAL){
+      cur=FINAL;
+      clearInterval(timer);
+      fill.style.width=pct(cur);
+      val.textContent=fmt(cur);
+      val.style.color='var(--green)';
+      status.textContent='The sale stopped at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Press replay to watch it again.';
+      animating=false;
+      btn.disabled=false;
+    } else {
+      fill.style.width=pct(cur);
+      val.textContent=fmt(cur);
+    }
+  },60);
+}
+
+// LEAD CAPTURE
+async function submitLead(){
+  const email=document.getElementById('lead-email').value.trim();
+  const county=document.getElementById('lead-county').value.trim();
+  const err=document.getElementById('lead-error');
+  err.textContent='';
+  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
+  if(!county){err.textContent='Please enter your county.';return;}
+  try{
+    const r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,county,source:'landing_free_report'})});
+    if(r.ok){
+      document.getElementById('lead-form-wrap').style.display='none';
+      const s=document.getElementById('lead-success');
+      s.style.display='block';
+    } else {
+      err.textContent='Something went wrong. Please try again.';
+    }
+  } catch(e){
+    err.textContent='Something went wrong. Please try again.';
+  }
+}
+</script>
+</body>
+</html>`;
 
 const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
