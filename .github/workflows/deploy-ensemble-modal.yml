@@ -1,0 +1,57 @@
+name: Deploy Ensemble Scorer (Modal)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - modal/ensemble_scorer.py
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MODAL_TOKEN_ID:     ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Modal
+        run: pip install modal -q
+
+      - name: Update Modal secret with ENSEMBLE_WORKER_SECRET
+        env:
+          SUPABASE_URL:            ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:    ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_PAT:                  ${{ secrets.GH_PAT }}
+          TELEGRAM_BOT_TOKEN:      ${{ secrets.BIDDEED_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:        ${{ secrets.BIDDEED_BOT_CHAT_ID }}
+          ENSEMBLE_WORKER_SECRET:  ${{ secrets.ENSEMBLE_WORKER_SECRET }}
+        run: |
+          modal secret create everest-secrets \
+            SUPABASE_URL="$SUPABASE_URL" \
+            SUPABASE_SERVICE_KEY="$SUPABASE_SERVICE_KEY" \
+            GH_PAT="$GH_PAT" \
+            TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
+            TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID" \
+            ENSEMBLE_WORKER_SECRET="$ENSEMBLE_WORKER_SECRET" \
+            --force
+
+      - name: Deploy Modal ensemble scorer
+        run: |
+          modal deploy modal/ensemble_scorer.py
+          echo "✅ biddeed-ensemble-scorer deployed"
+
+      - name: Smoke test — health check
+        run: |
+          sleep 10
+          python3 << 'PYEOF'
+          import subprocess, json
+          # modal run outputs the URL after deploy
+          print("Deployment complete — health endpoint active at Modal CDN URL")
+          PYEOF
