@@ -3199,6 +3199,153 @@ function app() {
 </html>`;
 
 // ── Static HTML pages ────────────────────────────────────────────────────────
+const HOMEPAGE_SCRIPT = `<script>
+// ── AUCTION REPLAY ──
+const MIN=70000,MAX=84000,FINAL=73501,ENTRY=72100;
+let animating=false,raf=null;
+
+function pct(v){return((v-MIN)/(MAX-MIN)*100).toFixed(3)+'%'}
+
+function setFill(v){
+  document.getElementById('ladder-fill').style.width=pct(v);
+  document.getElementById('sale-val').textContent='$'+v.toLocaleString();
+}
+
+// Init to final state
+setFill(FINAL);
+
+function replayAuction(){
+  if(animating)return;
+  animating=true;
+  const btn=document.getElementById('replay-btn');
+  const status=document.getElementById('status-line');
+  const saleVal=document.getElementById('sale-val');
+  btn.disabled=true;
+  status.textContent='Bidding in progress…';
+  saleVal.style.color='var(--amber)';
+
+  let cur=ENTRY;
+  setFill(cur);
+
+  let last=null;
+  const STEP=90, INTERVAL=60;
+
+  function tick(ts){
+    if(!last)last=ts;
+    const elapsed=ts-last;
+    if(elapsed>=INTERVAL){
+      last=ts;
+      cur=Math.min(cur+STEP,FINAL);
+      setFill(cur);
+      if(cur>=FINAL){
+        saleVal.style.color='var(--green)';
+        status.textContent='The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.';
+        animating=false;
+        btn.disabled=false;
+        return;
+      }
+    }
+    raf=requestAnimationFrame(tick);
+  }
+  raf=requestAnimationFrame(tick);
+}
+
+// ── COUNTY SELECT → show upsell ──
+document.getElementById('lead-county').addEventListener('change',function(){
+  const county=this.value;
+  if(!county)return;
+  const upsell=document.getElementById('upsell-row');
+  upsell.style.display='flex';
+  // Wire $25 link to buy-report with county pre-filled
+  document.getElementById('upsell-25').href='/buy-report?county='+encodeURIComponent(county);
+});
+
+// ── LEAD CAPTURE ──
+async function submitLead(){
+  const email=document.getElementById('lead-email').value.trim();
+  const county=document.getElementById('lead-county').value;
+  const err=document.getElementById('lead-error');
+  err.textContent='';
+  if(!county){err.textContent='Please select your county first.';return;}
+  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
+  try{
+    const r=await fetch('/chat/lead',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email,county,source:'landing_free_report'})
+    });
+    if(r.ok){
+      document.getElementById('lead-form-wrap').style.display='none';
+      document.getElementById('lead-success').style.display='block';
+    } else {
+      err.textContent='Something went wrong. Please try again.';
+    }
+  } catch(e){
+    err.textContent='Something went wrong. Please try again.';
+  }
+}
+</script>
+</body>
+</html>`;
+
+const MIN_BID=70000,MAX_BID=84000,FINAL=73501,ENTRY=72100;
+let animating=false,timer=null;
+function pct(v){return((v-MIN_BID)/(MAX_BID-MIN_BID)*100).toFixed(2)+'%'}
+function fmt(v){return'$'+v.toLocaleString()}
+function replayAuction(){
+  if(animating)return;
+  animating=true;
+  const fill=document.getElementById('ladder-fill');
+  const val=document.getElementById('sale-val');
+  const btn=document.getElementById('replay-btn');
+  const status=document.getElementById('status-line');
+  btn.disabled=true;
+  let cur=ENTRY;
+  fill.style.width=pct(cur);
+  val.style.color='var(--amber)';
+  val.textContent=fmt(cur);
+  status.textContent='Bidding in progress…';
+  timer=setInterval(()=>{
+    cur+=90;
+    if(cur>=FINAL){
+      cur=FINAL;
+      clearInterval(timer);
+      fill.style.width=pct(cur);
+      val.textContent=fmt(cur);
+      val.style.color='var(--green)';
+      status.textContent='The sale stopped at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Press replay to watch it again.';
+      animating=false;
+      btn.disabled=false;
+    } else {
+      fill.style.width=pct(cur);
+      val.textContent=fmt(cur);
+    }
+  },60);
+}
+
+// LEAD CAPTURE
+async function submitLead(){
+  const email=document.getElementById('lead-email').value.trim();
+  const county=document.getElementById('lead-county').value.trim();
+  const err=document.getElementById('lead-error');
+  err.textContent='';
+  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
+  if(!county){err.textContent='Please enter your county.';return;}
+  try{
+    const r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,county,source:'landing_free_report'})});
+    if(r.ok){
+      document.getElementById('lead-form-wrap').style.display='none';
+      const s=document.getElementById('lead-success');
+      s.style.display='block';
+    } else {
+      err.textContent='Something went wrong. Please try again.';
+    }
+  } catch(e){
+    err.textContent='Something went wrong. Please try again.';
+  }
+}
+</` + `script>`;
+
 function buildHomepageHtml() { return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3656,152 +3803,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   </div>
 </footer>
 
-<script>
-// ── AUCTION REPLAY ──
-const MIN=70000,MAX=84000,FINAL=73501,ENTRY=72100;
-let animating=false,raf=null;
-
-function pct(v){return((v-MIN)/(MAX-MIN)*100).toFixed(3)+'%'}
-
-function setFill(v){
-  document.getElementById('ladder-fill').style.width=pct(v);
-  document.getElementById('sale-val').textContent='$'+v.toLocaleString();
-}
-
-// Init to final state
-setFill(FINAL);
-
-function replayAuction(){
-  if(animating)return;
-  animating=true;
-  const btn=document.getElementById('replay-btn');
-  const status=document.getElementById('status-line');
-  const saleVal=document.getElementById('sale-val');
-  btn.disabled=true;
-  status.textContent='Bidding in progress…';
-  saleVal.style.color='var(--amber)';
-
-  let cur=ENTRY;
-  setFill(cur);
-
-  let last=null;
-  const STEP=90, INTERVAL=60;
-
-  function tick(ts){
-    if(!last)last=ts;
-    const elapsed=ts-last;
-    if(elapsed>=INTERVAL){
-      last=ts;
-      cur=Math.min(cur+STEP,FINAL);
-      setFill(cur);
-      if(cur>=FINAL){
-        saleVal.style.color='var(--green)';
-        status.textContent='The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.';
-        animating=false;
-        btn.disabled=false;
-        return;
-      }
-    }
-    raf=requestAnimationFrame(tick);
-  }
-  raf=requestAnimationFrame(tick);
-}
-
-// ── COUNTY SELECT → show upsell ──
-document.getElementById('lead-county').addEventListener('change',function(){
-  const county=this.value;
-  if(!county)return;
-  const upsell=document.getElementById('upsell-row');
-  upsell.style.display='flex';
-  // Wire $25 link to buy-report with county pre-filled
-  document.getElementById('upsell-25').href='/buy-report?county='+encodeURIComponent(county);
-});
-
-// ── LEAD CAPTURE ──
-async function submitLead(){
-  const email=document.getElementById('lead-email').value.trim();
-  const county=document.getElementById('lead-county').value;
-  const err=document.getElementById('lead-error');
-  err.textContent='';
-  if(!county){err.textContent='Please select your county first.';return;}
-  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
-  try{
-    const r=await fetch('/chat/lead',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email,county,source:'landing_free_report'})
-    });
-    if(r.ok){
-      document.getElementById('lead-form-wrap').style.display='none';
-      document.getElementById('lead-success').style.display='block';
-    } else {
-      err.textContent='Something went wrong. Please try again.';
-    }
-  } catch(e){
-    err.textContent='Something went wrong. Please try again.';
-  }
-}
-</script>
-</body>
-</html>`;
-
-const MIN_BID=70000,MAX_BID=84000,FINAL=73501,ENTRY=72100;
-let animating=false,timer=null;
-function pct(v){return((v-MIN_BID)/(MAX_BID-MIN_BID)*100).toFixed(2)+'%'}
-function fmt(v){return'$'+v.toLocaleString()}
-function replayAuction(){
-  if(animating)return;
-  animating=true;
-  const fill=document.getElementById('ladder-fill');
-  const val=document.getElementById('sale-val');
-  const btn=document.getElementById('replay-btn');
-  const status=document.getElementById('status-line');
-  btn.disabled=true;
-  let cur=ENTRY;
-  fill.style.width=pct(cur);
-  val.style.color='var(--amber)';
-  val.textContent=fmt(cur);
-  status.textContent='Bidding in progress…';
-  timer=setInterval(()=>{
-    cur+=90;
-    if(cur>=FINAL){
-      cur=FINAL;
-      clearInterval(timer);
-      fill.style.width=pct(cur);
-      val.textContent=fmt(cur);
-      val.style.color='var(--green)';
-      status.textContent='The sale stopped at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Press replay to watch it again.';
-      animating=false;
-      btn.disabled=false;
-    } else {
-      fill.style.width=pct(cur);
-      val.textContent=fmt(cur);
-    }
-  },60);
-}
-
-// LEAD CAPTURE
-async function submitLead(){
-  const email=document.getElementById('lead-email').value.trim();
-  const county=document.getElementById('lead-county').value.trim();
-  const err=document.getElementById('lead-error');
-  err.textContent='';
-  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
-  if(!county){err.textContent='Please enter your county.';return;}
-  try{
-    const r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,county,source:'landing_free_report'})});
-    if(r.ok){
-      document.getElementById('lead-form-wrap').style.display='none';
-      const s=document.getElementById('lead-success');
-      s.style.display='block';
-    } else {
-      err.textContent='Something went wrong. Please try again.';
-    }
-  } catch(e){
-    err.textContent='Something went wrong. Please try again.';
-  }
-}
-</script>
+${HOMEPAGE_SCRIPT}
 </body>
 </html>`; }
 
