@@ -209,9 +209,6 @@ const MARION_STATIC_REPORT = {
 };
   red_flags: [],
 async function fetchS5ReportJson(apiKey, mcaId) {
-  // Static intercept for the Marion proof-of-concept sample property
-  if (mcaId === MARION_SAMPLE_MCA_ID) return MARION_STATIC_REPORT;
-
   const res = await fetch(`${MCP_BASE_URL}/report/json?mca_id=${encodeURIComponent(mcaId)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
