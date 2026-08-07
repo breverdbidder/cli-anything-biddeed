@@ -3700,32 +3700,28 @@ function replayAuction(){
   status.textContent='Bidding in progress…';
   saleVal.style.color='var(--amber)';
 
-  // Animate from ENTRY to FINAL over ~2 seconds using timestamps
-  const DURATION=2000; // ms
-  let startTs=null;
+  // Use wall-clock setInterval — immune to rAF freeze on tab blur / scroll
+  const DURATION=2200;
+  const TICK_MS=16;
+  const startTs=performance.now();
 
-  function tick(ts){
-    if(!startTs) startTs=ts;
-    const elapsed=ts-startTs;
+  setFill(ENTRY);
+
+  const timer=setInterval(function(){
+    const elapsed=performance.now()-startTs;
     const progress=Math.min(elapsed/DURATION,1);
-    // Ease-in-out for natural feel
     const eased=progress<0.5?2*progress*progress:1-Math.pow(-2*progress+2,2)/2;
-    const cur=ENTRY+(FINAL-ENTRY)*eased;
-    setFill(cur);
+    setFill(ENTRY+(FINAL-ENTRY)*eased);
 
-    if(progress<1){
-      raf=requestAnimationFrame(tick);
-    } else {
+    if(progress>=1){
+      clearInterval(timer);
       setFill(FINAL);
       saleVal.style.color='var(--green)';
       status.textContent='The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.';
       animating=false;
       btn.disabled=false;
     }
-  }
-  // Reset to entry first, then start
-  setFill(ENTRY);
-  raf=requestAnimationFrame(tick);
+  }, TICK_MS);
 }
 
 // ── COUNTY SELECT → show upsell ──
@@ -3865,17 +3861,22 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 
 /* BID LADDER */
 .ladder-wrap{margin-bottom:20px}
-.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-bottom:52px}
+.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-top:56px;margin-bottom:48px}
 .ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));width:24.65%}
-.marker{position:absolute;top:14px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
-.marker-dot{width:8px;height:8px;border-radius:50%;position:absolute;top:-19px;transform:translateX(-50%)}
+.marker{position:absolute;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
+.marker-dot{width:9px;height:9px;border-radius:50%;position:absolute;transform:translateX(-50%)}
 .mgreen{background:var(--green);border:2px solid var(--green)}
 .mamber{background:var(--amber);border:2px solid var(--amber)}
 .morange{background:var(--orange);border:2px solid var(--orange)}
-.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--slate);white-space:nowrap;text-align:center;line-height:1.3;margin-top:2px}
-/* Stagger overlapping labels vertically on mobile */
-.marker.stagger-down .marker-label{margin-top:20px}
-.marker.stagger-down .marker-dot{top:-35px}
+.marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:#e2eaf2;white-space:nowrap;text-align:center;line-height:1.5}
+/* Labels BELOW the bar */
+.marker.marker-below{top:14px}
+.marker.marker-below .marker-dot{top:-19px}
+.marker.marker-below .marker-label{margin-top:4px}
+/* Labels ABOVE the bar — ceiling floats up so it never overlaps */
+.marker.marker-above{top:-46px}
+.marker.marker-above .marker-dot{bottom:-19px;top:auto}
+.marker.marker-above .marker-label{margin-bottom:4px;order:-1}
 
 /* REPLAY */
 .replay-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
@@ -4102,15 +4103,12 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
           <div class="ladder-track">
             <div class="ladder-fill" id="ladder-fill"></div>
             <!-- markers: scale $70k–$84k = $14k. entry=72100 → 15%, plaintiff=71980 → 14.1%, ceiling=82000 → 85.7%, final=73501 → 24.65% -->
-            <div class="marker stagger-down" style="left:14.1%">
+            <!-- Plaintiff + Entry merged at ~14.5% — too close to separate on mobile -->
+            <div class="marker marker-below" style="left:14.5%">
               <div class="marker-dot mamber" style="left:0"></div>
-              <div class="marker-label">PLAINTIFF INTEL<br>$71,980</div>
+              <div class="marker-label">ENTRY $72,100<br><span style="color:var(--amber)">PLAINTIFF $71,980</span></div>
             </div>
-            <div class="marker" style="left:15%">
-              <div class="marker-dot mgreen" style="left:0"></div>
-              <div class="marker-label">ENTRY BID<br>$72,100</div>
-            </div>
-            <div class="marker" style="left:85.7%">
+            <div class="marker marker-above" style="left:85.7%">
               <div class="marker-dot morange" style="left:0"></div>
               <div class="marker-label">CEILING<br>$82,000</div>
             </div>
