@@ -1,0 +1,160 @@
+name: "Gold Standard Shard-2 Run 9488 — jackson I + osceola I fix"
+# Dispatch: 43f9840a-a414-44fc-83d8-380262928abe
+# Counties: st_lucie (10/10, no work), jackson (9/10, I fix), gilchrist (8/10, BLOCKED),
+#           osceola (8/10, I fix), liberty (7/10, BLOCKED)
+# Session date: 2026-08-07T08:00Z
+
+on:
+  workflow_dispatch:
+
+jobs:
+  shard2-run9488:
+    name: "Shard-2 Run 9488: jackson I + osceola I"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet requests urllib3
+
+      - name: "BASELINE evaluation — all 5 counties"
+        run: |
+          set -euo pipefail
+          echo "## BASELINE EVALUATION" >> "$GITHUB_STEP_SUMMARY"
+          for county in st_lucie jackson gilchrist osceola liberty; do
+            RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"p_county\":\"${county}\"}")
+            PASSES=$(python3 -c "import json,sys; d=json.loads('${RESP}'); print(sum(1 for v in d.values() if isinstance(v,dict) and v.get('pass')))" 2>/dev/null || echo "?")
+            echo "### ${county}: ${PASSES}/10" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+            echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "[BEFORE] ${county}: ${PASSES}/10 — $RESP"
+          done
+
+      - name: "Apply supporting migration (H-freshness + ultraloop audit rows)"
+        run: |
+          set -euo pipefail
+          SQL=$(cat migrations/20260807_gold_standard_shard2_run9488_stlucie_jackson_gilchrist_osceola_liberty.sql)
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260807_gold_standard_shard2_run9488_stlucie_jackson_gilchrist_osceola_liberty.sql').read()}))" > /tmp/migration_payload.json
+          HTTP=$(curl -sS -o /tmp/migration_resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/migration_payload.json)
+          echo "HTTP: $HTTP"
+          cat /tmp/migration_resp.json
+          echo ""
+          if [[ "$HTTP" == "200" || "$HTTP" == "201" ]]; then
+            echo "Supporting migration applied OK" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Migration HTTP $HTTP — continuing anyway (H-freshness UPDATE and ultraloop INSERT may have partial issues)"
+            echo "Migration response: $(cat /tmp/migration_resp.json)"
+          fi
+
+      - name: "Run jackson I fix — parcel_zones zone linkage"
+        run: |
+          set -euo pipefail
+          echo "## JACKSON I FIX" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/gold_standard_shard2_run9488_jackson_i_zone_linkage.py 2>&1 | tee /tmp/jackson_fix.log
+          EXITCODE=${PIPESTATUS[0]}
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          tail -40 /tmp/jackson_fix.log >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EXITCODE" -ne 0 ]; then
+            echo "::warning::Jackson I fix exited $EXITCODE — check log"
+          fi
+
+      - name: "Run osceola I fix — geo/value/zone card completion"
+        run: |
+          set -euo pipefail
+          echo "## OSCEOLA I FIX" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/gold_standard_shard2_run9488_osceola_i_card_completion.py 2>&1 | tee /tmp/osceola_fix.log
+          EXITCODE=${PIPESTATUS[0]}
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          tail -40 /tmp/osceola_fix.log >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EXITCODE" -ne 0 ]; then
+            echo "::warning::Osceola I fix exited $EXITCODE — check log"
+          fi
+
+      - name: "FINAL evaluation — all 5 counties"
+        run: |
+          set -euo pipefail
+          echo "## FINAL EVALUATION" >> "$GITHUB_STEP_SUMMARY"
+          IMPROVED=0
+          for county in st_lucie jackson gilchrist osceola liberty; do
+            RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"p_county\":\"${county}\"}")
+            PASSES=$(python3 -c "import json,sys; d=json.loads('${RESP}'); print(sum(1 for v in d.values() if isinstance(v,dict) and v.get('pass')))" 2>/dev/null || echo "?")
+            echo "### ${county}: ${PASSES}/10" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+            echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "[AFTER] ${county}: ${PASSES}/10 — $RESP"
+          done
+
+      - name: "Session close-out checkpoint"
+        run: |
+          set -euo pipefail
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          # Write campaign close-out row
+          PAYLOAD="{\"dispatch_id\": \"43f9840a-a414-44fc-83d8-380262928abe\", \"exit_reason\": \"timeout\", \"session_end_at\": \"$NOW\"}"
+          RESP=$(curl -sf -X POST "${SUPABASE_URL}/rest/v1/gold_standard_campaign" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates,return=representation" \
+            -d "$PAYLOAD" || echo "campaign_write_failed")
+          echo "Campaign close-out: $RESP"
+          echo "### Session closed at $NOW" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "SQL VERIFICATION"
+        run: |
+          set -euo pipefail
+          echo "## SQL VERIFICATION" >> "$GITHUB_STEP_SUMMARY"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "Timestamp UTC: $NOW" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Jackson parcel_zones check
+          Q_JSON=$(python3 -c "import json; print(json.dumps({'query': \"SELECT parcel_id, zone_code, source FROM parcel_zones WHERE parcel_id IN (SELECT parcel_id FROM multi_county_auctions WHERE county='jackson' AND parcel_id IS NOT NULL) AND source LIKE '%shard2_run9488%' ORDER BY parcel_id LIMIT 20\"}))")
+          RESP=$(curl -sS -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$Q_JSON" || echo "query_failed")
+          echo "### New jackson parcel_zones (shard2_run9488)" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # Osceola parcel_zones check
+          Q_JSON2=$(python3 -c "import json; print(json.dumps({'query': \"SELECT parcel_id, zone_code, source FROM parcel_zones WHERE source LIKE '%shard2_run9488%' AND parcel_id IN (SELECT parcel_id FROM multi_county_auctions WHERE county='osceola' AND parcel_id IS NOT NULL) ORDER BY parcel_id LIMIT 20\"}))")
+          RESP2=$(curl -sS -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$Q_JSON2" || echo "query_failed")
+          echo "### New osceola parcel_zones (shard2_run9488)" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESP2" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "dispatch_id: 43f9840a-a414-44fc-83d8-380262928abe" >> "$GITHUB_STEP_SUMMARY"
