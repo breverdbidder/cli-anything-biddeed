@@ -3086,7 +3086,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       if(!active||!ws||ws.readyState!==1)return;
       var float32=e.inputBuffer.getChannelData(0);
       var b64=pcm32ToBase64(float32);
-      ws.send(JSON.stringify({type:'audio',audio_event:{audio_base_64:b64}}));
+      ws.send(JSON.stringify({user_audio_chunk:b64}));
     };
   }
 
