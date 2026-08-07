@@ -2367,6 +2367,19 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .disclaimer-bar a{color:var(--muted);text-decoration:underline}
 @media(max-width:380px){.quick-grid{grid-template-columns:1fr}.bd-brand p{display:none}}
 
+/* VOICE WIDGET */
+.voice-btn{display:flex;align-items:center;gap:6px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent;margin-top:2px}
+.voice-btn:hover,.voice-btn:active{background:var(--navy3);border-color:var(--orange);color:white}
+.voice-btn.active{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.5);color:var(--orange)}
+.voice-btn.listening{background:rgba(245,158,11,.08);border-color:var(--orange);color:var(--orange)}
+.voice-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .2s}
+.voice-btn.listening .voice-dot{background:var(--orange);animation:vp 1s infinite}
+@keyframes vp{0%,100%{opacity:.4;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+.voice-status{display:none;font-size:10.5px;color:var(--muted);text-align:center;margin-top:4px}
+.voice-status.show{display:block}
+.voice-transcript{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);margin-top:4px;display:none;max-width:340px;text-align:left;line-height:1.4}
+.voice-transcript.show{display:block}
+
 /* SPLIT LAYOUT — property cards right panel */
 .split{flex:1;display:flex;min-height:0;overflow:hidden}
 .chat-col{display:flex;flex-direction:column;flex:1 1 45%;min-width:0;min-height:0;overflow:hidden}
@@ -2433,6 +2446,9 @@ ${countyBar}
       <button class="qbtn" data-msg="How does the Shapira Max Bid formula work? Walk me through it.">🧮 Shapira Max Bid formula</button>
       <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a Shapira S5 Report?">💼 Get a $25 S5 Report</button>
     </div>
+    <button class="voice-btn" id="voice-btn" type="button"><span class="voice-dot" id="voice-dot"></span><span id="voice-btn-label">🎙️ Talk to Deed</span></button>
+    <div class="voice-status" id="voice-status"></div>
+    <div class="voice-transcript" id="voice-transcript"></div>
     <div class="lang-row">
       <span class="lchip">🇺🇸 English</span>
       <span class="lchip">🇮🇱 עברית</span>
@@ -2867,6 +2883,182 @@ document.getElementById('snd').addEventListener('click',send);
 document.getElementById('inp').addEventListener('focus',function(){setTimeout(scrollBottom,300);});
 
 if(AUTO)setTimeout(()=>ask(AUTO),600);
+
+// ── Voice Widget — ElevenLabs Conversational AI ──────────────────────────────
+// WebSocket protocol: https://elevenlabs.io/docs/eleven-agents/libraries/web-sockets
+// Server→Client events: conversation_initiation_metadata | audio | agent_response
+//                       user_transcript | interruption | ping
+// Client→Server events: conversation_initiation_client_data | audio | pong
+(function(){
+  var AGENT_ID='agent_5301kzeg7pj8ezrbaarvkyyfgyd9';
+  var SIGNED_URL_ENDPOINT='https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/elevenlabs-signed-url';
+  var SAMPLE_RATE=16000;
+  var btn=document.getElementById('voice-btn');
+  var btnLabel=document.getElementById('voice-btn-label');
+  var statusEl=document.getElementById('voice-status');
+  var transcriptEl=document.getElementById('voice-transcript');
+  if(!btn)return;
+
+  var ws=null,audioCtx=null,processor=null,stream=null,active=false,agentAudioQueue=[],agentPlaying=false;
+
+  function setStatus(msg){
+    if(!msg){statusEl.className='voice-status';statusEl.textContent='';return;}
+    statusEl.className='voice-status show';statusEl.textContent=msg;
+  }
+  function showTranscript(who,text){
+    transcriptEl.className='voice-transcript show';
+    transcriptEl.textContent=(who==='user'?'You: ':'Deed: ')+text;
+  }
+
+  // Encode Float32 PCM to PCM16 base64
+  function pcm32ToBase64(float32arr){
+    var buf=new ArrayBuffer(float32arr.length*2);
+    var view=new DataView(buf);
+    for(var i=0;i<float32arr.length;i++){
+      var s=Math.max(-1,Math.min(1,float32arr[i]));
+      view.setInt16(i*2,s<0?s*0x8000:s*0x7FFF,true);
+    }
+    var bytes=new Uint8Array(buf);
+    var bin='';
+    for(var j=0;j<bytes.byteLength;j++)bin+=String.fromCharCode(bytes[j]);
+    return btoa(bin);
+  }
+
+  // Decode base64 PCM16 and play via AudioContext
+  function playAgentAudio(base64){
+    agentAudioQueue.push(base64);
+    if(!agentPlaying)drainAudioQueue();
+  }
+  function drainAudioQueue(){
+    if(!agentAudioQueue.length){agentPlaying=false;return;}
+    agentPlaying=true;
+    var b64=agentAudioQueue.shift();
+    var raw=atob(b64);
+    var pcm16=new Int16Array(raw.length/2);
+    var view=new DataView(new ArrayBuffer(raw.length));
+    for(var i=0;i<raw.length;i++)view.setUint8(i,raw.charCodeAt(i));
+    for(var i=0;i<pcm16.length;i++)pcm16[i]=view.getInt16(i*2,true);
+    var ctx=audioCtx||new (window.AudioContext||window.webkitAudioContext)({sampleRate:SAMPLE_RATE});
+    audioCtx=ctx;
+    var floatBuf=new Float32Array(pcm16.length);
+    for(var i=0;i<pcm16.length;i++)floatBuf[i]=pcm16[i]/32768;
+    var audioBuf=ctx.createBuffer(1,floatBuf.length,SAMPLE_RATE);
+    audioBuf.getChannelData(0).set(floatBuf);
+    var src=ctx.createBufferSource();
+    src.buffer=audioBuf;
+    src.connect(ctx.destination);
+    src.onended=drainAudioQueue;
+    src.start();
+  }
+
+  function stopSession(){
+    active=false;
+    btn.className='voice-btn';
+    btnLabel.textContent='🎙️ Talk to Deed';
+    setStatus('');
+    agentAudioQueue=[];agentPlaying=false;
+    if(processor){try{processor.disconnect();}catch(e){}processor=null;}
+    if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}
+    if(ws&&ws.readyState<2){ws.close();}
+    ws=null;
+  }
+
+  async function startSession(){
+    setStatus('Requesting mic…');
+    btn.className='voice-btn active';
+    btnLabel.textContent='⏹ Stop';
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:SAMPLE_RATE,channelCount:1,echoCancellation:true,noiseSuppression:true}});
+    }catch(e){
+      stopSession();
+      setStatus('Mic permission denied — use text chat below.');
+      return;
+    }
+    setStatus('Connecting to Deed…');
+    var signedUrl;
+    try{
+      var res=await fetch(SIGNED_URL_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:AGENT_ID})});
+      if(!res.ok)throw new Error('signed-url '+res.status);
+      var data=await res.json();
+      signedUrl=data.signed_url;
+      if(!signedUrl)throw new Error('no signed_url');
+    }catch(e){
+      stopSession();
+      setStatus('Could not connect — try text chat below.');
+      return;
+    }
+    try{
+      ws=new WebSocket(signedUrl);
+    }catch(e){
+      stopSession();
+      setStatus('WebSocket error — try text chat below.');
+      return;
+    }
+    ws.onopen=function(){
+      // Step 1: send conversation_initiation_client_data immediately after open
+      ws.send(JSON.stringify({type:'conversation_initiation_client_data',conversation_config_override:{}}));
+    };
+    ws.onmessage=function(evt){
+      var msg;
+      try{msg=JSON.parse(evt.data);}catch(e){return;}
+      var t=msg.type;
+      if(t==='conversation_initiation_metadata'){
+        // Connection ready — start streaming mic audio
+        setStatus('🎙️ Listening…');
+        btn.className='voice-btn listening';
+        active=true;
+        startMicStream();
+      } else if(t==='ping'){
+        // Must respond with pong using the same event_id
+        var eid=(msg.ping_event&&msg.ping_event.event_id!=null)?msg.ping_event.event_id:0;
+        ws.send(JSON.stringify({type:'pong',event_id:eid}));
+      } else if(t==='audio'){
+        var b64=msg.audio_event&&msg.audio_event.audio_base_64;
+        if(b64)playAgentAudio(b64);
+      } else if(t==='agent_response'){
+        var text=msg.agent_response_event&&msg.agent_response_event.agent_response;
+        if(text)showTranscript('agent',text);
+      } else if(t==='user_transcript'){
+        var utext=msg.user_transcription_event&&msg.user_transcription_event.user_transcript;
+        if(utext)showTranscript('user',utext);
+      } else if(t==='interruption'){
+        agentAudioQueue=[];agentPlaying=false;
+      }
+    };
+    ws.onerror=function(){
+      if(!active)return;
+      stopSession();
+      setStatus('Connection lost — try text chat below.');
+    };
+    ws.onclose=function(){
+      if(active)stopSession();
+    };
+  }
+
+  function startMicStream(){
+    var ctx=audioCtx||new (window.AudioContext||window.webkitAudioContext)({sampleRate:SAMPLE_RATE});
+    audioCtx=ctx;
+    var src=ctx.createMediaStreamSource(stream);
+    // ScriptProcessorNode is deprecated but universally supported with no build step
+    processor=ctx.createScriptProcessor(4096,1,1);
+    src.connect(processor);
+    processor.connect(ctx.destination);
+    processor.onaudioprocess=function(e){
+      if(!active||!ws||ws.readyState!==1)return;
+      var float32=e.inputBuffer.getChannelData(0);
+      var b64=pcm32ToBase64(float32);
+      ws.send(JSON.stringify({type:'audio',audio_event:{audio_base_64:b64}}));
+    };
+  }
+
+  btn.addEventListener('click',function(){
+    if(active){
+      stopSession();
+    }else{
+      startSession();
+    }
+  });
+})();
 </script>
 </body>
 </html>`;
