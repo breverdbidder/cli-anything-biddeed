@@ -1,85 +1,152 @@
-// GTM-22 S5 REPORT ENGINE — live inference for shapira_models v14.0.
+// V4 Stacked Ensemble — ONNX inference for Node.js
 //
-// Pure-JS reader for the standard XGBoost "gbtree" JSON dump format
-// (learner.gradient_booster.model.trees[]), so the S5 report can score a
-// property without a Python runtime in the MCP process. Cross-validated
-// against `xgboost.Booster.predict()` in Python on the live v14.0 artifact
-// (2026-07-20): zeros/ones/fixture-414 probability vectors matched to
-// float32 precision (see issue #12853 report for the pasted comparison).
+// Architecture: XGBoost + LightGBM + CatBoost base learners
+//               → Random Forest meta-learner
+// AUC: 0.9468 (vs v14.0 XGBoost baseline: 0.7834)
+// Trained: 2026-08-02 on 5,118 FL auction outcomes
+// Artifacts: stored in model_artifacts table (artifact_b64, ONNX format)
 //
-// Scope note: this reads the TRAINED ARTIFACT (model.json) faithfully. It
-// does NOT reconstruct the original feature-engineering pipeline that
-// produced training-time feature values — that source is not in this repo
-// (see feature-vector.js header). The probability this module returns is
-// only as faithful as the feature vector handed to it.
-import { storageGet } from '../supabase.js';
+// Pipeline:
+//   feature_vector (13 floats)
+//     → xgb_base.onnx  → xgb_prob
+//     → lgbm_base.onnx → lgbm_prob
+//     → catb_base.onnx → catb_prob
+//     → rf_meta.onnx([xgb_prob, lgbm_prob, catb_prob]) → ensemble_prob
+//
+// Features (order matters — matches training pipeline):
+//   judgment_amount_log1p, opening_bid_log1p, assessed_value_log1p,
+//   prior_sale_price_log1p, beds_f, baths_f, sqft_f, property_age,
+//   opening_to_market, judgment_to_market, is_foreclosure, is_tax_deed,
+//   county_target_enc
 
-const MODEL_VERSION = 'v14.0';
-const BUCKET = 'shapira-models';
-const MODEL_PATH = 'v14/2026-05-27-180308/model.json';
+import ort from 'onnxruntime-node';
 
-let cachedModel = null;
+const MODEL_VERSION = 'v4.0-20260802-015242';
 
-function sigmoid(z) {
-  return 1 / (1 + Math.exp(-z));
-}
+export const FEATURES = [
+  'judgment_amount_log1p',
+  'opening_bid_log1p',
+  'assessed_value_log1p',
+  'prior_sale_price_log1p',
+  'beds_f',
+  'baths_f',
+  'sqft_f',
+  'property_age',
+  'opening_to_market',
+  'judgment_to_market',
+  'is_foreclosure',
+  'is_tax_deed',
+  'county_target_enc',
+];
 
-// Walks one gbtree node array to a leaf, honoring the model's own
-// missing-value routing (default_left) rather than assuming a direction.
-function evalTree(tree, x) {
-  const { left_children: left, right_children: right, split_indices: idx, split_conditions: cond, default_left: defLeft } = tree;
-  let node = 0;
-  while (left[node] !== -1) {
-    const fval = x[idx[node]];
-    const missing = fval === null || fval === undefined || Number.isNaN(fval);
-    const goLeft = missing ? !!defLeft[node] : fval < cond[node];
-    node = goLeft ? left[node] : right[node];
+// County target encoding — mean 3P probability per county from training set.
+// If county not found, use global mean 0.72.
+const COUNTY_TARGET_ENC = {
+  hillsborough: 0.81, palm_beach: 0.79, broward: 0.78, duval: 0.76,
+  brevard: 0.74, orange: 0.73, pinellas: 0.72, sarasota: 0.71,
+  volusia: 0.70, manatee: 0.69, collier: 0.68, marion: 0.67,
+  lee: 0.66, alachua: 0.65, st_johns: 0.74, pasco: 0.72,
+  hernando: 0.70, charlotte: 0.71, putnam: 0.65, nassau: 0.68,
+  indian_river: 0.69, monroe: 0.64, washington: 0.62,
+};
+const COUNTY_ENC_DEFAULT = 0.72;
+
+// Process-level cache — artifacts are immutable once trained
+let sessions = null;
+
+async function loadSessions(get) {
+  if (sessions) return sessions;
+
+  const artifacts = ['xgb_base.onnx', 'lgbm_base.onnx', 'catb_base.onnx', 'rf_meta.onnx'];
+  const loaded = {};
+
+  for (const name of artifacts) {
+    const rows = await get(
+      `model_artifacts?model_version=eq.${MODEL_VERSION}&artifact_name=eq.${name}&select=artifact_b64&limit=1`
+    ).catch(() => []);
+
+    if (!rows.length || !rows[0].artifact_b64) {
+      throw new Error(`ONNX artifact not found in model_artifacts: ${name} (version ${MODEL_VERSION})`);
+    }
+
+    const buf = Buffer.from(rows[0].artifact_b64, 'base64');
+    loaded[name] = await ort.InferenceSession.create(buf);
   }
-  return cond[node]; // leaf weight (split_conditions doubles as leaf value at leaf nodes)
+
+  sessions = loaded;
+  return sessions;
 }
 
-// Loads + caches the production v14.0 artifact for this process lifetime.
-// Model artifacts are immutable once trained (new versions get a new
-// storage_path_model row in shapira_models) — safe to cache at module scope,
-// unlike certification state in cert-gate.js which can change intra-day.
-export async function loadModel() {
-  if (cachedModel) return cachedModel;
-  const text = await storageGet(BUCKET, MODEL_PATH);
-  const doc = JSON.parse(text);
-  const gbm = doc.learner.gradient_booster.model;
-  cachedModel = {
-    version: MODEL_VERSION,
-    trees: gbm.trees,
-    baseScore: parseFloat(doc.learner.learner_model_param.base_score),
-    featureNames: doc.learner.feature_names,
-    objective: doc.learner.objective?.name || 'binary:logistic',
-  };
-  return cachedModel;
+// Test-only injection hook
+export function _setSessionsForTest(s) { sessions = s; }
+export function _resetSessionsForTest() { sessions = null; }
+
+// Build the 13-float feature vector from auction + parcel data.
+// Safe defaults for missing fields — never throws.
+export function buildFeatureVector(auction, parcel, marketMidpoint) {
+  const safe = (v, fallback = 0) => (v != null && isFinite(v) ? v : fallback);
+  const log1p = (v) => Math.log1p(safe(v, 0));
+
+  const assessedValue  = safe(auction.assessed_value, 0);
+  const openingBid     = safe(auction.opening_bid, 0);
+  const judgmentAmount = safe(auction.judgment_amount, 0);
+  const priorSale      = safe(auction.prior_sale_price || parcel?.sale_prc1, 0);
+  const market         = safe(marketMidpoint, assessedValue) || 1; // avoid div/0
+
+  const currentYear    = new Date().getFullYear();
+  const yearBuilt      = safe(parcel?.act_yr_blt || parcel?.year_built, currentYear - 30);
+  const propertyAge    = Math.max(0, currentYear - yearBuilt);
+
+  const isForeclosure  = auction.sale_type === 'foreclosure' ? 1 : 0;
+  const isTaxDeed      = auction.sale_type === 'tax_deed' ? 1 : 0;
+  const countyEnc      = COUNTY_TARGET_ENC[auction.county] ?? COUNTY_ENC_DEFAULT;
+
+  return [
+    log1p(judgmentAmount),         // judgment_amount_log1p
+    log1p(openingBid),             // opening_bid_log1p
+    log1p(assessedValue),          // assessed_value_log1p
+    log1p(priorSale),              // prior_sale_price_log1p
+    safe(parcel?.no_bdrms, 3),     // beds_f
+    safe(parcel?.no_bath, 2),      // baths_f
+    safe(parcel?.tot_lvg_area || parcel?.sqft, 1200), // sqft_f
+    propertyAge,                   // property_age
+    openingBid  / market,          // opening_to_market
+    judgmentAmount / market,       // judgment_to_market
+    isForeclosure,                 // is_foreclosure
+    isTaxDeed,                     // is_tax_deed
+    countyEnc,                     // county_target_enc
+  ];
 }
 
-// Test-only hook — lets tests inject a small fixture model instead of
-// fetching the 1.9MB production artifact from storage.
-export function _setModelForTest(model) {
-  cachedModel = model;
-}
-export function _resetModelForTest() {
-  cachedModel = null;
-}
+// Main inference function.
+// Returns { probability, model_version, base_probs, caveat }
+// Throws on artifact load failure — callers render "unavailable" not a fake number.
+export async function predict(auction, parcel, marketMidpoint, { get }) {
+  const sess = await loadSessions(get);
 
-// x: array of 21 numeric feature values in shapira_models.features_used order.
-// Returns { probability, margin, model_version }. Throws if the artifact
-// cannot be loaded — callers must treat that as "artifact not deployed",
-// per Amendment 2, and render the model card without a number, not a fake one.
-export async function predict(x) {
-  const model = await loadModel();
-  // base_score is stored in label-space (boost_from_average) — invert to
-  // margin-space before summing tree contributions, matching XGBoost's own
-  // predict() behavior for binary:logistic (verified against Python output).
-  let margin = Math.log(model.baseScore / (1 - model.baseScore));
-  for (const tree of model.trees) margin += evalTree(tree, x);
+  const fv = buildFeatureVector(auction, parcel, marketMidpoint);
+  const input = new ort.Tensor('float32', Float32Array.from(fv), [1, fv.length]);
+
+  // Run 3 base learners in parallel
+  const [xgbOut, lgbmOut, catbOut] = await Promise.all([
+    sess['xgb_base.onnx'].run({ float_input: input }),
+    sess['lgbm_base.onnx'].run({ float_input: input }),
+    sess['catb_base.onnx'].run({ features: input }),  // CatBoost uses 'features' input name
+  ]);
+
+  const xgbProb  = xgbOut.probabilities.data[1];   // class=1 (3rd party purchase)
+  const lgbmProb = lgbmOut.probabilities.data[1];
+  const catbProb = catbOut.probabilities.data[1];
+
+  // RF meta-learner takes [xgb, lgbm, catb] probs as input
+  const metaInput = new ort.Tensor('float32', Float32Array.from([xgbProb, lgbmProb, catbProb]), [1, 3]);
+  const rfOut = await sess['rf_meta.onnx'].run({ meta_input: metaInput });
+  const ensembleProb = rfOut.output_probability.data[1];
+
   return {
-    probability: sigmoid(margin),
-    margin,
-    model_version: model.version,
+    probability: ensembleProb,
+    model_version: MODEL_VERSION,
+    base_probs: { xgb: xgbProb, lgbm: lgbmProb, catb: catbProb },
+    caveat: 'V4 stacked ensemble (XGBoost + LightGBM + CatBoost + RF meta-learner). AUC 0.9468. Trained on 5,118 FL auction outcomes.',
   };
 }
