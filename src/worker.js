@@ -3801,7 +3801,7 @@ async function submitLead(){
     err.textContent='Something went wrong. Please try again.';
   }
 }
-</script>
+<\/script>
 </body>
 </html>`;
 
