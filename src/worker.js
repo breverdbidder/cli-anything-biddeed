@@ -2972,7 +2972,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   var vegSubmit=document.getElementById('veg-submit');
   var vegErr=document.getElementById('veg-err');
 
-  function isValidEmail(e){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);}
+  function isValidEmail(e){if(!e||e.indexOf(' ')!==-1)return false;var at=e.indexOf('@');if(at<1||e.indexOf('@',at+1)!==-1)return false;var domain=e.slice(at+1);var dot=domain.indexOf('.');return dot>0&&dot<domain.length-1;}
 
   function hideGate(){if(vegEl)vegEl.className='veg';}
 
