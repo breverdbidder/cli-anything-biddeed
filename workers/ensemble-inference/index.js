@@ -1,29 +1,36 @@
 /**
- * ensemble-inference — Cloudflare Worker v2
+ * ensemble-inference — Cloudflare Worker v3
  * 
  * SUMMIT-B V4 Stacked Ensemble Inference
- * Primary inference runtime for BidDeed.AI predict_auction_outcome (S5)
  * 
- * Fix v2: ort.env.wasm.wasmPaths set to jsDelivr CDN before session creation.
- * The CF Worker bundler doesn't co-locate the ort WASM binary, so we load it
- * from CDN at cold start. This is the standard pattern for CF Workers + ONNX.
+ * WASM strategy: fetch onnxruntime-web WASM binary from CDN as ArrayBuffer
+ * at cold start, then pass directly to ort.env.wasm.wasmBinary.
+ * This bypasses the CF module loader restriction on external WASM imports.
+ * 
+ * Artifacts: XGBoost + LightGBM + CatBoost + RF meta — all ONNX.
+ * Full 4-model V4 ensemble, AUC 0.9468.
  */
 
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/all';
 
 const MODEL_VERSION = 'v4.0-20260802-015242';
 const ORT_VERSION   = '1.18.0';
-// jsDelivr CDN for onnxruntime-web WASM — served via CF edge, effectively free latency
-const WASM_CDN = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+// Non-SIMD, non-threaded WASM — maximum CF Worker compat
+const WASM_URL = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/ort-wasm.wasm`;
 
-let sessions   = null;
-let loadError  = null;
+let sessions    = null;
+let loadError   = null;
 let loadPromise = null;
 
-function initOrt() {
-  ort.env.wasm.wasmPaths = WASM_CDN;
+async function initOrt() {
+  // Fetch WASM binary and inject — bypasses CF module loader URL restriction
+  const wasmRes = await fetch(WASM_URL);
+  if (!wasmRes.ok) throw new Error(`WASM fetch failed: ${wasmRes.status}`);
+  const wasmBinary = await wasmRes.arrayBuffer();
+
+  ort.env.wasm.wasmBinary = wasmBinary;
   ort.env.wasm.numThreads = 1;
-  ort.env.wasm.simd = false; // disable SIMD — CF Workers WASM has limited SIMD support
+  ort.env.wasm.simd = false;
 }
 
 async function loadSessions(env) {
@@ -32,7 +39,7 @@ async function loadSessions(env) {
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    initOrt();
+    await initOrt();
 
     const SUPABASE_URL = env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
     const artifacts = ['xgb_base.onnx', 'lgbm_base.onnx', 'catb_base.onnx', 'rf_meta.onnx'];
@@ -52,8 +59,9 @@ async function loadSessions(env) {
       }
     );
     if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
-
     const rows = await res.json();
+
+    // Deduplicate — keep latest per artifact name
     const seen = {};
     for (const r of rows) {
       if (!seen[r.artifact_name]) seen[r.artifact_name] = r;
@@ -86,7 +94,6 @@ async function runEnsemble(sess, featureVector) {
   const x = Float32Array.from(featureVector);
   const inputTensor = new ort.Tensor('float32', x, [1, x.length]);
 
-  // Run all 3 base learners in parallel
   const [xgbOut, lgbmOut, catbOut] = await Promise.all([
     sess.xgb.run({ float_input: inputTensor }),
     sess.lgbm.run({ float_input: inputTensor }),
@@ -97,7 +104,6 @@ async function runEnsemble(sess, featureVector) {
   const lgbm_prob = extractProb(lgbmOut);
   const catb_prob = extractProb(catbOut);
 
-  // RF meta-learner input: [xgb_prob, lgbm_prob, catb_prob]
   const metaInput = new ort.Tensor('float32',
     Float32Array.from([xgb_prob, lgbm_prob, catb_prob]), [1, 3]);
   const rfOut = await sess.rf.run({ float_input: metaInput });
@@ -107,29 +113,26 @@ async function runEnsemble(sess, featureVector) {
 }
 
 function extractProb(output) {
-  // Try output_probability (classifiers) then output_label (regressors)
   const keys = Object.keys(output);
-  const probKey = keys.find(k => k.includes('probab')) || 
-                  keys.find(k => k.includes('label')) ||
-                  keys[0];
-  const val = output[probKey];
+  const key = keys.find(k => k.includes('probab')) ||
+              keys.find(k => k.includes('label')) ||
+              keys[0];
+  const val = output[key];
   if (!val) return 0;
   const data = val.data;
   if (typeof data[0] === 'object') return Number(data[0][1] ?? data[0][0]);
-  // Regressor single float OR classifier [p0, p1]
-  return Number(data.length === 1 ? data[0] : data[1] ?? data[0]);
+  return Number(data.length === 1 ? data[0] : (data[1] ?? data[0]));
 }
 
-function checkAuth(request, env) {
-  const auth = (request.headers.get('Authorization') || '').replace('Bearer ', '').trim();
-  return auth === env.WORKER_AUTH_SECRET;
+function checkAuth(req, env) {
+  return (req.headers.get('Authorization') || '').replace('Bearer ','').trim() === env.WORKER_AUTH_SECRET;
 }
 
 function base64ToUint8Array(b64) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 function json(data, status = 200) {
@@ -141,18 +144,12 @@ function json(data, status = 200) {
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
+    const { pathname } = new URL(request.url);
 
-    if (url.pathname === '/health') {
-      return json({
-        status: 'ok',
-        model_version: MODEL_VERSION,
-        sessions_loaded: !!sessions,
-        wasm_cdn: WASM_CDN,
-      });
+    if (pathname === '/health') {
+      return json({ status: 'ok', model_version: MODEL_VERSION, sessions_loaded: !!sessions });
     }
-
-    if (url.pathname !== '/score') return json({ error: 'Not found' }, 404);
+    if (pathname !== '/score') return json({ error: 'Not found' }, 404);
     if (request.method !== 'POST') return json({ error: 'POST required' }, 405);
     if (!checkAuth(request, env)) return json({ error: 'Unauthorized' }, 401);
 
