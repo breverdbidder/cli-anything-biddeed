@@ -33,6 +33,7 @@
 const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw';
 const STRIPE_INVESTOR_URL = 'https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00';
+const STRIPE_PRO_URL = 'https://buy.stripe.com/bIY5kE0vq9Wr7eEbp23wQ01'; // Pro $199/mo — price_1ToWibKaSTwZgYdfZiWM5fdy
 const DISCLAIMER_SHORT = 'Informational only — not legal, financial, or investment advice. Verify independently & consult a licensed attorney before bidding.';
 
 // ── PostHog — single shared init snippet, injected into every page's <head> ──
@@ -850,9 +851,11 @@ async function handleRequest(request, env, ctx) {
       // the pageview before handing off to Stripe.
       if (path === '/subscribe') {
         const tier = url.searchParams.get('tier') || 'investor';
+        const safeTier = tier.replace(/[^a-z0-9_-]/gi, '');
+        const stripeUrl = safeTier === 'pro' || safeTier === 'proplus' ? STRIPE_PRO_URL : STRIPE_INVESTOR_URL;
         const html = SUBSCRIBE_HTML
-          .replace(/STRIPE_URL_PLACEHOLDER/g, STRIPE_INVESTOR_URL)
-          .replace(/TIER_PLACEHOLDER/g, tier.replace(/[^a-z0-9_-]/gi, ''));
+          .replace(/STRIPE_URL_PLACEHOLDER/g, stripeUrl)
+          .replace(/TIER_PLACEHOLDER/g, safeTier);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
@@ -1085,13 +1088,28 @@ async function handleRequest(request, env, ctx) {
       }
 
       // ── POST /chat/lead ──────────────────────────────────────────────────
+      // Full flow: upsert lead (phone+consent) → fetch 5 live auctions →
+      // send Resend free-report email → return auctions to client for instant display
       if (path === '/chat/lead' && method === 'POST') {
         let body = {};
         try { body = await request.json(); } catch(_) {}
-        const { email, county, source } = body;
+        const { email, county, source, phone, sms_consent, email_consent } = body;
         if (!email) return new Response(JSON.stringify({ ok: false, error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
+        const now = new Date().toISOString();
+        const upsertPayload = {
+          email,
+          county_interest: county || null,
+          source: source || 'homepage_chatbot',
+        };
+        if (phone)                         upsertPayload.phone = phone;
+        if (sms_consent !== undefined)     { upsertPayload.sms_consent = !!sms_consent; if (sms_consent) upsertPayload.sms_consent_at = now; }
+        if (email_consent !== undefined)   { upsertPayload.email_consent = !!email_consent; if (email_consent) upsertPayload.email_consent_at = now; }
+        if (email_consent)                 { upsertPayload.marketing_consent = true; upsertPayload.marketing_consent_at = now; }
+
         try {
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/lead_profiles`, {
+          // 1. Upsert lead
+          const upsertRes = await fetch(`${SUPABASE_URL}/rest/v1/lead_profiles`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1099,14 +1117,112 @@ async function handleRequest(request, env, ctx) {
               'Authorization': `Bearer ${SUPABASE_KEY}`,
               'Prefer': 'resolution=merge-duplicates,return=minimal',
             },
-            body: JSON.stringify({ email, county_interest: county || null, source: source || 'homepage_chatbot' }),
+            body: JSON.stringify(upsertPayload),
           });
-          if (!res.ok) {
-            const err = await res.text();
-            await logErr(env, '/chat/lead', 'Supabase upsert failed', err, res.status);
-            return new Response(JSON.stringify({ ok: false, error: err }), { status: res.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          if (!upsertRes.ok) {
+            const err = await upsertRes.text();
+            await logErr(env, '/chat/lead', 'Supabase upsert failed', err, upsertRes.status);
+            return new Response(JSON.stringify({ ok: false, error: err }), { status: upsertRes.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
           }
-          return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
+          // 2. Fetch 5 upcoming auctions for this county
+          let auctions = [];
+          if (county) {
+            const today = new Date().toISOString().split('T')[0];
+            const cutoff = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const aRes = await fetch(
+              `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc&limit=5&select=property_address,auction_date,opening_bid,sale_type,case_number,assessed_value`,
+              { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+            );
+            if (aRes.ok) auctions = await aRes.json();
+          }
+
+          // 3. Build + send Resend free-report email (fire-and-forget, never blocks response)
+          const resendKey = env.RESEND_API_KEY || null;
+          if (resendKey && county) {
+            const countyDisplay = county.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+            const auctionRows = auctions.length
+              ? auctions.map((a,i) => {
+                  const addr = a.property_address || 'Address TBD';
+                  const date = a.auction_date ? new Date(a.auction_date + 'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : 'TBD';
+                  const bid  = a.opening_bid ? `$${Number(a.opening_bid).toLocaleString()}` : 'TBD';
+                  const type = (a.sale_type||'').replace('_',' ').toUpperCase();
+                  return `<tr style="background:${i%2===0?'#f8fafc':'#ffffff'}">
+                    <td style="padding:10px 12px;font-size:13px;color:#0B1929;border-bottom:1px solid #e2e8f0">${addr}</td>
+                    <td style="padding:10px 12px;font-size:13px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap">${date}</td>
+                    <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#0B1929;border-bottom:1px solid #e2e8f0;white-space:nowrap">${bid}</td>
+                    <td style="padding:10px 12px;font-size:11px;color:#F97316;border-bottom:1px solid #e2e8f0;white-space:nowrap">${type}</td>
+                  </tr>`;
+                }).join('')
+              : `<tr><td colspan="4" style="padding:16px;text-align:center;color:#64748b;font-size:13px">No upcoming auctions found in ${countyDisplay} — check back soon.</td></tr>`;
+
+            const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Inter',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px">
+<tr><td>
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+  <!-- Header -->
+  <tr><td style="background:#0B1929;padding:28px 32px">
+    <div style="font-size:22px;font-weight:700;color:#F97316;letter-spacing:-0.5px">BidDeed.AI</div>
+    <div style="font-size:13px;color:#94a3b8;margin-top:4px">Your Free ${countyDisplay} County Report</div>
+  </td></tr>
+  <!-- Intro -->
+  <tr><td style="padding:28px 32px 16px">
+    <p style="margin:0 0 8px;font-size:15px;color:#0B1929;font-weight:600">Here are the next 5 upcoming auctions in ${countyDisplay} County:</p>
+    <p style="margin:0;font-size:13px;color:#64748b">Based on 20 years of FL auction experience — Shapira Formula analysis included below.</p>
+  </td></tr>
+  <!-- Auction Table -->
+  <tr><td style="padding:0 32px">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
+      <tr style="background:#0B1929">
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Property</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Date</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Opening Bid</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Type</th>
+      </tr>
+      ${auctionRows}
+    </table>
+  </td></tr>
+  <!-- CTA -->
+  <tr><td style="padding:28px 32px">
+    <div style="background:#f8fafc;border-radius:10px;padding:20px 24px;border-left:4px solid #F97316">
+      <div style="font-size:14px;font-weight:600;color:#0B1929;margin-bottom:6px">Want the full Shapira S5 Report on a specific property?</div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:16px">Max-bid ceiling · Lien stack · Plaintiff intel · Zoning · BID/SKIP verdict — all in one $25 report.</div>
+      <a href="https://biddeed.ai/buy-report?county=${encodeURIComponent(county)}" style="display:inline-block;background:#F97316;color:#ffffff;font-size:13px;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;letter-spacing:.3px">Get Shapira S5 Report — $25 →</a>
+    </div>
+  </td></tr>
+  <!-- Investor Upsell -->
+  <tr><td style="padding:0 32px 24px">
+    <div style="text-align:center;font-size:12px;color:#94a3b8">
+      Want unlimited access to all 67 FL counties?
+      <a href="https://biddeed.ai/subscribe?tier=investor" style="color:#F97316;text-decoration:none;font-weight:600"> Investor — $99/mo →</a>
+    </div>
+  </td></tr>
+  <!-- Footer -->
+  <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0">
+    <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center">BidDeed.AI · Everest Capital USA · Satellite Beach, FL<br>
+    Informational only — not legal, financial, or investment advice. <a href="https://biddeed.ai/disclaimer" style="color:#94a3b8">Disclaimer</a></p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+            fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: 'BidDeed.AI <activate@biddeed.ai>',
+                to: [email],
+                subject: `Your Free ${countyDisplay} County Auction Report — ${auctions.length} Upcoming`,
+                html: emailHtml,
+              }),
+            }).catch(e => logErr(env, '/chat/lead', 'Resend send failed', String(e), 500));
+          }
+
+          // 4. Return auctions to client for instant in-page display
+          return new Response(JSON.stringify({ ok: true, auctions }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
         } catch(e) {
           await logErr(env, '/chat/lead', 'Exception', String(e), 500);
           return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
@@ -3263,24 +3379,54 @@ document.getElementById('lead-county').addEventListener('change',function(){
 // ── LEAD CAPTURE ──
 async function submitLead(){
   const email=document.getElementById('lead-email').value.trim();
-  const county=document.getElementById('lead-county').value;
+  const county=document.getElementById('lead-county')?document.getElementById('lead-county').value:'';
+  const phone=(document.getElementById('lead-phone')||{value:''}).value.trim();
+  const email_consent=document.getElementById('lead-email-consent')?document.getElementById('lead-email-consent').checked:true;
+  const sms_consent=document.getElementById('lead-sms-consent')?document.getElementById('lead-sms-consent').checked:false;
   const err=document.getElementById('lead-error');
   err.textContent='';
   if(!county){err.textContent='Please select your county first.';return;}
   if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
+  const btn=document.getElementById('lead-submit-btn');
+  if(btn){btn.disabled=true;btn.textContent='Sending…';}
   try{
-    const r=await fetch('/chat/lead',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email,county,source:'landing_free_report'})
-    });
-    if(r.ok){
+    const payload={email,county,source:'landing_free_report',email_consent};
+    if(phone) payload.phone=phone;
+    if(sms_consent) payload.sms_consent=true;
+    const r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=r.ok?await r.json():{ok:false};
+    if(data.ok){
       document.getElementById('lead-form-wrap').style.display='none';
-      document.getElementById('lead-success').style.display='block';
+      const successEl=document.getElementById('lead-success');
+      successEl.style.display='block';
+      // Render instant auction cards
+      const cards=document.getElementById('lead-auction-cards');
+      if(cards&&data.auctions&&data.auctions.length){
+        cards.innerHTML=data.auctions.map(a=>{
+          const addr=a.property_address||'Address TBD';
+          const dt=a.auction_date?new Date(a.auction_date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}):'TBD';
+          const bid=a.opening_bid?'$'+Number(a.opening_bid).toLocaleString():'TBD';
+          const type=(a.sale_type||'').replace('_',' ').toUpperCase();
+          const buyHref='/buy-report?county='+encodeURIComponent(county)+'&address='+encodeURIComponent(addr);
+          return '<div style="background:var(--charcoal);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+            +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+addr+'</div>'
+            +'<div style="font-size:11px;color:var(--slate);margin-top:3px">'+dt+' · <span style="color:var(--orange)">'+type+'</span></div></div>'
+            +'<div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:700;color:#fff">'+bid+'</div>'
+            +'<a href="'+buyHref+'" style="font-size:11px;color:var(--orange);text-decoration:none;font-weight:600">S5 Report $25 →</a></div>'
+            +'</div>';
+        }).join('');
+        // Wire $25 link to county
+        const u25=document.getElementById('upsell-25');
+        if(u25) u25.href='/buy-report?county='+encodeURIComponent(county);
+      } else if(cards){
+        cards.innerHTML='<div style="font-size:13px;color:var(--slate);text-align:center;padding:16px">Check your email — your county report is on its way.</div>';
+      }
     } else {
+      if(btn){btn.disabled=false;btn.textContent='Get My Free County Report →';}
       err.textContent='Something went wrong. Please try again.';
     }
   } catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Get My Free County Report →';}
     err.textContent='Something went wrong. Please try again.';
   }
 }
@@ -3323,24 +3469,66 @@ function replayAuction(){
   },60);
 }
 
-// LEAD CAPTURE
+// LEAD CAPTURE — pre-fill email from ?email= URL param (digest click)
+(function(){
+  try{
+    const p=new URLSearchParams(window.location.search);
+    const e=p.get('email');
+    const c=p.get('county');
+    if(e){const el=document.getElementById('lead-email');if(el)el.value=decodeURIComponent(e);}
+    if(c){const el=document.getElementById('lead-county');if(el)el.value=decodeURIComponent(c);}
+  }catch(_){}
+})();
+
 async function submitLead(){
   const email=document.getElementById('lead-email').value.trim();
-  const county=document.getElementById('lead-county').value.trim();
+  const county=document.getElementById('lead-county')?document.getElementById('lead-county').value:'';
+  const phone=(document.getElementById('lead-phone')||{value:''}).value.trim();
+  const email_consent=document.getElementById('lead-email-consent')?document.getElementById('lead-email-consent').checked:true;
+  const sms_consent=document.getElementById('lead-sms-consent')?document.getElementById('lead-sms-consent').checked:false;
   const err=document.getElementById('lead-error');
   err.textContent='';
+  if(!county){err.textContent='Please select your county first.';return;}
   if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
-  if(!county){err.textContent='Please enter your county.';return;}
+  const btn=document.getElementById('lead-submit-btn');
+  if(btn){btn.disabled=true;btn.textContent='Sending…';}
   try{
-    const r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,county,source:'landing_free_report'})});
-    if(r.ok){
+    const payload={email,county,source:'landing_free_report',email_consent};
+    if(phone) payload.phone=phone;
+    if(sms_consent) payload.sms_consent=true;
+    const r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=r.ok?await r.json():{ok:false};
+    if(data.ok){
       document.getElementById('lead-form-wrap').style.display='none';
-      const s=document.getElementById('lead-success');
-      s.style.display='block';
+      const successEl=document.getElementById('lead-success');
+      successEl.style.display='block';
+      // Render instant auction cards
+      const cards=document.getElementById('lead-auction-cards');
+      if(cards&&data.auctions&&data.auctions.length){
+        cards.innerHTML=data.auctions.map(function(a){
+          const addr=a.property_address||'Address TBD';
+          const dt=a.auction_date?new Date(a.auction_date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}):'TBD';
+          const bid=a.opening_bid?'$'+Number(a.opening_bid).toLocaleString():'TBD';
+          const type=(a.sale_type||'').replace('_',' ').toUpperCase();
+          const buyHref='/buy-report?county='+encodeURIComponent(county)+'&address='+encodeURIComponent(addr);
+          return '<div style="background:#1E293B;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+            +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+addr+'</div>'
+            +'<div style="font-size:11px;color:#94A3B8;margin-top:3px">'+dt+' · <span style="color:#F97316">'+type+'</span></div></div>'
+            +'<div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:700;color:#fff">'+bid+'</div>'
+            +'<a href="'+buyHref+'" style="font-size:11px;color:#F97316;text-decoration:none;font-weight:600">S5 Report $25 →</a></div>'
+            +'</div>';
+        }).join('');
+        const u25=document.getElementById('upsell-25');
+        if(u25) u25.href='/buy-report?county='+encodeURIComponent(county);
+      } else if(cards){
+        cards.innerHTML='<div style="font-size:13px;color:#94A3B8;text-align:center;padding:16px">Check your email — your county report is on its way.</div>';
+      }
     } else {
+      if(btn){btn.disabled=false;btn.textContent='Get My Free County Report →';}
       err.textContent='Something went wrong. Please try again.';
     }
   } catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Get My Free County Report →';}
     err.textContent='Something went wrong. Please try again.';
   }
 }
@@ -3710,27 +3898,38 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
       </select>
       <div class="lead-email-row">
         <input class="lead-input" id="lead-email" type="email" placeholder="your@email.com" autocomplete="email">
-        <button class="lead-submit" onclick="submitLead()">Send my free report</button>
+      </div>
+      <div class="lead-email-row" style="margin-top:8px">
+        <input class="lead-input" id="lead-phone" type="tel" placeholder="Phone (optional — for SMS alerts)" autocomplete="tel">
+      </div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--slate);cursor:pointer">
+          <input type="checkbox" id="lead-email-consent" checked style="margin-top:2px;accent-color:var(--orange)">
+          <span>Send me this county's upcoming auctions by email</span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--slate);cursor:pointer">
+          <input type="checkbox" id="lead-sms-consent" style="margin-top:2px;accent-color:var(--orange)">
+          <span>Text me auction alerts for this county (SMS)</span>
+        </label>
+      </div>
+      <div style="margin-top:12px">
+        <button class="lead-submit" onclick="submitLead()" id="lead-submit-btn" style="width:100%">Get My Free County Report →</button>
       </div>
       <div class="lead-error" id="lead-error"></div>
+    </div>
 
-      <!-- UPSELL — shown after county selected -->
-      <div class="upsell-row" id="upsell-row" style="display:none">
-        <div class="upsell-card">
-          <div class="upsell-tier">S5 Single Report</div>
-          <div class="upsell-price">$25<span> one-time</span></div>
-          <div style="font-size:12px;color:var(--slate);margin-bottom:2px">Get any property right now</div>
-          <a class="upsell-cta ghost" id="upsell-25" href="/buy-report">Get this county's report →</a>
-        </div>
-        <div class="upsell-card featured">
-          <div class="upsell-tier">Investor</div>
-          <div class="upsell-price">$99<span>/mo</span></div>
-          <div style="font-size:12px;color:var(--slate);margin-bottom:2px">Every lot, every sale, all year</div>
-          <a class="upsell-cta" href="https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00">Start Investor →</a>
-        </div>
+    <!-- INSTANT AUCTION CARDS — shown after submit -->
+    <div id="lead-success" style="display:none">
+      <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:16px 20px;color:var(--green);font-size:14px;font-weight:600;margin-bottom:16px">
+        ✓ Report sent to your email. Here are your next auctions:
+      </div>
+      <div id="lead-auction-cards" style="display:flex;flex-direction:column;gap:10px"></div>
+      <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+        <a id="upsell-25" href="/buy-report" class="upsell-cta ghost" style="flex:1;min-width:160px;text-align:center;display:inline-block;border:1px solid var(--orange);color:var(--orange);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Get S5 Report — $25 →</a>
+        <a href="https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00" class="upsell-cta" style="flex:1;min-width:160px;text-align:center;display:inline-block;background:var(--orange);color:var(--navy);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Investor $99/mo →</a>
       </div>
     </div>
-    <div class="lead-success" id="lead-success">✓ You're on the list. We'll send your free report before the next auction in that county.</div>
+
   </div>
 </section>
 

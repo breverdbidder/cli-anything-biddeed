@@ -196,12 +196,17 @@ function featuredCard(auctions, county) {
         </tr>
       </table>
       <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;"><tr>
+        <td width="100%">
+          <a href="${BASE}/?email=${encodeURIComponent(lead.email)}&county=${encodeURIComponent(county)}&ref=email_free_report" style="display:block;background:linear-gradient(135deg,#F59E0B,#D97706);color:#020617;font-weight:800;font-size:14px;padding:12px;border-radius:8px;text-align:center;text-decoration:none;">Get Free ${cLabel} County Report →</a>
+        </td>
+      </tr></table>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
         <td width="48%">
-          <a href="${BASE}/buy-report?county=${county}&case=${top.case_number}&ref=email_s5" style="display:block;background:linear-gradient(135deg,#F59E0B,#D97706);color:#020617;font-weight:800;font-size:13px;padding:10px;border-radius:8px;text-align:center;text-decoration:none;">Run S5 Analysis — $25</a>
+          <a href="${BASE}/buy-report?county=${county}&case=${top.case_number}&ref=email_s5" style="display:block;background:#1E3A5F;color:#F59E0B;font-weight:700;font-size:12px;padding:9px;border-radius:8px;text-align:center;border:1px solid rgba(245,158,11,0.3);text-decoration:none;">S5 Report — $25</a>
         </td>
         <td width="4%"></td>
         <td width="48%">
-          <a href="${BASE}/chat?county=${county}&ref=email_docket" style="display:block;background:#1E3A5F;color:#e2e8f0;font-weight:600;font-size:13px;padding:10px;border-radius:8px;text-align:center;border:1px solid #162D4A;text-decoration:none;">Full County Docket</a>
+          <a href="${BASE}/chat?county=${county}&ref=email_docket" style="display:block;background:#1E3A5F;color:#e2e8f0;font-weight:600;font-size:12px;padding:9px;border-radius:8px;text-align:center;border:1px solid #162D4A;text-decoration:none;">Full County Docket</a>
         </td>
       </tr></table>
     </td></tr>
