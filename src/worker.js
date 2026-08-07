@@ -4503,6 +4503,23 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   .tile{padding:10px 12px}
   .feat-section{font-size:10px}
 }
+
+/* CHAT BUBBLE */
+#chat-bubble{position:fixed;bottom:24px;right:24px;z-index:9000;display:flex;align-items:center;gap:8px;background:var(--orange);color:var(--navy);border:none;border-radius:999px;padding:13px 20px;font-size:14px;font-weight:700;font-family:Inter,sans-serif;cursor:pointer;box-shadow:0 4px 24px rgba(249,115,22,.45);transition:background .15s,transform .15s;white-space:nowrap;letter-spacing:.02em}
+#chat-bubble:hover{background:var(--orange-hover);transform:translateY(-2px)}
+#chat-bubble svg{flex-shrink:0}
+
+/* CHAT OVERLAY */
+#chat-overlay{display:none;position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);align-items:center;justify-content:center}
+#chat-overlay.open{display:flex}
+#chat-panel{position:relative;width:90vw;height:90vh;max-width:960px;background:var(--navy);border:1px solid var(--charcoal);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7)}
+#chat-panel iframe{flex:1;width:100%;border:none;background:var(--navy)}
+#chat-close{position:absolute;top:12px;right:14px;z-index:10;background:rgba(11,25,41,.85);border:1px solid var(--charcoal);color:var(--slate);border-radius:999px;width:34px;height:34px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background .15s,color .15s}
+#chat-close:hover{background:var(--charcoal);color:#fff}
+@media(max-width:767px){
+  #chat-panel{width:100vw;height:100dvh;max-width:none;border-radius:0;border:none}
+  #chat-bubble{bottom:16px;right:16px;padding:12px 16px;font-size:13px}
+}
 </style>
 </head>
 <body>
@@ -4806,9 +4823,43 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   </div>
 </footer>
 
+<!-- CHAT BUBBLE -->
+<button id="chat-bubble" onclick="openChat()" aria-label="Open chat">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  Chat
+</button>
+
+<!-- CHAT OVERLAY -->
+<div id="chat-overlay" role="dialog" aria-modal="true" aria-label="BidDeed chat" onclick="handleOverlayClick(event)">
+  <div id="chat-panel">
+    <button id="chat-close" onclick="closeChat()" aria-label="Close chat">&#x2715;</button>
+    <iframe id="chat-iframe" title="BidDeed Chat" allow="microphone"></iframe>
+  </div>
+</div>
+
+<script>
+function openChat(){
+  var overlay=document.getElementById('chat-overlay');
+  var iframe=document.getElementById('chat-iframe');
+  if(!iframe.src) iframe.src='/chat';
+  overlay.classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeChat(){
+  document.getElementById('chat-overlay').classList.remove('open');
+  document.body.style.overflow='';
+}
+function handleOverlayClick(e){
+  if(e.target===document.getElementById('chat-overlay')) closeChat();
+}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape') closeChat();
+});
+</script>
+
 ${HOMEPAGE_SCRIPT}
 </body>
-</html>`; }
+</html>\`; }
 
 const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
