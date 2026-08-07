@@ -14,7 +14,7 @@
 import { storageGet } from '../supabase.js';
 
 const MODEL_VERSION     = 'v4.0-20260802-015242';
-const CF_WORKER_URL     = 'https://ensemble-inference.breverdbidder.workers.dev/score';
+const CF_WORKER_URL     = 'https://ensemble-inference.brevardbidderai.workers.dev/score';
 const EDGE_FN_URL       = 'https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/ensemble-score';
 const CF_TIMEOUT_MS     = 4000;
 const EDGE_TIMEOUT_MS   = 6000;
