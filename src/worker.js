@@ -1171,7 +1171,7 @@ function withSecurityHeaders(response, path) {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', isChatFrame ? 'SAMEORIGIN' : 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  headers.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  headers.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=(self)');
   if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', isChatFrame ? SECURITY_CSP_CHAT : SECURITY_CSP);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
