@@ -67,9 +67,10 @@ def get_mca_row(county: str, case_number: str) -> dict | None:
 
 def apply_match(county: str, case_number: str, confidence: float, divergences: dict | None) -> None:
     now = datetime.now(timezone.utc).isoformat()
+    fetch_date = now[:10]
     payload = {
         'parity_status': 'matched_clean' if not divergences else 'matched_divergent',
-        'parity_source': f'tier1_{county}_taxsmartweb_clerk_shard9:2026-07-02',
+        'parity_source': f'tier1_{county}_taxsmartweb_clerk_shard9:{fetch_date}',
         'parity_checked_at': now,
         'parity_confidence': confidence,
         'parity_divergences': divergences,
