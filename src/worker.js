@@ -2379,6 +2379,16 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .voice-status.show{display:block}
 .voice-transcript{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);margin-top:4px;display:none;max-width:340px;text-align:start;line-height:1.4}
 .voice-transcript.show{display:block}
+.voice-cap{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:12px 14px;margin-top:6px;display:none;max-width:340px;text-align:center}
+.voice-cap.show{display:block}
+.voice-cap-msg{font-size:12.5px;color:#e2e8f0;line-height:1.5;margin-bottom:10px}
+.voice-cap-msg strong{color:var(--orange)}
+.voice-cap-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.voice-cap-btns a{font-size:11.5px;font-weight:600;border-radius:8px;padding:7px 12px;text-decoration:none;transition:opacity .15s}
+.voice-cap-btns .vcb-upgrade{background:linear-gradient(135deg,var(--orange),#f97316);color:var(--navy)}
+.voice-cap-btns .vcb-upgrade:hover{opacity:.88}
+.voice-cap-btns .vcb-report{background:transparent;border:1px solid rgba(245,158,11,.4);color:var(--orange)}
+.voice-cap-btns .vcb-report:hover{border-color:var(--orange);opacity:.88}
 .voice-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:center;margin-top:2px}
 .veg{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.22);border-radius:10px;padding:10px 12px;margin-top:8px;display:none;max-width:340px;width:100%}
 .veg.show{display:block}
@@ -2486,6 +2496,13 @@ ${countyBar}
     <div class="voice-status" id="voice-status"></div>
     <div class="attach-progress" id="attach-progress"></div>
     <div class="voice-transcript" id="voice-transcript"></div>
+    <div class="voice-cap" id="voice-cap">
+      <div class="voice-cap-msg">That's our free 10-minute session. <strong>Investor members get unlimited time with Deed</strong> — or I can send you the full report on this county right now.</div>
+      <div class="voice-cap-btns">
+        <a href="/subscribe?tier=investor" class="vcb-upgrade">Upgrade to Investor →</a>
+        <a href="/free-report" class="vcb-report" id="vcb-report-link">Get free report</a>
+      </div>
+    </div>
     <div class="lang-row">
       <span class="lchip">🇺🇸 English</span>
       <span class="lchip">🇮🇱 עברית</span>
@@ -2947,6 +2964,9 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   var ws=null,audioCtx=null,processor=null,stream=null,active=false,agentAudioQueue=[],agentPlaying=false;
   var conversationId=null;
   var voiceEmail=null;
+  var capEl=document.getElementById('voice-cap');
+  var capTimer=null,warnSent=false;
+  var CAP_WARN_MS=8*60*1000,CAP_HARD_MS=10*60*1000;
   var vegEl=document.getElementById('voice-email-gate');
   var vegInput=document.getElementById('veg-email');
   var vegSubmit=document.getElementById('veg-submit');
@@ -2995,6 +3015,28 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     if(show){attachBtn.classList.add('visible');attachCaption.classList.add('visible');}
     else{attachBtn.classList.remove('visible');attachCaption.classList.remove('visible');setAttachProgress(null,'');}
   }
+  function showCapPanel(){
+    if(capEl)capEl.className='voice-cap show';
+    btn.disabled=true;
+    btn.style.display='none';
+  }
+  function clearCapTimer(){
+    if(capTimer){clearTimeout(capTimer);capTimer=null;}
+    warnSent=false;
+  }
+  function startCapTimer(){
+    clearCapTimer();
+    capTimer=setTimeout(function(){
+      if(!active||!ws||ws.readyState!==1)return;
+      warnSent=true;
+      ws.send(JSON.stringify({type:'contextual_update',text:'System note: 2 minutes remain in this free session. If it fits naturally, you may mention that BidDeed Investor members ($99/mo) get unlimited conversation time with you, plus reports on every county. Do not interrupt the user\'s current point to say this — work it in naturally or wait for a pause.'}));
+      capTimer=setTimeout(function(){
+        if(!active)return;
+        stopSession();
+        showCapPanel();
+      },CAP_HARD_MS-CAP_WARN_MS);
+    },CAP_WARN_MS);
+  }
 
   // Encode Float32 PCM to PCM16 base64
   function pcm32ToBase64(float32arr){
@@ -3038,9 +3080,12 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   }
 
   function stopSession(){
+    clearCapTimer();
     active=false;
     conversationId=null;
     btn.className='voice-btn';
+    btn.disabled=false;
+    btn.style.display='';
     btnLabel.textContent='🎙️ Talk to Deed';
     setStatus('');
     showAttachBtn(false);
@@ -3096,6 +3141,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
         btn.className='voice-btn listening';
         active=true;
         showAttachBtn(true);
+        startCapTimer();
         startMicStream();
       } else if(t==='ping'){
         var eid=(msg.ping_event&&msg.ping_event.event_id!=null)?msg.ping_event.event_id:0;
