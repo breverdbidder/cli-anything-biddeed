@@ -39,7 +39,12 @@ except FileNotFoundError:
 
 print(f"Sending {len(sql)} bytes to Management API for project {REF}...", flush=True)
 
-H    = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+H    = {
+    "Authorization": f"Bearer {TOKEN}",
+    "Content-Type": "application/json",
+    # Cloudflare returns 403 (error 1010) on the default Python-urllib UA.
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+}
 body = json.dumps({"query": sql}).encode()
 
 for attempt in range(3):
