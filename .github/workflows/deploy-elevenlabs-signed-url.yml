@@ -1,0 +1,29 @@
+name: Deploy elevenlabs-signed-url Edge Function
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/elevenlabs-signed-url/**'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy elevenlabs-signed-url function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy elevenlabs-signed-url \
+            --project-ref mocerqjnksmhcjzxrewo \
+            --no-verify-jwt
