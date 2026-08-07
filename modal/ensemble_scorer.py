@@ -11,6 +11,7 @@ AUC: 0.9468  |  Trained: 2026-08-02  |  Source: ensemble.pkl in model_artifacts
 
 Deploy:  modal deploy modal/ensemble_scorer.py
 Secrets: everest-secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, ENSEMBLE_WORKER_SECRET)
+Modal SDK: 1.5.x  (keep_warm→min_containers, allow_concurrent_inputs→max_inputs)
 """
 
 import modal
@@ -36,8 +37,8 @@ MODEL_VERSION = "v4.0-20260802-015242"
     image=image,
     secrets=[secrets],
     timeout=60,
-    keep_warm=1,
-    allow_concurrent_inputs=10,
+    min_containers=1,   # keep 1 warm — eliminates cold starts
+    max_inputs=10,      # concurrent requests per container
 )
 @modal.asgi_app()
 def serve():
@@ -47,12 +48,11 @@ def serve():
     from fastapi import FastAPI, HTTPException, Request
 
     web      = FastAPI()
-    ensemble = None
+    _model   = {}   # mutable cache: {"ensemble": <loaded model>}
 
     def load_ensemble():
-        nonlocal ensemble
-        if ensemble is not None:
-            return ensemble
+        if "ensemble" in _model:
+            return _model["ensemble"]
         sb_url = os.environ["SUPABASE_URL"]
         sb_key = os.environ["SUPABASE_SERVICE_KEY"]
         r = req.get(
@@ -70,15 +70,15 @@ def serve():
         rows = r.json()
         if not rows:
             raise RuntimeError(f"ensemble.pkl not found for {MODEL_VERSION}")
-        ensemble = pickle.loads(base64.b64decode(rows[0]["artifact_b64"]))
-        return ensemble
+        _model["ensemble"] = pickle.loads(base64.b64decode(rows[0]["artifact_b64"]))
+        return _model["ensemble"]
 
     @web.get("/health")
     async def health():
         return {
-            "status":       "ok",
+            "status":        "ok",
             "model_version": MODEL_VERSION,
-            "model_loaded": ensemble is not None,
+            "model_loaded":  "ensemble" in _model,
         }
 
     @web.post("/score")
@@ -123,5 +123,5 @@ def serve():
 
 @app.local_entrypoint()
 def main():
-    print("Deploy first: modal deploy modal/ensemble_scorer.py")
-    print("Then call: POST https://<modal-url>/score")
+    print("Deploy: modal deploy modal/ensemble_scorer.py")
+    print("Then verify: curl https://<modal-url>/health")
