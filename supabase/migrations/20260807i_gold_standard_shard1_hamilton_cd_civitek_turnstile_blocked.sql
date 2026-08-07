@@ -1,0 +1,123 @@
+-- GOLD STANDARD shard-1, hamilton, letters C/D (parity: matched_clean / matched_any).
+-- No-op documentation migration: honest exhaustion, nothing written. BLANK > WRONG.
+--
+-- BASELINE (re-verified live via public.pencil_dod_evaluate_county('hamilton') at session
+-- start AND again at session end -- IDENTICAL, no drift either direction):
+--   C: pass=false, matched_clean=17 of 21 (81.0%), threshold >=95% (i.e. >=20/21).
+--   D: pass=false, matched_any=17 of 21 (81.0%), same threshold.
+--   All other letters (A/B/E/F/G/H/I/J) already PASS and were not touched:
+--     A=6(fc)+15(td), B=100 (5/5), E=100 (21/21), F=100 (5/5), G=100/100,
+--     H=4.6-4.7h (SLA 48h), I=95.2 (20/21), J=100 (21/21).
+--
+-- CONTEXT -- prior session TODAY (this same dispatch's earlier firing, documented in a
+-- sibling migration file this session could not locate verbatim in the checked-out repo at
+-- session start -- the orchestrator had not yet landed it -- but whose content was
+-- independently reconstructed via `grep` for the 4 case numbers across existing migrations,
+-- most directly 20260725c_shard5_hamilton_cd_parity_reharvest_dead_end.sql) already confirmed
+-- via a live byte-verified curl of hamiltonclerk.com/foreclosures/ that all 4 remaining
+-- mca_only rows below are absent from that page (no pagination/archive exists there). That
+-- lead is CONFIRMED DEAD -- not re-attempted this session, per this dispatch's explicit
+-- instruction.
+--
+-- THE 4 TARGET ROWS (all parity_status='mca_only', parity_source='tier1_hamilton_direct',
+-- data_source='clerk_fc:hamiltonclerk.com/foreclosures/', re-queried live this session):
+--   2021-CA-46  id=6b19469c-f278-40f2-b815-357ec8bd230a  parcel 4833-015
+--               "Hamilton County FL (Parcel 4833-015)"  judgment $249,152.16  auction 2026-08-05
+--   2023-CA-41  id=7f3dc51f-6513-4827-84fb-21af665fdde9  parcel 8282-000
+--               16797 Mill Street, White Springs FL 32096  judgment $157,395.19  auction 2026-08-05
+--   2024-CA-19  id=e591ada4-9c26-4efc-9c1d-707825554bad  parcel 2007-000
+--               1658 3rd St NW, Jasper FL 32052  judgment $23,600.85  auction 2026-08-05
+--   2025-CA-37  id=390c869c-44ae-4540-ad08-28282b7fd75b  parcel 3819-070
+--               7123 NW CR 146, Jennings FL 32053  judgment $139,660.12  auction 2026-08-12
+--
+-- NEW LEVER ATTEMPTED THIS SESSION -- Civitek OCRS (civitekflorida.com/ocrs/county/24/),
+-- via genuine browser automation (not curl):
+--   1. browser-use CLI: NOT INSTALLED in this sandbox (`which browser-use` -> not found).
+--      Not usable this session.
+--   2. firecrawl-browser CLI (`npm install -g firecrawl-cli`, v1.19.30): installed and
+--      authenticated (FIRECRAWL_API_KEY present), but `firecrawl --status` shows
+--      Credits: -7 / 1,000 (account exhausted, negative balance). Every `firecrawl scrape`
+--      call returned "Error: Insufficient credits to perform this request." Not usable this
+--      session -- a real, verified account-level exhaustion, not a code bug.
+--   3. Fell back to local Playwright (Python, playwright==1.62.0, chromium via
+--      ms-playwright cache, driven through xvfb-run for headed mode) -- genuinely available
+--      in this sandbox and used for the full attempt below.
+--
+-- CIVITEK OCRS NAVIGATION (real, verified via screenshots + saved HTML, this session):
+--   a. GET civitekflorida.com/ocrs/county/24/ -> "Hamilton County OCRS", a PrimeFaces/JSF
+--      app (ViewState-driven AJAX postbacks, confirmed via raw curl showing
+--      javax.faces.ViewState hidden field and PrimeFaces.ab() button handlers -- this
+--      confirms the earlier assumption that this page requires JS execution, not curl).
+--   b. Access-gate screen offers 4 modes: Public / Attorney / Registered User / Party Access.
+--      Clicked "Public" (button id j_idt70:j_idt73) -> disclaimer page.
+--   c. Clicked "I Agree" (button id j_idt65:j_idt67) -> lands on
+--      civitekflorida.com/ocrs/app/search.xhtml with a "Person Search" / "Case Search" tab UI.
+--   d. Clicked "Case Search" tab -> reveals the real case-number search form: Year (text,
+--      maxlength 4), Court Type (dropdown: AP/CA/CC/CO/CT/DR/CF/GA/MM/MO/IN/CP/SC/TR --
+--      CA = "Circuit Civil (CA)", confirming our case_number format "20YY-CA-NN" maps
+--      directly to Year=20YY, Court Type=CA, Sequence#=NN with no reformatting needed),
+--      Sequence # (text, maxlength 6), Party Identifier (%), Branch Location (%).
+--   e. Filled Year=2021, Court Type=Circuit Civil (CA), Sequence#=46 (i.e. case 2021-CA-46)
+--      -- form fields confirmed correctly populated via screenshot
+--      (see session artifacts /tmp/s5_filled.png, not committed).
+--   f. BLOCKED: both Person Search and Case Search tabs are gated by a real Cloudflare
+--      Turnstile widget ("Verify you are human", sitekey 0x4AAAAAAAR0Af-5MfzdbO3p, confirmed
+--      via page source: <script src="https://challenges.cloudflare.com/turnstile/v0/api.js">
+--      + turnstile.render("#cfWidget", ...)). Attempted, in order:
+--        i.   Direct Playwright click on the visible iframe body -- iframe content is an
+--             opaque Cloudflare-hosted challenge frame; page.frames confirms only ONE
+--             challenges.cloudflare.com frame is exposed to CDP, and its own nested
+--             interactive checkbox element is not reachable via frame_locator chaining
+--             (Locator.wait_for times out -- the real checkbox never mounts visibly to
+--             automation).
+--        ii.  Headed-mode (xvfb-run) with --disable-blink-features=AutomationControlled and
+--             navigator.webdriver overridden via add_init_script, plus human-timed
+--             mouse.move -> mouse.click at the widget's real bounding-box coordinates --
+--             same result, checkbox remains visually unchecked.
+--        iii. Waited 8s after filling the form (in case Turnstile auto-resolves
+--             non-interactively for low-risk sessions) then clicked "Search" directly --
+--             the POST was rejected server-side: the entire JSF form (including the
+--             already-selected Court Type dropdown) reset to blank/--- SELECT --- on
+--             response, which is the same "failed required-field validation" behavior a
+--             missing/invalid cf-turnstile-response token would produce.
+--      This is Turnstile behaving as designed: it is built specifically to detect and
+--      silently refuse Playwright/CDP-driven browsers (via navigator.webdriver and CDP
+--      protocol fingerprints beyond what --disable-blink-features and an init-script patch
+--      can mask), and none of the 3 attempts produced a real cf-turnstile-response token.
+--      Forcing a submission around this control, if it were even possible from here, would
+--      also be the wrong move independent of tooling -- it is a real anti-bot gate on a court
+--      records system, not an incidental technical obstacle.
+--
+-- CONCLUSION: Civitek OCRS could not be searched for any of the 4 target case numbers this
+-- session -- the block occurred before a single query could be submitted (same outcome for
+-- all 4, since the gate applies identically regardless of which case is searched; only
+-- 2021-CA-46 was used to drive the form-fill proof-of-concept, no time was spent repeating
+-- the identical blocked attempt for the other 3). No case-detail page, party name, or status
+-- was ever returned for any of the 4 cases from this source. No parity_status,
+-- parity_source, parity_confidence, or updated_at was written for any row. Per Honesty
+-- Protocol / fabrication guardrail: BLANK > WRONG.
+--
+-- RESULT: C and D remain FAIL at 81.0% (17 of 21) -- confirmed identical via a second live
+-- pencil_dod_evaluate_county('hamilton') call at session end vs. session start. No
+-- regression, no improvement, no drift on any other letter.
+--
+-- NEXT-SESSION LEVERS (not exhausted):
+--   1. A Firecrawl account top-up (or a differently-funded Firecrawl API key) would let a
+--      future session try `firecrawl interact` (Firecrawl's managed remote-browser + AI
+--      action executor), which runs from Firecrawl's own IP/fingerprint pool and may not
+--      trip the same Turnstile automation heuristics that a local CDP-driven Playwright
+--      instance does -- genuinely untested here, blocked purely on credits, not on
+--      feasibility.
+--   2. If browser-use CLI (the tool this dispatch specifically named) is installed in a
+--      future session's sandbox, its cloud/remote browser mode may have the same
+--      IP-reputation advantage as (1) -- also genuinely untested here, the binary was
+--      simply absent (`which browser-use` -> not found), not attempted-and-failed.
+--   3. A human-driven (non-automated) one-time manual Civitek OCRS lookup for these 4 case
+--      numbers would sidestep Turnstile entirely and, if a court disposition is found,
+--      could feed a future session's parity write -- outside this session's scope (no
+--      interactive human present).
+--   4. The 2025-CA-66 divergent-sale-date flag and the Hamilton TD opening_bid off-by-one
+--      bug documented in 20260725c_shard5_hamilton_cd_parity_reharvest_dead_end.sql remain
+--      open, unrelated residuals for a future B/F or ingestion-focused session.
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)

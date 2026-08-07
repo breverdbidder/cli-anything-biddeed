@@ -1,0 +1,93 @@
+-- GOLD STANDARD shard-1 gulf-only, letter I (dispatch: shard-1 gulf/I property-card-completeness).
+-- No-op documentation migration: honest exhaustion, nothing written. BLANK > WRONG.
+--
+-- BASELINE (re-verified live via public.pencil_dod_evaluate_county('gulf') at session start
+-- AND again at session end -- no drift either direction):
+--   I: pass=false, card_complete=12 of 14 (85.7%), threshold >=95% (i.e. >=14/14 -- both
+--      failing rows must be fixed, 13/14=92.9% is still under gate).
+--   All other letters (A/B/C/D/E/F/G/H/J) already PASS at 100% and were not touched.
+--
+-- DIAGNOSIS (re-verified fresh, not trusted from brief):
+--   Exactly 2 multi_county_auctions rows fail I, and BOTH already have complete
+--   property_address / latitude / longitude / assessed_value -- the sole gap is
+--   zoning linkage (no matching v_zoning_gold_standard_card row with zone_code NOT NULL):
+--     case 2025-010, id row for parcel_id '05762000R', 256 AVE C, Port St Joe FL
+--     case 2025-018, id row for parcel_id '05004050R', KNOWLES AVE, Port St Joe FL
+--
+-- INVESTIGATION (this session):
+--   1. pg_get_viewdef('v_zoning_gold_standard_card') confirms the view joins
+--      parcel_zones.parcel_id/tax_account -> zoning_districts -> zone_standards, keyed by
+--      norm_county_key(jurisdictions.county_name/county).
+--   2. Queried parcel_zones directly for gulf's 3 jurisdictions (952=Port St Joe,
+--      1010=Wewahitchka, 1507=Gulf Co Unincorporated): only 12 total rows exist statewide
+--      for gulf. Neither '05762000R' nor '05004050R' (nor any digit-normalized /
+--      dash-stripped / leading-zero-stripped fuzzy variant) is present under either
+--      parcel_id or tax_account, in any of the 3 jurisdictions. This is a genuine data gap,
+--      not a format mismatch -- ruling out the brief's leading hypothesis.
+--   3. Live Gulf County ArcGIS parcels layer
+--      (arcgis5.roktech.net/arcgis/rest/services/gulf/GoMaps4/MapServer/12, "Parcels")
+--      confirms both parcels are real, in-city Port St Joe platted lots:
+--        05762000R: PIN_DSP=05762-000R, 256 AVE C, SUBD=5005, BLOCK=1004, LOT=20,
+--                   OWNER=BAY LIVING INC, USECD=0/VACANT
+--        05004050R: PIN_DSP=05004-050R, KNOWLES AVE, SUBD=5045, BLOCK=44, LOT="20-Nov",
+--                   OWNER=MARTINEZ ERIK I, USECD=0/VACANT
+--      This layer has NO zoning field (schema is property-appraiser fields only:
+--      owner/use/sale/value -- no ZONING/ZONE_CODE column).
+--   4. Enumerated ALL 40+ layers in the gulf/GoMaps4 MapServer: only a "Land Use" layer
+--      (id=40) exists, no "Zoning" layer. Point-in-polygon query of layer 40 against both
+--      parcel centroids returns Type='Municipal'/Ordanance='City' -- a single ~2733-acre
+--      polygon covering the entire City of Port St Joe. This is a coarse FLUM designation,
+--      not a parcel-specific zoning district (R-1 vs C-1 vs R-2A etc.) and cannot
+--      distinguish which of the city's residential sub-districts applies.
+--   5. City of Port St Joe's only zoning map is a static, non-georeferenced 2012 PDF
+--      (cityofportstjoe.com/pdf/maps/City Zoning Map ... 2012 ...pdf). No ArcGIS REST /
+--      interactive GIS zoning-district layer exists for the city (confirmed via
+--      cityofportstjoe.com/GISmaps.cfm, which lists only static PDF map downloads).
+--      Visually resolving a parcel's zoning district from a flattened raster map without a
+--      georeferenced overlay would require guessing which colored polygon a given lot/block
+--      falls in -- explicitly disallowed by this project's fabrication guardrail.
+--   6. qpublic.schneidercorp.com (Gulf County parcel records, which sometimes carries a
+--      Zoning attribute) returns HTTP 403 (Cloudflare-blocked) for automated access,
+--      consistent with prior documented findings for this county
+--      (see 20260710_shard8_gulf_parcel_fabrication_purge.sql). gulfpa.com also 403s.
+--      gulfcountypropertyappraiser.org (unofficial third-party aggregator, not the
+--      government system) returns HTTP 200 but its parcel-number search is non-functional
+--      for these IDs ("nothing matched your search terms") -- not usable as a citable
+--      source even if it did resolve, since it explicitly disclaims official affiliation.
+--   7. Found a PRIOR migration file, 20260711_gold_standard_shard10_citrus_seminole_lee_gulf_
+--      run3679.sql, whose SQL text includes an INSERT INTO parcel_zones for both
+--      '05004050R' and '05762000R' at jurisdiction_id=952 with zone_code='R-1', tagged
+--      source='inferred_residential_default_dor_crosswalk_r1_match'. Queried parcel_zones
+--      live for these exact parcel_ids this session: ZERO rows exist for either one, or for
+--      the migration's other two parcel_ids ('06051008R','06248410R' -- note: also written
+--      WITHOUT the dash that the existing '06051-008R'/'06248-410R' rows actually use, which
+--      would not have matched the view's join even if applied). Cannot determine from this
+--      session whether that INSERT was ever executed live (no execution log available) or
+--      whether it silently no-opped on a dash-format mismatch; either way the intended state
+--      does not exist today. Regardless of execution history: that value was an INFERENCE
+--      (default residential zone copied from a different, only-loosely-analogous parcel),
+--      not a verified per-parcel source, and does not meet this session's bar for a write
+--      even if reapplied. Declining to resurrect it.
+--
+-- CONCLUSION: No real, per-parcel, second-signal-corroborated zoning source exists for
+-- either '05762000R' or '05004050R' within this session's reach. Both are confirmed real
+-- Port St Joe residential lots (via authoritative county GIS), and a "default R-1" guess is
+-- plausible on pattern grounds (in-town platted residential grid, USECD=vacant-residential,
+-- same city as the one existing R-1-zoned PSJ parcel) -- but plausible is not verified, and
+-- this project's guardrail requires a second independent signal before writing a zone_code,
+-- which was not obtainable (no working zoning-district GIS layer, no working qPublic/
+-- appraiser zoning field, no georeferenced zoning map). Per Honesty Protocol / fabrication
+-- guardrail: BLANK > WRONG. No UPDATE/INSERT was executed.
+--
+-- RESULT: I remains FAIL, card_complete=12 of 14 (85.7%). No regression, no improvement,
+-- no drift on any other letter -- confirmed via a second live pencil_dod_evaluate_county('gulf')
+-- call at session end matching the session-start call exactly.
+--
+-- NEXT-SESSION LEVERS (not attempted / not exhausted): (a) direct outreach-style lookup via
+-- Gulf County Planning & Zoning dept if a future session gains access to a working contact-
+-- form or FOIA-style request channel; (b) retry qpublic.net / gulfpa.com from a different
+-- egress path if Cloudflare blocking is IP-based and varies by session; (c) if the City of
+-- Port St Joe ever publishes a georeferenced zoning-district GIS layer (unlike the current
+-- Land Use FLUM layer), replay this session's point-in-polygon method against it.
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
