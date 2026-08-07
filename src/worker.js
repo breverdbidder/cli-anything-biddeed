@@ -3681,12 +3681,14 @@ let animating=false,raf=null;
 function pct(v){return((v-MIN)/(MAX-MIN)*100).toFixed(3)+'%'}
 
 function setFill(v){
-  document.getElementById('ladder-fill').style.width=pct(v);
-  document.getElementById('sale-val').textContent='$'+v.toLocaleString();
+  const fill=document.getElementById('ladder-fill');
+  fill.style.transition='none';  // no CSS transition — JS drives it entirely
+  fill.style.width=pct(v);
+  document.getElementById('sale-val').textContent='$'+Math.round(v).toLocaleString();
 }
 
-// Init to final state
-setFill(FINAL);
+// Init to final state on load
+window.addEventListener('DOMContentLoaded',function(){setFill(FINAL);});
 
 function replayAuction(){
   if(animating)return;
@@ -3698,29 +3700,31 @@ function replayAuction(){
   status.textContent='Bidding in progress…';
   saleVal.style.color='var(--amber)';
 
-  let cur=ENTRY;
-  setFill(cur);
-
-  let last=null;
-  const STEP=90, INTERVAL=60;
+  // Animate from ENTRY to FINAL over ~2 seconds using timestamps
+  const DURATION=2000; // ms
+  let startTs=null;
 
   function tick(ts){
-    if(!last)last=ts;
-    const elapsed=ts-last;
-    if(elapsed>=INTERVAL){
-      last=ts;
-      cur=Math.min(cur+STEP,FINAL);
-      setFill(cur);
-      if(cur>=FINAL){
-        saleVal.style.color='var(--green)';
-        status.textContent='The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.';
-        animating=false;
-        btn.disabled=false;
-        return;
-      }
+    if(!startTs) startTs=ts;
+    const elapsed=ts-startTs;
+    const progress=Math.min(elapsed/DURATION,1);
+    // Ease-in-out for natural feel
+    const eased=progress<0.5?2*progress*progress:1-Math.pow(-2*progress+2,2)/2;
+    const cur=ENTRY+(FINAL-ENTRY)*eased;
+    setFill(cur);
+
+    if(progress<1){
+      raf=requestAnimationFrame(tick);
+    } else {
+      setFill(FINAL);
+      saleVal.style.color='var(--green)';
+      status.textContent='The sale closed at $73,501 — $8,499 under the ceiling, $1,401 over the entry. Every dollar where it should be.';
+      animating=false;
+      btn.disabled=false;
     }
-    raf=requestAnimationFrame(tick);
   }
+  // Reset to entry first, then start
+  setFill(ENTRY);
   raf=requestAnimationFrame(tick);
 }
 
@@ -3861,14 +3865,17 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 
 /* BID LADDER */
 .ladder-wrap{margin-bottom:20px}
-.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-bottom:36px}
-.ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));width:24.65%;transition:width .06s linear}
+.ladder-track{position:relative;height:8px;background:var(--charcoal);border-radius:999px;margin-bottom:52px}
+.ladder-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--green),var(--orange));width:24.65%}
 .marker{position:absolute;top:14px;display:flex;flex-direction:column;align-items:center;transform:translateX(-50%)}
 .marker-dot{width:8px;height:8px;border-radius:50%;position:absolute;top:-19px;transform:translateX(-50%)}
 .mgreen{background:var(--green);border:2px solid var(--green)}
 .mamber{background:var(--amber);border:2px solid var(--amber)}
 .morange{background:var(--orange);border:2px solid var(--orange)}
 .marker-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--slate);white-space:nowrap;text-align:center;line-height:1.3;margin-top:2px}
+/* Stagger overlapping labels vertically on mobile */
+.marker.stagger-down .marker-label{margin-top:20px}
+.marker.stagger-down .marker-dot{top:-35px}
 
 /* REPLAY */
 .replay-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
@@ -4095,7 +4102,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
           <div class="ladder-track">
             <div class="ladder-fill" id="ladder-fill"></div>
             <!-- markers: scale $70k–$84k = $14k. entry=72100 → 15%, plaintiff=71980 → 14.1%, ceiling=82000 → 85.7%, final=73501 → 24.65% -->
-            <div class="marker" style="left:14.1%">
+            <div class="marker stagger-down" style="left:14.1%">
               <div class="marker-dot mamber" style="left:0"></div>
               <div class="marker-label">PLAINTIFF INTEL<br>$71,980</div>
             </div>
