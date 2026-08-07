@@ -144,7 +144,7 @@ async function fetchS5ReportAccess(apiKey, mcaId) {
 // We never re-compute this from the live formula — the DB state for this
 // property has stale/null fields that produce garbage formula outputs.
 // Source of truth: Marion courthouse + RealForeclose.com Jul 24 capture.
-const MARION_SAMPLE_MCA_ID = '3d808c22-e403-437f-9612-4a3f457b711b';
+const MARION_SAMPLE_MCA_ID = 'cad5d07a-b9c7-433d-b365-3165637b7cbe'; // Palm Beach 502025CA005319 — AV $457K, sold $50K (11%), foreclosure
 const MARION_STATIC_REPORT = {
   cover: {
     case_number: '422021CA000414CAAXXX',
@@ -4232,7 +4232,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
     </div>
 
     <div class="cta-center">
-      <a class="btn-outline-orange" href="/report/3d808c22-e403-437f-9612-4a3f457b711b?key=bd_live_S9KLXyeH9fV1epdliLz731n1">Open the full sample report →</a>
+      <a class="btn-outline-orange" href="/report/cad5d07a-b9c7-433d-b365-3165637b7cbe?key=bd_live_S9KLXyeH9fV1epdliLz731n1">Open the full sample report →</a>
     </div>
   </div>
 </section>
