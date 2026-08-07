@@ -38,7 +38,7 @@ MODEL_VERSION = "v4.0-20260802-015242"
     secrets=[secrets],
     timeout=60,
     min_containers=1,   # keep 1 warm — eliminates cold starts
-    max_inputs=10,      # concurrent requests per container
+    max_inputs=1,      # concurrent requests per container
 )
 @modal.asgi_app()
 def serve():
