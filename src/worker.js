@@ -210,8 +210,8 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
     return s5Page({
       cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer,
       body: `
-        <div class="bidcard" style="border-color:#475569">
-          <div class="verdict" style="color:#94a3b8">SKIP — UNLOCATABLE</div>
+        <div class="bidcard" style="border-color:#b8cfe0">
+          <div class="verdict" style="color:#e2eaf2">SKIP — UNLOCATABLE</div>
           <p class="refusal">${escHtml(report.refusal || 'An estimate here would be fabrication.')}</p>
         </div>
         ${s5Section('ZW', 'ZoneWise Land & Zoning Intelligence', `<div class="pending">${escHtml(zw.verdict || 'Unavailable — subject unlocatable.')}</div>`, { headerBg: '#F97316' })}
@@ -373,7 +373,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
           ${s5Row('Value Midpoint', opp.value_midpoint != null ? `$${Number(opp.value_midpoint).toLocaleString()}` : 'Pending')}
           ${s5Row('Walk Away Above', maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : 'Hidden')}
         </div>
-        <div style="color:#475569;font-size:12px;margin-top:14px;font-style:italic">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
+        <div style="color:#b8cfe0;font-size:12px;margin-top:14px;font-style:italic">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
       </div>
     </div>`;
 
@@ -464,22 +464,22 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
 .rpt-brand-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .wordmark{font-size:19px;font-weight:700;letter-spacing:-.02em}
 .wordmark span{color:#F97316}
-.tagline{color:#94a3b8;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.tagline{color:#e2eaf2;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap}
-.btn-toolbar{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:999px;padding:8px 18px;cursor:pointer;border:1px solid rgba(148,163,184,.35);background:transparent;color:#94a3b8;transition:.15s}
+.btn-toolbar{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:999px;padding:8px 18px;cursor:pointer;border:1px solid rgba(148,163,184,.35);background:transparent;color:#e2eaf2;transition:.15s}
 .btn-toolbar:hover{border-color:#F97316;color:#F97316}
 .btn-toolbar.primary{background:#F97316;border-color:#F97316;color:#0B1929}
 .btn-toolbar.primary:hover{background:#FDBA74;border-color:#FDBA74}
 .rpt-divider-top{height:2px;background:linear-gradient(90deg,#F97316 0%,#F97316 30%,rgba(249,115,22,.15) 100%)}
 .rpt-addr-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
 .rpt-addr-main{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
-.rpt-addr-city{font-size:15px;color:#94a3b8;margin-top:2px}
-.rpt-meta{text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8;line-height:1.9}
+.rpt-addr-city{font-size:15px;color:#e2eaf2;margin-top:2px}
+.rpt-meta{text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e2eaf2;line-height:1.9}
 .rpt-meta-county{color:#fff;font-weight:700;letter-spacing:.08em}
 .rpt-divider-sub{height:1px;background:rgba(249,115,22,.4)}
 /* ── Summary grid ── */
 .summary-grid{background:#1E293B;border:1px solid rgba(249,115,22,.25);border-radius:10px;padding:20px 22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;margin-bottom:16px}
-.sg-label{font-size:10px;letter-spacing:.1em;color:#94a3b8;text-transform:uppercase}
+.sg-label{font-size:10px;letter-spacing:.1em;color:#e2eaf2;text-transform:uppercase}
 .sg-verdict{margin-top:8px;display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;padding:5px 14px;border-radius:999px}
 .sg-verdict.bid{background:#22C55E;color:#0B1929}
 .sg-verdict.skip{background:#EF4444;color:#fff}
@@ -501,14 +501,14 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
 .sec-tag.gold{background:rgba(245,197,24,.15);color:#F5C518}
 .sec-tag.conf{background:rgba(245,158,11,.15);color:#F59E0B}
 .sec-tag.comps{background:rgba(34,197,94,.15);color:#22C55E}
-.sec-pill{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#CBD5E1;border:1px solid rgba(148,163,184,.45);border-radius:999px;padding:7px 16px;white-space:nowrap;background:rgba(148,163,184,.08);flex-shrink:0}
+.sec-pill{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f0f4f8;border:1px solid rgba(148,163,184,.45);border-radius:999px;padding:7px 16px;white-space:nowrap;background:rgba(148,163,184,.08);flex-shrink:0}
 .sec-body{padding:18px 22px 22px}
 /* ── Rows ── */
 .row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.12);font-size:13px}
 .row:last-child{border-bottom:none}
-.row-l{color:#94a3b8}
+.row-l{color:#e2eaf2}
 .row-v{font-family:'JetBrains Mono',monospace;text-align:right;color:#e2e8f0}
-.pending{color:#475569;font-style:italic;font-size:13px;padding:8px 0}
+.pending{color:#b8cfe0;font-style:italic;font-size:13px;padding:8px 0}
 /* ── Value bands ── */
 .bands-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 .band-card{border-radius:10px;padding:18px}
@@ -517,30 +517,30 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
 .band-card-label{font-size:11px;letter-spacing:.08em;font-weight:700;text-transform:uppercase;line-height:1.5}
 .band-card-label.clearing{color:#F59E0B}
 .band-card-label.market{color:#22C55E}
-.band-card-sub{color:#94a3b8;font-weight:400;letter-spacing:.02em;text-transform:none;font-size:12px}
+.band-card-sub{color:#e2eaf2;font-weight:400;letter-spacing:.02em;text-transform:none;font-size:12px}
 .band-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0 12px;text-align:center}
-.band-num-label{font-size:10px;color:#94a3b8;letter-spacing:.08em}
+.band-num-label{font-size:10px;color:#e2eaf2;letter-spacing:.08em}
 .band-num-label.mid.clearing{color:#F59E0B}
 .band-num-label.mid.market{color:#22C55E}
 .band-num-val{font-family:'JetBrains Mono',monospace;font-size:15px;margin-top:4px}
 .band-num-val.mid{font-size:20px;font-weight:700}
 .band-num-val.mid.clearing{color:#F59E0B}
 .band-num-val.mid.market{color:#22C55E}
-.band-meta{font-size:12px;color:#94a3b8;font-family:'JetBrains Mono',monospace}
-.band-desc{margin:12px 0 0;font-size:13px;line-height:1.6;color:#CBD5E1}
+.band-meta{font-size:12px;color:#e2eaf2;font-family:'JetBrains Mono',monospace}
+.band-desc{margin:12px 0 0;font-size:13px;line-height:1.6;color:#f0f4f8}
 .spread-bar{margin-top:16px;background:rgba(249,115,22,.12);border:1px solid #F97316;border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .spread-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#F97316}
 .spread-val{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:#F97316}
-.spread-desc{font-size:13px;color:#CBD5E1;flex:1;min-width:240px;text-align:right}
+.spread-desc{font-size:13px;color:#f0f4f8;flex:1;min-width:240px;text-align:right}
 .net-equity-bar{margin-top:10px;background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.25);border-radius:10px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.net-equity-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#94a3b8}
+.net-equity-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#e2eaf2}
 .net-equity-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700}
-.net-equity-desc{font-size:13px;color:#94a3b8;flex:1;min-width:240px;text-align:right}
+.net-equity-desc{font-size:13px;color:#e2eaf2;flex:1;min-width:240px;text-align:right}
 /* ── Comps ── */
 .subhead{color:#F97316;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px;padding-left:14px;border-left:3px solid #F97316}
 .comp-table{width:100%;border-collapse:collapse;font-size:13px}
-.comp-table th{text-align:left;color:#94a3b8;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 8px;font-weight:500;border-bottom:1px solid rgba(148,163,184,.2)}
-.comp-table td{padding:10px 8px;border-bottom:1px solid rgba(148,163,184,.1);font-family:'JetBrains Mono',monospace;color:#CBD5E1}
+.comp-table th{text-align:left;color:#e2eaf2;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 8px;font-weight:500;border-bottom:1px solid rgba(148,163,184,.2)}
+.comp-table td{padding:10px 8px;border-bottom:1px solid rgba(148,163,184,.1);font-family:'JetBrains Mono',monospace;color:#f0f4f8}
 .comp-table td:first-child{font-family:'Inter',sans-serif;font-weight:500;color:#fff}
 /* ── Flags ── */
 .flags{display:flex;flex-direction:column;gap:8px;margin-top:12px}
@@ -560,17 +560,17 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
 .verdict.bid{color:#22C55E}
 .verdict.skip{color:#EF4444}
 .verdict.review{color:#F59E0B}
-.grade{color:#94a3b8;font-size:13px;margin-top:2px}
+.grade{color:#e2eaf2;font-size:13px;margin-top:2px}
 .maxbid-block{margin-top:20px;padding:20px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.3);border-radius:10px;text-align:center}
-.maxbid-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
+.maxbid-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#e2eaf2;margin-bottom:8px}
 .maxbid{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:52px;color:#F97316;line-height:1}
-.maxbid-sub{font-size:12px;color:#94a3b8;margin-top:6px;font-style:italic}
+.maxbid-sub{font-size:12px;color:#e2eaf2;margin-top:6px;font-style:italic}
 .bidcard-rows{margin-top:16px}
 /* ── Outcome ── */
 .outcome-pending{background:rgba(61,47,11,.5);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:14px 18px;color:#F59E0B;font-size:13px}
 .outcome-captured{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:14px 18px}
 /* ── Footer ── */
-.rpt-footer{color:#475569;font-size:11px;text-align:center;margin-top:32px;line-height:1.7;padding:20px 0;border-top:1px solid rgba(148,163,184,.12)}
+.rpt-footer{color:#b8cfe0;font-size:11px;text-align:center;margin-top:32px;line-height:1.7;padding:20px 0;border-top:1px solid rgba(148,163,184,.12)}
 /* ── Print ── */
 @media print{
   [data-noprint]{display:none!important}
@@ -902,7 +902,7 @@ function buildFreeReportFormHtml(prefillEmail, counties, prev) {
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 body{background:var(--void);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:2.5rem;max-width:480px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
@@ -982,7 +982,7 @@ function buildFreeReportDeliveryHtml(email, county, auctions, countyMeta, consen
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b;--green:#10B981}
+:root{--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b;--green:#10B981}
 body{background:var(--void);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding:2.5rem 1.5rem}
 .wrap{max-width:640px;margin:0 auto}
 .thanks{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:6px;padding:1rem 1.25rem;margin-bottom:2rem;font-size:.9rem;color:var(--muted)}
@@ -1522,7 +1522,7 @@ async function handleRequest(request, env, ctx) {
   <!-- Header -->
   <tr><td style="background:#0B1929;padding:28px 32px">
     <div style="font-size:22px;font-weight:700;color:#F97316;letter-spacing:-0.5px">BidDeed.AI</div>
-    <div style="font-size:13px;color:#94a3b8;margin-top:4px">Your Free ${countyDisplay} County Report</div>
+    <div style="font-size:13px;color:#e2eaf2;margin-top:4px">Your Free ${countyDisplay} County Report</div>
   </td></tr>
   <!-- Intro -->
   <tr><td style="padding:28px 32px 16px">
@@ -1533,10 +1533,10 @@ async function handleRequest(request, env, ctx) {
   <tr><td style="padding:0 32px">
     <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
       <tr style="background:#0B1929">
-        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Property</th>
-        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Date</th>
-        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Opening Bid</th>
-        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Type</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#e2eaf2;text-transform:uppercase;letter-spacing:.5px">Property</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#e2eaf2;text-transform:uppercase;letter-spacing:.5px">Date</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#e2eaf2;text-transform:uppercase;letter-spacing:.5px">Opening Bid</th>
+        <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#e2eaf2;text-transform:uppercase;letter-spacing:.5px">Type</th>
       </tr>
       ${auctionRows}
     </table>
@@ -1551,15 +1551,15 @@ async function handleRequest(request, env, ctx) {
   </td></tr>
   <!-- Investor Upsell -->
   <tr><td style="padding:0 32px 24px">
-    <div style="text-align:center;font-size:12px;color:#94a3b8">
+    <div style="text-align:center;font-size:12px;color:#e2eaf2">
       Want unlimited access to all 67 FL counties?
       <a href="https://biddeed.ai/subscribe?tier=investor" style="color:#F97316;text-decoration:none;font-weight:600"> Investor — $99/mo →</a>
     </div>
   </td></tr>
   <!-- Footer -->
   <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0">
-    <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center">BidDeed.AI · Everest Capital USA · Satellite Beach, FL<br>
-    Informational only — not legal, financial, or investment advice. <a href="https://biddeed.ai/disclaimer" style="color:#94a3b8">Disclaimer</a></p>
+    <p style="margin:0;font-size:11px;color:#e2eaf2;text-align:center">BidDeed.AI · Everest Capital USA · Satellite Beach, FL<br>
+    Informational only — not legal, financial, or investment advice. <a href="https://biddeed.ai/disclaimer" style="color:#e2eaf2">Disclaimer</a></p>
   </td></tr>
 </table>
 </td></tr>
@@ -2105,7 +2105,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .pc-badge.fc{background:rgba(245,158,11,.12);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
 .pc-badge.td{background:rgba(20,184,166,.12);color:#2dd4bf;border:1px solid rgba(20,184,166,.3)}
 .pc-badge.gold{background:rgba(245,158,11,.12);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
-.pc-badge.review{background:rgba(148,163,184,.1);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
+.pc-badge.review{background:rgba(148,163,184,.1);color:#e2eaf2;border:1px solid rgba(148,163,184,.3)}
 .pc-row1,.pc-row2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .pc-addr{font-size:13px;font-weight:700;color:white}
 .pc-date{font-size:11px;color:var(--muted);white-space:nowrap}
@@ -2664,7 +2664,7 @@ const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
@@ -2706,7 +2706,7 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
     <select id="county-select" style="display:none"></select>
     <button class="btn" id="county-continue" disabled style="display:none">Continue</button>
     <div class="err" id="county-err"></div>
-    <p id="county-note" style="display:none;font-size:12px;color:#94a3b8;margin-top:8px;">
+    <p id="county-note" style="display:none;font-size:12px;color:#e2eaf2;margin-top:8px;">
       ⭐ Gold Standard counties include full CMA, ZoneWise zoning, and ML prediction.
       All counties include Shapira Max Bid and opening bid analysis.
     </p>
@@ -2996,7 +2996,7 @@ body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; bac
 .grade-B { background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; }
 .grade-C { background:linear-gradient(135deg,#eab308,#ca8a04); color:#1f2937; }
 .grade-D { background:linear-gradient(135deg,#f97316,#ea580c); color:#fff; }
-.grade-E,.grade-X,.grade-Z { background:#475569; color:#cbd5e1; }
+.grade-E,.grade-X,.grade-Z { background:#b8cfe0; color:#cbd5e1; }
 [x-cloak] { display:none !important; }
 .scroll-h::-webkit-scrollbar { display:none; } .scroll-h { -ms-overflow-style:none; scrollbar-width:none; }
 .sheet { transform:translateY(100%); transition:transform .28s cubic-bezier(.32,.72,0,1); }
@@ -3810,7 +3810,7 @@ function buildHomepageHtml() { return `<!DOCTYPE html>
 :root{
   --navy:#0B1929;--navy-band:#0E2136;--header-strip:#12283F;--charcoal:#1E293B;
   --orange:#F97316;--orange-hover:#FDBA74;--slate:#94A3B8;--slate-dim:#64748B;
-  --body-text:#CBD5E1;--green:#22C55E;--amber:#F59E0B;--red:#EF4444;
+  --body-text:#f0f4f8;--green:#22C55E;--amber:#F59E0B;--red:#EF4444;
   --divider:rgba(148,163,184,0.12);--gold:#F5C518;
 }
 html{scroll-behavior:smooth}
@@ -4350,7 +4350,7 @@ const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <title>Terms of Service — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -4387,7 +4387,7 @@ const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
 <title>Privacy Policy — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -4426,7 +4426,7 @@ const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
 <title>Disclaimer — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -4455,7 +4455,7 @@ const DATA_RETENTION_HTML = `<!doctype html><html lang="en"><head>
 <title>Data Retention Policy — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -4511,7 +4511,7 @@ const SECURITY_HTML = `<!doctype html><html lang="en"><head>
 <title>Security — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}

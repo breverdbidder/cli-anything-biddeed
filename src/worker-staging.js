@@ -194,7 +194,7 @@ function buildStagingShell() {
   --green: #10b981;
   --surface: #f8fafc;
   --border: #e2e8f0;
-  --text-muted: #94a3b8;
+  --text-muted: #e2eaf2;
 }
 *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif}
 *:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
@@ -248,7 +248,7 @@ body{overflow:hidden}
 .file-pill{display:none;align-items:center;gap:6px;background:#1e3a5f;color:#e2e8f0;border-radius:14px;padding:4px 10px;font-size:11px;margin:8px 20px 0;width:fit-content}
 .file-pill button{background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:13px;line-height:1;padding:0}
 .input-bar{display:flex;align-items:center;gap:8px;padding:10px 20px}
-.clip-btn{background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:18px;padding:6px;flex-shrink:0}
+.clip-btn{background:transparent;border:none;color:#e2eaf2;cursor:pointer;font-size:18px;padding:6px;flex-shrink:0}
 .clip-btn:hover{color:var(--orange)}
 .input-bar input[type=text]{flex:1;min-width:0;background:#0f172a;border:1px solid #334155;color:#fff;border-radius:8px;padding:11px 12px;font-size:16px;outline:none;font-family:inherit}
 .input-bar input[type=text]:focus{border-color:var(--orange)}
@@ -263,14 +263,14 @@ body{overflow:hidden}
 @keyframes pulsep{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
 #refresh-btn{background:var(--navy);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;font-family:inherit}
 .panel-body{flex:1;overflow-y:auto;padding:18px 22px;min-height:0}
-.panel-subtitle{font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+.panel-subtitle{font-size:12px;font-weight:700;color:#b8cfe0;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
 .cards-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start}
 .empty{color:var(--text-muted);font-size:13px;padding:16px 0;grid-column:1/-1}
 
 /* County cards */
 .county-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px}
 .county-name{font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px}
-.county-stats,.county-next,.county-bids{font-size:12px;color:#475569;margin:2px 0}
+.county-stats,.county-next,.county-bids{font-size:12px;color:#b8cfe0;margin:2px 0}
 .county-card button{margin-top:10px;width:100%;background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 10px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
 .county-card button:hover{background:#0f2744}
 
@@ -284,7 +284,7 @@ body{overflow:hidden}
 .address{font-weight:700;font-size:14px;color:#0f172a;margin-bottom:2px}
 .auction-date{font-size:12px;color:#64748b;margin-bottom:10px}
 .financials{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
-.financials label{display:block;font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.financials label{display:block;font-size:9px;color:#e2eaf2;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
 .financials value{display:block;font-size:12.5px;font-weight:700;color:#0f172a;font-family:'SF Mono',monospace}
 .parity{font-size:11px;font-weight:600;margin-bottom:10px}
 .parity.ok{color:var(--green)}
@@ -304,7 +304,7 @@ body{overflow:hidden}
 .upgrade-text{font-size:13px;font-weight:600;color:#0f172a}
 .upgrade-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .btn-investor{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:9px 16px;border-radius:8px;font-weight:700;font-size:12.5px;text-decoration:none;white-space:nowrap}
-.upgrade-actions .or{font-size:11px;color:#94a3b8}
+.upgrade-actions .or{font-size:11px;color:#e2eaf2}
 .btn-report{background:#f1f5f9;border:1px solid var(--border);color:#334155;padding:9px 16px;border-radius:8px;font-weight:600;font-size:12.5px;text-decoration:none;white-space:nowrap}
 
 @media (max-width: 768px) {
@@ -694,7 +694,7 @@ function buildBuyReportHtml(prefill) {
 <title>Buy Shapira S5 Report — $25 (DEMO) | BidDeed.AI Staging</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,system-ui,-apple-system,sans-serif}
-:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#94a3b8;--border:#1e293b}
+:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#e2eaf2;--border:#1e293b}
 body{background:var(--navy);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:480px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:700;letter-spacing:.08em;margin-bottom:.75rem}
@@ -759,7 +759,7 @@ body{font-family:Inter,system-ui,sans-serif;background:#020617;color:#e2e8f0;dis
 .card{background:#0f172a;border:1px solid #1e3a5f;border-radius:12px;padding:40px;max-width:480px;text-align:center;}
 h1{color:#F59E0B;font-size:20px;}
 .key{font-family:'JetBrains Mono',monospace;background:#020617;border:1px solid #334155;border-radius:8px;padding:14px;margin:16px 0;font-size:16px;color:#22c55e;}
-p{color:#94a3b8;font-size:13px;}
+p{color:#e2eaf2;font-size:13px;}
 a{color:#F59E0B}
 </style></head>
 <body><div class="card">
