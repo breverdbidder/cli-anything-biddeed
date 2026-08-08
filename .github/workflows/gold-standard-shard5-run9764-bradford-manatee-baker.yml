@@ -1,0 +1,140 @@
+name: "Gold Standard SHARD-5 run-9764 — bradford/manatee/baker"
+# dispatch_id: 66eb9c40-b05f-49b1-a8fa-33c8138bdd7f
+# Session: architect-20260808T080000
+# bradford: 8/10 (B/F blocked — structural, logs only)
+# manatee:  7/10 (C/D=86.9%, I=84.1% — new rows since July, fix via RealForeclose+ArcGIS)
+# baker:    5/10 (C/D/E/I=64.7%, J=88.2% — enrich new rows, generate bid_decisions)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'County to run (bradford/manatee/baker/all/verify_only)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - manatee
+          - baker
+          - bradford
+          - verify_only
+  schedule:
+    - cron: '0 8 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: gold-standard-shard5-run9764-${{ github.event.inputs.target || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  shard5-run9764:
+    name: "SHARD-5 run-9764 — bradford/manatee/baker — ${{ github.event.inputs.target || 'all' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TARGET: ${{ github.event.inputs.target || 'all' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests -q
+
+      - name: Configure git
+        run: |
+          git config user.email "shard5-run9764-bot@biddeed.ai"
+          git config user.name "SHARD-5 run-9764 Gold Standard Bot"
+
+      - name: Verify-only — evaluate all 3 counties
+        if: ${{ github.event.inputs.target == 'verify_only' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'EOF'
+          import os, json, urllib.request
+          SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
+          SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
+          for county in ["bradford", "manatee", "baker"]:
+              url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+              req = urllib.request.Request(url, data=json.dumps({"p_county": county}).encode(), method="POST", headers=HEADERS)
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  result = json.loads(r.read())
+              print(f"\n=== {county.upper()} ===")
+              print(json.dumps(result, indent=2))
+          EOF
+
+      - name: Run session executor (all counties)
+        if: ${{ github.event.inputs.target != 'verify_only' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          python scripts/gold_standard_shard5_run9764_bradford_manatee_baker.py
+
+      - name: Run session executor (single county — ${{ github.event.inputs.target }})
+        if: ${{ github.event.inputs.target != 'verify_only' && github.event.inputs.target != 'all' && github.event.inputs.target != '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SINGLE_COUNTY: ${{ github.event.inputs.target }}
+        run: |
+          echo "Single-county mode: $SINGLE_COUNTY — full executor already ran above"
+
+      - name: Final evaluation — all 3 counties
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'EOF'
+          import os, json, urllib.request
+          SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
+          SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
+          targets = {"bradford": 10, "manatee": 10, "baker": 10}
+          for county, target_score in targets.items():
+              url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+              req = urllib.request.Request(url, data=json.dumps({"p_county": county}).encode(), method="POST", headers=HEADERS)
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  result = json.loads(r.read())
+              if isinstance(result, list):
+                  result = result[0] if result else {}
+              score = sum(1 for l in "ABCDEFGHIJ" if result.get(l, {}).get("pass", False))
+              print(f"\n=== {county.upper()} FINAL: {score}/10 ===")
+              for letter in "ABCDEFGHIJ":
+                  info = result.get(letter, {})
+                  p = "✓" if info.get("pass") else "✗"
+                  m = info.get("metric")
+                  d = info.get("detail", "")
+                  print(f"  {letter} {p} metric={m} [{d}]")
+          EOF
+
+      - name: Commit any script changes to main
+        run: |
+          git add scripts/gold_standard_shard5_run9764_bradford_manatee_baker.py || true
+          git add .github/workflows/gold-standard-shard5-run9764-bradford-manatee-baker.yml || true
+          git diff --staged --quiet || git commit -m "feat: gold standard shard-5 run-9764 executor + workflow (bradford/manatee/baker)
+
+          Session dispatch 66eb9c40-b05f-49b1-a8fa-33c8138bdd7f.
+          - bradford B/F: structural block confirmed, ultraloop audit logged
+          - manatee: RealForeclose AJAX + ArcGIS enrichment for new rows (C/D/I gap)
+          - baker: ArcGIS E backfill + bid_decisions J generator for new rows
+
+          Co-authored-by: breverdbidder <breverdbidder@users.noreply.github.com>"
+          git push origin main || echo "Push failed — likely no changes"
