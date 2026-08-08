@@ -1,0 +1,88 @@
+-- GOLD STANDARD holmes B/C/D/F -- dispatch 7d353fba-b6d0-405b-a3fe-d7caaf0753ac
+-- (shard-2: charlotte, santa_rosa, escambia, liberty, holmes), 2026-08-08
+-- 16th+ independent session confirming the identical B/C/D/F gap since 2026-07-10.
+--
+-- ============================================================================
+-- SCOPE
+-- ============================================================================
+-- Task: fix Gold Standard criteria B, C, D, F for HOLMES county (13 rows). All 13
+-- auction_dates have passed (most recent 2026-07-30, 9 days before this session).
+-- 12/13 rows still marked 'upcoming' with no sold_amount; 5/13 tax_deed rows have
+-- never been parity-checked (parity_status NULL), capping C/D at 8/13 = 61.5%.
+--
+-- ============================================================================
+-- PRIOR HISTORY (read in full before acting)
+-- ============================================================================
+-- 15+ prior sessions since 2026-07-10 (shard2 bootstrap, shard9, shard12/run3534,
+-- shard6/run4870 x2, shard8, shard11, shard3 x2, shard1 x4, shard7, shard14,
+-- shard9/run2820, shard5/f60cabe3 2026-08-01, shard/df5a4f3a 2026-08-03) all reached
+-- the identical conclusion: the B/C/D/F gap is a genuine data-availability ceiling,
+-- not a scraper/matcher bug. See GOLD_STANDARD_SHARD5_HOLMES_DISPATCH_F60CABE3_SESSION_REPORT.md
+-- and supabase/migrations/20260803_gold_standard_shard_df5a4f3a_holmes_bcdf_fix.sql for
+-- the full source-by-source dead-end inventory.
+--
+-- ============================================================================
+-- THIS SESSION'S FRESH LIVE RE-CHECK (2026-08-08)
+-- ============================================================================
+-- Ran scripts/holmes_bcdf_live_recheck_20260808.py against every previously-dead source:
+--   1. holmesclerk.com/courts/foreclosures-tax-deeds/foreclosures/ -- HTTP 200, 123568
+--      bytes. Only "sold" occurrence is boilerplate scheduling text ("scheduled to be
+--      sold to the highest bidder at the front door..."), confirmed NOT a disposition
+--      field, byte-for-byte consistent with all prior sessions.
+--   2. holmesclerk.com/courts/foreclosures-tax-deeds/tax-deeds/ -- HTTP 200, 121940
+--      bytes, dateModified 2026-07-21T18:29:45Z (predates every one of the 5 gap
+--      cases' sale dates). Grepped for all 5 gap case numbers (TD#2023-225, -185,
+--      -496, -584, TD#2020-589): zero occurrences of any -- consistent with every
+--      prior session, these cases have rolled off the only real listing source with
+--      no archive/results mechanism on this domain.
+--   3. myfloridacounty.com/orisearch/30 -- HTTP 200 landing (301->200), no CAPTCHA/
+--      Turnstile markup on the GET. Consistent with 5+ prior sessions' finding that
+--      Turnstile gates the search POST only. Per the hard rule against ever attempting
+--      to solve/bypass a CAPTCHA/Cloudflare Turnstile wall, the POST was NOT attempted.
+--   4. Firecrawl credit-usage endpoint (api.firecrawl.dev/v1/team/credit-usage)
+--      re-checked live: remaining_credits=-8 (still exhausted, WORSE than -4 on
+--      2026-08-03 -- confirms no restoration, the one documented re-attempt condition
+--      has not triggered).
+--   5. realtaxdeed.com, holmes.realtaxdeed.com, holmes.realforeclose.com,
+--      lienhub.com/county/holmes -- all HTTP 403 (bot-blocked), a genuinely new check
+--      this session (these vendor tax-sale platforms were not individually probed by
+--      name in prior sessions, though the class was referenced) -- confirms no signal.
+--
+-- Net: zero new information that changes any conclusion. No new avenue identified.
+--
+-- ============================================================================
+-- WRITES THIS SESSION
+-- ============================================================================
+-- Zero writes to multi_county_auctions, tax_deed_outcomes, foreclosure_outcomes, or
+-- parity_status. No fabricated sold_amount, disposition, or parity match introduced.
+-- Per HARD GUARDRAILS and HONESTY PROTOCOL (BLANK > WRONG), a confirmed structural
+-- absence is reported as BLOCKED, not refabricated to move a metric.
+--
+-- 4 fresh gold_standard_ultraloop_audit rows logged (dispatch_id
+-- 7d353fba-b6d0-405b-a3fe-d7caaf0753ac, letters B/C/D/F, all survived=true) carrying
+-- this session's live evidence in refuter_evidence (jsonb), keeping the certify-gate
+-- freshness window current. Applied live via Supabase Management API (see verification
+-- query below to re-confirm; not restated as INSERT DDL here since already applied).
+--
+-- 1 gold_standard_campaign closeout row inserted for this dispatch_id/county.
+--
+-- I/J regression check: confirmed NOT touched, NOT regressed. Live evaluator shows
+-- I: card_complete=13 of 13 (100%), J: deal_complete=13 (100%) -- unchanged.
+--
+-- ============================================================================
+-- VERIFICATION (run to reproduce this session's findings)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('holmes');
+--   Expected: 6/10 -- A,E,G,H,I,J pass; B,C,D,F fail; matched_clean=matched_any=8 (61.5%);
+--   verified=0/closed_sold=0; tier1_sold=0/closed_sold=0. (H's freshness metric drifts
+--   upward with time since last_seen_at -- this alone is not a regression; confirmed
+--   2.3h -> unchanged behavior at re-check.)
+--
+-- SELECT letter, survived, created_at FROM public.gold_standard_ultraloop_audit
+--   WHERE dispatch_id = '7d353fba-b6d0-405b-a3fe-d7caaf0753ac' AND county_slug='holmes'
+--   ORDER BY letter;
+--   Expected: 4 rows (B, C, D, F), all survived=true, created_at ~2026-08-08T08:21Z.
+--
+-- python3 scripts/holmes_bcdf_live_recheck_20260808.py
+--   Reproduces every live HTTP check in this session (no secrets required except
+--   FIRECRAWL_API_KEY for the credit-usage check, which is optional/skippable).
