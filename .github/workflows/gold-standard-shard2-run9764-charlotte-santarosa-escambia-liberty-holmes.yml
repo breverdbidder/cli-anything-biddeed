@@ -1,0 +1,101 @@
+name: "Gold Standard SHARD-2 Run 9764 — charlotte, santa_rosa, escambia, liberty, holmes"
+
+# dispatch_id: 7d353fba-b6d0-405b-a3fe-d7caaf0753ac
+# issue: breverdbidder/cli-anything-biddeed#18354
+# WIRING MANDATE: script is executed here; results written to DB
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Phase to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - charlotte_i
+          - santa_rosa_i
+          - escambia_cd
+          - liberty_abf
+          - holmes_bcdf
+          - verify
+
+concurrency:
+  group: gold-standard-shard2-run9764
+  cancel-in-progress: false
+
+jobs:
+  shard2-run9764-main:
+    name: "SHARD-2 Run 9764 — charlotte/santa_rosa/escambia/liberty/holmes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx --quiet
+
+      - name: Set statement timeout guard
+        run: |
+          echo "Script sets statement_timeout=0 via SQL as needed"
+
+      - name: Run SHARD-2 run-9764 session executor
+        env:
+          PHASE: ${{ github.event.inputs.phase || 'all' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/gold_standard_shard2_18354_charlotte_santarosa_escambia_liberty_holmes.py
+
+      - name: Verify final county evaluations
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import os, json, urllib.request
+
+          SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+          SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY", "")
+
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No credentials — skipping verification")
+              exit(0)
+
+          counties = ["charlotte", "santa_rosa", "escambia", "liberty", "holmes"]
+          print("=== FINAL VERIFICATION ===")
+          for county in counties:
+              req = urllib.request.Request(
+                  f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county",
+                  data=json.dumps({"p_county": county}).encode(),
+                  method="POST",
+                  headers={
+                      "apikey": SUPABASE_KEY,
+                      "Authorization": f"Bearer {SUPABASE_KEY}",
+                      "Content-Type": "application/json",
+                  }
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(f"\n{county}:")
+                  if isinstance(result, list):
+                      for item in result:
+                          letter = item.get("letter", "?")
+                          metric = item.get("metric")
+                          passed = item.get("pass", False)
+                          status = "PASS" if passed else "FAIL"
+                          print(f"  {letter}: {status} metric={metric}")
+                  else:
+                      print(json.dumps(result, indent=2))
+              except Exception as e:
+                  print(f"  {county}: evaluation failed: {e}")
+          EOF
