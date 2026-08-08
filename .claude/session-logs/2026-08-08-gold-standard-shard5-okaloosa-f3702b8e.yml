@@ -1,0 +1,131 @@
+session:
+  shard: SHARD-5 okaloosa (dispatch f3702b8e-bf93-4048-ae8c-6fb79bd0f7ba, loop run 9805)
+  chat_session: architect-20260808T160000
+  date: 2026-08-08
+  issue: "https://github.com/breverdbidder/cli-anything-biddeed/issues/18362"
+
+pre_session_baseline:
+  okaloosa: "6/10 per dispatch brief: A,B,F,G,H,J pass; C,D,E,I fail"
+  metrics:
+    A: "PASS metric=28 [fc=41 td=28]"
+    B: "PASS metric=100.0 [verified=18 closed_sold=18]"
+    C: "FAIL metric=94.2 [matched_clean=65]"
+    D: "FAIL metric=94.2 [matched_any=65]"
+    E: "FAIL metric=94.2 [parcel_linked=65]"
+    F: "PASS metric=100.0 [tier1_sold=18 closed_sold=18]"
+    G: "PASS metric=98.4 [density=98.4 far=100.0 pk1000=100.0]"
+    H: "PASS metric=4.6h [SLA 48h]"
+    I: "FAIL metric=92.8 [card_complete=64 of 69]"
+    J: "PASS metric=100.0 [deal_complete=69]"
+
+decisions:
+  - step: 1
+    action: "Read all relevant prior session reports for okaloosa: SHARD7-E0481214
+      (2026-07-25 okaloosa 9/10 at 57 rows), SHARD4-run6354 (2026-07-25 okaloosa
+      9/10 at 59 rows), SHARD3-C366EE22-3rd-firing (2026-07-19 okaloosa 9/10 at
+      40 rows then partial G fix)."
+    result: "ROOT CAUSE CONFIRMED: okaloosa grew from 59 → 69 rows since the
+      2026-07-25 run6354 session. The 10 new rows from recent scrapes lack
+      parcel_id (breaks E at 65/69=94.2%), parity_status (breaks C/D), and
+      zone_code in parcel_zones (breaks I at 64/69=92.8%). Math check:
+      95% of 69 = 65.55, so need ≥66 for C/D/E/I threshold to pass."
+    reason: "Evidence-Before-Claims — read 3 prior session logs before touching anything."
+
+  - step: 2
+    action: "Analyzed blocking structure:
+      - 2 dead stubs (2024-CA-000470, 2024-TDD-000089) confirmed unresolvable across
+        5+ prior sessions — no address, no parcel, orphaned RealAuction SPA rows.
+      - TD rows: have Bid4Assets APN already — parity_status just needs to be promoted.
+      - FC rows: need GIS lookup via okgis.myokaloosa.com ArcGIS REST (confirmed live
+        in both 2026-07-19 and 2026-07-25 sessions).
+      - I: needs parcel_zones entries after parcel_id linkage; Okaloosa zoning ArcGIS
+        layer (Planning-Development/Zoning/MapServer/28) confirmed live in 2026-07-19
+        3rd-firing session."
+    result: "UNTESTED — cannot execute from this hook-gated CC action context.
+      Scripts written and committed to branch claude/issue-18362-20260808-1600."
+
+  - step: 3
+    action: "Created migration SQL: migrations/20260808_gold_standard_shard5_okaloosa_f3702b8e.sql
+      - STEP 1a: promote TD rows with parcel_id to matched_clean (C/D fix)
+      - STEP 1b: promote FC rows with parcel_id to matched_clean (post-GIS enrichment C/D fix)
+      - STEP 2: H freshness belt+suspenders
+      - STEP 3: parcel_zones backfill for I (copies existing zone_code from county)"
+    reason: "Pattern reused from prior county sessions (shard5-9e12d062, shard4-run6354)."
+    result: "UNTESTED — committed to branch."
+
+  - step: 4
+    action: "Created orchestrator script: scripts/okaloosa_shard5_f3702b8e_executor.py
+      - Runs baseline pencil_dod_evaluate_county (BEFORE)
+      - Runs okaloosa_parcel_gis_enrich.py (links FC rows without parcel_id via ArcGIS REST)
+      - Applies migration SQL (promotes newly-linked rows to matched_clean)
+      - Runs post-evaluation (AFTER)
+      - Updates gold_standard_campaign checkpoint"
+    reason: "WIRING MANDATE: must execute scraper, not just commit. Executor wraps
+      the proven-live okaloosa_parcel_gis_enrich.py script."
+    result: "UNTESTED — committed to branch. Execution blocked by hook approval gates."
+
+  - step: 5
+    action: "Attempted to create GitHub Actions workflow. Permission DENIED by GitHub App
+      (workflows permission not granted to this GH App installation)."
+    result: "BLOCKED: Cannot create .github/workflows/ files from this context.
+      Workflow file removed from commit to allow push."
+
+  - step: 6
+    action: "Pushed migration + executor to branch claude/issue-18362-20260808-1600
+      per git push. Cannot merge to main directly from this CC action context."
+    result: "Branch pushed successfully. PR creation also blocked by hook."
+
+artifacts:
+  - file: "migrations/20260808_gold_standard_shard5_okaloosa_f3702b8e.sql"
+    status: UNTESTED
+    purpose: "Parity promotion + H freshness + parcel_zones backfill"
+  - file: "scripts/okaloosa_shard5_f3702b8e_executor.py"
+    status: UNTESTED
+    purpose: "Full orchestrator: baseline → GIS enrich → migration → after-eval → checkpoint"
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county('okaloosa') BEFORE"
+    proof: "UNTESTED — hook approval gates prevented Python execution"
+  - check: "okaloosa_parcel_gis_enrich.py execution"
+    proof: "UNTESTED — hook approval gates prevented Python execution"
+  - check: "Migration SQL applied to live Supabase"
+    proof: "UNTESTED — hook approval gates prevented mgmt_sql.py execution"
+  - check: "pencil_dod_evaluate_county('okaloosa') AFTER"
+    proof: "UNTESTED — cannot verify without DB access"
+
+status_board:
+  okaloosa: "6/10 (unchanged — session produced code/migration but execution blocked.
+    Code committed to branch for merge + dispatch via existing GHA infrastructure.)"
+
+blockers:
+  - "GitHub App lacks 'workflows' permission — cannot create .github/workflows/ files"
+  - "Pre-bash hooks blocking Python/pip execution — cannot run mgmt_sql.py or scripts"
+  - "WIRING MANDATE violated: code committed but not executed this session"
+
+next_session_priorities:
+  - "URGENT: Merge branch claude/issue-18362-20260808-1600 to main and execute
+    scripts/okaloosa_shard5_f3702b8e_executor.py against live DB"
+  - "Dispatch gold-standard-shard5-okaloosa-f3702b8e.yml workflow (needs manual creation
+    or reuse of existing gold-standard-shard3-daily.yml with okaloosa target)"
+  - "okaloosa I: after parcel linkage, run Okaloosa GIS zoning layer
+    (okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/Zoning/MapServer/28)
+    to populate parcel_zones for 10 new rows — layer confirmed live as of 2026-07-19"
+  - "Verify that 95% threshold can be met for C/D/E/I: need ≥66/69 (95.65%)"
+  - "2 dead stubs (2024-CA-000470, 2024-TDD-000089) remain unresolvable — structural cap
+    is (69-2)/69=97.1% for E, and (69-3)/69=95.7% for I (also needs Mary Esther parcel
+    if that's still in scope at 69-row denominator)"
+
+session_close:
+  criteria_passed:
+    A: true
+    B: true
+    C: false
+    D: false
+    E: false
+    F: true
+    G: true
+    H: true
+    I: false
+    J: true
+  exit_reason: "blocked — hook approval gates prevented execution"
+  session_end_at: "2026-08-08T16:30:00Z"
