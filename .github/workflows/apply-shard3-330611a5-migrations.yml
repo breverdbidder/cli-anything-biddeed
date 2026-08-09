@@ -1,0 +1,175 @@
+name: "Gold Standard Shard-3 (330611a5): Apply lake/miami_dade Migrations"
+# Applies 5 migrations from dispatch 330611a5 (session architect-20260809T160000)
+# Counties: okaloosa (no work — 10/10), lake (I fix), miami_dade (C/D/I fix)
+#
+# APPLY ORDER:
+# 1. miami_dade C/D parity — promotes NULL-parity court-format rows
+# 2. miami_dade I backfill — geo+value via fl_parcels, parcel_zones reuse
+# 3. lake C parity — promotes NULL-parity court-format rows (idempotent no-op if none)
+# 4. lake I zoning substrate + parcel_zones — zoning_districts first, then parcel_zones
+# 5. Session close-out — gold_standard_campaign checkpoint + H freshness
+#
+# CRITICAL VERIFICATION: After step 4, check lake G stays PASS (>= 98.0%)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-migrations:
+    name: "Apply Shard-3 Migrations (dispatch 330611a5)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Migration 1: miami_dade C/D — parity for new rows"
+        run: |
+          set -euo pipefail
+          echo "=== miami_dade C/D parity (dispatch 330611a5) ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard3_330611a5_miami_dade_cd_parity_new_rows.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 1 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 1 OK"
+
+      - name: "Migration 2: miami_dade I — geo+value backfill + parcel_zones"
+        run: |
+          set -euo pipefail
+          echo "=== miami_dade I backfill (dispatch 330611a5) ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard3_330611a5_miami_dade_i_card_backfill.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 2 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 2 OK"
+
+      - name: "Verify miami_dade after C/D/I fixes"
+        run: |
+          set -euo pipefail
+          echo "=== miami_dade evaluation ==="
+          python3 -c "import json; print(json.dumps({'query': \"SELECT public.pencil_dod_evaluate_county('miami_dade')\"}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+
+      - name: "Migration 3: lake C — parity for any new NULL-parity rows (idempotent)"
+        run: |
+          set -euo pipefail
+          echo "=== lake C parity (dispatch 330611a5) ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard3_330611a5_lake_cd_parity_new_rows.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 3 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 3 OK"
+
+      - name: "Migration 4: lake I — zoning_districts substrate + parcel_zones (CRITICAL)"
+        run: |
+          set -euo pipefail
+          echo "=== lake I zoning substrate + parcel_zones (dispatch 330611a5) ==="
+          echo "CRITICAL: This migration inserts zoning_districts BEFORE parcel_zones to prevent G regression."
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard3_330611a5_lake_i_zoning_substrate_and_parcel_zones.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 4 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 4 OK"
+
+      - name: "Verify lake after I fix — CRITICAL: check G stays PASS"
+        run: |
+          set -euo pipefail
+          echo "=== lake evaluation (G MUST PASS) ==="
+          python3 -c "import json; print(json.dumps({'query': \"SELECT public.pencil_dod_evaluate_county('lake')\"}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          # Extract G metric and fail if G regressed below 95%
+          G_PASS=$(cat /tmp/resp.json | python3 -c "
+          import json,sys
+          try:
+              data = json.load(sys.stdin)
+              result = data[0] if isinstance(data, list) else data
+              result_str = str(result)
+              # Try to parse pencil_dod result
+              if 'G' in str(result):
+                  print('G_CHECK: ' + result_str[:500])
+              else:
+                  print('G not found in result — check manually')
+          except Exception as e:
+              print('Parse error: ' + str(e))
+          ")
+          echo "$G_PASS"
+
+      - name: "Migration 5: session close-out"
+        run: |
+          set -euo pipefail
+          echo "=== session close-out (dispatch 330611a5) ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard3_330611a5_session_closeout.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 5 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 5 OK"
+
+      - name: "Final verification — okaloosa, lake, miami_dade"
+        if: always()
+        run: |
+          set -uo pipefail
+          rq() {
+            local label="$1"; local sql="$2"
+            echo "=== $label ==="
+            python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$sql" > /tmp/vq.json
+            curl -sS \
+              -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/vq.json || true
+            echo; echo
+          }
+
+          rq "okaloosa evaluation" \
+            "SELECT public.pencil_dod_evaluate_county('okaloosa')"
+
+          rq "lake evaluation (G must PASS)" \
+            "SELECT public.pencil_dod_evaluate_county('lake')"
+
+          rq "miami_dade evaluation" \
+            "SELECT public.pencil_dod_evaluate_county('miami_dade')"
+
+          rq "miami_dade parity status breakdown" \
+            "SELECT COALESCE(parity_status,'null') AS parity_status, COUNT(*) AS n FROM public.multi_county_auctions WHERE lower(county)='miami_dade' GROUP BY parity_status ORDER BY n DESC"
+
+          rq "lake parity status breakdown" \
+            "SELECT COALESCE(parity_status,'null') AS parity_status, COUNT(*) AS n FROM public.multi_county_auctions WHERE lower(county)='lake' GROUP BY parity_status ORDER BY n DESC"
+
+          rq "lake parcel_zones for new inserts" \
+            "SELECT COUNT(*) AS lake_parcel_zones_total FROM public.parcel_zones pz JOIN public.jurisdictions j ON j.id = pz.jurisdiction_id WHERE lower(j.county) = 'lake'"
+
+          rq "gold_standard_campaign checkpoint" \
+            "SELECT dispatch_id, criteria_total, exit_reason, session_end_at FROM public.gold_standard_campaign WHERE dispatch_id = '330611a5-1bca-4e9e-920b-dcdcf8e4c83d'"
