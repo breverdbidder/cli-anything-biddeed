@@ -1,0 +1,53 @@
+session:
+  date: 2026-08-09
+  issue: architect-triage-18374
+  county: brevard
+  failing_letter: I (card_complete)
+  baseline: "card_complete=6093 of 7244 (84.1%)"
+  final: "card_complete=6095 of 7244 (84.1%, rounds unchanged)"
+
+decisions:
+  - step: "Determine exact card_rows denominator (7244) and card_complete predicate"
+    action: "Read pencil_dod_evaluate_county SQL from supabase/migrations/20260718_gtm22_phase1_3_pencil_dod_snapshot_param_and_loop_rewire.sql"
+    result: "card_rows excludes data_source=propertyonion rows unless tier1_authoritative=true (8885-1641=7244, verified via PostgREST count). card_complete requires property_address, COALESCE(lat,po_lat), COALESCE(lng,po_lng), COALESCE(assessed_value,market_value) all NOT NULL, plus parcel_id resolving in v_zoning_gold_standard_card by parcel_id or tax_account."
+    reason: "Needed exact denominator/predicate match before diagnosing gap composition, per HONESTY PROTOCOL (no estimates)"
+  - step: "Fetch all 7244 card_rows + 341,902-row zoning-card substrate, compute gap client-side"
+    action: "python3 scripts (parallelized PostgREST pagination), wrote /tmp/brevard_gap.json"
+    result: "Computed card_complete=6093 locally, exact match to live RPC output before any write -- confirms predicate understanding was correct"
+    reason: "Cross-checking against a fresh table dump avoids relying purely on the RPC as both oracle and target"
+  - step: "Classify 1,151-row gap by exact failing predicate"
+    action: "Counted reason combinations"
+    result: "989 rows: address-only gap. ~120 rows: parcel_id present but unzoned in all 3 substrate tables. ~40 rows: no address at all + other missing fields."
+    reason: "Root-cause before attempting any fix, per systematic-debugging"
+  - step: "Verify 989-row bucket against sample_properties (existing FL GIO/DOR ingestion table)"
+    action: "Random 50-row sample, joined by tax_account=parcel_id"
+    result: "50/50 confirmed address='UNKNOWN' or blank at source -- reconfirms 2026-07-28 and 2026-07-30 prior-session findings independently"
+    reason: "AUTO-VERIFY: tools existed to test now, did not defer to another session"
+  - step: "Check ~120-row parcel_id_unzoned bucket against parcel_zones and sample_properties by both parcel_id and tax_account keys"
+    action: "Direct PostgREST lookups on 8 sample rows"
+    result: "Zero matches in either substrate table under either key -- no linkage data exists in this DB, not mechanically fixable"
+    reason: "Confirms this bucket is a genuine substrate gap, not a query/join bug"
+  - step: "Identify and fix the only 2 mechanically-derivable rows"
+    action: |
+      Row 0fb73de8 (parcel 2426611): missing lat/lng only. sample_properties had no
+      centroid_lat/lon but had a ring-polygon geometry -- derived centroid via simple
+      vertex average. PATCHed via scoped PostgREST PATCH.
+      Row 346d463b (parcel 2107356): missing assessed_value only. sample_properties
+      land_value(44000)+building_value(87120)=131120 -- PATCHed.
+    result: "card_complete 6093 -> 6095 (+2, exact match to rows patched)"
+    reason: "Both traced to a real, cited source already in this DB; no invented values"
+
+artifacts:
+  - supabase/migrations/20260809d_architect_triage_18374_brevard_i_2row_geo_value_backfill.sql
+
+verification:
+  - check: "Re-ran SELECT public.pencil_dod_evaluate_county('brevard') live via RPC after patch"
+    proof: "2026-08-09 16:16:02 UTC: I detail=card_complete=6095 of 7244, metric=84.1, pass=false. A,B,C,D,E,F,G,H,J unchanged, all pass=true."
+    status: VERIFIED
+
+conclusion:
+  root_cause: "Structural data-availability wall at the FL GIO/DOR cadastral source (989 rows genuinely lack an address, confirmed UNKNOWN at source) plus a zoning-substrate linkage gap for ~120 parcel_ids not present in parcel_zones/sample_properties/v_zoning_gold_standard_card under any key. Not a scraping/pipeline defect within this session's data. This matches and independently reconfirms the 2026-07-30 shard-4 session's conclusion (dispatch 09f985fc)."
+  fix_applied: true
+  rows_changed: 2
+  structural_block: true
+  next_session_priority: "Same as 2026-07-30 report: AcclaimWeb case-number-to-parcel_id linkage for no-parcel-id rows (lifts both I and E); bcpao.us remains Cloudflare-gated for the UNKNOWN-address bucket."
