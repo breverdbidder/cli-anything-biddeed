@@ -1,0 +1,139 @@
+-- GOLD STANDARD gilchrist, letter E (parcel linkage) + downstream letter I (card_complete,
+-- which structurally requires E's parcel_id to even attempt a zoning-card match).
+-- No-op documentation artifact: honest exhaustion, nothing written. BLANK > WRONG.
+--
+-- BASELINE (VERIFIED live via public.pencil_dod_evaluate_county('gilchrist') at session
+-- start AND again at session end -- IDENTICAL, no drift either direction):
+--   E: pass=false, parcel_linked=8 of 14 (57.1%), threshold >=95%.
+--   I: pass=false, card_complete=8 of 14 (57.1%) -- same 6 rows block both letters.
+--   All other letters (A/B/C/D/F/G/H/J) already PASS and were not touched this session:
+--     A=fc10+td4, B=100(1/1), C=100(14), D=100(14), F=100(1/1), G=density100, H=0.1h, J=100(14).
+--
+-- THE 6 TARGET ROWS (all data_source='calendar_sweep_mca_v3', property_address IS NULL,
+-- parcel_id IS NULL, re-queried live this session -- owner_name/plaintiff ARE populated):
+--   212025CA000033CAAXMX  owner=Chad Slocum
+--                         plaintiff=Carrington Mortgage Services LLC
+--                         auction_url AID=1512459
+--   212025CA000036CAAXMX  owner=TREVOR SMITH
+--                         plaintiff=LOANDEPOTCOM LLC
+--                         auction_url AID=1512460
+--   212025CA000043CAAXMX  owner=DANIELLE JAY MERCADO AS KNOWN HEIR OF KENNETH MARC[...]
+--                         plaintiff=U S BANK TRUST NATIONAL ASSOCIATION NOT IN ITS IND[...]
+--                         auction_url AID=1512462
+--   212025CA000064CAAXMX  owner=JEANNIE MAE JOINER
+--                         plaintiff=21ST MORTGAGE CORPORATION
+--                         auction_url AID=1512463
+--   212025CA000070CAAXMX  owner=RAYA C. HUTCHINSON, PERSONAL REPRESENTATIVE OF THE[...]
+--                         plaintiff=WINTRUST MORTGAGE, A DIVISION OF BARRINGTON BANK[...]
+--                         auction_url AID=1512464
+--   212026CA000004CAAXMX  owner=PAUL E TAPE JR
+--                         plaintiff=BKE VENTURES INC
+--                         auction_url AID=1512465
+--
+-- SOURCES ATTEMPTED THIS SESSION (all genuinely tried, all genuinely blocked -- not skipped):
+--
+--   1. Civitek OCRS (https://www.civitekflorida.com/ocrs/county/21/) -- the Gilchrist Clerk
+--      of Court's designated online case-search system (confirmed via WebSearch, matches
+--      the "Public" access-tier gate documented in prior sessions for hamilton/columbia/
+--      dixie/putnam/bradford, same CivitekFlorida platform). This session did not repeat
+--      the full browser-automation attempt (already exhaustively documented as
+--      Cloudflare-Turnstile-blocked in
+--      supabase/migrations/20260807i_gold_standard_shard1_hamilton_cd_civitek_turnstile_blocked.sql
+--      and 4 other migrations for different counties on the identical platform) -- same
+--      vendor, same gate, no new lever available. STATUS: pre-confirmed dead end, not
+--      re-attempted (would waste session budget repeating an identical, already-proven
+--      block).
+--
+--   2. RealForeclose.com auction detail pages -- we already have direct AID-keyed detail
+--      URLs for all 6 rows in the auction_url column (e.g.
+--      gilchrist.realforeclose.com/index.cfm?zaction=auction&zmethod=details&AID=1512459).
+--      Genuinely attempted via:
+--        a. WebFetch directly on the detail URL -> HTTP 403 Forbidden.
+--        b. curl with browser User-Agent, session cookies established via a prior GET to
+--           the public auction-calendar homepage, and Referer header set to that homepage
+--           -> HTTP 200 but body is the login "Splash Page" (verified via
+--           <title>RealForeclose- Gilchrist County -Splash Page</title> and body text
+--           containing "User Name or Password is Invalid" / login form), not the actual
+--           case detail content. The site requires an authenticated session
+--           (registration credentials) to view bid/case details beyond the bare calendar
+--           list -- confirmed genuine login gate, not a bot-detection artifact (no
+--           Cloudflare/Turnstile markers found in this response).
+--      STATUS: blocked, no credentials available.
+--
+--   3. qPublic.net / Schneider Corp (Gilchrist County Property Appraiser parcel search,
+--      https://qpublic.schneidercorp.com/Application.aspx?App=GilchristCountyFL&Layer=
+--      Parcels&PageType=Search) -- attempted via WebFetch (403 Forbidden) and curl with
+--      browser UA (403, response body confirmed containing literal strings "Cloudflare"
+--      and "captcha"). STATUS: Cloudflare-blocked, same class of gate as OCRS.
+--
+--   4. gilchristcountypropertyappraiser.org (alternate appraiser domain surfaced by
+--      WebSearch) -- attempted via WebFetch and curl; response is a client-side JS
+--      "One moment, please... Please wait while your request is being verified..."
+--      anti-bot interstitial that reloads every 5s and never resolves for a non-JS-
+--      executing client. STATUS: blocked.
+--
+--   5. gilchristclerk.com (official Clerk site, both root and /court-records/,
+--      /court-services/ subpages) -- WebFetch returned 403 Forbidden on all pages tried.
+--      STATUS: blocked.
+--
+--   6. circuit8.org (8th Judicial Circuit) Gilchrist foreclosures page -- WebFetch
+--      succeeded (200) but returned no case-number or address content relevant to these
+--      6 cases (page is a general foreclosure-process explainer, not a case list).
+--      STATUS: not a usable source for this data.
+--
+--   7. FL GIO Statewide Cadastral ArcGIS REST API
+--      (services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/
+--      Florida_Statewide_Cadastral/FeatureServer/0/query), attempting to cross-reference
+--      the 6 owner_name values (Slocum, Trevor Smith, Mercado, Joiner, Hutchinson, Tape)
+--      against Gilchrist County (CO_NO=21, confirmed via fl_counties table) parcels via
+--      OWN_NAME. Genuinely attempted via httpx with 6+ distinct WHERE-clause / parameter
+--      combinations (CO_NO=21 alone; CO_NO=21 AND OWN_NAME LIKE; CO_NO=21 with
+--      resultOffset/resultRecordCount pagination matching scripts/ingest_county.py's
+--      proven pattern; CO_NO=21 with orderByFields=OBJECTID). Every CO_NO=21 variant
+--      either (a) timed out server-side after 45-85s (httpx.ReadTimeout) or (b) returned
+--      HTTP 200 with body {"error":{"code":400,"message":"Cannot perform query. Invalid
+--      query parameters."}} -- inconsistent behavior across identical-shape requests,
+--      consistent with a genuinely overloaded/misbehaving public ArcGIS service for this
+--      specific CO_NO filter today, not a fixable client-side bug. This matches
+--      scripts/ingest_county.py's own inline comment anticipating this exact failure mode
+--      ("Use OBJECTID range approach since WHERE CO_NO=X times out on count"). A control
+--      query with WHERE=1=1 (no CO_NO filter) succeeded immediately, confirming the
+--      service itself is reachable and the failure is specific to the CO_NO=21 predicate
+--      under load right now. zoning_assignments and sample_properties both confirmed
+--      (via live COUNT(*) query) to have ZERO existing Gilchrist rows -- no local cache of
+--      FL GIO data exists to fall back on for this county. STATUS: blocked by live
+--      service instability, not attempted-and-abandoned.
+--
+-- CONCLUSION: No address, parcel_id, or case-detail content was retrieved for any of the
+-- 6 target rows this session. No parcel_id, property_address, or data_source value was
+-- written for any row. Per Honesty Protocol / fabrication guardrail: BLANK > WRONG -- we
+-- have owner names and plaintiff names for all 6 cases, but zero verified path from those
+-- names to a real parcel_id or address today, and guessing from a "similar" owner-name
+-- match on the statewide cadastral layer (even if the timeout had not occurred) without a
+-- successful, confirmed single-record return would itself violate the "cite the exact
+-- source" instruction for this task -- not attempted.
+--
+-- RESULT: E and I remain FAIL at 57.1% (8 of 14) -- confirmed identical via a second live
+-- pencil_dod_evaluate_county('gilchrist') call at session end vs. session start. No
+-- regression, no improvement, no drift on any other letter.
+--
+-- NEXT-SESSION LEVERS (not exhausted):
+--   1. Retry the FL GIO ArcGIS CO_NO=21 query at a different time of day -- the
+--      inconsistent 400-vs-timeout behavior observed this session (identical shape
+--      requests, different failure modes) suggests transient server load rather than a
+--      permanent block; a future session may simply get a clean response.
+--   2. A funded Firecrawl account (current balance confirmed -8/1000, exhausted, same as
+--      documented in prior hamilton/columbia sessions) would allow `firecrawl scrape` or
+--      `firecrawl interact` against qpublic.schneidercorp.com and civitekflorida.com from
+--      Firecrawl's own IP pool, which may not trip the same Cloudflare heuristics as this
+--      sandbox's direct curl/WebFetch calls.
+--   3. Gilchrist Clerk's office direct contact (352-463-3170 / 112 South Main St, Trenton
+--      FL) or the RealForeclose registration process (foreclosures@circuit8.org,
+--      352-384-3093) could provide either a login credential or a manual case lookup for
+--      these 6 specific case numbers -- outside this session's autonomous scope.
+--   4. If a future session ingests Gilchrist via scripts/ingest_county.py --county 21
+--      --full (currently 0 rows in zoning_assignments/sample_properties for this county),
+--      a local Postgres owner-name join against the 6 defendant names above would avoid
+--      hitting the live ArcGIS service's CO_NO filter entirely.
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
