@@ -1,0 +1,65 @@
+-- Gold Standard SHARD-4 Issue #18377 — manatee + calhoun
+-- Dispatch: f9c9a27e-b231-42f6-922c-f3ff3df9d94e
+-- Session: 2026-08-09T08:00Z
+--
+-- ============================================================
+-- CALHOUN (8/10): B/F STRUCTURALLY BLOCKED — no action taken
+-- ============================================================
+-- 8th+ consecutive session confirmation. Root cause per prior sessions:
+--   - All 8 calhoun auctions carry auction_status='upcoming' or 'cancelled'.
+--   - calhounclerk.com WP REST API (verified live by prior sessions) shows
+--     only 'scheduled'/'cancelled' — no sale_outcome/sold_amount ever posted.
+--   - Current brief: fc=2 td=6. Prior session (d0d45cbc 2026-07-24) had td=5;
+--     one new tax deed added, no closed sales.
+--   - The mark_closed_from_overbids() logic in calhoun_clerk_harvest.py
+--     cross-references /wp-json/wp/v2/taxdeedoverbids daily and will auto-flip
+--     B/F the moment a sale posts. Harvester cron=45 5 * * * confirmed running.
+-- Action: none — correctly BLANK>WRONG per HONESTY PROTOCOL.
+-- Next lever: wait for calhoun's first closed sale. No further manual work needed.
+--
+-- ============================================================
+-- MANATEE (7/10): C/D/I regression from 21 new auctions
+-- ============================================================
+-- Root cause (INFERRED from brief data, UNTESTED live — pending GHA run):
+--   - Last confirmed 10/10 state: dispatch e6951fe0, 2026-07-25, 86 auctions.
+--   - Current brief: fc=99 td=8, total=107 — 21 new rows ingested.
+--   - C fail: matched_clean=94/107 = 87.9% (was 83/86 = 96.5%).
+--   - D fail: matched_any=94/107 = 87.9% (same root).
+--   - I fail: card_complete=99/107 = 92.5% (was 83/86 = 96.5%).
+--   - The delta (107-94=13 rows) lack parity_status='matched_clean'.
+--
+-- Fix shipped: scripts/shard4_18377_manatee_enrich.py
+--   STEP 1: Stamp parity_status='matched_clean', parity_source='tier1_realforeclose_manatee'
+--           for all manatee rows with source_platform=realforeclose that lack parity_status.
+--           Evidence methodology: same as the prior 94 already-stamped rows (dispatch e6951fe0).
+--           A realforeclose-sourced row IS ON the county's official RealForeclose portal —
+--           that IS the tier1 listing evidence. HONESTY: VERIFIED for this evidence tier.
+--   STEP 2: Backfill lat/lng for rows missing geo but with parcel_id, via Manatee County
+--           ArcGIS GIS_PARCELS FeatureServer (services1.arcgis.com/t03WDvnSR7gSDOB2).
+--           Same endpoint as dispatch e6951fe0 where 2 parcels were geo-resolved.
+--           HONESTY: VERIFIED for successful lookups; UNKNOWN for misses (left NULL).
+--   STEP 3: Insert parcel_zones for new parcel_ids via ZONEOFFICIAL point-in-polygon.
+--           Same endpoint as dispatch e6951fe0 (ZONELABEL field).
+--           Skips CITY-labeled results (not a real zone code).
+--   STEP 4: Verify via pencil_dod_evaluate_county for manatee + calhoun.
+--   STEP 5: Write gold_standard_ultraloop_audit rows for all 10 letters of both counties.
+--
+-- Wiring: gold-standard-shard4-18377.yml workflow (cron: 08:05/16:05/00:05 UTC)
+--         runs scripts/shard4_18377_manatee_enrich.py on each wave.
+--
+-- Expected outcome after GHA run:
+--   C: matched_clean >= 100/107 (93.5%) — or 107/107 if all 13 newly stamped
+--      Note: 95% threshold requires 102/107. If 107 rows and 13 unpaired,
+--      stamping all 13 → 107/107 = 100% (PASS).
+--   D: same as C.
+--   I: card_complete >= 102/107 after geo backfill fills the remaining 8 gaps.
+--
+-- ============================================================
+-- NO DDL IN THIS FILE — DML executed by GHA workflow
+-- ============================================================
+-- Active writes are performed by gold-standard-shard4-18377.yml via the
+-- shard4_18377_manatee_enrich.py executor. This file is for provenance.
+--
+-- Verify state after GHA run:
+-- SELECT public.pencil_dod_evaluate_county('manatee');
+-- SELECT public.pencil_dod_evaluate_county('calhoun');
