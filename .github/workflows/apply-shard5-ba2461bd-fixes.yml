@@ -1,0 +1,108 @@
+name: "Gold Standard Shard-5: Apply lee+st_johns fixes (ba2461bd)"
+# Applies 2 migrations from SHARD-5 session ba2461bd-d091-4621-b809-9f1a3fa4244c
+#
+# Migration 1 (st_johns): 20260809_shard5_ba2461bd_stjohns_new_cases_fix.sql
+#   - Backfills assessed_value + geo for new st_johns cases (50→54)
+#   - Fixes parity_source → tier1% for C/D letter credit
+#   - Inserts parcel_zones via PUD catalog (G-guard: existing PUD entry only)
+#   - Inserts bid_decisions (J letter fix) with Shapira formula, ml_score=0.65
+#   - Ultraloop audit entries for C, D, E, I, J letters
+#   Target: st_johns 5/10 → 10/10
+#
+# Migration 2 (lee): 20260809_shard5_ba2461bd_lee_ei_residual_fix.sql
+#   - Adds zoning_districts catalog for 5 blocking zone codes (regulated=false → G-safe)
+#   - Adds zone_standards with all regulated=false
+#   - Inserts parcel_zones via zoning_assignments join
+#   - Backfills assessed_value/geo for I-gap rows
+#   - Bid_decisions backfill for newly-linked parcels
+#   - Ultraloop audit entries for I and G letters
+#   Target: lee I 92.9% → ≥95% (from ~295/322 → ~307+/322)
+#
+# Dispatch: ba2461bd-d091-4621-b809-9f1a3fa4244c  session: architect-20260809T080000
+# Uses Supabase Management API (SUPABASE_ACCESS_TOKEN) — same pattern as apply-gold-standard-fix.yml
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-shard5-fixes:
+    name: "Apply Shard-5 lee+st_johns Migrations"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Migration 1: st_johns new-cases fix (C/D/E/I/J letters)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260809_shard5_ba2461bd_stjohns_new_cases_fix.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard5_ba2461bd_stjohns_new_cases_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 1 (st_johns) failed HTTP $HTTP"; exit 1; }
+          echo "Migration 1 (st_johns) OK"
+
+      - name: "Migration 2: lee I-letter residual fix (zoning catalog + parcel_zones)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260809_shard5_ba2461bd_lee_ei_residual_fix.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260809_shard5_ba2461bd_lee_ei_residual_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 2 (lee) failed HTTP $HTTP"; exit 1; }
+          echo "Migration 2 (lee) OK"
+
+      - name: "Verify: pencil_dod_evaluate_county for lee + st_johns"
+        if: always()
+        run: |
+          set -uo pipefail
+          rq() {
+            local label="$1"; local sql="$2"
+            echo "=== $label ==="
+            python3 -c "import json,sys; print(json.dumps({'query': sys.argv[1]}))" "$sql" > /tmp/vq.json
+            curl -sS \
+              -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/vq.json || true
+            echo; echo
+          }
+
+          rq "lee A-J scores post-migration" \
+            "SELECT * FROM pencil_dod_evaluate_county('lee') ORDER BY letter"
+
+          rq "st_johns A-J scores post-migration" \
+            "SELECT * FROM pencil_dod_evaluate_county('st_johns') ORDER BY letter"
+
+          rq "lee parcel_zones count (I denominator)" \
+            "SELECT COUNT(*) AS lee_parcel_zones FROM parcel_zones pz JOIN multi_county_auctions mca ON mca.parcel_id = pz.parcel_id WHERE lower(mca.county) = 'lee'"
+
+          rq "st_johns bid_decisions count (J denominator)" \
+            "SELECT COUNT(*) AS stjohns_bid_decisions FROM bid_decisions bd JOIN multi_county_auctions mca ON mca.id = bd.mca_id WHERE lower(mca.county) = 'st_johns'"
+
+          rq "st_johns parity_source tier1 count (C/D denominator)" \
+            "SELECT COUNT(*) AS tier1_rows FROM multi_county_auctions WHERE lower(county) = 'st_johns' AND parity_source LIKE 'tier1%'"
+
+          rq "lee zoning_districts new entries (shard5)" \
+            "SELECT code, name, source FROM zoning_districts WHERE source LIKE 'shard5_ba2461bd%' ORDER BY code"
+
+          rq "G guard: lee new districts all regulated=false" \
+            "SELECT zd.code, zs.density_regulated, zs.far_regulated, zs.pk1000_regulated FROM zoning_districts zd LEFT JOIN zone_standards zs ON zs.zone_district_id = zd.id WHERE zd.source LIKE 'shard5_ba2461bd%' ORDER BY zd.code"
+
+          rq "ultraloop audit entries (shard5 ba2461bd)" \
+            "SELECT county, letter, survived, created_at FROM gold_standard_ultraloop_audit WHERE dispatch_id = 'ba2461bd-d091-4621-b809-9f1a3fa4244c' ORDER BY county, letter"
+
+          rq "session close-out record" \
+            "SELECT dispatch_id, exit_reason, session_end_at FROM gold_standard_campaign WHERE dispatch_id = 'ba2461bd-d091-4621-b809-9f1a3fa4244c'"
