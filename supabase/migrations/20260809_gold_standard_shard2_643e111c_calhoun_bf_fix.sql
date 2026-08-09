@@ -1,0 +1,88 @@
+-- Gold Standard shard-2 (dispatch 643e111c): calhoun B/F re-investigation --
+-- case "171 OF 2023" (the row flagged as newly changed since the 2026-07-10
+-- session, supabase/migrations/20260710_shard12_calhoun_taxdeed_lane_acd_fix.sql)
+--
+-- NO-OP migration: documents a real, new finding that still falls short of
+-- the bar for populating sold_amount/tier1_sold_amount honestly. Nothing
+-- is written to the DB by this file.
+--
+-- CONTEXT: multi_county_auctions now shows this row with auction_status=
+-- 'completed', tier1_sale_status='sold' (auction_date 2026-07-09), but
+-- sold_amount/tier1_sold_amount are still NULL and no tax_deed_outcomes row
+-- exists. Confirmed live via Management API before starting:
+--   SELECT case_number, auction_status, tier1_sale_status, sold_amount,
+--          tier1_sold_amount, parcel_id, data_source
+--   FROM multi_county_auctions
+--   WHERE case_number='171 OF 2023' AND lower(county)='calhoun';
+--   -> auction_status=completed, tier1_sale_status=sold, sold_amount=NULL,
+--      tier1_sold_amount=NULL, parcel_id=33-1N-08-0780-0001-0203,
+--      data_source=calhoun_clerk_scrape
+--
+-- INVESTIGATION (new since 07-10 -- this case genuinely did not exist as a
+-- "closed" opportunity in the prior session, which found closed_sold=0
+-- fleet-wide for calhoun):
+--
+-- 1. https://www.calhounclerk.com/court-services/property-sales/tax-deed-sales/
+--    (live fetch 2026-08-09) -- the page's embedded Vue `:taxdeeds` JSON blob
+--    still lists cert "171 OF 2023" with status="scheduled" and
+--    opening_bid="6472.01" ($6,472.01). This is the pre-sale listing page
+--    and has NOT been updated post-sale -- it does not carry a result.
+--
+-- 2. https://calhounclerk.com/taxdeeds/171-of-2023/ (case detail page,
+--    live fetch) -- no distinct data beyond #1, no winning-bid field, no
+--    PDF certificate of sale attached (pdf_file:false in the source blob).
+--
+-- 3. https://calhounclerk.com/county-recorder/tax-deed-surplus/ (live fetch,
+--    2026-08-09) -- THIS IS THE NEW EVIDENCE. The Tax Deed Surplus registry
+--    (a distinct dataset from the pre-sale listing, populated only after a
+--    sale closes and a surplus is confirmed) now carries an entry for this
+--    exact parcel:
+--      title: "2025-20-TD", cert: "171 OF 2023",
+--      parcel: "33-1N-08-0780-0001-0203" (matches our row exactly),
+--      sale_date: "Jul 9, 2026 10:00 am" (matches our auction_date exactly),
+--      balance: "2579.51" ($2,579.51), owner: "Bama Lee Cooper",
+--      unclaimed_date: "Jul 24, 2027 10:00 am"
+--    This independently confirms (via a page the county only populates
+--    post-sale) that the auction genuinely closed and produced a surplus,
+--    corroborating tier1_sale_status='sold'.
+--
+-- WHY sold_amount IS STILL NOT POPULATED (no fabrication):
+--   Per FL Statute 197.582(2)/(6) (flsenate.gov/statutes/197.582, verified
+--   2026-08-09): surplus = high_bid - opening_bid, GROSS -- but clerk service
+--   charges under s.28.24(11) and mailing costs are then paid OUT OF that
+--   surplus before the former owner is disbursed the remainder. The
+--   published "balance" field on the surplus page is the former owner's
+--   payout, i.e. NET of clerk fees, not the gross surplus. Reconstructing
+--   sold_amount as opening_bid($6,472.01) + balance($2,579.51) = $9,051.52
+--   would silently assume zero clerk fee was deducted, which the statute
+--   says is generally false -- the true high bid is >= $9,051.52 by an
+--   unknown, case-specific fee amount not published anywhere found (no PDF
+--   certificate of sale, no court docket entry, no third-party aggregator
+--   -- taxsaleresources.com has no case-level data for this cert).
+--   Per HARD GUARDRAIL #1 (never fabricate a sold amount), a derived figure
+--   with an unverified assumption is not acceptable as an "authoritative
+--   source" value. Leaving sold_amount/tier1_sold_amount NULL is the honest
+--   outcome here, same posture as the 2026-07-10 session, but for a
+--   different, evidence-backed reason (arithmetic uncertainty, not absence
+--   of any sale data).
+--
+-- pencil_dod_evaluate_county('calhoun') -- confirmed unchanged (queried live
+-- before and after this investigation, no DB writes performed):
+--   B: verified=0 closed_sold=0 (FAIL, metric=null) -- unchanged
+--   F: tier1_sold=0 closed_sold=0 (FAIL, metric=null) -- unchanged
+--   A/C/D/E/G/H/I/J: unaffected, still PASS (unchanged from 07-10 state)
+--   calhoun remains 8/10 (B, F fail).
+--
+-- RESIDUAL / next-session lead: if a future session can obtain the actual
+-- certificate of sale or court disbursement order for case 171 OF 2023 /
+-- file 2025-20-TD (e.g. via a Calhoun County official records search for
+-- instrument type "Tax Deed" recorded on/after 2026-07-09, or by calling
+-- the Clerk's office at 850-674-4545 per the site's own guidance), the
+-- gross high bid can be confirmed directly instead of reconstructed. Do NOT
+-- populate sold_amount from the opening_bid+balance sum without that
+-- confirmation.
+--
+-- No SQL to run -- this file is intentionally a documentation-only
+-- migration (idempotent no-op) recording a verified-negative investigation
+-- per HONESTY PROTOCOL (BLANK > WRONG).
+SELECT 1;
