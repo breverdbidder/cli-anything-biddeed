@@ -1,0 +1,126 @@
+-- GOLD STANDARD hamilton, letters C/D (parity: matched_clean / matched_any).
+-- No-op documentation migration: honest exhaustion re-confirmed, nothing written.
+-- BLANK > WRONG.
+--
+-- BASELINE (live-verified this session via direct PostgREST query against
+-- multi_county_auctions WHERE county=eq.hamilton, 2026-08-09):
+--   21 total rows. 17 parity_status='matched_clean', 4 parity_status='mca_only'.
+--   C: matched_clean = 17/21 = 81.0%   (threshold >=95%, i.e. >=20/21) -> FAIL
+--   D: matched_any    = 17/21 = 81.0%  (same threshold)                -> FAIL
+--   IDENTICAL to the last-recorded baseline in
+--   20260807i_gold_standard_shard1_hamilton_cd_civitek_turnstile_blocked.sql --
+--   no drift in either direction since that session.
+--
+-- THE 4 TARGET ROWS (unchanged from prior sessions, re-verified live this session):
+--   2021-CA-46  id=6b19469c-f278-40f2-b815-357ec8bd230a  parcel 4833-015
+--               judgment $249,152.16
+--   2023-CA-41  id=7f3dc51f-6513-4827-84fb-21af665fdde9  parcel 8282-000
+--               16797 Mill Street, White Springs FL 32096  judgment $157,395.19
+--   2024-CA-19  id=e591ada4-9c26-4efc-9c1d-707825554bad  parcel 2007-000
+--               1658 3rd St NW, Jasper FL 32052  judgment $23,600.85
+--   2025-CA-37  id=390c869c-44ae-4540-ad08-28282b7fd75b  parcel 3819-070
+--               7123 NW CR 146, Jennings FL 32053  judgment $139,660.12
+--
+-- WORK PERFORMED THIS SESSION (all VERIFIED via live tool output, not inferred):
+--
+-- 1. Live hamiltonclerk.com/foreclosures/ re-fetch (curl + independent WebFetch pass):
+--    both confirm the current page lists exactly 4 foreclosure cases -- 2025-CA-28,
+--    2025-CA-46, 2025-CA-66, 2025-CA-92 -- and NONE of the 4 target cases. No
+--    pagination or archive link exists on the page (confirmed via full href extraction,
+--    54 links, all site-nav, none case-search/archive). Identical finding to the
+--    2026-08-07 session; independently reproduced, not merely re-cited.
+--
+-- 2. Archive.org corroboration (NEW this session -- not present in prior migrations):
+--    CDX query for hamiltonclerk.com/foreclosures/ returned 16 snapshots. The
+--    2026-05-16 snapshot (closest to these cases' scheduled sales) shows all 4 target
+--    cases WERE genuinely listed with real scheduled sale dates:
+--      2021-CA-46: "DATE OF SALE - MAY 5, 2026", judgment $249,152.16, parcel 4833-015
+--      2023-CA-41: U.S. Bank Trust Natl Assoc vs Ruby T Williams, "DATE OF SALE - MAY 12,
+--                  2026", judgment $157,395.19, 16797 Mill Street White Springs
+--      2024-CA-19: Wilmington Savings Fund Society vs Amanda Leigh Shaw, "DATE OF SALE -
+--                  APRIL 29, 2026", judgment $23,600.85, 1658 3rd St NW Jasper
+--      2025-CA-37: Lakeview Loan Services LLC vs Ruthann Elise Rice, "DATE OF SALE - MAY
+--                  13, 2026", judgment $139,660.12, 7123 NW CR 146 Jennings
+--    This proves these are real, non-fabricated cases whose sale dates (Apr 29-May 13,
+--    2026) are now 3+ months in the past relative to today (2026-08-09) -- consistent
+--    with them having dropped off the clerk's "upcoming sales only" page because the
+--    sale already occurred, not because the cases never existed. No post-sale outcome
+--    (sold/cancelled/continued) is captured anywhere on archive.org -- the site does not
+--    retain a results/outcome page, only the pre-sale listing.
+--    NOTE (separate, unrelated data-quality residual, NOT acted on this session): the
+--    DB's auction_date for these 4 rows (2026-08-05 x3, 2026-08-12 x1) does not match
+--    the real scheduled sale dates found in the archive (Apr 29-May 13, 2026). This is
+--    a stale/incorrect auction_date, flagged for a future ingestion-focused session --
+--    out of scope for a parity_status fix and does not change the C/D match outcome
+--    either way.
+--
+-- 3. Civitek OCRS (civitekflorida.com/ocrs/county/24/) re-checked live via curl this
+--    session: page loads (200), is the same PrimeFaces/JSF access-gate confirmed in the
+--    prior session (Public/Attorney/Registered/Party buttons, ViewState-driven AJAX
+--    postback). Not re-attempted via Playwright this session (prior session's Turnstile
+--    block on the actual search form, after clearing this same gate, is not something a
+--    fresh gate-page fetch can bypass or disprove -- re-running the identical blocked
+--    step would not produce new information).
+--
+-- 4. NEW LEVER ATTEMPTED THIS SESSION -- myfloridacounty.com/orisearch/24 (Hamilton's
+--    Official Records search, linked from hamiltonclerk.com/official-record-search/,
+--    a genuinely different system/URL from Civitek OCRS though same hosting family):
+--      a. GET https://www.myfloridacounty.com/orisearch/24 -> 200, plain HTML form (no
+--         JS framework, no visible captcha on page load) with Party Name, Legal
+--         Description, Document Type (incl. LIS PENDENS, JUDGMENT, CERTIFIED COPY OF A
+--         COURT JUDGMENT), Date Range, and Instrument Number/Book/Page search fields.
+--         This looked like a promising alternative litmus source -- it indexes recorded
+--         documents (deeds, judgments, lis pendens) which would show whether a
+--         foreclosure sale actually recorded a certificate of title for these parcels.
+--      b. Attempted a live POST search (legalDescription=parcel id, all document types,
+--         fresh session cookie + jsessionid captured from the GET) against the form's
+--         own action URL.
+--      c. BLOCKED: the search POST returns a Cloudflare Turnstile challenge page
+--         ("Please verify you are human", sitekey 0x4AAAAAAA64PTBePmuGbrkR, confirmed via
+--         response body containing challenges.cloudflare.com/turnstile/v0/api.js and a
+--         cf-turnstile div) -- the form itself loads without a gate, but the actual
+--         search action is Turnstile-protected server-side. Same failure class as the
+--         already-documented Civitek OCRS block (different sitekey, different app, same
+--         "no query can be submitted without a genuine human-solved Turnstile token, and
+--         no CDP-undetectable browser or funded remote-browser service is available in
+--         this sandbox" outcome).
+--      d. No party name, no plaintiff/defendant, no recorded judgment/lis pendens data
+--         was ever returned for any of the 4 target parcels from this source. No
+--         parity_status was written based on it.
+--
+-- 5. RealForeclose/RealTaxDeed platforms checked as a sanity fallback: both
+--    hamilton.realforeclose.com and hamilton.realtaxdeed.com return HTTP 403 (not
+--    accessible / not this county's actual auction platform -- Hamilton's own
+--    data_source field already correctly points to hamiltonclerk.com, confirmed
+--    consistent with this 403).
+--
+-- CONCLUSION: every reachable litmus source for these 4 case numbers (clerk static
+-- page, Civitek OCRS, myfloridacounty ORI official-records search, archive.org,
+-- RealForeclose/RealTaxDeed) has now been checked this session or the immediately
+-- prior one. Two independent search systems (Civitek OCRS and myfloridacounty ORI) are
+-- both Turnstile-gated at the query step in a way this sandbox cannot clear. The clerk's
+-- own static page confirms these cases are real (corroborated via archive.org with
+-- actual sale dates, plaintiffs, and judgment amounts matching our DB exactly) but does
+-- not carry a post-sale outcome/status page. No parity_status, parity_source,
+-- parity_confidence, or updated_at was written for any of the 4 rows this session. Per
+-- Honesty Protocol / fabrication guardrail: BLANK > WRONG.
+--
+-- RESULT: C and D remain FAIL at 81.0% (17 of 21) -- re-confirmed via live PostgREST
+-- query at session start, identical to the 2026-08-07 session's end-state. No
+-- regression, no improvement, no drift on any other letter (not re-checked this session
+-- since scope was C/D only, per this dispatch's instructions).
+--
+-- NEXT-SESSION LEVERS (carried forward, none exhausted by this session's new findings):
+--   1. A funded Firecrawl account (`firecrawl interact`) or an installed browser-use CLI
+--      with cloud/remote-browser mode may clear Turnstile on EITHER Civitek OCRS or
+--      myfloridacounty ORI via a different IP-reputation/fingerprint pool than this
+--      sandbox's local Playwright -- genuinely untested against the ORI target
+--      specifically (only tested against Civitek OCRS in the 2026-08-07 session).
+--   2. A human-driven manual lookup on either portal for these 4 cases would sidestep
+--      Turnstile entirely.
+--   3. The DB's auction_date mismatch (found this session: DB says Aug 2026, archive.org
+--      shows real sale dates were Apr/May 2026) is a genuine, separate ingestion-quality
+--      bug worth fixing in a future B/F or ingestion-focused session -- unrelated to C/D
+--      parity_status and not fixed here (would not change the match outcome).
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
