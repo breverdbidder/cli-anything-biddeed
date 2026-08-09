@@ -1,0 +1,844 @@
+{
+  "receipt": [
+    {
+      "case_number": "2016CA002108",
+      "parcel_id": "032225010000009000",
+      "property_address": "102 BLACKSTONE CREEK RD",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 274606,
+        "latitude": 28.599521,
+        "longitude": -81.799405
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "032225010000009000",
+        "PropertyAddress": "102 BLACKSTONE CREEK RD",
+        "TotalJustValue": 274606,
+        "LandValue": 71250,
+        "BuildingValue": 203356
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2022CA001715",
+      "parcel_id": "291728010000004900",
+      "property_address": "25814 FISHERMAN'S RD",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 201356,
+        "latitude": 28.982868,
+        "longitude": -81.528613
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "291728010000004900",
+        "PropertyAddress": "25814 FISHERMAN'S RD",
+        "TotalJustValue": 201356,
+        "LandValue": 49870,
+        "BuildingValue": 150274
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2023CA000414",
+      "parcel_id": "132326000100000800",
+      "property_address": "9901 AVALON WOODS DR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 853967,
+        "latitude": 28.49092,
+        "longitude": -81.662192
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "132326000100000800",
+        "PropertyAddress": "9901 AVALON WOODS DR",
+        "TotalJustValue": 853967,
+        "LandValue": 489913,
+        "BuildingValue": 363190
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2023CA002935",
+      "parcel_id": "211927020000013102",
+      "property_address": "1890 ERIC LN",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 168426,
+        "latitude": 28.819795,
+        "longitude": -81.625227
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "211927020000013102",
+        "PropertyAddress": "1890 ERIC LN",
+        "TotalJustValue": 168426,
+        "LandValue": 34522,
+        "BuildingValue": 133904
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2024CA000105",
+      "parcel_id": "112225100500000300",
+      "property_address": "10626 SPRING LAKE DR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 484537,
+        "latitude": 28.586723,
+        "longitude": -81.778162
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "112225100500000300",
+        "PropertyAddress": "10626 SPRING LAKE DR",
+        "TotalJustValue": 484537,
+        "LandValue": 102300,
+        "BuildingValue": 366173
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2024CA001079",
+      "parcel_id": "262125200500020900",
+      "property_address": "909 TIDAL POND DR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 414247,
+        "latitude": 28.615767,
+        "longitude": -81.784349
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "262125200500020900",
+        "PropertyAddress": "909 TIDAL POND DR",
+        "TotalJustValue": 414247,
+        "LandValue": 80000,
+        "BuildingValue": 334247
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA000018",
+      "parcel_id": "222125000300002600",
+      "property_address": "20390 US HIGHWAY 27",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 5117061,
+        "latitude": 28.643167,
+        "longitude": -81.804394
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "222125000300002600",
+        "PropertyAddress": "20390 US HIGHWAY 27",
+        "TotalJustValue": 5117061,
+        "LandValue": 958567,
+        "BuildingValue": 3995330
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA000251",
+      "parcel_id": "262426240000000400",
+      "property_address": "10813 RUSHWOOD WAY",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 364589,
+        "latitude": 28.363317,
+        "longitude": -81.676305
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "262426240000000400",
+        "PropertyAddress": "10813 RUSHWOOD WAY",
+        "TotalJustValue": 364589,
+        "LandValue": 79500,
+        "BuildingValue": 270124
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA000580",
+      "parcel_id": "271924170000N00100",
+      "property_address": "1803 HIGH ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 100075,
+        "latitude": 28.812542,
+        "longitude": -81.893161
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "271924170000N00100",
+        "PropertyAddress": "1803 HIGH ST",
+        "TotalJustValue": 100075,
+        "LandValue": 34685,
+        "BuildingValue": 63230
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA000637",
+      "parcel_id": "291926090009401800",
+      "property_address": "709 N DISSTON AVE",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 263080,
+        "latitude": 28.808147,
+        "longitude": -81.724893
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "291926090009401800",
+        "PropertyAddress": "709 N DISSTON AVE",
+        "TotalJustValue": 263080,
+        "LandValue": 41250,
+        "BuildingValue": 221654
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA000787",
+      "parcel_id": "062026005000008600",
+      "property_address": "1695 WYNFORD CIR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 241566,
+        "latitude": 28.778437,
+        "longitude": -81.743771
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "062026005000008600",
+        "PropertyAddress": "1695 WYNFORD CIR",
+        "TotalJustValue": 241566,
+        "LandValue": 50000,
+        "BuildingValue": 191566
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA000930",
+      "parcel_id": "252024026000008900",
+      "property_address": "25320 RIVER CREST DR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 236032,
+        "latitude": 28.716196,
+        "longitude": -81.887099
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "252024026000008900",
+        "PropertyAddress": "25320 RIVER CREST DR",
+        "TotalJustValue": 236032,
+        "LandValue": 46000,
+        "BuildingValue": 190032
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001078",
+      "parcel_id": "271924170000N00200",
+      "property_address": "1805 HIGH ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 79214,
+        "latitude": 28.81258,
+        "longitude": -81.893327
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "271924170000N00200",
+        "PropertyAddress": "1805 HIGH ST",
+        "TotalJustValue": 79214,
+        "LandValue": 34685,
+        "BuildingValue": 44529
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001111",
+      "parcel_id": "361925005000026800",
+      "property_address": "2840 WEKIVA RD",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 137100,
+        "latitude": 28.799194,
+        "longitude": -81.758415
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "361925005000026800",
+        "PropertyAddress": "2840 WEKIVA RD",
+        "TotalJustValue": 137100,
+        "LandValue": 50000,
+        "BuildingValue": 87100
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001198",
+      "parcel_id": "221924040000000F04",
+      "property_address": "1806 CENTER ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 72224,
+        "latitude": 28.815483,
+        "longitude": -81.89367
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "221924040000000F04",
+        "PropertyAddress": "1806 CENTER ST",
+        "TotalJustValue": 72224,
+        "LandValue": 13080,
+        "BuildingValue": 59144
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001201",
+      "parcel_id": "271924225000001000",
+      "property_address": "2300 JOBBINS DR # UNIT 3",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 93126,
+        "latitude": 28.812732,
+        "longitude": -81.901232
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "271924225000001000",
+        "PropertyAddress": "2300 JOBBINS DR # UNIT 3",
+        "TotalJustValue": 93126,
+        "LandValue": 23250,
+        "BuildingValue": 69876
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001205",
+      "parcel_id": "242226001000004800",
+      "property_address": "14415 TRAVOIS WAY",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 495059,
+        "latitude": 28.554987,
+        "longitude": -81.662044
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "242226001000004800",
+        "PropertyAddress": "14415 TRAVOIS WAY",
+        "TotalJustValue": 495059,
+        "LandValue": 165000,
+        "BuildingValue": 330059
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001795",
+      "parcel_id": "121926130000A01200",
+      "property_address": "1100 BATES AVE",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 153624,
+        "latitude": 28.857978,
+        "longitude": -81.67441
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "121926130000A01200",
+        "PropertyAddress": "1100 BATES AVE",
+        "TotalJustValue": 153624,
+        "LandValue": 32385,
+        "BuildingValue": 121239
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA001886",
+      "parcel_id": "051924010000C00900",
+      "property_address": "1916 FRUITLAND PARK BLVD",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 145503,
+        "latitude": 28.863188,
+        "longitude": -81.9214
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "051924010000C00900",
+        "PropertyAddress": "1916 FRUITLAND PARK BLVD",
+        "TotalJustValue": 145503,
+        "LandValue": 33756,
+        "BuildingValue": 109911
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002017",
+      "parcel_id": "101926040000002300",
+      "property_address": "509 JACKSON ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 327583,
+        "latitude": 28.848328,
+        "longitude": -81.693386
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "101926040000002300",
+        "PropertyAddress": "509 JACKSON ST",
+        "TotalJustValue": 327583,
+        "LandValue": 175000,
+        "BuildingValue": 131407
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002238",
+      "parcel_id": "291729010000000800",
+      "property_address": "43705 BEAR LAKE BLVD",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 189558,
+        "latitude": 28.984115,
+        "longitude": -81.432119
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "291729010000000800",
+        "PropertyAddress": "43705 BEAR LAKE BLVD",
+        "TotalJustValue": 189558,
+        "LandValue": 76800,
+        "BuildingValue": 104707
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002248",
+      "parcel_id": "131924010000G02000",
+      "property_address": "5223 FREDRICK RD",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 172631,
+        "latitude": 28.841198,
+        "longitude": -81.866308
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "131924010000G02000",
+        "PropertyAddress": "5223 FREDRICK RD",
+        "TotalJustValue": 172631,
+        "LandValue": 47348,
+        "BuildingValue": 125283
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002307",
+      "parcel_id": "271927010000300100",
+      "property_address": "21010 NILES AVE",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 126794,
+        "latitude": 28.807986,
+        "longitude": -81.609173
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "271927010000300100",
+        "PropertyAddress": "21010 NILES AVE",
+        "TotalJustValue": 126794,
+        "LandValue": 71939,
+        "BuildingValue": 54452
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002336",
+      "parcel_id": "221924000100001900",
+      "property_address": "908 BEECHER ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 74239,
+        "latitude": 28.822867,
+        "longitude": -81.895426
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "221924000100001900",
+        "PropertyAddress": "908 BEECHER ST",
+        "TotalJustValue": 74239,
+        "LandValue": 25317,
+        "BuildingValue": 48922
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002620",
+      "parcel_id": "271926005000008000",
+      "property_address": "2590 GLACIER EXPRESS LN",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 294519,
+        "latitude": 28.802477,
+        "longitude": -81.699463
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "271926005000008000",
+        "PropertyAddress": "2590 GLACIER EXPRESS LN",
+        "TotalJustValue": 294519,
+        "LandValue": 56250,
+        "BuildingValue": 238269
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002679",
+      "parcel_id": "141826010000000401",
+      "property_address": "603 W OCALA ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 345224,
+        "latitude": 28.9308,
+        "longitude": -81.676335
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "141826010000000401",
+        "PropertyAddress": "603 W OCALA ST",
+        "TotalJustValue": 345224,
+        "LandValue": 75473,
+        "BuildingValue": 251765
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002688",
+      "parcel_id": "062026005000001200",
+      "property_address": "1552 WYNFORD CIR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 255933,
+        "latitude": 28.779157,
+        "longitude": -81.7439
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "062026005000001200",
+        "PropertyAddress": "1552 WYNFORD CIR",
+        "TotalJustValue": 255933,
+        "LandValue": 50000,
+        "BuildingValue": 205933
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2025CA002823",
+      "parcel_id": "281824005000001200",
+      "property_address": "315 E ROSE LN",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 167446,
+        "latitude": 28.892468,
+        "longitude": -81.91322
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "281824005000001200",
+        "PropertyAddress": "315 E ROSE LN",
+        "TotalJustValue": 167446,
+        "LandValue": 30000,
+        "BuildingValue": 137446
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2026CA000378",
+      "parcel_id": "261826060000002700",
+      "property_address": "37443 BEACH DR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 195493,
+        "latitude": 28.894622,
+        "longitude": -81.676749
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "261826060000002700",
+        "PropertyAddress": "37443 BEACH DR",
+        "TotalJustValue": 195493,
+        "LandValue": 66960,
+        "BuildingValue": 125314
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2026CA000425",
+      "parcel_id": "071527210000009100",
+      "property_address": "25716 POWELL DR",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 1121114,
+        "latitude": 29.119576,
+        "longitude": -81.510604
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "071527210000009100",
+        "PropertyAddress": "25716 POWELL DR",
+        "TotalJustValue": 1121114,
+        "LandValue": 985074,
+        "BuildingValue": 89315
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2026CA000550",
+      "parcel_id": "082126000200005900",
+      "property_address": "13332 CORKWOOD LN",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 535613,
+        "latitude": 28.678228,
+        "longitude": -81.73358
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "082126000200005900",
+        "PropertyAddress": "13332 CORKWOOD LN",
+        "TotalJustValue": 535613,
+        "LandValue": 334125,
+        "BuildingValue": 180995
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    },
+    {
+      "case_number": "2026CA000589",
+      "parcel_id": "102224001400032100",
+      "property_address": "2488 BEGONIA ST",
+      "match_method": "parcel_number_exact",
+      "old": {
+        "assessed_value": null,
+        "latitude": null,
+        "longitude": null
+      },
+      "new": {
+        "assessed_value": 292855,
+        "latitude": 28.589867,
+        "longitude": -81.896182
+      },
+      "arcgis_feature_attrs": {
+        "ParcelNumber": "102224001400032100",
+        "PropertyAddress": "2488 BEGONIA ST",
+        "TotalJustValue": 292855,
+        "LandValue": 56250,
+        "BuildingValue": 236605
+      },
+      "patch_status": 200,
+      "patch_ok": true,
+      "patch_error": null
+    }
+  ],
+  "counts": {
+    "total": 32,
+    "real_assessed_value_found": 32,
+    "assessed_value_nulled": 0,
+    "real_latlon_found": 32,
+    "latlon_nulled": 0,
+    "patch_failures": 0
+  }
+}

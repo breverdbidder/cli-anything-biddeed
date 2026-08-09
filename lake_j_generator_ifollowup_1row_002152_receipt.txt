@@ -1,0 +1,8 @@
+fetched 1 of 1 target lake auctions
+own_name resolved for 0 of 1 linked parcel_ids
+reference point (median of gap-row geocodes): 28.526726, -81.737076
+auctions=1 existing_bid_decisions_in_scope=1
+skipped_no_real_value=0 rows_to_write=1
+ml_score distribution: [0.6873]
+distinct ml_score count: 1
+inserted=0 updated=1
