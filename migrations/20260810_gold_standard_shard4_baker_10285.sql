@@ -1,0 +1,57 @@
+-- Gold Standard Shard-4 Baker County — dispatch 80db2753-d593-429f-bae8-e1c57b14bd41
+-- Session: 2026-08-10T16:00Z (issue #18557, loop run 10285)
+--
+-- CURRENT STATE AT SESSION START:
+--   baker: A✓ B✓ F✓ G✓ H✓ | C=64.7% D=64.7% E=64.7% I=64.7% J=88.2%
+--   C/D/E/I: 11/17 (matched_clean=11, parcel_linked=11, card_complete=11)
+--   J: 15/17 deal_complete
+--
+-- PRIOR SESSION CONTEXT (dispatch be7c06d5, 2026-08-03):
+--   - C/D/E/I moved 46.7→64.7% (new rows were linked by scraper between sessions)
+--   - 4 previously-blocked cases remain blocked (CAPTCHA/WAF/source-side-empty):
+--     022025CA000108CAAXMX (off live calendar)
+--     022025CA000117CAAXMX (off live calendar)
+--     022025CA000124CAAXMX (off live calendar)
+--     022026CA000007CAAXMX (source-side "Property Appraiser" placeholder — BANNED)
+--   - Denominator grew from 15→17 (2 new rows added by scraper pipeline)
+--   - These 2 new rows account for the 6 unlinked count (4 old blocked + 2 new rows?)
+--     Actually: 17 total - 11 linked = 6 unlinked.
+--     Prior dispatch: 15 total, 7 linked, 8 unlinked → 4 known blocked + 4 from dispatch 4fd52dfc
+--     After dispatch be7c06d5: 15 total, 7 linked still (E stayed same in be7c06d5)
+--     But brief shows 11/17 linked. The pipeline linked 4 more between sessions.
+--     The 6 remaining are: the original 4 blocked + the 2 new rows (if new rows are unlinked).
+--
+-- HONESTY PROTOCOL:
+--   VERIFIED: claims with DB query proof
+--   UNTESTED: claims not yet tested
+--   INFERRED: reasoning with cited evidence
+--
+-- SESSION ACTIONS:
+--   1. scripts/baker_10285_session_executor.py — queries live state, attempts
+--      fresh scrape of baker.realtaxdeed.com + baker.realforeclose.com,
+--      tries Baker ArcGIS for unlinked rows, generates J for cases with assessed_value
+--   2. This migration file = provenance/audit record
+--
+-- DDL NOTE: No schema changes in this session. All DML executed via the executor script.
+--
+-- STRICTLY FORBIDDEN (repeated across 8+ sessions, all verified as required):
+--   - Writing parcel_id="Property Appraiser" or any placeholder string
+--   - Using opening_bid as ARV without a real valuation source
+--   - Fabricating property_address for blocked cases
+--   - Any write to 022026CA000007CAAXMX parcel_id (source-side empty, verified)
+--
+-- EXPECTED OUTCOMES (UNTESTED until executor runs):
+--   J: 88.2% → possibly 100% (if the 2 unlinked rows have assessed_value in DB,
+--      bid_decisions can be generated for them)
+--   E/C/D/I: 64.7% → potentially 70.6% if any of the 2 new rows can be linked
+--             via fresh source data; the 4 original blocked cases remain blocked.
+--
+-- POST-SESSION VERIFICATION:
+--   SELECT public.pencil_dod_evaluate_county('baker');
+--
+-- PARALLEL-FLEET NOTE: per PARALLEL-FLEET RULES, this session works ONLY baker.
+-- gold_standard_loop() NOT run during session (other shards may be concurrent).
+-- Closeout written to gold_standard_campaign.criteria_passed per close-out protocol.
+
+-- Audit marker (executed by executor, not this file directly)
+-- SELECT public.pencil_dod_evaluate_county('baker');
