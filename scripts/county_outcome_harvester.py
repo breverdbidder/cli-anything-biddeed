@@ -477,7 +477,13 @@ def scrape_realforeclose_results() -> list[dict]:
         if auth_html and "logout" in (auth_html or "").lower():
             log("realforeclose login: authenticated")
         else:
-            log("realforeclose login: may have failed", "WARN")
+            snippet = (auth_html or "")[:600].replace("\n", " ").strip()
+            log(f"realforeclose login FAILED — credentials provided but session not established", "ERROR")
+            log(f"  Response excerpt (first 600 chars): {snippet}", "ERROR")
+            log("  Possible causes: bad credentials, CAPTCHA, form field name change, or site redirect change", "ERROR")
+            log("  ACTION REQUIRED: verify REALFORECLOSE_EMAIL / REALFORECLOSE_PASSWORD GitHub secrets", "ERROR")
+            log("FATAL: aborting to prevent silent zero-result run", "ERROR")
+            sys.exit(2)
     else:
         log("No credentials — proceeding unauthenticated")
 
@@ -812,7 +818,7 @@ def main() -> int:
     _UA     = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
-    # Auth if credentials available
+    # Auth if credentials available — fatal if login fails to prevent silent zero-result runs
     if RF_EMAIL and RF_PW:
         try:
             _req = urllib.request.Request(
@@ -826,8 +832,17 @@ def main() -> int:
                 _auth_html = _r.read().decode("utf-8", "replace")
             if "logout" in _auth_html.lower():
                 log("pre-enrichment login: authenticated")
+            else:
+                _snippet = _auth_html[:600].replace("\n", " ").strip()
+                log("pre-enrichment login FAILED — session not established", "ERROR")
+                log(f"  Response excerpt (first 600 chars): {_snippet}", "ERROR")
+                log("  ACTION REQUIRED: verify REALFORECLOSE_EMAIL / REALFORECLOSE_PASSWORD secrets", "ERROR")
+                log("FATAL: aborting to prevent silent zero-result run", "ERROR")
+                sys.exit(2)
         except Exception as _e:
-            log(f"pre-enrichment login failed: {_e}", "WARN")
+            log(f"pre-enrichment login network error: {_e}", "ERROR")
+            log("FATAL: aborting — cannot establish session for enrichment", "ERROR")
+            sys.exit(2)
 
     # Step 7a: calendar scrape for bulk outcome capture
     live_results = scrape_realforeclose_results()
