@@ -1695,7 +1695,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // crawlers have an explicit path to this content.
       if (path === '/sitemap.xml') {
         const base = 'https://biddeed.ai';
-        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/terms', '/privacy', '/disclaimer', '/security'];
+        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/pioneers', '/terms', '/privacy', '/disclaimer', '/security'];
         const countySlugs = Object.keys(COUNTY_DISPLAY).sort();
         const blogSlugs = BLOG_POSTS.map(p => p.slug);
         const urlEntries = [
@@ -1713,6 +1713,73 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/robots.txt') {
         const robots = 'User-agent: *\nAllow: /\nSitemap: https://biddeed.ai/sitemap.xml\n';
         return new Response(robots, { headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      }
+
+      // ── /pioneers — Pioneer program landing page ─────────────────────────
+      // Added Aug 10 2026. IMPORTANT: this is an interest-only waitlist, NOT
+      // a live equity/SAFE offering. Offering stock options or a SAFE to
+      // paying customers is a securities offering and needs a securities
+      // attorney to structure the exemption, accredited-investor handling
+      // (if required), and disclosure docs before any payment or equity
+      // issuance goes live. Do not wire this page to Stripe or issue any
+      // options/SAFE until that review has happened.
+      if (path === '/pioneers') {
+        return new Response(buildPioneersPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+
+      // ── POST /pioneers/join — waitlist signup only, no payment, no
+      // binding commitment on either side. Reuses lead_profiles like the
+      // rest of the site's lead capture (source tag distinguishes it).
+      if (path === '/pioneers/join' && method === 'POST') {
+        let body = {};
+        try { body = await request.json(); } catch(_) {}
+        const { email, name } = body;
+        if (!email) return new Response(JSON.stringify({ ok: false, error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
+        const now = new Date().toISOString();
+        try {
+          const upsertRes = await fetch(`${SUPABASE_URL}/rest/v1/lead_profiles`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Prefer': 'resolution=merge-duplicates,return=minimal',
+            },
+            body: JSON.stringify({
+              email,
+              name: name || null,
+              source: 'pioneers_waitlist',
+              stage: 'pioneer_interest',
+              marketing_consent: true,
+              marketing_consent_at: now,
+            }),
+          });
+          if (!upsertRes.ok) {
+            const err = await upsertRes.text();
+            await logErr(env, '/pioneers/join', 'Supabase upsert failed', err, upsertRes.status);
+            return new Response(JSON.stringify({ ok: false, error: err }), { status: upsertRes.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+
+          const resendKey = env.RESEND_API_KEY || null;
+          if (resendKey) {
+            fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: 'BidDeed.AI <activate@biddeed.ai>',
+                to: [email],
+                subject: `You're on the Pioneer list — BidDeed.AI`,
+                text: `Thanks for your interest in the BidDeed.AI Pioneer program.\n\nYou're on the list. This is an interest waitlist only — no payment has been taken and nothing is final yet. We're finalizing the program structure and will reach out with full details before anything goes live.\n\nQuestions in the meantime? Just reply to this email.\n\nBidDeed.AI · Everest Capital USA\nInformational only — not legal, financial, or investment advice.`,
+              }),
+            }).catch(e => logErr(env, '/pioneers/join', 'Resend send failed', String(e), 500));
+          }
+
+          return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        } catch (e) {
+          await logErr(env, '/pioneers/join', 'threw', String(e), 500);
+          return new Response(JSON.stringify({ ok: false, error: 'server error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
       }
 
       // ── /blog + /blog/:slug — added Aug 10 2026 for organic content
@@ -2278,6 +2345,110 @@ const BLOG_POSTS = [
 `
   }
 ];
+
+function buildPioneersPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Pioneer Program — BidDeed.AI</title>
+<meta name="description" content="Be one of the first 100 BidDeed.AI Pioneers. Join the waitlist for early access and founding-customer pricing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
+.nav-inner{max-width:700px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-size:15px;font-weight:700;color:white}
+.logo span{color:var(--orange)}
+.wrap{max-width:700px;margin:0 auto;padding:3rem 1.5rem}
+.ey{display:inline-flex;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:monospace;color:var(--orange);letter-spacing:.06em;margin-bottom:1.25rem}
+h1{font-family:'DM Serif Display',serif;font-size:clamp(1.9rem,4.5vw,2.8rem);color:white;margin-bottom:1rem;line-height:1.2}
+.sub{color:var(--muted);font-size:1.05rem;margin-bottom:2rem;line-height:1.6}
+.card{background:var(--navy2);border:1px solid var(--border);border-radius:14px;padding:1.75rem;margin-bottom:1.25rem}
+.card h3{color:white;font-size:1.05rem;margin-bottom:.5rem}
+.card p{color:var(--muted);font-size:.92rem;line-height:1.6}
+.notice{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:1.25rem 1.5rem;margin:2rem 0;font-size:.85rem;color:var(--muted);line-height:1.6}
+.notice strong{color:var(--orange)}
+form{background:var(--navy2);border:1px solid rgba(245,158,11,.3);border-radius:14px;padding:1.75rem;margin-top:2rem}
+form label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
+form input{width:100%;background:var(--navy);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:white;font-size:15px;margin-bottom:1rem;outline:none}
+form input:focus{border-color:var(--orange)}
+form button{width:100%;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border:none;padding:14px;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer}
+form button:disabled{opacity:.6;cursor:default}
+.msg{margin-top:1rem;font-size:.85rem}
+.msg.ok{color:var(--green)}
+.msg.err{color:#f87171}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
+footer a{color:var(--muted);text-decoration:none}
+</style>
+</head>
+<body>
+<nav><div class="nav-inner">
+  <a href="/" class="logo">BidDeed<span>.AI</span></a>
+</div></nav>
+<div class="wrap">
+  <div class="ey">PIONEER PROGRAM · WAITLIST OPEN</div>
+  <h1>Be one of the first 100 BidDeed.AI Pioneers</h1>
+  <p class="sub">We're building a founding-customer program for the first 100 people who believe in what we're building. Join the waitlist to be first in line when it opens — no payment, no commitment, just early access.</p>
+
+  <div class="card">
+    <h3>What we're planning</h3>
+    <p>Founding-customer pricing on the Investor tier, priority access to new counties and features as they ship, and direct input into the product roadmap. Full program details — including any equity or ownership component under consideration — will be finalized and disclosed before enrollment opens.</p>
+  </div>
+
+  <div class="notice">
+    <strong>This page is a waitlist only.</strong> No payment is collected here and nothing about the final program terms is confirmed yet — including whether an equity component will be part of it. We want to get this right before anyone joins, so we're finalizing the structure first. Join the list and we'll email you the full details as soon as they're ready.
+  </div>
+
+  <form id="pioneer-form">
+    <label for="p-name">Name</label>
+    <input type="text" id="p-name" name="name" placeholder="Your name">
+    <label for="p-email">Email</label>
+    <input type="email" id="p-email" name="email" placeholder="you@example.com" required>
+    <button type="submit" id="p-btn">Join the Waitlist</button>
+    <div class="msg" id="p-msg"></div>
+  </form>
+</div>
+<footer>
+  <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
+</footer>
+<script>
+document.getElementById('pioneer-form').addEventListener('submit', async function(e){
+  e.preventDefault();
+  var btn = document.getElementById('p-btn');
+  var msg = document.getElementById('p-msg');
+  var email = document.getElementById('p-email').value.trim();
+  var name = document.getElementById('p-name').value.trim();
+  msg.textContent = ''; msg.className = 'msg';
+  btn.disabled = true; btn.textContent = 'Joining...';
+  try {
+    var res = await fetch('/pioneers/join', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: email, name: name })
+    });
+    var data = await res.json();
+    if (res.ok && data.ok) {
+      msg.textContent = "You're on the list — check your email for confirmation.";
+      msg.className = 'msg ok';
+      btn.textContent = 'Joined ✓';
+    } else {
+      msg.textContent = data.error || 'Something went wrong. Please try again.';
+      msg.className = 'msg err';
+      btn.disabled = false; btn.textContent = 'Join the Waitlist';
+    }
+  } catch (err) {
+    msg.textContent = 'Network error. Please try again.';
+    msg.className = 'msg err';
+    btn.disabled = false; btn.textContent = 'Join the Waitlist';
+  }
+});
+</script>
+</body></html>`;
+}
 
 function buildBlogIndex() {
   const rows = BLOG_POSTS.slice().sort((a,b) => b.date.localeCompare(a.date)).map(p => `
@@ -5188,6 +5359,12 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <a class="price-cta ghost" href="/subscribe?tier=pro">Start Pro →</a>
       </div>
     </div>
+
+    <div class="pioneer-teaser" style="margin-top:2rem;max-width:640px;margin-left:auto;margin-right:auto;text-align:center;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.25);border-radius:14px;padding:1.5rem">
+      <div style="color:var(--orange);font-weight:700;font-size:.9rem;margin-bottom:.4rem">PIONEER PROGRAM — WAITLIST OPEN</div>
+      <div style="color:var(--slate);font-size:.9rem;margin-bottom:1rem">Be one of the first 100 BidDeed.AI Pioneers. Founding-customer pricing and early access — join the waitlist for full details.</div>
+      <a href="/pioneers" style="display:inline-block;background:transparent;border:1px solid var(--orange);color:var(--orange);padding:10px 22px;border-radius:8px;font-weight:700;font-size:.85rem;text-decoration:none">Join the Waitlist →</a>
+    </div>
   </div>
 </section>
 
@@ -5218,6 +5395,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <a href="/chat">Chat</a>
         <a href="/counties">All Counties</a>
         <a href="/blog">Blog</a>
+        <a href="/pioneers">Pioneers</a>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
         <a href="/disclaimer">Disclaimer</a>
