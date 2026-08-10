@@ -1688,6 +1688,31 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
+      // ── /sitemap.xml — added Aug 10 2026: prior to this, none of the 67
+      // /county/:slug pages nor /counties itself were discoverable by search
+      // engines (confirmed via site: search — only the homepage was indexed).
+      // Lists all static/core routes plus every county landing page so
+      // crawlers have an explicit path to this content.
+      if (path === '/sitemap.xml') {
+        const base = 'https://biddeed.ai';
+        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/terms', '/privacy', '/disclaimer', '/security'];
+        const countySlugs = Object.keys(COUNTY_DISPLAY).sort();
+        const urlEntries = [
+          ...staticUrls.map(p => `  <url><loc>${base}${p}</loc><changefreq>daily</changefreq></url>`),
+          ...countySlugs.map(slug => `  <url><loc>${base}/county/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`)
+        ].join('\n');
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries}\n</urlset>`;
+        return new Response(xml, { headers: { 'Content-Type': 'application/xml;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      }
+
+      // ── /robots.txt — added Aug 10 2026 alongside /sitemap.xml so crawlers
+      // discover the sitemap immediately instead of relying only on Search
+      // Console submission.
+      if (path === '/robots.txt') {
+        const robots = 'User-agent: *\nAllow: /\nSitemap: https://biddeed.ai/sitemap.xml\n';
+        return new Response(robots, { headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      }
+
       // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
       // Option A: all counties are served — Gold Standard is a badge (is_gold_standard
       // field per card), never an access gate.
@@ -2207,6 +2232,7 @@ function buildCountiesIndex(rtConfig) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>All 67 Florida Counties — BidDeed.AI Foreclosure &amp; Tax Deed Intelligence</title>
+<meta name="description" content="Foreclosure and tax deed auction intelligence for every Florida county — upcoming auction counts, Gold Standard verified counties, and Shapira Max Bid reports starting at $25.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -3613,7 +3639,10 @@ const params=new URLSearchParams(location.search);
 const session_id=params.get('session')||params.get('session_id')||'';
 const email=params.get('email')||'';
 const mca_id=params.get('mca_id')||'';
-try{if(window.posthog)posthog.capture('report_purchased',{amount:25,county:params.get('county')||'unknown',session_id:params.get('session')||params.get('session_id')||'unknown'});}catch(e){}
+// report_purchased is now fired server-side from stripe-webhook v10+ after
+// Stripe payment verification (see Supabase project mocerqjnksmhcjzxrewo) —
+// removed here Aug 10 2026 to stop phantom purchases logging on every
+// page load (refresh/back-button/bookmark) with no payment verification.
 if(email) document.getElementById('emailed').textContent='We also emailed your key to '+email;
 if(mca_id){
   fetch('/property/'+encodeURIComponent(mca_id)).then(r=>r.json()).then(d=>{
@@ -4738,6 +4767,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
       <a href="#proof">The proof</a>
       <a href="#report">Inside the report</a>
       <a href="#pricing">Pricing</a>
+      <a href="/counties">All Counties</a>
     </div>
     <a class="nav-cta" href="/buy-report">GET A REPORT — $25</a>
   </div>
@@ -5016,6 +5046,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <a href="#pricing">Pricing</a>
         <a href="/buy-report">Get a report</a>
         <a href="/chat">Chat</a>
+        <a href="/counties">All Counties</a>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
         <a href="/disclaimer">Disclaimer</a>
