@@ -18,21 +18,36 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from clerk_ssot.parsers import (  # noqa: E402
     brevard, gadsden, wakulla, highlands, lake, okeechobee, st_johns, suwannee, union,
+    bay, calhoun, desoto, dixie, franklin, gulf, hamilton, hardee, holmes, jefferson,
+    lafayette, levy, liberty, madison, manatee, nassau, sumter, taylor, st_lucie, walton,
 )
 
 MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
 
 # county_slug -> {sale_type: parser_fn}
-# hendry omitted: hendryclerk.org and its municode mirror are both fully
-# JS/Cloudflare-Turnstile-gated with no discoverable static or API fallback
-# (confirmed 2026-08-10, httpx + curl both blocked identically) -- not a
-# verified source until a browser-solving lever exists.
+#
+# Counties confirmed to have NO independently-parseable public calendar for
+# EITHER sale type (as of 2026-08-10, live-verified this session unless
+# noted) -- every source is exclusively hosted on a gated third-party
+# platform (RealForeclose/RealAuction/RealTaxDeed/RealTDM/bid4assets, which
+# this pipeline is not allowed to log into or drive) or is fully JS/
+# Cloudflare-Turnstile-gated with no static fallback. Their
+# clerk_sale_calendar_sources.honesty_marker rows were downgraded to
+# NO_PUBLIC_CALENDAR to match (see scripts/clerk_ssot/downgrade_uncoverable.py):
+#   hendry (Cloudflare + municode doc-viewer, re-verified this session --
+#     Playwright clears the Cloudflare challenge but the actual docket lives
+#     on a gated municode SPA with no extractable calendar)
+#   baker, bradford, clay, collier, columbia, flagler, gilchrist, glades,
+#   hernando, indian_river, jackson, martin, okaloosa, osceola, pinellas,
+#   putnam, broward, charlotte, citrus, duval, leon, polk,
+#   santa_rosa, sarasota, seminole, washington
 PARSERS = {
     "brevard": {"foreclosure": brevard.parse_foreclosure},
     "gadsden": {"foreclosure": gadsden.parse_foreclosure, "tax_deed": gadsden.parse_tax_deed},
@@ -43,27 +58,52 @@ PARSERS = {
     "suwannee": {"tax_deed": suwannee.parse_tax_deed},
     "union": {"foreclosure": union.parse_foreclosure},
     "wakulla": {"foreclosure": wakulla.parse_foreclosure, "tax_deed": wakulla.parse_tax_deed},
+    "bay": {"foreclosure": bay.parse_foreclosure},
+    "calhoun": {"foreclosure": calhoun.parse_foreclosure, "tax_deed": calhoun.parse_tax_deed},
+    "desoto": {"foreclosure": desoto.parse_foreclosure, "tax_deed": desoto.parse_tax_deed},
+    "dixie": {"foreclosure": dixie.parse_foreclosure, "tax_deed": dixie.parse_tax_deed},
+    "franklin": {"foreclosure": franklin.parse_foreclosure, "tax_deed": franklin.parse_tax_deed},
+    "gulf": {"tax_deed": gulf.parse_tax_deed},
+    "hamilton": {"foreclosure": hamilton.parse_foreclosure, "tax_deed": hamilton.parse_tax_deed},
+    "hardee": {"tax_deed": hardee.parse_tax_deed},
+    "holmes": {"foreclosure": holmes.parse_foreclosure},
+    "jefferson": {"foreclosure": jefferson.parse_foreclosure, "tax_deed": jefferson.parse_tax_deed},
+    "lafayette": {"foreclosure": lafayette.parse_foreclosure, "tax_deed": lafayette.parse_tax_deed},
+    "levy": {"foreclosure": levy.parse_foreclosure, "tax_deed": levy.parse_tax_deed},
+    "liberty": {"foreclosure": liberty.parse_foreclosure, "tax_deed": liberty.parse_tax_deed},
+    "madison": {"foreclosure": madison.parse_foreclosure, "tax_deed": madison.parse_tax_deed},
+    "manatee": {"foreclosure": manatee.parse_foreclosure},
+    "nassau": {"tax_deed": nassau.parse_tax_deed},
+    "sumter": {"foreclosure": sumter.parse_foreclosure, "tax_deed": sumter.parse_tax_deed},
+    "taylor": {"foreclosure": taylor.parse_foreclosure, "tax_deed": taylor.parse_tax_deed},
+    "st_lucie": {"tax_deed": st_lucie.parse_tax_deed},
+    "walton": {"tax_deed": walton.parse_tax_deed},
 }
 
 WINDOW_DAYS = 90
 
 
-def run_sql(sql: str):
+def run_sql(sql: str, _retries: int = 3):
     payload = json.dumps({"query": sql})
-    result = subprocess.run(
-        ["curl", "-sS", "-X", "POST", MGMT_API,
-         "-H", f"Authorization: Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
-         "-H", "Content-Type: application/json",
-         "-H", "User-Agent: cli-anything-biddeed-cc/1.0",
-         "-d", "@-"],
-        input=payload, capture_output=True, text=True, timeout=60,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"curl failed: {result.stderr}")
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"non-JSON response: {result.stdout[:500]}")
+    for attempt in range(_retries):
+        result = subprocess.run(
+            ["curl", "-sS", "-X", "POST", MGMT_API,
+             "-H", f"Authorization: Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+             "-H", "Content-Type: application/json",
+             "-H", "User-Agent: cli-anything-biddeed-cc/1.0",
+             "-d", "@-"],
+            input=payload, capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"curl failed: {result.stderr}")
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            # transient Supabase Management API 502/503 under burst load -- retry
+            if attempt < _retries - 1 and ("502" in result.stdout or "503" in result.stdout or not result.stdout.strip()):
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise RuntimeError(f"non-JSON response: {result.stdout[:500]}")
 
 
 def sql_str(v):
@@ -224,8 +264,11 @@ def main():
             if not rows:
                 failures.append({"county_slug": county_slug, "sale_type": sale_type, "error": "0 rows from a successful parse — treated as FAILURE"})
                 continue
-            stage_rows(rows)
-            results.append(diff_and_reconcile(county_slug, sale_type, rows))
+            try:
+                stage_rows(rows)
+                results.append(diff_and_reconcile(county_slug, sale_type, rows))
+            except Exception as e:
+                failures.append({"county_slug": county_slug, "sale_type": sale_type, "error": f"SQL/reconcile error: {e}"})
 
     print(json.dumps({"results": results, "failures": failures}, indent=2))
     if failures:
