@@ -3,6 +3,5 @@
   "main": "worker.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
-  "routes": [{ "pattern": "zonewise.ai/api/floorplan/*", "zone_name": "zonewise.ai" }]
+  "workers_dev": true
 }
