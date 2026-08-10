@@ -157,10 +157,14 @@ def main() -> None:
         # broward J: bid_decisions gap-fill (Shapira Formula V14)
         # holmes H: freshness touch (B/C/D/F structurally blocked — 7th confirmation)
         Path("migrations") / "20260724_gold_standard_shard3_gadsden_broward_holmes_run6148.sql",
+        # Wave 8 — dispatch 77ac9cef (2026-08-10): lake I fix
+        # lake I: zoning_districts for 4 municipalities (density_regulated=false, G guard)
+        #   + 10 parcel_zones rows re-inserted (GIS-verified, reverted 2026-08-09 due to G regression)
+        Path("supabase/migrations") / "20260810_shard3_lake_77ac9cef_i_municipal_zoning_substrate.sql",
     ]
 
     # ── Pre-run evaluation ────────────────────────────────────────────────────
-    counties = ["broward", "columbia", "bay", "miami_dade", "gadsden", "holmes"]
+    counties = ["broward", "columbia", "bay", "miami_dade", "gadsden", "holmes", "lake"]
     log("--- PRE-FIX EVALUATION ---", "EVAL")
     before_scores: dict[str, int] = {}
     for county in counties:
