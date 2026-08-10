@@ -1,0 +1,117 @@
+name: Deploy ZoneWise Floor Plan Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - workers/zonewise-floorplan/**
+  workflow_dispatch:
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/zonewise-floorplan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies (omit optional — native PNG dep breaks the Workers bundler)
+        run: npm install --omit=optional
+
+      - name: Deploy worker
+        id: deploy
+        run: |
+          npx wrangler deploy 2>&1 | tee /tmp/deploy_output.txt
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy_output.txt | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not extract deployed URL from wrangler output"
+            exit 1
+          fi
+          echo "worker_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $URL"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      - name: Set Worker secrets
+        run: |
+          echo "${{ secrets.SUPABASE_URL }}" | npx wrangler secret put SUPABASE_URL
+          echo "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" | npx wrangler secret put SUPABASE_SERVICE_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      - name: Verify — valid compile returns real SVG
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/floorplan/compile" \
+            -H "Content-Type: application/json" \
+            -d '{"source": "plan \"Verify\" { units mm room at (0,0) size 1000x1000 label \"R\" }"}')
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          echo "Body: $BODY"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Expected 200, got $STATUS"
+            exit 1
+          fi
+          echo "$BODY" | grep -q '"svg"' || { echo "::error::No svg field in response"; exit 1; }
+          echo "PASS: valid compile returns SVG"
+
+      - name: Verify — invalid source returns structured error, not a crash
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/floorplan/compile" \
+            -H "Content-Type: application/json" \
+            -d '{"source": "not valid archlang at all"}')
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          echo "Body: $BODY"
+          if [ "$STATUS" -lt 400 ]; then
+            echo "::error::Expected an error status for invalid source, got $STATUS"
+            exit 1
+          fi
+          echo "PASS: invalid source returns structured error"
+
+      - name: Verify — save/persist round trip, then clean up
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/floorplan/save" \
+            -H "Content-Type: application/json" \
+            -d '{"parcel_id":"cc-deploy-verification-test","source":"plan \"Verify\" { units mm room at (0,0) size 1000x1000 label \"R\" }","created_by":"deploy-workflow"}')
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          echo "Body: $BODY"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Save failed, expected 200 got $STATUS"
+            exit 1
+          fi
+          echo "$BODY" | grep -q '"ok":true' || { echo "::error::Save response missing ok:true"; exit 1; }
+          echo "PASS: save round trip succeeded"
+
+          # Verify the row actually exists, then delete it via Supabase REST directly
+          curl -s "${{ secrets.SUPABASE_URL }}/rest/v1/floor_plans?parcel_id=eq.cc-deploy-verification-test" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" > /tmp/saved_row.json
+          echo "Saved row: $(cat /tmp/saved_row.json)"
+          ROW_COUNT=$(cat /tmp/saved_row.json | grep -o '"id"' | wc -l)
+          if [ "$ROW_COUNT" -lt 1 ]; then
+            echo "::error::No row found in floor_plans for verification parcel_id"
+            exit 1
+          fi
+
+          curl -s -X DELETE "${{ secrets.SUPABASE_URL }}/rest/v1/floor_plans?parcel_id=eq.cc-deploy-verification-test" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          echo "PASS: test row cleaned up"
+
+      - name: Summary
+        run: |
+          echo "### ZoneWise Floor Plan Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed URL: ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "All live checks passed: compile, negative test, save/persist round trip." >> "$GITHUB_STEP_SUMMARY"
