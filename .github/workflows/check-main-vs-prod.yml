@@ -1,0 +1,40 @@
+name: Check Main vs Production Sync Gap
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  check-gap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get main HEAD info and record
+        run: |
+          RESP=$(curl -s -X GET "https://api.github.com/repos/breverdbidder/zonewise-web/commits/main" -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" -H "Accept: application/vnd.github+json")
+          PAYLOAD=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(json.dumps({'step':'zonewise_web_main_head','response':{'sha':d.get('sha'),'date':d.get('commit',{}).get('committer',{}).get('date'),'message':d.get('commit',{}).get('message','')[:200]}}))" "$RESP")
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check" -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Content-Type: application/json" -d "$PAYLOAD"
+
+      - name: Write commit-summary script
+        run: |
+          cat > /tmp/summarize_commits.py << 'PYEOF'
+          import json
+          with open('/tmp/commits.json') as f:
+              commits = json.load(f)
+          if isinstance(commits, list):
+              summary = [{'sha': c['sha'][:8], 'date': c['commit']['committer']['date'], 'message': c['commit']['message'][:120]} for c in commits]
+              out = {'count': len(summary), 'commits': summary}
+          else:
+              out = {'error': commits}
+          print(json.dumps({'step': 'zonewise_web_commits_since_apr9', 'response': out}))
+          PYEOF
+
+      - name: List recent commits on main since April 9 and record
+        run: |
+          curl -s -X GET "https://api.github.com/repos/breverdbidder/zonewise-web/commits?sha=main&since=2026-04-09T06:00:00Z&per_page=100" -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" -H "Accept: application/vnd.github+json" > /tmp/commits.json
+          PAYLOAD=$(python3 /tmp/summarize_commits.py)
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check" -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Content-Type: application/json" -d "$PAYLOAD"
+
+      - name: Get current Vercel production deployment commit and record
+        run: |
+          RESP=$(curl -s -X GET "https://api.vercel.com/v6/deployments?projectId=prj_EaXgEO6WDoSpCeLhuCemtbPr6e8E&limit=1&target=production&state=READY" -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}")
+          PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'step':'zonewise_web_current_prod_deployment','response':json.loads(sys.argv[1])}))" "$RESP")
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check" -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Content-Type: application/json" -d "$PAYLOAD"
