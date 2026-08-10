@@ -1,0 +1,18 @@
+{
+  "dispatch_id": "77ac9cef-69e5-48e3-b76e-7bddb2b42d7d",
+  "script": "scripts/shard7_run3679_lake_i_real_zoning_backfill.py",
+  "run_at": "2026-08-10T16:2x:xxZ",
+  "note": "Rerun of the existing shard7/run3679 unincorporated-Lake-County GIS zoning backfill (gis.lakecountyfl.gov InteractiveMap/MapServer/50, point-in-polygon by real lat/lon, zero fabricated zone codes). No script changes -- rerun picked up parcels linked/enriched since the prior run.",
+  "counts": {
+    "parcel_linked_with_coords": 113,
+    "arcgis_hit": 53,
+    "arcgis_miss_municipal_or_unmapped": 60,
+    "arcgis_query_error": 0,
+    "inserted": 15,
+    "updated": 0,
+    "update_skipped_same_value": 38,
+    "write_failures": 0
+  },
+  "effect": "lake I metric: card_complete 80/120 (66.7%) -> 95/120 (79.2%), verified live via pencil_dod_evaluate_county('lake') immediately after run",
+  "residual": "60 arcgis_miss rows fall inside incorporated Lake County municipalities (Clermont, Eustis, Leesburg, etc.), which zone their own land separately from the county's unincorporated-only GIS layer. Of those, ~18 already have full address/geo/value+parcel_id and are blocked purely on municipal zone_code lookup; the rest need address/parcel enrichment first (see E-gap below). Handed to a parallel research+adversarial-verify workflow (gold-standard-shard3-lake-run10285) rather than guessed."
+}

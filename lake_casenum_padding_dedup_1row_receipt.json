@@ -1,0 +1,29 @@
+{
+  "dispatch_id": "77ac9cef-69e5-48e3-b76e-7bddb2b42d7d",
+  "finding": "Duplicate auction row caused by case_number zero-padding mismatch between clerk_ssot's lake parser output and the pre-existing canonical row.",
+  "evidence": {
+    "canonical_row": {
+      "id": "3450ae0a-e7fe-4f3b-92ef-55b82fb450e9",
+      "case_number": "2025CA001608",
+      "property_address": "25 E CHESLEY AVE",
+      "parcel_id": "141926150000500700",
+      "auction_date": "2026-08-25",
+      "created_at": "2026-07-02T10:58:35.785066+00:00",
+      "prior_parity_status": "PHANTOM_NOT_ON_CLERK (wrongly flagged -- clerk_ssot's own case-number format didn't match this row's format, so its diff logic treated the row as absent from the clerk calendar)"
+    },
+    "duplicate_stub_row": {
+      "id": "de787ac1-d789-413e-ae5e-61ce1b5e501b",
+      "case_number": "2025CA1608",
+      "auction_date": "2026-08-25",
+      "created_at": "2026-08-10T14:37:41.737929+00:00",
+      "all_property_fields_null": true,
+      "parity_status_at_creation": "PARITY_OK (inserted by clerk_ssot's missing_from_ours path since it found no case_number match)"
+    }
+  },
+  "actions_taken": [
+    "UPDATE canonical row (id=3450ae0a...): parity_status PHANTOM_NOT_ON_CLERK -> PARITY_OK, parity_source annotated casenum_padding_dedup_20260810",
+    "DELETE duplicate stub row (id=de787ac1...): zero unique data, confirmed same auction_date+sale_type as canonical, would otherwise permanently inflate auctions_total denominator for every A-J letter"
+  ],
+  "residual_flag_not_acted_on": "ROOT CAUSE not fixed at the source: scripts/clerk_ssot/parsers/lake.py's CASE_RE (r'^\\d{4}(?:CA|CC)\\d+$') accepts case numbers without zero-padding the numeric suffix, while pre-existing lake auction rows use zero-padded case numbers (e.g. 001608). This is shared clerk_ssot infra actively being extended fleet-wide today (bf6d6a88 landed 20 new county parsers mid-session) -- left untouched to avoid conflicting with concurrent work; flagged for the next session/AI Architect to check whether other counties hit the same padding mismatch on future clerk_ssot reruns.",
+  "verified_effect": "auctions_total 120->119 (denominator correction), matched_any/D metric improved (118/119=99.2%), county E/I now benefit from this row's pre-existing parcel_id/address/geo/value once zone-linked"
+}
