@@ -201,13 +201,34 @@ async def scrape_all() -> tuple[list[dict], list[dict], list[dict], dict]:
                           f"legal caption, not a street address -- nulling: "
                           f"{clean_address!r}")
                     clean_address = ""
-                rows.append({
+                fc_row = {
                     "county": "okaloosa",
                     "state": "FL",
                     "sale_type": "foreclosure",
                     "auction_type": "foreclosure",
                     "case_number": case_number,
-                    "property_address": clean_address or None,
+                    # NO "property_address" key here when clean_address is empty
+                    # (regression fix, 2026-08-10, dispatch a56d9693): same bug
+                    # class as the parcel_id fix below, confirmed live -- the
+                    # 2026-08-09 architect-triage manual backfill of
+                    # property_address for cases 2026-CC-001083-C and
+                    # 2026-CA-000706-C was silently wiped back to NULL by this
+                    # harvester's very next scheduled run (updated_at
+                    # 2026-08-10T09:43:37Z, property_address NULL again, letter
+                    # I regressed from PASS 95.7 back to FAIL 92.8 with zero
+                    # human action in between). Root cause: this dict used to
+                    # set "property_address": clean_address or None
+                    # unconditionally, and upsert()'s key-union/setdefault step
+                    # then defaulted EVERY row in the batch (including rows
+                    # whose grid address cell was blank or a legal caption) to
+                    # property_address=None, and PostgREST's merge-duplicates
+                    # upsert does `col = EXCLUDED.col` for every key present in
+                    # the batch -- clobbering good values (scraped or manually
+                    # backfilled) with NULL. Fix: only set property_address
+                    # below when clean_address is non-empty, and (per the
+                    # split-batch comment near the upsert() call) upsert FC
+                    # rows with vs. without a property_address key as two
+                    # separate batches so the key-union never reintroduces it.
                     # NO "parcel_id" / "parity_status" keys here (regression fix,
                     # 2026-07-21, gold-standard-shard4-run5668): the FC grid never
                     # publishes a parcel/APN column, but a *downstream* GIS-
@@ -238,7 +259,10 @@ async def scrape_all() -> tuple[list[dict], list[dict], list[dict], dict]:
                     "source_url": f"{FC_BASE}?salesdate={d}",
                     "auction_url": f"https://www.bid4assets.com/auction/{auction_id}",
                     "tier1_authoritative": True,
-                })
+                }
+                if clean_address:
+                    fc_row["property_address"] = clean_address
+                rows.append(fc_row)
                 stats["fc_rows"] += 1
 
                 if sold_amount is not None:
@@ -418,7 +442,18 @@ def main() -> int:
     # recreating the exact clobbering bug fixed above one call site up.
     fc_rows = [r for r in rows if r["sale_type"] == "foreclosure"]
     td_rows = [r for r in rows if r["sale_type"] == "tax_deed"]
-    upsert(fc_rows)
+    # Further split FC rows by presence of "property_address" (regression fix,
+    # 2026-08-10, dispatch a56d9693 -- see fc_row comment above): rows with a
+    # real scraped address and rows with none go in separate upsert() calls so
+    # the key-union/setdefault step never reintroduces property_address=None
+    # into rows that omitted the key, which would clobber an existing good
+    # value (scraped or manually backfilled) on ON CONFLICT UPDATE.
+    fc_rows_with_addr = [r for r in fc_rows if "property_address" in r]
+    fc_rows_no_addr = [r for r in fc_rows if "property_address" not in r]
+    if fc_rows_with_addr:
+        upsert(fc_rows_with_addr)
+    if fc_rows_no_addr:
+        upsert(fc_rows_no_addr)
     upsert(td_rows)
     upsert_outcomes(outcome_rows)
     upsert_outcomes_td(td_outcome_rows)
