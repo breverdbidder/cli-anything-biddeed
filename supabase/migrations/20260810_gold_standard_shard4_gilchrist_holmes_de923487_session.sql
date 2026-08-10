@@ -1,0 +1,114 @@
+-- GOLD STANDARD shard-4 (gilchrist + holmes, dispatch de923487-ea69-4b13-bfc6-3344879a793a,
+-- loop run 10213, session architect-20260810T080000).
+--
+-- ONE verified live write this session (already applied via PostgREST during the session --
+-- restated here for audit trail / idempotent replay, per repo convention):
+--
+--   holmes row id=3ca8afb6-fe6d-4c71-bf8a-51df49eebfc3 (owner TODAR ILLYANNA MARIE,
+--   parcel_id 0936.01-004-00C-008.000) had a stale auction_date of 2026-07-23 (already in
+--   the past relative to today). Live re-fetch of https://holmesclerk.com/courts/
+--   foreclosures-tax-deeds/foreclosures/ today confirms this case (caption "U.S. BANK
+--   NATIONAL ASSOCIATION V. ILLYANNA TODAR...", judgment $104,852.69, parcel_id exact match,
+--   property address 505 W MONTANA AVE., BONIFAY, FL 32425) is genuinely still upcoming,
+--   continued to SALE DATE: AUGUST 27, 2026. All other fields on this row (property_address,
+--   judgment_amount, latitude/longitude, assessed_value/market_value) were independently
+--   re-verified against the same live source and already matched exactly -- only
+--   auction_date was stale. This does not move any A-J letter (none reference auction_date)
+--   but corrects a real data-quality defect with a fresh independent source.
+UPDATE multi_county_auctions
+SET auction_date = '2026-08-27', last_seen_at = GREATEST(last_seen_at, now())
+WHERE county = 'holmes' AND id = '3ca8afb6-fe6d-4c71-bf8a-51df49eebfc3'
+  AND parcel_id = '0936.01-004-00C-008.000';
+
+-- ============================================================================
+-- EVERYTHING ELSE THIS SESSION: honest exhaustion, no further writes. BLANK > WRONG.
+-- ============================================================================
+--
+-- GILCHRIST E/I (parcel_linked=8 of 14, card_complete=8 of 14, both 57.1%, threshold >=95%):
+-- 6th+ consecutive session confirming the same structural block documented in
+-- gilchrist_e_parcel_linkage_blocked.sql, gilchrist_i_card_completeness_blocked_followup.sql,
+-- and migrations/20260730_gilchrist_shard7_run7519_ghost_purge_ei.sql. Re-verified live
+-- today (2026-08-10), not merely re-cited:
+--   - FL GIO Statewide Cadastral ArcGIS (services9.arcgis.com/.../FeatureServer/0/query)
+--     WHERE CO_NO=21 AND OWN_NAME LIKE queries for all 6 target owner names (Slocum, Smith,
+--     Mercado, Joiner, Hutchinson, Tape) timed out (>2min, no response) -- same failure class
+--     as prior sessions' "CO_NO=21 predicate under load" finding, reconfirmed with correct
+--     field names this time (PARCEL_ID/OWN_NAME/PHY_ADDR1/JV/AV_NSD via layer metadata fetch,
+--     ruling out a client-side field-name bug as the cause).
+--   - www.gilchrist.fl.us -> HTTP 403 (Cloudflare "Just a moment..." challenge).
+--   - gis.gilchrist.fl.us / maps.gilchrist.fl.us / gilchristfl.mapxpress.net -> unreachable
+--     (connection failure, no DNS/response).
+--   - Firecrawl account balance: -9 of 1000 credits (exhausted), matching the exact balance
+--     documented in gilchrist_e_parcel_linkage_blocked.sql -- `firecrawl scrape`/`interact`
+--     genuinely unavailable this session, not skipped.
+-- No parcel_id, address, geo, or value written for any of the 6 rows
+-- (212025CA000033/036/043/064/070CAAXMX, 212026CA000004CAAXMX). RESULT: E/I unchanged at
+-- 57.1% (8 of 14), reconfirmed via pencil_dod_evaluate_county at session start and end --
+-- identical, no drift.
+--
+-- HOLMES B/C/D/F (verified_outcomes=0/closed_sold=0 so B/F metric=null; matched_clean=8 of
+-- 13 / 61.5% so C/D fail):
+-- NEW findings this session (holmes had not been the subject of a dedicated B/C/D/F session
+-- before): sold_amount is NULL on all 13 holmes rows, so closed_sold=0 by construction --
+-- B and F cannot move without at least one row acquiring a genuinely-sourced sold_amount.
+--   - holmesclerk.com/courts/foreclosures-tax-deeds/tax-deeds/ (live, reachable, not
+--     Cloudflare-gated) states "Updated 7/21/2026 there are no sales scheduled at this
+--     time" -- the 10 TD# rows in our DB (auction_date 2026-07-07 to 2026-07-21, all now
+--     past) have fallen off this pre-sale-only calendar, consistent with the sales having
+--     already occurred, but the clerk's site retains no results/outcome page.
+--   - holmesclerk.com/courts/foreclosures-tax-deeds/lands-available-for-taxes/: "UPDATED
+--     FEBRUARY 2026-THERE ARE NO LOLA FILES AT THIS TIME" -- none of the 10 TD# parcels
+--     are listed as unsold/surplus either, so no-bid cannot be inferred from this source.
+--   - myfloridacounty.com/orisearch/30 (Holmes Official Records search, the one channel
+--     that could supply independently-sourced sale considerations/grantee names): GET loads
+--     a plain form, but every search POST -- and a GET-with-query-params variant, tried as
+--     an alternate this session -- returns a Cloudflare Turnstile "please verify you are
+--     human" challenge (sitekey 0x4AAAAAAA64PTBePmuGbrkR). This is the IDENTICAL sitekey
+--     documented blocking Hamilton county's ORI search in
+--     20260809e_gold_standard_hamilton_cd_ori_turnstile_confirmed_dead_end.sql, confirming
+--     this is a shared statewide myfloridacounty.com Turnstile config, not a holmes-specific
+--     or session-specific fluke.
+--   - GovEase / TaxSmartWeb (alternate FL tax-deed auction platforms): holmes.govease.com,
+--     govease.com/auctions/holmes-county-fl, holmes.taxsmartweb.com all unreachable / 404 --
+--     Holmes does not use either platform, consistent with the clerk site's own text
+--     ("appear in person... cash or cashier's check ONLY").
+--   - Wayback Machine CDX for the tax-deeds page: nearest capture to the July 2026 sale
+--     window is 2026-03-14 and lists only TD#2021-470 (unrelated to all 10 target case
+--     numbers) -- no archived snapshot covers the relevant window.
+--   - 3 foreclosure rows carry synthetic case_number placeholders ("HOLMES-LEGACY-<uuid>",
+--     not real court case numbers): TODAR resolved (see UPDATE above, real case now
+--     confirmed live but case number itself still not captured -- the clerk calendar shows
+--     caption/judgment/parcel but not the docket number). GILLIS AMBER & ERIC and JOHNSON
+--     JEFFERY remain fully unresolved -- both have fallen off the live "upcoming" calendar
+--     (consistent with their auction dates, 2026-06-11 and 2026-07-30, already having
+--     passed), and UniCourt (login-gated), Trellis.law (403), CourtListener (no FL state
+--     court coverage), and floridapublicnotices.com (interactive-form-only, no GET/keyword
+--     path) all failed to surface a real case number or status for either.
+-- No sold_amount, tier1_sold_amount, parity_status, or case_number was fabricated or
+-- written for any of these rows. RESULT: B/C/D/F unchanged (verified=0/closed_sold=0;
+-- matched_clean=8 of 13, 61.5%), reconfirmed via pencil_dod_evaluate_county at session
+-- start and end -- identical except the one auction_date correction above, which does not
+-- affect any A-J metric.
+--
+-- ULTRACODE WORKFLOW (this session): 3 parallel research agents (Wayback/newspaper-archive
+-- sweep for holmes TD# outcomes; court-record aggregator sweep for the 2 unresolved
+-- synthetic case numbers; alternate-path probe of myfloridacounty ORI + qpublic parcel
+-- cross-check) followed by 3 independent adversarial verifier agents. All 3 verifiers
+-- returned NO ACTIONABLE FINDING -- one verifier additionally caught and flagged a
+-- hallucinated address fabricated by its own research agent, which was discarded and never
+-- entered the DB. No claim survived adversarial review, so no additional writes were made.
+--
+-- NEXT-SESSION LEVERS (not exhausted):
+--   1. A funded Firecrawl account or a Turnstile-capable remote browser would unblock BOTH
+--      gilchrist's qpublic/civitek gates AND holmes's myfloridacounty ORI gate -- same class
+--      of fix would move both counties' hardest letters.
+--   2. Direct phone/in-person contact with either clerk's office (Gilchrist: 352-463-3170;
+--      Holmes: 850-547-1100) is outside this session's autonomous scope but would resolve
+--      the gilchrist 6 owner-name lookups and the 2 unresolved holmes case numbers directly.
+--   3. Retry the FL GIO ArcGIS CO_NO=21 query at a different time of day -- still
+--      inconsistent/timing-out across 2+ sessions now, but never confirmed as a permanent
+--      block (control query with no CO_NO filter succeeds immediately).
+
+-- ULTRALOOP audit trail: rows written to gold_standard_ultraloop_audit for this dispatch
+-- (letter E and I for gilchrist: survived=true, structural-block reconfirmation, not a
+-- false claim; letters B/C/D/F for holmes: survived=true, same).
