@@ -1,0 +1,145 @@
+name: "Union County Post-Auction Outcome Scraper"
+# Scrapes union county foreclosure auction results AFTER the Aug 13 2026 sale
+# (63-2025-CA-0053) and Oct 15 2026 sale (63-2024-CA-0047).
+#
+# Purpose: move Gold Standard criteria B (verified outcomes ≥95% of closed)
+# and F (tier1 sold-amount ≥95% of closed) for union county.
+#
+# Sources tried in order:
+#   1. union.realforeclose.com (403 pre-auction; may open post-auction)
+#   2. unionclerk.com/foreclosure-sales/ (Cloudflare-blocked pre-auction)
+#   3. myfloridacounty.com/union (redirects to clerk; worth a retry)
+#
+# If a sold_amount is found:
+#   - writes to foreclosure_outcomes (data_source=union_clerk_live:UNION-FC-V1)
+#   - patches multi_county_auctions.sold_amount + tier1_sold_amount
+#   - calls promote_tier1_from_outcomes() → F advances automatically
+#
+# HARD GUARDRAILS:
+#   - Never fabricate sold_amount without a verified live source
+#   - data_source must NOT contain 'propertyonion' (litmus only)
+#   - FAIL-LOUD: parsed>0 AND inserted=0 raises immediately in the script
+#
+# WIRING MANDATE: runs daily at 15:00Z so the GHA runner can see results
+# posted on the same day as the courthouse auction (11am ET = 15:00Z).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip DB writes)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+  schedule:
+    - cron: "0 15 * * *"
+
+concurrency:
+  group: union-post-auction-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: "Union County — post-auction outcome scraper"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install httpx
+
+      - name: Check today vs auction dates
+        run: |
+          python3 -c "
+          from datetime import date
+          today = date.today()
+          aug13 = date(2026, 8, 13)
+          oct15 = date(2026, 10, 15)
+          print(f'Today: {today}')
+          print(f'Aug 13 auction passed: {today > aug13}')
+          print(f'Oct 15 auction passed: {today > oct15}')
+          if today <= aug13:
+              print('WARNING: Aug 13 auction has not yet occurred — scraper will skip that case')
+          "
+
+      - name: Run union post-auction outcome scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          python3 scripts/union_post_auction_outcome_scraper.py
+
+      - name: Verify via pencil_dod_evaluate_county
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          SB = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co")
+          KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+          REF = "mocerqjnksmhcjzxrewo"
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          print(f"\n### SQL VERIFICATION — union Gold Standard B/F")
+          print(f"Timestamp: {now}\n")
+
+          if TOKEN:
+              query = "SELECT public.pencil_dod_evaluate_county('union')"
+              body = json.dumps({"query": query}).encode()
+              req = urllib.request.Request(
+                  f"https://api.supabase.com/v1/projects/{REF}/database/query",
+                  data=body,
+                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(json.dumps(result, indent=2, default=str))
+              except Exception as e:
+                  print(f"Management API error: {e}")
+          elif KEY:
+              h = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+              body = json.dumps({"p_county": "union"}).encode()
+              req = urllib.request.Request(
+                  f"{SB}/rest/v1/rpc/pencil_dod_evaluate_county",
+                  data=body, headers=h, method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(json.dumps(result, indent=2, default=str))
+              except Exception as e:
+                  print(f"RPC error: {e}")
+          else:
+              print("No credentials available for verification")
+          PYEOF
+
+      - name: Session close-out checkpoint
+        if: always()
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          echo "Union post-auction scraper run complete"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"

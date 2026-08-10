@@ -1,0 +1,106 @@
+name: "Collier I Residual Fix — Everglades City + Zero-Match Folios"
+# Attempts to fix the 14 remaining incomplete property cards for collier
+# criterion I (card_complete 93.7% = 208/222, threshold 95% = 211/222).
+#
+# Strategy:
+#   1. CCPA (Collier County Property Appraiser) direct lookup for 4 zero-match
+#      folios (00992000008, 01155640000, 01160000004, 01160400002) — these
+#      returned zero features from FL DOR statewide cadastral mirror but may
+#      exist in CCPA under an older folio format.
+#   2. Everglades City zoning probe for 2 parcels inside the incorporated city
+#      boundary (county GIS returns BASE='CITY' for these, not a usable zone code).
+#
+# Even success on all 6 of these (4 CCPA + 2 EC) may not reach 95% threshold:
+#   208 + 6 = 214/222 = 96.4% (would PASS)
+# But conservative estimate: 1-2 CCPA successes = 210/222 = 94.6% (FAIL)
+# The remaining oil/gas sub-parcels and blank-address vacant parcels are
+# structurally outside the scope of any automated lookup.
+#
+# WIRING MANDATE: run once to attempt the fix, then re-evaluate collier I.
+# If still failing, document as structural ceiling and report to AI Architect.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 10 10 8 *"
+
+concurrency:
+  group: collier-i-residual-fix
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    name: "Collier I — Everglades City + CCPA residual fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run collier I residual enrichment
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 scripts/gold_standard_shard1_collier_i_everglades_city.py
+
+      - name: Verify collier I via pencil_dod_evaluate_county
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          SB = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co")
+          KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+          REF = "mocerqjnksmhcjzxrewo"
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          print(f"\n### SQL VERIFICATION — collier Gold Standard I")
+          print(f"Timestamp: {now}\n")
+
+          if TOKEN:
+              query = "SELECT public.pencil_dod_evaluate_county('collier')"
+              body = json.dumps({"query": query}).encode()
+              req = urllib.request.Request(
+                  f"https://api.supabase.com/v1/projects/{REF}/database/query",
+                  data=body,
+                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(json.dumps(result, indent=2, default=str))
+              except Exception as e:
+                  print(f"Management API error: {e}")
+          elif KEY:
+              h = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+              body = json.dumps({"p_county": "collier"}).encode()
+              req = urllib.request.Request(
+                  f"{SB}/rest/v1/rpc/pencil_dod_evaluate_county",
+                  data=body, headers=h, method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(json.dumps(result, indent=2, default=str))
+              except Exception as e:
+                  print(f"RPC error: {e}")
+          else:
+              print("No credentials available for verification")
+          PYEOF

@@ -1,0 +1,130 @@
+name: "Shard-1 Collier+Union Session Close-Out (e857901a)"
+# Applies session close-out migration and runs the collier I enrichment attempt.
+# Dispatch: e857901a-9b66-458b-9bc7-17728a3f5dfe (issue #18559)
+# Date: 2026-08-10
+
+on:
+  workflow_dispatch:
+
+jobs:
+  closeout:
+    name: "Apply close-out migration + collier I enrichment"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      REF: mocerqjnksmhcjzxrewo
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply session close-out migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "=== 20260810_gold_standard_shard1_collier_i_union_bf_session_closeout.sql ==="
+          python3 -c "
+          import json, os, urllib.request, sys
+          TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
+          REF = 'mocerqjnksmhcjzxrewo'
+          with open('migrations/20260810_gold_standard_shard1_collier_i_union_bf_session_closeout.sql') as f:
+              query = f.read()
+          body = json.dumps({'query': query}).encode()
+          req = urllib.request.Request(
+              f'https://api.supabase.com/v1/projects/{REF}/database/query',
+              data=body,
+              headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+              method='POST'
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  data = json.loads(r.read())
+                  print('HTTP 200 — migration applied')
+                  print(json.dumps(data, indent=2, default=str)[:2000])
+          except Exception as e:
+              print(f'ERROR: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      - name: Run collier I enrichment (CCPA + Everglades City probes)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 scripts/gold_standard_shard1_collier_i_everglades_city.py
+
+      - name: Verify collier via pencil_dod_evaluate_county
+        if: always()
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+          REF = "mocerqjnksmhcjzxrewo"
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          print(f"\n### SQL VERIFICATION — collier + union (Timestamp: {now})")
+
+          for county in ["collier", "union"]:
+              query = f"SELECT public.pencil_dod_evaluate_county('{county}')"
+              body = json.dumps({"query": query}).encode()
+              req = urllib.request.Request(
+                  f"https://api.supabase.com/v1/projects/{REF}/database/query",
+                  data=body,
+                  headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      result = json.loads(r.read())
+                  print(f"\n{county.upper()}:")
+                  print(json.dumps(result, indent=2, default=str)[:1000])
+              except Exception as e:
+                  print(f"{county}: Error — {e}")
+          PYEOF
+
+      - name: Ultraloop audit verification
+        if: always()
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+
+          TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+          REF = "mocerqjnksmhcjzxrewo"
+
+          query = """
+          SELECT county_slug, letter, survived, created_at
+          FROM gold_standard_ultraloop_audit
+          WHERE dispatch_id = 'e857901a-9b66-458b-9bc7-17728a3f5dfe'
+          ORDER BY county_slug, letter
+          """
+          body = json.dumps({"query": query}).encode()
+          req = urllib.request.Request(
+              f"https://api.supabase.com/v1/projects/{REF}/database/query",
+              data=body,
+              headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+              method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  result = json.loads(r.read())
+              print("\nUltraloop audit rows for e857901a:")
+              print(json.dumps(result, indent=2, default=str))
+          except Exception as e:
+              print(f"Audit check error: {e}")
+          PYEOF
