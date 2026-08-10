@@ -1415,11 +1415,47 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/subscribe') {
         const tier = url.searchParams.get('tier') || 'investor';
         const safeTier = tier.replace(/[^a-z0-9_-]/gi, '');
-        const stripeUrl = safeTier === 'pro' || safeTier === 'proplus' ? STRIPE_PRO_URL : STRIPE_INVESTOR_URL;
+        const isPro = safeTier === 'pro' || safeTier === 'proplus';
+        const tierLabel = isPro ? 'Pro' : 'Investor';
+        const tierPrice = isPro ? '$199' : '$99';
         const html = SUBSCRIBE_HTML
-          .replace(/STRIPE_URL_PLACEHOLDER/g, stripeUrl)
+          .replace(/TIER_LABEL_PLACEHOLDER/g, tierLabel)
+          .replace(/TIER_PRICE_PLACEHOLDER/g, tierPrice)
           .replace(/TIER_PLACEHOLDER/g, safeTier);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+      }
+
+      // ── POST /subscribe/checkout — proxies to biddeed-checkout's cold
+      // subscription path (added Aug 10 2026). Replaces the old static
+      // Stripe Payment Link, which had no way to attach a buyer to a
+      // customer record and redirected to /chat instead of /success —
+      // meaning real subscribers never landed on the page that issues a
+      // key. Mirrors POST /buy-report/checkout's existing proxy pattern.
+      if (path === '/subscribe/checkout' && method === 'POST') {
+        let body = {};
+        try { body = await request.json(); } catch(_) {}
+        const { tier, customer_email } = body;
+        if (!tier || !['investor','pro','proplus'].includes(tier)) {
+          return new Response(JSON.stringify({ error: 'valid tier required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        if (!customer_email || typeof customer_email !== 'string') {
+          return new Response(JSON.stringify({ error: 'customer_email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        try {
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tier, customer_email }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            await logErr(env, '/subscribe/checkout', 'biddeed-checkout failed', JSON.stringify(data), res.status);
+          }
+          return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        } catch (e) {
+          await logErr(env, '/subscribe/checkout', 'threw', String(e), 500);
+          return new Response(JSON.stringify({ error: 'server error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
       }
 
       // ── /success ─────────────────────────────────────────────────────────
@@ -3639,17 +3675,51 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 // ── Subscribe interstitial — tracks pageview then hands off to Stripe ────────
 const SUBSCRIBE_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Redirecting to Checkout — BidDeed.AI Investor</title>
+<title>Subscribe — BidDeed.AI TIER_LABEL_PLACEHOLDER</title>
+<meta name="description" content="Subscribe to BidDeed.AI TIER_LABEL_PLACEHOLDER — TIER_PRICE_PLACEHOLDER/mo.">
 ${POSTHOG_SCRIPT}
-<meta http-equiv="refresh" content="1;url=STRIPE_URL_PLACEHOLDER">
 <style>
-body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0}
-p{color:#cbd5e1;font-size:.95rem}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem}
+.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:440px;width:100%}
+h1{font-size:1.4rem;color:white;margin-bottom:.4rem}
+.price{color:#f59e0b;font-weight:700;font-size:1rem;margin-bottom:1.25rem}
+p.sub{color:#94a3b8;font-size:.9rem;margin-bottom:1.5rem;line-height:1.5}
+label{display:block;font-size:.85rem;color:#cbd5e1;margin-bottom:.4rem}
+input{width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;color:white;font-size:15px;margin-bottom:1.25rem;outline:none}
+input:focus{border-color:#f59e0b}
+button{width:100%;background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;border:none;padding:14px;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer}
+button:disabled{opacity:.6;cursor:default}
+.err{color:#f87171;font-size:.85rem;margin-top:.75rem;display:none}
 </style></head><body>
-<p>Redirecting to secure checkout…</p>
+<div class="card">
+  <h1>BidDeed.AI TIER_LABEL_PLACEHOLDER</h1>
+  <div class="price">TIER_PRICE_PLACEHOLDER/mo</div>
+  <p class="sub">Enter your email to continue to secure checkout. You'll be redirected to Stripe to complete payment.</p>
+  <form id="sub-form">
+    <label for="sub-email">Email</label>
+    <input type="email" id="sub-email" placeholder="you@example.com" required>
+    <button type="submit" id="sub-btn">Continue to Checkout →</button>
+    <div class="err" id="sub-err"></div>
+  </form>
+</div>
 <script>
-try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER'});}catch(e){}
-setTimeout(function(){window.location.href='STRIPE_URL_PLACEHOLDER';},200);
+try{if(window.posthog)posthog.capture('subscribe_page_viewed',{tier:'TIER_PLACEHOLDER'});}catch(e){}
+document.getElementById('sub-form').addEventListener('submit', async function(e){
+  e.preventDefault();
+  var btn=document.getElementById('sub-btn'), err=document.getElementById('sub-err');
+  var email=document.getElementById('sub-email').value.trim();
+  err.style.display='none';
+  btn.disabled=true; btn.textContent='Redirecting to checkout...';
+  try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER'});}catch(e2){}
+  fetch('/subscribe/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tier:'TIER_PLACEHOLDER',customer_email:email})})
+    .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })
+    .then(function(r){
+      if(r.ok && r.data.url){ window.location.href=r.data.url; }
+      else{ err.textContent=r.data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Continue to Checkout →'; }
+    })
+    .catch(function(){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Continue to Checkout →'; });
+});
 </script>
 </body></html>`;
 
@@ -3681,7 +3751,10 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 <script>
 const params=new URLSearchParams(location.search);
 const session_id=params.get('session_id')||'';
-try{if(window.posthog)posthog.capture('subscription_activated',{tier:params.get('tier')||'investor',amount:99,session_id:params.get('session')||params.get('session_id')||'unknown'});}catch(e){}
+// subscription_activated now fired server-side from stripe-webhook after
+// Stripe payment verification (added Aug 10 2026, same fix pattern as
+// report_purchased) -- removed here to stop phantom activations logging on
+// every /success page load (refresh/back-button/bookmark).
 let attempts=0;
 async function poll(){
   if(!session_id){document.getElementById('key-box').textContent='No session ID found.';return;}
@@ -5324,7 +5397,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
       <div id="lead-auction-cards" style="display:flex;flex-direction:column;gap:10px"></div>
       <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
         <a id="upsell-25" href="/buy-report" class="upsell-cta ghost" style="flex:1;min-width:160px;text-align:center;display:inline-block;border:1px solid var(--orange);color:var(--orange);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Get S5 Report — $25 →</a>
-        <a href="https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00" class="upsell-cta" style="flex:1;min-width:160px;text-align:center;display:inline-block;background:var(--orange);color:var(--navy);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Investor $99/mo →</a>
+        <a href="/subscribe?tier=investor" class="upsell-cta" style="flex:1;min-width:160px;text-align:center;display:inline-block;background:var(--orange);color:var(--navy);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Investor $99/mo →</a>
       </div>
     </div>
 
@@ -5350,7 +5423,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <div class="price-tier">Investor</div>
         <div class="price-amount">$99<span>/mo</span></div>
         <div class="price-desc">Reports on every lot in your counties' upcoming sales, daily digest, plaintiff intel, and chatbot property cards.</div>
-        <a class="price-cta" href="https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00">Start Investor →</a>
+        <a class="price-cta" href="/subscribe?tier=investor">Start Investor →</a>
       </div>
       <div class="price-card">
         <div class="price-tier">Pro</div>
