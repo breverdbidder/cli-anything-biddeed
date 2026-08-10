@@ -2380,6 +2380,65 @@ const BLOG_POSTS = [
 </ol>
 `
   }
+  },
+  {
+    slug: 'putnam-county-tax-deed-auctions-guide',
+    title: 'Putnam County Tax Deed Auctions: What the Numbers Actually Show',
+    description: 'Putnam County runs one of the highest tax deed volumes in Florida — 296 upcoming lots at last count. Here is what the opening bid vs. assessed value spread actually looks like.',
+    date: '2026-08-10',
+    bodyHtml: `
+<p>Putnam County runs one of the highest tax deed auction volumes in Florida — at last count, 296 upcoming lots, the overwhelming majority (282 of 296) tax deed sales rather than mortgage foreclosures. If you're scanning Florida counties for volume, Putnam is one of the first places to look.</p>
+<h2>What the numbers show</h2>
+<p>Across the current pipeline of upcoming Putnam County lots, the average opening bid sits around <strong>$12,775</strong>, against an average assessed value of roughly <strong>$27,035</strong>. That's a meaningful spread on paper — but averages hide the range. Some lots open far below assessed value because of vacant or unbuildable parcels; others carry liens or title issues that eat the spread entirely before you ever list the property.</p>
+<p>Tax deed sales, specifically, come with a different risk profile than foreclosure auctions. The property was seized for unpaid taxes, not through a mortgage default — which means the prior owner's other debts (liens, judgments, code enforcement fines) don't automatically clear the way a foreclosure sale can wipe out junior liens. Tax deed buyers need to check title history at least as carefully as foreclosure buyers, arguably more so.</p>
+<h2>Why volume alone isn't the signal</h2>
+<p>High auction volume in a county can mean two very different things: either a genuinely active, liquid market where inventory turns over reliably — or a backlog of low-value, hard-to-move parcels that keep reappearing because nobody wants them at the price the county is asking. Putnam's volume needs case-by-case verification, not a blanket "more auctions = more opportunity" read.</p>
+<p>Before bidding on any Putnam County tax deed lot:</p>
+<ol>
+<li>Confirm the parcel is buildable — rural counties carry more unbuildable/wetland/easement-restricted lots than urban ones.</li>
+<li>Check for outstanding code enforcement liens, which survive a tax deed sale.</li>
+<li>Verify the case is still active — Putnam's high volume means schedule changes happen often.</li>
+<li>Get a real comparable sale, not an assessed-value estimate, for your exit price.</li>
+</ol>
+`
+  },
+  {
+    slug: 'escambia-county-foreclosure-auction-guide',
+    title: 'Escambia County Foreclosure & Tax Deed Auctions: The Spread Investors Are Watching',
+    description: 'Escambia County shows one of the widest opening-bid-to-assessed-value spreads of any high-volume Florida county — here is what that actually means for investors.',
+    date: '2026-08-10',
+    bodyHtml: `
+<p>Escambia County (Pensacola) currently has 262 upcoming foreclosure and tax deed auctions, and the spread between opening bid and assessed value is one of the widest of any high-volume Florida county: an average opening bid around <strong>$21,567</strong> against an average assessed value near <strong>$157,737</strong>.</p>
+<h2>Why the spread is wider here</h2>
+<p>That gap is large enough to be worth understanding rather than just chasing. A few structural reasons show up repeatedly in coastal-adjacent Panhandle counties like Escambia:</p>
+<ul>
+<li><strong>Insurance and flood-zone drag on assessed value relative to market.</strong> Assessed value doesn't always move in lockstep with what a property would actually clear at retail once insurance costs and flood-zone status are priced in by a real buyer.</li>
+<li><strong>Military and transient population turnover</strong> (Pensacola is a Navy town) can produce more distressed sales with less competitive bidding at the courthouse than a comparable non-military metro.</li>
+<li><strong>Storm and hurricane exposure</strong> means repair costs on distressed properties in this region often run higher than a generic statewide repair estimate would suggest — a wide headline spread can shrink fast once real rehab numbers come in.</li>
+</ul>
+<p>None of that means the spread is fake. It means the spread is a starting point for research, not a number to bid off of directly.</p>
+<h2>Before you bid in Escambia</h2>
+<ol>
+<li>Pull actual flood zone designation — it materially affects both insurability and resale value, and Escambia has more variation here than inland counties.</li>
+<li>Get a real, current repair estimate — storm-related deferred maintenance is common and easy to underestimate from photos alone.</li>
+<li>Check whether the property has any hurricane/storm damage claims history if available.</li>
+<li>Verify senior lien and mortgage survival status, same as any Florida foreclosure sale.</li>
+</ol>
+`
+  },
+  {
+    slug: 'biddeed-pioneer-program-announcement',
+    title: "Introducing the BidDeed.AI Pioneer Program",
+    description: 'Be one of the first 100 BidDeed.AI Pioneers — founding-customer pricing and early access. Waitlist now open.',
+    date: '2026-08-10',
+    bodyHtml: `
+<p>We're opening the waitlist for the BidDeed.AI Pioneer program — a founding-customer group for the first 100 people who want in early.</p>
+<p>Here's what we're planning: founding-customer pricing on the Investor tier, priority access to new counties and features as they ship, and a direct line to us on what to build next. We're still finalizing the full structure — including whether an equity or ownership component will be part of it — and we want to get that right before anyone commits to anything.</p>
+<p>Right now, joining the waitlist means exactly that: your name and email on a list, nothing more. No payment. No binding commitment on either side. When the program terms are finalized, Pioneers on the waitlist hear about it first, with full details before enrollment opens.</p>
+<p>If you've been using BidDeed.AI already, or you've been watching Florida foreclosure and tax deed auctions and want a formula-driven way to find your max bid before you show up, this is the group to be in early.</p>
+<p><a href="/pioneers">Join the Pioneer waitlist &rarr;</a></p>
+`
+  }
 ];
 
 function buildPioneersPage() {
