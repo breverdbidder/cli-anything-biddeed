@@ -20,8 +20,10 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies (omit optional — native PNG dep breaks the Workers bundler)
-        run: npm install --omit=optional
+      - name: Install dependencies, then remove only the native PNG dep (esbuild needs its own optional platform binary — blanket --omit=optional broke that)
+        run: |
+          npm install
+          rm -rf node_modules/@resvg
 
       - name: Deploy worker
         id: deploy
@@ -94,7 +96,6 @@ jobs:
           echo "$BODY" | grep -q '"ok":true' || { echo "::error::Save response missing ok:true"; exit 1; }
           echo "PASS: save round trip succeeded"
 
-          # Verify the row actually exists, then delete it via Supabase REST directly
           curl -s "${{ secrets.SUPABASE_URL }}/rest/v1/floor_plans?parcel_id=eq.cc-deploy-verification-test" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" > /tmp/saved_row.json
