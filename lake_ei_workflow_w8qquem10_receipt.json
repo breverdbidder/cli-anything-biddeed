@@ -1,0 +1,45 @@
+{
+  "dispatch_id": "77ac9cef-69e5-48e3-b76e-7bddb2b42d7d",
+  "workflow_run_id": "wf_98bdc94e-1e8",
+  "workflow_task_id": "w8qquem10",
+  "purpose": "25 real research items (18 municipal zoning lookups for I, 7 missing-property lookups for E), each independently adversarially re-verified against live sources before write.",
+  "zoning_survived_and_applied": [
+    { "case_number": "2016CA002108", "parcel_id": "032225010000009000", "jurisdiction": "Groveland", "zone_code": "Planned Unit Develop" },
+    { "case_number": "2025CA002688", "parcel_id": "062026005000001200", "jurisdiction": "Tavares", "zone_code": "RMF-3" },
+    { "case_number": "2025CA000787", "parcel_id": "062026005000008600", "jurisdiction": "Tavares", "zone_code": "RMF-3" },
+    { "case_number": "2025CA000580", "parcel_id": "271924170000N00100", "jurisdiction": "Leesburg", "zone_code": "R-2" },
+    { "case_number": "2025CA000018", "parcel_id": "222125000300002600", "jurisdiction": "Groveland", "zone_code": "Town Core" },
+    { "case_number": "2025CA001201", "parcel_id": "271924225000001000", "jurisdiction": "Leesburg", "zone_code": "C-1" },
+    { "case_number": "2026CA000589", "parcel_id": "102224001400032100", "jurisdiction": "Mascotte", "zone_code": "Low Density-Single Family Residential" },
+    { "case_number": "2025CA001111", "parcel_id": "361925005000026800", "jurisdiction": "Tavares", "zone_code": "RMH-S" },
+    { "case_number": "2025CA002823", "parcel_id": "281824005000001200", "jurisdiction": "Lady Lake", "zone_code": "RS-6" },
+    { "case_number": "2025CA002679", "parcel_id": "141826010000000401", "jurisdiction": "Umatilla", "zone_code": "R-18" },
+    { "case_number": "2025CA000637", "parcel_id": "291926090009401800", "jurisdiction": "Tavares", "zone_code": "RMF-2" },
+    { "case_number": "2025CA002336", "parcel_id": "221924000100001900", "jurisdiction": "Leesburg", "zone_code": "R-2" },
+    { "case_number": "2024CA001079", "parcel_id": "262125200500020900", "jurisdiction": "Groveland", "zone_code": "Planned Unit Develop" }
+  ],
+  "zoning_excluded_despite_survived_true": [
+    { "case_number": "2025CA002017", "parcel_id": "101926040000002300", "reason": "Agent-reported zone_code=SR was confirmed real and byte-identical on independent re-query, but it is an Eustis FUTURE LAND USE code (FLUCode field, MapServer/CityView layer 29), not a zoning code -- Eustis has no zoning-code GIS layer at all (confirmed absent across 3 independent Lake County GIS services). Writing FLU as zone_code would misrepresent the parcel as zoned when it isn't, for the sake of a metric point. Judgment override of the workflow's technical 'survived=true' -- excluded on Honesty Protocol grounds, not applied." }
+  ],
+  "zoning_refuted_not_applied": [
+    { "case_number": "2025CA002620", "parcel_id": "271926005000008000", "claimed_zone_code": "RSF-2", "reason": "Refuter found the parcel_id's numbering scheme did not match Lake County's own OwnParcel GIS layer identifiers for that coordinate (which returned a short numeric OWNPARCELID, not our stored 18-char STRAP-style id). NOTE: this comparison layer uses a different internal ID scheme than the STRAP-style parcel_ids that verified successfully elsewhere in this same batch, so this may be a refuter false-positive (wrong reference layer) rather than a genuine bad parcel_id in our system -- flagged as UNKNOWN/residual, not corrected either way, needs a second look with the FL GIO statewide cadastral STRAP format instead." }
+  ],
+  "zoning_unresolved_no_live_source": [
+    { "case_number": "2025CA001795", "municipality": "Eustis", "reason": "No zoning GIS layer exists for Eustis anywhere in Lake County's GIS services (only Future Land Use); city's own zoning link on the Property Appraiser site is JS/postback-gated, not scriptable via curl." },
+    { "case_number": "2025CA001078", "municipality": "Leesburg", "reason": "Leesburg's own zoning ArcGIS service (CommunityDevelopment/Planning_and_Zoning/MapServer) is live but returns HTTP 500 'Service not started' -- a server-side outage on the city's end, confirmed via repeated retries and via other services on the same host responding fine." },
+    { "case_number": "2025CA001198", "municipality": "Leesburg", "reason": "Same Leesburg service outage as above." }
+  ],
+  "property_survived_and_applied": [
+    { "case_number": "2026CA000288", "property_address": "11241 PINE RIDGE RD", "city": "LEESBURG", "parcel_id": "241925030000C01100", "assessed_value": 189340, "note": "Address found by matching foreclosure-calendar defendant name (Joan Marie Thornquist) to a unique Property Appraiser owner-name match; parcel_id independently reconfirmed via Lake County GIS PropertyAppraiser/FieldMap layer address search (exact string match), which also supplied lat/lon (centroid)." },
+    { "case_number": "2025CA1608", "note": "Already resolved earlier in this session as a duplicate of canonical row 2025CA001608 (case-number zero-padding mismatch) -- workflow's independent property lookup for this case number found the SAME address (25 E Chesley Ave, Eustis) as the canonical row, corroborating that dedup decision. No further action; stub row was already deleted before this workflow ran." }
+  ],
+  "property_unresolved": [
+    { "case_number": "2025CA001392", "reason": "Not found via clerk case search or property appraiser lookup in session scope" },
+    { "case_number": "2026CA000560", "reason": "Not found via clerk case search or property appraiser lookup in session scope" },
+    { "case_number": "2023CA000367", "reason": "Not found via clerk case search or property appraiser lookup in session scope" },
+    { "case_number": "2024CA002312", "reason": "Real address found from actual recorded Lis Pendens + Final Judgment documents (property_address=1302 S. 8th Street, Leesburg), but adversarial refuter could not independently reach a second source (Clerk SPA and Property Appraiser search are both JS-gated) so did not survive the write bar. Bonus finding: docket shows this case is under an appellate stay (bond posted, sale cancelled pending 5th DCA appeal 5D2026-1508) -- consistent with our system's existing auction_status='cancelled' for this row, no correction needed there." },
+    { "case_number": "2025CA001729", "reason": "Not found via clerk case search or property appraiser lookup in session scope" }
+  ],
+  "verified_effect_after_zoning_and_property_writes": "lake E: 94.2%->95.8% (PASS, was FAIL). lake I: 66.7%->90.8% (still FAIL, needs 95%). auctions_total 120->119 (see separate dedup receipt).",
+  "side_effect_discovered": "The 13 new parcel_zones inserts (6 new jurisdictions never previously touched by Lake zoning work) caused a live G regression (98.1%->0.0% failing on parking, density 98.1->88.0, far 100->65.0) because most of these municipalities' zone_standards (density/FAR/parking) are not yet populated -- v_zoning_gold_standard_kpi_v3 counts a linked-but-standards-incomplete parcel as 'applicable but missing', which correctly drags the percentage down rather than silently passing. Handed to a second workflow (wf_45683cf6-b82) for real ordinance-sourced backfill before declaring this session's G status."
+}
