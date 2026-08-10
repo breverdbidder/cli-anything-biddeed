@@ -2379,7 +2379,6 @@ const BLOG_POSTS = [
 <li>Write your max bid down before auction day. Don't recalculate it live in the room.</li>
 </ol>
 `
-  }
   },
   {
     slug: 'putnam-county-tax-deed-auctions-guide',
