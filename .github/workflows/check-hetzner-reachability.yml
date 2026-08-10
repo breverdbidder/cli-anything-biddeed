@@ -1,0 +1,36 @@
+name: Check Hetzner Reachability
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  check-hetzner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: TCP connect test to port 22 and record
+        run: |
+          RESULT="unknown"
+          if timeout 15 bash -c "cat < /dev/null > /dev/tcp/${{ secrets.HETZNER_IP }}/22" 2>/tmp/tcp_err.txt; then
+            RESULT="tcp_22_open"
+          else
+            RESULT="tcp_22_failed: $(cat /tmp/tcp_err.txt)"
+          fi
+          echo "TCP result: $RESULT"
+          PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'step':'hetzner_tcp_22_check','response':{'result': sys.argv[1]}}))" "$RESULT")
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check" -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Content-Type: application/json" -d "$PAYLOAD"
+
+      - name: Ping test and record
+        run: |
+          ping -c 4 -W 3 ${{ secrets.HETZNER_IP }} > /tmp/ping_out.txt 2>&1 || true
+          cat /tmp/ping_out.txt
+          python3 -c "import json; f=open('/tmp/ping_out.txt'); c=f.read(); f.close(); print(json.dumps({'step':'hetzner_ping_check','response':{'output': c[-1000:]}}))" > /tmp/ping_payload.json
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check" -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Content-Type: application/json" --data @/tmp/ping_payload.json
+
+      - name: SSH verbose handshake attempt and record
+        run: |
+          set +e
+          timeout 20 ssh -vvv -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes root@${{ secrets.HETZNER_IP }} exit > /tmp/ssh_out.txt 2>&1
+          set -e
+          cat /tmp/ssh_out.txt
+          python3 -c "import json; f=open('/tmp/ssh_out.txt'); c=f.read(); f.close(); print(json.dumps({'step':'hetzner_ssh_verbose_check','response':{'output': c[-3000:]}}))" > /tmp/ssh_payload.json
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check" -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" -H "Content-Type: application/json" --data @/tmp/ssh_payload.json
