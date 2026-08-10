@@ -1695,11 +1695,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // crawlers have an explicit path to this content.
       if (path === '/sitemap.xml') {
         const base = 'https://biddeed.ai';
-        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/terms', '/privacy', '/disclaimer', '/security'];
+        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/terms', '/privacy', '/disclaimer', '/security'];
         const countySlugs = Object.keys(COUNTY_DISPLAY).sort();
+        const blogSlugs = BLOG_POSTS.map(p => p.slug);
         const urlEntries = [
           ...staticUrls.map(p => `  <url><loc>${base}${p}</loc><changefreq>daily</changefreq></url>`),
-          ...countySlugs.map(slug => `  <url><loc>${base}/county/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`)
+          ...countySlugs.map(slug => `  <url><loc>${base}/county/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`),
+          ...blogSlugs.map(slug => `  <url><loc>${base}/blog/${slug}</loc><changefreq>weekly</changefreq></url>`)
         ].join('\n');
         const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries}\n</urlset>`;
         return new Response(xml, { headers: { 'Content-Type': 'application/xml;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
@@ -1711,6 +1713,19 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/robots.txt') {
         const robots = 'User-agent: *\nAllow: /\nSitemap: https://biddeed.ai/sitemap.xml\n';
         return new Response(robots, { headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      }
+
+      // ── /blog + /blog/:slug — added Aug 10 2026 for organic content
+      // marketing. Server-rendered like /county pages so it's fully
+      // crawlable; BLOG_POSTS is a plain array below, add new posts there.
+      if (path === '/blog') {
+        return new Response(buildBlogIndex(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+      if (path.startsWith('/blog/')) {
+        const slug = path.slice('/blog/'.length);
+        const post = BLOG_POSTS.find(p => p.slug === slug);
+        if (!post) return new Response('Not found', { status: 404 });
+        return new Response(buildBlogPost(post), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
       // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
@@ -2214,6 +2229,160 @@ function buildCountyPage(slug, d, lots, rtConfig) {
     .replace('COUNTY_TITLE Auctions', name + ' County Auctions')
     .replace('COUNTY_TITLE auctions', name + ' County auctions');
 }
+
+// ── Blog — added Aug 10 2026 for organic content marketing ──────────────────
+// Plain array of posts. bodyHtml is hand-authored HTML (paragraphs/headings),
+// not markdown — kept simple since there's no CMS. Add new posts by pushing
+// a new object here; they're automatically picked up by /blog and /sitemap.xml.
+const BLOG_POSTS = [
+  {
+    slug: 'florida-foreclosure-max-bid-guide',
+    title: 'How to Calculate Your Max Bid at a Florida Foreclosure Auction',
+    description: 'The formula for calculating your max bid before a Florida foreclosure auction, the traps that break it, and a real Marion County example where it held to the dollar.',
+    date: '2026-08-10',
+    bodyHtml: `
+<p>Walking into a Florida foreclosure or tax deed auction without a hard number in your head is how good deals turn into bad ones. The property doesn't care what it's "worth" — it cares what the courthouse steps sell it for that morning, and if your number is soft, you'll bid past it the moment the room gets competitive.</p>
+<p>Here's the formula, the traps that break it, and a real example where it held to the dollar.</p>
+<h2>The formula</h2>
+<p><strong>Max Bid = (ARV &times; 70%) &minus; Repair Costs &minus; Buffer</strong></p>
+<ul>
+<li><strong>ARV</strong> &mdash; after-repair value. What the property sells for once it's fixed up and back on the market, based on comparable retail sales, not other auction sales.</li>
+<li><strong>70%</strong> &mdash; the standard investor margin rule. It's conservative on purpose; auctions have more unknowns than a normal purchase.</li>
+<li><strong>Repair costs</strong> &mdash; a real number, not a guess. Vacant properties in foreclosure are frequently in worse shape than photos suggest.</li>
+<li><strong>Buffer</strong> &mdash; holding costs, closing costs, and a cushion for the things you can't see from the outside: a survived senior lien, an unexpected tax certificate, an occupant who won't leave on schedule.</li>
+</ul>
+<p>That last category &mdash; the things you can't see &mdash; is where most losses actually come from, not the math itself.</p>
+<h2>The traps that break the formula</h2>
+<p><strong>Senior lien survival.</strong> Not every lien gets wiped out by a foreclosure sale. If a senior mortgage or lien survives, you inherit it &mdash; and it can erase your entire margin. This has to be checked per property, not assumed.</p>
+<p><strong>Tax certificate status.</strong> Delinquent taxes and outstanding certificates don't disappear because a property changes hands. Check status before you bid, not after you win.</p>
+<p><strong>Occupancy.</strong> A property with someone still living in it is a different timeline and a different cost than a vacant one. Factor it into your buffer, not as an afterthought.</p>
+<p><strong>Flood zone and title issues.</strong> Both affect resale value and both are knowable in advance if you check before auction day, not after.</p>
+<h2>A real example: Marion County, July 2026</h2>
+<p>Case 422021CA000414CAAXXX, Marion County &mdash; a property at 14470 SE 91st Ter, Summerfield, FL.</p>
+<ul>
+<li><strong>Entry bid:</strong> $72,100</li>
+<li><strong>Calculated max bid (published pre-sale):</strong> $82,000</li>
+<li><strong>Actual sale price:</strong> $73,501</li>
+</ul>
+<p>The sale closed $8,499 under the ceiling and $1,401 over the entry bid &mdash; the formula held, and the buyer walked away with roughly $26,400 in day-one equity, net of the numbers above.</p>
+<p>The point isn't that every auction goes this cleanly &mdash; plenty don't. The point is that having a number <em>before</em> you're standing in the room, and sticking to it, is what turns foreclosure investing from gambling into a process.</p>
+<h2>Before you bid, at minimum</h2>
+<ol>
+<li>Pull the case number and confirm it's still active &mdash; auctions cancel and reschedule constantly.</li>
+<li>Check for senior liens and mortgages that could survive the sale.</li>
+<li>Confirm tax certificate status.</li>
+<li>Get a real repair estimate, not a drive-by guess.</li>
+<li>Calculate ARV from actual retail comparables in that specific neighborhood, not county-wide averages.</li>
+<li>Write your max bid down before auction day. Don't recalculate it live in the room.</li>
+</ol>
+`
+  }
+];
+
+function buildBlogIndex() {
+  const rows = BLOG_POSTS.slice().sort((a,b) => b.date.localeCompare(a.date)).map(p => `
+    <a href="/blog/${p.slug}" class="post-link">
+      <div class="post-date">${p.date}</div>
+      <div class="post-title">${p.title}</div>
+      <div class="post-desc">${p.description}</div>
+    </a>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BidDeed.AI Blog — Florida Foreclosure &amp; Tax Deed Investing</title>
+<meta name="description" content="Guides and real case studies on Florida foreclosure and tax deed auction investing — max bid formulas, lien traps, and verified outcomes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
+.nav-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-size:15px;font-weight:700;color:white}
+.logo span{color:var(--orange)}
+.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
+.wrap{max-width:900px;margin:0 auto;padding:3rem 1.5rem}
+h1{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.6rem);color:white;margin-bottom:2rem}
+.post-link{display:block;background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;text-decoration:none;color:var(--text);margin-bottom:1rem;transition:border-color .15s}
+.post-link:hover{border-color:var(--orange)}
+.post-date{font-size:.75rem;color:var(--muted);margin-bottom:.4rem}
+.post-title{font-size:1.15rem;font-weight:700;color:white;margin-bottom:.5rem}
+.post-desc{font-size:.9rem;color:var(--muted);line-height:1.5}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
+footer a{color:var(--muted);text-decoration:none}
+</style>
+</head>
+<body>
+<nav><div class="nav-inner">
+  <a href="/" class="logo">BidDeed<span>.AI</span></a>
+  <a href="/buy-report" class="nav-cta">Get a report</a>
+</div></nav>
+<div class="wrap">
+  <h1>Guides &amp; Case Studies</h1>
+  ${rows}
+</div>
+<footer>
+  <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/disclaimer">Disclaimer</a></p>
+</footer>
+</body></html>`;
+}
+
+function buildBlogPost(post) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${post.title} — BidDeed.AI</title>
+<meta name="description" content="${post.description}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:17px;line-height:1.75}
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
+.nav-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-size:15px;font-weight:700;color:white}
+.logo span{color:var(--orange)}
+.nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
+.wrap{max-width:760px;margin:0 auto;padding:3rem 1.5rem}
+.date{font-size:.8rem;color:var(--muted);margin-bottom:.75rem}
+h1{font-family:'DM Serif Display',serif;font-size:clamp(1.7rem,4vw,2.4rem);color:white;margin-bottom:1.5rem;line-height:1.25}
+h2{color:var(--orange);font-size:1.25rem;margin:2rem 0 .75rem}
+p{margin-bottom:1.1rem;color:var(--text)}
+ul,ol{margin:0 0 1.1rem 1.5rem;color:var(--text)}
+li{margin-bottom:.4rem}
+.disclaimer{font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);margin-top:2.5rem;padding-top:1.5rem}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
+footer a{color:var(--muted);text-decoration:none}
+.cta-box{background:var(--navy2);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:1.5rem;margin:2.5rem 0;text-align:center}
+.cta-box a{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;margin-top:.75rem}
+</style>
+</head>
+<body>
+<nav><div class="nav-inner">
+  <a href="/" class="logo">BidDeed<span>.AI</span></a>
+  <a href="/buy-report" class="nav-cta">Get a report</a>
+</div></nav>
+<div class="wrap">
+  <div class="date">${post.date}</div>
+  <h1>${post.title}</h1>
+  ${post.bodyHtml}
+  <div class="cta-box">
+    <div>Get your own max bid number before you show up.</div>
+    <a href="/buy-report">Get a Shapira Report — $25 →</a>
+  </div>
+  <p class="disclaimer">This is general educational information, not legal, financial, or investment advice. Auction data and value estimates should always be independently verified. Consult a licensed Florida attorney and title professional before bidding on any property.</p>
+</div>
+<footer>
+  <p><a href="/blog">&larr; All guides</a> &middot; &copy; 2026 BidDeed.AI &middot; Everest Capital USA</p>
+</footer>
+</body></html>`;
+}
+
 
 function buildCountiesIndex(rtConfig) {
   const goldSet = new Set((rtConfig && rtConfig.goldCounties && rtConfig.goldCounties.length) ? rtConfig.goldCounties : GOLD_COUNTIES);
@@ -4768,6 +4937,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
       <a href="#report">Inside the report</a>
       <a href="#pricing">Pricing</a>
       <a href="/counties">All Counties</a>
+      <a href="/blog">Blog</a>
     </div>
     <a class="nav-cta" href="/buy-report">GET A REPORT — $25</a>
   </div>
@@ -5047,6 +5217,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <a href="/buy-report">Get a report</a>
         <a href="/chat">Chat</a>
         <a href="/counties">All Counties</a>
+        <a href="/blog">Blog</a>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
         <a href="/disclaimer">Disclaimer</a>
