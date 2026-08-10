@@ -46,22 +46,26 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
 
-      - name: Verify — valid compile returns real SVG
+      - name: Verify — valid compile returns real SVG (retries for Cloudflare edge propagation)
         run: |
           URL="${{ steps.deploy.outputs.worker_url }}"
-          RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/floorplan/compile" \
-            -H "Content-Type: application/json" \
-            -d '{"source": "plan \"Verify\" { units mm room at (0,0) size 1000x1000 label \"R\" }"}')
-          STATUS=$(echo "$RESP" | tail -1)
-          BODY=$(echo "$RESP" | sed '$d')
-          echo "HTTP status: $STATUS"
-          echo "Body: $BODY"
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::Expected 200, got $STATUS"
-            exit 1
-          fi
-          echo "$BODY" | grep -q '"svg"' || { echo "::error::No svg field in response"; exit 1; }
-          echo "PASS: valid compile returns SVG"
+          for attempt in 1 2 3 4 5 6; do
+            RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/floorplan/compile" \
+              -H "Content-Type: application/json" \
+              -d '{"source": "plan \"Verify\" { units mm room at (0,0) size 1000x1000 label \"R\" }"}')
+            STATUS=$(echo "$RESP" | tail -1)
+            BODY=$(echo "$RESP" | sed '$d')
+            echo "attempt $attempt: HTTP status: $STATUS"
+            if [ "$STATUS" = "200" ] && echo "$BODY" | grep -q '"svg"'; then
+              echo "PASS: valid compile returns SVG (attempt $attempt)"
+              exit 0
+            fi
+            echo "  body: $BODY"
+            echo "  not ready yet, waiting 8s before retry..."
+            sleep 8
+          done
+          echo "::error::Still not returning valid SVG after 6 attempts (~48s) — not a propagation delay, real failure"
+          exit 1
 
       - name: Verify — invalid source returns structured error, not a crash
         run: |
