@@ -2385,6 +2385,8 @@ const BLOG_POSTS = [
     title: 'Putnam County Tax Deed Auctions: What the Numbers Actually Show',
     description: 'Putnam County runs one of the highest tax deed volumes in Florida — 296 upcoming lots at last count. Here is what the opening bid vs. assessed value spread actually looks like.',
     date: '2026-08-10',
+    leadCounty: 'putnam',
+    leadCountyLabel: 'Putnam County',
     bodyHtml: `
 <p>Putnam County runs one of the highest tax deed auction volumes in Florida — at last count, 296 upcoming lots, the overwhelming majority (282 of 296) tax deed sales rather than mortgage foreclosures. If you're scanning Florida counties for volume, Putnam is one of the first places to look.</p>
 <h2>What the numbers show</h2>
@@ -2406,6 +2408,8 @@ const BLOG_POSTS = [
     title: 'Escambia County Foreclosure & Tax Deed Auctions: The Spread Investors Are Watching',
     description: 'Escambia County shows one of the widest opening-bid-to-assessed-value spreads of any high-volume Florida county — here is what that actually means for investors.',
     date: '2026-08-10',
+    leadCounty: 'escambia',
+    leadCountyLabel: 'Escambia County',
     bodyHtml: `
 <p>Escambia County (Pensacola) currently has 262 upcoming foreclosure and tax deed auctions, and the spread between opening bid and assessed value is one of the widest of any high-volume Florida county: an average opening bid around <strong>$21,567</strong> against an average assessed value near <strong>$157,737</strong>.</p>
 <h2>Why the spread is wider here</h2>
@@ -2422,6 +2426,50 @@ const BLOG_POSTS = [
 <li>Get a real, current repair estimate — storm-related deferred maintenance is common and easy to underestimate from photos alone.</li>
 <li>Check whether the property has any hurricane/storm damage claims history if available.</li>
 <li>Verify senior lien and mortgage survival status, same as any Florida foreclosure sale.</li>
+</ol>
+`
+  },
+  {
+    slug: 'highlands-county-tax-deed-auctions-guide',
+    title: 'Highlands County Tax Deed Auctions: Why the "Cheap Deals" Story Doesn\u2019t Quite Hold',
+    description: 'Highlands County runs 153 upcoming tax deed auctions — but the average opening bid is actually higher than the average assessed value. Here is why that matters.',
+    date: '2026-08-10',
+    leadCounty: 'highlands',
+    leadCountyLabel: 'Highlands County',
+    bodyHtml: `
+<p>Highlands County has 153 upcoming tax deed auctions right now — all tax deed, zero mortgage foreclosures in the current pipeline. On volume alone, it looks like one of the more active smaller Florida counties. The numbers underneath tell a more complicated story.</p>
+<h2>The number that stands out</h2>
+<p>Across the current pipeline, the average opening bid is around <strong>$2,148</strong> — and the average assessed value is around <strong>$1,991</strong>. The opening bid, on average, is <em>higher</em> than the assessed value. That's the opposite of the "buy under assessed value" pitch you'll see for most Florida tax deed counties, and it's worth taking seriously rather than skipping past.</p>
+<p>This pattern usually shows up in counties with a high concentration of very low-value parcels — often small, landlocked, unbuildable, or otherwise hard-to-use lots that accumulated years of unpaid taxes precisely because they were never worth much to begin with. The county has to recoup at least the accumulated tax debt plus fees at auction, which is where the opening bid comes from — and for a genuinely low-value lot, that minimum can end up above what the county's own assessment says the land is worth.</p>
+<h2>What this means if you're looking at Highlands</h2>
+<p>It doesn't mean skip the county. It means treat every individual lot as its own research project rather than assuming volume equals opportunity here:</p>
+<ol>
+<li>Check buildability and access before anything else — many of these are small or landlocked parcels with real usability questions.</li>
+<li>Don't rely on assessed value as a value signal in this county — get an actual comparable sale or, for raw land, a realistic sense of what similar buildable lots nearby have sold for.</li>
+<li>Understand your exit before you bid — some of these parcels make sense as long-term land banking or adjacent-lot assembly plays, not quick flips.</li>
+<li>Factor in that "153 upcoming" doesn't mean 153 good opportunities — it means 153 lots worth individually screening.</li>
+</ol>
+`
+  },
+  {
+    slug: 'marion-county-foreclosure-auctions-guide',
+    title: 'Marion County Foreclosure & Tax Deed Auctions: The County Behind Our Proof Case',
+    description: 'Marion County — where the Shapira Max Bid formula held to the dollar on a real sale. 99 upcoming auctions, and what the median numbers actually look like.',
+    date: '2026-08-10',
+    leadCounty: 'marion',
+    leadCountyLabel: 'Marion County',
+    bodyHtml: `
+<p>Marion County is where we've published our clearest real-world proof case: a property at 14470 SE 91st Ter, Summerfield, sold for $73,501 against a pre-published $82,000 Shapira Max Bid ceiling — a formula that held to within $8,499 of the actual sale price. If you want the full breakdown, it's in our <a href="/blog/florida-foreclosure-max-bid-guide">max bid formula guide</a>.</p>
+<h2>What the current pipeline looks like</h2>
+<p>Marion currently has 99 upcoming auctions — 95 tax deed, 4 mortgage foreclosure. The average opening bid is around <strong>$11,376</strong> against an average assessed value of roughly <strong>$14,897</strong>. But the average is skewed by a handful of higher-value lots — the <em>median</em> opening bid is closer to <strong>$4,006</strong>, against a median assessed value around <strong>$6,149</strong>. For a county with this much volume, the median is the more honest picture of what a typical lot actually looks like: modest opening bids, modest assessed values, and a real but not dramatic spread.</p>
+<h2>Why we use Marion as the proof case</h2>
+<p>Not because it's the biggest county, and not because the numbers are the most dramatic — Escambia and Putnam both show wider headline spreads. We use Marion because we had a specific, verifiable auction outcome to publish the prediction against <em>before</em> the sale happened, and then grade it after the fact against the courthouse record. That's the standard we hold every Shapira report to: a number published pre-sale, graded automatically within 24 hours of the actual result.</p>
+<h2>Before you bid in Marion</h2>
+<ol>
+<li>Don't anchor on the average — check the median and the specific lot's numbers, not the county-wide mean.</li>
+<li>Foreclosure lots (4 of 99 currently) carry different lien-survival risk than tax deed lots (95 of 99) — confirm which type before you research title.</li>
+<li>Verify auction status close to the date — Marion's volume means schedule changes are routine.</li>
+<li>Get your own max bid number calculated before auction day, the same way we did for the Summerfield property.</li>
 </ol>
 `
   },
@@ -2625,6 +2673,17 @@ footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-
 footer a{color:var(--muted);text-decoration:none}
 .cta-box{background:var(--navy2);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:1.5rem;margin:2.5rem 0;text-align:center}
 .cta-box a{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;margin-top:.75rem}
+.lead-box{background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin:2.5rem 0}
+.lead-box h3{color:white;font-size:1.05rem;margin-bottom:.4rem}
+.lead-box p{color:var(--muted);font-size:.88rem;margin-bottom:1rem}
+.lead-form{display:flex;gap:.6rem;flex-wrap:wrap}
+.lead-form input{flex:1;min-width:180px;background:var(--navy);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:white;font-size:15px;outline:none}
+.lead-form input:focus{border-color:var(--orange)}
+.lead-form button{background:transparent;border:1px solid var(--orange);color:var(--orange);padding:11px 20px;border-radius:8px;font-weight:700;font-size:.85rem;cursor:pointer;white-space:nowrap}
+.lead-form button:disabled{opacity:.6;cursor:default}
+.lead-msg{font-size:.82rem;margin-top:.6rem;display:none}
+.lead-msg.ok{color:#34d399;display:block}
+.lead-msg.err{color:#f87171;display:block}
 </style>
 </head>
 <body>
@@ -2636,6 +2695,31 @@ footer a{color:var(--muted);text-decoration:none}
   <div class="date">${post.date}</div>
   <h1>${post.title}</h1>
   ${post.bodyHtml}
+  ${post.leadCounty ? `
+  <div class="lead-box">
+    <h3>Want ${post.leadCountyLabel || 'this county'}'s upcoming auctions in your inbox?</h3>
+    <p>Free — no report purchase required. We'll email you the next 5 upcoming auctions in this county.</p>
+    <form class="lead-form" id="blog-lead-form">
+      <input type="email" id="blog-lead-email" placeholder="you@example.com" required>
+      <button type="submit" id="blog-lead-btn">Send Me the List</button>
+    </form>
+    <div class="lead-msg" id="blog-lead-msg"></div>
+  </div>
+  <script>
+  document.getElementById('blog-lead-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var btn=document.getElementById('blog-lead-btn'), msg=document.getElementById('blog-lead-msg');
+    var email=document.getElementById('blog-lead-email').value.trim();
+    msg.className='lead-msg'; msg.textContent='';
+    btn.disabled=true; btn.textContent='Sending...';
+    try{
+      var res=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,county:'${post.leadCounty}',source:'blog_${post.slug}',email_consent:true})});
+      var data=await res.json();
+      if(res.ok && data.ok){ msg.textContent='Sent — check your email.'; msg.className='lead-msg ok'; btn.textContent='Sent ✓'; }
+      else{ msg.textContent=(data.error||'Something went wrong. Please try again.'); msg.className='lead-msg err'; btn.disabled=false; btn.textContent='Send Me the List'; }
+    }catch(err){ msg.textContent='Network error. Please try again.'; msg.className='lead-msg err'; btn.disabled=false; btn.textContent='Send Me the List'; }
+  });
+  </script>` : ''}
   <div class="cta-box">
     <div>Get your own max bid number before you show up.</div>
     <a href="/buy-report">Get a Shapira Report — $25 →</a>
