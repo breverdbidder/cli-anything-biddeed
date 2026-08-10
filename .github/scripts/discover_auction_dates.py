@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Discover RealAuction auction dates - v2 (ASCEND Phase 3b).
+"""Discover RealAuction auction dates - v3 (issue #18529).
 
-Improvements over v1:
-  - Initial wait bumped 8s -> 15s
-  - Adds Firecrawl 'scroll' + 'wait' chain to trigger any lazy rendering
-  - Probes BOTH the CALENDAR endpoint AND the user-CALENDAR endpoint (sometimes
-    different RealAuction installs serve calendar grid behind a different URL)
-  - Multiple regex patterns: AUCTIONDATE param, ISO dates, JS array entries
-  - Writes to biddeed.discovered_auction_dates (clean schema, no legacy constraints)
+Changes over v2:
+  - Adds login step for RealForeclose/RealTaxDeed platforms that gate the
+    calendar behind authentication (gulf, broward, hillsborough, etc.)
+  - FIRECRAWL_API_KEY is now optional: keyless free tier is tried first
+    (confirmed working: no Authorization header, full actions accepted, $0 cost)
+  - Falls back to keyed tier if FIRECRAWL_API_KEY is set and keyless 402s
+  - LOGIN_ACTION_CHAIN: fill username, fill password, click submit, wait for render
+    then existing wait/scroll chain to trigger lazy calendar rendering
+  - Detects login failure (still on login page post-submit) and reports blocker
 
 Env required:
-  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FIRECRAWL_API_KEY,
+  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
   COUNTY_SLUG, BASE_URL, PLATFORM, SALE_TYPE
+Env optional:
+  FIRECRAWL_API_KEY         - if set, used as fallback when keyless fails
+  REALFORECLOSE_EMAIL       - reuses existing county-outcome-harvest secret
+  REALFORECLOSE_PASSWORD    - reuses existing county-outcome-harvest secret
 """
 import os, re, sys, json
 from datetime import date
@@ -24,11 +30,14 @@ def _req(name):
 
 SUPABASE_URL  = _req('SUPABASE_URL').rstrip('/')
 SUPABASE_KEY  = _req('SUPABASE_SERVICE_ROLE_KEY')
-FIRECRAWL_KEY = _req('FIRECRAWL_API_KEY')
+FIRECRAWL_KEY = os.environ.get('FIRECRAWL_API_KEY', '').strip()
 COUNTY        = _req('COUNTY_SLUG').lower().strip()
 BASE_URL      = _req('BASE_URL').rstrip('/')
 PLATFORM      = _req('PLATFORM').lower().strip()
 SALE_TYPE     = _req('SALE_TYPE').lower().strip()
+
+RF_EMAIL = os.environ.get('REALFORECLOSE_EMAIL', '').strip()
+RF_PASS  = os.environ.get('REALFORECLOSE_PASSWORD', '').strip()
 
 REST = f'{SUPABASE_URL}/rest/v1'
 H    = {'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}','Content-Type':'application/json'}
@@ -40,28 +49,99 @@ CALENDAR_URLS = [
     f'{BASE_URL}/index.cfm?zaction=AUCTION&Zmethod=CALENDAR',
 ]
 
-print(f'>>> Discovery v2 for {COUNTY} ({SALE_TYPE}) on {PLATFORM}')
+print(f'>>> Discovery v3 for {COUNTY} ({SALE_TYPE}) on {PLATFORM}')
+print(f'    credentials: {"present" if RF_EMAIL and RF_PASS else "absent"}')
+print(f'    firecrawl: {"keyed" if FIRECRAWL_KEY else "keyless (free tier)"}')
 
-def firecrawl(url, actions):
-    body = {'url':url,'formats':['markdown','html'],
-            'actions':actions,'onlyMainContent':False,'timeout':120000}
-    r = requests.post('https://api.firecrawl.dev/v1/scrape',
-        headers={'Authorization':f'Bearer {FIRECRAWL_KEY}','Content-Type':'application/json'},
-        json=body, timeout=180)
-    if r.status_code != 200:
-        return None, None, f'firecrawl {r.status_code}'
-    data = r.json().get('data',{})
-    return data.get('markdown',''), data.get('html',''), None
+# ── Login action chain ────────────────────────────────────────────────────────
+# RealForeclose/RealTaxDeed login form (confirmed from county_outcome_harvester.py
+# and live form inspection):
+#   <input name="LogName" ...> — username/email field
+#   <input name="LogPass" ...> — password field
+#   <input name="LogButton" type="submit" value="Login"> — submit button
+#
+# Firecrawl input action uses CSS selector. Name-attribute selectors are stable
+# across all RealAuction ColdFusion installs (same template on all counties).
+def build_login_actions():
+    if not RF_EMAIL or not RF_PASS:
+        return []
+    return [
+        {'type': 'wait', 'milliseconds': 3000},
+        {'type': 'input', 'selector': 'input[name="LogName"]', 'text': RF_EMAIL},
+        {'type': 'input', 'selector': 'input[name="LogPass"]', 'text': RF_PASS},
+        {'type': 'click', 'selector': 'input[name="LogButton"]'},
+        {'type': 'wait', 'milliseconds': 8000},
+    ]
 
-ACTION_CHAIN = [
-    {'type':'wait','milliseconds':15000},
-    {'type':'scroll','direction':'down'},
-    {'type':'wait','milliseconds':3000},
-    {'type':'scroll','direction':'down'},
-    {'type':'wait','milliseconds':2000},
+SCROLL_CHAIN = [
+    {'type': 'wait', 'milliseconds': 15000},
+    {'type': 'scroll', 'direction': 'down'},
+    {'type': 'wait', 'milliseconds': 3000},
+    {'type': 'scroll', 'direction': 'down'},
+    {'type': 'wait', 'milliseconds': 2000},
 ]
 
+def firecrawl(url, actions):
+    body = {'url': url, 'formats': ['markdown', 'html'],
+            'actions': actions, 'onlyMainContent': False, 'timeout': 120000}
+
+    # Try keyless (free tier) first — confirmed working (issue #18529 test Aug 10 2026)
+    # No Authorization header = keyless mode, no billing dependency
+    r = requests.post('https://api.firecrawl.dev/v1/scrape',
+        headers={'Content-Type': 'application/json'},
+        json=body, timeout=180)
+
+    if r.status_code == 200:
+        data = r.json().get('data', {})
+        return data.get('markdown', ''), data.get('html', ''), None
+
+    print(f'    keyless attempt: {r.status_code} — ', end='')
+
+    # Fall back to keyed tier if API key is available
+    if FIRECRAWL_KEY and r.status_code in (401, 402, 403):
+        print('falling back to keyed tier')
+        r2 = requests.post('https://api.firecrawl.dev/v1/scrape',
+            headers={'Authorization': f'Bearer {FIRECRAWL_KEY}', 'Content-Type': 'application/json'},
+            json=body, timeout=180)
+        if r2.status_code == 200:
+            data = r2.json().get('data', {})
+            return data.get('markdown', ''), data.get('html', ''), None
+        return None, None, f'firecrawl keyed {r2.status_code}'
+
+    print('no fallback key available' if not FIRECRAWL_KEY else 'non-auth error')
+    return None, None, f'firecrawl keyless {r.status_code}'
+
+
+def detect_login_page(md, html):
+    """Return True if content looks like the login page (not the calendar)."""
+    combined = (md or '') + (html or '')
+    login_signals = [
+        'user name or password is invalid',
+        'logname',
+        'logpass',
+        'login',
+        'username',
+        'password',
+    ]
+    calendar_signals = [
+        'auctiondate',
+        'auction calendar',
+        'sale date',
+        'upcoming',
+    ]
+    combined_lower = combined.lower()
+    login_hits = sum(1 for s in login_signals if s in combined_lower)
+    calendar_hits = sum(1 for s in calendar_signals if s in combined_lower)
+    # If we see login signals without calendar signals, we're still on the login page
+    return login_hits >= 2 and calendar_hits == 0
+
+
+login_actions = build_login_actions()
+ACTION_CHAIN = login_actions + SCROLL_CHAIN
+
 best_md, best_html, best_url = '', '', None
+login_blocked = False
+
 for url in CALENDAR_URLS:
     print(f'  trying {url}')
     md, html, err = firecrawl(url, ACTION_CHAIN)
@@ -69,6 +149,15 @@ for url in CALENDAR_URLS:
         print(f'    failed: {err}')
         continue
     print(f'    md={len(md)} html={len(html)}')
+
+    # Check if we're still on the login page after attempting login
+    if login_actions and detect_login_page(md, html):
+        print(f'    WARNING: response looks like login page (auth may have failed or CSRF/JS issue)')
+        login_blocked = True
+        # Still record this response so we can report on it
+    else:
+        login_blocked = False
+
     # Pick URL with largest combined render (better signal of full page load)
     if len(md) + len(html) > len(best_md) + len(best_html):
         best_md, best_html, best_url = md, html, url
@@ -78,6 +167,15 @@ if not best_md and not best_html:
     sys.exit(1)
 
 print(f'Using {best_url}  md={len(best_md)} html={len(best_html)}')
+
+# ── Login failure detection ───────────────────────────────────────────────────
+if login_actions and login_blocked:
+    # All URLs returned login pages — report blocker per issue #18529 requirement 5
+    print('BLOCKER: All calendar URLs returned login page after auth attempt.', file=sys.stderr)
+    print('Possible causes: CSRF token on submit, JS-heavy form, credentials invalid,', file=sys.stderr)
+    print('or Firecrawl actions did not complete the login form successfully.', file=sys.stderr)
+    print('Per issue #18529: reporting blocker rather than shipping a fix that runs without real data.', file=sys.stderr)
+    sys.exit(3)
 
 # Extract candidate dates from BOTH markdown AND html (HTML may have data attrs that markdown drops)
 dates_found = set()
@@ -137,7 +235,8 @@ def upsert(d, position, rank):
         'county_slug': COUNTY, 'sale_type': SALE_TYPE, 'platform': PLATFORM,
         'auction_date': d.isoformat(), 'position': position, 'rank_within': rank,
         'source_markdown_bytes': len(best_md),
-        'notes': json.dumps({'discovery_version':'v2','best_url':best_url,'combined_bytes':len(combined)})
+        'notes': json.dumps({'discovery_version':'v3','best_url':best_url,'combined_bytes':len(combined),
+                             'login_attempted': bool(login_actions)})
     }
     resp = requests.post(f'{REST}/biddeed.discovered_auction_dates',
         json=payload,
@@ -172,9 +271,11 @@ if gh_output:
 gh_summary = os.environ.get('GITHUB_STEP_SUMMARY')
 if gh_summary:
     with open(gh_summary, 'a') as f:
-        f.write(f'## Discovery v2: {COUNTY}\n')
+        f.write(f'## Discovery v3: {COUNTY}\n')
         f.write(f'- URL used: `{best_url}`\n')
         f.write(f'- Markdown: {len(best_md)} bytes, HTML: {len(best_html)} bytes\n')
+        f.write(f'- Login attempted: {"yes" if login_actions else "no (no credentials)"}\n')
+        f.write(f'- Firecrawl mode: {"keyed" if FIRECRAWL_KEY else "keyless (free tier)"}\n')
         f.write(f'- Past dates ({len(past_dates)}): {past_dates[:7]}\n')
         f.write(f'- Future dates ({len(future_dates)}): {future_dates[:7]}\n')
         f.write(f'- Rows inserted: {inserted}\n')
