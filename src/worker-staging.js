@@ -107,10 +107,12 @@ async function fetchCountyFeed() {
 }
 
 // ── Property/auction cards — same shape as production /auctions ────────────
+// Reads v_property_card_verified (not the raw table) — same fail-closed gate
+// as src/worker.js, per CLERK-SSOT Task 4.2 (issue #18647).
 async function fetchAuctionCards(county, days, type, limit) {
   const today = new Date().toISOString().slice(0,10);
   const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
-  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status`;
+  let auctionsUrl = `${SUPABASE_URL}/rest/v1/v_property_card_verified?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=in.(upcoming,scheduled)&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform,bcpao_url,trellis_url,clerk_parity_match_pct,clerk_parity_checked_at`;
   if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
 
   const [auctionsRes, certRes] = await Promise.all([
@@ -140,6 +142,11 @@ async function fetchAuctionCards(county, days, type, limit) {
       is_gold_standard: isGold,
       days_until_auction: daysUntil,
       equity_gap: hasBoth ? (Number(r.assessed_value) - Number(r.opening_bid)) : null,
+      clerk_parity_badge: {
+        county: r.county,
+        match_pct: r.clerk_parity_match_pct != null ? Number(r.clerk_parity_match_pct) : null,
+        checked_at: r.clerk_parity_checked_at || null,
+      },
     };
   });
 }
@@ -290,6 +297,7 @@ body{overflow:hidden}
 .parity.ok{color:var(--green)}
 .parity.warn{color:var(--orange)}
 .parity.bad{color:#dc2626}
+.clerk-parity{font-size:10px;font-weight:600;color:var(--green);margin-bottom:10px}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .btn-buy{flex:1;text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:9px 10px;border-radius:8px;font-weight:700;font-size:12px;text-decoration:none;white-space:nowrap}
 .btn-maps{flex:1;text-align:center;background:#f1f5f9;border:1px solid var(--border);color:#334155;border-radius:8px;padding:9px 10px;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
@@ -644,9 +652,16 @@ function saleBadge(t){
   return '';
 }
 function parityInfo(p){
-  if (p === 'matched_clean') return { cls: 'ok', text: '✓ Data verified' };
-  if (p === 'matched_divergent') return { cls: 'bad', text: '⚠ Data conflict' };
+  if (p === 'matched_clean' || p === 'PARITY_OK' || p === 'CLERK_VERIFIED') return { cls: 'ok', text: '✓ Data verified' };
+  if (p === 'matched_divergent' || p === 'CLERK_SSOT_CANCELLED') return { cls: 'bad', text: '⚠ Data conflict' };
   return { cls: 'warn', text: '⚠ Data unverified' };
+}
+function clerkParityBadge(a){
+  var b = a.clerk_parity_badge;
+  if (!b || b.match_pct == null || !b.checked_at) return '';
+  var hrs = Math.max(0, Math.round((Date.now() - new Date(b.checked_at).getTime()) / 3600000));
+  var when = hrs < 1 ? 'just now' : (hrs + 'h ago');
+  return '<div class="clerk-parity" title="Cross-checked against the ' + esc(toDisplayClient(b.county || '')) + ' Clerk of Court sale calendar">✅ Clerk-verified ' + esc(String(b.match_pct)) + '% · checked ' + when + '</div>';
 }
 function buildPropertyCard(a){
   var hasAddr = !!a.property_address;
@@ -662,6 +677,7 @@ function buildPropertyCard(a){
           '<div><label>Assessed Value</label><value>' + fmtMoneyP(a.assessed_value) + '</value></div>' +
           '<div><label>Equity Gap</label><value>' + fmtMoneyP(a.equity_gap) + '</value></div></div>';
   html += '<div class="parity ' + p.cls + '">' + p.text + '</div>';
+  html += clerkParityBadge(a);
   html += '<div class="actions"><a class="btn-buy" href="' + buyUrl + '">Buy S5 Report — $25</a>' +
           (hasAddr ? ('<a class="btn-maps" href="' + mapsUrl + '" target="_blank" rel="noopener">View on Maps ↗</a>') : '') + '</div>';
   html += '</div>';
