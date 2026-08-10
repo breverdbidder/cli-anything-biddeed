@@ -8,6 +8,7 @@ v3 changes from v2:
   - Login selectors confirmed live against broward.realforeclose.com (Aug 10 2026)
   - Reuse REALFORECLOSE_EMAIL / REALFORECLOSE_PASSWORD env vars (same as county-outcome-harvest.yml)
   - Date extraction logic (Pattern 1-4) unchanged
+  - v3.1: retry-with-backoff — login+click retried up to 3 total attempts with 6s backoff
 
 Env required:
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
@@ -95,40 +96,76 @@ def detect_login_page(html: str, md: str) -> bool:
     return hits >= 2
 
 
+LOGIN_MAX_ATTEMPTS = 3
+LOGIN_BACKOFF_S = 6
+
+
 async def crawl_url(url: str) -> tuple[str, str, str | None]:
     try:
         from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
     except ImportError:
         return '', '', 'crawl4ai not installed — run: pip install crawl4ai && crawl4ai-setup'
 
-    js_code = None
-    if RF_EMAIL and RF_PASSWORD:
-        js_code = _make_js(RF_EMAIL, RF_PASSWORD)
-
+    has_creds = bool(RF_EMAIL and RF_PASSWORD)
     browser_cfg = BrowserConfig(headless=True, verbose=False)
 
-    run_cfg_kwargs = dict(
+    base_cfg_kwargs: dict = dict(
         wait_for='css:body',
         page_timeout=60000,
         delay_before_return_html=2.0,
     )
-    if js_code:
-        run_cfg_kwargs['js_code'] = [js_code]
 
-    run_cfg = CrawlerRunConfig(**run_cfg_kwargs)
+    if not has_creds:
+        run_cfg = CrawlerRunConfig(**base_cfg_kwargs)
+        try:
+            async with AsyncWebCrawler(config=browser_cfg) as crawler:
+                result = await crawler.arun(url=url, config=run_cfg)
+        except Exception as e:
+            return '', '', f'crawl4ai error: {e}'
+        if not result.success:
+            return '', '', f'crawl4ai failed: {getattr(result, "error_message", "unknown")}'
+        return result.markdown or '', result.html or '', None
 
-    try:
-        async with AsyncWebCrawler(config=browser_cfg) as crawler:
-            # Initial load with 15s pre-wait (mirrors v2 ACTION_CHAIN first wait)
-            result = await crawler.arun(url=url, config=run_cfg)
-    except Exception as e:
-        return '', '', f'crawl4ai error: {e}'
+    login_js = _make_js(RF_EMAIL, RF_PASSWORD)
+    login_cfg = CrawlerRunConfig(**{**base_cfg_kwargs, 'js_code': [login_js]})
 
-    if not result.success:
-        return '', '', f'crawl4ai failed: {getattr(result, "error_message", "unknown")}'
+    md, html = '', ''
+    last_err: str | None = None
 
-    md   = result.markdown or ''
-    html = result.html or ''
+    for attempt in range(1, LOGIN_MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            print(f'  [login attempt {attempt}/{LOGIN_MAX_ATTEMPTS}] backing off {LOGIN_BACKOFF_S}s...')
+            await asyncio.sleep(LOGIN_BACKOFF_S)
+        else:
+            print(f'  [login attempt {attempt}/{LOGIN_MAX_ATTEMPTS}]')
+
+        try:
+            async with AsyncWebCrawler(config=browser_cfg) as crawler:
+                result = await crawler.arun(url=url, config=login_cfg)
+        except Exception as e:
+            last_err = f'crawl4ai error (attempt {attempt}): {e}'
+            print(f'    error: {last_err}')
+            continue
+
+        if not result.success:
+            last_err = f'crawl4ai failed (attempt {attempt}): {getattr(result, "error_message", "unknown")}'
+            print(f'    error: {last_err}')
+            continue
+
+        md = result.markdown or ''
+        html = result.html or ''
+
+        if detect_login_page(html, md):
+            print(f'    login page still showing after attempt {attempt}')
+            last_err = f'login page detected after attempt {attempt}'
+        else:
+            print(f'    login succeeded on attempt {attempt}')
+            last_err = None
+            break
+
+    if last_err and not (md or html):
+        return '', '', last_err
+
     return md, html, None
 
 
