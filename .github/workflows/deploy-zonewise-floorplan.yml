@@ -97,7 +97,7 @@ jobs:
             echo "::error::Save failed, expected 200 got $STATUS"
             exit 1
           fi
-          echo "$BODY" | grep -q '"ok":true' || { echo "::error::Save response missing ok:true"; exit 1; }
+          echo "$BODY" | grep -q '"ok": true' || { echo "::error::Save response missing ok:true"; exit 1; }
           echo "PASS: save round trip succeeded"
 
           curl -s "${{ secrets.SUPABASE_URL }}/rest/v1/floor_plans?parcel_id=eq.cc-deploy-verification-test" \
