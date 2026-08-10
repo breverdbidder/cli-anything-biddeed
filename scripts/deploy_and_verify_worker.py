@@ -64,6 +64,14 @@ def _req(url, headers=None, data=None, method="GET"):
             return resp.status, resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+        # Network-level failures (timeout, DNS blip, connection reset) are
+        # NOT the same as an HTTP error -- treat as a retryable failure
+        # rather than letting the exception propagate and crash the whole
+        # verification run. Caught live: a successful deploy's own
+        # verification step crashed on a transient socket timeout instead
+        # of retrying, making a real success look like a script crash.
+        return None, f"network error: {e}"
 
 
 def get_env(name):
