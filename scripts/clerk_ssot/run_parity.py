@@ -1,0 +1,208 @@
+"""CLERK-SSOT daily parity runner (Task 3).
+
+For each registered county/sale_type parser: fetch clerk rows, stage them,
+diff against multi_county_auctions for the today->+90d window, write a
+clerk_parity_results row, and apply the three corrective reconciliation
+actions from the spec (insert missing, flag clerk-cancelled, suppress
+phantom -- never delete).
+
+Hard rule (spec Task 2): a parser that returns 0 rows is a FAILURE, not an
+empty calendar, if it previously returned >0. This script never silently
+swallows a parser exception into a clean 0-row parity result -- it writes
+status='PARSE_FAIL' instead.
+"""
+import json
+import os
+import subprocess
+import sys
+from datetime import date, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from clerk_ssot.parsers import brevard, gadsden, wakulla  # noqa: E402
+
+MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
+
+# county_slug -> {sale_type: parser_fn}
+PARSERS = {
+    "brevard": {"foreclosure": brevard.parse_foreclosure},
+    "gadsden": {"foreclosure": gadsden.parse_foreclosure, "tax_deed": gadsden.parse_tax_deed},
+    "wakulla": {"foreclosure": wakulla.parse_foreclosure, "tax_deed": wakulla.parse_tax_deed},
+}
+
+WINDOW_DAYS = 90
+
+
+def run_sql(sql: str):
+    payload = json.dumps({"query": sql})
+    result = subprocess.run(
+        ["curl", "-sS", "-X", "POST", MGMT_API,
+         "-H", f"Authorization: Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+         "-H", "Content-Type: application/json",
+         "-H", "User-Agent: cli-anything-biddeed-cc/1.0",
+         "-d", "@-"],
+        input=payload, capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"curl failed: {result.stderr}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"non-JSON response: {result.stdout[:500]}")
+
+
+def sql_str(v):
+    if v is None:
+        return "NULL"
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def stage_rows(rows: list[dict]):
+    if not rows:
+        return
+    values = []
+    for r in rows:
+        values.append("(%s,%s,%s,%s,%s,%s,%s,%s,now())" % (
+            sql_str(r["county_slug"]), sql_str(r["sale_type"]), sql_str(r["case_number"]),
+            sql_str(r["sale_date"]), "true" if r["cancelled"] else "false",
+            sql_str(r["raw_comment"]), sql_str(r["case_title"]), sql_str(r["source_url"]),
+        ))
+    sql = f"""
+    INSERT INTO public.clerk_ssot_sale_rows
+      (county_slug, sale_type, case_number, sale_date, cancelled, raw_comment, case_title, source_url, parsed_at)
+    VALUES {','.join(values)}
+    ON CONFLICT (county_slug, sale_type, case_number, sale_date) DO UPDATE SET
+      cancelled = EXCLUDED.cancelled,
+      raw_comment = EXCLUDED.raw_comment,
+      case_title = EXCLUDED.case_title,
+      parsed_at = now();
+    """
+    run_sql(sql)
+
+
+def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> dict:
+    window_start = date.today()
+    window_end = window_start + timedelta(days=WINDOW_DAYS)
+
+    def _in_window(sale_date_str):
+        if not sale_date_str:
+            return False
+        d = date.fromisoformat(sale_date_str)
+        return window_start <= d <= window_end
+
+    ssot_by_case = {r["case_number"]: r for r in rows if _in_window(r["sale_date"])}
+    ours = run_sql(f"""
+        SELECT case_number, auction_status, parity_status
+        FROM public.multi_county_auctions
+        WHERE lower(county) = {sql_str(county_slug)}
+          AND sale_type = {sql_str(sale_type)}
+          AND auction_date BETWEEN {sql_str(window_start.isoformat())} AND {sql_str(window_end.isoformat())}
+    """)
+    ours_by_case = {r["case_number"]: r for r in ours}
+
+    matched = 0
+    missing_from_ours = []
+    cancelled_mismatch = []
+    for case_number, ssot_row in ssot_by_case.items():
+        our_row = ours_by_case.get(case_number)
+        if our_row is None:
+            missing_from_ours.append(ssot_row)
+            continue
+        matched += 1
+        if ssot_row["cancelled"] and our_row["auction_status"] != "CANCELLED":
+            cancelled_mismatch.append(ssot_row)
+
+    phantom_in_ours = [c for c in ours_by_case if c not in ssot_by_case]
+
+    # --- reconciliation actions (additive/corrective only, never delete) ---
+    for ssot_row in missing_from_ours:
+        status_val = "CANCELLED" if ssot_row["cancelled"] else "scheduled"
+        parity_val = "CLERK_SSOT_CANCELLED" if ssot_row["cancelled"] else "CLERK_VERIFIED"
+        run_sql(f"""
+            INSERT INTO public.multi_county_auctions (county, sale_type, case_number, auction_date, auction_status, parity_status, parity_source)
+            VALUES ({sql_str(county_slug)}, {sql_str(sale_type)}, {sql_str(ssot_row['case_number'])}, {sql_str(ssot_row['sale_date'])}, {sql_str(status_val)}, {sql_str(parity_val)}, {sql_str(f'{county_slug}_clerk_{sale_type}')})
+            ON CONFLICT (county, case_number, sale_type) DO UPDATE SET
+              auction_date = EXCLUDED.auction_date,
+              auction_status = EXCLUDED.auction_status,
+              parity_status = EXCLUDED.parity_status,
+              parity_source = EXCLUDED.parity_source;
+        """)
+
+    for ssot_row in cancelled_mismatch:
+        run_sql(f"""
+            UPDATE public.multi_county_auctions
+            SET auction_status='CANCELLED', parity_status='CLERK_SSOT_CANCELLED', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')}
+            WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)} AND case_number={sql_str(ssot_row['case_number'])};
+        """)
+
+    if phantom_in_ours:
+        in_list = ",".join(sql_str(c) for c in phantom_in_ours)
+        run_sql(f"""
+            UPDATE public.multi_county_auctions
+            SET parity_status='PHANTOM_NOT_ON_CLERK'
+            WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)}
+              AND auction_date BETWEEN {sql_str(window_start.isoformat())} AND {sql_str(window_end.isoformat())}
+              AND case_number IN ({in_list});
+        """)
+
+    ssot_count = len(ssot_by_case)
+    our_count = len(ours)
+    match_pct = round(100.0 * matched / ssot_count, 1) if ssot_count else None
+    if ssot_count == 0:
+        status = "PARSE_FAIL"  # caller only reaches here with rows>0; guarded upstream
+    elif missing_from_ours or cancelled_mismatch:
+        status = "BEHIND" if missing_from_ours else "STALE_CANCEL"
+    elif phantom_in_ours:
+        status = "PHANTOM"
+    else:
+        status = "PARITY"
+
+    detail = {
+        "missing_case_numbers": [r["case_number"] for r in missing_from_ours][:20],
+        "cancelled_mismatch_case_numbers": [r["case_number"] for r in cancelled_mismatch][:20],
+        "phantom_case_numbers": phantom_in_ours[:20],
+    }
+    run_sql(f"""
+        INSERT INTO public.clerk_parity_results
+          (county_slug, sale_type, window_start, window_end, ssot_count, our_count, matched,
+           missing_from_ours, phantom_in_ours, cancelled_mismatch, match_pct, status, detail)
+        VALUES ({sql_str(county_slug)}, {sql_str(sale_type)}, {sql_str(window_start.isoformat())}, {sql_str(window_end.isoformat())},
+                {ssot_count}, {our_count}, {matched}, {len(missing_from_ours)}, {len(phantom_in_ours)}, {len(cancelled_mismatch)},
+                {match_pct if match_pct is not None else 'NULL'}, {sql_str(status)}, {sql_str(json.dumps(detail))}::jsonb);
+    """)
+
+    return {
+        "county_slug": county_slug, "sale_type": sale_type, "ssot_count": ssot_count,
+        "our_count": our_count, "matched": matched, "missing_from_ours": len(missing_from_ours),
+        "phantom_in_ours": len(phantom_in_ours), "cancelled_mismatch": len(cancelled_mismatch),
+        "match_pct": match_pct, "status": status,
+    }
+
+
+def main():
+    results = []
+    failures = []
+    for county_slug, sale_types in PARSERS.items():
+        for sale_type, parser_fn in sale_types.items():
+            try:
+                rows = parser_fn()
+            except Exception as e:
+                failures.append({"county_slug": county_slug, "sale_type": sale_type, "error": str(e)})
+                run_sql(f"""
+                    INSERT INTO public.clerk_parity_results (county_slug, sale_type, status, detail)
+                    VALUES ({sql_str(county_slug)}, {sql_str(sale_type)}, 'PARSE_FAIL', {sql_str(json.dumps({'error': str(e)}))}::jsonb);
+                """)
+                continue
+            if not rows:
+                failures.append({"county_slug": county_slug, "sale_type": sale_type, "error": "0 rows from a successful parse — treated as FAILURE"})
+                continue
+            stage_rows(rows)
+            results.append(diff_and_reconcile(county_slug, sale_type, rows))
+
+    print(json.dumps({"results": results, "failures": failures}, indent=2))
+    if failures:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
