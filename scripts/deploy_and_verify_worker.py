@@ -136,6 +136,10 @@ def wait_for_deploy(gh_pat, since_sha, timeout_s=180, poll_s=8):
 
 
 def get_latest_commit_sha(gh_pat, branch="main"):
+    # Kept for backwards compatibility / manual use, but push_worker's own
+    # commit_url is the authoritative source now (see main()) -- avoids a
+    # race where this call can return a stale SHA if GitHub's branch-HEAD
+    # read lags slightly behind the write that just happened.
     headers = {"Authorization": f"Bearer {gh_pat}", "Accept": "application/vnd.github+json"}
     status, body = _req(f"{GITHUB_API}/repos/{REPO}/commits/{branch}", headers=headers)
     return json.loads(body)["sha"]
@@ -212,8 +216,12 @@ def main():
     gh_pat = get_env("GITHUB_PAT")
     srk = get_env("SUPABASE_SERVICE_ROLE_KEY")
 
-    push_worker(gh_pat, srk, local_path, commit_message)
-    latest_sha = get_latest_commit_sha(gh_pat)
+    push_result = push_worker(gh_pat, srk, local_path, commit_message)
+    commit_url = push_result.get("commit_url") or ""
+    latest_sha = commit_url.rstrip("/").split("/")[-1]
+    if not latest_sha or len(latest_sha) < 7:
+        print("      commit_url parse failed, falling back to branch-HEAD lookup")
+        latest_sha = get_latest_commit_sha(gh_pat)
     deploy_ok, run_url = wait_for_deploy(gh_pat, latest_sha)
 
     if not deploy_ok:
