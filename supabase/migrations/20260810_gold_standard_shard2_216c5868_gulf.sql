@@ -1,0 +1,111 @@
+-- GOLD STANDARD shard-2, county gulf, dispatch 216c5868-2dad-435b-b4ec-f8cdd58d80e3.
+-- Letter I (property card completeness). No-op documentation migration: honest
+-- exhaustion re-confirmed after a genuine 4th-attempt fan-out for new levers.
+-- BLANK > WRONG. No SQL written -- no genuine sourced zone_code found.
+--
+-- BASELINE (live-verified this session via pencil_dod_evaluate_county('gulf')):
+--   auctions_total=14. I: card_complete=12 of 14 = 85.7% (threshold implies 14/14) -> FAIL.
+--   A,B,C,D,E,F,G,H,J: all PASS, all metrics/details IDENTICAL to the prior session
+--   (20260807/run7519 3rd firing on this same dispatch lineage) -- confirmed NO DRIFT:
+--     A pass fc=5 td=9 | B pass verified=10 closed_sold=10 (100.0)
+--     C pass matched_clean=14 (100.0) | D pass matched_any=14 (100.0)
+--     E pass parcel_linked=14 (100.0) | F pass tier1_sold=10 closed_sold=10 (100.0)
+--     G pass density=100.0 | H pass 0.3h since last_seen (SLA 48h) | J pass deal_complete=14
+--
+-- ROOT CAUSE (re-confirmed live via v_zoning_gold_standard_card for county=gulf, which
+-- returned exactly 12 rows for gulf's 14 auction parcel_ids): every one of the other 9
+-- letters' underlying data (property_address, latitude/longitude, assessed_value) is
+-- non-null for all 14 gulf auction rows -- the ONLY gap is the zone_code join. The 2
+-- parcels with NO row in v_zoning_gold_standard_card / parcel_zones are, unchanged from
+-- the prior two sessions on this dispatch:
+--   05762000R  case 2025-010  256 AVE C, Port St Joe FL         jurisdiction=Port St. Joe (id=952)
+--   05004050R  case 2025-018  KNOWLES AVE, Port St Joe FL       jurisdiction=Port St. Joe (id=952)
+-- (jurisdictions.county is stored capitalized as 'Gulf'; id=952 confirmed live via
+-- REST ?name=ilike.*port*joe* this session.)
+--
+-- WORK PERFORMED THIS SESSION -- genuinely untried levers per this dispatch's brief:
+--
+-- 1. Gulf County Property Appraiser parcel-record platform (qPublic / Beacon, both
+--    Schneider Corp AppID=819/LayerID=15077/PageID=6812, same underlying app under two
+--    branded domains). BOTH qpublic.schneidercorp.com and beacon.schneidercorp.com
+--    returned HTTP 403 "Attention Required! | Cloudflare" to a direct curl fetch (proper
+--    browser User-Agent supplied) AND to the WebFetch tool. Escalation to Firecrawl
+--    scrape (which can render + solve some Cloudflare challenges) was attempted and
+--    returned HTTP 402 "Insufficient credits to perform this request" -- the account's
+--    Firecrawl credits are exhausted, so this lever could not be executed this session,
+--    not merely blocked by the target. Genuinely untested with a funded account.
+--    gulfpa.com (the appraiser's own domain, found via search) is ALSO Cloudflare-gated
+--    (403, same challenge page) directly. gulfcountypropertyappraiser.org (a third-party
+--    SEO wrapper site, NOT the official appraiser) loads fine (200) but contains no
+--    embedded iframe/API to the real search tool -- confirmed via full page fetch, only
+--    a text blurb and a link back to gulfpa.com.
+--
+-- 2. Full enumeration of ALL layers on the Gulf County ArcGIS server
+--    (arcgis5.roktech.net/arcgis/rest/services/gulf/GoMaps4/MapServer?f=json), not just
+--    the previously-checked layer 40. 71 layers total, enumerated in full this session:
+--    Parcel Report, General, Addresses, Dimensions, Lot Numbers, Parcel Number, Lot
+--    Lines, City Limits (x2), Driveways/trails, Railroads, Streets, Map Grid, Section/
+--    Township/Range, Rivers, Lakes/Marshes, 2010 Population, Gulf County, BOCC (+
+--    Districts/Precincts), County Owned Property, Fire Tax Districts, School Board
+--    Districts, Schools, State/Federal/Military Lands, Building and Planning (group,
+--    sub-layers: 1-Mile, 2ft Contour, AE-Base Flood Elevation, CHHA, Coastal Density,
+--    Coastal Monuments, COBRA, Current CCCL, ECL-Cape San Blas, Eglin Protection Zone,
+--    Enterprise Zones, FIRM Panel Index, Flood Zones, 30yr Erosion, LAND USE [id=40,
+--    the layer previously confirmed as Future Land Use, not zoning], RV Zone Ordinance
+--    2021, Soils, Subdivisions, Wetlands, Wind Zone Exposure D), Habitat Conservation
+--    Plan (+ sublayers), Emergency Management/Public Safety (+ sublayers), Mosquito
+--    Control (+ sublayers), Area Information (+ sublayers). NO layer named Zoning,
+--    Zoning District, or equivalent exists anywhere on this server -- confirmed by name
+--    across all 71 entries, not just the Building and Planning group. Also checked the
+--    sibling gulf_2019 MapServer (single layer: "Gulf County", a boundary polygon, no
+--    zoning). This closes off the "maybe there's an untried layer" hypothesis definitively
+--    for this ArcGIS host.
+--
+-- 3. FL GIO / FDOR statewide cadastral FeatureServer
+--    (services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral
+--    /FeatureServer/0), field list fetched and inspected in full (121 fields). This is the
+--    standard annual DOR NAL (Name-Address-Legal) export schema. The only land-use-adjacent
+--    field present is DOR_UC (DOR Use Code) -- this is exactly the same FLU/use-code
+--    crosswalk value already used as the baseline fallback per this dispatch's own framing,
+--    not a real zoning designation. No ZONING, ZONE_CODE, or similar field exists in this
+--    schema (confirmed against the full field dump, and independently corroborated by the
+--    FDOR 2023 NAL/SDF/NAP User's Guide, which documents DOR_UC as the only land-use-type
+--    field in this file family). Confirmed dead end for this specific ask.
+--
+-- 4. Port St Joe city-specific GIS/zoning lookup: searched for a dedicated
+--    cityofportstjoe.com or third-party ArcGIS host distinct from the county's
+--    arcgis5.roktech.net server. None found -- the city's only public zoning artifact
+--    remains the static 2012 PDF map (already tried and rejected in the prior session,
+--    no parcel lookup tool). experience.smartsiteplan.com's "Property Data GIS Map for
+--    Port St Joe" (a genuinely new source surfaced by search this session) was checked:
+--    it is a client-side rendered SPA with no server-rendered data or discoverable API
+--    in the initial HTML payload (curl returns an empty app shell) -- not exploitable
+--    without a funded browser-automation path.
+--
+-- CONCLUSION: every reachable, genuinely-untried source named in this dispatch's brief
+-- was attempted live this session. Two (qPublic/Beacon parcel record page, and its
+-- Firecrawl-rendered fallback) are blocked by infrastructure limits specific to this
+-- session (Cloudflare 403 to direct fetch; Firecrawl account has zero credits) rather
+-- than by the source lacking the data -- these remain genuinely worth retrying with a
+-- funded Firecrawl account or a different egress path. The other two (full ArcGIS layer
+-- enumeration; FL GIO NAL schema) are now definitively confirmed dead ends -- no zoning
+-- field/layer exists in either dataset, full stop, not just "not found in what we checked
+-- before." No zone_code was fabricated. No parcel_zones row was inserted for 05762000R
+-- or 05004050R this session (confirmed via live REST query, empty result set both before
+-- and after this session's work).
+--
+-- RESULT: I remains FAIL at 85.7% (12 of 14) -- re-confirmed via live
+-- pencil_dod_evaluate_county('gulf') RPC call both at session start and session end,
+-- identical to the 2026-08-07/run7519 3rd-firing baseline. No drift, no regression, no
+-- improvement on any of the other 9 letters (A,B,C,D,E,F,G,H,J all re-verified PASS this
+-- session with metrics/details matching the prior session exactly).
+--
+-- NEXT-SESSION LEVERS (carried forward):
+--   1. Retry qPublic/Beacon (Schneider Corp) with a funded Firecrawl account -- the 402
+--      "insufficient credits" response this session means this lever is genuinely
+--      untested, not exhausted.
+--   2. Human call to City of Port St Joe Planning & Zoning, (850) 229-8261, remains the
+--      only known remaining lever if the above account-funding path does not clear
+--      Cloudflare -- carried forward unchanged from the prior session's conclusion.
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
