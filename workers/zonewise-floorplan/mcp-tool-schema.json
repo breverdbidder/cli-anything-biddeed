@@ -1,0 +1,58 @@
+{
+  "tools": [
+    {
+      "name": "compile_floor_plan",
+      "description": "Compile ArchLang DSL source into a floor plan for a ZoneWise parcel. Returns SVG markup, compiler diagnostics (errors/warnings), and a structured summary of rooms, doors, windows, and areas (m²). If `parcel` is provided, also runs zoning compliance against that parcel's actual buildable-envelope constraints and returns it as `zoning`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "Full ArchLang (.arch) plan source text." },
+          "width": { "type": "number", "description": "Optional SVG width in px." },
+          "parcel_id": { "type": "string", "description": "Optional ZoneWise parcel identifier." },
+          "parcel": {
+            "type": "object",
+            "properties": {
+              "lot_width_ft": { "type": "number" },
+              "lot_depth_ft": { "type": "number" },
+              "lot_area_sqft": { "type": "number" },
+              "setbacks_ft": {
+                "type": "object",
+                "properties": { "front": { "type": "number" }, "rear": { "type": "number" }, "side": { "type": "number" } }
+              },
+              "max_lot_coverage_pct": { "type": "number" },
+              "septic_bedroom_cap": { "type": "number" },
+              "utility_tier": { "type": "string" }
+            }
+          }
+        },
+        "required": ["source"]
+      }
+    },
+    {
+      "name": "check_zoning_compliance",
+      "description": "Check a compiled plan's building footprint against a specific parcel's buildable-envelope constraints. Dimensional-fit and coverage check only, not a full site-plan setback check.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "parcel": { "type": "object" }
+        },
+        "required": ["source", "parcel"]
+      }
+    },
+    {
+      "name": "validate_floor_plan",
+      "description": "Compiler diagnostics only, no SVG rendering.",
+      "input_schema": { "type": "object", "properties": { "source": { "type": "string" } }, "required": ["source"] }
+    },
+    {
+      "name": "get_room_schedule",
+      "description": "Structured room/door/window schedule. Areas natively m²; convert to sqft client-side (m² * 10.7639).",
+      "input_schema": { "type": "object", "properties": { "source": { "type": "string" } }, "required": ["source"] }
+    }
+  ],
+  "notes": {
+    "pdf_dxf_png": "SVG only in the Worker. PDF (pdfkit) confirmed non-functional in Workers. PNG (@resvg/resvg-js) cannot run in Workers at all.",
+    "zoning_constraints": "Implemented — see zoning.js. Dimensional fit + lot coverage % + septic bedroom cap only. Does NOT check height or real site placement."
+  }
+}
