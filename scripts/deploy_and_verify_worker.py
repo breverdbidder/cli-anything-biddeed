@@ -28,6 +28,7 @@ Exit code 1 = anything failed; details printed to stdout.
 import base64
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -71,6 +72,26 @@ def get_env(name):
         print(f"FATAL: missing required env var {name}", file=sys.stderr)
         sys.exit(1)
     return v
+
+
+def esbuild_check(local_path):
+    """Pre-push syntax check using esbuild -- the same parser Wrangler's
+    build step uses. Added after node --check missed a real bracket-mismatch
+    bug (a duplicated closing brace) that only surfaced when the GitHub
+    Action's wrangler deploy step ran esbuild for real. node's checker is not
+    a reliable substitute for the actual build tool on files this size/shape."""
+    print("[0/4] Pre-push syntax check via esbuild (same parser Wrangler uses) ...")
+    result = subprocess.run(
+        ["npx", "--yes", "esbuild", local_path, "--bundle=false", "--format=esm",
+         "--outfile=/tmp/_esbuild_predeploy_check.js"],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        print("      FAIL — esbuild rejected this file, refusing to push:")
+        print(result.stdout)
+        print(result.stderr)
+        sys.exit(1)
+    print("      OK — esbuild parsed it cleanly")
 
 
 def push_worker(gh_pat, srk, local_path, commit_message, branch="main"):
@@ -215,6 +236,8 @@ def main():
 
     gh_pat = get_env("GITHUB_PAT")
     srk = get_env("SUPABASE_SERVICE_ROLE_KEY")
+
+    esbuild_check(local_path)
 
     push_result = push_worker(gh_pat, srk, local_path, commit_message)
     commit_url = push_result.get("commit_url") or ""
