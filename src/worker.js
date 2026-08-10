@@ -5695,4 +5695,4 @@ code{background:#0b1220;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 </div>
 <footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
-
+// deploy-pipeline self-test marker (safe to remove) — validates automated deploy script end-to-end
