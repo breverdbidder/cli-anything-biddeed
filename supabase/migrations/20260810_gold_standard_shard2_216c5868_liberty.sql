@@ -1,0 +1,149 @@
+-- GOLD STANDARD shard-2 (dispatch 216c5868-2dad-435b-b4ec-f8cdd58d80e3), liberty,
+-- letters A/B/F (single-record county: fc=1 td=0, no verified sale outcome).
+-- No-op documentation migration: honest exhaustion re-confirmed, nothing written.
+-- BLANK > WRONG.
+--
+-- BASELINE (live-verified this session via pencil_dod_evaluate_county('liberty') at
+-- session start AND again at session end -- IDENTICAL, no drift either direction):
+--   auctions_total=1.
+--   A: fc=1 td=0                          -> FAIL (metric 0)
+--   B: verified=0 closed_sold=0           -> FAIL (metric null)
+--   F: tier1_sold=0 closed_sold=0         -> FAIL (metric null)
+--   C=100 (matched_clean=1), D=100 (matched_any=1), E=100 (parcel_linked=1),
+--   G=100 (density=100.0), H=44.9h (SLA 48h), I=100 (card_complete=1 of 1),
+--   J=100 (deal_complete=1: triangle + two-arm CMA + ml_score + max_bid).
+--   IDENTICAL to the 2026-08-09 baseline in
+--   20260809_gold_standard_..._liberty (gold_standard_campaign id=4021,
+--   exit_reason='no_write_structural_blocker_reconfirmed', paired with bradford) and to
+--   the earlier 20260725_gold_standard_shard2_liberty_ab_f_dead_end_reverify.sql --
+--   no drift across any of these sessions.
+--
+-- THE ONE TARGET CASE (unchanged from prior sessions, re-verified live this session):
+--   24-CA-22  id=c7b7a994-47ee-4491-942a-8deb06e7101a  parcel 0261S6W00725000
+--   Wilmington Savings Fund Society, 20892 NE Burlington Rd, Hosford FL 32334
+--   judgment $108,683.02, sale_date 2026-07-21, auction_status='upcoming' (stale --
+--   the sale date has passed and no post-sale outcome has ever been recorded).
+--   foreclosure_outcomes table: zero rows for case_number='24-CA-22' (checked live
+--   this session via REST). multi_county_auctions row's tier1_sold_amount,
+--   tier1_sale_status, sold_amount, winning_bidder all still NULL.
+--
+-- WHY THIS SESSION IS NOT A BLIND REPEAT (per dispatch instructions):
+--   1. Case 24-CA-22's post-sale Certificate-of-Title window (sale date 2026-07-21 +
+--      ~10 days) closed around 2026-07-31. Today is 2026-08-10, 10 days past that --
+--      the prior session's explicit "recheck after that date" condition is now met.
+--   2. This session had a funded Firecrawl account (stealth proxy mode) available,
+--      genuinely untried against liberty's OCRS/ORI endpoints in prior sessions
+--      (only local Playwright/curl had been tried before).
+--
+-- STEP 1 -- FRESH A-LANE CHECK (libertyclerk.com tax-deed + foreclosure listings):
+--   Ran scripts/shard_liberty_clerk_scraper.py --dry-run live this session ->
+--     "Foreclosure sales parsed: 0 / Tax deed sales parsed: 0 / No rows to upsert."
+--   Confirmed independently via direct curl (bypassing the script) against both
+--   listing pages with a standard browser User-Agent:
+--     https://libertyclerk.com/courts/foreclosure-sales/  -> HTTP 200, 94,602 bytes,
+--       zero occurrences of "Case Number" in the page body (zero sale cards posted).
+--     https://libertyclerk.com/courts/tax-deeds/           -> HTTP 200, 94,020 bytes,
+--       zero occurrences of "Case Number" in the page body (zero sale cards posted).
+--   Both pages render successfully (not blocked, not erroring) -- they simply have no
+--   active sale listings posted right now. A remains fc=1 (existing 24-CA-22 row,
+--   already in DB) / td=0. No new A-lane record found. No fabrication: the scraper's
+--   0-row result was independently reproduced with a raw curl fetch, not just trusted.
+--
+-- STEP 2 -- CIVITEK OCRS / MYFLORIDACOUNTY ORI LOOKUP FOR 24-CA-22:
+--   Derived liberty's civitek OCRS county code from libertyclerk.com's own page
+--   markup (both the foreclosure-sales and tax-deeds pages link it directly):
+--     civitekflorida.com/ocrs/county/39/   <-- Liberty = county code 39
+--     myfloridacounty.com/official_records/index.html (generic ORI landing, no
+--       county-specific path segment found in the linked markup)
+--
+--   Lever A -- Firecrawl v1 API (stealth proxy), the specific untried lever this
+--   dispatch authorized:
+--     A sibling session on this SAME dispatch (216c5868-2dad-435b-b4ec-f8cdd58d80e3)
+--     ran against hamilton earlier today (commit d40f727f) and found the funded
+--     Firecrawl account has a negative credit balance. This session independently
+--     re-verified that finding still holds, live, before attempting liberty:
+--       GET https://api.firecrawl.dev/v1/team/credit-usage -> HTTP 200:
+--         {"success":true,"data":{"remaining_credits":-9,"plan_credits":1000,
+--         "billing_period_start":"2026-07-28T22:28:40.091Z",
+--         "billing_period_end":"2026-08-28T22:28:40.091Z"}}
+--       Control test -- POST https://api.firecrawl.dev/v1/scrape against
+--       https://example.com (zero actions, zero proxy option, simplest possible
+--       request) -> HTTP 200 body:
+--         {"success":false,"error":"Insufficient credits to perform this request..."}
+--     This proves the block is account-level (same account used for hamilton earlier
+--     today), not caused by any liberty-specific request shape, proxy option, or
+--     target domain. No page content, no Turnstile challenge page, no case-detail
+--     data, and no post-sale outcome was ever returned for 24-CA-22 from this lever --
+--     the request never reaches civitekflorida.com or myfloridacounty.com at all.
+--
+--   Lever B -- direct curl (no JS execution), as a secondary check:
+--     GET https://civitekflorida.com/ocrs/county/39/ -> HTTP 301 redirect to
+--       https://www.civitekflorida.com/ocrs/county/39/ -> HTTP 200, 8,646 bytes.
+--     Page is a JS-rendered SPA shell (no static <script src> bundle references found
+--     in the raw HTML; search UI text present but no server-side search endpoint or
+--     query-string search pattern discoverable from static markup). Consistent with
+--     the 2026-08-09 session's Playwright-based finding that this app requires a real
+--     browser render pass, and that the Turnstile challenge itself is injected
+--     client-side (not visible as a static HTML string) -- curl cannot execute JS or
+--     submit the search form, so this GET proves the page loads but cannot prove or
+--     disprove Turnstile behavior on an actual search submission.
+--     GET https://www.myfloridacounty.com/official_records/index.html -> HTTP 200,
+--       13,134 bytes -- this is the generic multi-county ORI landing/selector page
+--       (static shell), not a completed county-39 search; the actual search POST is
+--       what triggers Turnstile per the 2026-08-09 session's finding, and that POST
+--       was not reachable without JS execution or a working Firecrawl balance.
+--
+--   Lever C -- direct DB check for any outcome already captured by another pipeline:
+--     GET foreclosure_outcomes?case_number=eq.24-CA-22 -> [] (zero rows).
+--     multi_county_auctions row (id=c7b7a994-47ee-4491-942a-8deb06e7101a) re-fetched
+--     in full: tier1_sold_amount=null, tier1_sale_status=null, sold_amount=null,
+--     winning_bidder=null, sale_result_date=null, redemption_deadline=null. No
+--     Certificate-of-Title or sale-result data exists anywhere in the DB for this case.
+--
+-- CONCLUSION: liberty hits the identical structural blocker as hamilton, confirmed via
+-- the same live Firecrawl account-balance check moments before this county's own
+-- attempt (not a stale assumption carried over -- independently re-verified this
+-- session). The Certificate-of-Title window closing (2026-07-31) did NOT produce new
+-- data, because there is no working lever this session that can actually reach and
+-- read civitekflorida.com or myfloridacounty.com's search results -- Firecrawl is
+-- account-exhausted (-9/1,000) and local curl cannot pass the client-side Turnstile
+-- challenge or execute the SPA's search JS. Per Honesty Protocol / fabrication
+-- guardrail: BLANK > WRONG. No sold_amount, tier1_sale_status, or foreclosure_outcomes
+-- row was written for 24-CA-22 this session.
+--
+-- RESULT: A and F remain FAIL (fc=1/td=0 and tier1_sold=0/closed_sold=0 respectively);
+-- B remains FAIL (verified=0/closed_sold=0) -- re-confirmed via a second live
+-- pencil_dod_evaluate_county('liberty') call at session end, identical to session start
+-- and to the 2026-08-09 and 2026-07-25 prior sessions. No regression, no improvement,
+-- no drift on any letter, including the 7 other letters explicitly reverified this
+-- session (C/D/E/G/H/I/J all still PASS, values unchanged: C=100, D=100, E=100,
+-- G=100, H=44.9h, I=100, J=100).
+--
+-- LEVERS NOW EXHAUSTED (cumulative across 2+ sessions and 2 different tool
+-- approaches -- local AND Firecrawl stealth-proxy):
+--   1. Local Playwright/CDP + curl against Civitek OCRS and myfloridacounty ORI --
+--      Turnstile blocks automated interaction (2026-08-09 session, fleet-wide pattern
+--      confirmed against hamilton/bradford as well).
+--   2. Firecrawl v1 API (stealth proxy) against BOTH Civitek OCRS county/39 and
+--      myfloridacounty ORI -- account-level credit exhaustion (-9/1,000), request
+--      never reaches either target (this session, same account exhaustion as the
+--      sibling hamilton run on this dispatch earlier today).
+--
+-- NEXT-SESSION LEVERS (not exhausted -- genuinely untested):
+--   1. A Firecrawl account top-up/reset to a positive balance would let a future
+--      session actually test whether stealth proxy clears Turnstile on either target
+--      for 24-CA-22 -- this session (like hamilton's) proved the account is broke,
+--      not that stealth-proxy Firecrawl fails against Turnstile. That question
+--      remains open.
+--   2. A human-driven manual lookup on either Civitek OCRS (county 39) or
+--      myfloridacounty ORI for case 24-CA-22 / parcel 0261S6W00725000 would sidestep
+--      Turnstile and the credit exhaustion entirely -- this is now the highest-value
+--      next step given the CoT window has already closed.
+--   3. Liberty County Clerk may post a physical/in-person sale result notice on the
+--      libertyclerk.com foreclosure-sales page itself in the future (per the
+--      scraper's docstring, sales are conducted in-person at the courthouse) --
+--      periodic re-checks of that page (already fetched fresh this session, zero
+--      cards currently) remain a low-cost lever with no Firecrawl/Turnstile
+--      dependency at all.
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
