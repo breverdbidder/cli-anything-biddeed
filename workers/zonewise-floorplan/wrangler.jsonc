@@ -2,7 +2,7 @@
   "name": "zonewise-floorplan",
   "main": "worker.js",
   "compatibility_date": "2026-08-01",
-  "compatibility_flags": ["nodejs_compat"]
-  // Uncomment once DNS/zone routing is set up:
-  // "routes": [{ "pattern": "zonewise.ai/api/floorplan/*", "zone_name": "zonewise.ai" }]
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [{ "pattern": "zonewise.ai/api/floorplan/*", "zone_name": "zonewise.ai" }]
 }
