@@ -1,0 +1,103 @@
+-- GOLD STANDARD shard-2 (dispatch 216c5868-2dad-435b-b4ec-f8cdd58d80e3), hamilton,
+-- letters C/D (parity: matched_clean / matched_any).
+-- No-op documentation migration: honest exhaustion re-confirmed, nothing written.
+-- BLANK > WRONG.
+--
+-- BASELINE (live-verified this session via pencil_dod_evaluate_county('hamilton') at
+-- session start AND again at session end -- IDENTICAL, no drift either direction):
+--   21 total rows. 17 parity_status='matched_clean', 4 parity_status='mca_only'.
+--   C: matched_clean = 17/21 = 81.0%  (threshold >=95%, i.e. >=20/21) -> FAIL
+--   D: matched_any    = 17/21 = 81.0% (same threshold)                -> FAIL
+--   IDENTICAL to the last-recorded baseline in
+--   20260809e_gold_standard_hamilton_cd_ori_turnstile_confirmed_dead_end.sql and
+--   20260807i_gold_standard_shard1_hamilton_cd_civitek_turnstile_blocked.sql -- no drift
+--   across any of the three sessions.
+--   All other letters (A/B/E/F/G/H/I/J) re-verified PASS this session, values identical
+--   to the two prior sessions: A=6(fc)+15(td), B=100 (5/5), E=100 (21/21), F=100 (5/5),
+--   G=100/100, H=20.8h (SLA 48h), I=95.2 (20/21), J=100 (21/21).
+--
+-- THE 4 TARGET ROWS (unchanged from prior sessions, re-verified live this session):
+--   2021-CA-46  id=6b19469c-f278-40f2-b815-357ec8bd230a  parcel 4833-015
+--               judgment $249,152.16
+--   2023-CA-41  id=7f3dc51f-6513-4827-84fb-21af665fdde9  parcel 8282-000
+--               16797 Mill Street, White Springs FL 32096  judgment $157,395.19
+--   2024-CA-19  id=e591ada4-9c26-4efc-9c1d-707825554bad  parcel 2007-000
+--               1658 3rd St NW, Jasper FL 32052  judgment $23,600.85
+--   2025-CA-37  id=390c869c-44ae-4540-ad08-28282b7fd75b  parcel 3819-070
+--               7123 NW CR 146, Jennings FL 32053  judgment $139,660.12
+--
+-- NEW LEVER ATTEMPTED THIS SESSION -- Firecrawl v1 API (POST api.firecrawl.dev/v1/scrape)
+-- with proxy:"stealth", the specific untried lever both prior sessions flagged as
+-- "genuinely untested" (the 2026-08-07 session's local firecrawl-cli install was already
+-- exhausted at -7/1,000 credits; this session used the raw v1 REST API directly with a
+-- fresh FIRECRAWL_API_KEY, per this dispatch's explicit instruction):
+--
+--   1. POST https://api.firecrawl.dev/v1/scrape against civitekflorida.com/ocrs/county/24/
+--      with proxy:"stealth" and an actions array (click the "Public" access-gate button,
+--      wait, screenshot) -> HTTP 402:
+--        {"success":false,"error":"Insufficient credits to perform this request. For more
+--        credits, you can upgrade your plan at https://firecrawl.dev/pricing or try
+--        changing the request limit to a lower value."}
+--
+--   2. Control test -- POST the same endpoint against https://example.com (no actions, no
+--      proxy option, the simplest possible request) to rule out a request-shape bug ->
+--      IDENTICAL HTTP 402 insufficient-credits response. This proves the block is
+--      account-level, not caused by this session's proxy/actions parameters.
+--
+--   3. GET https://api.firecrawl.dev/v1/team/credit-usage (definitive account-balance
+--      check, HTTP 200) ->
+--        {"success":true,"data":{"remaining_credits":-9,"plan_credits":1000,
+--        "billing_period_start":"2026-07-28T22:28:40.091Z",
+--        "billing_period_end":"2026-08-28T22:28:40.091Z"}}
+--      Confirms the account is genuinely, verifiably exhausted (-9 of 1,000 credits for
+--      the 2026-07-28 to 2026-08-28 billing period) -- the SAME account-exhaustion
+--      condition the 2026-08-07 session found via `firecrawl --status` (-7/1,000 at that
+--      time, now -9/1,000: two more failed/partial requests were billed against it since
+--      then despite the negative balance). This is a definitive, non-transient account
+--      state (not PGRST002/schema-cache/520), so no retry-and-wait applies -- confirmed via
+--      an authoritative billing endpoint, not an ambiguous error page.
+--
+--   4. Second variation attempted (per this dispatch's "at most 2 reasonable variations"
+--      guidance) -- POST v1/scrape against https://www.myfloridacounty.com/orisearch/24
+--      with proxy:"stealth" -> IDENTICAL HTTP 402 insufficient-credits response. Confirms
+--      the block applies uniformly across both target domains, not just Civitek OCRS.
+--
+-- CONCLUSION: the Firecrawl v1 API lever this dispatch specifically authorized is now also
+-- exhausted -- not because Turnstile blocked a submitted query (as with the local
+-- Playwright/CDP attempts in the two prior sessions), but because the funded Firecrawl
+-- account has a negative credit balance and rejects every request, including a trivial
+-- unauthenticated scrape of example.com with zero actions/proxy options, before a single
+-- byte is fetched from either civitekflorida.com or myfloridacounty.com. No page content,
+-- no Turnstile challenge page, no case-detail data, no party name, no judgment, and no
+-- post-sale outcome was ever returned for any of the 4 target cases from this lever. Per
+-- Honesty Protocol / fabrication guardrail: BLANK > WRONG. No parity_status,
+-- parity_source, parity_confidence, or updated_at was written for any of the 4 rows this
+-- session.
+--
+-- RESULT: C and D remain FAIL at 81.0% (17 of 21) -- re-confirmed via a second live
+-- pencil_dod_evaluate_county('hamilton') call at session end, identical to session start
+-- and to both prior sessions (2026-08-07, 2026-08-09). No regression, no improvement, no
+-- drift on any letter, including the 8 other letters explicitly reverified this session
+-- (A/B/E/F/G/H/I/J all still PASS, values unchanged).
+--
+-- LEVERS NOW EXHAUSTED (cumulative across 3 sessions):
+--   1. Local Playwright/CDP against Civitek OCRS -- Turnstile blocks the checkbox from
+--      mounting to automation (2026-08-07 session).
+--   2. Local curl against myfloridacounty.com ORI -- Turnstile challenge page returned on
+--      the search POST (2026-08-09 session).
+--   3. Firecrawl v1 API (stealth proxy) against BOTH Civitek OCRS and myfloridacounty ORI
+--      -- account-level credit exhaustion (-9/1,000), request never reaches either target
+--      (this session).
+--
+-- NEXT-SESSION LEVERS (not exhausted -- genuinely untested):
+--   1. A Firecrawl account top-up/reset to a positive balance would let a future session
+--      actually test whether stealth proxy clears Turnstile on either target -- this
+--      session proved the account is broke, not that stealth-proxy Firecrawl fails
+--      against Turnstile. That specific question remains open.
+--   2. A human-driven manual lookup on either Civitek OCRS or myfloridacounty ORI for
+--      these 4 cases would sidestep Turnstile and the credit exhaustion entirely.
+--   3. The DB's auction_date mismatch (found 2026-08-09: DB says Aug 2026, archive.org
+--      shows real sale dates were Apr/May 2026) remains an open, unrelated ingestion-
+--      quality residual for a future B/F session -- not fixed here, does not affect C/D.
+
+-- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
