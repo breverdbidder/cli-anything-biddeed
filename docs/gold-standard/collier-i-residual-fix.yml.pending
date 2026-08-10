@@ -18,6 +18,8 @@ name: "Collier I Residual Fix — Everglades City + Zero-Match Folios"
 #
 # WIRING MANDATE: run once to attempt the fix, then re-evaluate collier I.
 # If still failing, document as structural ceiling and report to AI Architect.
+#
+# DEPLOY: copy this file to .github/workflows/collier-i-residual-fix.yml
 
 on:
   workflow_dispatch:

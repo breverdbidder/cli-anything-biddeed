@@ -22,6 +22,8 @@ name: "Union County Post-Auction Outcome Scraper"
 #
 # WIRING MANDATE: runs daily at 15:00Z so the GHA runner can see results
 # posted on the same day as the courthouse auction (11am ET = 15:00Z).
+#
+# DEPLOY: copy this file to .github/workflows/union-post-auction-scraper.yml
 
 on:
   workflow_dispatch:

@@ -2,6 +2,8 @@ name: "Shard-1 Collier+Union Session Close-Out (e857901a)"
 # Applies session close-out migration and runs the collier I enrichment attempt.
 # Dispatch: e857901a-9b66-458b-9bc7-17728a3f5dfe (issue #18559)
 # Date: 2026-08-10
+#
+# DEPLOY: copy this file to .github/workflows/shard1-collier-union-closeout.yml
 
 on:
   workflow_dispatch:
