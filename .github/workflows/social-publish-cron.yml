@@ -76,3 +76,17 @@ jobs:
           if [ "$http_code" = "503" ]; then
             echo "Telegram publish worker is dormant (channel not yet configured) -- content was queued, will publish once configured."
           fi
+
+      - name: Sweep pending referrals for reward eligibility
+        run: |
+          echo "Calling referral-reward-sweeper..."
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/referral-reward-sweeper")
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $http_code"
+          echo "$body"
+          if [ "$http_code" != "200" ]; then
+            echo "::error::referral-reward-sweeper returned $http_code"
+            exit 1
+          fi
