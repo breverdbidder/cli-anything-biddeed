@@ -7,20 +7,35 @@ jobs:
   check-scope:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify token
+      - name: Verify token and record
         run: >
-          curl -s -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify"
+          RESP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify"
           -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json") &&
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check"
+          -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
           -H "Content-Type: application/json"
+          -d "$(python3 -c "import json,sys; print(json.dumps({'step':'verify_token','response':json.loads(sys.argv[1])}))" "$RESP")"
 
-      - name: List zones visible to token raw
+      - name: List zones and record
         run: >
-          curl -s -X GET "https://api.cloudflare.com/client/v4/zones?per_page=50"
+          RESP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?per_page=50"
           -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json") &&
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check"
+          -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
           -H "Content-Type: application/json"
+          -d "$(python3 -c "import json,sys; print(json.dumps({'step':'list_zones','response':json.loads(sys.argv[1])}))" "$RESP")"
 
-      - name: Direct lookup for zonewise.ai
+      - name: Direct lookup zonewise.ai and record
         run: >
-          curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=zonewise.ai"
+          RESP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=zonewise.ai"
           -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json") &&
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check"
+          -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
           -H "Content-Type: application/json"
+          -d "$(python3 -c "import json,sys; print(json.dumps({'step':'zonewise_lookup','response':json.loads(sys.argv[1])}))" "$RESP")"
