@@ -8,32 +8,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify token
-        run: |
-          curl -s -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify" \
-            -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}" \
-            -H "Content-Type: application/json" | python3 -m json.tool
+        run: >
+          curl -s -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify"
+          -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json"
 
-      - name: List zones visible to token
-        run: |
-          echo "--- Zones this token can see ---"
-          curl -s -X GET "https://api.cloudflare.com/client/v4/zones" \
-            -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}" \
-            -H "Content-Type: application/json" | python3 -c "
-import json,sys
-data = json.load(sys.stdin)
-if not data.get('success'):
-    print('API call failed:', data.get('errors'))
-    sys.exit(0)
-zones = data.get('result', [])
-if not zones:
-    print('No zones visible to this token.')
-for z in zones:
-    print(f\"{z['name']}  (id: {z['id']}, status: {z['status']})\")
-"
+      - name: List zones visible to token raw
+        run: >
+          curl -s -X GET "https://api.cloudflare.com/client/v4/zones?per_page=50"
+          -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json"
 
-      - name: Check for zonewise.ai specifically
-        run: |
-          echo "--- Direct lookup for zonewise.ai ---"
-          curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=zonewise.ai" \
-            -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}" \
-            -H "Content-Type: application/json" | python3 -m json.tool
+      - name: Direct lookup for zonewise.ai
+        run: >
+          curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=zonewise.ai"
+          -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json"
