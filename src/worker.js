@@ -885,10 +885,13 @@ function bidLabel(sourcePlatform) {
 }
 
 // ── Auction cards for chat property panel ─────────────────────────────────────
+// Reads v_property_card_verified (not the raw table) — a fail-closed gate that
+// only surfaces lots with a fresh (<48h) clerk parity check, per CLERK-SSOT
+// Task 4.2. A clerk-confirmed-cancelled or never-checked lot never renders here.
 async function fetchAuctionCards(county, days, type, limit) {
   const today = new Date().toISOString().slice(0,10);
   const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
-  let auctionsUrl = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=eq.upcoming&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform,bcpao_url,trellis_url`;
+  let auctionsUrl = `${SUPABASE_URL}/rest/v1/v_property_card_verified?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=in.(upcoming,scheduled)&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform,bcpao_url,trellis_url,clerk_parity_match_pct,clerk_parity_checked_at`;
   if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
 
   const [auctionsRes, certRes] = await Promise.all([
@@ -926,6 +929,11 @@ async function fetchAuctionCards(county, days, type, limit) {
       bid_label: bidLabel(r.source_platform),
       appraiser_url: appraiserUrl,
       appraiser_label: appraiserUrl ? `${toDisplay(r.county)} Appraiser →` : null,
+      clerk_parity_badge: {
+        county: r.county,
+        match_pct: r.clerk_parity_match_pct != null ? Number(r.clerk_parity_match_pct) : null,
+        checked_at: r.clerk_parity_checked_at || null,
+      },
     };
   });
 }
@@ -3153,6 +3161,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .pc-parity.ok{color:var(--green)}
 .pc-parity.warn{color:var(--orange)}
 .pc-parity.bad{color:#f87171}
+.pc-clerk-parity{font-size:10px;font-weight:600;color:var(--green);margin-bottom:10px}
 .pc-actions{display:flex;flex-direction:column;gap:8px}
 .pc-buy{text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap}
 .btn-bid{display:block;border:1px solid var(--orange);color:var(--orange);padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none;text-align:center;transition:background .15s}
@@ -3421,9 +3430,18 @@ function cardSortKey(a){
   return 2;
 }
 function parityInfo(p){
-  if(p==='matched_clean')return{cls:'ok',label:'✓ Data verified',tip:''};
-  if(p==='matched_divergent')return{cls:'bad',label:'⚠ Data conflict',tip:''};
+  if(p==='matched_clean'||p==='PARITY_OK'||p==='CLERK_VERIFIED')return{cls:'ok',label:'✓ Data verified',tip:''};
+  if(p==='matched_divergent'||p==='CLERK_SSOT_CANCELLED')return{cls:'bad',label:'⚠ Data conflict',tip:''};
   return{cls:'warn',label:'⚠ Data unverified',tip:'This property is on our platform but has not been cross-verified with county records'};
+}
+// CLERK-SSOT Task 4.3 — county/match_pct/checked_at badge from clerk_parity_results,
+// via v_property_card_verified.clerk_parity_match_pct/clerk_parity_checked_at.
+function clerkParityBadge(a){
+  var b=a.clerk_parity_badge;
+  if(!b||b.match_pct==null||!b.checked_at)return'';
+  var hrs=Math.max(0,Math.round((Date.now()-new Date(b.checked_at).getTime())/3600000));
+  var when=hrs<1?'just now':(hrs+'h ago');
+  return '<div class="pc-clerk-parity" title="Cross-checked against the '+esc(toDisplay(b.county||''))+' Clerk of Court sale calendar">✅ Clerk-verified '+esc(String(b.match_pct))+'% · checked '+when+'</div>';
 }
 function badgeSaleType(t){
   if(t==='foreclosure')return'<span class="pc-badge fc">FORECLOSURE</span>';
@@ -3456,6 +3474,7 @@ function buildCard(a){
         '<div><div class="pc-lbl">Assessed Value</div><div class="pc-val">'+fmtMoneyP(a.assessed_value)+'</div></div>'+
         '<div><div class="pc-lbl">Equity Gap</div><div class="pc-val">'+fmtMoneyP(a.equity_gap)+'</div></div></div>';
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
+  html+=clerkParityBadge(a);
   html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt(\\'bid_link\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')">🔒 Place Bid — Upgrade to Unlock</button>'+
         '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+

@@ -18,7 +18,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install httpx beautifulsoup4 lxml pypdf
+      - run: pip install httpx beautifulsoup4 lxml pypdf playwright
+      - run: playwright install --with-deps chromium  # union.py needs a real browser to pass Cloudflare's managed challenge
       - name: "Run parity sweep"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

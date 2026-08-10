@@ -2,9 +2,12 @@
 
 For each registered county/sale_type parser: fetch clerk rows, stage them,
 diff against multi_county_auctions for the today->+90d window, write a
-clerk_parity_results row, and apply the three corrective reconciliation
-actions from the spec (insert missing, flag clerk-cancelled, suppress
-phantom -- never delete).
+clerk_parity_results row, and apply the corrective reconciliation actions
+from the spec (insert missing, flag clerk-cancelled, suppress phantom,
+mark clean matches PARITY_OK -- never delete). The PARITY_OK mark is what
+lets the render gate (Task 4.2, v_property_card_verified) show anything
+beyond newly-reconciled rows -- without it every already-matching row stays
+parity_status=NULL and gets suppressed.
 
 Hard rule (spec Task 2): a parser that returns 0 rows is a FAILURE, not an
 empty calendar, if it previously returned >0. This script never silently
@@ -19,14 +22,26 @@ from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clerk_ssot.parsers import brevard, gadsden, wakulla  # noqa: E402
+from clerk_ssot.parsers import (  # noqa: E402
+    brevard, gadsden, wakulla, highlands, lake, okeechobee, st_johns, suwannee, union,
+)
 
 MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
 
 # county_slug -> {sale_type: parser_fn}
+# hendry omitted: hendryclerk.org and its municode mirror are both fully
+# JS/Cloudflare-Turnstile-gated with no discoverable static or API fallback
+# (confirmed 2026-08-10, httpx + curl both blocked identically) -- not a
+# verified source until a browser-solving lever exists.
 PARSERS = {
     "brevard": {"foreclosure": brevard.parse_foreclosure},
     "gadsden": {"foreclosure": gadsden.parse_foreclosure, "tax_deed": gadsden.parse_tax_deed},
+    "highlands": {"foreclosure": highlands.parse_foreclosure},
+    "lake": {"foreclosure": lake.parse_foreclosure},
+    "okeechobee": {"foreclosure": okeechobee.parse_foreclosure},
+    "st_johns": {"tax_deed": st_johns.parse_tax_deed},
+    "suwannee": {"tax_deed": suwannee.parse_tax_deed},
+    "union": {"foreclosure": union.parse_foreclosure},
     "wakulla": {"foreclosure": wakulla.parse_foreclosure, "tax_deed": wakulla.parse_tax_deed},
 }
 
@@ -103,6 +118,7 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
     matched = 0
     missing_from_ours = []
     cancelled_mismatch = []
+    clean_matches = []
     for case_number, ssot_row in ssot_by_case.items():
         our_row = ours_by_case.get(case_number)
         if our_row is None:
@@ -111,6 +127,8 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
         matched += 1
         if ssot_row["cancelled"] and our_row["auction_status"] != "CANCELLED":
             cancelled_mismatch.append(ssot_row)
+        else:
+            clean_matches.append(ssot_row)
 
     phantom_in_ours = [c for c in ours_by_case if c not in ssot_by_case]
 
@@ -133,6 +151,16 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
             UPDATE public.multi_county_auctions
             SET auction_status='CANCELLED', parity_status='CLERK_SSOT_CANCELLED', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')}
             WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)} AND case_number={sql_str(ssot_row['case_number'])};
+        """)
+
+    if clean_matches:
+        in_list = ",".join(sql_str(r["case_number"]) for r in clean_matches)
+        run_sql(f"""
+            UPDATE public.multi_county_auctions
+            SET parity_status='PARITY_OK', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')}
+            WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)}
+              AND case_number IN ({in_list})
+              AND parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED';
         """)
 
     if phantom_in_ours:
