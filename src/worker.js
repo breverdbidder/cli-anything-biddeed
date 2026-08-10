@@ -4291,7 +4291,6 @@ input[type=range] { accent-color:#f59e0b; }
   <div class="px-4 py-3 flex items-center justify-between gap-3">
     <div class="flex items-center gap-2 min-w-0">
       <div class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">BidDeed.AI</div>
-      <span class="text-[9px] uppercase tracking-widest bg-amber-500/15 text-amber-300 px-1.5 py-0.5 rounded">demo</span>
     </div>
     <div class="text-right shrink-0">
       <div class="text-lg font-bold text-amber-400 leading-tight">$<span x-text="formatNum(filteredEquity)"></span></div>
