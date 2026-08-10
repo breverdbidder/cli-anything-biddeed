@@ -4927,6 +4927,57 @@ function app() {
   };
 }
 </script>
+
+<!-- Lead capture -- added Aug 10 2026. These 67 county pages are the actual
+     SEO landing pages (linked from /sitemap.xml); previously they had ZERO
+     email capture at all -- only the blog posts did. Self-contained,
+     independent of the Alpine app() component above to avoid any risk of
+     interfering with its data binding. Reuses the same proven /chat/lead
+     endpoint the blog posts and homepage chatbot already use. -->
+<div id="county-lead-bar" style="position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(2,6,23,.97);backdrop-filter:blur(12px);border-top:1px solid rgba(245,158,11,.3);padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <div style="flex:1;min-width:180px;font-size:12px;color:#94a3b8">Get COUNTY_TITLE_PLACEHOLDER's next 5 auctions emailed free</div>
+  <form id="county-lead-form" style="display:flex;gap:6px;flex:2;min-width:220px">
+    <input type="email" id="county-lead-email" placeholder="you@example.com" required style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px 12px;color:white;font-size:14px;outline:none">
+    <button type="submit" id="county-lead-btn" style="background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;white-space:nowrap;cursor:pointer">Send Free List</button>
+  </form>
+  <div id="county-lead-msg" style="font-size:11px;width:100%;display:none"></div>
+</div>
+<script>
+(function(){
+  var form = document.getElementById('county-lead-form');
+  if (!form) return;
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var btn = document.getElementById('county-lead-btn');
+    var msg = document.getElementById('county-lead-msg');
+    var email = document.getElementById('county-lead-email').value.trim();
+    msg.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Sending...';
+    fetch('/chat/lead', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: email, county: 'COUNTY_SLUG_PLACEHOLDER', source: 'county_page_COUNTY_SLUG_PLACEHOLDER', email_consent: true })
+    })
+    .then(function(res){ return res.json().then(function(data){ return {ok:res.ok, data:data}; }); })
+    .then(function(r){
+      if (r.ok && r.data.ok) {
+        msg.textContent = 'Sent — check your email.';
+        msg.style.color = '#34d399'; msg.style.display = 'block';
+        btn.textContent = 'Sent ✓';
+      } else {
+        msg.textContent = (r.data.error || 'Something went wrong. Please try again.');
+        msg.style.color = '#f87171'; msg.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Send Free List';
+      }
+    })
+    .catch(function(){
+      msg.textContent = 'Network error. Please try again.';
+      msg.style.color = '#f87171'; msg.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Send Free List';
+    });
+  });
+})();
+</script>
 </body>
 </html>`;
 
@@ -5607,6 +5658,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
         <a href="#pricing">Pricing</a>
         <a href="/buy-report">Get a report</a>
         <a href="/chat">Chat</a>
+        <a href="/free-report">Free County Report</a>
         <a href="/counties">All Counties</a>
         <a href="/blog">Blog</a>
         <a href="/pioneers">Pioneers</a>
