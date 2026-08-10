@@ -1,0 +1,30 @@
+name: Check Zonewise DNS Proxy Status
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  check-dns:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List DNS records for zonewise.ai and record to Supabase
+        run: >
+          RESP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/b32406b78aaaefd55557d77c843a5940/dns_records?per_page=100"
+          -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json") &&
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check"
+          -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Content-Type: application/json"
+          -d "$(python3 -c "import json,sys; print(json.dumps({'step':'zonewise_dns_records','response':json.loads(sys.argv[1])}))" "$RESP")"
+
+      - name: List Worker routes for zonewise.ai zone and record
+        run: >
+          RESP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/b32406b78aaaefd55557d77c843a5940/workers/routes"
+          -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}"
+          -H "Content-Type: application/json") &&
+          curl -s -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/cf_token_scope_check"
+          -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+          -H "Content-Type: application/json"
+          -d "$(python3 -c "import json,sys; print(json.dumps({'step':'zonewise_worker_routes','response':json.loads(sys.argv[1])}))" "$RESP")"
