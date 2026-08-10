@@ -1,0 +1,56 @@
+name: Social Publish Pipeline
+
+# Runs daily: generates fresh county-snapshot posts from live auction data,
+# then attempts to publish any pending queue items to LinkedIn. The publish
+# step is a no-op (503, logged not failed) until LinkedIn OAuth has been
+# completed -- see linkedin-oauth-callback. Safe to run on this schedule
+# starting now; it will simply queue content and wait until authorization
+# lands, then start publishing automatically on the next scheduled run.
+#
+# Manual dispatch (workflow_dispatch) is also enabled so this can be run
+# on demand without waiting for the schedule.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'  # 14:00 UTC daily = 10:00 AM America/New_York (Ariel's timezone)
+  workflow_dispatch: {}
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate county snapshot content
+        run: |
+          echo "Calling social-content-generator..."
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/social-content-generator" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $http_code"
+          echo "$body"
+          if [ "$http_code" != "200" ]; then
+            echo "::error::social-content-generator returned $http_code"
+            exit 1
+          fi
+
+      - name: Attempt to publish pending queue items
+        run: |
+          echo "Calling social-publish-worker..."
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/social-publish-worker")
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $http_code"
+          echo "$body"
+          # 503 = dormant (LinkedIn not yet authorized) -- expected until
+          # Ariel completes OAuth, not a workflow failure. Any other
+          # non-200 is a real problem.
+          if [ "$http_code" != "200" ] && [ "$http_code" != "503" ]; then
+            echo "::error::social-publish-worker returned unexpected $http_code"
+            exit 1
+          fi
+          if [ "$http_code" = "503" ]; then
+            echo "Publish worker is dormant (LinkedIn not yet authorized) -- content was queued, will publish once authorized."
+          fi
