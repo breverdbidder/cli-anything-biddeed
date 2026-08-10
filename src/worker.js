@@ -1434,7 +1434,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/subscribe/checkout' && method === 'POST') {
         let body = {};
         try { body = await request.json(); } catch(_) {}
-        const { tier, customer_email } = body;
+        const { tier, customer_email, referral_code } = body;
         if (!tier || !['investor','pro','proplus'].includes(tier)) {
           return new Response(JSON.stringify({ error: 'valid tier required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
@@ -1442,10 +1442,12 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           return new Response(JSON.stringify({ error: 'customer_email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         try {
+          const checkoutBody = { tier, customer_email };
+          if (referral_code && typeof referral_code === 'string') checkoutBody.referral_code = referral_code;
           const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tier, customer_email }),
+            body: JSON.stringify(checkoutBody),
           });
           const data = await res.json();
           if (!res.ok) {
@@ -1454,6 +1456,42 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         } catch (e) {
           await logErr(env, '/subscribe/checkout', 'threw', String(e), 500);
+          return new Response(JSON.stringify({ error: 'server error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+      }
+
+      // ── POST /referral/code — get-or-create a referral code for an email.
+      // Added Aug 10 2026 for the double-sided referral program: both the
+      // referrer and referee get 1 free month once the referred person's
+      // subscription survives its first billing cycle (see
+      // referral-reward-sweeper for why this is a sweep, not a webhook).
+      if (path === '/referral/code' && method === 'POST') {
+        let body = {};
+        try { body = await request.json(); } catch(_) {}
+        const email = (body.email || '').toLowerCase().trim();
+        if (!email) return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        try {
+          const existing = await fetch(`${SUPABASE_URL}/rest/v1/referral_codes?owner_email=eq.${encodeURIComponent(email)}&select=code`, {
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+          });
+          const existingRows = existing.ok ? await existing.json() : [];
+          if (existingRows.length) {
+            return new Response(JSON.stringify({ ok: true, code: existingRows[0].code, link: `https://biddeed.ai/pioneers?ref=${existingRows[0].code}` }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+          const code = Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 32]).join('');
+          const ins = await fetch(`${SUPABASE_URL}/rest/v1/referral_codes`, {
+            method: 'POST',
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+            body: JSON.stringify({ code, owner_email: email }),
+          });
+          if (!ins.ok) {
+            const err = await ins.text();
+            await logErr(env, '/referral/code', 'insert failed', err, ins.status);
+            return new Response(JSON.stringify({ error: 'could not create referral code' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+          return new Response(JSON.stringify({ ok: true, code, link: `https://biddeed.ai/pioneers?ref=${code}` }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        } catch (e) {
+          await logErr(env, '/referral/code', 'threw', String(e), 500);
           return new Response(JSON.stringify({ error: 'server error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
       }
@@ -1763,6 +1801,23 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(buildPioneersPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
+      // ── /proof/:slug — shareable "we called it" result cards. Added Aug
+      // 10 2026. Checked s5_pdf_cache before building this: zero rows
+      // currently have a real captured auction_outcome.sale_price -- the
+      // outcome-capture pipeline isn't populating results yet, independent
+      // of anything referral-related. Rather than build a dynamic route
+      // with nothing real to show, this is seeded with the one genuinely
+      // verified result (Marion/Summerfield) using numbers already
+      // published on the blog, with proper Open Graph tags for a good
+      // link preview when shared. Add more entries to PROOF_CARDS as real
+      // outcomes get captured -- do not synthesize numbers for this.
+      if (path.startsWith('/proof/')) {
+        const slug = path.slice('/proof/'.length);
+        const card = PROOF_CARDS[slug];
+        if (!card) return new Response('Not found', { status: 404 });
+        return new Response(buildProofCard(card), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+      }
+
       // ── POST /pioneers/join — waitlist signup only, no payment, no
       // binding commitment on either side. Reuses lead_profiles like the
       // rest of the site's lead capture (source tag distinguishes it).
@@ -1811,7 +1866,33 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             }).catch(e => logErr(env, '/pioneers/join', 'Resend send failed', String(e), 500));
           }
 
-          return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          // Issue a referral code immediately -- added Aug 10 2026, part of
+          // the double-sided referral program. Reused/created via the same
+          // get-or-create logic as POST /referral/code so a person only
+          // ever has one code regardless of which flow first created it.
+          let referralCode = null;
+          try {
+            const existingCode = await fetch(`${SUPABASE_URL}/rest/v1/referral_codes?owner_email=eq.${encodeURIComponent(email)}&select=code`, {
+              headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            });
+            const existingCodeRows = existingCode.ok ? await existingCode.json() : [];
+            if (existingCodeRows.length) {
+              referralCode = existingCodeRows[0].code;
+            } else {
+              const newCode = Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 32]).join('');
+              const codeIns = await fetch(`${SUPABASE_URL}/rest/v1/referral_codes`, {
+                method: 'POST',
+                headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+                body: JSON.stringify({ code: newCode, owner_email: email }),
+              });
+              if (codeIns.ok) referralCode = newCode;
+            }
+          } catch (codeErr) {
+            await logErr(env, '/pioneers/join', 'referral code issuance failed (non-fatal)', String(codeErr), 500);
+          }
+          const referralLink = referralCode ? `https://biddeed.ai/pioneers?ref=${referralCode}` : null;
+
+          return new Response(JSON.stringify({ ok: true, referral_code: referralCode, referral_link: referralLink }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         } catch (e) {
           await logErr(env, '/pioneers/join', 'threw', String(e), 500);
           return new Response(JSON.stringify({ ok: false, error: 'server error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
@@ -2459,7 +2540,7 @@ const BLOG_POSTS = [
     leadCounty: 'marion',
     leadCountyLabel: 'Marion County',
     bodyHtml: `
-<p>Marion County is where we've published our clearest real-world proof case: a property at 14470 SE 91st Ter, Summerfield, sold for $73,501 against a pre-published $82,000 Shapira Max Bid ceiling — a formula that held to within $8,499 of the actual sale price. If you want the full breakdown, it's in our <a href="/blog/florida-foreclosure-max-bid-guide">max bid formula guide</a>.</p>
+<p>Marion County is where we've published our clearest real-world proof case: a property at 14470 SE 91st Ter, Summerfield, sold for $73,501 against a pre-published $82,000 Shapira Max Bid ceiling — a formula that held to within $8,499 of the actual sale price. See the <a href="/proof/marion-summerfield">shareable result card</a>, or read the full breakdown in our <a href="/blog/florida-foreclosure-max-bid-guide">max bid formula guide</a>.</p>
 <h2>What the current pipeline looks like</h2>
 <p>Marion currently has 99 upcoming auctions — 95 tax deed, 4 mortgage foreclosure. The average opening bid is around <strong>$11,376</strong> against an average assessed value of roughly <strong>$14,897</strong>. But the average is skewed by a handful of higher-value lots — the <em>median</em> opening bid is closer to <strong>$4,006</strong>, against a median assessed value around <strong>$6,149</strong>. For a county with this much volume, the median is the more honest picture of what a typical lot actually looks like: modest opening bids, modest assessed values, and a real but not dramatic spread.</p>
 <h2>Why we use Marion as the proof case</h2>
@@ -2487,6 +2568,75 @@ const BLOG_POSTS = [
 `
   }
 ];
+
+// PROOF_CARDS -- real, verified results only. Every number here matches
+// what's already published on the blog (see florida-foreclosure-max-bid-guide).
+// Never add a row here without a real, checkable case number and sale price.
+const PROOF_CARDS = {
+  'marion-summerfield': {
+    address: '14470 SE 91st Ter, Summerfield, FL',
+    county: 'Marion',
+    caseNumber: '422021CA000414CAAXXX',
+    entryBid: 72100,
+    predictedCeiling: 82000,
+    actualSale: 73501,
+    margin: 8499,
+  },
+};
+
+function buildProofCard(card) {
+  const held = card.actualSale <= card.predictedCeiling;
+  const fmt = (n) => '$' + n.toLocaleString();
+  const title = `We called it: ${card.address}`;
+  const description = `Predicted max bid: ${fmt(card.predictedCeiling)}. Actual sale: ${fmt(card.actualSale)}. Held with ${fmt(card.margin)} to spare.`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${title} — BidDeed.AI</title>
+<meta name="description" content="${description}">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${description}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://biddeed.ai/proof/marion-summerfield">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${title}">
+<meta name="twitter:description" content="${description}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:480px;width:100%}
+.badge{display:inline-flex;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:#34d399;padding:.4rem 1rem;border-radius:20px;font-size:.75rem;font-weight:700;letter-spacing:.05em;margin-bottom:1.25rem}
+h1{font-family:'DM Serif Display',serif;font-size:1.6rem;color:white;margin-bottom:.3rem;line-height:1.25}
+.location{color:#94a3b8;font-size:.9rem;margin-bottom:2rem}
+.row{display:flex;justify-content:space-between;align-items:baseline;padding:.9rem 0;border-bottom:1px solid #1e293b}
+.row:last-of-type{border-bottom:none}
+.row-label{font-size:.85rem;color:#94a3b8}
+.row-value{font-size:1.15rem;font-weight:700;color:white}
+.row-value.ceiling{color:#f59e0b}
+.row-value.actual{color:#34d399}
+.margin{text-align:center;background:rgba(245,158,11,.06);border-radius:12px;padding:1rem;margin-top:1.5rem;font-size:.9rem;color:#cbd5e1}
+.margin strong{color:#f59e0b}
+.cta{display:block;text-align:center;background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;padding:14px;border-radius:10px;font-weight:700;text-decoration:none;margin-top:1.75rem;font-size:.95rem}
+.disclaimer{font-size:.7rem;color:#475569;margin-top:1.5rem;line-height:1.5;text-align:center}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="badge">${held ? 'CEILING HELD' : 'RESULT'}</div>
+  <h1>${card.address}</h1>
+  <div class="location">${card.county} County, FL &middot; Case ${card.caseNumber}</div>
+  <div class="row"><span class="row-label">Entry bid</span><span class="row-value">${fmt(card.entryBid)}</span></div>
+  <div class="row"><span class="row-label">Shapira Max Bid (published pre-sale)</span><span class="row-value ceiling">${fmt(card.predictedCeiling)}</span></div>
+  <div class="row"><span class="row-label">Actual sale price</span><span class="row-value actual">${fmt(card.actualSale)}</span></div>
+  <div class="margin">Sold <strong>${fmt(card.margin)}</strong> under the published ceiling.</div>
+  <a href="/buy-report" class="cta">Get your own max bid number &rarr;</a>
+  <p class="disclaimer">Informational only — not legal, financial, or investment advice. Historical result; individual outcomes vary. Verify independently before bidding.</p>
+</div>
+</body></html>`;
+}
 
 function buildPioneersPage() {
   return `<!DOCTYPE html>
@@ -2541,6 +2691,11 @@ footer a{color:var(--muted);text-decoration:none}
     <p>Founding-customer pricing on the Investor tier, priority access to new counties and features as they ship, and direct input into the product roadmap. Full program details — including any equity or ownership component under consideration — will be finalized and disclosed before enrollment opens.</p>
   </div>
 
+  <div class="card" style="border-color:rgba(245,158,11,.3)">
+    <h3>Refer someone, you both win</h3>
+    <p>Once you're subscribed, share your personal link. When someone you refer subscribes and stays a full billing cycle, you <strong>both</strong> get a free month — no cap, one free month per new customer you bring in.</p>
+  </div>
+
   <div class="notice">
     <strong>This page is a waitlist only.</strong> No payment is collected here and nothing about the final program terms is confirmed yet — including whether an equity component will be part of it. We want to get this right before anyone joins, so we're finalizing the structure first. Join the list and we'll email you the full details as soon as they're ready.
   </div>
@@ -2552,12 +2707,18 @@ footer a{color:var(--muted);text-decoration:none}
     <input type="email" id="p-email" name="email" placeholder="you@example.com" required>
     <button type="submit" id="p-btn">Join the Waitlist</button>
     <div class="msg" id="p-msg"></div>
+    <div class="lead-box" id="p-referral-box" style="display:none;margin-top:1rem">
+      <h3 style="font-size:.95rem">Your referral link</h3>
+      <p style="font-size:.85rem">Share this — when someone subscribes through it and sticks around a full billing cycle, you both get a free month.</p>
+      <input type="text" id="p-referral-link" readonly style="width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;color:white;font-size:13px;margin-top:.5rem">
+    </div>
   </form>
 </div>
 <footer>
   <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
 </footer>
 <script>
+var pRefCode = new URLSearchParams(window.location.search).get('ref');
 document.getElementById('pioneer-form').addEventListener('submit', async function(e){
   e.preventDefault();
   var btn = document.getElementById('p-btn');
@@ -2567,18 +2728,25 @@ document.getElementById('pioneer-form').addEventListener('submit', async functio
   msg.textContent = ''; msg.className = 'msg';
   btn.disabled = true; btn.textContent = 'Joining...';
   try {
+    var joinPayload = { email: email, name: name };
+    if (pRefCode) { joinPayload.referred_by = pRefCode; }
     var res = await fetch('/pioneers/join', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ email: email, name: name })
+      body: JSON.stringify(joinPayload)
     });
     var data = await res.json();
     if (res.ok && data.ok) {
       msg.textContent = "You're on the list — check your email for confirmation.";
       msg.className = 'msg ok';
       btn.textContent = 'Joined ✓';
+      if (data.referral_link) {
+        document.getElementById('p-referral-link').value = data.referral_link;
+        document.getElementById('p-referral-box').style.display = 'block';
+      }
     } else {
       msg.textContent = data.error || 'Something went wrong. Please try again.';
+
       msg.className = 'msg err';
       btn.disabled = false; btn.textContent = 'Join the Waitlist';
     }
@@ -3847,6 +4015,7 @@ button:disabled{opacity:.6;cursor:default}
 </div>
 <script>
 try{if(window.posthog)posthog.capture('subscribe_page_viewed',{tier:'TIER_PLACEHOLDER'});}catch(e){}
+var refCode = new URLSearchParams(window.location.search).get('ref');
 document.getElementById('sub-form').addEventListener('submit', async function(e){
   e.preventDefault();
   var btn=document.getElementById('sub-btn'), err=document.getElementById('sub-err');
@@ -3854,7 +4023,9 @@ document.getElementById('sub-form').addEventListener('submit', async function(e)
   err.style.display='none';
   btn.disabled=true; btn.textContent='Redirecting to checkout...';
   try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER'});}catch(e2){}
-  fetch('/subscribe/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tier:'TIER_PLACEHOLDER',customer_email:email})})
+  var checkoutPayload={tier:'TIER_PLACEHOLDER',customer_email:email};
+  if(refCode){ checkoutPayload.referral_code=refCode; }
+  fetch('/subscribe/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(checkoutPayload)})
     .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })
     .then(function(r){
       if(r.ok && r.data.url){ window.location.href=r.data.url; }
