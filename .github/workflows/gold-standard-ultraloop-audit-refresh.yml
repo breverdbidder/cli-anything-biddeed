@@ -1,0 +1,43 @@
+name: "Gold Standard Ultraloop-Audit Refresh (all counties)"
+
+# Same disease as gold-standard-precert-guard-refresh.yml (issue #10982), one
+# table over: gold_standard_certify() also requires a gold_standard_ultraloop_audit
+# row per A-J letter, survived=true, dated within a rolling 7-day window. Only
+# the guard table got a daily fleet-wide refresh; the audit table never did, so
+# any county whose non-targeted letters aren't touched that day silently falls
+# out of the 7-day window and permanently blocks consecutive_gold accrual, even
+# while genuinely passing 10/10 live. Confirmed live 2026-08-11 (architect
+# triage, issue #18815): washington was 10/10 on pencil_dod_evaluate_county but
+# stuck at adversarial_survival_4_of_10 because only the letters a same-day
+# session touched (C/D/I/J) had fresh audit rows; the other six (A/B/E/F/G/H)
+# were last audited 11 days earlier. See scripts/gold_standard_ultraloop_audit_refresh.py.
+
+on:
+  schedule:
+    # Daily 12:35 UTC — 5 min after the guard refresh, same cadence rationale.
+    - cron: '35 12 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: gold-standard-ultraloop-audit-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: "Refresh ultraloop audit + certify tick"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx --quiet
+
+      - name: Refresh ultraloop audit for all 10/10 counties + run certify tick
+        run: python3 scripts/gold_standard_ultraloop_audit_refresh.py
