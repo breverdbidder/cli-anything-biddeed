@@ -155,22 +155,44 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
     """)
     ours_by_case = {r["case_number"]: r for r in ours}
 
+    # Some counties' clerk PDF case numbers ("4680/2019-2108") don't match
+    # the short numeric case_number an earlier ingest sweep already stored
+    # for the same real-world auction ("4680"). An exact-string miss here
+    # re-inserts a duplicate bare stub every run and flags the enriched row
+    # PHANTOM_NOT_ON_CLERK, undoing any manual reconciliation daily
+    # (confirmed live for suwannee, 2026-08-11: 21/21 rows regressed to
+    # match_pct=0.0 on the run immediately after a manual fix). Fall back to
+    # the clerk case number's prefix before "/" only when the exact key
+    # misses -- a no-op for every other clerk_ssot county, none of which use
+    # "/"-format case numbers (verified live across all 27 counties).
+    def _normalize_case(case_number):
+        return case_number.split("/")[0] if "/" in case_number else case_number
+
     matched = 0
     missing_from_ours = []
     cancelled_mismatch = []
     clean_matches = []
+    matched_our_cases = set()
     for case_number, ssot_row in ssot_by_case.items():
         our_row = ours_by_case.get(case_number)
+        matched_case_number = case_number
+        if our_row is None:
+            normalized = _normalize_case(case_number)
+            if normalized != case_number:
+                our_row = ours_by_case.get(normalized)
+                matched_case_number = normalized
         if our_row is None:
             missing_from_ours.append(ssot_row)
             continue
         matched += 1
+        matched_our_cases.add(matched_case_number)
+        matched_row = ssot_row if matched_case_number == case_number else {**ssot_row, "case_number": matched_case_number}
         if ssot_row["cancelled"] and our_row["auction_status"] != "CANCELLED":
-            cancelled_mismatch.append(ssot_row)
+            cancelled_mismatch.append(matched_row)
         else:
-            clean_matches.append(ssot_row)
+            clean_matches.append(matched_row)
 
-    phantom_in_ours = [c for c in ours_by_case if c not in ssot_by_case]
+    phantom_in_ours = [c for c in ours_by_case if c not in ssot_by_case and c not in matched_our_cases]
 
     # --- reconciliation actions (additive/corrective only, never delete) ---
     for ssot_row in missing_from_ours:
