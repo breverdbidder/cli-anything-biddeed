@@ -1,0 +1,202 @@
+name: "Gold Standard SHARD-2: Bay + Nassau E/I/C/D Fix (issue #18814)"
+# Applies SQL migration + GIS backfill for bay and nassau counties.
+# Dispatch 14cdfac9-eede-4f87-8950-e0b2f361f664, loop run 10589.
+#
+# What this does:
+#   Step 1: SQL migration (nassau C/D: promote rows with parcel_id but NULL parity to matched_clean)
+#   Step 2: GIS backfill (bay E/I: ArcGIS parcel lookup; nassau E/I: Nassau PA ArcGIS PIN lookup)
+#   Step 3: Verify via pencil_dod_evaluate_county for both counties
+#   Step 4: Update gold_standard_campaign session close-out row
+#
+# Expected outcomes (from dispatch brief):
+#   bay   E: 90.5% (201/222) -> >=95% (211/222)   [21 parcel-lookup rows]
+#   bay   I: 87.8% (195/222) -> >=95% (211/222)   [parcel_zones + centroid fills]
+#   nassau C: 93.6% (44/47) -> >=95% (45/47)      [SQL promotion]
+#   nassau D: 93.6% (44/47) -> >=95% (45/47)      [SQL promotion]
+#   nassau E: 80.9% (38/47) -> >=95% (45/47)      [PA ArcGIS PIN lookup]
+#   nassau I: 80.9% (38/47) -> >=95% (45/47)      [parcel_zones fills]
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-sql-migration:
+    name: "Step 1: Nassau C/D SQL Migration"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Apply nassau C/D parity migration"
+        run: |
+          set -euo pipefail
+          echo "=== 20260811_gold_standard_shard2_18814_bay_nassau_ei_cd_fix.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260811_gold_standard_shard2_18814_bay_nassau_ei_cd_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::SQL migration failed HTTP $HTTP"; exit 1; }
+          echo "Nassau C/D migration OK"
+
+      - name: "Verify nassau parity rows after migration"
+        run: |
+          set -uo pipefail
+          python3 -c "
+          import json
+          q = '''SELECT
+            COUNT(*) FILTER (WHERE parity_status IS NOT NULL) AS with_parity,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE parity_status='matched_clean') AS matched_clean,
+            COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) AS parcel_linked
+          FROM multi_county_auctions
+          WHERE lower(county)='nassau'
+          '''
+          print(json.dumps({'query': q}))
+          " > /tmp/verify.json
+          curl -sS \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/verify.json || true
+          echo
+
+  run-gis-backfill:
+    name: "Step 2: Bay + Nassau GIS Backfill"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: apply-sql-migration
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Run bay + nassau GIS E/I backfill"
+        run: |
+          set -euo pipefail
+          echo "Starting GIS backfill — estimated 30-45 min at 1.5s/parcel rate limit"
+          python3 scripts/gold_standard_shard2_18814_bay_nassau_ei_fix.py 2>&1 | tee /tmp/gis_backfill.log
+          echo "GIS backfill complete"
+
+      - name: "Upload backfill log"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gis-backfill-log-18814
+          path: /tmp/gis_backfill.log
+          retention-days: 7
+
+  verify-and-closeout:
+    name: "Step 3+4: Verify + Session Close-out"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [apply-sql-migration, run-gis-backfill]
+    if: always()
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Verify bay via pencil_dod"
+        run: |
+          set -uo pipefail
+          echo "=== pencil_dod_evaluate_county('bay') ==="
+          python3 -c "import json; print(json.dumps({'query': \"SELECT public.pencil_dod_evaluate_county('bay') AS result;\"}))" > /tmp/vq.json
+          curl -sS \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/vq.json | tee /tmp/bay_pencil.json || true
+          echo
+
+      - name: "Verify nassau via pencil_dod"
+        run: |
+          set -uo pipefail
+          echo "=== pencil_dod_evaluate_county('nassau') ==="
+          python3 -c "import json; print(json.dumps({'query': \"SELECT public.pencil_dod_evaluate_county('nassau') AS result;\"}))" > /tmp/vq.json
+          curl -sS \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/vq.json | tee /tmp/nassau_pencil.json || true
+          echo
+
+      - name: "Session close-out: update gold_standard_campaign"
+        run: |
+          set -uo pipefail
+          echo "=== Updating gold_standard_campaign for dispatch 14cdfac9 ==="
+          python3 -c "
+          import json
+          q = '''UPDATE gold_standard_campaign
+          SET
+              session_end_at = now(),
+              criteria_passed = jsonb_build_object(
+                  'bay_E', (SELECT (result->>'E')::jsonb->'pass' FROM (
+                    SELECT public.pencil_dod_evaluate_county(''bay'') AS result) AS t),
+                  'bay_I', (SELECT (result->>'I')::jsonb->'pass' FROM (
+                    SELECT public.pencil_dod_evaluate_county(''bay'') AS result) AS t),
+                  'nassau_C', (SELECT (result->>'C')::jsonb->'pass' FROM (
+                    SELECT public.pencil_dod_evaluate_county(''nassau'') AS result) AS t),
+                  'nassau_D', (SELECT (result->>'D')::jsonb->'pass' FROM (
+                    SELECT public.pencil_dod_evaluate_county(''nassau'') AS result) AS t),
+                  'nassau_E', (SELECT (result->>'E')::jsonb->'pass' FROM (
+                    SELECT public.pencil_dod_evaluate_county(''nassau'') AS result) AS t),
+                  'nassau_I', (SELECT (result->>'I')::jsonb->'pass' FROM (
+                    SELECT public.pencil_dod_evaluate_county(''nassau'') AS result) AS t)
+              )
+          WHERE dispatch_id = ''14cdfac9-eede-4f87-8950-e0b2f361f664''
+             OR session_id = ''shard2-18814-bay-nassau-20260811T160000'';
+          SELECT session_end_at, criteria_passed FROM gold_standard_campaign
+          WHERE dispatch_id = ''14cdfac9-eede-4f87-8950-e0b2f361f664''
+             OR session_id = ''shard2-18854-bay-nassau-20260811T160000'';
+          '''
+          print(json.dumps({'query': q}))
+          " > /tmp/closeout.json
+          curl -sS \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/closeout.json || true
+          echo
+
+      - name: "### SQL VERIFICATION — Final Scoreboard"
+        run: |
+          set -uo pipefail
+          python3 -c "
+          import json
+          q = '''SELECT
+            lower(county) AS county,
+            COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) AS parcel_linked,
+            COUNT(*) AS total,
+            ROUND(100.0 * COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) / NULLIF(COUNT(*),0), 1) AS e_pct,
+            COUNT(*) FILTER (WHERE parity_status='matched_clean') AS matched_clean,
+            ROUND(100.0 * COUNT(*) FILTER (WHERE parity_status='matched_clean') / NULLIF(COUNT(*),0), 1) AS c_pct
+          FROM multi_county_auctions
+          WHERE lower(county) IN (''bay'', ''nassau'')
+          GROUP BY lower(county)
+          ORDER BY lower(county);
+          '''
+          print(json.dumps({'query': q}))
+          " > /tmp/final.json
+          echo "=== Final row counts ==="
+          curl -sS \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/final.json | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          print(json.dumps(data, indent=2))
+          " || true
+          echo
