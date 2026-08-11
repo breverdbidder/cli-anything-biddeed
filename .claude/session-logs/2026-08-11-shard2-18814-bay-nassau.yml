@@ -1,0 +1,96 @@
+session_id: shard2-18814-bay-nassau-20260811T160000
+dispatch_id: 14cdfac9-eede-4f87-8950-e0b2f361f664
+chat_session: architect-20260811T160000
+loop_run: 10589
+date: 2026-08-11
+counties: [bay, nassau]
+mode: claude-code-github-action
+
+## Targets
+bay: 8/10 → E FAIL 90.5% (201/222), I FAIL 87.8% (195/222)
+nassau: 6/10 → C FAIL 93.6% (44/47), D FAIL 93.6% (44/47), E FAIL 80.9% (38/47), I FAIL 80.9% (38/47)
+
+## EXECUTION BLOCKER (VERIFIED)
+
+This session ran inside the cc-runner-ghonly.yml GitHub Actions job (job run 31510116155).
+The runner's allowed Bash commands are restricted to specific git subcommands:
+  git add, git commit, git push, git status, git diff, git log, git rm
+Commands like python3, sh, curl, node are blocked with "This command requires approval."
+This is inconsistent with `.claude/settings.json` (which shows `Bash(*)`) and likely reflects
+the cc-runner-ghonly.yml job's Claude Code invocation without a --allowedTools override.
+
+IMPACT: Cannot execute Python scripts or curl against the Supabase API. Migration SQL 
+and Python fix scripts were written and committed, but NOT applied to the live database.
+WIRING MANDATE is NOT met this session for the GIS-dependent fixes (E/I backfill).
+
+## Decisions Made
+
+decisions:
+  - step: "analyze prior sessions"
+    action: "Read 8 prior session reports for bay and nassau"
+    result: "Bay: prior shard9/14 sessions fixed C/D/I; current gap is 31 new rows (191→222) without GIS enrichment. Nassau: was 10/10 at run 6080; grew from 34→47 rows, 13 new rows, 9 unlinked."
+    reason: "Understand root cause before building fix"
+    honesty_marker: VERIFIED
+
+  - step: "write bay/nassau E/I fix script"
+    action: "Create scripts/gold_standard_shard2_18814_bay_nassau_ei_fix.py"
+    result: "Script written — queries Bay County ArcGIS (gis.baycountyfl.gov) and Nassau PA ArcGIS (maps.ncpafl.com) using proven patterns from prior sessions"
+    reason: "Reuse confirmed-working GIS patterns from shard9_run6253 and architect_triage_17241"
+    honesty_marker: UNTESTED (not executed — blocked by runner env)
+
+  - step: "write nassau C/D SQL migration"
+    action: "Create migrations/20260811_gold_standard_shard2_18814_bay_nassau_ei_cd_fix.sql"
+    result: "Migration written — promotes nassau rows with parcel_id but NULL parity_status to matched_clean (pre-authorized)"
+    reason: "Nassau C/D gap is 3 rows (44→47 needed 45/47 = 95.7%); rows with real parcel_id + no parity_status are the target per pattern established in architect_triage_17241"
+    honesty_marker: UNTESTED (not applied — blocked by runner env)
+
+  - step: "write migration applier"
+    action: "Create apply_migration_18814.py"  
+    result: "Stdlib-only Python script written — uses urllib (no httpx) to call Management API"
+    reason: "mgmt_sql.py requires httpx which was not installed in runner"
+    honesty_marker: UNTESTED
+
+## Artifacts Committed to Main
+
+artifacts:
+  - path: scripts/gold_standard_shard2_18814_bay_nassau_ei_fix.py
+    status: UNTESTED
+    purpose: "Bay E/I: ArcGIS parcel backfill for 21 unlinked bay rows (221K A1RENUM lookups)"
+    purpose: "Nassau E/I+C/D: ArcGIS parcel backfill for 9 unlinked nassau rows + parity promotion"
+    requires: "SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY env vars; outbound HTTPS to gis.baycountyfl.gov and maps.ncpafl.com"
+
+  - path: migrations/20260811_gold_standard_shard2_18814_bay_nassau_ei_cd_fix.sql
+    status: UNTESTED  
+    purpose: "Nassau C/D parity promotion (pure SQL, pre-authorized supplementary litmus)"
+    apply_command: "python3 apply_migration_18814.py"
+    requires: "SUPABASE_ACCESS_TOKEN env var"
+
+  - path: apply_migration_18814.py
+    status: UNTESTED
+    purpose: "Stdlib-only migration applier for the above SQL"
+
+## Next Session Instructions
+
+For next session working bay or nassau:
+1. FIRST: apply the SQL migration (nassau C/D fix — pure SQL, fast):
+   SUPABASE_ACCESS_TOKEN=<token> python3 apply_migration_18814.py
+   Expected: nassau C metric 93.6% → >=95% (3 rows promoted)
+   
+2. SECOND: run the GIS backfill script (bay E/I + nassau E/I — needs external GIS access):
+   SUPABASE_URL=<url> SUPABASE_SERVICE_ROLE_KEY=<key> python3 scripts/gold_standard_shard2_18814_bay_nassau_ei_fix.py
+   Expected runtime: ~30-45 min (1.5s rate limit per parcel)
+   
+3. THIRD: verify both counties via pencil_dod_evaluate_county
+   
+4. FOURTH: update gold_standard_campaign session_end_at + criteria_passed
+
+## SQL Verification Block (CANNOT PRODUCE — execution blocked)
+Unable to provide SQL VERIFICATION block per SHIP GATE because execution was blocked.
+HONESTY: These are UNTESTED claims. Status = WIP, not SHIPPED.
+
+## Exit Status
+exit_reason: timeout (execution environment blocked non-git commands)
+bay_before: {E: {pass: false, metric: 90.5}, I: {pass: false, metric: 87.8}}
+nassau_before: {C: {pass: false, metric: 93.6}, D: {pass: false, metric: 93.6}, E: {pass: false, metric: 80.9}, I: {pass: false, metric: 80.9}}
+bay_after: UNTESTED (scripts committed but not applied)
+nassau_after: UNTESTED (migration committed but not applied)
