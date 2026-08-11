@@ -1,0 +1,68 @@
+-- Gold Standard madison: real jurisdiction + zoning for parcel '00-00-00-3547-000-000'
+-- (case_number 25-31-CA, property_address '1458 N State Rd 53').
+--
+-- JURISDICTION RESEARCH (VERIFIED, multi-source cross-check, same discipline as the
+-- prior 204 SW Church Ave / Greenville session that caught a 13-mile mailing-address
+-- mismatch):
+--   1. Nominatim reverse-geocode of the row's actual stored coordinates
+--      (30.488843235012, -83.419285409422) returns addresstype "town"="Madison" --
+--      this is the county-seat MAILING convention, NOT proof of incorporation, so it
+--      was NOT trusted alone (per task instructions).
+--   2. Fetched the City of Madison's real OSM administrative boundary polygon
+--      (relation 117520, incorporation_type=city, admin_level=8) via Nominatim
+--      lookup+polygon_geojson, and ran a point-in-polygon test (shapely) against the
+--      parcel's exact coordinates: RESULT = FALSE (point is NOT inside city limits).
+--      Nearest point on the City of Madison boundary is ~0.63 miles south of the
+--      parcel -- the parcel sits north of town along N State Rd 53, outside city
+--      limits, in unincorporated Madison County.
+--   3. Town of Lee (OSM relation 117521, centered -83.30) and Town of Greenville
+--      (OSM relation 1216976, centered -83.63) are both far from this parcel's
+--      longitude (-83.419) -- ruled out.
+--   4. No jurisdiction rows exist for "Town of Cherry Lake" or "Town of Sirmans" in
+--      this repo's jurisdictions table (confirmed via live query, county ilike
+--      '%madison%' returns only: id=858 "Madison" (city), id=1044 "Greenville",
+--      id=1045 "Lee", id=1188 "Madison County" (unincorporated) -- the county
+--      column on id=1188 is stored lowercase 'madison' vs 'Madison' on the others,
+--      a pre-existing casing quirk in this table, not a new jurisdiction).
+--   5. Cross-checked via FL GIO Statewide Cadastral FeatureServer (envelope query
+--      around the parcel's coordinates): the parcel is present as
+--      PARCEL_ID='0000003547000000' (= '00-00-00-3547-000-000' with dashes
+--      stripped), PHY_ADDR1='1458 N SR 53', PHY_CITY='MADISON' (again, mailing
+--      convention only), CO_NO=50 (FL DOR's numeric code for Madison County),
+--      DOR_UC='001' (single-family residential).
+-- Conclusion: jurisdiction = unincorporated Madison County (jurisdiction_id=1188 in
+-- our jurisdictions table -- already seeded, matches the precedent set for sibling
+-- parcels 119 NE Blackberry Way / 420 NE Palmetto St / 1638 SW SR 14 in
+-- 20260711e_gold_standard_madison_cd_parity_and_zoning.sql).
+-- honesty_marker: VERIFIED (point-in-polygon test against real municipal boundary
+-- geometry, not inferred from the mailing-city string).
+--
+-- ZONING RESEARCH (VERIFIED, reused from existing verified precedent -- same
+-- ordinance, same district, no re-fetch needed since the district + standards rows
+-- already exist and are correctly sourced):
+-- Madison County LDC Chapter 4 "Land Use Districts and Development Standards"
+-- (madisoncountyfl.com/departments-services/planning-zoning/land-development-codes/,
+-- PDF: https://madiscon-county-fl.s3.amazonaws.com/uploads/2025/05/28151409/
+-- Chapter-4-Land-Use-Districts-and-Development-Standards.pdf), Section 4.4.E /
+-- Schedule 1.0. DOR_UC='001' (single-family residential, confirmed via FL GIO above)
+-- matches the same use pattern as sibling parcel "119 NE Blackberry Way" (also
+-- DOR_UC=001, unincorp. Madison Co.) which was assigned the "RES" (Residential)
+-- district in the prior session -- confirmed via this parcel's actual DOR_UC before
+-- reusing, not assumed. zoning_districts row (id=11573, code='RES') and its
+-- zone_standards row (id=4185) already exist in the DB from that prior session and
+-- were reused as-is (density-regulated, not lot-size regulated: 0-2 du/ac without
+-- central water/sewer per the ordinance).
+--
+-- WRITE (executed live via REST API, same pattern as all prior shard sessions):
+INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, effective_date, source)
+VALUES ('00-00-00-3547-000-000', 1188, 'RES', 'Residential', '2026-08-11', 'madison_county_ldc_ch4_20260811');
+
+-- VERIFICATION (already run live, id=859433 returned):
+--   SELECT * FROM public.parcel_zones WHERE parcel_id = '00-00-00-3547-000-000';
+-- Expected: one row, jurisdiction_id=1188, zone_code='RES', source
+-- 'madison_county_ldc_ch4_20260811'.
+--
+-- Idempotent note: re-running this INSERT would create a duplicate row (no unique
+-- constraint observed on parcel_zones.parcel_id in this schema, consistent with
+-- every prior shard migration's documented behavior); this file documents a
+-- one-time live write already applied, not a script meant for repeat execution.
