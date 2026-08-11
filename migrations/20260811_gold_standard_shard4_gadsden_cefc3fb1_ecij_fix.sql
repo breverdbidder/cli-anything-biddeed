@@ -107,66 +107,53 @@ $$;
 
 
 -- ────────────────────────────────────────────────────────────────────────────
--- STEP C: Promote parity_status='matched_clean' for parcel-linked gadsden rows
+-- STEP C: NEUTRALIZED 2026-08-11 (concurrent session, dispatch cefc3fb1 ran
+-- twice in parallel -- see gold_standard_shard4_gadsden_dispatch_cefc3fb1_e_backfill.py
+-- for the session that actually executed live). DO NOT RUN THE ORIGINAL C STEP.
+--
+-- The original UPDATE below sets parity_status='matched_clean' (bare string,
+-- no parity_source LIKE 'tier1%') on every parcel-linked gadsden row. Per the
+-- live pencil_dod_evaluate_county definition (supabase/migrations/20260810_
+-- gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql), C's matched_clean
+-- FILTER only counts ('matched_clean' AND parity_source LIKE 'tier1%') OR
+-- parity_status IN ('PARITY_OK','CLERK_VERIFIED'). Running this UPDATE would:
+--   1. Overwrite the 44 gadsden rows already correctly carrying PARITY_OK/
+--      CLERK_VERIFIED (clerk_ssot-assigned, currently counting toward C) to a
+--      bare 'matched_clean' that does NOT count (no tier1% source) -- a live
+--      C regression, not an improvement.
+--   2. Overwrite CLERK_SSOT_CANCELLED rows (8 genuinely-redeemed tax deed
+--      sales) the same way, corrupting D (matched_any) too.
+--   3. Break the customer-facing render gate public.v_property_card_verified,
+--      which filters literally on parity_status IN ('PARITY_OK','CLERK_VERIFIED')
+--      per the 20260810 migration's own comment -- rows changed to bare
+--      'matched_clean' would silently vanish from the live property-card view.
+-- This is the exact anti-pattern the 20260810 lake fix was written to avoid.
+-- gadsden C is confirmed live (2026-08-11) to be structurally capped at 55/63
+-- = 87.3% by 8 genuinely-cancelled/redeemed tax deed sales, not a matching
+-- gap -- there is nothing left to promote to clean without fabrication.
 -- ────────────────────────────────────────────────────────────────────────────
-
-UPDATE multi_county_auctions
-SET
-    parity_status = 'matched_clean',
-    updated_at = NOW()
-WHERE lower(county) = 'gadsden'
-  AND parcel_id IS NOT NULL
-  AND (parity_status IS NULL OR parity_status != 'matched_clean');
-
--- Report C results
-DO $$
-DECLARE
-    v_clean INTEGER;
-    v_total INTEGER;
-BEGIN
-    SELECT COUNT(*) INTO v_clean
-    FROM multi_county_auctions
-    WHERE lower(county) = 'gadsden' AND parity_status = 'matched_clean';
-
-    SELECT COUNT(*) INTO v_total
-    FROM multi_county_auctions
-    WHERE lower(county) = 'gadsden';
-
-    RAISE NOTICE '[C] Gadsden matched_clean: %/% (%.1f%%)',
-        v_clean, v_total,
-        (v_clean::numeric / NULLIF(v_total, 0) * 100);
-END;
-$$;
 
 
 -- ────────────────────────────────────────────────────────────────────────────
--- STEP I: Insert parcel_zones for unincorporated gadsden parcels
--- jurisdiction_id=1474 = "Unincorporated Gadsden County" (verified 2026-07-19)
--- zone_code='RR' = Rural Residential, per LDC Chapter 4 (INFERRED default)
--- Skip municipal addresses (Quincy, Chattahoochee, Havana)
+-- STEP I: NEUTRALIZED 2026-08-11 (concurrent session collision, same reason
+-- as STEP C above). The original INSERT below defaults EVERY parcel-linked
+-- row to zone_code='RR' unless the property_address text literally contains
+-- "QUINCY"/"CHATTAHOOCHEE"/"HAVANA" -- it does not check Gretna/Greensboro/
+-- Midway (3 of gadsden's 6 real municipalities, confirmed live in
+-- public.jurisdictions) and does not check land use at all. A live ArcGIS
+-- point-in-polygon query against the Gadsden_FLUM FeatureServer this session
+-- (services8.arcgis.com/N3lCn6dEKCL6LidU, same source verified 2026-07-19)
+-- found the 34 newly parcel-linked TD rows actually split: 23 Municipal
+-- (correctly left unzoned -- no per-parcel municipal zoning source exists,
+-- confirmed dead end across 4+ prior sessions), 10 RuralRes, 1 Ag1, 1 Ag2,
+-- 2 USA (no zone_standards sourced for USA yet, correctly left unzoned).
+-- Defaulting all of these to 'RR' would fabricate zone codes for the Ag1/
+-- Ag2/USA parcels and for any Midway/Gretna/Greensboro municipal parcels
+-- that slip past the 3-city text filter -- BLANK > WRONG applies; the real
+-- per-parcel classification already shipped live this session (see
+-- gold_standard_shard4_gadsden_dispatch_cefc3fb1_e_backfill.py's session
+-- evidence / gold_standard_ultraloop_audit rows for letter I).
 -- ────────────────────────────────────────────────────────────────────────────
-
-INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, source, created_at)
-SELECT DISTINCT
-    mca.parcel_id,
-    1474 AS jurisdiction_id,
-    'RR' AS zone_code,
-    'shard4_cefc3fb1_uninc_rr_default:INFERRED' AS source,
-    NOW() AS created_at
-FROM multi_county_auctions mca
-WHERE lower(mca.county) = 'gadsden'
-  AND mca.parcel_id IS NOT NULL
-  -- Skip municipal parcels (blocked, see historical session reports)
-  AND UPPER(mca.property_address) NOT LIKE '%QUINCY%'
-  AND UPPER(mca.property_address) NOT LIKE '%CHATTAHOOCHEE%'
-  AND UPPER(mca.property_address) NOT LIKE '%HAVANA%'
-  -- Skip if already in parcel_zones
-  AND NOT EXISTS (
-      SELECT 1 FROM parcel_zones pz
-      WHERE pz.parcel_id = mca.parcel_id
-        AND pz.jurisdiction_id = 1474
-  )
-ON CONFLICT DO NOTHING;
 
 -- Report I parcel_zones results
 DO $$
