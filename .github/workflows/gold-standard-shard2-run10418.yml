@@ -1,0 +1,253 @@
+name: Gold Standard SHARD-2 run10418 (miami_dade, highlands, charlotte, taylor)
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC daily — after the 08:00Z fleet wave scrape cycle
+  workflow_dispatch: {}
+
+concurrency:
+  group: gold-standard-shard2-run10418
+  cancel-in-progress: false
+
+jobs:
+  miami-dade-i-fix:
+    name: "miami_dade — I geo/value/parity backfill"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run miami_dade I fix
+        run: python3 scripts/shard2_run10418_miami_dade_i_fix.py
+
+      - name: Verify — pencil_dod_evaluate_county miami_dade
+        continue-on-error: true
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, datetime
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          BASE = f'{SUPABASE_URL}/rest/v1'
+          H = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
+               'Content-Type': 'application/json'}
+
+          county = 'miami_dade'
+          body = json.dumps({'p_county': county}).encode()
+          req = urllib.request.Request(f'{BASE}/rpc/pencil_dod_evaluate_county', data=body, method='POST')
+          for k, v in H.items():
+              req.add_header(k, v)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  ev = json.loads(resp.read())
+                  letters_pass = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and ev[l].get('pass')]
+                  letters_fail = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and not ev[l].get('pass')]
+                  i_metric = ev.get('I', {}).get('metric', 'N/A') if isinstance(ev.get('I'), dict) else 'N/A'
+                  lines = [
+                      f'## miami_dade Verification — {datetime.datetime.now(datetime.timezone.utc).isoformat()}',
+                      f'**Pass:** {len(letters_pass)}/10 ({" ".join(letters_pass)})',
+                      f'**Fail:** {" ".join(letters_fail) or "none"}',
+                      f'**I metric:** {i_metric}',
+                      f'**Raw:** `{json.dumps(ev)[:500]}`',
+                  ]
+          except Exception as ex:
+              lines = [f'## miami_dade Verification ERROR: {ex}']
+
+          print('\n'.join(lines))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n\n')
+          PYEOF
+
+  highlands-cdij-fix:
+    name: "highlands — C/D/I/J fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run highlands C/D/I/J fix
+        run: python3 scripts/shard2_run10418_highlands_cdij_fix.py
+
+      - name: Verify — pencil_dod_evaluate_county highlands
+        continue-on-error: true
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, datetime
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          BASE = f'{SUPABASE_URL}/rest/v1'
+          H = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
+               'Content-Type': 'application/json'}
+
+          county = 'highlands'
+          body = json.dumps({'p_county': county}).encode()
+          req = urllib.request.Request(f'{BASE}/rpc/pencil_dod_evaluate_county', data=body, method='POST')
+          for k, v in H.items():
+              req.add_header(k, v)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  ev = json.loads(resp.read())
+                  letters_pass = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and ev[l].get('pass')]
+                  letters_fail = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and not ev[l].get('pass')]
+                  lines = [
+                      f'## highlands Verification — {datetime.datetime.now(datetime.timezone.utc).isoformat()}',
+                      f'**Pass:** {len(letters_pass)}/10 ({" ".join(letters_pass)})',
+                      f'**Fail:** {" ".join(letters_fail) or "none"}',
+                      f'**Raw:** `{json.dumps(ev)[:500]}`',
+                  ]
+          except Exception as ex:
+              lines = [f'## highlands Verification ERROR: {ex}']
+
+          print('\n'.join(lines))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n\n')
+          PYEOF
+
+  charlotte-cdij-fix:
+    name: "charlotte — C/D/I/J fix (post-cert regression)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run charlotte C/D/I/J fix
+        run: python3 scripts/shard2_run10418_charlotte_cdij_fix.py
+
+      - name: Verify — pencil_dod_evaluate_county charlotte
+        continue-on-error: true
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, datetime
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          BASE = f'{SUPABASE_URL}/rest/v1'
+          H = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
+               'Content-Type': 'application/json'}
+
+          county = 'charlotte'
+          body = json.dumps({'p_county': county}).encode()
+          req = urllib.request.Request(f'{BASE}/rpc/pencil_dod_evaluate_county', data=body, method='POST')
+          for k, v in H.items():
+              req.add_header(k, v)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  ev = json.loads(resp.read())
+                  letters_pass = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and ev[l].get('pass')]
+                  letters_fail = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and not ev[l].get('pass')]
+                  lines = [
+                      f'## charlotte Verification — {datetime.datetime.now(datetime.timezone.utc).isoformat()}',
+                      f'**Pass:** {len(letters_pass)}/10 ({" ".join(letters_pass)})',
+                      f'**Fail:** {" ".join(letters_fail) or "none"}',
+                      f'**Raw:** `{json.dumps(ev)[:500]}`',
+                  ]
+          except Exception as ex:
+              lines = [f'## charlotte Verification ERROR: {ex}']
+
+          print('\n'.join(lines))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n\n')
+          PYEOF
+
+  taylor-cd-fix:
+    name: "taylor — C/D fix (B/F structurally blocked)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run taylor C/D fix
+        run: python3 scripts/shard2_run10418_taylor_cd_fix.py
+
+      - name: Verify — pencil_dod_evaluate_county taylor
+        continue-on-error: true
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request, datetime
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://mocerqjnksmhcjzxrewo.supabase.co')
+          SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          BASE = f'{SUPABASE_URL}/rest/v1'
+          H = {'apikey': SUPABASE_KEY, 'Authorization': f'Bearer {SUPABASE_KEY}',
+               'Content-Type': 'application/json'}
+
+          county = 'taylor'
+          body = json.dumps({'p_county': county}).encode()
+          req = urllib.request.Request(f'{BASE}/rpc/pencil_dod_evaluate_county', data=body, method='POST')
+          for k, v in H.items():
+              req.add_header(k, v)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  ev = json.loads(resp.read())
+                  letters_pass = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and ev[l].get('pass')]
+                  letters_fail = [l for l in 'ABCDEFGHIJ' if isinstance(ev.get(l), dict) and not ev[l].get('pass')]
+                  lines = [
+                      f'## taylor Verification — {datetime.datetime.now(datetime.timezone.utc).isoformat()}',
+                      f'**Pass:** {len(letters_pass)}/10 ({" ".join(letters_pass)})',
+                      f'**Fail:** {" ".join(letters_fail) or "none"} (B/F blocked: taylorclerk no automation)',
+                      f'**Raw:** `{json.dumps(ev)[:500]}`',
+                  ]
+          except Exception as ex:
+              lines = [f'## taylor Verification ERROR: {ex}']
+
+          print('\n'.join(lines))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n\n')
+          PYEOF
