@@ -1,0 +1,67 @@
+name: "Shard1 — lee/washington C/D/I/J fix + lee I parcel zones"
+# dispatch_id: a3eafa08-a834-470a-b297-2faedf8ccdf5
+# Targets:
+#   lee: 9/10 → 10/10 (I gap: backfill parcel_zones + geo/value for new cases)
+#   washington: 6/10 → 10/10 (C/D/I/J: parity + zoning + bid_decisions for 42 auctions)
+#
+# WIRING MANDATE (2026-06-10): every scraper must run at least once per session.
+# This workflow runs on schedule AND on dispatch so it fires during the session.
+
+on:
+  schedule:
+    - cron: "0 8,16,0 * * *"   # 08:00Z / 16:00Z / 00:00Z (3-wave cadence)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (evaluate only, no DB writes)"
+        required: false
+        default: "false"
+
+jobs:
+  fix-lee-washington:
+    name: "Fix lee I + washington C/D/I/J"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+      SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run lee/washington fix
+        run: |
+          set -euo pipefail
+          python3 scripts/shard1_a3eafa08_lee_liberty_washington_fix.py
+
+      - name: Verify — pencil_dod_evaluate_county
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "### SQL VERIFICATION" >> "$GITHUB_STEP_SUMMARY"
+          echo '```sql' >> "$GITHUB_STEP_SUMMARY"
+          for county in lee liberty washington; do
+            RESULT=$(curl -sf \
+              -X POST "${SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"p_county\": \"$county\"}" || echo '{}')
+            SCORE=$(python3 -c "
+          import json, sys
+          ev = json.loads(sys.argv[1])
+          score = sum(1 for l in 'ABCDEFGHIJ' if ev.get(l, {}).get('pass'))
+          print(f'{score}/10')
+          " "$RESULT")
+            echo "-- SELECT public.pencil_dod_evaluate_county('$county');"
+            echo "-- $RESULT"
+            echo "-- Score: $SCORE"
+            echo "::notice::$county: $SCORE — $RESULT"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
