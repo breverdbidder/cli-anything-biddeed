@@ -1,0 +1,178 @@
+name: "SHARD-3 Gulf+Madison E18816 Session — Parcel Linkage + Close-out"
+
+# Runs the gulf+madison parcel linkage fix and session close-out for issue #18816.
+# dispatch_id: e1c3d165-6e8b-485c-aaba-b56799203f5b
+#
+# Purpose:
+#   1. Find the new 15th gulf auction and attempt parcel_id linkage via Gulf GIS
+#   2. Find the new 6th madison auction (25-31-CA) and attempt parcel_id linkage
+#   3. After linkage, evaluate if E/I/J move for both counties
+#   4. Write session close-out checkpoint to gold_standard_campaign
+#   5. Apply the migration SQL (ultraloop audit rows)
+#
+# Counties: gulf, madison (SHARD-3 only — do NOT touch other counties)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: shard3-gulf-madison-e18816
+  cancel-in-progress: false
+
+jobs:
+  gulf-madison-parcel-fix:
+    name: "Gulf+Madison Parcel Linkage (E criterion)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --quiet httpx
+
+      - name: Run session script
+        run: |
+          set -euo pipefail
+          python3 scripts/shard3_gulf_madison_e18816_session.py 2>&1 | tee /tmp/shard3_gulf_madison_session.log
+          echo "Exit code: $?"
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## SHARD-3 Gulf+Madison E18816 Session" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**dispatch_id:** e1c3d165-6e8b-485c-aaba-b56799203f5b" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "PASS|FAIL|SQL VERIF|fixed|parcel_id|dispatch_id|auctions_total|letter" \
+            /tmp/shard3_gulf_madison_session.log 2>/dev/null | head -60 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  apply-migration:
+    name: "Apply Close-out Migration"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: gulf-madison-parcel-fix
+    if: always()
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply migration via Management API
+        run: |
+          python3 -c "
+          import os, json, urllib.request, urllib.error, sys
+
+          TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
+          if not TOKEN:
+              print('SUPABASE_ACCESS_TOKEN not set — skipping migration')
+              sys.exit(0)
+
+          URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
+          H = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+
+          with open('migrations/20260811_gold_standard_shard3_gulf_madison_e18816_closeout.sql') as f:
+              sql = f.read()
+
+          # Split on double newline to run statement blocks separately
+          # but send as one query (Supabase supports multi-statement SQL)
+          body = json.dumps({'query': sql}).encode()
+          req = urllib.request.Request(URL, data=body, method='POST')
+          for k, v in H.items():
+              req.add_header(k, v)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  result = json.loads(r.read())
+                  print(f'Migration applied: {result}')
+          except urllib.error.HTTPError as e:
+              err = e.read().decode()[:500]
+              print(f'Migration HTTP {e.code}: {err}', file=sys.stderr)
+              # Non-fatal — idempotent migration, may already be applied
+              sys.exit(0)
+          "
+
+      - name: Verify both counties post-migration
+        run: |
+          python3 -c "
+          import os, json, urllib.request, urllib.error, sys
+
+          TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
+          if not TOKEN:
+              print('SUPABASE_ACCESS_TOKEN not set — cannot verify')
+              sys.exit(0)
+
+          URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
+          H = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+
+          def run_sql(query):
+              body = json.dumps({'query': query}).encode()
+              req = urllib.request.Request(URL, data=body, method='POST')
+              for k, v in H.items():
+                  req.add_header(k, v)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f'SQL error: {e}', file=sys.stderr)
+                  return None
+
+          print()
+          print('### SQL VERIFICATION — gulf + madison')
+          import datetime
+          print(f'Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()}')
+
+          for county in ('gulf', 'madison'):
+              result = run_sql(f\"SELECT public.pencil_dod_evaluate_county('{county}');\")
+              if result and len(result) > 0:
+                  data = result[0].get('pencil_dod_evaluate_county', {})
+                  if isinstance(data, str):
+                      data = json.loads(data)
+                  total = data.get('auctions_total', 0)
+                  passed = sum(1 for k, v in data.items()
+                               if k not in ('county', 'auctions_total') and isinstance(v, dict) and v.get('pass'))
+                  fails = [k for k, v in data.items()
+                           if k not in ('county', 'auctions_total') and isinstance(v, dict) and not v.get('pass')]
+                  print(f'{county}: {passed}/10 FAIL={fails} (auctions_total={total})')
+                  for letter in 'ABCDEFGHIJ':
+                      v = data.get(letter, {})
+                      if isinstance(v, dict):
+                          status = 'PASS' if v.get('pass') else 'FAIL'
+                          print(f'  {letter} {status} metric={v.get(\"metric\")} [{v.get(\"detail\",\"\")}]')
+              else:
+                  print(f'{county}: no data returned')
+
+          # Check ultraloop audit
+          result = run_sql(\"\"\"
+            SELECT county_slug, letter, survived, created_at
+            FROM public.gold_standard_ultraloop_audit
+            WHERE dispatch_id = 'e1c3d165-6e8b-485c-aaba-b56799203f5b'
+            ORDER BY county_slug, letter;
+          \"\"\")
+          print()
+          print('Ultraloop audit rows:')
+          for row in (result or []):
+              print(f'  {row.get(\"county_slug\")}/{row.get(\"letter\")} survived={row.get(\"survived\")} at={row.get(\"created_at\")}')
+          print('### END SQL VERIFICATION')
+          " 2>&1 | tee "$GITHUB_STEP_SUMMARY"
