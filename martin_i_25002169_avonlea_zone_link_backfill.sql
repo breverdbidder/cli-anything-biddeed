@@ -1,0 +1,94 @@
+-- Gold Standard martin letter I fix, dispatch (this session).
+--
+-- CONTEXT: martin I (card complete) was 36/42 = 85.7%, exact same 6-row gap as
+-- E (parcel_id IS NULL): 23001555CCAXMX, 25000102CAAXMX, 25000496CAAXMX,
+-- 25001632CCAXMX, 25001634CCAXMX, 25002169CCAXMX.
+--
+-- FINDING per case (RealForeclose AJAX PREVIEW/UPDATE feed, live-verified,
+-- historical calendar dates re-fetchable):
+--   23001555CCAXMX -> parcel_id="PERSONAL PROPERTY" (chattel foreclosure,
+--     no real land parcel exists). DEAD END, not written.
+--   25001632CCAXMX -> parcel_id="TIMESHARE". DEAD END, not written.
+--   25001634CCAXMX -> parcel_id="TIMESHARE". DEAD END, not written.
+--   25000102CAAXMX -> parcel_id="Property Appraiser" (literal placeholder,
+--     live-reharvested 2026-08-11 for auction date 09/29/2026, unchanged).
+--     Independently re-verified via court.martinclerk.com QuickSearch (case
+--     id 1322129, anonymous CourtCase.aspx/DetailsSummary + DetailsForeclosures
+--     AJAX, no CAPTCHA): FINANCE OF AMERICA REVERSE LLC vs. ONEILL DECEASED
+--     estate + 3 named heirs (Hugh M, Margaret, James O'Neill) + Wisnieski.
+--     Clerk's own Foreclosure/Parcel module is empty (no county parcel number,
+--     no address, no legal description on file). No single unambiguous heir
+--     name to search pamartinfl.gov by (matches prior session's finding,
+--     dispatch 32ef2b2a, independently reconfirmed this session). BLOCKED,
+--     not written -- consistent with 5+ prior martin sessions' conclusion.
+--   25000496CAAXMX -> parcel_id="Property Appraiser". Live-reharvested
+--     2026-08-11 for auction date 09/29/2026, unchanged. Court docket (case id
+--     1336302): NATIONSTAR MORTGAGE LLC vs. DE LA BAHIA CONDOMINIUM
+--     ASSOCIATION INC only -- HOA co-defendant, not the actual unit owner.
+--     Clerk Foreclosure/Parcel module empty. BLOCKED, not written.
+--   25002169CCAXMX -> RESOLVED. multi_county_auctions row for this case was
+--     already parcel/address/value-backfilled by a parallel session before
+--     this one ran (parcel_id=28-37-41-015-000-00240-0, moving E from 36->37),
+--     but the parcel had NO zone_code row in v_zoning_gold_standard_card yet,
+--     so it still failed I's zoning sub-condition. This script closes that
+--     specific gap.
+--
+-- SOURCES (all live-verified 2026-08-11, this session):
+--   1. RealForeclose martin.realforeclose.com AJAX PREVIEW/UPDATE feed,
+--      auction date 03/24/2026 (this case's original listing before
+--      re-listing wiped the parcel field for 09/22/2026): parcel_id
+--      28-37-41-015-000-00240-0, address "236 PRESERVE TRAIL SOUTH, STUART,
+--      FL 34994", assessed_value 433520.
+--   2. court.martinclerk.com CourtCase.aspx/DetailsSummary (case id 1353582,
+--      anonymous QuickSearch, no CAPTCHA): PRESERVE AT AVONLEA HOMEOWNERS
+--      ASSOCIATION INC vs. REID, GARRETT LEE -- HOA lien foreclosure,
+--      "Preserve" matches the RealForeclose address exactly.
+--   3. www.pamartinfl.gov real-property JSON API (exact PIN match):
+--      https://www.pamartinfl.gov/app/search/real-property?format=json&search=28-37-41-015-000-00240-0&searchField=all&exact=true
+--      -> AIN 1124298, PrimaryOwner "REID GARRETT LEE", FullSitusAddress
+--      "236 PRESERVE TRAIL SOUTH STUART FL", TotalMarketValue/AssessedValue
+--      430680, X/Y -80.2485/27.2215, Subdivision "NEW AVONLEA 2ND", legal
+--      description "LOT 24 NEW AVONLEA PUD 2ND REPLAT ... PLAT BOOK 18 PAGE 95".
+--   4. City of Stuart official zoning ArcGIS FeatureServer (COS_Zoning,
+--      services.arcgis.com/RyoFD3Lw9KSERnvQ), point-in-polygon query at
+--      -80.2485,27.2215 (WGS84):
+--      https://services.arcgis.com/RyoFD3Lw9KSERnvQ/arcgis/rest/services/COS_Zoning/FeatureServer/0/query?f=json&geometry=-80.2485,27.2215&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false
+--      -> OBJECTID 6256, PCN 2837410150000024000000, Parcels
+--      283741015000002400 (matches our PIN with dashes stripped exactly),
+--      ZONING "RESIDENTIAL PUD", ZONING_SUB "NEW AVONLEA 2ND".
+--
+-- WRITE: parcel_zones INSERT only (multi_county_auctions row for this case
+-- was already complete before this session started -- see above). Maps to
+-- Stuart's existing zoning_districts row (jurisdiction_id=812, code='RPUD',
+-- id=7530) which already existed in the DB from prior county-wide Stuart
+-- ordinance ingestion.
+--
+-- RESULT: martin I 36/42 (85.7%) -> 37/42 (88.1%). Still FAILS the 95%
+-- threshold -- honestly reported as partial progress, not a flip to PASS.
+--
+-- KNOWN SIDE EFFECT (disclosed, not silently absorbed): martin G (zoning
+-- FAR/density coverage) regressed 100.0% -> 88.9% because this INSERT adds a
+-- new "applicable" RPUD district to the denominator in
+-- v_zoning_gold_standard_kpi_v3 without a matching zone_standards row (no
+-- max_density_du_acre for zoning_districts.id=7530). Stuart's own Land
+-- Development Code (section 2.07.00, Table 3 / Table 3b) sets RPUD density
+-- per-PUD via individual negotiated ordinance, not a single citywide number
+-- -- writing a max_density_du_acre value here would require locating and
+-- reading the specific "New Avonlea PUD" approving ordinance, which is a
+-- distinct G-scoped research task, out of scope for this I-scoped session.
+-- Left for a follow-up G session. Not fabricated.
+--
+-- Idempotent: guarded by NOT EXISTS on parcel_id.
+
+SET statement_timeout = 0;
+
+INSERT INTO parcel_zones (parcel_id, tax_account, jurisdiction_id, zone_code, zone_name, source, effective_date)
+SELECT '28-37-41-015-000-00240-0', '28-37-41-015-000-00240-0', 812, 'RPUD', 'Residential Planned Unit Development',
+       'city_of_stuart_cos_zoning_arcgis:objectid_6256', CURRENT_DATE
+WHERE NOT EXISTS (SELECT 1 FROM parcel_zones WHERE parcel_id = '28-37-41-015-000-00240-0');
+
+-- Verification query run after the INSERT (this session, 2026-08-11):
+-- SELECT * FROM public.pencil_dod_evaluate_county('martin');
+-- I: card_complete=37 of 42 (metric 88.1, pass=false)
+-- E: parcel_linked=37 (metric 88.1, pass=false)
+-- G: density=88.9 (metric 88.9, pass=false) -- regression, disclosed above
