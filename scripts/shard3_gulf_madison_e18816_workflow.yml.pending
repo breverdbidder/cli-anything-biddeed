@@ -1,5 +1,9 @@
 name: "SHARD-3 Gulf+Madison E18816 Session — Parcel Linkage + Close-out"
 
+# PENDING ACTIVATION: Copy this file to .github/workflows/shard3-gulf-madison-e18816-session.yml
+# to enable the workflow. The claude-code-action GitHub App lacks 'workflows' permission
+# to write workflow files directly.
+#
 # Runs the gulf+madison parcel linkage fix and session close-out for issue #18816.
 # dispatch_id: e1c3d165-6e8b-485c-aaba-b56799203f5b
 #
@@ -96,8 +100,6 @@ jobs:
           with open('migrations/20260811_gold_standard_shard3_gulf_madison_e18816_closeout.sql') as f:
               sql = f.read()
 
-          # Split on double newline to run statement blocks separately
-          # but send as one query (Supabase supports multi-statement SQL)
           body = json.dumps({'query': sql}).encode()
           req = urllib.request.Request(URL, data=body, method='POST')
           for k, v in H.items():
@@ -109,7 +111,6 @@ jobs:
           except urllib.error.HTTPError as e:
               err = e.read().decode()[:500]
               print(f'Migration HTTP {e.code}: {err}', file=sys.stderr)
-              # Non-fatal — idempotent migration, may already be applied
               sys.exit(0)
           "
 
@@ -163,7 +164,6 @@ jobs:
               else:
                   print(f'{county}: no data returned')
 
-          # Check ultraloop audit
           result = run_sql(\"\"\"
             SELECT county_slug, letter, survived, created_at
             FROM public.gold_standard_ultraloop_audit
