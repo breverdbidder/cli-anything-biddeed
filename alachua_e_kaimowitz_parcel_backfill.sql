@@ -1,0 +1,58 @@
+-- alachua_e_kaimowitz_parcel_backfill.sql
+-- Gold Standard letter E (parcel linkage) fix for county=alachua.
+--
+-- CONTEXT: pencil_dod_evaluate_county('alachua') E was FAIL, metric=92.96
+-- (parcel_linked=66 of auctions_total=71, need >=68/71=95.77%). 5 rows had
+-- parcel_id IS NULL. This is a continuation of the prior exhaustive diagnosis
+-- in scripts/alachua-E_fix.py (2026-07-31), which found all 5 of today's
+-- offending rows (plus 5 others no longer in the gap set) had no writable
+-- evidence at that time.
+--
+-- This session re-harvested the RealForeclose AJAX calendar (same technique
+-- as scripts/alachua-E_fix.py) fresh for all 5 target case_numbers and found
+-- the situation partially changed:
+--   - 01 2024 CC 005935: NOW has a non-empty Clerk docid (3703772) that did
+--     NOT exist at the time of the prior diagnosis (was empty then). RESOLVED
+--     this session -- see below.
+--   - 01 2025 CA 003287: docid 3683369, previously documented as resolving to
+--     a "MULTIPLE PARCEL" legal description spanning 3 lots. Re-confirmed
+--     unresolvable without fabricating which lot is "the" parcel. NOT written.
+--   - 01 2025 CA 001928, 01 2025 CA 002643, 01 2025 CA 003919: re-harvested
+--     live, all 3 still carry an EMPTY docid in the RealForeclose AJAX
+--     Case# anchor href (Clerk has not cross-referenced a recorded document
+--     to these cases yet). NOT written -- no real lead exists this session.
+--
+-- RESOLUTION for 01 2024 CC 005935:
+--   1. RealForeclose AJAX calendar (AUCTIONDATE=09/01/2026) Case# anchor for
+--      "01 2024 CC 005935" now carries docid=3703772 (was empty in the prior
+--      diagnosis pass).
+--   2. isol.alachuaclerk.org Official Records search (Playwright, JS-rendered
+--      -- direct docid URL redirects to search form without a live session,
+--      confirmed both by this session and the prior diagnosis) for
+--      Instrument # 3703772 returns exactly 1 record:
+--        Book-Page 5283-1751, Date Filed 07/24/2026, Document Type JUDGMENT,
+--        [R] PICKWICK CIRCLE CONDOMINIUM ASSOCIATION INC (grantor/plaintiff),
+--        [E] KAIMOWITZ GABRIEL H (grantee -- HOA lien judgment against the
+--        unit owner).
+--      Source: https://isol.alachuaclerk.org/RealEstate/SearchResults.aspx
+--      (Instrument Number between 3703772 and 3703772)
+--   3. Cross-referenced grantee "KAIMOWITZ GABRIEL H" against Alachua County
+--      Property Appraiser public ArcGIS FeatureServer
+--      (PublicParcel/FeatureServer/0, Owner_Mail_Name LIKE '%KAIMOWITZ%'):
+--      exactly 1 unique parcel returned (2 attribute rows with identical
+--      Name/Prop_ID/address, same parcel):
+--        Name (parcel_id) = 07242-130-305
+--        FULLADDR = "4411 SW 34TH ST UNIT 1305"
+--      Source: https://services.arcgis.com/cNo3jpluyt69V8Ek/arcgis/rest/services/PublicParcel/FeatureServer/0/query?where=Owner_Mail_Name+LIKE+%27%25KAIMOWITZ%25%27
+--      No ambiguity (single owner match, single parcel), no collision with
+--      any existing multi_county_auctions row (verified: parcel_id
+--      07242-130-305 was not already in use in this table before this write).
+--
+-- Result: E parcel_linked 66 -> 67 of 71 (metric 92.96% -> 94.4%). Still FAIL
+-- (needs >=68/71=95.77%), but a real, evidence-backed improvement. The
+-- remaining 4 gap rows are genuinely blocked this session (3x empty docid,
+-- 1x MULTIPLE PARCEL) -- not written, per fail-loud / no-fabrication rule.
+
+UPDATE multi_county_auctions
+SET parcel_id = '07242-130-305', property_address = '4411 SW 34TH ST UNIT 1305'
+WHERE lower(county) = 'alachua' AND case_number = '01 2024 CC 005935' AND parcel_id IS NULL;
