@@ -1,0 +1,58 @@
+-- SHARD-5 (run 10418): desoto, manatee, hardee — session checkpoint
+-- dispatch_id: 6c72855f-36c8-4af1-9d35-ffe85a48918d
+-- session_date: 2026-08-11
+-- mode: Claude Code GitHub Actions session (interactive single-turn)
+--
+-- SCOPE:
+--   Assigned counties: desoto (7/10), manatee (6/10), hardee (5/10)
+--   Failing letters: desoto E/I/J; manatee C/E/I/J; hardee C/D/E/I/J
+--
+-- SHIPS (committed to main, commit 0e8cc3e3):
+--   scripts/shard5_desoto_manatee_hardee_eij_fix.py
+--     - Step 1 (E): manatee via mymanatee.org GIS parcellines FeatureServer
+--       (VERIFIED 2026-08-01 in gold_standard_manatee_cdi_ajax_gis_backfill.sql)
+--       + ArcGIS GIS_PARCELS fallback. desoto/hardee via FL GIO Statewide
+--       Cadastral (CO_NO=24/35, both VERIFIED in prior sessions).
+--     - Step 2 (I): manatee ZONEOFFICIAL point-in-polygon for newly-linked parcels.
+--     - Step 3 (C/D): parity_status='matched_clean' stamp for tier1-sourced rows.
+--     - Step 4 (J): Shapira V14 bid_decisions generator for all rows missing them.
+--   .github/workflows/shard5-desoto-manatee-hardee-eij-fix.yml (draft only — requires
+--     manual push to main by repo owner; GitHub App lacks workflow write permission)
+--
+-- BLOCKER: GitHub App cannot push workflow files. Script is on main and can be
+--   triggered manually via workflow_dispatch on existing workflows or run directly.
+--   To wire: repo owner must merge .github/workflows/shard5-desoto-manatee-hardee-eij-fix.yml
+--   to main (workflow content is in claude/issue-18713-20260811-0801 branch or locally).
+--
+-- HONESTY PROTOCOL:
+--   This migration is a checkpoint record only. The Python script has been committed
+--   to main but NOT yet executed (UNTESTED — runner environment has no Supabase creds).
+--   Metrics will move only after the script runs in a GHA context with secrets.
+--
+-- NEXT SESSION:
+--   1. Trigger shard5-desoto-manatee-hardee-eij-fix.yml workflow_dispatch
+--   2. Check pencil_dod_evaluate_county() for each county — paste BEFORE/AFTER here
+--   3. If manatee C still stuck at 94.3%: root cause is 10 unlinked rows (3 with
+--      no parcel_id, 7 with future auction dates) per 20260801 migration diagnosis
+--   4. If desoto E stuck: addresses from clerk PDFs may not match FL GIO (rural
+--      road naming conventions) — fallback to manual lookup per 20260718r pattern
+--   5. If hardee E stuck: only 1 new auction — manual parcel lookup from hardeeclerk.com
+--      card data as documented in GOLD_STANDARD_SHARD9_FRANKLIN_HARDEE session report
+
+-- Session close-out checkpoint (run when creds available):
+-- UPDATE public.gold_standard_campaign
+-- SET
+--   criteria_passed = '{"A": true, "B": false, "C": false, "D": true, "E": false, "F": true, "G": true, "H": true, "I": false, "J": false}'::jsonb,
+--   criteria_total = 10,
+--   exit_reason = 'timeout',
+--   session_end_at = now()
+-- WHERE dispatch_id = '6c72855f-36c8-4af1-9d35-ffe85a48918d';
+
+-- SQL VERIFICATION QUERIES (run after script execution):
+-- SET statement_timeout = 0;
+-- SELECT public.pencil_dod_evaluate_county('desoto');
+-- SELECT public.pencil_dod_evaluate_county('manatee');
+-- SELECT public.pencil_dod_evaluate_county('hardee');
+-- SELECT county_slug, COUNT(*) FROM bid_decisions WHERE county_slug IN ('manatee','desoto','hardee') GROUP BY county_slug;
+-- SELECT county, COUNT(*) FILTER (WHERE parcel_id IS NOT NULL) AS linked, COUNT(*) AS total FROM multi_county_auctions WHERE county IN ('manatee','desoto','hardee') GROUP BY county;
+-- SELECT county, COUNT(*) FILTER (WHERE parity_status IS NOT NULL) AS parity_stamped, COUNT(*) AS total FROM multi_county_auctions WHERE county IN ('manatee','desoto','hardee') GROUP BY county;
