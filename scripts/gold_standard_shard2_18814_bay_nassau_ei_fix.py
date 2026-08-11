@@ -192,9 +192,11 @@ def run_bay():
         "multi_county_auctions"
         "?county=eq.bay"
         "&select=id,parcel_id,property_address,latitude,longitude,assessed_value,market_value"
-        "&or=(parcel_id.not.is.null)"
     )
     log(f"Total bay rows fetched: {len(rows)}", "VERIFIED")
+
+    e_gap_rows = [r for r in rows if not r.get("parcel_id")]
+    log(f"E-gap rows (parcel_id NULL, criterion E fails): {len(e_gap_rows)}", "VERIFIED")
 
     def incomplete(r):
         has_geo = r.get("latitude") and r.get("longitude")
@@ -202,31 +204,53 @@ def run_bay():
         has_val = bool(r.get("assessed_value") or r.get("market_value"))
         return not (has_geo and has_addr and has_val)
 
-    gap_rows = [r for r in rows if r.get("parcel_id") and incomplete(r)]
-    log(f"Gap rows (parcel_id present but card incomplete): {len(gap_rows)}", "VERIFIED")
+    i_gap_rows = [r for r in rows if r.get("parcel_id") and incomplete(r)]
+    log(f"I-gap rows (parcel_id present but card incomplete): {len(i_gap_rows)}", "VERIFIED")
+
+    gap_rows = list({r["id"]: r for r in e_gap_rows + i_gap_rows}.values())
+    log(f"Total rows to process: {len(gap_rows)}", "VERIFIED")
 
     zoned_ok = geo_ok = addr_ok = val_ok = not_found = ambiguous = skip_zoning = zone_insert = 0
 
+    parcel_linked = 0
+
     for r in gap_rows:
-        pid = r["parcel_id"]
+        pid = r.get("parcel_id")
+        addr_hint = r.get("property_address", "") or ""
         time.sleep(RATE)
+
+        if pid:
+            where_clause = f"A1RENUM='{pid}'"
+        elif addr_hint:
+            addr_upper = addr_hint.strip().upper().split(",")[0]
+            where_clause = f"UPPER(DSITEADDR) LIKE '{addr_upper}%'"
+        else:
+            log(f"  id={r['id']}: no parcel_id and no address — skip", "VERIFIED")
+            not_found += 1
+            continue
+
         try:
             data = _get(BAY_PARCEL_URL, {
-                "where": f"A1RENUM='{pid}'",
+                "where": where_clause,
                 "outFields": "A1RENUM,DSITEADDR,VASJUST,VASTOTAL,Zoning,FLU",
                 "returnGeometry": "true",
                 "outSR": "4326",
                 "f": "json",
             })
         except Exception as exc:
-            log(f"  {pid}: GIS fetch error: {exc}", "VERIFIED")
+            log(f"  id={r['id']} pid={pid}: GIS fetch error: {exc}", "VERIFIED")
             not_found += 1
             continue
 
         feats = data.get("features", [])
         if not feats:
-            log(f"  {pid}: NOT FOUND in TEST_Parcels", "VERIFIED")
+            log(f"  id={r['id']} pid={pid}: NOT FOUND in TEST_Parcels", "VERIFIED")
             not_found += 1
+            continue
+
+        if len(feats) > 1 and not pid:
+            log(f"  id={r['id']}: address '{addr_hint}' → {len(feats)} matches (ambiguous, skip)", "VERIFIED")
+            ambiguous += 1
             continue
 
         attrs = feats[0].get("attributes", {})
@@ -234,6 +258,13 @@ def run_bay():
         addr = attrs.get("DSITEADDR")
         value = attrs.get("VASJUST") or attrs.get("VASTOTAL")
         raw_zone = attrs.get("Zoning")
+        found_pid = attrs.get("A1RENUM") or pid
+
+        if not pid and found_pid:
+            log(f"  id={r['id']}: address lookup → parcel_id={found_pid}", "VERIFIED")
+            parcel_linked += 1
+
+        pid = found_pid or pid
 
         jur_id = None
         zone_code = None
@@ -271,7 +302,7 @@ def run_bay():
         elif raw_zone:
             zone_code = raw_zone
 
-        if zone_code and jur_id:
+        if zone_code and jur_id and pid:
             inserted = ensure_parcel_zone(
                 jur_id, pid, zone_code, attrs.get("FLU"),
                 f"gis.baycountyfl.gov TEST_Parcels+Land_Use_Planning ({SOURCE_TAG})"
@@ -284,6 +315,8 @@ def run_bay():
             skip_zoning += 1
 
         patch = {}
+        if not r.get("parcel_id") and pid:
+            patch["parcel_id"] = pid
         if not r.get("property_address") and addr:
             patch["property_address"] = addr
             addr_ok += 1
@@ -297,7 +330,8 @@ def run_bay():
         if patch:
             sb_patch(f"multi_county_auctions?id=eq.{r['id']}", patch)
 
-    log(f"Bay totals: zones_inserted={zoned_ok} geo={geo_ok} addr={addr_ok} val={val_ok} "
+    log(f"Bay totals: parcel_linked={parcel_linked} zones_inserted={zoned_ok} "
+        f"geo={geo_ok} addr={addr_ok} val={val_ok} "
         f"not_found={not_found} ambiguous={ambiguous} skip_zoning={skip_zoning}", "VERIFIED")
 
     after = sb_rpc("pencil_dod_evaluate_county", {"p_county": "bay"})
@@ -362,28 +396,60 @@ def run_nassau():
             log(f"  PA ArcGIS error for PIN={pin}: {exc}", "INFERRED")
         return None
 
-    zone_insert = geo_ok = addr_ok = val_ok = parity_fixed = not_found = 0
+    zone_insert = geo_ok = addr_ok = val_ok = parity_fixed = not_found = parcel_linked = 0
 
-    all_gap = {r["id"]: r for r in incomplete_i}
+    all_gap = {r["id"]: r for r in incomplete_i + gap_e}
     for r in no_parity:
         if r["id"] not in all_gap:
             all_gap[r["id"]] = r
 
+    def query_nassau_pa_by_addr(addr_hint):
+        time.sleep(RATE)
+        addr_upper = addr_hint.strip().upper().split(",")[0]
+        params = {
+            "where": f"UPPER(HOUSE_NO || ' ' || STREET) LIKE '{addr_upper[:30]}%'",
+            "outFields": "PIN,PIN_DSP,ZoningDistrict,Municipality,HOUSE_NO,STREET,ST_CITY,ST_ZIP5",
+            "returnGeometry": "true",
+            "outSR": "4326",
+            "f": "json",
+        }
+        try:
+            data = _get(NASSAU_PA_ARCGIS, params)
+            feats = data.get("features", [])
+            if len(feats) == 1:
+                return feats[0]
+        except Exception as exc:
+            log(f"  PA ArcGIS addr search error: {exc}", "INFERRED")
+        return None
+
     for r in all_gap.values():
         pid = r.get("parcel_id")
-        if not pid:
-            continue
         case = r.get("case_number", "?")
+        addr_hint = r.get("property_address", "") or ""
 
-        feat = query_nassau_pa(pid)
+        if pid:
+            feat = query_nassau_pa(pid)
+        elif addr_hint:
+            feat = query_nassau_pa_by_addr(addr_hint)
+        else:
+            log(f"  {case}: no parcel_id and no address — skip", "VERIFIED")
+            not_found += 1
+            continue
+
         if not feat:
-            log(f"  {case}: no PA match for PIN={pid}", "VERIFIED")
+            log(f"  {case}: no PA match for pid={pid} addr={addr_hint[:30]}", "VERIFIED")
             not_found += 1
             continue
 
         attrs = feat.get("attributes", {})
         geom = feat.get("geometry")
         lat, lon = polygon_centroid(geom) if geom else (None, None)
+
+        found_pid = attrs.get("PIN") or attrs.get("PIN_DSP") or pid
+        if not pid and found_pid:
+            log(f"  {case}: address lookup → parcel_id={found_pid}", "VERIFIED")
+            parcel_linked += 1
+        effective_pid = found_pid or pid
 
         house = attrs.get("HOUSE_NO", "") or ""
         street = attrs.get("STREET", "") or ""
@@ -394,11 +460,10 @@ def run_nassau():
             addr = None
 
         zone = attrs.get("ZoningDistrict")
-        muni = attrs.get("Municipality", "Nassau County")
 
-        if zone and nassau_jur_id:
+        if zone and nassau_jur_id and effective_pid:
             inserted = ensure_parcel_zone(
-                nassau_jur_id, pid, zone, zone,
+                nassau_jur_id, effective_pid, zone, zone,
                 f"maps.ncpafl.com PA ArcGIS MapServer/144 ({SOURCE_TAG})"
             )
             if inserted:
@@ -406,6 +471,8 @@ def run_nassau():
                 log(f"  {case}: parcel_zone inserted zone={zone}", "VERIFIED")
 
         patch = {}
+        if not r.get("parcel_id") and effective_pid:
+            patch["parcel_id"] = effective_pid
         if not r.get("property_address") and addr:
             patch["property_address"] = addr
             addr_ok += 1
@@ -414,7 +481,7 @@ def run_nassau():
             patch["longitude"] = lon
             geo_ok += 1
 
-        if not r.get("parity_status") and zone:
+        if not r.get("parity_status") and zone and effective_pid:
             patch["parity_status"] = "matched_clean"
             patch["parity_source"] = "tier1_official_platform_parcel"
             patch["parity_scope"] = (
@@ -427,7 +494,8 @@ def run_nassau():
         if patch:
             sb_patch(f"multi_county_auctions?id=eq.{r['id']}&county=eq.nassau", patch)
 
-    log(f"Nassau totals: zones_inserted={zone_insert} geo={geo_ok} addr={addr_ok} "
+    log(f"Nassau totals: parcel_linked={parcel_linked} zones_inserted={zone_insert} "
+        f"geo={geo_ok} addr={addr_ok} "
         f"val={val_ok} parity_fixed={parity_fixed} not_found={not_found}", "VERIFIED")
 
     after = sb_rpc("pencil_dod_evaluate_county", {"p_county": "nassau"})
