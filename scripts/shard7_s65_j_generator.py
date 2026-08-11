@@ -107,7 +107,7 @@ def calc_bid_decision(row, county):
         "distress_property":  0.50,
         "distress_owner":     0.55,
         "cma_distressed":     {"value": cma_distressed_val, "sources": ["assessed_value_proxy"]},
-        "cma_resale":         {"value": cma_resale_val, "sources": ["market_value_proxy"]},
+        "cma_resale":         {"value": cma_resale_val, "sources": ["assessed_value_x1.12_proxy"]},
     }
 
     bid_ratio = max_bid / opening if opening > 0 else None
