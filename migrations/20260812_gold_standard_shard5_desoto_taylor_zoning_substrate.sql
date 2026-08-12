@@ -12,12 +12,32 @@
 -- HONESTY: All zone assignments are INFERRED defaults, not GIS-verified.
 --          honesty_marker = 'INFERRED' — count toward I only if v_zoning_gold_standard_card
 --          also requires geo+value (separately backfilled by the Python script).
+--
+-- CORRECTION (2026-08-12, concurrent session on this same dispatch): the two
+-- jurisdiction names below did NOT match the jurisdictions rows that actually
+-- already exist for DeSoto ('Unincorporated DeSoto County' id=1406, 'Arcadia'
+-- id=829 -- confirmed live this session). As originally written, the INSERT's
+-- ON CONFLICT (name, county, state) would NOT have matched those existing
+-- rows (different name string) and would have silently created two DUPLICATE
+-- jurisdictions, each with their own divergent zoning_districts/zone_standards
+-- -- fragmenting the substrate and risking exactly the kind of G-criterion
+-- regression documented in GOLD_STANDARD_SHARD3_WALTON_LEON_TAYLOR_DISPATCH_
+-- C5A8B2C7_SESSION_REPORT.md (orphaned/duplicate zoning rows dragging density/
+-- FAR/parking applicable-but-unmeasured denominators down). Fixed the name to
+-- match the existing row exactly. The 'City of Arcadia' section (5/6 below) is
+-- REMOVED entirely: the existing 'Arcadia' jurisdiction already has 24 real,
+-- municode-sourced zone codes (R-1A/B/C, R-2A/B, R-3, R-4, MHP, P-1, RPB, B-1,
+-- B-1A, B-2, B-3, C-1, M-1, M-2, PUD, PBG, ROS, CON) -- this migration's crude
+-- 7-code generic fallback (R-1/R-2/MH/B-1/B-2/I-1/PUD) would have been
+-- strictly inferior, redundant, and risked the same jurisdiction-fragmentation
+-- problem. Only the Unincorporated DeSoto additions are kept (as genuinely
+-- additive codes not already present: A-1, RE, RM-1, RM-2, MH, COM, IND, PUD
+-- -- existing unincorporated codes are RSF-1/2/4/5, per live check).
 
--- 1. Ensure desoto jurisdictions exist
+-- 1. Ensure desoto jurisdiction exists (matches existing row exactly, not a duplicate)
 INSERT INTO jurisdictions (name, county, state, source, created_at)
 VALUES
-  ('DeSoto County Unincorporated', 'DeSoto', 'FL', 'desoto_ldr_art3_shard5_10790', now()),
-  ('City of Arcadia', 'DeSoto', 'FL', 'arcadia_ldc_municode_shard5_10790', now())
+  ('Unincorporated DeSoto County', 'DeSoto', 'FL', 'desoto_ldr_art3_shard5_10790', now())
 ON CONFLICT (name, county, state) DO NOTHING;
 
 -- 2. Get jurisdiction IDs for reference (these will be used by Python script)
@@ -25,7 +45,7 @@ ON CONFLICT (name, county, state) DO NOTHING;
 
 -- 3. Insert zoning districts for DeSoto Unincorporated
 WITH uninc AS (
-  SELECT id FROM jurisdictions WHERE name = 'DeSoto County Unincorporated' AND state = 'FL' LIMIT 1
+  SELECT id FROM jurisdictions WHERE name = 'Unincorporated DeSoto County' AND state = 'FL' LIMIT 1
 )
 INSERT INTO zoning_districts (jurisdiction_id, code, name, category, far_regulated, density_regulated, created_at)
 SELECT
@@ -50,7 +70,7 @@ ON CONFLICT DO NOTHING;
 
 -- 4. Insert zone_standards for DeSoto Unincorporated districts
 WITH uninc AS (
-  SELECT id FROM jurisdictions WHERE name = 'DeSoto County Unincorporated' AND state = 'FL' LIMIT 1
+  SELECT id FROM jurisdictions WHERE name = 'Unincorporated DeSoto County' AND state = 'FL' LIMIT 1
 ),
 districts AS (
   SELECT zd.id, zd.code
@@ -84,60 +104,9 @@ JOIN (VALUES
 ON (d.code = s.code)
 ON CONFLICT DO NOTHING;
 
--- 5. Insert zoning districts for City of Arcadia
-WITH arc AS (
-  SELECT id FROM jurisdictions WHERE name = 'City of Arcadia' AND state = 'FL' LIMIT 1
-)
-INSERT INTO zoning_districts (jurisdiction_id, code, name, category, far_regulated, density_regulated, created_at)
-SELECT
-  arc.id,
-  d.code, d.name, d.category,
-  d.far_regulated::boolean, d.density_regulated::boolean,
-  now()
-FROM arc,
-(VALUES
-  ('R-1',  'Single Family Residential',     'residential',  false, true),
-  ('R-2',  'Multi-Family Residential',      'residential',  false, true),
-  ('MH',   'Mobile Home',                   'residential',  false, true),
-  ('B-1',  'Neighborhood Business',         'commercial',   false, false),
-  ('B-2',  'General Business',              'commercial',   true,  false),
-  ('I-1',  'Light Industrial',              'industrial',   false, false),
-  ('PUD',  'Planned Unit Development',      'mixed',        false, false)
-) AS d(code, name, category, far_regulated, density_regulated)
-ON CONFLICT DO NOTHING;
-
--- 6. Insert zone_standards for City of Arcadia districts
-WITH arc AS (
-  SELECT id FROM jurisdictions WHERE name = 'City of Arcadia' AND state = 'FL' LIMIT 1
-),
-districts AS (
-  SELECT zd.id, zd.code
-  FROM zoning_districts zd
-  JOIN arc ON zd.jurisdiction_id = arc.id
-)
-INSERT INTO zone_standards (zoning_district_id, max_density_du_acre, max_far, parking_per_1000sf,
-  source_url, confidence_score, scraped_at, honesty_marker)
-SELECT
-  d.id,
-  s.max_density,
-  s.max_far,
-  s.parking,
-  'https://library.municode.com/fl/arcadia',
-  0.60,
-  now(),
-  'INFERRED'
-FROM districts d
-JOIN (VALUES
-  ('R-1',  4.0,  NULL, 2.0),
-  ('R-2',  8.0,  NULL, 2.0),
-  ('MH',   6.0,  NULL, 2.0),
-  ('B-1',  NULL, 0.25, 4.0),
-  ('B-2',  NULL, 0.40, 4.0),
-  ('I-1',  NULL, 0.50, 2.0),
-  ('PUD',  NULL, NULL, NULL)
-) AS s(code, max_density, max_far, parking)
-ON (d.code = s.code)
-ON CONFLICT DO NOTHING;
+-- 5/6. City of Arcadia sections REMOVED (see correction note above) -- the
+-- existing 'Arcadia' jurisdiction (id=829) already has a real, 24-code
+-- municode-sourced zoning substrate. Do not insert a second, cruder set here.
 
 -- Verification queries (run after applying):
 -- SELECT j.name, COUNT(zd.id) AS districts, COUNT(zs.id) AS standards

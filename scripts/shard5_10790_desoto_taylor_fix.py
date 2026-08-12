@@ -81,9 +81,22 @@ NOW = datetime.now(timezone.utc).isoformat()
 DISPATCH_ID = '5d78eb23-a7b7-4e6b-9710-79df9e8040df'
 
 FL_GIO_URL = (
-    'https://services9.arcgis.com/q5uyFfTZo3LFL3mQ/arcgis/rest/services/'
+    'https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/'
     'Florida_Statewide_Cadastral/FeatureServer/0/query'
 )
+# CORRECTION (2026-08-12, concurrent session on this same dispatch): the org ID
+# above (q5uyFfTZo3LFL3mQ) in the original version of this file was wrong and
+# would 404/silently fail. Verified LIVE this session via a direct single-
+# PARCEL_ID lookup (parcel 253724001202550040, an already-linked desoto row,
+# returned CO_NO=24, PHY_CITY=ARCADIA, OWN_NAME=GALLERY INVESTMENTS OF) that
+# org Gh9awoU677aKree0 is the correct, reachable FL GIO cadastral service and
+# CO_NO=24 is DeSoto's correct value *in this layer's numbering* -- CO_NO=14
+# in this layer is actually Bradford County (confirmed live: CO_NO=14 query
+# returns Lawtey, FL parcels) and CO_NO=27 is Escambia (Walnut Hill, FL) --
+# this layer's CO_NO does NOT match fl_counties.co_no's standard DOR ordering.
+# A bare `CO_NO=24` filter on this service is itself unreliable (400s/times
+# out intermittently, a real server-side issue) -- prefer combining PHY_CITY
+# and/or PHY_ADDR1/OWN_NAME LIKE filters instead of a bare CO_NO filter.
 
 DESOTO_CONFIG = {
     'arv_median': 239000,
@@ -265,7 +278,11 @@ def step1_desoto_e(client):
     # The shard14 taylor session found +10 offset fleet-wide: fl_counties.co_no → fl_gio CO_NO = co_no + 10.
     # fl_counties for desoto has co_no=14 → try FL GIO CO_NO=24 (14+10).
     # Also try CO_NO=14 as a fallback.
-    co_nos_to_try = [24, 14, 34]
+    co_nos_to_try = [24]  # CORRECTED 2026-08-12: 14 and 34 verified WRONG (14=Bradford in this
+    # layer's numbering, not DeSoto; 34 was an unverified guess). Including a wrong CO_NO in this
+    # list is not just wasted requests -- if PHY_ADDR1 happens to LIKE-match a street fragment in
+    # the wrong county, this function would silently write a foreign-county parcel_id onto a
+    # desoto row. Only the verified-correct value is safe to include.
 
     matched = {}
     for row in unlinked:
@@ -355,6 +372,17 @@ def step1_desoto_e(client):
 
 def step2_desoto_i(client):
     """
+    PARTIALLY DISABLED 2026-08-12 (concurrent session on this same dispatch,
+    shard-5): the parcel_zones blind-default insert below (Arcadia->'R-1',
+    unincorporated->'A-1' for every row, regardless of the parcel's real
+    zoning) is disabled -- a per-parcel research workflow ran this same
+    session with adversarial verification and produces real, sourced zone
+    codes instead of a blanket default; landing crude defaults first would
+    just create noise to reconcile against the real values. The assessed-
+    value backfill portion at the bottom of this function (independent of
+    zoning) is left enabled -- it's a straightforward FL GIO PARCEL_ID
+    lookup with no ghost-success risk.
+
     DeSoto County zoning for property card completeness.
 
     Strategy (INFERRED — no public ArcGIS REST zoning service found for DeSoto):
@@ -454,21 +482,12 @@ def step2_desoto_i(client):
             'source': f'inferred_default_{zone_note[:80]}_{DISPATCH_ID}',
         })
 
-    print(f'  {len(to_insert)} parcel_zones entries to insert (INFERRED defaults)')
+    print(f'  {len(to_insert)} rows WOULD get blind-default parcel_zones entries -- '
+          f'SKIPPING this insert (disabled 2026-08-12, see docstring): a real per-parcel '
+          f'research workflow handled desoto I this session instead of blind defaults.')
 
     inserted = 0
-    for i in range(0, len(to_insert), 200):
-        chunk = to_insert[i:i+200]
-        r = client.post(
-            f'{BASE}/parcel_zones',
-            headers=HEADERS_UPSERT,
-            content=json.dumps(chunk),
-            timeout=60,
-        )
-        if r.status_code in (200, 201, 204):
-            inserted += len(chunk)
-        else:
-            print(f'  parcel_zones insert failed {r.status_code}: {r.text[:300]}', file=sys.stderr)
+    # Insert loop disabled -- see function docstring. `to_insert` intentionally unused below.
 
     print(f'  {inserted} parcel_zones entries inserted for desoto I')
 
@@ -582,18 +601,42 @@ def step3_desoto_j(client):
 
 def step4_taylor_cd(client):
     """
-    Taylor County parity_status stamp for C/D.
+    DISABLED 2026-08-12 (concurrent session on this same dispatch, shard-5).
 
-    Taylor uses taylorclerk.com kma/v1 API (VERIFIED - tier1 source).
-    NOTE: C=45.5% (5/11) and D=72.7% (8/11) despite ALL 11 rows being from the
-    clerk source — this means some rows LOST their parity_status (regression).
-    Prior session showed C/D=100% with 11 rows; same 11 rows now have 5/8 matched.
+    This function's original strategy -- blind-stamp ALL non-matched_clean taylor
+    rows as matched_clean regardless of current parity_status -- was NEVER RUN
+    (this file was committed with no DB credentials available), and is a real
+    data-integrity risk: 3 of taylor's 11 rows (25-014 CA, TDA 26-031, TDA 26-032)
+    carry parity_status='CLERK_SSOT_CANCELLED', a genuine, independently-verified
+    terminal state (the clerk's own records show these sales were cancelled/
+    redeemed) established by the 20260810_gold_standard_shard3_lake_clerk_ssot_
+    cd_recognition.sql migration's explicit design: a cancelled sale is "the same
+    class as matched_divergent, not a no-divergence-ever clean match" and
+    therefore should count toward matched_any (D) but NEVER matched_clean (C).
+    Blindly re-stamping these 3 rows as matched_clean would overwrite verified
+    real data with a ghost-success and silently break that design.
 
-    Strategy: re-stamp ALL taylor rows from non-PropertyOnion sources as matched_clean,
-    regardless of current parity_status (NULL, no_match, or matched_divergent).
-    This recovers the regression. B/F remain structurally blocked.
+    The actual root cause was diagnosed and fixed correctly, live, this session:
+    3 DIFFERENT rows (23-597 CA, 25-210 CA, 26-042 CA) had parity_status=
+    'matched_clean' but parity_source missing the 'tier1:' prefix the evaluator
+    requires -- see migration 20260812_gold_standard_shard5_taylor_cd_tier1_
+    prefix_fix.sql. Each was independently re-verified field-by-field (sale_date
+    + amount) against taylorclerk.com's live kma/v1 API before the parity_source
+    was re-stamped. Live result: D 72.7%->100.0% PASS. C 45.5%->72.7%, correctly
+    still FAIL -- the 3 cancelled rows are a legitimate structural floor on C,
+    not a bug to paper over.
+
+    This function is now a no-op so it can never run the blind-stamp logic
+    against a future live DB.
     """
-    print('\n--- TAYLOR C/D: parity stamp for tier1-sourced rows (including regression recovery) ---')
+    print('\n--- TAYLOR C/D: SKIPPED — already fixed correctly this session, see '
+          '20260812_gold_standard_shard5_taylor_cd_tier1_prefix_fix.sql. The original '
+          'blind re-stamp-all strategy here would have corrupted 3 legitimately '
+          'clerk-cancelled rows; disabled, not executed. ---')
+    return 0
+
+
+def _step4_taylor_cd_DISABLED_DO_NOT_USE(client):
 
     # Get ALL taylor rows to identify non-PO sources
     all_rows = sb_get_all(client, 'multi_county_auctions', {
