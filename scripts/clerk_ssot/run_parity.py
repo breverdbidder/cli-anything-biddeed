@@ -16,6 +16,7 @@ status='PARSE_FAIL' instead.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -168,6 +169,29 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
     def _normalize_case(case_number):
         return case_number.split("/")[0] if "/" in case_number else case_number
 
+    # Some counties' clerk calendar publishes case numbers WITHOUT
+    # zero-padding on the trailing numeric suffix ("2025CA1608") while a
+    # pre-existing multi_county_auctions row stores the zero-padded canonical
+    # clerk form ("2025CA001608"). An exact-string miss here re-inserts a
+    # duplicate empty stub under the unpadded number (marked PARITY_OK) while
+    # flagging the real, data-rich row PHANTOM_NOT_ON_CLERK -- confirmed live
+    # for lake, 2026-08-12. Fall back to stripping leading zeros off the
+    # numeric suffix only when both the exact key AND the "/"-split fallback
+    # above miss -- a no-op for every county whose case numbers already match
+    # exactly or via the "/" fallback.
+    _CASE_SUFFIX_RE = re.compile(r"^(\d{4}(?:CA|CC))0*(\d+)$")
+
+    def _canonical_case(case_number):
+        m = _CASE_SUFFIX_RE.match(case_number)
+        return f"{m.group(1)}{m.group(2)}" if m else case_number
+
+    # Build once, outside the per-row loop below.
+    ours_by_canonical = {}
+    for case_number in ours_by_case:
+        canon = _canonical_case(case_number)
+        if canon != case_number:
+            ours_by_canonical.setdefault(canon, case_number)
+
     matched = 0
     missing_from_ours = []
     cancelled_mismatch = []
@@ -181,6 +205,12 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
             if normalized != case_number:
                 our_row = ours_by_case.get(normalized)
                 matched_case_number = normalized
+        if our_row is None:
+            canon = _canonical_case(case_number)
+            real_case_number = ours_by_canonical.get(canon)
+            if real_case_number is not None:
+                our_row = ours_by_case.get(real_case_number)
+                matched_case_number = real_case_number
         if our_row is None:
             missing_from_ours.append(ssot_row)
             continue
