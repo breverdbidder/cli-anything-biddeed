@@ -1,0 +1,113 @@
+-- GOLD STANDARD shard-5 (dispatch 5d78eb23): desoto E/I/J enrichment + G regression fix.
+-- Applied live via PostgREST (data-only changes); mirrored here for repo history.
+--
+-- CONTEXT: a research workflow (5 agents: 2 finders, 1 freshness-check, 2 adversarial
+-- verifiers) ran this session against desoto's remaining E gap (4 unlinked foreclosure
+-- rows) and I gap (11 tax-deed rows with parcel_id but no zoning). All findings SURVIVED
+-- independent adversarial re-verification (each verifier independently re-ran the source
+-- queries, not just re-read the claim).
+--
+-- ============================================================================
+-- E FIX: 3 of 4 unlinked desoto foreclosure rows resolved via DeSoto County Tax
+-- Collector VisualGov search (owner-name cross-checked against the court defendant,
+-- then cross-confirmed against FL GIO Statewide Cadastral by exact PARCEL_ID):
+--   24CA457   -> parcel 363724021801400030, owner FORBES ANGEL SCOTT matches
+--               case owner FORBES ANGEL, JV=138138
+--   2025CA166 -> parcel 043725000001030000, owner CHO CHUNG HING HEATHER M
+--               (surname match to case owner "HING H (UNK HEIRS)"), JV=106974
+--   26CA168   -> parcel 303725024800B00070, owner MILAZZO THOMAS J JR & matches
+--               case owner MILAZZO THOMAS JR exactly (strongest match, confirmed
+--               by two independent search paths), JV=134158
+-- 25CA508 (2259 NW Owens Ave) was explicitly NOT linked: current DeSoto tax roll
+-- owner is BENFIELD PAM, not ROAN KEVIN JR (the case defendant) -- a genuine,
+-- independently-reconfirmed mismatch, not a lookup failure. desotoclerk.com's
+-- docket search is Cloudflare-gated and could not be used to resolve the
+-- discrepancy this session. Left unlinked per BLANK > WRONG.
+-- E: 82.6% (19/23) -> 95.7% (22/23), PASS.
+--
+-- UPDATE multi_county_auctions SET parcel_id='363724021801400030', assessed_value=138138,
+--   market_value=138138, latitude=27.20879213960738, longitude=-81.87479193566735
+--   WHERE county='desoto' AND case_number='24CA457';
+-- UPDATE multi_county_auctions SET parcel_id='043725000001030000', assessed_value=106974,
+--   market_value=106974, latitude=27.290024976528166, longitude=-81.82417697302492
+--   WHERE county='desoto' AND case_number='2025CA166';
+-- UPDATE multi_county_auctions SET parcel_id='303725024800B00070', assessed_value=134158,
+--   market_value=134158, latitude=27.225497812409976, longitude=-81.85891282804025
+--   WHERE county='desoto' AND case_number='26CA168';
+--
+-- ============================================================================
+-- I FIX: 9 of 11 tax-deed zone-gap rows + 2 of the newly-E-linked rows resolved to
+-- real Arcadia zone codes. Method: 9 parcels are inside Arcadia city limits (VERIFIED
+-- via US Census TIGERweb Incorporated Places boundary GEOID 1201750); 4 resolved via
+-- exact PARCEL_ID match against a newly-discovered source, the CFRPC-hosted
+-- City_of_Arcadia_Zoning FeatureServer (https://services5.arcgis.com/gutFqkMq9XlLck8D/
+-- arcgis/rest/services/City_of_Arcadia_Zoning/FeatureServer/0, fields PARCEL_ID/ZON/FLU);
+-- 5 more resolved via point-in-polygon spatial query against the same layer (exact STRAP
+-- absent, but the point lands in a same-block sibling parcel's R-1B polygon, and the
+-- whole platted subdivision block is uniformly R-1B). All zone codes (R-1B, R-1C) were
+-- already present in zoning_districts for jurisdiction_id=829 (Arcadia) -- no new
+-- district rows needed.
+-- 2 tax-deed rows (26-20-TD, 26-19-TD) and 1 newly-E-linked row (2025CA166) are
+-- confirmed OUTSIDE Arcadia (TIGERweb returns empty at their coordinates) --
+-- genuinely unincorporated DeSoto County, whose zoning has no accessible ArcGIS REST
+-- service (confirmed again this session; desotocounty-dcms-gis.hub.arcgis.com is a
+-- naming collision with DeSoto County, MISSISSIPPI, not Florida -- flagged for future
+-- sessions to avoid re-discovering). Left zone-unresolved per BLANK > WRONG.
+-- I: 34.8% (8/23) -> 82.6% (19/23) -- still FAIL, 4 genuinely open rows.
+--
+-- INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, source) VALUES
+--   ('363724021801100080', 829, 'R-1C', 'VERIFIED exact PARCEL_ID match, CFRPC City_of_Arcadia_Zoning FeatureServer, dispatch 5d78eb23'),
+--   ('313725001650500080', 829, 'R-1B', 'VERIFIED exact PARCEL_ID match, CFRPC City_of_Arcadia_Zoning FeatureServer, dispatch 5d78eb23'),
+--   ('313725001650700240', 829, 'R-1B', 'VERIFIED exact PARCEL_ID match, CFRPC City_of_Arcadia_Zoning FeatureServer, dispatch 5d78eb23'),
+--   ('303725033600G00010', 829, 'R-1B', 'VERIFIED exact PARCEL_ID match, CFRPC City_of_Arcadia_Zoning FeatureServer, dispatch 5d78eb23'),
+--   ('313725001650600080', 829, 'R-1B', 'INFERRED sibling-parcel point-in-polygon match, dispatch 5d78eb23'),
+--   ('313725001650500140', 829, 'R-1B', 'INFERRED sibling-parcel point-in-polygon match, dispatch 5d78eb23'),
+--   ('313725001650500200', 829, 'R-1B', 'INFERRED sibling-parcel point-in-polygon match, dispatch 5d78eb23'),
+--   ('313725001650500150', 829, 'R-1B', 'INFERRED sibling-parcel point-in-polygon match, dispatch 5d78eb23'),
+--   ('313725001650500240', 829, 'R-1B', 'INFERRED sibling-parcel point-in-polygon match, dispatch 5d78eb23'),
+--   ('363724021801400030', 829, 'R-1C', 'VERIFIED exact PARCEL_ID match, CFRPC City_of_Arcadia_Zoning FeatureServer, dispatch 5d78eb23'),
+--   ('303725024800B00070', 829, 'R-1B', 'VERIFIED exact PARCEL_ID match, CFRPC City_of_Arcadia_Zoning FeatureServer, dispatch 5d78eb23')
+-- ON CONFLICT DO NOTHING;
+--
+-- ============================================================================
+-- J FIX: bid_decisions generated for the 3 newly E-linked rows, Shapira V14 formula
+-- matching the existing desoto convention (arv=assessed_value, tiered repairs,
+-- ml_score=0.75, factors with 5 required keys, honesty_marker=INFERRED throughout --
+-- see build_bid_decision() in scripts/shard5_10790_desoto_taylor_fix.py for the
+-- reference formula this reused).
+-- J: 82.6% (19/23) -> 95.7% (22/23), PASS.
+--
+-- (bid_decisions rows inserted live for 24CA457, 2025CA166, 26CA168 -- see
+-- scripts/shard5_10790_desoto_taylor_fix.py build_bid_decision() for the exact formula.)
+--
+-- ============================================================================
+-- G REGRESSION CAUGHT AND FIXED IN THE SAME SESSION: linking 11 new parcels to
+-- Arcadia zoning_districts R-1B (id=5702) and R-1C (id=5705) exposed that both
+-- districts have zone_standards rows with real ordinance data (min_lot_sqft,
+-- setbacks, parking_per_unit, confidence_score=0.85, sourced to municode Article 5)
+-- but NULL max_density_du_acre -- v_zoning_district_applicability defaults residential
+-- districts to density_applicable=true when density_regulated IS NULL, so this dragged
+-- desoto G from 100% to 38.9% FAIL (18 density-applicable parcels, only 7 with a
+-- value). Did NOT guess a density figure (a naive 43560/min_lot_sqft calculation would
+-- have been WRONG -- the existing R-1A district's real density of 3.0 does not match
+-- that formula either, proving density in this ordinance is not lot-size-derived).
+-- Instead, dispatched a research agent to read the actual ordinance text: City of
+-- Arcadia Unified Land Development Code, Article 5 (Density, Dimensional and Setback
+-- Regulations), Table 5.09.01 "Residential Zoning Development Standards"
+-- (arcadia-fl.gov/download/committees/planning__zoning/unified_land_development_code/
+-- ARTICLE-05-Density-Dimensional-and-Setback-Regulations.pdf) -- confirmed this table
+-- has NO density or FAR column for single-family districts (R-1A/R-1B/R-1C); density
+-- caps in this article apply ONLY to the multi-family R-3/R-4 districts via Table
+-- 5.09.02 footnotes. This is real, sourced evidence that R-1B/R-1C are governed by
+-- lot-size/setback/height/coverage standards alone, with no separate density/FAR
+-- figure in the code -- so density_regulated=false is the honest classification, not
+-- a missing-data gap. Set live; G confirmed restored to 100% PASS.
+--
+-- UPDATE zoning_districts SET density_regulated=false, far_regulated=false
+--   WHERE id IN (5702, 5705); -- R-1B, R-1C
+--
+-- ============================================================================
+-- RESULT (live pencil_dod_evaluate_county, confirmed after all fixes):
+-- desoto 7/10 -> 9/10: A,B,C,D,F,G,H (unchanged) + E,J newly PASS. Only I remains
+-- FAIL (82.6%, 19/23) -- 4 genuinely open rows (1 owner mismatch, 3 unincorporated
+-- zoning unknown), documented above, not fabricated closed.
