@@ -1,0 +1,54 @@
+session:
+  date: "2026-08-12"
+  issue: "charlotte-CD FIX PHASE (county=charlotte, letters=C,D)"
+  agent: claude-code
+
+decisions:
+  - step: "Re-confirm live state before applying diagnosis-proposed fix"
+    action: "Queried pencil_dod_evaluate_county('charlotte') and multi_county_auctions WHERE parity_status IS NULL"
+    result: "C=86.9% (153/176 matched_clean), D=93.8% (165/176 matched_any), 11 NULL rows confirmed"
+    reason: "HARD RULE: never estimate, always query live before acting on a prior diagnosis"
+
+  - step: "Discover the 10 stale rows already had authoritative tier1 data, unstamped"
+    action: "Queried tier1_sale_status, tier1_authoritative, tier1_verified_at, tier1_source_run_id, tier1_sold_amount for the 10 case numbers"
+    result: "All 10 rows: tier1_authoritative=true, tier1_verified_at=2026-08-11T23:55:00Z, tier1_source_run_id=93161 (real ingestion run, 50 rows total under that run_id). 5 SOLD (with tier1_sold_amount), 5 REDEEMED/REDEEMED_AFTER_SALE"
+    reason: "This changed the fix from 'scrape a new source (blocked)' to 'stamp parity fields from data already in the DB' -- no fabrication, no re-scraping needed"
+
+  - step: "Apply fix: PATCH parity_status/parity_source on the 10 rows, mirroring existing script's mapping convention"
+    action: "Ran scripts/charlotte_cd_tier1_run93161_parity_stamp.py -- SOLD->matched_clean (tier1: source), REDEEMED*->CLERK_SSOT_CANCELLED (clerk_ssot: source)"
+    result: "10/10 PATCH calls succeeded, each confirmed 1 row updated (fail-loud: RuntimeError if status>=300 or rows!=1)"
+    reason: "Matches precedent set by scripts/charlotte_cd_realforeclose_tier1_backfill_ch_cd.py; C only counts matched_clean+tier1% source, D additionally counts CLERK_SSOT_CANCELLED"
+
+  - step: "Deliberately did NOT set sold_amount on the 5 new SOLD rows"
+    action: "Checked foreclosure_outcomes / tax_deed_outcomes for these case_numbers -- both empty"
+    result: "Skipped sold_amount write to avoid growing B/F's closed_sold denominator without matching outcome rows, which would regress B/F from 100%"
+    reason: "K3 surgical changes -- fix only C/D, do not touch unrelated passing metrics; same trap the prior script's docstring documents"
+
+  - step: "Verify live metric after fix"
+    action: "Re-ran pencil_dod_evaluate_county('charlotte')"
+    result: "D: 93.8% -> 99.4% (165->175/176) PASS. C: 86.9% -> 89.8% (153->158/176) still FAIL. B/F unchanged at 100%."
+    reason: "Evidence-before-claims -- fresh verification post-write, not assumed from the diagnosis"
+
+  - step: "Confirm C's remaining gap is structural, not a further fixable bug"
+    action: "Queried remaining parity_status IS NULL (1 row) and COUNT of CLERK_SSOT_CANCELLED (17 rows). Math: 158 matched_clean + 17 CLERK_SSOT_CANCELLED + 1 NULL = 176"
+    result: "Remaining 17 CLERK_SSOT_CANCELLED rows are genuinely cancelled/redeemed sales, correctly excluded from matched_clean by evaluator design. 1 NULL row (25001313CA) is a live in-progress auction (LISTED today) -- cannot be resolved until it concludes."
+    reason: "NEVER-LIE: do not force a status change on real cancelled/redeemed rows just to pass C -- that would be fabrication"
+
+artifacts:
+  - path: scripts/charlotte_cd_tier1_run93161_parity_stamp.py
+    type: script
+    status: created, executed successfully
+
+verification:
+  - check: "pencil_dod_evaluate_county('charlotte') D letter"
+    proof: "metric 93.8 -> 99.4, pass false -> true"
+    status: VERIFIED
+  - check: "pencil_dod_evaluate_county('charlotte') C letter"
+    proof: "metric 86.9 -> 89.8, pass remains false (needs >=95%, structural gap of 10 confirmed non-fabricatable)"
+    status: VERIFIED
+  - check: "B/F unaffected"
+    proof: "both remain 100.0 / pass=true before and after"
+    status: VERIFIED
+  - check: "10 rows updated in multi_county_auctions"
+    proof: "each PATCH response body length==1, printed case_number+new parity_status"
+    status: VERIFIED
