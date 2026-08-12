@@ -1,0 +1,89 @@
+name: "Gold Standard SHARD-5 desoto+taylor — run 10790 enrichment"
+
+# dispatch_id: 5d78eb23-a7b7-4e6b-9710-79df9e8040df
+# Counties: desoto, taylor
+# Target: desoto E/I/J, taylor C/D
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/shard5_10790_desoto_taylor_fix.py'
+
+concurrency:
+  group: gold-standard-shard5-desoto-taylor
+  cancel-in-progress: false
+
+jobs:
+  enrich:
+    name: "desoto E/I/J + taylor C/D enrichment"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx --quiet
+
+      - name: SET statement_timeout=0 and run enrichment
+        run: python3 scripts/shard5_10790_desoto_taylor_fix.py
+
+  verify:
+    name: "Verify desoto + taylor after enrichment"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: enrich
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Run pencil_dod_evaluate_county for both counties
+        run: |
+          python3 -c "
+          import os, httpx, json, sys
+
+          TOKEN = os.environ.get('SUPABASE_ACCESS_TOKEN', '')
+          URL = 'https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query'
+          H = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+          client = httpx.Client(timeout=60)
+
+          print('### SQL VERIFICATION — SHARD-5 desoto + taylor (dispatch 5d78eb23)')
+          all_ok = True
+          baseline = {'desoto': 7, 'taylor': 6}
+          for county in ('desoto', 'taylor'):
+              r = client.post(URL, headers=H,
+                              json={'query': f\"SELECT * FROM public.pencil_dod_evaluate_county('{county}');\"})
+              if r.status_code != 200:
+                  print(f'  {county}: API error {r.status_code}')
+                  continue
+              data = r.json()
+              result = data[0]['pencil_dod_evaluate_county'] if data else {}
+              passes = sum(1 for k, v in result.items()
+                           if k not in ('county', 'auctions_total')
+                           and isinstance(v, dict) and v.get('pass'))
+              fails = [k for k, v in result.items()
+                       if k not in ('county', 'auctions_total')
+                       and isinstance(v, dict) and not v.get('pass')]
+              total = result.get('auctions_total', 0)
+              prev = baseline.get(county, 0)
+              delta = passes - prev
+              sign = '+' if delta > 0 else ''
+              status = f'{passes}/10 ({sign}{delta} vs baseline {prev}/10)'
+              print(f'  {county}: {status} — fails={fails} ({total} auctions)')
+              print(f'  {county} raw: {json.dumps(result)}')
+              if delta < 0:
+                  print(f'  WARNING: {county} REGRESSED from baseline!')
+                  all_ok = False
+
+          if all_ok:
+              print()
+              print('No regressions. Enrichment session complete.')
+          " 2>&1 | tee "\$GITHUB_STEP_SUMMARY"
