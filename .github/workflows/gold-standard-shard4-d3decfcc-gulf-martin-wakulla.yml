@@ -1,0 +1,169 @@
+name: "Gold Standard SHARD-4 d3decfcc (gulf, martin, wakulla)"
+# dispatch_id: d3decfcc-1684-4304-bb78-467fc7b15a4c
+# loop_run: 10790 | issue: #18873
+# Applies 4 migrations:
+#   1. martin G regression fix (RPUD density_regulated=false)
+#   2. gulf J new auction bid_decisions backfill
+#   3. wakulla new auctions C/E/I/J enrichment (7 new auctions since 2026-07-31)
+#   4. session closeout (ultraloop_audit + gold_standard_campaign update)
+#
+# Uses Supabase Management API (SUPABASE_ACCESS_TOKEN) — same pattern as
+# apply-gold-standard-fix.yml (proven working).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/20260812_gold_standard_shard4_*.sql'
+
+jobs:
+  apply-shard4-d3decfcc-migrations:
+    name: "Apply SHARD-4 d3decfcc Migrations (gulf/martin/wakulla)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: mocerqjnksmhcjzxrewo
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "Migration 1: martin G regression fix (RPUD density_regulated=false)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260812_gold_standard_shard4_martin_g_regression_fix.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260812_gold_standard_shard4_martin_g_regression_fix.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 1 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 1 OK"
+
+      - name: "Migration 2: gulf J new auction bid_decisions backfill"
+        run: |
+          set -euo pipefail
+          echo "=== 20260812_gold_standard_shard4_gulf_j_new_auction_backfill.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260812_gold_standard_shard4_gulf_j_new_auction_backfill.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 2 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 2 OK"
+
+      - name: "Migration 3: wakulla new auctions C/E/I/J enrichment"
+        run: |
+          set -euo pipefail
+          echo "=== 20260812_gold_standard_shard4_wakulla_new_auctions_ceij.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260812_gold_standard_shard4_wakulla_new_auctions_ceij.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 3 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 3 OK"
+
+      - name: "Migration 4: session closeout (ultraloop_audit + gold_standard_campaign)"
+        run: |
+          set -euo pipefail
+          echo "=== 20260812_gold_standard_shard4_session_closeout.sql ==="
+          python3 -c "import json; print(json.dumps({'query': open('migrations/20260812_gold_standard_shard4_session_closeout.sql').read()}))" > /tmp/payload.json
+          HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/${REF}/database/query" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/payload.json)
+          echo "HTTP: $HTTP"; cat /tmp/resp.json; echo
+          [[ "$HTTP" == "200" || "$HTTP" == "201" ]] || { echo "::error::Migration 4 failed HTTP $HTTP"; exit 1; }
+          echo "Migration 4 OK"
+
+      - name: "Verify: pencil_dod_evaluate_county for gulf, martin, wakulla"
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -uo pipefail
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+          SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+          if not SUPABASE_URL or not SUPABASE_KEY:
+              print("No SUPABASE_URL/KEY — cannot run live verify")
+              exit(0)
+
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+          }
+
+          print("### SQL VERIFICATION — SHARD-4 d3decfcc (gulf/martin/wakulla)")
+          print(f"dispatch_id: d3decfcc-1684-4304-bb78-467fc7b15a4c")
+          print(f"loop_run: 10790 | issue: #18873")
+          print(f"Timestamp UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
+          print("")
+
+          def mgmt_evaluate(county, token, ref):
+              sql = f"SET statement_timeout = 0; SELECT public.pencil_dod_evaluate_county('{county}')"
+              payload = json.dumps({'query': sql}).encode()
+              req = urllib.request.Request(
+                  f"https://api.supabase.com/v1/projects/{ref}/database/query",
+                  data=payload,
+                  method="POST",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  return {"error": str(e)}
+
+          def rest_evaluate(county):
+              url = f"{SUPABASE_URL}/rest/v1/rpc/pencil_dod_evaluate_county"
+              payload = json.dumps({'county_slug': county}).encode()
+              req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  return {"error": str(e)}
+
+          TOKEN = os.environ.get('TOKEN', '')
+          REF = 'mocerqjnksmhcjzxrewo'
+          COUNTIES = ['gulf', 'martin', 'wakulla']
+
+          for county in COUNTIES:
+              if TOKEN:
+                  result = mgmt_evaluate(county, TOKEN, REF)
+              else:
+                  result = rest_evaluate(county)
+              print(f"{county}: {json.dumps(result)[:600]}")
+              print()
+
+          PYEOF
+
+      - name: "Run executor script (apply + evaluate)"
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 scripts/shard4_d3decfcc_gulf_martin_wakulla_executor.py || true
