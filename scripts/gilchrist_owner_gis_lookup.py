@@ -88,10 +88,15 @@ def extract_last_name(full_name):
 def sb_get_gilchrist_cases():
     """Fetch the 6 target cases from DB to get current state."""
     case_numbers = [c["case_number"] for c in TARGET_CASES]
-    case_filter = ",".join(f"'{cn}'" for cn in case_numbers)
+    # PostgREST in.() takes bare comma-separated values, NOT SQL-style quoted
+    # literals -- wrapping each value in single quotes (prior version) makes
+    # PostgREST treat the whole quoted string as a literal that never matches
+    # any real case_number, silently returning []. Quote only the URL as a
+    # whole, not each individual value.
+    case_filter = ",".join(case_numbers)
     url = (f"{SUPABASE_URL}/rest/v1/multi_county_auctions"
            f"?county=eq.gilchrist"
-           f"&case_number=in.({urllib.parse.quote(case_filter)})"
+           f"&case_number=in.({urllib.parse.quote(case_filter, safe=',')})"
            f"&select=id,case_number,parcel_id,property_address,owner_name,latitude,longitude")
     req = urllib.request.Request(url, headers={
         "apikey": SUPABASE_KEY,
