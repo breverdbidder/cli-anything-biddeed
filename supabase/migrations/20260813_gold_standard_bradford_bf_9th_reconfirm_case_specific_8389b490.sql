@@ -1,0 +1,93 @@
+-- Gold Standard (dispatch 8389b490-c112-47cd-9fb8-c794250153c3): bradford B/F.
+-- This is the 9th session to work bradford's B/F gap, following:
+--   supabase/migrations/20260725_gold_standard_shard5_bradford_i_bf_residual_confirmation.sql       (1st/2nd)
+--   supabase/migrations/20260725c_gold_standard_shard13_bradford_i_real_fix_bf_3rd_reconfirm.sql     (3rd)
+--   supabase/migrations/20260725d_gold_standard_shard13_bradford_bf_4th_reconfirm_ori_turnstile.sql  (4th)
+--   supabase/migrations/20260729_gold_standard_shard6_bradford_bf_5th_reconfirm_civitek_turnstile.sql (5th)
+--   GOLD_STANDARD_SHARD10_BRADFORD_SEMINOLE_DISPATCH_96A9BC5D_SESSION_REPORT.md                       (6th, 2026-07-31)
+--   supabase/migrations/20260802_gold_standard_shard4_41bd7ce3_bradford_bf_7th_reconfirm.sql          (7th)
+--   supabase/migrations/20260803_gold_standard_shard2_bradford_madison_recheck.sql                    (8th)
+--   supabase/migrations/20260808_gold_standard_shard5_66eb9c40_bradford_manatee_baker.sql              (8th, same day, distinct dispatch)
+-- for the full exhausted-source history.
+--
+-- Baseline (VERIFIED via pencil_dod_evaluate_county('bradford'), live 2026-08-13
+-- before and after this session's work -- IDENTICAL, no drift): 8/10.
+-- A=1(fc=4 td=1) C=100(matched_clean=5) D=100(matched_any=5) E=100(parcel_linked=5)
+-- G=100(density=100) H=3.9h I=100(card_complete=5 of 5) J=100(deal_complete=5) all PASS.
+-- B=null(verified=0 closed_sold=0) F=null(tier1_sold=0 closed_sold=0) FAIL.
+-- auctions_total=5. Single lever unchanged: case 25000457CAAXMX (VyStar Credit
+-- Union v. Unknown Heirs of Debra Ilene Hunter, 18737 Charlotte Ave, Brooker FL
+-- 32622, parcel_id 00273-0-01000), sale date 2026-07-16, now 28 days lapsed,
+-- still auction_status='upcoming', sold_amount still null.
+--
+-- Per dispatch instructions, this session deliberately did NOT repeat the
+-- generic multi-source sweep (exhausted 8x already). Instead ran 3 narrowly
+-- case/parcel-specific checks that prior generic sweeps were less likely to
+-- have covered:
+--
+-- ================================================================================
+-- CHECK 1: Bradford County Property Appraiser (bradfordappraiser.com) --
+-- sales-history / ownership-transfer for parcel 00273-0-01000
+-- ================================================================================
+-- Main site (bradfordappraiser.com/) reachable, HTTP 200. Site is built on
+-- Schneider Geospatial infrastructure (schneidergis.com link in footer) --
+-- this is a DIFFERENT vendor identity than "GrizzlyLogic" (gz.floridapa.com)
+-- referenced by prior sessions' I-lane research; genuinely new signal this
+-- session. The GIS search page (/GIS/) is a client-rendered JS shell with no
+-- discoverable static parcel-search endpoint or embedded iframe src (same
+-- category of blocker as prior sessions found for the I lane). Tried the
+-- Schneider-standard qPublic front door directly
+-- (qpublic.schneidercorp.com/Application.aspx) -- HTTP 403, Cloudflare
+-- "Just a moment..." challenge (confirmed via cloudflare/cf-chl markers in
+-- response body). This closes off qPublic as a viable unattended-session
+-- source for Bradford, same category as bradfordclerk.com itself.
+--
+-- ================================================================================
+-- CHECK 2: bradfordclerk.com/tax-deeds-and-foreclosure-sales/ (our data_source
+-- page) -- does case 25000457CAAXMX still appear as scheduled, or has it moved?
+-- ================================================================================
+-- Cannot observe page content either way -- root, /tax-deeds-and-foreclosure-sales/,
+-- and /official-records/ all still return HTTP 403 Cloudflare "Just a moment..."
+-- (unchanged, 9th confirm). oncore.bradfordclerk.com (guessed official-records
+-- portal subdomain, untried by name in prior sessions) fails to resolve/connect
+-- (HTTP 000 / curl exit 7).
+--
+-- ================================================================================
+-- CHECK 3: Certificate of Title recorded against this case number --
+-- bctelegraph.com legal notices through the newest published issues
+-- ================================================================================
+-- Two new issues have published since the 7th session's 2026-08-02 check:
+-- legal-notices-for-8-6-26 and legal-notices-for-8-13-26 (both HTTP 200,
+-- reachable). Neither contains any mention of 25000457CAAXMX, Hunter,
+-- Charlotte Ave, VyStar, or Brooker. Site search
+-- (bctelegraph.com/?s=25000457CAAXMX) returns a literal "Nothing found" --
+-- the apparent case-number substring match in the raw fetch was only the
+-- search-results page echoing the query string back in its own <title> tag,
+-- not real content.
+--
+-- ================================================================================
+-- OPPORTUNISTIC: WebSearch for case number / party / address
+-- ================================================================================
+-- No genuine case-specific hit. One result surfaced a different, unrelated
+-- Bradford case (25000030CAAXMX, Silcox/HUD/STARKE HMA matter, different
+-- parties and case number). Generic real-estate aggregators (Ownerly,
+-- Redfin, Zillow, foreclosure.com) returned no address-level or date-level
+-- confirmation specific to 18737 Charlotte Ave / this sale.
+--
+-- ================================================================================
+-- Conclusion: NO UPDATE issued. No fabrication.
+-- ================================================================================
+-- 9th consecutive confirmed-exhausted pass. B/F remain FAIL. The one
+-- genuinely new signal this session (bradfordappraiser.com's Schneider/
+-- qPublic vendor identity, distinct from the previously-documented
+-- GrizzlyLogic mapserver) was pursued and also found to be Cloudflare-gated
+-- -- ruled out for future sessions, do not re-attempt without a real browser
+-- session capable of clearing the challenge. Per the campaign's fail-loud /
+-- BLANK > WRONG invariant, this is reported as a valid, honest residual
+-- outcome, not forced.
+--
+-- Audit trail: 2 rows inserted into public.gold_standard_ultraloop_audit
+-- (dispatch_id 8389b490-c112-47cd-9fb8-c794250153c3, letters B/F,
+-- ultraloop_mode='native', survived=true -- ids 15082-15083).
+
+SELECT public.pencil_dod_evaluate_county('bradford');

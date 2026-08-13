@@ -1,0 +1,84 @@
+-- Gold Standard shard-4 union county C/D investigation
+-- Dispatch 8389b490-c112-47cd-9fb8-c794250153c3, 2026-08-13
+--
+-- NO SCHEMA/DATA CHANGE APPLIED. This file documents a completed
+-- investigation, not a fix -- there was nothing to fix.
+--
+-- SCOPE: union county, letters C (matched_clean) and D (matched_any) in
+-- pencil_dod_evaluate_county. Both fail at 66.7% (2/3) because
+-- 63-2025-CA-0053 carries parity_status='PHANTOM_NOT_ON_CLERK'. That case
+-- is scheduled to sell TODAY (auction_date=2026-08-13), which made a
+-- scraper bug (wrong URL / date-window off-by-one / pagination / Cloudflare
+-- clearing failure) a live hypothesis worth investigating before accepting
+-- PHANTOM as correct.
+--
+-- INVESTIGATION (all live, this session):
+--   1. Read scripts/clerk_ssot/parsers/union.py: targets
+--      https://unionclerk.com/departments-services/court-services/foreclosure-sales/,
+--      requires Playwright/Chromium to clear a Cloudflare managed challenge
+--      (confirmed: plain httpx.get() -> HTTP 403 "Just a moment..." page).
+--   2. Ran the parser for real (`python3 scripts/clerk_ssot/parsers/union.py`)
+--      in this sandbox -- Playwright + Chromium ARE installed and the
+--      Cloudflare challenge clears successfully (no silent failure).
+--      Result: parsed 1 row, case 63-2024-CA-0047 only. 63-2025-CA-0053 was
+--      NOT in the output.
+--   3. Dumped the full rendered HTML (post-Cloudflare, post-JS,
+--      page.wait_for_timeout(5000) settle) and searched the ENTIRE page
+--      text (not just the parsed card container) for "63-2025" / "0053".
+--      Zero matches anywhere on the page. The "Upcoming Foreclosure Sales"
+--      card container (div.divide-y) contains exactly ONE card
+--      (63-2024-CA-0047, $180,243.37, PHH Mortgage v Combs) with no
+--      pagination and no additional hidden cards -- ruling out a
+--      date-window off-by-one, pagination bug, or HTML-structure-change bug.
+--      The "Sale Information" section (h2 after the sales list) is static
+--      boilerplate text about deposit rules, not a second data table.
+--   4. Cross-checked independently via WebSearch for "63-2025-CA-0053",
+--      "TD Bank" + the judgment amount, and general Union County
+--      cancelled/continued sale news for 2026-08-13 -- zero corroborating
+--      hits anywhere on the public web. A different, unrelated case
+--      (63-2025-CA-0063, Wells Fargo v Noegel) surfaced instead, confirming
+--      no simple case-number confusion.
+--   5. Re-ran the actual production reconciliation function
+--      (clerk_ssot.run_parity.diff_and_reconcile, county='union',
+--      sale_type='foreclosure') directly against the freshly-parsed 1-row
+--      set -- not a hand-rolled UPDATE. Result: status='PHANTOM',
+--      match_pct=100.0 (the one clerk row matched cleanly), phantom_in_ours=1
+--      (63-2025-CA-0053). This is the SAME code path run_parity.py's main()
+--      loop would take for union; running it directly (rather than the
+--      full 27-county main()) avoided touching unrelated counties.
+--
+-- CONCLUSION: 63-2025-CA-0053 is genuinely absent from unionclerk.com's
+-- live "Upcoming Foreclosure Sales" page today, 2026-08-13 -- its own
+-- scheduled sale date. Most likely explanation: the sale was
+-- cancelled/continued/postponed and pulled from the calendar sometime
+-- between its initial ingestion (2026-07-03, when it WAS present with a
+-- full address/judgment/plaintiff) and today, which is common for
+-- foreclosure sales in the days immediately preceding the sale date.
+-- No evidence of a parser defect was found: Cloudflare clearing works,
+-- the heading/container/card selectors all still match the live DOM,
+-- there is no pagination, and no alternate case-number spelling of 0053
+-- appears anywhere on the rendered page or the open web.
+--
+-- PHANTOM_NOT_ON_CLERK is therefore CORRECT and is left unchanged.
+-- multi_county_auctions.parity_source for this row remains the stale
+-- string 'tier1:union_clerk_live_20260711' (cosmetic only) because
+-- scripts/clerk_ssot/run_parity.py's phantom-reconciliation branch
+-- (diff_and_reconcile, ~line 258-267) intentionally only sets
+-- parity_status on phantom rows, not parity_source -- confirmed by reading
+-- the code, not fixed here since it does not change the C/D outcome and
+-- touching run_parity.py's phantom branch is out of the narrow scope of
+-- this investigation (K3 surgical-changes discipline: no fix needed when
+-- there is no bug).
+--
+-- RESULT: union C and D remain FAIL at 66.7% (2/3), unchanged before/after
+-- this investigation. This is the correct, honest state of the data, not a
+-- gap in this session's work. B and F (verified_outcomes / tier1_sold) are
+-- explicitly out of scope per the adversarial refuter audit
+-- (union_bf_adversarial_refuter_audit.sql, 2026-08-09) and were not
+-- re-litigated here.
+--
+-- No SQL executed against production beyond what run_parity.py's own
+-- diff_and_reconcile() function issues as part of its normal operation
+-- (staging the freshly-parsed row into clerk_ssot_sale_rows, and its
+-- standard PARITY_OK/PHANTOM_NOT_ON_CLERK UPDATE statements, which resulted
+-- in no net change to the two rows in question).

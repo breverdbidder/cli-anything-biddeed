@@ -262,7 +262,8 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
             SET parity_status='PHANTOM_NOT_ON_CLERK'
             WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)}
               AND auction_date BETWEEN {sql_str(window_start.isoformat())} AND {sql_str(window_end.isoformat())}
-              AND case_number IN ({in_list});
+              AND case_number IN ({in_list})
+              AND parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED';
         """)
 
     ssot_count = len(ssot_by_case)

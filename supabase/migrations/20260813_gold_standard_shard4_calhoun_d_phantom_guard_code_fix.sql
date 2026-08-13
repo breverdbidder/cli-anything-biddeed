@@ -1,0 +1,97 @@
+-- Gold Standard campaign, dispatch 8389b490-c112-47cd-9fb8-c794250153c3
+-- county=calhoun, letter=D (matched_any) -- REGRESSION FIX (code + data)
+--
+-- BEFORE (pencil_dod_evaluate_county('calhoun'), live, 2026-08-13 pre-fix):
+--   C: pass=false metric=87.5 detail="matched_clean=7"   [unchanged, canon-correct, see note below]
+--   D: pass=false metric=87.5 detail="matched_any=7"     [REGRESSED from 100.0]
+--   auctions_total=8
+--
+-- CONTEXT: on 2026-08-12 (see supabase/migrations/20260812_shard1_calhoun_c_diagnose_d_ssot_cancelled_fix.sql
+-- and calhoun_c_546of2024_phantom_ssot_cancel_reconcile.sql at repo root) this
+-- exact row -- case_number='546 OF 2024' -- was manually reconciled to
+-- parity_status='CLERK_SSOT_CANCELLED' after confirming (twice, independently)
+-- that the case is genuinely delisted from the live calhoun clerk tax-deed
+-- feed. D moved to 100.0 (8/8) at that time.
+--
+-- ROOT CAUSE (re-confirmed live this session by reading
+-- scripts/clerk_ssot/run_parity.py in full, not carried over from the prior
+-- session's note): scripts/clerk_ssot/run_parity.py runs daily via
+-- .github/workflows/clerk-ssot-parity.yml (cron 09:00 UTC). Inside
+-- diff_and_reconcile(), two reconciliation UPDATEs run every day:
+--
+--   1. clean_matches UPDATE (sets parity_status='PARITY_OK') -- HAS a guard:
+--        AND parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED'
+--   2. phantom_in_ours UPDATE (sets parity_status='PHANTOM_NOT_ON_CLERK') --
+--        HAD NO such guard.
+--
+-- Because case '546 OF 2024' genuinely does not exist on the live clerk feed
+-- (confirmed 2026-08-11 and again 2026-08-12), it lands in phantom_in_ours on
+-- every daily run. Without the guard, the unconditional UPDATE overwrote the
+-- manually-reconciled parity_status='CLERK_SSOT_CANCELLED' back to
+-- 'PHANTOM_NOT_ON_CLERK' on the very next cron run -- confirmed live: this
+-- session's pre-fix query showed parity_status='PHANTOM_NOT_ON_CLERK' and
+-- parity_source='clerk_delisted:calhoun_taxdeeds_20260812_diagnose' (the prior
+-- session's fix values), proving the row round-tripped through a full
+-- fix -> regress cycle in <24h.
+--
+-- CODE FIX (surgical, scripts/clerk_ssot/run_parity.py, shared by ~27
+-- counties in the PARSERS dict -- no other county's behavior changes: the
+-- added clause only ever suppresses an UPDATE that would touch a row already
+-- carrying CLERK_SSOT_CANCELLED, which is a no-op for every county that has
+-- never had a manual CLERK_SSOT_CANCELLED reconciliation):
+--
+--   BEFORE:
+--     if phantom_in_ours:
+--         in_list = ",".join(sql_str(c) for c in phantom_in_ours)
+--         run_sql(f"""
+--             UPDATE public.multi_county_auctions
+--             SET parity_status='PHANTOM_NOT_ON_CLERK'
+--             WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)}
+--               AND auction_date BETWEEN {sql_str(window_start.isoformat())} AND {sql_str(window_end.isoformat())}
+--               AND case_number IN ({in_list});
+--         """)
+--
+--   AFTER:
+--     if phantom_in_ours:
+--         in_list = ",".join(sql_str(c) for c in phantom_in_ours)
+--         run_sql(f"""
+--             UPDATE public.multi_county_auctions
+--             SET parity_status='PHANTOM_NOT_ON_CLERK'
+--             WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)}
+--               AND auction_date BETWEEN {sql_str(window_start.isoformat())} AND {sql_str(window_end.isoformat())}
+--               AND case_number IN ({in_list})
+--               AND parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED';
+--         """)
+--
+-- This mirrors the exact guard clause already present on the clean_matches
+-- UPDATE a few lines above, so a manually-reconciled CLERK_SSOT_CANCELLED row
+-- can no longer be clobbered by either daily reconciliation branch.
+--
+-- DATA FIX (one-time re-reconciliation, this row only -- applied via
+-- Supabase Management API, not psql, per environment constraints):
+
+UPDATE multi_county_auctions
+SET auction_status = 'CANCELLED',
+    parity_status = 'CLERK_SSOT_CANCELLED',
+    parity_source = 'calhoun_clerk_taxdeeds_20260813_reconfirm'
+WHERE lower(county) = 'calhoun'
+  AND case_number = '546 OF 2024'
+  AND parity_status = 'PHANTOM_NOT_ON_CLERK';
+
+-- VERIFICATION (live, this session, 2026-08-13):
+--   Reconciliation UPDATE RETURNING:
+--     [{"case_number":"546 OF 2024","auction_status":"CANCELLED",
+--       "parity_status":"CLERK_SSOT_CANCELLED",
+--       "parity_source":"calhoun_clerk_taxdeeds_20260813_reconfirm"}]
+--
+--   pencil_dod_evaluate_county('calhoun') AFTER:
+--     C: pass=false metric=87.5  detail="matched_clean=7" [UNCHANGED -- canon-
+--          correct: no live clerk listing exists to cleanly match 546 OF 2024
+--          against, so C intentionally stays FAIL. Do not "fix" C -- see
+--          20260812_shard1_calhoun_c_diagnose_d_ssot_cancelled_fix.sql.]
+--     D: pass=true   metric=100.0 detail="matched_any=8"   [FIXED, 87.5 -> 100.0]
+--
+-- With the code fix now in place, the daily clerk-ssot-parity cron
+-- (.github/workflows/clerk-ssot-parity.yml) will no longer clobber this row's
+-- CLERK_SSOT_CANCELLED status back to PHANTOM_NOT_ON_CLERK -- the regression
+-- that caused this migration should not recur.
