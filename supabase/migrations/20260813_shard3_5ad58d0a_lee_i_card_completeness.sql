@@ -1,0 +1,132 @@
+-- Gold Standard shard-3 (dispatch 5ad58d0a): LEE letter I (property card completeness)
+--
+-- BASELINE (live pencil_dod_evaluate_county, verified this session):
+--   I: card_complete=300 of 322 (93.2%) -- FAIL, need >=95% (306/322)
+--
+-- ROOT CAUSE (diagnosed by orchestrator prior to this session, re-verified live here):
+-- 3 rows have full address+lat/lon+assessed/market value+a real-looking parcel_id
+-- but no zone_code-populated row in v_zoning_gold_standard_card:
+--   24-CA-003913  25-46-22-T1-00600.0120   2186 EGRET CIR, SANIBEL
+--   25-CA-004959  184425P10370000CE        2825 PALM BEACH BLVD, FORT MYERS
+--   25-CA-004684  34-46-22-T2-0080B.0140   293 PALM LAKE DR, SANIBEL
+-- Separately: 16 rows have NO parcel_id at all (data_source calendar_sweep_mca_v3 /
+-- realforeclose, most with no address either) -- previously diagnosed (4+ sessions,
+-- see GOLD_STANDARD_SHARD13_LEE_*.md, GOLD_STANDARD_LEE_EI_FOLLOWUP_SESSION_REPORT.md)
+-- as blocked by Lee Clerk's Akamai WAF and RealForeclose's authenticated-bidder-login
+-- wall. 3 more rows carry placeholder garbage parcel_id values ("MULTIPLE PARCEL",
+-- "TIMESHARE", "Property Appraiser") -- non-standard-collateral, not real parcel
+-- numbers.
+--
+-- ============================================================================
+-- PART 1: Zone-linkage-gap parcels (3 candidates researched live this session)
+-- ============================================================================
+--
+-- 25-CA-004959 / 184425P10370000CE (2825 PALM BEACH BLVD, FORT MYERS) -- FIXED.
+--   Source 1 (parcel identity, confirms exact/unambiguous match): Lee County
+--   Property Appraiser ArcGIS FeatureServer
+--     https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/arcgis/rest/services/Lee_County_Parcels/FeatureServer/0/query
+--     where STRAP='184425P10370000CE' -> exactly 1 feature: LEGAL "ALTA MAR DESC IN
+--     INST#2006-83303 COMMON ELEMENTS", O_NAME "ALTA MAR CONDO ASSN",
+--     Property_URL https://www.leepa.org/Display/Displayparcel.aspx?folioID=10521911 .
+--     (Note: an EARLIER session had flagged this address as "137 ambiguous condo-unit
+--     STRAPs, no unit number" -- that was an address-only search with no stored
+--     parcel_id. This row already carries the correctly-disambiguated common-element
+--     STRAP, which is a unique, non-ambiguous match -- confirmed by exact-STRAP query
+--     returning exactly 1 row.)
+--   Source 2 (zone code): City of Fort Myers zoning layer, Lee County DCD_Zoning
+--   MapServer
+--     https://gismapserver.leegov.com/gisserver910/rest/services/Layers/DCD_Zoning/MapServer/2
+--     (layer "Zoning - City of Fort Myers", field ZONING), point-in-polygon query at
+--     LATITUDE 26.65251004 / LONGITUDE -81.85653272 (the parcel's own stored
+--     coordinates from the ArcGIS feature) -> 1 hit: ZONING="PUD",
+--     ZONING_DES="Planned Unit Development", PROJECTNAM="Alta Mar (Tarragon/Billy's
+--     Creek)", Ordinance="3088". PROJECTNAM matching the parcel's own condo-assn
+--     name ("ALTA MAR CONDO ASSN") is independent corroboration this is the correct
+--     polygon, not a false spatial hit.
+--   jurisdiction_id=929 (Fort Myers) already has a zoning_districts row for code
+--   'PUD' (id=5319) -- no new zoning_districts insert needed.
+--
+-- 24-CA-003913 / 25-46-22-T1-00600.0120 (2186 EGRET CIR, SANIBEL) -- NOT FIXED,
+-- structural blocker re-confirmed live.
+-- 25-CA-004684 / 34-46-22-T2-0080B.0140 (293 PALM LAKE DR, SANIBEL) -- NOT FIXED,
+-- structural blocker re-confirmed live.
+--   Both parcels located via Lee County Property Appraiser ArcGIS FeatureServer
+--   (Lee_County_Parcels/FeatureServer/0), matched by SITEADDR/spatial query (STRAP
+--   format differs for Sanibel: compact "254622T1006000120" / "344622T20080B0140"
+--   vs. the dashed multi_county_auctions.parcel_id values -- same parcels, address +
+--   coordinates confirm identity: 2186 EGRET CIR @ 26.439352,-82.0715 and 293 PALM
+--   LAKE DR @ 26.427213,-82.093558, both SITECITY=SANIBEL). Both rows return
+--   ZONING="" (empty string) and ZONINGAREA="COS" directly from the county's own
+--   parcel layer. Checked 3 independent zoning sources live this session, all
+--   negative for a usable parcel-level zone code:
+--     1. https://gismapserver.leegov.com/gisserver910/rest/services/Layers/DCD_Zoning/MapServer
+--        -- fresh live layer enumeration: sublayers exist only for Cape Coral, Fort
+--        Myers, Estero, Fort Myers Beach, Bonita Springs. NO Sanibel sublayer.
+--        (Matches the 2026-08-03 finding in
+--        20260803_gold_standard_shard2_lee_lake_i_zone_gap.sql exactly.)
+--     2. https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/ArcGIS/rest/services/Zoning/FeatureServer/0
+--        (county-wide "Zoning" layer, fields ZONING/ZONE/GeneralZoning) -- point
+--        query at both Sanibel coordinates returns 0 features (no polygon covers
+--        Sanibel in this layer either).
+--     3. https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/ArcGIS/rest/services/Sanibel/FeatureServer
+--        (city-specific service, discovered fresh this session, not checked in the
+--        prior 2026-08-03 session) -- only layer is "BufferedFeatures", not a zoning
+--        layer.
+--     4. ArcGIS Online hub search for "City of Sanibel zoning districts" -- only
+--        returns Future Land Use Map Series (FLUMS) products (Commercial Zoning Map,
+--        Resort Housing District, Special Use Districts) -- none of which are a
+--        general parcel-level zoning district layer, and none apply to these 2
+--        residential single-family lots (not commercial/resort-housing/special-use
+--        parcels).
+--     5. www.mysanibel.com/departments/planning-zoning -> HTTP 404; site resolves
+--        (HTTP 200 root) but has no queryable REST zoning endpoint.
+--   Conclusion (re-affirming 2026-08-03 finding with 2 new sources checked and both
+--   negative): City of Sanibel is self-governing and does not publish a queryable
+--   parcel-level zoning-district GIS layer anywhere in Lee County's, the Property
+--   Appraiser's, or Sanibel's own ArcGIS estate. Genuine structural gap, not a
+--   search failure. Left NULL -- not fabricated.
+--
+-- ============================================================================
+-- PART 2: 16 no-parcel rows + 3 garbage-parcel-id rows -- fresh live re-check
+-- ============================================================================
+--   www.leeclerk.org -- HTTP 403, server=AkamaiGHost, body "Access Denied" (also
+--   confirmed with a full desktop browser User-Agent header -- same 403/Akamai
+--   block, no change from the 2026-07-31 session).
+--   lee.realforeclose.com -- PARTIAL CHANGE observed: plain curl (no UA) previously
+--   403'd; with a standard desktop User-Agent header it now returns HTTP 200 and
+--   correctly renders the "RealForeclose- Lee County -Auction Calendar" /
+--   "-Splash Page" HTML shell (was a hard block before). However the calendar/
+--   auction-preview pages still require the site's "LogIn" flow to expose any
+--   case-specific parcel/STRAP data -- no case numbers, parcel IDs, or STRAPs are
+--   present in the unauthenticated HTML. So: the front-door bot-block relaxed
+--   (or was previously mis-triggered by a non-browser UA), but the actual
+--   authenticated-bidder-login wall gating case detail is unchanged and still
+--   blocks the data we need. Net effect on the 16 no-parcel-id / 3 garbage-parcel-id
+--   rows: still blocked, honestly reported, not re-fabricated. No writes made for
+--   this cohort.
+--
+-- ============================================================================
+-- METRIC (live pencil_dod_evaluate_county, before -> after, this session)
+-- ============================================================================
+--   BEFORE: I card_complete=300 of 322 (93.2%) -- FAIL
+--   AFTER:  I card_complete=301 of 322 (93.5%) -- still FAIL (need >=306/322, 95%)
+--   Net: +1 row, from the single Fort Myers Alta Mar PUD zone-linkage insert.
+--   Regression check: A/B/C/D/E/F/G/H/J all unchanged and still PASS
+--   (E metric held at 95.0%/306 -- no E-scoped writes were made this session, the
+--   Fort Myers parcel_id already existed and was already parcel_linked).
+--
+-- Applied LIVE via Supabase REST PATCH/POST (this file is the record, not the
+-- mechanism of the write):
+--   INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code,
+--     zone_name, source)
+--   VALUES (
+--     '184425P10370000CE', 929, 'PUD',
+--     'Alta Mar (Tarragon/Billy''s Creek) PUD, Ordinance 3088',
+--     'shard3_lee_i_dcdzoning_fortmyers_arcgis_20260813'
+--   );
+-- (id=861257, created_at=2026-08-13T16:14:12.772148+00:00 -- confirmed via REST
+-- return=representation response.)
+--
+-- No other writes this session. The 2 Sanibel rows and the 16+3 clerk/realforeclose
+-- -blocked rows remain unfixed -- both re-confirmed as genuine, real, currently-live
+-- blockers rather than re-litigated guesses.

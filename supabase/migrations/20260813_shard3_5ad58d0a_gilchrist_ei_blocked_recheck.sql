@@ -1,0 +1,59 @@
+-- Shard-3 dispatch 5ad58d0a — gilchrist letters E and I, fresh-attempt recheck
+-- Date: 2026-08-13
+-- Outcome: BLOCKED — no write applied (zero rows changed)
+--
+-- ROOT CAUSE (unchanged from 4+ prior documented sessions, see repo root:
+--   GOLD_STANDARD_GILCHRIST_EI_FRESH_ATTEMPT_20260801_SESSION_REPORT.md
+--   GOLD_STANDARD_SHARD7_GILCHRIST_DISPATCH_61F11933_RUN7519_2ND_FIRING_SESSION_REPORT.md
+--   GOLD_STANDARD_SHARD7_GILCHRIST_DISPATCH_61f11933-*_RUN7519_3RD_FIRING_SESSION_REPORT.md
+--   GOLD_STANDARD_SHARD10_GILCHRIST_DISPATCH_28BD9542_RUN6288_SESSION_REPORT.md, and others):
+--
+-- 3 gilchrist auction rows in multi_county_auctions lack parcel_id entirely:
+--   212025CA000043CAAXMX ($73,058.30 judgment)
+--   212025CA000033CAAXMX ($255,341.38 judgment)
+--   212025CA000070CAAXMX ($207,391.25 judgment)
+-- All sale_type=foreclosure, all with NULL property_address/lat/lon.
+-- This drives letter E (parcel_linked=11 of 14, 78.6%) and letter I
+-- (card_complete=11 of 14, 78.6%) both below the 95% PASS threshold.
+--
+-- SOURCES ATTEMPTED THIS SESSION (2026-08-13), ALL RE-CONFIRMED BLOCKED LIVE:
+--   1. Firecrawl API (api.firecrawl.dev/v1/scrape) against gilchristclerk.com
+--      -> HTTP 402 "Insufficient credits to perform this request." (live call,
+--         unchanged from documented negative-balance state; reset date 2026-08-28 UTC
+--         has not yet passed).
+--   2. gilchristclerk.com direct (curl, real browser UA)
+--      -> HTTP 403 on both https://www.gilchristclerk.com and https://gilchristclerk.com
+--         (unchanged from every prior session).
+--   3. qpublic.schneidercorp.com direct
+--      -> HTTP 403 (unchanged).
+--   4. gilchrist.realforeclose.com AJAX feed
+--      (zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD&AREA=W, the real endpoint the
+--      site's own auction.js calls for foreclosure listings)
+--      -> HTTP 200 but body is `{"retHTML":"", "rlist":""}` — genuinely empty,
+--         zero auction rows returned for AREA=W today. AREA=F and AREA=O both
+--         redirect via inline JS to `/index.cfm?zaction=HOME&zmethod=error`.
+--         None of the 3 target case numbers appear in any response.
+--   5. gilchrist.realforeclose.com/index.cfm (main index, fresh session/cookies)
+--      -> HTTP 200, 16463 bytes, loads fine as a shell page but (per prior
+--         sessions' deeper walkthrough) resolves each case's "Parcel ID" link to
+--         an identical non-identifying qpublic placeholder URL with an empty
+--         KeyValue param — not real per-parcel data.
+--
+-- No new lever found. This reconfirms the finding from 4+ independent prior
+-- sessions: gilchrist's RealAuction platform does not publish real parcel/
+-- address data pre-sale for these foreclosure listings, Firecrawl credits
+-- remain exhausted (still before the documented 2026-08-28 UTC reset), and
+-- gilchristclerk.com / qpublic.schneidercorp.com both 403 on direct fetch.
+--
+-- BEFORE metric (pencil_dod_evaluate_county('gilchrist'), verified live 2026-08-13):
+--   E: parcel_linked=11, metric=78.6, pass=false
+--   I: card_complete=11 of 14, metric=78.6, pass=false
+--
+-- AFTER metric: IDENTICAL (no write applied — see below)
+--   E: parcel_linked=11, metric=78.6, pass=false
+--   I: card_complete=11 of 14, metric=78.6, pass=false
+--
+-- No UPDATE statement was applied via REST PATCH this session. Zero rows in
+-- multi_county_auctions were modified. This file exists purely as the
+-- documented record of the blocked recheck, per session instructions
+-- ("If still blocked, do NOT force a write or fabricate anything").
