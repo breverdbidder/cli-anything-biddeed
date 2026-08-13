@@ -96,7 +96,7 @@ jobs:
             # "Spending cap reached resets 1pm") are transient on a known clock, not a hard failure.
             # If the printed reset time falls within this job's 360-minute ceiling, sleep to it and retry
             # instead of burning the whole 6h window on a same-second exit (see issue #18065).
-            if grep -qiE "weekly limit|spending cap|usage limit" /tmp/cc.log; then
+            if grep -qiE "weekly limit|spending cap|usage limit|session limit" /tmp/cc.log; then
               RESET_STR=$(grep -ioE '[0-9]{1,2}(:[0-9]{2})?\s*(am|pm)' /tmp/cc.log | head -1)
               RESET_HOUR=$(echo "$RESET_STR" | grep -oE '^[0-9]{1,2}')
               RESET_AMPM=$(echo "$RESET_STR" | grep -oiE 'am|pm' | tr '[:upper:]' '[:lower:]')
