@@ -1,0 +1,45 @@
+-- Gold Standard shard-3, dispatch 59758c8a-8d8d-48f7-843d-5e2c6844fbf9
+-- County: madison, Letters: B (verified independent outcomes), F (tier1 sold-amount)
+--
+-- FINDING: No writes performed. Letters B and F remain genuinely BLOCKED for
+-- madison due to zero reachable independently-sourced sold_amount data.
+--
+-- Prior session (2026-07-11, migration
+-- 20260711_shard13_wakulla_madison_b_f_no_historical_data_blocked.sql) found:
+--   - madisonclerk.com/foreclosure-sales is calendar-only (no sold-amount field)
+--   - madison.realforeclose.com / .realtaxdeed.com / .realtaxlien.com all 403
+--     (not a live RealAuction client for this county)
+--
+-- This session (2026-08-13) re-verified live and searched further:
+--   1. madisonclerk.com/departments-services/property-sales/foreclosure-sales/
+--      fetched live: only 3 FUTURE sales listed (25-128-CA 2026-08-25,
+--      25-79-CA 2026-09-08, 25-31-CA 2026-10-06). Cases 21-36-CA
+--      (auction_date 2026-07-16, past) and 24-62-CA (auction_date
+--      2026-07-28, past, sale_result_date IS set) have both dropped off the
+--      calendar with no results page anywhere on the site.
+--   2. kofilequicklinks.com/madisonfl/ (official records index) — checked:
+--      only indexes Marriage Books and Official Records volumes for
+--      1831-1946. No modern deed/Certificate-of-Title search available.
+--   3. civitekflorida.com/ocrs/county/40/ (OCRS court records portal) —
+--      checked: JS-driven county-selector gate with no discoverable static
+--      case-number search endpoint reachable via fetch.
+--   4. madisonpa.com and qpublic.schneidercorp.com (property appraiser /
+--      GIS, for parcel_id lookup of a recent deed transfer) — both 403
+--      Forbidden.
+--   5. WebSearch for "24-62-CA" / "21-36-CA" Madison County certificate of
+--      title — results echoed our own DB's parcel_id/address values back,
+--      confirming they are NOT independent new sources (not real hits),
+--      just search-engine reflections of our own prior data.
+--
+-- CONCLUSION: No real, independently-sourced sold_amount exists for madison
+-- through any channel reachable this session. B and F are correctly BLOCKED
+-- by genuine data unavailability (tiny in-person-only courthouse county,
+-- no online sale-results archive). Per guardrails, no fabricated data was
+-- written. No schema or data changes in this migration — documentation only.
+--
+-- pencil_dod_evaluate_county('madison') before AND after (identical, no
+-- writes made):
+--   B: {"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--   F: {"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}
+
+SELECT 1; -- no-op; this migration is an audit-trail record only
