@@ -3,7 +3,6 @@
 // EQUIVALENT — THE PAIRING". Reads fl_parcels + zoning_assignments
 // (READ-ONLY) — never writes, never infers a district that isn't assigned.
 import { get as defaultGet } from '../supabase.js';
-import { matchStateParcel } from './parcel-match.js';
 
 const DOR_UC_LABELS = {
   '000': 'Vacant residential',
@@ -13,7 +12,11 @@ const DOR_UC_LABELS = {
   '010': 'Vacant commercial',
 };
 
-export async function buildZwSection(auction, { get = defaultGet } = {}) {
+// match: the caller's already-resolved matchStateParcel() result (composer.js
+// resolves it once for both the CMA/model path and this section) — perf fix
+// for the /report/json timeout: this module used to call matchStateParcel a
+// second time itself, doubling that lookup's cost on every report.
+export async function buildZwSection(auction, match, { get = defaultGet } = {}) {
   if (!auction.property_address) {
     return {
       section_key: 'zoning',
@@ -24,7 +27,6 @@ export async function buildZwSection(auction, { get = defaultGet } = {}) {
     };
   }
 
-  const match = await matchStateParcel(auction.county, auction.property_address, { get });
   if (!match.matched) {
     return {
       section_key: 'zoning',

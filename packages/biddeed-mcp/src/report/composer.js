@@ -266,9 +266,16 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   const locatable = !!auction.property_address;
   const county = auction.county;
 
-  const priors = await getCountyClearancePriors(county, { get, saleType: auction.sale_type || 'foreclosure' });
+  // Kicked off unawaited so it overlaps with matchStateParcel below in the
+  // locatable path — perf fix for the /report/json timeout (issue: buildReport
+  // exceeded the caller's 20s budget). Every downstream await in this function
+  // is independent of every other once `match`/`parcel` is resolved, so they
+  // are run concurrently via Promise.all rather than serially; this changes
+  // wall-clock time only — none of these calls read another's result.
+  const priorsPromise = getCountyClearancePriors(county, { get, saleType: auction.sale_type || 'foreclosure' });
 
   if (!locatable) {
+    const priors = await priorsPromise;
     const redFlags = deriveRedFlags(auction);
     return {
       cover: {
@@ -283,7 +290,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       value_estimate: null,
       refusal: NO_ESTIMATE_REFUSAL,
       county_stats: priors,
-      zoning: await buildZwSection(auction, { get }),
+      zoning: await buildZwSection(auction, null, { get }),
       cma: { section_key: 'cma', comps: [], note: 'No comps — subject is unlocatable.' },
       red_flags: redFlags,
       auction_outcome: buildOutcomeSection(auction, { ceiling: null, value: null, entryBid: null }),
@@ -293,12 +300,17 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     };
   }
 
-  const match = await matchStateParcel(county, auction.property_address, { get });
+  const [priors, match] = await Promise.all([
+    priorsPromise,
+    matchStateParcel(county, auction.property_address, { get }),
+  ]);
   const parcel = match.matched ? match.parcel : null;
-  const zoning = await buildZwSection(auction, { get });
-  const cma = await buildCma(parcel, { get });
-  const distressedCma = await buildDistressedCma(parcel, auction, { get });
-  const model = await scoreModel(auction, county, { get });
+  const [zoning, cma, distressedCma, model] = await Promise.all([
+    buildZwSection(auction, match, { get }),
+    buildCma(parcel, { get }),
+    buildDistressedCma(parcel, auction, { get }),
+    scoreModel(auction, county, { get }),
+  ]);
   const value = computeValueEstimate(auction, priors, cma, distressedCma);
   const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
   const shapira = await computeShapiraCeiling(auction, county, value.midpoint ?? auction.assessed_value, sellProb, parcel?.dor_uc, { get });
@@ -465,6 +477,7 @@ function sectionComposition({ locatable }) {
 function buildProvenance(auction, { model }) {
   const available = model?.available === true;
   const ensemble = available && model?.ensemble === true;
+  const isTaxDeed = (auction.sale_type || '').toLowerCase() === 'tax_deed';
 
   let modelDisclosure;
   if (!available) {
