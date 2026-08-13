@@ -1,0 +1,62 @@
+-- Gold Standard shard-3, dispatch 59758c8a-8d8d-48f7-843d-5e2c6844fbf9
+-- county: indian_river, letters: C (parity_clean), D (parity_any)
+-- OUTCOME: BLOCKED — no data written. This file documents the investigation
+-- for audit-trail purposes only (no INSERT/UPDATE executed against
+-- multi_county_auctions).
+--
+-- Baseline (VERIFIED via pencil_dod_evaluate_county, 2026-08-13):
+--   C: matched_clean=100/106 (94.3%), need >=101/106 (95.3%)
+--   D: matched_any=100/106  (94.3%), need >=101/106 (95.3%)
+--   5 rows with parity_status IS NULL, all with auction_date already in the
+--   past as of 2026-08-13:
+--     2025 CA 000701  (foreclosure, auction 2026-08-11, realforeclose, tier1_authoritative=true)
+--     2025 CA 000842  (foreclosure, auction 2026-08-11, realforeclose, tier1_authoritative=true)
+--     2025 CC 003117  (foreclosure, auction 2026-08-12, data_source NULL, tier1_authoritative=true)
+--     2026-0007TD     (tax_deed,    auction 2026-08-04, data_source NULL, tier1_authoritative=true)
+--     2026-0008TD     (tax_deed,    auction 2026-08-04, data_source NULL, tier1_authoritative=true)
+--
+-- Attempted live verification sources (all failed, in order tried):
+--   1. https://indian-river.realforeclose.com/... (calendar + splash + AID detail URLs)
+--        -> HTTP 403 Forbidden on every path, including bare root "/"
+--           (bot-protection blocks WebFetch entirely, not just deep-linked pages)
+--   2. https://indian-river.realtaxdeed.com/... (calendar)
+--        -> HTTP 403 Forbidden, same as above
+--   3. Firecrawl API (scrape) as a 403-bypass fallback
+--        -> "Insufficient credits to perform this request" (account out of quota)
+--   4. https://court.indian-river.org/Data/login.aspx and /BenchmarkWeb/Home.aspx/Search
+--        -> HTTP 403 Forbidden
+--   5. https://landmark.indian-river.org/ (official records search)
+--        -> connect ECONNREFUSED
+--   6. https://taxdeeds.indian-river.org/TaxDeeds (Home/Index)
+--        -> loads (confirms Aug 4 2026 and Aug 25 2026 were real sale dates on
+--           the calendar), but is a POST-driven search form (Certificate #,
+--           Case #, Parcel ID, Status, etc.) with no GET/query-string search
+--           endpoint discoverable; every guessed REST-style URL
+--           (/Search?caseNumber=, /Home/Search?CaseNumber=, /Home/Details?caseNumber=,
+--           /Home/SaleList?saleDate=, /Home/Results?SaleDate=) returned 404 or 500.
+--           WebFetch cannot submit HTML forms, so the case-level results behind
+--           this form could not be retrieved.
+--   7. https://indianriverclerk.com/land-available-for-taxes/
+--        -> loads fine, but only lists escheated/struck-to-county parcels from
+--           2013/2016 certificates — 2026-0007TD / 2026-0008TD are absent
+--           (informative but not conclusive: absence from "lands available"
+--           does not confirm a completed/sold status).
+--   8. https://indianriverclerk.com/upcoming-foreclosure-sales/
+--        -> loads fine, but page content is stale (revised 2020-09-18, lists
+--           only 2017-2020 case numbers) — not usable for 2026 cases.
+--   9. https://qpublic.schneidercorp.com/Application.aspx?App=IndianRiverCountyFL...
+--        -> HTTP 403 Forbidden (both the search landing page and a guessed
+--           direct parcel-detail URL for 33390100052005000202)
+--
+-- No browser-automation tool (Playwright/firecrawl-browser executable) was
+-- available in this sandbox to submit the taxdeeds.indian-river.org search
+-- form or clear the RealForeclose/RealTaxDeed/qpublic bot walls.
+--
+-- Per guardrails: "If you cannot find real data, report the letter as
+-- genuinely BLOCKED/UNKNOWN — do not guess. BLANK > WRONG."
+-- No rows were updated. C and D remain at 94.3% (100/106), confirmed
+-- unchanged by a final pencil_dod_evaluate_county('indian_river') call at
+-- session end (matches baseline exactly, i.e. no drift from other agents
+-- either).
+--
+-- No SQL executed against multi_county_auctions in this session.
