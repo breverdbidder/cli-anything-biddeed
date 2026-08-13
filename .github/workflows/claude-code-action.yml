@@ -1,5 +1,18 @@
 name: Claude Code
 
+# v5 (2026-08-13): skip 'opened' trigger for label:summit issues (architect
+# triage of issue #19037 fleet-wide stall). SUMMIT-dispatched issues are
+# machine-created with '@claude' in the body and already get a dedicated
+# workflow_dispatch run on cc-runner-ghonly.yml a minute later. Without this
+# guard, EVERY SUMMIT issue fired a second, unwanted session here that shares
+# the same CLAUDE_CODE_OAUTH_TOKEN Max-plan spending cap as the real 6h runner
+# AND, if it ever got quota, would push a side-branch/PR — directly violating
+# the SHIP-TO-MAIN MANDATE the real runner operates under. Verified via
+# gha_dispatch: run 31680155340 (issue #19037, 2026-08-13T08:00Z) burned a job
+# in 35s with "Spending cap reached resets 1pm" and posted a scary but
+# meaningless "Claude encountered an error" comment, while the real run
+# (31680207431, cc-runner-ghonly.yml) worked correctly in parallel. Sibling
+# SUMMIT issues #19038-19040 hit the identical pattern the same morning.
 # v4 (2026-06-09): mode fix — workflow_dispatch events require 'agent' mode
 # (tag mode only handles issue/comment events; dispatch lane was structurally
 # broken since v3 regardless of token validity). OAuth-only auth unchanged.
@@ -41,7 +54,7 @@ jobs:
     if: |
       (github.event_name == 'issues' && (
         (github.event.action == 'labeled' && (github.event.label.name == 'claude-code' || github.event.label.name == 'coder')) ||
-        (github.event.action == 'opened' && contains(github.event.issue.body, '@claude'))
+        (github.event.action == 'opened' && contains(github.event.issue.body, '@claude') && !contains(github.event.issue.labels.*.name, 'summit'))
       )) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
