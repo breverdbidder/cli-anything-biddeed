@@ -28,6 +28,7 @@ from clerk_ssot.parsers import (  # noqa: E402
     brevard, gadsden, wakulla, highlands, lake, okeechobee, st_johns, suwannee, union,
     bay, calhoun, desoto, dixie, franklin, gulf, hamilton, hardee, holmes, jefferson,
     lafayette, levy, liberty, madison, manatee, nassau, sumter, taylor, st_lucie, walton,
+    volusia,
 )
 
 MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
@@ -49,6 +50,21 @@ MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/q
 #   hernando, indian_river, jackson, martin, okaloosa, osceola, pinellas,
 #   putnam, broward, charlotte, citrus, duval, leon, polk,
 #   santa_rosa, sarasota, seminole, washington
+#
+# Re-verified 2026-08-13 for the P1 parity-coverage-gap issue (GH #19052) --
+# hillsborough, palm_beach, marion, pasco, polk, lee, seminole all still have
+# no independently-parseable calendar (403/Cloudflare/timeout/RealAuction-only,
+# same as above). ONE new county cleared this session: volusia. Its main
+# clerk.org pages are RealAuction-only like the rest, but a separate
+# clerk-owned app (app02.clerk.org/cm_sales/) is a real, live, disclaimer-gated
+# ASP.NET calendar -- not RealAuction, not login-gated, just JS-postback-gated
+# -- see clerk_ssot/parsers/volusia.py. escambia and citrus each have a
+# clerk-owned tax_deed search app (public.escambiaclerk.com/taxsale/,
+# search.citrusclerk.org/TaxSmartWeb) that also cleared Cloudflare/rendered
+# real sale dates under Playwright, but both require per-date-click
+# navigation (no "view all") -- left unparsed pending a follow-up session,
+# NOT added to PARSERS since an untested per-date loop would risk PARSE_FAIL
+# noise or wrong data more than it's worth today.
 PARSERS = {
     "brevard": {"foreclosure": brevard.parse_foreclosure},
     "gadsden": {"foreclosure": gadsden.parse_foreclosure, "tax_deed": gadsden.parse_tax_deed},
@@ -79,6 +95,7 @@ PARSERS = {
     "taylor": {"foreclosure": taylor.parse_foreclosure, "tax_deed": taylor.parse_tax_deed},
     "st_lucie": {"tax_deed": st_lucie.parse_tax_deed},
     "walton": {"tax_deed": walton.parse_tax_deed},
+    "volusia": {"foreclosure": volusia.parse_foreclosure},
 }
 
 WINDOW_DAYS = 90
