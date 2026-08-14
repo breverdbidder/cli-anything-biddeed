@@ -1,0 +1,34 @@
+name: Acquisition Cold Email — One-off Send
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (true) or real send (false)"
+        required: false
+        default: "false"
+      limit:
+        description: "Max leads to email this run"
+        required: false
+        default: "50"
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Send cold emails
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          ARGS="--limit ${{ github.event.inputs.limit }}"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python scripts/acquisition_cold_email.py $ARGS
