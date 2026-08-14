@@ -4034,6 +4034,7 @@ button:disabled{opacity:.6;cursor:default}
     <button type="submit" id="sub-btn">Continue to Checkout →</button>
     <div class="err" id="sub-err"></div>
   </form>
+  <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:14px">Not ready to pay? <a href="/free-report" style="color:#f59e0b;font-weight:600">Try 67 counties free — no card required →</a></div>
 </div>
 <script>
 try{if(window.posthog)posthog.capture('subscribe_page_viewed',{tier:'TIER_PLACEHOLDER'});}catch(e){}
@@ -5598,7 +5599,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
     <a class="btn-solid" href="#lead">Check Your County Free →</a>
     <a class="btn-outline" href="#report">See a live sample report →</a>
   </div>
-  <div style="font-size:12px;color:var(--slate-dim);margin-top:.85rem">No credit card required</div>
+  <div style="font-size:12px;color:var(--slate-dim);margin-top:.85rem">No credit card required &nbsp;·&nbsp; <a href="javascript:void(0)" onclick="openChat()" style="color:var(--orange);font-weight:600;text-decoration:underline">Ask about your county →</a></div>
 </section>
 
 <!-- FORMULA IN ACTION -->
