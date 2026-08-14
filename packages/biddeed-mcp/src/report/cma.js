@@ -18,11 +18,39 @@
 //
 // Never runs without a resolved subject parcel — unlocatable subject yields
 // both layers empty with explicit notes, never fabricated numbers.
+//
+// FIX (issue #19079, Aug 14 2026): Layer 2 previously matched comps on
+// zip + DOR-use-code + sqft + sale recency ONLY. Live audit on a real
+// Hillsborough property (2470 sqft, 1976-built, assessed $239,342) found
+// all 6 "matched" comps were 1985-1996 builds assessed $311K-$381K in the
+// same zip — same sqft, completely different quality/vintage tier. Median
+// comp price $432,000 fed a Shapira Max Bid of $269,961, which the
+// sellability gate correctly rejected as insane vs the real clearing band
+// ($148K-$180K, from actual sold-auction priors). Root cause: nothing in
+// the comp query checked whether comps were actually comparable in VALUE,
+// only in size/location/type. The existing JV-twin logic already applied
+// an assessed-value proximity check to pick ONE best comp — this fix
+// applies the same discipline to the WHOLE comp set, not just one pick.
+// Also adds lot size (lnd_sqfoot, confirmed 100% populated for at least
+// Hillsborough) as a second matching dimension, since two homes with
+// identical living-area sqft on very different lot sizes are not
+// equivalent comps either.
+//
+// NOTE ON GARAGE DATA (requested Aug 14 2026, investigated and confirmed
+// NOT ADDED): has_garage / garage_spaces exist as columns on the separate
+// `parcels` (ATTOM-sourced) table, but are populated on ZERO of 437,371
+// rows statewide — not a Hillsborough gap, the field has never actually
+// been collected anywhere in this dataset. Filtering or displaying on it
+// would silently pass everything (100% null) while looking like a real
+// signal. Left out deliberately rather than faked. Revisit if/when a real
+// garage data source is sourced.
 
 import { get as defaultGet } from '../supabase.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
-const SQFT_TOLERANCE      = 0.30;  // ±30% sqft window for retail comps
+const SQFT_TOLERANCE      = 0.30;  // ±30% living-area sqft window for retail comps
+const LOT_SQFT_TOLERANCE  = 0.40;  // ±40% lot-size window — lots vary more naturally than living area even among true comps
+const JV_TOLERANCE        = 0.35;  // ±35% assessed-value window — NEW: the core fix. Prevents same-sqft/different-quality-tier mismatches (see FIX note above)
 const MIN_SALE_PRICE      = 25000; // below this = not an arm's-length sale signal
 const MAX_COMPS           = 6;     // max retail comps to surface
 const MAX_DISTRESSED_COMPS = 5;    // max auction-cleared comps to surface
@@ -180,6 +208,20 @@ export async function buildCma(subjectParcel, {
   const sqftMax = Math.round(sqft * (1 + SQFT_TOLERANCE));
   const sinceYear = referenceYear - 2;
 
+  // NEW (issue #19079): assessed-value (jv) proximity band. This is the core
+  // fix — without it, comps matched only on sqft+zip+type can be a
+  // completely different quality/vintage tier (see file header FIX note).
+  // Guarded: if the subject has no jv on file, skip this filter rather than
+  // producing an impossible range.
+  const subjectJv = Number(subjectParcel.jv) || 0;
+  const jvMin = subjectJv > 0 ? Math.round(subjectJv * (1 - JV_TOLERANCE)) : null;
+  const jvMax = subjectJv > 0 ? Math.round(subjectJv * (1 + JV_TOLERANCE)) : null;
+
+  // NEW (issue #19079): lot size (lnd_sqfoot) proximity band, same guard pattern.
+  const subjectLot = Number(subjectParcel.lnd_sqfoot) || 0;
+  const lotMin = subjectLot > 0 ? Math.round(subjectLot * (1 - LOT_SQFT_TOLERANCE)) : null;
+  const lotMax = subjectLot > 0 ? Math.round(subjectLot * (1 + LOT_SQFT_TOLERANCE)) : null;
+
   const rows = await get(
     `fl_parcels?co_no=eq.${subjectParcel.co_no}` +
     `&phy_zipcd=eq.${encodeURIComponent(subjectParcel.phy_zipcd || '')}` +
@@ -187,12 +229,35 @@ export async function buildCma(subjectParcel, {
     `&sale_yr1=gte.${sinceYear}` +
     `&sale_prc1=gte.${MIN_SALE_PRICE}` +
     `&tot_lvg_ar=gte.${sqftMin}&tot_lvg_ar=lte.${sqftMax}` +
+    (jvMin != null ? `&jv=gte.${jvMin}&jv=lte.${jvMax}` : '') +
+    (lotMin != null ? `&lnd_sqfoot=gte.${lotMin}&lnd_sqfoot=lte.${lotMax}` : '') +
     `&parcel_id=neq.${encodeURIComponent(subjectParcel.parcel_id)}` +
-    `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,jv` +
+    `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,jv,lnd_sqfoot` +
     `&limit=100`
   ).catch(() => []);
 
-  const withDelta = rows.map(r => ({
+  // Fallback: if the jv+lot band is too tight for this market (thin comp
+  // pool), widen by dropping jv/lot filters rather than silently returning
+  // zero comps — but flag it in the note so the report is honest about
+  // which criteria actually applied.
+  let usedFallback = false;
+  let finalRows = rows;
+  if (rows.length < 3 && (jvMin != null || lotMin != null)) {
+    usedFallback = true;
+    finalRows = await get(
+      `fl_parcels?co_no=eq.${subjectParcel.co_no}` +
+      `&phy_zipcd=eq.${encodeURIComponent(subjectParcel.phy_zipcd || '')}` +
+      `&dor_uc=eq.${encodeURIComponent(subjectParcel.dor_uc)}` +
+      `&sale_yr1=gte.${sinceYear}` +
+      `&sale_prc1=gte.${MIN_SALE_PRICE}` +
+      `&tot_lvg_ar=gte.${sqftMin}&tot_lvg_ar=lte.${sqftMax}` +
+      `&parcel_id=neq.${encodeURIComponent(subjectParcel.parcel_id)}` +
+      `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,jv,lnd_sqfoot` +
+      `&limit=100`
+    ).catch(() => []);
+  }
+
+  const withDelta = finalRows.map(r => ({
     ...r,
     sqft_delta: Math.abs((r.tot_lvg_ar || 0) - sqft),
   }));
@@ -209,7 +274,9 @@ export async function buildCma(subjectParcel, {
     : 'LOW';
 
   // JV-twin: comp with assessed value within ±25% of subject's — the most
-  // reliable retail indication for this exact quality tier.
+  // reliable retail indication for this exact quality tier. Kept even with
+  // the new whole-set jv filter above (JV_TOLERANCE=0.35) since this picks
+  // the SINGLE tightest match within that already-filtered set.
   const jvTwin = subjectParcel.jv > 0
     ? top.find(r =>
         r.jv > 0 &&
@@ -224,7 +291,9 @@ export async function buildCma(subjectParcel, {
     comps: top.map(r => ({
       address:       r.phy_addr1,
       sqft:          r.tot_lvg_ar,
+      lot_sqft:      r.lnd_sqfoot ?? null,
       year_built:    r.act_yr_blt,
+      assessed_value: r.jv ?? null,
       sale_price:    r.sale_prc1,
       sale_year:     r.sale_yr1,
       price_per_sqft: r.tot_lvg_ar > 0
@@ -235,6 +304,12 @@ export async function buildCma(subjectParcel, {
     median_sale_price: medianPrice,
     range,
     dispersion_flag: dispersionFlag,
+    match_criteria: {
+      sqft_tolerance_pct: Math.round(SQFT_TOLERANCE * 100),
+      jv_tolerance_pct: jvMin != null ? Math.round(JV_TOLERANCE * 100) : null,
+      lot_tolerance_pct: lotMin != null ? Math.round(LOT_SQFT_TOLERANCE * 100) : null,
+      jv_and_lot_filters_applied: !usedFallback && (jvMin != null || lotMin != null),
+    },
     jv_twin: jvTwin
       ? {
           address:  jvTwin.phy_addr1,
@@ -245,6 +320,8 @@ export async function buildCma(subjectParcel, {
       : null,
     note: top.length === 0
       ? `No retail comps found within ±${Math.round(SQFT_TOLERANCE * 100)}% sqft / same zip+DOR-use in the last 2 years.`
+      : usedFallback
+      ? `Assessed-value/lot-size match criteria too tight for this market (thin comp pool) — widened to sqft+zip+type only. Comps shown may span a wider value tier than the subject; treat median with more caution.`
       : null,
   };
 }
