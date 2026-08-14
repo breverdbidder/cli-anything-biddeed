@@ -117,10 +117,6 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
   if (auctionErr || !auctionRows?.length) {
     return jsonRes({ error: `case_number '${caseNumber}' not found in ${countySlug}` }, 404);
   }
-  // Resolved server-side, never trusted from the client — same rationale as
-  // src/worker.js's /buy-report/checkout parity gate (issue #18307: the
-  // /report-success page and the post-purchase email both need a reliable
-  // mca_id to build the /report/:mca_id link).
   const resolvedMcaId = auctionRows[0].id;
 
   const stripeKey = await resolveStripeKey();
@@ -181,16 +177,6 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
 const COLD_SUCCESS_URL = "https://biddeed.ai/success";
 const COLD_CANCEL_URL = "https://biddeed.ai/subscribe";
 
-// FIX (issue #19079, caught pre-deploy via live $0.99 webhook test): the
-// webhook's handleSubscriptionCheckout hard-requires metadata.customer_id
-// and has NO email-based fallback for the subscription path (only the
-// mode='report' path uses findOrCreateCustomer). Without this, a real
-// Pioneer/cold subscription purchase would charge the card successfully in
-// Stripe but the webhook would return activationError =
-// 'checkout.session.completed missing metadata.customer_id' and the
-// customer would never be activated - no tier, no key, no email. This
-// mirrors the existing api_key-based flow below, which already sets
-// metadata[customer_id] correctly.
 async function findOrCreateColdCustomer(email: string): Promise<string> {
   const supabase = await getAdminClient();
   const { data: existing } = await supabase
@@ -207,8 +193,6 @@ async function findOrCreateColdCustomer(email: string): Promise<string> {
     .limit(1);
   if (!insertErr && inserted?.length) return inserted[0].customer_id;
 
-  // Race backstop: another request (or the webhook itself) may have
-  // inserted the same email between our SELECT and INSERT.
   const { data: retry } = await supabase
     .from("mcp_customers")
     .select("customer_id")
@@ -249,10 +233,6 @@ async function handleColdCheckout(body: any): Promise<Response> {
     return jsonRes({ error: "stripe key not configured (vault + env both empty)" }, 503);
   }
 
-  // Resolve (or create) the mcp_customers row BEFORE creating the Stripe
-  // session, so metadata[customer_id] is always a real, activatable ID -
-  // never omitted. If this throws, we fail closed (500) rather than create
-  // a checkout session that can never activate.
   let customerId: string;
   try {
     customerId = await findOrCreateColdCustomer(customerEmail.toLowerCase().trim());
@@ -298,18 +278,29 @@ async function handleColdCheckout(body: any): Promise<Response> {
 
   const session = await stripeRes.json();
 
-  const { error: insertErr } = await supabase.from("stripe_checkout_sessions").insert({
-    session_id: session.id,
-    customer_id: customerId,
-    tier_id: tier,
-    billing_interval: useAnnual ? "annual" : "monthly",
-    amount_usd: session.amount_total != null ? session.amount_total / 100 : null,
-    status: "pending",
-    expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
-  }).catch((e: Error) => {
-    console.error("stripe_checkout_sessions insert failed (non-fatal):", e.message);
-    return { error: null };
-  });
+  // FIX (issue #19079): PostgrestFilterBuilder is thenable but has no
+  // .catch() method - chaining .insert(...).catch(...) directly threw
+  // "TypeError: ...insert(...).catch is not a function" and crashed the
+  // whole request with a generic platform 500, verified live via
+  // Supabase function_logs. Postgrest calls never throw - they always
+  // resolve to {data, error} - so this is now a plain awaited call
+  // wrapped in try/catch only to guard the surrounding async context.
+  try {
+    const { error: sessionInsertErr } = await supabase.from("stripe_checkout_sessions").insert({
+      session_id: session.id,
+      customer_id: customerId,
+      tier_id: tier,
+      billing_interval: useAnnual ? "annual" : "monthly",
+      amount_usd: session.amount_total != null ? session.amount_total / 100 : null,
+      status: "pending",
+      expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+    });
+    if (sessionInsertErr) {
+      console.error("stripe_checkout_sessions insert failed (non-fatal):", sessionInsertErr.message);
+    }
+  } catch (e) {
+    console.error("stripe_checkout_sessions insert threw (non-fatal):", (e as Error).message);
+  }
 
   return jsonRes({ url: session.url, session_id: session.id });
 }
