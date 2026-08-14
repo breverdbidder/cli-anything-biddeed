@@ -10,15 +10,37 @@
 // SPRINT3 P0-3. EG14: no live product/price mutation — only reads existing
 // stripe_products rows and creates a Checkout Session (no charge occurs until
 // the customer completes the hosted Stripe page).
+//
+// FIX (issue #19079, Aug 14 2026): Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+// was verified LIVE to behave as anon-level access — a direct REST test with
+// the vault's supabase_service_role_key returned data from an RLS-protected
+// table (stripe_products, zero policies = default-deny for non-bypass roles)
+// while the env-based client returned empty. Root cause of the platform env
+// mismatch not fully diagnosed; fix is to resolve the admin key from the
+// vault at runtime instead of trusting the env var, mirroring the already-
+// proven resolveStripeKey() pattern below. bootstrapClient (env-based) is
+// kept ONLY to make the initial get_vault_secret_mcp RPC call, since RPC
+// calls are SECURITY DEFINER and unaffected by this RLS issue.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+const bootstrapClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+let cachedAdminClient: ReturnType<typeof createClient> | null = null;
+async function getAdminClient() {
+  if (cachedAdminClient) return cachedAdminClient;
+  const { data, error } = await bootstrapClient.rpc("get_vault_secret_mcp", { p_name: "supabase_service_role_key" });
+  const verifiedKey = !error && data ? String(data) : SUPABASE_SERVICE_ROLE_KEY;
+  cachedAdminClient = createClient(SUPABASE_URL, verifiedKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return cachedAdminClient;
+}
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -47,7 +69,7 @@ async function sha256Hex(input: string): Promise<string> {
 // sprint found `vault_secret` doesn't exist; this is the real one). Falls
 // back to STRIPE_SECRET_KEY env only if the vault entry is ever removed.
 async function resolveStripeKey(): Promise<string | null> {
-  const { data, error } = await supabase.rpc("get_vault_secret_mcp", { p_name: "stripe_secret_key" });
+  const { data, error } = await bootstrapClient.rpc("get_vault_secret_mcp", { p_name: "stripe_secret_key" });
   if (!error && data) return String(data);
   return Deno.env.get("STRIPE_SECRET_KEY") ?? null;
 }
@@ -57,7 +79,7 @@ async function resolveStripeKey(): Promise<string | null> {
 // to the live key resolveStripeKey() uses, so a missing test-mode secret
 // fails closed (503) instead of ever silently creating a real charge.
 async function resolveTestStripeKey(): Promise<string | null> {
-  const { data, error } = await supabase.rpc("get_vault_secret_mcp", { p_name: "stripe_test_secret_key" });
+  const { data, error } = await bootstrapClient.rpc("get_vault_secret_mcp", { p_name: "stripe_test_secret_key" });
   if (!error && data) return String(data);
   return Deno.env.get("STRIPE_TEST_SECRET_KEY") ?? null;
 }
@@ -73,6 +95,7 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
   if (!customerEmail || typeof customerEmail !== "string") return jsonRes({ error: "customer_email required" }, 400);
 
   const countySlug = county.toLowerCase().replace(/-/g, "_");
+  const supabase = await getAdminClient();
 
   // Defense in depth: the /buy-report frontend already restricts the picker to
   // certified + matched_clean + upcoming, but a direct API call must not be trusted.
@@ -169,6 +192,7 @@ const COLD_CANCEL_URL = "https://biddeed.ai/subscribe";
 // mirrors the existing api_key-based flow below, which already sets
 // metadata[customer_id] correctly.
 async function findOrCreateColdCustomer(email: string): Promise<string> {
+  const supabase = await getAdminClient();
   const { data: existing } = await supabase
     .from("mcp_customers")
     .select("customer_id")
@@ -204,6 +228,7 @@ async function handleColdCheckout(body: any): Promise<Response> {
     return jsonRes({ error: "customer_email required" }, 400);
   }
   const useAnnual = billingInterval === "annual";
+  const supabase = await getAdminClient();
 
   const { data: productRows, error: productErr } = await supabase
     .from("stripe_products")
@@ -320,6 +345,7 @@ Deno.serve(async (req: Request) => {
     return jsonRes({ error: `tier must be one of: ${SELLABLE_TIERS.join(", ")}` }, 400);
   }
 
+  const supabase = await getAdminClient();
   const keyHash = await sha256Hex(apiKey);
   const { data: keyRows, error: keyErr } = await supabase
     .from("mcp_api_keys")
