@@ -1,0 +1,36 @@
+name: Push MindStudio Workflows to main (one-shot)
+
+# One-shot: fetches everest_gh_pat from vault, pushes set-mindstudio-gh-secret.yml
+# and mindstudio-run-agents.yml to .github/workflows/ on main.
+# After this succeeds, trigger "Set MindStudio GitHub Actions Secret" workflow.
+#
+# Idempotent: re-running is safe (GitHub API updates if file exists).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  push-workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Push workflow files via everest_gh_pat
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: python scripts/push_workflows_via_pat.py
+
+      - name: Trigger set-mindstudio-gh-secret workflow
+        env:
+          GH_TOKEN: ${{ secrets.EVEREST_GH_PAT }}
+        run: |
+          sleep 10
+          gh workflow run set-mindstudio-gh-secret.yml \
+            --repo breverdbidder/cli-anything-biddeed \
+            --field run_agents_after=yes
+          echo "Triggered set-mindstudio-gh-secret.yml — check Actions tab for status"
