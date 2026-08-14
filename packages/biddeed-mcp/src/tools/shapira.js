@@ -9,6 +9,7 @@
 import { get } from '../supabase.js';
 import { buildReport } from '../report/composer.js';
 import { renderReportPdf } from '../report/pdf.js';
+import { checkSellability } from '../report/sellability.js';
 
 export const schemas = [
   {
@@ -43,6 +44,30 @@ export async function predict_auction_outcome({ case_number, county }) {
 
   const auction = rows[0];
   const report = await buildReport(auction, { get });
+
+  // Sellability render-gate (Aug 14 2026, issue #19079) - runs BEFORE PDF
+  // rendering and BEFORE the caller's billing wrapper sees a successful
+  // return. A failing report throws here instead of returning - the tool
+  // call errors out, nothing is billed, nothing reaches the customer.
+  const sellability = checkSellability(report);
+  if (!sellability.sellable) {
+    const reason = sellability.reasons.join('; ');
+    try {
+      await get(`agent_ops_log`, {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          dispatch_id: 's5-sellability-gate',
+          task: `predict_auction_outcome case=${case_number} county=${county}`,
+          status: 'BLOCKED',
+          severity: 'blocker',
+          evidence: reason.slice(0, 2000),
+        }),
+      }).catch(() => {});
+    } catch (_) {}
+    throw new Error(`REPORT_FAILED_SELLABILITY_GATE: ${reason}`);
+  }
+
   const pdf = await renderReportPdf(report);
 
   return {
