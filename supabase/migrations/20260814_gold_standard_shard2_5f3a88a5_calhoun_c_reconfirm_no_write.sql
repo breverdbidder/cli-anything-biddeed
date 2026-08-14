@@ -1,0 +1,82 @@
+-- Gold Standard campaign, dispatch 5f3a88a5-19bc-4d64-a3b6-fba1e561f75b, loop run 11435
+-- shard-2, county=calhoun, letter=C (matched_clean) -- RE-CONFIRM, structural gap unchanged
+--
+-- BEFORE (pencil_dod_evaluate_county('calhoun'), live, 2026-08-14):
+--   A pass metric=2 (fc=2 td=6) | B pass metric=100.0 | C FAIL metric=87.5 (matched_clean=7 of 8)
+--   D pass metric=100.0 | E pass metric=100.0 | F pass metric=100.0 | G pass metric=100.0
+--   H pass metric=6.8h | I pass metric=100.0 | J pass metric=100.0 | auctions_total=8
+--
+-- CONTEXT: this is the 3rd session to independently investigate this exact
+-- 1-row gap. Two prior sessions (2026-08-12: supabase/migrations/
+-- 20260812_shard1_calhoun_c_diagnose_d_ssot_cancelled_fix.sql; 2026-08-13:
+-- supabase/migrations/20260813_gold_standard_shard4_calhoun_d_phantom_guard_code_fix.sql)
+-- already confirmed live, via two different methods (calhounclerk.com listing
+-- page text-scan + direct case-URL 301 redirect check), that case_number
+-- '546 OF 2024' (tax_deed, auction_status=CANCELLED, parcel_id=
+-- 26-1S-10-0000-0004-0100, 10500 SR 73, Frink FL 32430) is genuinely delisted
+-- from the live calhoun clerk tax-deed feed -- not a scraper bug, not a
+-- PropertyOnion artifact. auctions_total is still 8, unchanged since both
+-- prior sessions, so no new row exists to investigate instead.
+--
+-- FRESH RE-VERIFICATION THIS SESSION (2026-08-14, independent of prior notes,
+-- using a genuinely different/better method than either prior session -- the
+-- county's own structured WP REST API, the same source scripts/
+-- calhoun_clerk_harvest.py uses for live ingestion, rather than HTML scraping):
+--   1. GET https://www.calhounclerk.com/wp-json/wp/v2/taxdeeds?per_page=100
+--      -> HTTP 200, returns ZERO cards. The clerk's live tax-deed listing feed
+--      currently has no entries at all (not just missing 546 -- the whole feed
+--      is empty), consistent with 546 having been delisted along with
+--      everything else rather than selectively hidden.
+--   2. GET https://www.calhounclerk.com/wp-json/wp/v2/taxdeedoverbids?per_page=100
+--      -> HTTP 200, 41 entries (surplus/overbid records proving closed sales
+--      under FL Stat 197.582). Searched all 41 `cert` values for any '546'
+--      substring match -- NONE found. If 546 OF 2024 had actually closed with
+--      a surplus, it would appear here; it does not.
+--   3. GET https://calhounclerk.com/taxdeeds/546-of-2024/ (direct case page)
+--      -> HTTP 301 redirect to homepage (site CMS confirms page removed),
+--      matching both prior sessions' finding.
+--   4. Firecrawl cross-check attempted (would have been a 4th independent
+--      method) but the account is out of credits this session
+--      ("Insufficient credits to perform this request") -- logged honestly,
+--      not silently skipped.
+--
+-- CONCLUSION: three independent sessions, three different verification
+-- methods (HTML text-scan, direct-URL redirect, structured WP REST API +
+-- overbid cross-reference), all agree: there is no live clerk source --
+-- listing, overbid/surplus, or case-detail page -- that would let this row
+-- cleanly match. Forcing parity_status to a clean-match value would be
+-- fabrication (banned by this repo's guardrails: "value is CONFIRMED only if
+-- sourced from actual primary-source text with a pinpoint citation" and
+-- "BLANK > WRONG"). C correctly and permanently stays FAIL at 7/8 (87.5%)
+-- until/unless the clerk relists the case or a genuinely new independent
+-- source surfaces (RealTaxDeed platform checked this session too --
+-- calhoun.realtaxdeed.com returns HTTP 403, still dark, no new lever there).
+--
+-- DATA WRITE (audit-trail refresh only -- parity_status UNCHANGED, still
+-- 'CLERK_SSOT_CANCELLED', which correctly satisfies D's matched_any filter
+-- but intentionally not C's matched_clean filter; only parity_checked_at and
+-- parity_source updated to record this session's independent reconfirmation):
+
+UPDATE multi_county_auctions
+SET parity_checked_at = '2026-08-14T22:40:00Z',
+    parity_source = 'calhoun_clerk_taxdeeds_wpapi_20260814_reconfirm_empty_feed'
+WHERE lower(county) = 'calhoun'
+  AND case_number = '546 OF 2024'
+  AND parity_status = 'CLERK_SSOT_CANCELLED';
+
+-- VERIFICATION (live, this session, 2026-08-14):
+--   PATCH RETURNING confirmed 1 row updated, parity_status unchanged at
+--   'CLERK_SSOT_CANCELLED', parity_checked_at now 2026-08-14T22:40:00+00:00.
+--
+--   pencil_dod_evaluate_county('calhoun') AFTER (identical to BEFORE):
+--     C: pass=false metric=87.5 detail="matched_clean=7"  [UNCHANGED -- correct]
+--     D: pass=true  metric=100.0 detail="matched_any=8"   [UNCHANGED -- correct]
+--     All other letters (A,B,E,F,G,H,I,J) UNCHANGED, no regressions.
+--     auctions_total=8 UNCHANGED.
+--
+-- No further action recommended for this row absent a genuinely new source.
+-- This migration exists purely as the audit trail for the 3rd confirmation
+-- and to save the next shard-2 session the cost of re-deriving this dead end
+-- from scratch -- per the dispatch instructions, do NOT re-litigate this
+-- without new evidence; check auctions_total first (still 8 as of this
+-- session) before assuming there is anything new to investigate here.

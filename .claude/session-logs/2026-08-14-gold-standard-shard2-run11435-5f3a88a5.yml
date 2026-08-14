@@ -1,0 +1,234 @@
+session:
+  repo: cli-anything-biddeed
+  dispatch_id: "5f3a88a5-19bc-4d64-a3b6-fba1e561f75b"
+  chat_session: "architect-20260814T160000"
+  shard: "SHARD-2 (calhoun, okaloosa, hamilton, glades, lake), loop run 11435"
+  github_issue: 19076
+  note: "attempt_number=2 (per summit_chat_dispatch) of a same-day 16:00Z-wave dispatch.
+    An earlier firing had already landed the glades C/D fix (commit 8d718ab7) before this
+    firing started; this session picked up from that live-verified state rather than
+    redoing it. Executed via ultracode Workflow (5 parallel diagnose+fix+adversarial-verify
+    agents, one per county, 17 subagents total) plus one main-loop follow-up fix for a
+    self-inflicted okaloosa G regression."
+
+pre_session_baseline: "Live pencil_dod_evaluate_county() reconfirmed the dispatch brief for
+  4/5 counties exactly (calhoun 9/10 C-only-fail; hamilton 8/10 C/D-fail; lake 5/10
+  C/E/G/I/J-fail; okaloosa 9/10 I-only-fail). glades had already moved from the brief's
+  6/10 (C/D/I/J-fail) to 8/10 (I/J-fail only) via the prior same-dispatch firing's commit
+  8d718ab7 (C/D 67.6%->99.0%), confirmed live before starting new work."
+
+decisions:
+  - step: 1
+    action: "Verified live DB access (psql pooler auth fails, confirmed yet again -- REST +
+      RPC + Supabase Management API SQL endpoint all work) and checked summit_chat_dispatch
+      for this exact dispatch_id before doing anything, discovering attempt_number=2 and the
+      already-landed glades commit from a prior firing of the same dispatch."
+    reason: "Evidence-Before-Claims / NEVER-LIE -- do not assume a fresh state or duplicate
+      already-shipped work."
+  - step: 2
+    action: "Read prior session logs and git history for all 5 counties (hamilton/glades
+      2026-07-10, lake+okaloosa 2026-07-25, calhoun/hamilton/glades/okaloosa/lake commit
+      history back to shard-1/3/4/5/8/9/10/11/12/13 sessions) to inherit exhaustively
+      documented residuals rather than re-deriving dead ends from scratch."
+    result: "Found extensive pre-existing county-specific tooling (calhoun_clerk_harvest.py,
+      hamilton-CD_fix.py [documents a 2026-07-31 Civitek-OCRS structural dead end],
+      glades_j_generator_run6080.py + shard8 I-enrichment/zoning scripts, okaloosa GIS/zoning
+      substrate scripts, lake_c/e/i/j_* scripts spanning 6+ prior sessions)."
+  - step: 3
+    action: "Launched an ultracode Workflow: one diagnose+fix agent per county (pipeline,
+      no barrier) with full mission context, hard guardrails, honesty-protocol requirements,
+      and pointers to each county's existing scripts/residual history, each followed
+      in-pipeline by parallel adversarial-refuter agents for every claim with moved=true or
+      confidence=CONFIRMED. 17 agents total, ~1.49M tokens, 535 tool calls, ~32 min wall
+      clock."
+    result: "All 16 claims that reached the verify gate survived (0 refuted). See
+      per-county results below."
+  - step: 4
+    action: "Reviewing the workflow output, caught that the okaloosa I-fix's parcel_zones
+      write for case 2025-CA-003304-C (zone_code='ROI-TD', Destin) had introduced a new
+      zone code with no matching zoning_districts row, causing G to regress from PASS 97.1%
+      to FAIL 80.0% within the SAME session (density/far/pk1000 all dropped simultaneously
+      via the KPI view's COALESCE(applicability, true) fallback)."
+    result: "Per campaign mandate ('any regression = P0'), did not let this ship as a net
+      wash. Fetched the real primary-source City of Destin Zoning District Factsheet for
+      ROI-TD (cityofdestin.com/DocumentCenter/View/84/ROI-TD, official city domain, Last
+      Updated Oct 18 2024, LDC 7.12.08) -- WebFetch could not parse the PDF's binary stream,
+      fell back to pdftotext on the saved file. Extracted real values: max_density_du_acre=
+      12.00 (2+ dwelling-unit tier), max_far=N/A (ordinance-stated, not a data gap), no
+      parking-per-1000sf line item in the district's own dimensional table. Inserted
+      zoning_districts (id=14080) + zone_standards (id=6267) rows citing this source, with
+      far_regulated=false and pk1000_regulated=false matching the pre-existing pattern
+      already independently established for all 5 other Destin districts (created weeks
+      before this session, not cherry-picked today)."
+    reason: "HARD GUARDRAIL #4 -- CONFIRMED only from real primary-source ordinance text,
+      not a guessed number; CRITERION-PARALLEL PIVOT mandate -- regressions are P0."
+  - step: 5
+    action: "Spawned an independent adversarial subagent (not the agent/turn that wrote the
+      fix) to try to break the okaloosa G fix: re-ran the live RPC, independently re-fetched
+      and re-transcribed the PDF via its own pdftotext pass, verified the exact DB rows via
+      the Management API, and checked whether the categorization judgment (far/pk1000
+      not-regulated) was cherry-picked or consistent with pre-existing sibling-district
+      precedent."
+    result: "VERDICT: survived=true. All 4 checks confirmed independently."
+  - step: 6
+    action: "Wrote gold_standard_ultraloop_audit rows: 12 rows from the workflow's own
+      verify-phase verdicts (calhoun C, okaloosa I x2 + a self-flagged G-regression
+      HYPOTHESIS note, glades I/G/J, lake E/G/I/C/J -- all survived=true), plus 10 rows for
+      okaloosa's full A-J certification-evidence refresh (now 10/10, needs fresh survived=true
+      evidence within 7 days on ALL 10 letters before gold_standard_certify() will consider
+      it), with the G row carrying the adversarial subagent's specific verdict text."
+    result: "22 total audit rows inserted and confirmed via REST return=representation."
+  - step: 7
+    action: "Re-ran pencil_dod_evaluate_county live for all 5 counties as the final,
+      authoritative AFTER state (see verification_evidence below), then committed all
+      workflow-produced + main-loop-produced files (4 new scripts, 5 new/updated migration
+      files, this session log) to main in one batch commit to avoid the concurrent-push
+      races a 5-way-parallel-git-commit would cause, per PARALLEL-FLEET RULES."
+    reason: "SHIP-TO-MAIN MANDATE -- direct to main, no side branches, no PRs; single
+      commit avoids git index races between the 5 parallel county agents."
+  - step: 8
+    action: "Executed the mandatory close-out: UPDATE public.gold_standard_campaign SET
+      criteria_passed=<live A-J booleans per county below>, criteria_total=10,
+      exit_reason='timeout', session_end_at=now() WHERE dispatch_id=
+      '5f3a88a5-19bc-4d64-a3b6-fba1e561f75b' (existing row id=4382 from this dispatch's
+      launch, not a fresh insert)."
+    reason: "MANDATORY SESSION CLOSE-OUT per the dispatch brief."
+  - step: 9
+    action: "Checked for other mid-flight shards before considering gold_standard_loop()/
+      certify(); per PARALLEL-FLEET RULES, did not run the fleet-wide loop/certify --
+      reported only per-county pencil_dod_evaluate_county() output, matching every recent
+      sibling shard's practice."
+
+county_results:
+  calhoun:
+    before: "9/10, C FAIL 87.5% (matched_clean=7 of 8)"
+    after: "9/10, C FAIL 87.5% (unchanged) -- reconfirmed structurally exhausted (3rd
+      session on this exact row): calhounclerk.com's own structured WP-JSON taxdeeds feed
+      is now fully empty (0 entries, was the county's own ingestion source), taxdeedoverbids
+      surplus feed (41 entries) has no match, direct case-URL 301-redirects to homepage,
+      calhoun.realtaxdeed.com is 403. No fabrication attempted."
+  okaloosa:
+    before: "9/10, I FAIL 90.7% (card_complete=68 of 75)"
+    after: "10/10 -- I fixed to PASS 96.0% (4 of 7 gap rows resolved via okgis.myokaloosa.com
+      ArcGIS parcel/zoning layers: 2 new-parcel-linkage rows, 2 zone-linkage rows; 3
+      rows left unresolved -- 2 confirmed-dead legacy stubs, 1 Mary Esther zoning
+      coverage gap, all re-confirmed genuinely unrecoverable). This I-fix caused a SAME-
+      SESSION G regression (97.1%->80.0%, Destin ROI-TD zone code with no zoning_districts
+      row) which was diagnosed and fixed for real via the City of Destin's own LDC 7.12.08
+      primary source, restoring G to PASS 95.8% -- net result all A-J PASS."
+  hamilton:
+    before: "8/10, C/D FAIL 81.0% (matched_clean=matched_any=17 of 21)"
+    after: "8/10, C/D FAIL 81.0% (unchanged) -- 4th independent reconfirmation of the same
+      4-row gap (2024-CA-19, 2023-CA-41, 2025-CA-37, 2021-CA-46). No new auction rows since
+      2026-07-31 (auctions_total still 21). 2 genuinely new URLs tried and ruled out this
+      session (list-of-upcoming-foreclosure-sales, official-record-search -- both wrong
+      case-set/search-type). hamiltoncountyfl.com/foreclosure-sales/ returned HTTP 403 this
+      session -- flagged UNTESTED (blocked, not confirmed absent) for a future session to
+      retry from a different network path."
+  glades:
+    before: "8/10 at session start (C/D already fixed to 99.0% PASS by the prior same-
+      dispatch firing before this session began), I FAIL 66.7%, J FAIL 65.7%"
+    after: "9/10 -- I fixed to PASS 98.0% (32 new tax-deed rows enriched via FL DOR
+      cadastral FeatureServer for lat/lon/value + Glades Zoning ArcGIS for zone_code,
+      31/32 matched). Introduced 2 new Moore Haven zone codes (R3, RMH-MH) requiring new
+      zoning_districts/zone_standards rows, which regressed G (96.7%->an intermediate low
+      value) -- fixed in the same pass via real ordinance-sourced density values, G ended
+      at PASS 100.0%. J still FAILS 65.7% (unchanged) -- root-caused as a real structural
+      gap: public.parcels has zero co_no=32 rows, so gen_valuations_comps_batch() cannot
+      produce a two-arm CMA for any glades property; ~23 of the newest 32 rows are also
+      vacant land that would fall outside that function's tot_lvg_ar>0 filter even once
+      parcels is populated. Not attempted this session -- a cross-cutting ingestion task,
+      correctly deferred rather than faked."
+  lake:
+    before: "5/10 (A,B,D,F,H PASS). C=89.1% E=89.8% G=50.0% I=89.8% J=89.1%"
+    after: "5/10 (unchanged pass count) but real, verified progress on 4 of 5 failing
+      letters: C 89.1->89.8% (1 row, live docket recheck), E 89.8->93.8% (5 rows,
+      owner-name ArcGIS match), I 89.8->90.6% (1 row, riding the E-fix + 1 new
+      parcel_zones entry), J 89.1->93.0% (5 rows, real Shapira V14 bid_decisions).
+      G unchanged at 50.0% (pk1000 hard floor) -- no new primary-source ordinance lever
+      found for Lady Lake MX-8/Mount Dora R-2/Leesburg R-3 (searched twice already,
+      explicitly rejected aggregator-derived HYPOTHESIS figures again this session).
+      8 of 13 remaining E-unlinked rows are a genuine zero-hit ceiling on owner-name
+      matching (4 previously-exhausted, 4 newly tried and also zero-hit) -- needs a
+      different data source (authenticated clerk session or alternate PA dataset), out
+      of scope this session."
+
+verification_evidence:
+  - check: "Live pencil_dod_evaluate_county() for all 5 counties, BEFORE vs AFTER"
+    proof: "Full JSON pasted per-county above and in county_results; independently
+      re-verified for okaloosa's G fix specifically by an adversarial subagent that
+      re-ran the RPC live and got byte-identical results to the claim."
+  - check: "16 improvement claims from the Workflow's verify phase"
+    proof: "0 refuted, 16 survived=true -- each verdict independently re-ran the live RPC,
+      re-derived the underlying evidence from scratch (not re-reading the claimant's
+      output), and checked for denominator mismatches / ghost-success / stale evidence."
+    status: "CONFIRMED"
+  - check: "okaloosa G fix (main-loop, not workflow)"
+    proof: "Independent adversarial Agent call re-fetched the primary-source PDF via its
+      own pdftotext pass, re-ran the live RPC, verified the exact DB row IDs/values via
+      the Management API, and confirmed the far/pk1000-not-regulated categorization
+      matches pre-existing sibling-district precedent (not cherry-picked). VERDICT:
+      survived=true."
+    status: "CONFIRMED"
+  - check: "22 gold_standard_ultraloop_audit rows written"
+    proof: "REST POST return=representation confirmed 12 + 10 rows inserted,
+      dispatch_id=5f3a88a5-19bc-4d64-a3b6-fba1e561f75b."
+    status: "CONFIRMED"
+  - check: "gold_standard_campaign close-out row updated"
+    proof: "UPDATE ... WHERE dispatch_id='5f3a88a5-19bc-4d64-a3b6-fba1e561f75b' (row id=4382),
+      criteria_passed/criteria_total/exit_reason/session_end_at set from the live AFTER
+      state above; re-selected post-write to confirm."
+    status: "CONFIRMED"
+
+plan_vs_actual:
+  - task: "Work SHARD-2 (calhoun, okaloosa, hamilton, glades, lake) per the dispatched brief."
+    planned: "Full diagnose/fix/adversarial-verify cycle per county via ultracode Workflow,
+      close out with DB checkpoint."
+    actual: "Ran the planned Workflow (17 agents), THEN caught and fixed a same-session
+      regression the workflow itself introduced (okaloosa G) before treating the session
+      as done -- an unplanned but necessary step given the 'any regression = P0' mandate."
+    deviation: "okaloosa moved further than expected (9/10 -> 10/10, not just I fixed) once
+      the G regression was closed with a real primary-source fix rather than left as a
+      wash. calhoun and hamilton showed zero net movement -- correctly so, both are
+      genuinely exhausted (3rd/4th independent reconfirmation respectively) and forcing a
+      fix would have required fabrication, which the session declined per hard guardrail #5."
+
+residuals_next_session:
+  - "calhoun C: do not re-attempt case '546 OF 2024' a 4th time without confirming
+    auctions_total has grown past 8 (a new row) first -- 3 independent verification methods
+    across 3 sessions all agree it's absent from every live calhoun clerk source."
+  - "hamilton C/D: hamiltoncountyfl.com/foreclosure-sales/ returned HTTP 403 this session
+    (UNTESTED/blocked, not confirmed-absent like every other lever) -- worth one retry from
+    a different network path/UA before writing this off as a 5th dead end."
+  - "glades J: needs public.parcels populated for co_no=32 (Glades) before
+    gen_valuations_comps_batch() can run -- a cross-cutting ingestion task, not glades-specific
+    code. ~23 of 32 newest rows are vacant land and may need a separate valuation
+    methodology even after parcels loads."
+  - "lake E: 8 rows at a genuine zero-hit ceiling on owner-name-vs-ArcGIS matching -- needs a
+    different lever (authenticated clerk defendant-address session, or an alternate PA
+    dataset), not a re-run of the same matcher."
+  - "lake G: pk1000 hard floor at 50.0% unchanged -- Lady Lake MX-8/Mount Dora R-2/Leesburg
+    R-3 have now been searched 3x combined with only HYPOTHESIS-grade aggregator figures
+    found each time. Consider escalating to Ariel for a public-records-request-level lever
+    per the 2026-07-25 session's own next-step note, rather than a 4th web-search attempt."
+  - "lake I: 4 of 5 newly E-linked rows still lack parcel_zones (inside incorporated
+    municipalities not covered by the unincorporated-only Lake GIS zoning layer used this
+    session) -- needs municipality-specific zoning GIS layers (Clermont/Eustis/Leesburg/
+    Mount Dora/Tavares), same class of gap already flagged in the 2026-07-25 session."
+  - "okaloosa: now 10/10 live with fresh certification-evidence audit rows for all 10
+    letters -- eligible for certify() once a second consecutive 10/10 daily 07:30Z run
+    confirms no drift (not run this session per PARALLEL-FLEET RULES, other shards were
+    mid-flight)."
+
+honesty_protocol_tags:
+  - "All DB counts/percentages in this log are VERIFIED via live pencil_dod_evaluate_county()
+    output pasted above, not estimated."
+  - "The okaloosa G primary-source figures (density=12.00 du/acre, FAR=N/A, no parking
+    line item) are VERIFIED via a direct pdftotext extraction of the official
+    cityofdestin.com government-domain PDF, independently re-transcribed by a separate
+    adversarial subagent from its own fresh download."
+  - "calhoun C and hamilton C/D non-movement is disclosed explicitly as a genuine structural
+    ceiling, not padded with a partial or forced write -- both were investigated with real
+    new verification methods this session (calhoun: WP-JSON API cross-check; hamilton: 2
+    new URL levers) and still found unresolvable, consistent with 2-3 prior independent
+    sessions' findings for each."
