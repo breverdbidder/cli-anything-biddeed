@@ -115,6 +115,7 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
     success_url: `${REPORT_SUCCESS_URL}?session={CHECKOUT_SESSION_ID}&email=${encodeURIComponent(customerEmail)}&mca_id=${encodeURIComponent(resolvedMcaId)}`,
     cancel_url: `${REPORT_CANCEL_URL}?checkout=cancelled`,
     "metadata[product]": "s5_onetime",
+    "metadata[mode]": "report",
     "metadata[case_number]": caseNumber,
     "metadata[county]": countySlug,
     "metadata[customer_email]": customerEmail,
@@ -157,6 +158,43 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
 const COLD_SUCCESS_URL = "https://biddeed.ai/success";
 const COLD_CANCEL_URL = "https://biddeed.ai/subscribe";
 
+// FIX (issue #19079, caught pre-deploy via live $0.99 webhook test): the
+// webhook's handleSubscriptionCheckout hard-requires metadata.customer_id
+// and has NO email-based fallback for the subscription path (only the
+// mode='report' path uses findOrCreateCustomer). Without this, a real
+// Pioneer/cold subscription purchase would charge the card successfully in
+// Stripe but the webhook would return activationError =
+// 'checkout.session.completed missing metadata.customer_id' and the
+// customer would never be activated - no tier, no key, no email. This
+// mirrors the existing api_key-based flow below, which already sets
+// metadata[customer_id] correctly.
+async function findOrCreateColdCustomer(email: string): Promise<string> {
+  const { data: existing } = await supabase
+    .from("mcp_customers")
+    .select("customer_id")
+    .eq("email", email)
+    .limit(1);
+  if (existing?.length) return existing[0].customer_id;
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from("mcp_customers")
+    .insert({ email, customer_type: "human", tier_id: "free", active: true })
+    .select("customer_id")
+    .limit(1);
+  if (!insertErr && inserted?.length) return inserted[0].customer_id;
+
+  // Race backstop: another request (or the webhook itself) may have
+  // inserted the same email between our SELECT and INSERT.
+  const { data: retry } = await supabase
+    .from("mcp_customers")
+    .select("customer_id")
+    .eq("email", email)
+    .limit(1);
+  if (retry?.length) return retry[0].customer_id;
+
+  throw new Error(`findOrCreateColdCustomer: could not find or create customer for ${email}`);
+}
+
 async function handleColdCheckout(body: any): Promise<Response> {
   const { tier, customer_email: customerEmail, interval: billingInterval, referral_code: referralCode } = body;
   if (!SELLABLE_TIERS.includes(tier)) {
@@ -186,7 +224,18 @@ async function handleColdCheckout(body: any): Promise<Response> {
     return jsonRes({ error: "stripe key not configured (vault + env both empty)" }, 503);
   }
 
-  const sessionId = `cold_${Date.now()}`;
+  // Resolve (or create) the mcp_customers row BEFORE creating the Stripe
+  // session, so metadata[customer_id] is always a real, activatable ID -
+  // never omitted. If this throws, we fail closed (500) rather than create
+  // a checkout session that can never activate.
+  let customerId: string;
+  try {
+    customerId = await findOrCreateColdCustomer(customerEmail.toLowerCase().trim());
+  } catch (e) {
+    console.error("findOrCreateColdCustomer failed:", (e as Error).message);
+    return jsonRes({ error: "could not resolve customer record" }, 500);
+  }
+
   const successUrl = `${COLD_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`;
 
   const params = new URLSearchParams({
@@ -196,6 +245,7 @@ async function handleColdCheckout(body: any): Promise<Response> {
     customer_email: customerEmail,
     success_url: successUrl,
     cancel_url: COLD_CANCEL_URL,
+    "metadata[customer_id]": customerId,
     "metadata[tier_id]": tier,
     "metadata[billing_interval]": useAnnual ? "annual" : "monthly",
     "metadata[customer_email]": customerEmail,
@@ -225,7 +275,7 @@ async function handleColdCheckout(body: any): Promise<Response> {
 
   const { error: insertErr } = await supabase.from("stripe_checkout_sessions").insert({
     session_id: session.id,
-    customer_id: customerEmail,
+    customer_id: customerId,
     tier_id: tier,
     billing_interval: useAnnual ? "annual" : "monthly",
     amount_usd: session.amount_total != null ? session.amount_total / 100 : null,
