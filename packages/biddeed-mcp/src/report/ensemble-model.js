@@ -204,21 +204,29 @@ async function runPureJsV4(x) {
 // ── Main export ──────────────────────────────────────────────────────────────
 export async function predictEnsemble(x, { get } = {}) {
   // 1. Modal primary — full V4 pkl, AUC 0.9468
+  let modalErrorMessage = null;
   try {
     return await withTimeout(runModal(x), MODAL_TIMEOUT, 'Modal');
   } catch (err) {
+    modalErrorMessage = err.message;
     console.warn('[ensemble] Modal failed, trying pure-JS fallback:', err.message);
   }
 
   // 2. Pure-JS XGB+LGB fallback — AUC ~0.946
+  // TEMP DIAGNOSTIC (issue #19079, Aug 14 2026): surface the real Modal
+  // failure reason on the returned object itself, since server console
+  // output isn't visible from outside this deployment. Remove once Modal
+  // primary is confirmed working end-to-end.
   try {
-    return await withTimeout(runPureJsV4(x), EDGE_TIMEOUT, 'pure-JS');
+    const result = await withTimeout(runPureJsV4(x), EDGE_TIMEOUT, 'pure-JS');
+    result._modal_error_debug = modalErrorMessage;
+    return result;
   } catch (err) {
     console.error('[ensemble] Pure-JS fallback also failed:', err.message);
     throw new Error(
       'V4 ensemble unavailable — Modal and pure-JS fallback both failed. ' +
       'Report cannot be scored without a valid V4 inference result. ' +
-      `Last fallback error: ${err.message}`
+      `Modal error: ${modalErrorMessage}. Fallback error: ${err.message}`
     );
   }
 }
