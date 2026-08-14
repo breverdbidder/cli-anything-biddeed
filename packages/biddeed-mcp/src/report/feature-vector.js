@@ -88,5 +88,27 @@ export function buildFeatureVector(auction, countyEncoding) {
     county_target_enc: countyEncoding?.value ?? 0.42,
   };
 
-  return { array: FEATURE_NAMES.map(name => vector[name]), byName: vector };
+  return { array: FEATURE_NAMES.map(name => vector[name]), byName: vector, v4Array: V4_FEATURE_NAMES.map(name => vector[name]) };
 }
+
+// FIX (issue #19079, Aug 14 2026): the V4 stacked ensemble (Modal +
+// xgb_v4.json/lgbm_v4_flat.json, model_version v4.0-20260802-015242) was
+// trained on a DIFFERENT, smaller 13-feature set than this file's own
+// FEATURE_NAMES (21 features, reconstructed for the retired v14.0 model -
+// see file header). Modal correctly rejected the mismatched 21-length
+// vector ("feature_vector must be 13 floats"); the JS fallback trees did
+// NOT error on it, which is not evidence they were scoring correctly -
+// they were almost certainly reading the wrong array positions.
+//
+// This exact 13-name, exact-order list is the AUTHORITATIVE one - pulled
+// directly from shapira_models.features_used for model_version
+// v4.0-20260802-015242 (recorded by the training script itself at train
+// time, 2026-08-02), not reconstructed or guessed. All 13 names already
+// exist as keys on the `vector` object computed above - this only changes
+// which 13 (and what order) get sent to the V4 models specifically.
+export const V4_FEATURE_NAMES = [
+  'judgment_amount_log1p', 'opening_bid_log1p', 'assessed_value_log1p',
+  'prior_sale_price_log1p', 'beds_f', 'baths_f', 'sqft_f', 'property_age',
+  'opening_to_market', 'judgment_to_market', 'is_foreclosure', 'is_tax_deed',
+  'county_target_enc',
+];
