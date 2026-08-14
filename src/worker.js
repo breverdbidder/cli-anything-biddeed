@@ -2412,12 +2412,15 @@ ${DISCLAIMER_SHORT}`;
 function buildCountyPage(slug, d, lots, rtConfig) {
   const name = toDisplay(slug);
   const s5List = (rtConfig && rtConfig.s5Counties) ? JSON.stringify(rtConfig.s5Counties) : '[]';
+  const isGold = !!(rtConfig && Array.isArray(rtConfig.goldCounties) && rtConfig.goldCounties.includes(slug));
   // Serve the full interactive county page (Alpine.js + Tailwind)
   // Template has COUNTY_SLUG_PLACEHOLDER, COUNTY_TITLE_PLACEHOLDER, COUNTY_TITLE tokens
   return COUNTY_PAGE_TEMPLATE
     .replace(/COUNTY_SLUG_PLACEHOLDER/g, slug)
     .replace(/COUNTY_TITLE_PLACEHOLDER/g, name)
     .replace('S5_COUNTIES_PLACEHOLDER', s5List)
+    .replace(/COUNTY_CERT_BADGE_CLASS/g, isGold ? 'cert-gold' : 'cert-review')
+    .replace(/COUNTY_CERT_BADGE_TEXT/g, isGold ? '⭐ Gold Standard certified' : '⚠️ Data under review')
     .replace('COUNTY_TITLE Auctions', name + ' County Auctions')
     .replace('COUNTY_TITLE auctions', name + ' County auctions');
 }
@@ -2611,13 +2614,13 @@ function buildProofCard(card) {
 <meta name="twitter:title" content="${title}">
 <meta name="twitter:description" content="${description}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:480px;width:100%}
 .badge{display:inline-flex;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:#34d399;padding:.4rem 1rem;border-radius:20px;font-size:.75rem;font-weight:700;letter-spacing:.05em;margin-bottom:1.25rem}
-h1{font-family:'DM Serif Display',serif;font-size:1.6rem;color:white;margin-bottom:.3rem;line-height:1.25}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:1.6rem;color:white;margin-bottom:.3rem;line-height:1.25}
 .location{color:#94a3b8;font-size:.9rem;margin-bottom:2rem}
 .row{display:flex;justify-content:space-between;align-items:baseline;padding:.9rem 0;border-bottom:1px solid #1e293b}
 .row:last-of-type{border-bottom:none}
@@ -2654,7 +2657,7 @@ function buildPioneersPage() {
 <title>Pioneer Program — BidDeed.AI</title>
 <meta name="description" content="Be one of the first 100 BidDeed.AI Pioneers. Join the waitlist for early access and founding-customer pricing.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
@@ -2665,7 +2668,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filte
 .logo span{color:var(--orange)}
 .wrap{max-width:700px;margin:0 auto;padding:3rem 1.5rem}
 .ey{display:inline-flex;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:monospace;color:var(--orange);letter-spacing:.06em;margin-bottom:1.25rem}
-h1{font-family:'DM Serif Display',serif;font-size:clamp(1.9rem,4.5vw,2.8rem);color:white;margin-bottom:1rem;line-height:1.2}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.9rem,4.5vw,2.8rem);color:white;margin-bottom:1rem;line-height:1.2}
 .sub{color:var(--muted);font-size:1.05rem;margin-bottom:2rem;line-height:1.6}
 .card{background:var(--navy2);border:1px solid var(--border);border-radius:14px;padding:1.75rem;margin-bottom:1.25rem}
 .card h3{color:white;font-size:1.05rem;margin-bottom:.5rem}
@@ -2783,7 +2786,7 @@ function buildBlogIndex() {
 <title>BidDeed.AI Blog — Florida Foreclosure &amp; Tax Deed Investing</title>
 <meta name="description" content="Guides and real case studies on Florida foreclosure and tax deed auction investing — max bid formulas, lien traps, and verified outcomes.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
@@ -2794,7 +2797,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filte
 .logo span{color:var(--orange)}
 .nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
 .wrap{max-width:900px;margin:0 auto;padding:3rem 1.5rem}
-h1{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.6rem);color:white;margin-bottom:2rem}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.8rem,4vw,2.6rem);color:white;margin-bottom:2rem}
 .post-link{display:block;background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;text-decoration:none;color:var(--text);margin-bottom:1rem;transition:border-color .15s}
 .post-link:hover{border-color:var(--orange)}
 .post-date{font-size:.75rem;color:var(--muted);margin-bottom:.4rem}
@@ -2827,7 +2830,7 @@ function buildBlogPost(post) {
 <title>${post.title} — BidDeed.AI</title>
 <meta name="description" content="${post.description}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
@@ -2839,7 +2842,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filte
 .nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
 .wrap{max-width:760px;margin:0 auto;padding:3rem 1.5rem}
 .date{font-size:.8rem;color:var(--muted);margin-bottom:.75rem}
-h1{font-family:'DM Serif Display',serif;font-size:clamp(1.7rem,4vw,2.4rem);color:white;margin-bottom:1.5rem;line-height:1.25}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.7rem,4vw,2.4rem);color:white;margin-bottom:1.5rem;line-height:1.25}
 h2{color:var(--orange);font-size:1.25rem;margin:2rem 0 .75rem}
 p{margin-bottom:1.1rem;color:var(--text)}
 ul,ol{margin:0 0 1.1rem 1.5rem;color:var(--text)}
@@ -2928,7 +2931,7 @@ function buildCountiesIndex(rtConfig) {
 <title>All 67 Florida Counties — BidDeed.AI Foreclosure &amp; Tax Deed Intelligence</title>
 <meta name="description" content="Foreclosure and tax deed auction intelligence for every Florida county — upcoming auction counts, Gold Standard verified counties, and Shapira Max Bid reports starting at $25.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
@@ -2941,7 +2944,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filte
 .nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
 .wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem}
 .ey{display:inline-flex;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
-h1{font-family:'DM Serif Display',serif;font-size:clamp(1.8rem,4vw,2.8rem);color:white;margin-bottom:.75rem}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.8rem,4vw,2.8rem);color:white;margin-bottom:.75rem}
 .sub{color:var(--muted);margin-bottom:2.5rem;font-size:.95rem}
 .counties-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem}
 .county-link{display:block;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;text-decoration:none;color:var(--muted);font-size:.88rem;font-weight:500;transition:all .15s;position:relative}
@@ -4472,6 +4475,9 @@ input, select { font-size:16px; min-height:48px; }
 .status-SOLD { background:rgba(59,130,246,0.18); color:#93c5fd; border:1px solid rgba(59,130,246,0.35); }
 .status-CANCELED { background:rgba(100,116,139,0.20); color:#cbd5e1; border:1px solid rgba(100,116,139,0.35); }
 .status-REDEEMED { background:rgba(168,85,247,0.20); color:#d8b4fe; border:1px solid rgba(168,85,247,0.35); }
+.cert-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:9999px; font-size:10px; font-weight:800; letter-spacing:0.03em; margin-top:4px; }
+.cert-gold { background:rgba(245,158,11,0.18); color:#fcd34d; border:1px solid rgba(245,158,11,0.35); }
+.cert-review { background:rgba(100,116,139,0.20); color:#cbd5e1; border:1px solid rgba(100,116,139,0.35); }
 input[type=range] { accent-color:#f59e0b; }
 </style>
 </head>
@@ -4488,6 +4494,7 @@ input[type=range] { accent-color:#f59e0b; }
     </div>
   </div>
   <div class="px-4 pb-2 text-[11px] text-slate-400">🏠 COUNTY_TITLE auctions · <b class="text-emerald-400" x-text="matchCountByStatus('LISTED')"></b> listed · <b class="text-blue-400" x-text="matchCountByStatus('SOLD')"></b> sold · <b class="text-slate-400" x-text="matchCountByStatus('CANCELED')"></b> canceled</div>
+  <div class="px-4 pb-2"><span class="cert-badge COUNTY_CERT_BADGE_CLASS">COUNTY_CERT_BADGE_TEXT</span></div>
 
   <div class="px-3 pb-3 flex gap-2 overflow-x-auto scroll-h">
     <button @click="clearPersona()" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border" :class="!activePersona ? 'bg-amber-500 text-slate-900 border-amber-500 font-bold' : 'bg-slate-800/60 border-slate-700 text-slate-300'">All <span x-text="deals.length"></span></button>
@@ -5432,10 +5439,10 @@ h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:
 .upsell-cta.ghost:hover{border-color:var(--orange);color:#fff}
 
 /* PRICING */
-.pricing-band{padding:5rem 2rem;background:var(--navy)}
-.pricing-inner{max-width:900px;margin:0 auto}
-.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.25rem;margin-top:2.5rem}
-.price-card{background:var(--charcoal);border:1px solid var(--divider);border-radius:14px;padding:28px;position:relative}
+.pricing-band{padding:6.5rem 2rem;background:var(--navy)}
+.pricing-inner{max-width:960px;margin:0 auto}
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.75rem;margin-top:3.5rem}
+.price-card{background:var(--charcoal);border:1px solid var(--divider);border-radius:14px;padding:36px 32px;position:relative}
 .price-card.featured{border:2px solid var(--orange)}
 .popular-chip{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--orange);color:var(--navy);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:4px 14px;border-radius:999px;white-space:nowrap}
 .price-tier{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);margin-bottom:8px}
@@ -5513,8 +5520,9 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   .county-select{font-size:16px;padding:14px 18px;border-radius:14px}
 
   /* PRICING */
-  .pricing-band{padding:3rem 1.25rem}
-  .pricing-grid{grid-template-columns:1fr;gap:1.25rem}
+  .pricing-band{padding:3.5rem 1.25rem}
+  .pricing-grid{grid-template-columns:1fr;gap:1.5rem}
+  .price-card{padding:26px 24px}
   /* Put Investor (featured) card first visually */
   .price-card.featured{order:-1}
   .price-amount{font-size:32px}
