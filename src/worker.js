@@ -5323,15 +5323,20 @@ nav{position:sticky;top:0;z-index:100;background:rgba(11,25,41,0.92);backdrop-fi
 .nav-cta:hover{background:var(--orange-hover)}
 
 /* HERO */
-.hero{padding:5.5rem 2rem 4.5rem;text-align:center;max-width:860px;margin:0 auto}
+.hero{padding:4.5rem 2rem 4rem;text-align:center;max-width:860px;margin:0 auto}
 .eyebrow{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--orange);margin-bottom:1.25rem}
 h1{font-size:clamp(2.2rem,5.5vw,3.25rem);font-weight:800;color:#fff;line-height:1.12;letter-spacing:-.03em;margin-bottom:1.25rem}
-.hero-sub{font-size:17px;color:var(--slate);max-width:580px;margin:0 auto 2.25rem;line-height:1.7}
+.hero-sub{font-size:17px;color:var(--slate);max-width:600px;margin:0 auto 1.25rem;line-height:1.7}
+.hero-cred{font-size:13px;font-weight:600;color:var(--slate-dim);margin-bottom:1.25rem}
+.hero-cred b{color:var(--gold);font-weight:700}
+.hero-artifact{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;background:var(--charcoal);border:1px solid var(--divider);border-radius:10px;padding:10px 18px;margin-bottom:1.75rem;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--slate)}
+.hero-artifact b{color:var(--orange);font-size:13px}
+.hero-artifact .res{color:var(--green)}
 .hero-ctas{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
-.btn-solid{background:var(--orange);color:var(--navy);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:700;transition:background .15s;display:inline-block}
+.btn-solid{background:var(--orange);color:var(--navy);padding:16px 34px;border-radius:999px;font-size:16px;font-weight:800;transition:background .15s;display:inline-block}
 .btn-solid:hover{background:var(--orange-hover)}
-.btn-outline{border:1px solid var(--slate);color:var(--body-text);padding:14px 28px;border-radius:999px;font-size:15px;font-weight:600;transition:border-color .15s,color .15s;display:inline-block}
-.btn-outline:hover{border-color:var(--orange);color:#fff}
+.btn-outline{border:1px solid var(--slate);color:var(--body-text);padding:12px 24px;border-radius:999px;font-size:14px;font-weight:600;transition:border-color .15s,color .15s;display:inline-block;opacity:.85}
+.btn-outline:hover{border-color:var(--orange);color:#fff;opacity:1}
 
 /* PROOF BAND */
 .proof-band{background:var(--navy-band);padding:5rem 2rem}
@@ -5467,15 +5472,19 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   nav{padding:0 1rem}
   .nav-i{flex-wrap:wrap;height:auto;padding:10px 0;gap:6px}
   .nav-links{display:none}
+  .nav-free-link{display:none}
   .logo{font-size:16px}
   .nav-cta{order:3;width:100%;text-align:center;padding:12px 0;font-size:14px;border-radius:999px;margin-bottom:4px}
 
   /* HERO */
-  .hero{padding:3rem 1.25rem 2.5rem}
-  h1{font-size:clamp(1.85rem,8vw,2.4rem)}
-  .hero-sub{font-size:15px}
+  .hero{padding:1.75rem 1.25rem 2rem}
+  .eyebrow{margin-bottom:.75rem}
+  h1{font-size:clamp(1.7rem,7.5vw,2.4rem);margin-bottom:.75rem}
+  .hero-sub{font-size:14.5px;margin-bottom:.85rem}
+  .hero-cred{font-size:12px;margin-bottom:.85rem}
+  .hero-artifact{font-size:11px;padding:8px 14px;margin-bottom:1.1rem}
   .hero-ctas{flex-direction:column;gap:10px;align-items:stretch}
-  .btn-solid,.btn-outline{display:block;width:100%;text-align:center;padding:16px 20px;font-size:15px;min-height:52px}
+  .btn-solid,.btn-outline{display:block;width:100%;text-align:center;padding:16px 20px;font-size:15px;min-height:52px;opacity:1}
 
   /* PROOF SECTION */
   .proof-band{padding:3rem 1.25rem}
@@ -5565,6 +5574,7 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
       <a href="/counties">All Counties</a>
       <a href="/blog">Blog</a>
     </div>
+    <a href="#lead" class="nav-free-link" style="color:var(--slate-dim);font-size:13px;font-weight:600;margin-right:.5rem;white-space:nowrap">Check your county free</a>
     <a class="nav-cta" href="/buy-report">GET A REPORT — $25</a>
   </div>
 </nav>
@@ -5573,11 +5583,14 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
 <section class="hero">
   <div class="eyebrow">Shapira Auction Intelligence · Florida Foreclosure &amp; Tax Deed</div>
   <h1>Know your walk-away number<br>before the gavel falls.</h1>
-  <p class="hero-sub">One $25 report gives you the Shapira Max Bid, the value bands, the rehab budget, the lien flags, and an ML read on who else shows up — 18 sections, every number traced to a named source.</p>
+  <p class="hero-sub">BidDeed.AI is the only platform that tells you what's coming to auction, what to bid, and what the zoning allows.</p>
+  <div class="hero-cred">67 FL counties tracked · <b>⭐ GOLD_COUNT_PLACEHOLDER Gold Standard certified</b></div>
+  <div class="hero-artifact">Real case · Marion County: Shapira Max Bid <b>$82,000</b> <span class="res">→ sale closed $73,501 · ceiling held ✓</span></div>
   <div class="hero-ctas">
-    <a class="btn-solid" href="#report">See a live sample report →</a>
-    <a class="btn-outline" href="#proof">Watch the formula hold ↓</a>
+    <a class="btn-solid" href="#lead">Check Your County Free →</a>
+    <a class="btn-outline" href="#report">See a live sample report →</a>
   </div>
+  <div style="font-size:12px;color:var(--slate-dim);margin-top:.85rem">No credit card required</div>
 </section>
 
 <!-- FORMULA IN ACTION -->
