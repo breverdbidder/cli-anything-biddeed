@@ -242,9 +242,12 @@ async function computeShapiraCeiling(auction, county, arv, sellProb, propertyTyp
 
 async function scoreModel(auction, county, deps) {
   const countyEncoding = await computeCountyTargetEncoding(county, deps).catch(() => null);
-  const { array, byName } = buildFeatureVector(auction, countyEncoding);
+  const { byName, v4Array } = buildFeatureVector(auction, countyEncoding);
   try {
-    const result = await predictEnsemble(array, deps);
+    // FIX (issue #19079, Aug 14 2026): pass v4Array (the exact 13 features
+    // the deployed V4 model was actually trained on), not the full 21-name
+    // reconstructed array - see feature-vector.js for the full story.
+    const result = await predictEnsemble(v4Array, deps);
     return {
       available: true,
       ...result,
