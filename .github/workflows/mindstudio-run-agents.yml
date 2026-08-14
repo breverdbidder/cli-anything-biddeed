@@ -1,0 +1,43 @@
+name: MindStudio Agent Runner (Acquisition Sprint)
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: "Which agent: 3=scorer, 1=broadcaster, both=3 then 1"
+        required: false
+        default: "both"
+      agent3_app_id:
+        description: "MindStudio appId for Agent 3 (scorer)"
+        required: false
+        default: ""
+      agent1_app_id:
+        description: "MindStudio appId for Agent 1 (broadcaster)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  run-agents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check agent publish status
+        env:
+          MINDSTUDIO_API_KEY: ${{ secrets.MINDSTUDIO_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/mindstudio_agent_check.py
+
+      - name: Run agents
+        env:
+          MINDSTUDIO_API_KEY: ${{ secrets.MINDSTUDIO_API_KEY }}
+          MINDSTUDIO_AGENT3_APP_ID: ${{ github.event.inputs.agent3_app_id }}
+          MINDSTUDIO_AGENT1_APP_ID: ${{ github.event.inputs.agent1_app_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python scripts/mindstudio_run_agents.py --agent ${{ github.event.inputs.agent }}
