@@ -3,6 +3,9 @@ name: MindStudio Agent Runner (Acquisition Sprint)
 # Runs Agent 3 (scorer) against lead_profiles, then Agent 1 (broadcaster).
 # Requires MINDSTUDIO_API_KEY secret already provisioned (set-mindstudio-gh-secret.yml).
 # Reports real pass/fail to public.insights (anomaly_type=acquisition_sprint_daily).
+#
+# DEPLOY: scripts/push_workflows_via_pat.py pushes this to .github/workflows/
+#         (requires EVEREST_GH_PAT with workflow scope)
 
 on:
   workflow_dispatch:

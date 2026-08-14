@@ -2,23 +2,24 @@
 """
 Push workflow files to .github/workflows/ using everest_gh_pat from Supabase vault.
 
-This script is designed to run in cc-runner-ghonly.yml context where
-SUPABASE_ACCESS_TOKEN and SUPABASE_SERVICE_ROLE_KEY are available.
+Designed to run in cc-runner-ghonly.yml context where SUPABASE_ACCESS_TOKEN,
+SUPABASE_SERVICE_ROLE_KEY, and GH_TOKEN (GH_PAT_FULL) are available.
 
 Per CLAUDE.md GTM-22D credential handling:
 - Fetches everest_gh_pat via cli_anything_get_secret() (SECURITY DEFINER, allow-listed)
+- Falls back to GH_TOKEN env var if vault fetch unavailable
 - Masks immediately with ::add-mask:: before any use
 - Never prints raw value to logs
 
 Usage (from cc-runner-ghonly.yml):
   python scripts/push_workflows_via_pat.py
 
-Env required:
-  SUPABASE_URL            - Supabase REST endpoint
-  SUPABASE_SERVICE_ROLE_KEY - Service role key (for cli_anything_get_secret RPC)
-  SUPABASE_ACCESS_TOKEN   - Management API token (for vault_secret fallback)
+Env options (tried in order):
+  GH_TOKEN                  - Direct PAT (GH_PAT_FULL in cc-runner-ghonly.yml)
+  SUPABASE_SERVICE_ROLE_KEY - For cli_anything_get_secret() RPC (preferred vault path)
+  SUPABASE_ACCESS_TOKEN     - Mgmt API fallback for vault_secret()
 
-Files pushed to main:
+Files pushed to main (sourced from docs/workflows/):
   .github/workflows/set-mindstudio-gh-secret.yml
   .github/workflows/mindstudio-run-agents.yml
 """
@@ -144,46 +145,62 @@ def read_file(path: str) -> str:
 
 
 def main():
-    print("[push_workflows_via_pat] Fetching everest_gh_pat from vault...")
-
     pat = ""
-    try:
-        pat = fetch_pat_via_rpc()
-        if pat:
-            print("[INFO] PAT fetched via cli_anything_get_secret() RPC")
-    except Exception as e:
-        print(f"[WARN] RPC fetch failed ({e}), trying Management API fallback...")
+
+    gh_token = os.environ.get("GH_TOKEN", "")
+    if gh_token:
+        pat = gh_token
+        print(f"::add-mask::{pat}", flush=True)
+        print("[INFO] Using GH_TOKEN directly (cc-runner-ghonly.yml path)")
+
+    if not pat:
+        print("[push_workflows_via_pat] Fetching everest_gh_pat from vault...")
+        try:
+            pat = fetch_pat_via_rpc()
+            if pat:
+                print(f"::add-mask::{pat}", flush=True)
+                print("[INFO] PAT fetched via cli_anything_get_secret() RPC")
+        except Exception as e:
+            print(f"[WARN] RPC fetch failed ({e}), trying Management API fallback...")
 
     if not pat:
         try:
             pat = fetch_pat_via_mgmt_api()
             if pat:
+                print(f"::add-mask::{pat}", flush=True)
                 print("[INFO] PAT fetched via Supabase Management API")
         except Exception as e:
             print(f"[ERROR] Management API fallback also failed: {e}")
 
     if not pat:
-        print("::error::Could not fetch everest_gh_pat from vault — check vault contents and credentials")
+        print("::error::No PAT available — set GH_TOKEN or ensure vault has everest_gh_pat")
         sys.exit(1)
 
-    print(f"::add-mask::{pat}", flush=True)
-    print("[INFO] PAT masked. Pushing workflow files...")
+    print("[INFO] PAT ready. Pushing workflow files...")
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     files_to_push = [
-        (".github/workflows/set-mindstudio-gh-secret.yml", "deploy: add set-mindstudio-gh-secret.yml workflow (acquisition sprint #19079)"),
-        (".github/workflows/mindstudio-run-agents.yml", "deploy: add mindstudio-run-agents.yml workflow (acquisition sprint #19079)"),
+        (
+            "docs/workflows/set-mindstudio-gh-secret.yml",
+            ".github/workflows/set-mindstudio-gh-secret.yml",
+            "deploy: add set-mindstudio-gh-secret.yml workflow (acquisition sprint #19079)",
+        ),
+        (
+            "docs/workflows/mindstudio-run-agents.yml",
+            ".github/workflows/mindstudio-run-agents.yml",
+            "deploy: add mindstudio-run-agents.yml workflow (acquisition sprint #19079)",
+        ),
     ]
 
     all_ok = True
-    for rel_path, commit_msg in files_to_push:
-        local_path = os.path.join(repo_root, rel_path)
-        if not os.path.exists(local_path):
-            print(f"[ERROR] Local file not found: {local_path}")
+    for src_rel, dst_rel, commit_msg in files_to_push:
+        src_path = os.path.join(repo_root, src_rel)
+        if not os.path.exists(src_path):
+            print(f"[ERROR] Local file not found: {src_path}")
             all_ok = False
             continue
-        content = read_file(local_path)
-        ok = push_file(pat, rel_path, content, commit_msg)
+        content = read_file(src_path)
+        ok = push_file(pat, dst_rel, content, commit_msg)
         if not ok:
             all_ok = False
 
