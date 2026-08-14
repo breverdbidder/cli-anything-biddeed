@@ -2662,8 +2662,8 @@ function buildPioneersPage() {
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Pioneer Program — BidDeed.AI</title>
-<meta name="description" content="Be one of the first 100 BidDeed.AI Pioneers. Join the waitlist for early access and founding-customer pricing.">
+<title>Pioneer Program — BidDeed.AI — $990/yr</title>
+<meta name="description" content="Join BidDeed.AI as a founding Pioneer for $990/yr. Full Investor tier access to all 67 FL counties, Shapira Max Bid formula, and ZoneWise zoning.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
