@@ -202,6 +202,7 @@ def send_email(to_email, to_name, county, county_slug, dry_run=False):
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": "BidDeedAI-AcquisitionSprint/1.0",
         },
         method="POST",
     )
