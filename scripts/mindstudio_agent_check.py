@@ -78,6 +78,7 @@ def main():
         print(f"[BLOCKER] {blocker}")
         supabase_insert("insights", {
             "anomaly_type": "acquisition_sprint_daily",
+            "sale_type": "acquisition_sprint",
             "description": json.dumps({
                 "step": "mindstudio_agent_check",
                 "status": "BLOCKED",
@@ -93,6 +94,7 @@ def main():
         print(f"[ERROR] Could not fetch MindStudio apps: {err}")
         supabase_insert("insights", {
             "anomaly_type": "acquisition_sprint_daily",
+            "sale_type": "acquisition_sprint",
             "description": json.dumps({
                 "step": "mindstudio_agent_check",
                 "status": "ERROR",
@@ -141,6 +143,7 @@ def main():
 
     supabase_insert("insights", {
         "anomaly_type": "acquisition_sprint_daily",
+        "sale_type": "acquisition_sprint",
         "description": json.dumps({
             "step": "mindstudio_agent_check",
             "status": "COMPLETED",
