@@ -1411,6 +1411,26 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
 `;
 
       if (path === '/terms' || path === '/tos') return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/unsubscribe') {
+        const uEmail = (url.searchParams.get('email') || '').trim();
+        let uMsg = 'No email address provided.';
+        let uOk = false;
+        if (uEmail && uEmail.includes('@')) {
+          try {
+            const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_lead_consent`, {
+              method: 'POST',
+              headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ p_email: uEmail, p_marketing_consent: false, p_source: 'unsubscribe_link' })
+            });
+            uOk = rpcRes.ok;
+            uMsg = uOk ? 'You have been unsubscribed and will not receive further marketing emails from BidDeed.AI.' : 'Something went wrong processing your request. Please reply to any BidDeed.AI email and we will remove you manually.';
+          } catch (e) {
+            uMsg = 'Something went wrong processing your request. Please reply to any BidDeed.AI email and we will remove you manually.';
+          }
+        }
+        const uHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Unsubscribed — BidDeed.AI</title><style>body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem}.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:16px;padding:2rem;max-width:440px;text-align:center}h1{color:white;font-size:1.3rem;margin-bottom:.75rem}p{color:#94a3b8;font-size:.9rem;line-height:1.5}a{color:#f59e0b}</style></head><body><div class="card"><h1>${uOk ? 'Unsubscribed' : 'Request received'}</h1><p>${uMsg}</p><p style="margin-top:1rem"><a href="/">Return to BidDeed.AI</a></p></div></body></html>`;
+        return new Response(uHtml, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+      }
       if (path === '/privacy')                  return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/section18-teaser')           return new Response(SECTION18_TEASER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/disclaimer')                return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
