@@ -29,7 +29,40 @@ const MODAL_URL       = 'https://brevardbidderai--biddeed-ensemble-scorer-serve.
 const MODAL_TIMEOUT   = 8000;
 const EDGE_TIMEOUT    = 6000;
 
-function getWorkerSecret() {
+let _workerSecret = null;
+
+// FIX (issue #19079, Aug 14 2026, second pass): stop trusting the Vercel
+// env var for this secret at all - resolve it from the vault via the same
+// SECURITY DEFINER RPC used for the service key. This is deliberately more
+// aggressive than the service-key fix (which kept env as a fallback):
+// Modal itself was just resynced to a FRESH secret value stored only in
+// the vault + GitHub Actions, so the old Vercel env var copy is now known
+// to be stale/wrong, not just unverified. Falling back to it would silently
+// reintroduce the auth failure.
+async function getWorkerSecret() {
+  if (_workerSecret) return _workerSecret;
+  const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
+  const envKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
+      method: 'POST',
+      headers: {
+        apikey: envKey,
+        Authorization: `Bearer ${envKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_name: 'ensemble_worker_secret' }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data === 'string' && data) {
+        _workerSecret = data;
+        return _workerSecret;
+      }
+    }
+  } catch (_) { /* fall through */ }
+  // Last-resort fallback only if the vault call itself fails outright
+  // (network error, RPC missing) - never silently prefers env over vault.
   return process.env.ENSEMBLE_WORKER_SECRET || '';
 }
 
@@ -75,7 +108,7 @@ function withTimeout(promise, ms, label) {
 
 // ── PRIMARY: Modal V4 pkl ensemble ──────────────────────────────────────────
 async function runModal(x) {
-  const secret = getWorkerSecret();
+  const secret = await getWorkerSecret();
   if (!secret) throw new Error('ENSEMBLE_WORKER_SECRET not set');
 
   const res = await fetch(MODAL_URL, {
