@@ -26,7 +26,7 @@
 
 const MODEL_VERSION   = 'v4.0-20260802-015242';
 const MODAL_URL       = 'https://brevardbidderai--biddeed-ensemble-scorer-serve.modal.run/score';
-const MODAL_TIMEOUT   = 8000;
+const MODAL_TIMEOUT   = 15000; // raised from 8000ms Aug 14 2026 - direct probe confirmed Modal responds correctly once warm/authed, but the fixed secret fetch (vault RPC) adds latency of its own before the Modal call even starts, so the original 8s budget was too tight end-to-end
 const EDGE_TIMEOUT    = 6000;
 
 let _workerSecret = null;
