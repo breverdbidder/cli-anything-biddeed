@@ -154,6 +154,91 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
   return jsonRes({ url: session.url, session_id: session.id });
 }
 
+const COLD_SUCCESS_URL = "https://biddeed.ai/success";
+const COLD_CANCEL_URL = "https://biddeed.ai/subscribe";
+
+async function handleColdCheckout(body: any): Promise<Response> {
+  const { tier, customer_email: customerEmail, interval: billingInterval, referral_code: referralCode } = body;
+  if (!SELLABLE_TIERS.includes(tier)) {
+    return jsonRes({ error: `tier must be one of: ${SELLABLE_TIERS.join(", ")}` }, 400);
+  }
+  if (!customerEmail || typeof customerEmail !== "string") {
+    return jsonRes({ error: "customer_email required" }, 400);
+  }
+  const useAnnual = billingInterval === "annual";
+
+  const { data: productRows, error: productErr } = await supabase
+    .from("stripe_products")
+    .select("stripe_price_id_monthly, stripe_price_id_annual")
+    .eq("tier_id", tier)
+    .limit(1);
+
+  const priceId = useAnnual
+    ? productRows?.[0]?.stripe_price_id_annual
+    : productRows?.[0]?.stripe_price_id_monthly;
+
+  if (productErr || !priceId) {
+    return jsonRes({ error: `no ${useAnnual ? "annual" : "monthly"} price configured for tier '${tier}'` }, 500);
+  }
+
+  const stripeKey = await resolveStripeKey();
+  if (!stripeKey) {
+    return jsonRes({ error: "stripe key not configured (vault + env both empty)" }, 503);
+  }
+
+  const sessionId = `cold_${Date.now()}`;
+  const successUrl = `${COLD_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`;
+
+  const params = new URLSearchParams({
+    mode: "subscription",
+    "line_items[0][price]": priceId,
+    "line_items[0][quantity]": "1",
+    customer_email: customerEmail,
+    success_url: successUrl,
+    cancel_url: COLD_CANCEL_URL,
+    "metadata[tier_id]": tier,
+    "metadata[billing_interval]": useAnnual ? "annual" : "monthly",
+    "metadata[customer_email]": customerEmail,
+    "metadata[product]": "cold_subscription",
+    allow_promotion_codes: "true",
+  });
+  if (referralCode && typeof referralCode === "string") {
+    params.set("metadata[referral_code]", referralCode);
+  }
+
+  const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${stripeKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+
+  if (!stripeRes.ok) {
+    const errText = await stripeRes.text();
+    console.error("cold checkout.sessions.create failed:", stripeRes.status, errText.slice(0, 300));
+    return jsonRes({ error: "stripe session creation failed" }, 502);
+  }
+
+  const session = await stripeRes.json();
+
+  const { error: insertErr } = await supabase.from("stripe_checkout_sessions").insert({
+    session_id: session.id,
+    customer_id: customerEmail,
+    tier_id: tier,
+    billing_interval: useAnnual ? "annual" : "monthly",
+    amount_usd: session.amount_total != null ? session.amount_total / 100 : null,
+    status: "pending",
+    expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+  }).catch((e: Error) => {
+    console.error("stripe_checkout_sessions insert failed (non-fatal):", e.message);
+    return { error: null };
+  });
+
+  return jsonRes({ url: session.url, session_id: session.id });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS });
@@ -171,6 +256,10 @@ Deno.serve(async (req: Request) => {
 
   if (body.tier === "s5_onetime") {
     return handleS5OnetimeCheckout(body);
+  }
+
+  if (!body.api_key && body.customer_email) {
+    return handleColdCheckout(body);
   }
 
   const { api_key: apiKey, tier } = body;

@@ -1423,12 +1423,19 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/subscribe') {
         const tier = url.searchParams.get('tier') || 'investor';
         const safeTier = tier.replace(/[^a-z0-9_-]/gi, '');
+        const intervalParam = url.searchParams.get('interval') || 'monthly';
+        const safeInterval = intervalParam === 'annual' ? 'annual' : 'monthly';
         const isPro = safeTier === 'pro' || safeTier === 'proplus';
         const tierLabel = isPro ? 'Pro' : 'Investor';
         const tierPrice = isPro ? '$199' : '$99';
+        const annualPrice = isPro ? '$1,990' : '$990';
         const html = SUBSCRIBE_HTML
           .replace(/TIER_LABEL_PLACEHOLDER/g, tierLabel)
           .replace(/TIER_PRICE_PLACEHOLDER/g, tierPrice)
+          .replace(/ANNUAL_PRICE_PLACEHOLDER/g, annualPrice)
+          .replace('INTERVAL_PLACEHOLDER_monthly_active', safeInterval === 'monthly' ? 'active' : '')
+          .replace('INTERVAL_PLACEHOLDER_annual_active', safeInterval === 'annual' ? 'active' : '')
+          .replace(/INTERVAL_PLACEHOLDER/g, safeInterval)
           .replace(/TIER_PLACEHOLDER/g, safeTier);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
@@ -1442,7 +1449,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/subscribe/checkout' && method === 'POST') {
         let body = {};
         try { body = await request.json(); } catch(_) {}
-        const { tier, customer_email, referral_code } = body;
+        const { tier, customer_email, referral_code, interval } = body;
         if (!tier || !['investor','pro','proplus'].includes(tier)) {
           return new Response(JSON.stringify({ error: 'valid tier required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
@@ -1452,6 +1459,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         try {
           const checkoutBody = { tier, customer_email };
           if (referral_code && typeof referral_code === 'string') checkoutBody.referral_code = referral_code;
+          if (interval === 'annual') checkoutBody.interval = 'annual';
           const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2693,22 +2701,18 @@ footer a{color:var(--muted);text-decoration:none}
   <a href="/" class="logo">BidDeed<span>.AI</span></a>
 </div></nav>
 <div class="wrap">
-  <div class="ey">PIONEER PROGRAM · WAITLIST OPEN</div>
-  <h1>Be one of the first 100 BidDeed.AI Pioneers</h1>
-  <p class="sub">We're building a founding-customer program for the first 100 people who believe in what we're building. Join the waitlist to be first in line when it opens — no payment, no commitment, just early access.</p>
-
-  <div class="card">
-    <h3>What we're planning</h3>
-    <p>Founding-customer pricing on the Investor tier, priority access to new counties and features as they ship, and direct input into the product roadmap. Full program details — including any equity or ownership component under consideration — will be finalized and disclosed before enrollment opens.</p>
-  </div>
+  <div class="ey">PIONEER PROGRAM · SPOTS OPEN — $990/yr</div>
+  <h1>BidDeed.AI Pioneer — $990/yr</h1>
+  <p class="sub">Founding-customer rate for the Investor tier. <strong>$990/year</strong> — saves $198 vs monthly. 67 counties, unlimited queries, lien alerts, Shapira formula. Cancel any time.</p>
 
   <div class="card" style="border-color:rgba(245,158,11,.3)">
-    <h3>Refer someone, you both win</h3>
-    <p>Once you're subscribed, share your personal link. When someone you refer subscribes and stays a full billing cycle, you <strong>both</strong> get a free month — no cap, one free month per new customer you bring in.</p>
+    <h3>What you get</h3>
+    <p>Full Investor tier access — live auction data for all 67 FL counties, Shapira Max Bid formula, ZoneWise zoning, lien trap alerts. Priority support. Direct input into the roadmap as a founding customer.</p>
   </div>
 
-  <div class="notice">
-    <strong>This page is a waitlist only.</strong> No payment is collected here and nothing about the final program terms is confirmed yet — including whether an equity component will be part of it. We want to get this right before anyone joins, so we're finalizing the structure first. Join the list and we'll email you the full details as soon as they're ready.
+  <div class="card">
+    <h3>Refer someone, you both win</h3>
+    <p>Once subscribed, share your referral link. When someone subscribes and stays a full billing cycle, you <strong>both</strong> get a free month — no cap.</p>
   </div>
 
   <form id="pioneer-form">
@@ -2716,14 +2720,16 @@ footer a{color:var(--muted);text-decoration:none}
     <input type="text" id="p-name" name="name" placeholder="Your name">
     <label for="p-email">Email</label>
     <input type="email" id="p-email" name="email" placeholder="you@example.com" required>
-    <button type="submit" id="p-btn">Join the Waitlist</button>
+    <button type="submit" id="p-btn">Pioneer Investor — $990/yr →</button>
     <div class="msg" id="p-msg"></div>
+    <p style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.5">Annual subscription, billed once at $990. You'll be redirected to Stripe secure checkout. Cancel any time. Not legal or financial advice — see <a href="/disclaimer" style="color:#64748b">disclaimer</a>.</p>
     <div class="lead-box" id="p-referral-box" style="display:none;margin-top:1rem">
       <h3 style="font-size:.95rem">Your referral link</h3>
       <p style="font-size:.85rem">Share this — when someone subscribes through it and sticks around a full billing cycle, you both get a free month.</p>
       <input type="text" id="p-referral-link" readonly style="width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;color:white;font-size:13px;margin-top:.5rem">
     </div>
   </form>
+  <div style="text-align:center;margin-top:1rem"><a href="/subscribe?tier=investor" style="font-size:13px;color:#94a3b8">Prefer monthly? $99/mo →</a></div>
 </div>
 <footer>
   <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
@@ -2735,36 +2741,28 @@ document.getElementById('pioneer-form').addEventListener('submit', async functio
   var btn = document.getElementById('p-btn');
   var msg = document.getElementById('p-msg');
   var email = document.getElementById('p-email').value.trim();
-  var name = document.getElementById('p-name').value.trim();
   msg.textContent = ''; msg.className = 'msg';
-  btn.disabled = true; btn.textContent = 'Joining...';
+  btn.disabled = true; btn.textContent = 'Redirecting to checkout...';
   try {
-    var joinPayload = { email: email, name: name };
-    if (pRefCode) { joinPayload.referred_by = pRefCode; }
-    var res = await fetch('/pioneers/join', {
+    var checkoutPayload = { tier: 'investor', customer_email: email, interval: 'annual' };
+    if (pRefCode) { checkoutPayload.referral_code = pRefCode; }
+    var res = await fetch('/subscribe/checkout', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(joinPayload)
+      body: JSON.stringify(checkoutPayload)
     });
     var data = await res.json();
-    if (res.ok && data.ok) {
-      msg.textContent = "You're on the list — check your email for confirmation.";
-      msg.className = 'msg ok';
-      btn.textContent = 'Joined ✓';
-      if (data.referral_link) {
-        document.getElementById('p-referral-link').value = data.referral_link;
-        document.getElementById('p-referral-box').style.display = 'block';
-      }
+    if (res.ok && data.url) {
+      window.location.href = data.url;
     } else {
       msg.textContent = data.error || 'Something went wrong. Please try again.';
-
       msg.className = 'msg err';
-      btn.disabled = false; btn.textContent = 'Join the Waitlist';
+      btn.disabled = false; btn.textContent = 'Pioneer Investor — $990/yr →';
     }
   } catch (err) {
     msg.textContent = 'Network error. Please try again.';
     msg.className = 'msg err';
-    btn.disabled = false; btn.textContent = 'Join the Waitlist';
+    btn.disabled = false; btn.textContent = 'Pioneer Investor — $990/yr →';
   }
 });
 </script>
@@ -4008,30 +4006,38 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 const SUBSCRIBE_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Subscribe — BidDeed.AI TIER_LABEL_PLACEHOLDER</title>
-<meta name="description" content="Subscribe to BidDeed.AI TIER_LABEL_PLACEHOLDER — TIER_PRICE_PLACEHOLDER/mo.">
+<meta name="description" content="Subscribe to BidDeed.AI TIER_LABEL_PLACEHOLDER — TIER_PRICE_PLACEHOLDER/mo or ANNUAL_PRICE_PLACEHOLDER/yr.">
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem}
-.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:440px;width:100%}
+.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:460px;width:100%}
 h1{font-size:1.4rem;color:white;margin-bottom:.4rem}
-.price{color:#f59e0b;font-weight:700;font-size:1rem;margin-bottom:1.25rem}
-p.sub{color:#94a3b8;font-size:.9rem;margin-bottom:1.5rem;line-height:1.5}
+.price{color:#f59e0b;font-weight:700;font-size:1rem;margin-bottom:1rem}
+p.sub{color:#94a3b8;font-size:.9rem;margin-bottom:1.25rem;line-height:1.5}
 label{display:block;font-size:.85rem;color:#cbd5e1;margin-bottom:.4rem}
-input{width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;color:white;font-size:15px;margin-bottom:1.25rem;outline:none}
-input:focus{border-color:#f59e0b}
-button{width:100%;background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;border:none;padding:14px;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer}
-button:disabled{opacity:.6;cursor:default}
+input[type=email]{width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;color:white;font-size:15px;margin-bottom:1.25rem;outline:none}
+input[type=email]:focus{border-color:#f59e0b}
+.interval-toggle{display:flex;gap:8px;margin-bottom:1.25rem}
+.interval-btn{flex:1;padding:10px;border-radius:8px;border:1px solid #1e293b;background:#020617;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;text-align:center;transition:all .15s}
+.interval-btn.active{border-color:#f59e0b;background:rgba(245,158,11,.1);color:#f59e0b}
+.save-badge{display:inline-block;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.4);color:#10b981;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-left:6px}
+button.cta{width:100%;background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;border:none;padding:14px;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer}
+button.cta:disabled{opacity:.6;cursor:default}
 .err{color:#f87171;font-size:.85rem;margin-top:.75rem;display:none}
 </style></head><body>
 <div class="card">
   <h1>BidDeed.AI TIER_LABEL_PLACEHOLDER</h1>
-  <div class="price">TIER_PRICE_PLACEHOLDER/mo</div>
-  <p class="sub">Enter your email to continue to secure checkout. You'll be redirected to Stripe to complete payment.</p>
+  <div class="price" id="price-display">TIER_PRICE_PLACEHOLDER/mo</div>
+  <p class="sub">Enter your email to continue to secure checkout. Redirected to Stripe — no card stored here.</p>
+  <div class="interval-toggle">
+    <div class="interval-btn INTERVAL_PLACEHOLDER_monthly_active" id="btn-monthly" onclick="setInterval('monthly')">Monthly<br><span style="font-weight:400;font-size:12px">TIER_PRICE_PLACEHOLDER/mo</span></div>
+    <div class="interval-btn INTERVAL_PLACEHOLDER_annual_active" id="btn-annual" onclick="setInterval('annual')">Annual — Pioneer<br><span style="font-weight:400;font-size:12px">ANNUAL_PRICE_PLACEHOLDER/yr</span><span class="save-badge">Save $198</span></div>
+  </div>
   <form id="sub-form">
     <label for="sub-email">Email</label>
     <input type="email" id="sub-email" placeholder="you@example.com" required>
-    <button type="submit" id="sub-btn">Continue to Checkout →</button>
+    <button type="submit" class="cta" id="sub-btn">Continue to Checkout →</button>
     <div class="err" id="sub-err"></div>
   </form>
   <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:14px">Not ready to pay? <a href="/free-report" style="color:#f59e0b;font-weight:600">Try 67 counties free — no card required →</a></div>
@@ -4039,14 +4045,22 @@ button:disabled{opacity:.6;cursor:default}
 <script>
 try{if(window.posthog)posthog.capture('subscribe_page_viewed',{tier:'TIER_PLACEHOLDER'});}catch(e){}
 var refCode = new URLSearchParams(window.location.search).get('ref');
+var selectedInterval = 'INTERVAL_PLACEHOLDER';
+function setInterval(iv){
+  selectedInterval=iv;
+  document.getElementById('btn-monthly').className='interval-btn'+(iv==='monthly'?' active':'');
+  document.getElementById('btn-annual').className='interval-btn'+(iv==='annual'?' active':'');
+  document.getElementById('price-display').textContent=iv==='annual'?'ANNUAL_PRICE_PLACEHOLDER/yr (Pioneer)':'TIER_PRICE_PLACEHOLDER/mo';
+}
+setInterval(selectedInterval);
 document.getElementById('sub-form').addEventListener('submit', async function(e){
   e.preventDefault();
   var btn=document.getElementById('sub-btn'), err=document.getElementById('sub-err');
   var email=document.getElementById('sub-email').value.trim();
   err.style.display='none';
   btn.disabled=true; btn.textContent='Redirecting to checkout...';
-  try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER'});}catch(e2){}
-  var checkoutPayload={tier:'TIER_PLACEHOLDER',customer_email:email};
+  try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER',interval:selectedInterval});}catch(e2){}
+  var checkoutPayload={tier:'TIER_PLACEHOLDER',customer_email:email,interval:selectedInterval};
   if(refCode){ checkoutPayload.referral_code=refCode; }
   fetch('/subscribe/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(checkoutPayload)})
     .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })

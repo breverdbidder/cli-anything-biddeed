@@ -1,0 +1,142 @@
+# Copy to .github/workflows/acquisition-sprint.yml to activate
+# Runs daily cold email + daily report. Manual trigger for first send.
+
+name: Acquisition Sprint
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # 8 AM ET daily through Aug 21
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (do not actually send emails)'
+        required: false
+        default: 'false'
+      step:
+        description: 'Step to run: email | report | funnel | all'
+        required: false
+        default: 'all'
+
+jobs:
+  apply-migration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply cold_outreach_log migration
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python - <<'EOF'
+          import os, urllib.request, json
+          supabase_url = os.environ['SUPABASE_URL']
+          access_token = os.environ.get('SUPABASE_ACCESS_TOKEN')
+          if not access_token:
+              print("SUPABASE_ACCESS_TOKEN not set — skipping migration (table may already exist)")
+              exit(0)
+          with open('supabase/migrations/20260814_cold_outreach_log.sql') as f:
+              sql = f.read()
+          data = json.dumps({"query": sql}).encode()
+          req = urllib.request.Request(
+              f"https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+              data=data,
+              headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req) as r:
+                  body = r.read().decode()
+                  print(f"Migration applied (HTTP {r.status}): {body[:200]}")
+          except Exception as e:
+              print(f"Migration error (non-fatal, table may already exist): {e}")
+          EOF
+
+  cold-email:
+    runs-on: ubuntu-latest
+    needs: apply-migration
+    if: ${{ github.event.inputs.step == 'email' || github.event.inputs.step == 'all' || github.event_name == 'schedule' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Send CAN-SPAM cold emails
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          DRY="${{ github.event.inputs.dry_run }}"
+          ARGS=""
+          if [ "$DRY" = "true" ]; then ARGS="--dry-run"; fi
+          python scripts/acquisition_cold_email.py $ARGS --limit 50
+
+  posthog-funnel:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.step == 'funnel' || github.event.inputs.step == 'all' || github.event_name == 'schedule' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: PostHog funnel analysis
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+        run: python scripts/posthog_funnel_analysis.py
+
+  daily-report:
+    runs-on: ubuntu-latest
+    needs: [cold-email, posthog-funnel]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Daily acquisition report
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/acquisition_daily_report.py
+
+  deploy-worker:
+    runs-on: ubuntu-latest
+    needs: apply-migration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Deploy updated worker (Pioneer + subscribe fixes)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npm ci
+          npx wrangler deploy src/worker.js --env production 2>/dev/null || \
+          npx wrangler publish src/worker.js 2>/dev/null || \
+          echo "Worker deploy skipped — run manually: wrangler deploy"
+
+  deploy-edge-function:
+    runs-on: ubuntu-latest
+    needs: apply-migration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Deploy biddeed-checkout edge function (cold checkout + annual interval)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          npm install -g supabase 2>/dev/null || true
+          supabase functions deploy biddeed-checkout \
+            --project-ref mocerqjnksmhcjzxrewo \
+            --no-verify-jwt 2>/dev/null || \
+          echo "Edge function deploy skipped — run manually: supabase functions deploy biddeed-checkout"
