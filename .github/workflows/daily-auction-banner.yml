@@ -1,0 +1,48 @@
+name: Daily Auction Banner
+
+# Runs scripts/generate_daily_auction_banner.py once a day: picks one real
+# completed FL auction (rotating counties, excludes any county featured in
+# the last 7 days per social_banner_history), renders a 1200x630 PNG banner
+# via Playwright/Chromium, uploads it to the social-banners storage bucket,
+# and writes a draft row to social_content_queue (status='draft' -- never
+# picked up by social-publish-cron.yml, which only queries status='pending').
+#
+# NOTE ON "pg_cron": pg_cron can only execute SQL inside Postgres -- it
+# cannot launch a headless Chromium process to render an HTML banner to PNG.
+# This GitHub Actions cron is the equivalent automation surface already used
+# in this repo for every other social pipeline that needs external tooling
+# (see social-publish-cron.yml), so it is the correct substitute, not a
+# workaround.
+#
+# Manual dispatch (workflow_dispatch) is also enabled for on-demand runs.
+
+on:
+  schedule:
+    - cron: '0 13 * * *'  # 13:00 UTC daily = 9:00 AM America/New_York
+  workflow_dispatch: {}
+
+jobs:
+  generate-banner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: pip install --quiet playwright
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Generate daily banner
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: python scripts/generate_daily_auction_banner.py
