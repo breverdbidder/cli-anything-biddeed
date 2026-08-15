@@ -1,0 +1,47 @@
+name: "County co_no Certification Expansion (Issue #19084)"
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: "Which batch to process"
+        required: false
+        type: choice
+        options:
+          - all
+          - near-miss
+          - unattempted
+        default: all
+      county:
+        description: "Single county slug (optional; overrides batch)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (show results without writing to DB)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  expand-co-no:
+    name: "County co_no Expansion (${{ inputs.batch }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run county co_no expansion
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "${{ inputs.county }}" ]; then
+            ARGS="$ARGS --county ${{ inputs.county }}"
+          else
+            ARGS="$ARGS --batch ${{ inputs.batch }}"
+          fi
+          python scripts/county_co_no_expand.py $ARGS
