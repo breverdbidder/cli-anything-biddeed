@@ -19,13 +19,14 @@ Usage:
 import json, os, sys, time, argparse
 import urllib.request
 import urllib.parse
+import urllib.error
 
 MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
 ACCESS_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
 FDOR_QUERY_URL = "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query"
 
 BATCH_FETCH = 1500   # pins per FeatureServer POST (indexed IN-list, well under maxRecordCount 2000)
-BATCH_UPDATE = 400   # rows per UPDATE VALUES batch (keeps SQL text size sane)
+BATCH_UPDATE = 150   # rows per UPDATE VALUES batch (400 was timing out server-side -> Cloudflare 544)
 SLEEP_BETWEEN = 0.25 # politeness delay between FeatureServer requests
 
 # co_no -> name, smallest first so failures surface early/cheap
@@ -42,7 +43,11 @@ TARGET_COUNTIES = [
 UA = "curl/8.5.0"  # Cloudflare WAF (error 1010) blocks default urllib/python UAs
 
 
-def sql_exec(query, timeout=120):
+def sql_exec(query, timeout=120, retries=5):
+    """POST to the Supabase Management API SQL endpoint. Retries with backoff on
+    transient HTTP errors (observed: bursts of back-to-back calls draw a 400
+    that clears itself within seconds) instead of letting one flaky call crash
+    the whole county."""
     body = json.dumps({"query": query}).encode()
     req = urllib.request.Request(
         MGMT_API, data=body, method="POST",
@@ -52,8 +57,23 @@ def sql_exec(query, timeout=120):
             "User-Agent": UA,
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    last_err = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            body_text = e.read().decode(errors="replace")[:500]
+            last_err = f"HTTP {e.code}: {body_text}"
+            if e.code in (401, 403, 404) or attempt == retries - 1:
+                raise
+            time.sleep(3 * (attempt + 1))
+        except Exception as e:
+            last_err = str(e)
+            if attempt == retries - 1:
+                raise
+            time.sleep(3 * (attempt + 1))
+    raise RuntimeError(f"sql_exec exhausted retries: {last_err}")
 
 
 def esc(s):
@@ -93,9 +113,12 @@ def fetch_geoms_batch(pins, retries=4):
             with urllib.request.urlopen(req, timeout=90) as r:
                 d = json.loads(r.read())
             if "error" in d:
+                # ArcGIS returned HTTP 200 with an in-body error object — this is a
+                # deterministic query rejection (e.g. one malformed PIN in the
+                # IN-list), not a transient blip. Retrying identically wastes 4x
+                # backoff for zero benefit; go straight to split-and-isolate.
                 last_err = d["error"]
-                time.sleep(2 * (attempt + 1))
-                continue
+                break
             out = []
             for feat in d.get("features", []):
                 props = feat.get("properties", {})
@@ -121,16 +144,16 @@ def fetch_geoms_batch(pins, retries=4):
     return []
 
 
-def apply_updates(co_no, matched):
-    """matched: list of (pin, co_no_returned, geom_dict). Writes in BATCH_UPDATE chunks."""
-    total = 0
-    for i in range(0, len(matched), BATCH_UPDATE):
-        chunk = matched[i:i + BATCH_UPDATE]
-        values = ",\n".join(
-            f"('{esc(pin)}', '{esc(json.dumps(geom, separators=(',', ':')))}')"
-            for pin, _, geom in chunk
-        )
-        query = f"""
+def apply_update_chunk(co_no, chunk):
+    """Write one chunk. On a persistent timeout (Cloudflare 544 etc, i.e. the
+    query itself is too heavy — large/complex geometries), halve and recurse
+    instead of dropping the chunk, so a few oversized parcels don't sink an
+    otherwise-healthy batch."""
+    values = ",\n".join(
+        f"('{esc(pin)}', '{esc(json.dumps(geom, separators=(',', ':')))}')"
+        for pin, _, geom in chunk
+    )
+    query = f"""
 WITH v(pin, gj) AS (VALUES
 {values}
 )
@@ -141,8 +164,26 @@ SET geom = ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 3086), 432
 FROM v
 WHERE z.pin = v.pin AND z.co_no = {co_no} AND z.geom IS NULL;
 """
-        sql_exec(query, timeout=120)
-        total += len(chunk)
+    try:
+        sql_exec(query, timeout=180)
+        return len(chunk)
+    except urllib.error.HTTPError as e:
+        if len(chunk) <= 10:
+            print(f"    UPDATE failed on minimal chunk ({len(chunk)} rows, "
+                  f"pins={[c[0] for c in chunk]}, HTTP {e.code}) — giving up on this chunk",
+                  file=sys.stderr)
+            return 0
+        mid = len(chunk) // 2
+        print(f"    UPDATE chunk of {len(chunk)} failed (HTTP {e.code}) — splitting", file=sys.stderr)
+        return apply_update_chunk(co_no, chunk[:mid]) + apply_update_chunk(co_no, chunk[mid:])
+
+
+def apply_updates(co_no, matched):
+    """matched: list of (pin, co_no_returned, geom_dict). Writes in BATCH_UPDATE chunks."""
+    total = 0
+    for i in range(0, len(matched), BATCH_UPDATE):
+        chunk = matched[i:i + BATCH_UPDATE]
+        total += apply_update_chunk(co_no, chunk)
     return total
 
 
