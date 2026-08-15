@@ -83,8 +83,9 @@ RF_SUBDOMAINS = {
 }
 
 def sb_get(path):
+    safe_path = urllib.parse.quote(path, safe="/?&=.,()")
     req = urllib.request.Request(
-        f"{SB_URL}/rest/v1/{path}",
+        f"{SB_URL}/rest/v1/{safe_path}",
         headers={**SB_HEADERS, "Prefer": "return=representation"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -192,8 +193,9 @@ def extract_winner_plaintiff(html):
 
 def build_detail_url(row):
     src = row.get("source_url") or ""
-    if "AID=" in src and "realforeclose" in src or "realtaxdeed" in src or "realtaxlien" in src:
-        return src, None
+    if ("AID=" in src and "realforeclose" in src) or "realtaxdeed" in src or "realtaxlien" in src:
+        domain = src.replace("https://", "").replace("http://", "").split("/")[0]
+        return src, domain
 
     county    = (row.get("county") or "").lower()
     case      = (row.get("case_number") or "").strip()
