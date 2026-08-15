@@ -2020,6 +2020,30 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             return new Response(JSON.stringify({ ok: false, error: err }), { status: upsertRes.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
           }
 
+          // 1b. Audit-trail record for SMS marketing consent (TCPA/FTSA) -- append-only,
+          // fire-and-forget so it never blocks the response. Shared table with
+          // zonewise-web onboarding consent flow (same Supabase project).
+          if (sms_consent) {
+            const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+            fetch(`${SUPABASE_URL}/rest/v1/sms_consent_events`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Prefer': 'return=minimal',
+              },
+              body: JSON.stringify({
+                user_id: email,
+                phone_number: phone || null,
+                consented: true,
+                disclosure_version: 'biddeed-lead-form-v1-2026-08-15',
+                ip_address: clientIp,
+                source: 'chat_lead_form',
+              }),
+            }).catch(err => logErr(env, '/chat/lead', 'sms_consent_events insert failed', String(err), 0));
+          }
+
           // 2. Fetch 5 upcoming auctions for this county
           let auctions = [];
           if (county) {
