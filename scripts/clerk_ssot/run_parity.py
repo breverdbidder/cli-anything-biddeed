@@ -198,7 +198,38 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
     # exactly or via the "/" fallback.
     _CASE_SUFFIX_RE = re.compile(r"^(\d{4}(?:CA|CC))0*(\d+)$")
 
+    # Manatee's clerk calendar (records.manateeclerk.com) publishes the bare
+    # short form ("2025CA000550AX"), while a separate ingest pipeline
+    # (realtaxdeed / calendar_sweep_mca_v3) already stores the SAME
+    # real-world case as the 12th Judicial Circuit's long clerk form
+    # ("412025CA000550CAAXMA" = "41" circuit prefix + short form's
+    # YYYY/TYPE/NNNNNN core + a repeated TYPE + "AXMA" suffix). Neither form
+    # matches the other exactly nor via the "/"-split or zero-pad fallbacks
+    # above, so every clerk_ssot run re-inserted a fresh empty stub under the
+    # short form each time a case got continued to a new sale date, instead
+    # of updating the existing enriched row -- confirmed live 2026-08-15:
+    # 16 manatee cases had exactly this duplicate-pair shape, all 16 stub
+    # rows carrying zero content beyond case_number/auction_date/status.
+    # Strip both wrapper shapes down to the same YYYY+TYPE+NNNNNN core (zero
+    # padding included, matching _CASE_SUFFIX_RE's own convention) so the
+    # canonical-key fallback below finds the enriched sibling instead of
+    # creating a duplicate. Gated on county_slug=='manatee' rather than
+    # relying on the regex shape alone to stay a no-op: an ULTRALOOP
+    # adversarial verify pass (2026-08-15) found that levy's and liberty's
+    # foreclosure CASE_RE (^\d{2,4}-?\d*-?(CA|CC|TD)[A-Z0-9-]*$, both parsers
+    # currently observe zero live cards so their real format is unverified)
+    # is loose enough to also match these two Manatee-specific patterns, and
+    # calhoun/lafayette-tax_deed apply no case-number regex at all -- an
+    # unscoped version of this fallback would be a latent collision risk for
+    # those counties the moment they start returning real rows.
+    _MANATEE_SHORT_RE = re.compile(r"^(\d{4})(CA|CC)0*(\d+)AX$")
+    _MANATEE_LONG_RE = re.compile(r"^41(\d{4})(CA|CC)0*(\d+)(?:CA|CC)AXMA$")
+
     def _canonical_case(case_number):
+        if county_slug == "manatee":
+            m = _MANATEE_SHORT_RE.match(case_number) or _MANATEE_LONG_RE.match(case_number)
+            if m:
+                return f"{m.group(1)}{m.group(2)}{m.group(3)}"
         m = _CASE_SUFFIX_RE.match(case_number)
         return f"{m.group(1)}{m.group(2)}" if m else case_number
 
@@ -263,13 +294,23 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
         """)
 
     if clean_matches:
-        in_list = ",".join(sql_str(r["case_number"]) for r in clean_matches)
+        # Sync auction_date too, not just parity fields: a clean match found
+        # only via the canonical-key fallback (case continued/rescheduled,
+        # matched_case_number != ssot's case_number) means the surviving row's
+        # stored date is the PRE-continuance date -- leaving it unsynced would
+        # silently keep showing the wrong sale date even though the duplicate
+        # stub that carried the correct date is gone (see manatee 2026-08-15).
+        values = ",".join(
+            f"({sql_str(r['case_number'])},{sql_str(r['sale_date'])})" for r in clean_matches
+        )
         run_sql(f"""
-            UPDATE public.multi_county_auctions
-            SET parity_status='PARITY_OK', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')}
-            WHERE lower(county)={sql_str(county_slug)} AND sale_type={sql_str(sale_type)}
-              AND case_number IN ({in_list})
-              AND parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED';
+            UPDATE public.multi_county_auctions m
+            SET parity_status='PARITY_OK', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')},
+                auction_date=v.sale_date::date
+            FROM (VALUES {values}) AS v(case_number, sale_date)
+            WHERE lower(m.county)={sql_str(county_slug)} AND m.sale_type={sql_str(sale_type)}
+              AND m.case_number = v.case_number
+              AND m.parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED';
         """)
 
     if phantom_in_ours:
