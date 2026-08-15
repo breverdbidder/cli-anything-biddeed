@@ -18,6 +18,7 @@ import json
 import re
 
 RECORD_LEN = 1440
+REC_STRIDE = 1442  # 1440 data bytes + trailing \r\n record terminator
 
 FIELDS = {
     "corp_number": (0, 12),
@@ -130,13 +131,14 @@ def main():
     with open(args.cordata, "rb") as f:
         buf = b""
         while True:
-            chunk = f.read(1440 * 20000)
+            chunk = f.read(REC_STRIDE * 20000)
             if not chunk:
                 break
             buf += chunk
-            n_full = len(buf) // RECORD_LEN
+            n_full = len(buf) // REC_STRIDE
             for i in range(n_full):
-                raw = buf[i * RECORD_LEN:(i + 1) * RECORD_LEN].decode("latin-1")
+                rec_start = i * REC_STRIDE
+                raw = buf[rec_start:rec_start + RECORD_LEN].decode("latin-1")
                 n_records += 1
                 name_field = raw[12:204].strip()
                 if not name_field:
@@ -147,7 +149,7 @@ def main():
                     prev = matches.get(key)
                     if prev is None or (rec["status"] == "A" and prev["status"] != "A"):
                         matches[key] = rec
-            buf = buf[n_full * RECORD_LEN:]
+            buf = buf[n_full * REC_STRIDE:]
 
     print(f"Scanned {n_records} corp records; matched {len(matches)}/{len(targets)} target names")
 
