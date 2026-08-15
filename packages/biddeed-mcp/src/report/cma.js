@@ -38,12 +38,18 @@
 //
 // NOTE ON GARAGE DATA (requested Aug 14 2026, investigated and confirmed
 // NOT ADDED): has_garage / garage_spaces exist as columns on the separate
-// `parcels` (ATTOM-sourced) table, but are populated on ZERO of 437,371
-// rows statewide — not a Hillsborough gap, the field has never actually
-// been collected anywhere in this dataset. Filtering or displaying on it
-// would silently pass everything (100% null) while looking like a real
-// signal. Left out deliberately rather than faked. Revisit if/when a real
-// garage data source is sourced.
+// `parcels` table, but are populated on ZERO of 437,371 rows statewide -
+// not a Hillsborough gap, never actually collected anywhere in this
+// dataset. CORRECTION (same day): that table was initially mislabeled here
+// as "ATTOM-sourced" - verified false. 104,551 of ~104,562 rows with a
+// source_url are literally internal://fl_parcels+zoning_assignments (i.e.
+// this table is 99.99% a reshaped copy of fl_parcels itself, not an
+// independent data source); attom_id/clip_id are null on every row. Only
+// 11 rows trace to a real external source (county scrapes + FL state GIS).
+// No ATTOM license or feed exists anywhere in this pipeline. Filtering or
+// displaying on garage_spaces would silently pass everything (100% null)
+// while looking like a real signal. Left out deliberately rather than
+// faked. Revisit if/when a real garage data source is sourced.
 
 import { get as defaultGet } from '../supabase.js';
 
