@@ -1,0 +1,60 @@
+-- Gold Standard shard-4, dispatch 4b4e845c-ef16-4a20-a22d-17dafccc47e6, county=bay, letters C/I
+-- Date: 2026-08-15
+--
+-- BEFORE (live pencil_dod_evaluate_county('bay')):
+--   C: {"pass": false, "detail": "matched_clean=216", "metric": 93.9}
+--   I: {"pass": false, "detail": "card_complete=218 of 230", "metric": 94.8}
+-- All other letters (A,B,D,E,F,G,H,J) already PASS.
+--
+-- LETTER C FIX: 11 bay tax_deed rows (auction_date 2026-09-29 x8, 2026-09-15 x3) had
+-- never been parity-checked (parity_status IS NULL). Re-ran the proven public
+-- bay.realtaxdeed.com AJAX auction-calendar harvester (scripts/shard9_run6046_bay_cd_
+-- future_harvest.py, reusing scripts/shard2_run2450_ajax_realforeclose_harvest.py) for
+-- both dates. All 11 case numbers matched exactly against the live calendar and were
+-- promoted to parity_status='matched_clean', parity_source=
+-- 'tier1:shard9_run6046_bay_ajax_harvest:tax_deed:<date>'. Applied live via PostgREST
+-- (direct psql/pooler auth confirmed still broken this session, per documented
+-- long-standing constraint); command:
+--   python3 scripts/shard9_run6046_bay_cd_future_harvest.py \
+--     '[{"county":"bay","sale_type":"tax_deed","auction_date":"2026-09-29"},
+--       {"county":"bay","sale_type":"tax_deed","auction_date":"2026-09-15"}]'
+-- Result: parity_promoted=11 (case numbers: 2026-4324TD, 2026-1445TD, 2026-3106TD,
+-- 2026-2481TD, 2026-3856TD, 2026-3610TD, 2026-3618TD, 2026-1718TD, 2026-5115TD,
+-- 2026-5042TD, 2026-5951TD). The 3 remaining C-failing rows (25000644CA, 25000969CA,
+-- 25001088CA, all parity_status='CLERK_SSOT_CANCELLED') are legitimately-cancelled
+-- foreclosures and correctly excluded from matched_clean by design (they still count
+-- toward matched_any for D, which is now 100.0%).
+--
+-- LETTER I FIX: of 12 card-incomplete rows, only case 26000363CA (parcel_id
+-- 15026-020-000, address "5205 E 11TH ST, PANAMA CITY, FL- 32404", already had real
+-- address/lat=30.1678413368348/lon=-85.5964217179514/assessed_value=90640 -- it was
+-- missing ONLY a zoning link). Live point-in-polygon query against
+-- gis.baycountyfl.gov/arcgis/rest/services/Land_Use_Planning/MapServer/1/query at the
+-- parcel's existing centroid returned one unambiguous feature: ZONING='See FLU',
+-- SUB_ZONING=8. SUB_ZONING=8 was not in the previously-known JURISDICTION_ID map
+-- (1:1332 Unincorporated, 2:983 Callaway, 3:873 Lynn Haven, 4:985 Mexico Beach,
+-- 5:884 Panama City, 6:907 Panama City Beach) but the adjacent plat-block parcel
+-- 15026-010-000 already exists in parcel_zones with jurisdiction_id=984 (Springfield)
+-- and the identical zone_code 'See FLU', sourced from the same live GIS method in a
+-- prior session (shard9_run6253 pass2) -- real, traceable corroboration, not a guess.
+-- Inserted one parcel_zones row (id 862974):
+--   parcel_id=15026-020-000, tax_account=NULL, jurisdiction_id=984, zone_code='See FLU',
+--   source='gis.baycountyfl.gov Land_Use_Planning MapServer point lookup (live fetch,
+--   shard4-bay-madison dispatch 4b4e845c, verified via adjacent parcel 15026-010-000
+--   same jurisdiction/zone)'
+-- Only 1 row needed to cross the 95% threshold (219 of 230 = 95.2%); the other 11
+-- card-incomplete bay rows remain genuinely incomplete (missing address/geo/value or
+-- an unlinkable parcel_id) and were left alone -- BLANK > WRONG.
+--
+-- AFTER (live pencil_dod_evaluate_county('bay'), re-verified same session):
+--   C: {"pass": true, "detail": "matched_clean=227", "metric": 98.7}
+--   D: {"pass": true, "detail": "matched_any=230", "metric": 100.0}
+--   I: {"pass": true, "detail": "card_complete=219 of 230", "metric": 95.2}
+-- BAY IS NOW 10 of 10 (A,B,C,D,E,F,G,H,I,J all PASS). Certification lands automatically
+-- after the second consecutive 10/10 daily 07:30Z run per campaign rules; this session
+-- does not call gold_standard_certify() directly (other shards may be mid-flight).
+--
+-- No schema changes. Documentation of live PostgREST writes only (parity_status/
+-- parity_source PATCHes on 11 multi_county_auctions rows; 1 INSERT into parcel_zones).
+
+SELECT 1; -- no-op; this migration is an audit-trail record only
