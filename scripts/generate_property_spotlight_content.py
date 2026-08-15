@@ -5,6 +5,8 @@ target_platform (linkedin_personal, telegram, reddit, bigger_pockets).
 
 Issue: breverdbidder/cli-anything-biddeed#19088
 Equity formula: breverdbidder/cli-anything-biddeed#19129 (AMEND #19128)
+CMA source + V4/V5 + pre-auction-claim correction: CORRECTION to #19128/#19129
+(see that issue for full rationale).
 Additive only -- does not touch the county_snapshot generator (see
 supabase/functions/social-content-generator/index.ts).
 
@@ -47,6 +49,31 @@ session report, not solved -- this is a real data ceiling, see Findings.
 Copy (#19129 item 5): always "Paper equity" / "estimated equity", never
 "profit" -- excludes rehab, closing costs, holding costs.
 
+CMA source (CORRECTION to #19128/#19129, item 2): value_estimate priority is
+market_value > po_market_value > po_avm_value > v_brevard_td_sold_cma.median_comp
+(Brevard only, n_comps >= 3) > assessed_value. This script NEVER sources
+value_estimate from cma_reports.hbu_scenarios[].arv -- that figure is a
+land-residual speculative-redevelopment value (assumes tear-down/rebuild or
+future construction), not a current market value, and would overstate paper
+equity if used here. cma_reports is not queried anywhere in this file; noted
+explicitly so a future edit doesn't wire hbu_scenarios in by mistake. As of
+this correction, v_brevard_td_sold_cma.n_comps is NULL on all 2,504 rows in
+the view (verified live) and the pipeline is foreclosure-only (#19129 item 4),
+while that view covers tax_deed sold comps -- so this tier is wired for
+correctness but is currently non-contributory to any live banner; it starts
+contributing automatically once n_comps is populated upstream and/or tax_deed
+sale_type banners are ever re-enabled.
+
+V4 not V5 / no pre-auction claims (CORRECTION to #19128/#19129, items 3-4):
+this generator sources zero model-derived figures -- no V4 ensemble output,
+no V5 (V5 is not trained/live, on hold pending county certification coverage,
+see ssot_registry_components), no shapira_run_at/shapira_outcome_scorecard
+predictions of any kind. Every number in the post is a literal column value
+from multi_county_auctions, so "we predicted this" language and stale/wrong
+model-version labels are structurally impossible here, not just avoided by
+convention. Verified live: zero rows in social_content_queue contain
+"predict", "V5", or "before the auction" (see issue comment for the query).
+
 Pacing: highest-paper-equity-dollar rows go out first, PACE_PER_DAY
 properties per platform per day, via the scheduled_for column
 (migration 20260815_social_content_queue_add_scheduled_for.sql).
@@ -81,7 +108,19 @@ WITH base AS (
         AND assessed_value > 0
       THEN assessed_value
       ELSE NULL
-    END AS quality_assessed_value
+    END AS quality_assessed_value,
+    -- Brevard-only tax-deed sold-comps tier (CORRECTION to #19128/#19129 item 2).
+    -- account_number is the correct join key -- v_brevard_td_sold_cma.parcel_id
+    -- is NULL on every row (verified live); NEVER cma_reports.hbu_scenarios[].arv,
+    -- see module docstring.
+    (
+      SELECT cma.median_comp
+      FROM public.v_brevard_td_sold_cma cma
+      WHERE county = 'brevard'
+        AND cma.account_number = parcel_id
+        AND cma.n_comps >= 3
+      LIMIT 1
+    ) AS brevard_cma_value
   FROM public.multi_county_auctions
   WHERE tier1_authoritative = true
     AND tier1_verified_at >= now() - interval '30 days'
@@ -96,11 +135,12 @@ WITH base AS (
 ),
 valued AS (
   SELECT *,
-    COALESCE(market_value, po_market_value, po_avm_value, quality_assessed_value) AS value_estimate,
+    COALESCE(market_value, po_market_value, po_avm_value, brevard_cma_value, quality_assessed_value) AS value_estimate,
     CASE
       WHEN market_value IS NOT NULL THEN 'market_value'
       WHEN po_market_value IS NOT NULL THEN 'po_market_value'
       WHEN po_avm_value IS NOT NULL THEN 'po_avm_value'
+      WHEN brevard_cma_value IS NOT NULL THEN 'v_brevard_td_sold_cma.median_comp'
       WHEN quality_assessed_value IS NOT NULL THEN 'assessed_value'
       ELSE NULL
     END AS value_source
@@ -188,6 +228,7 @@ VALUE_SOURCE_LABEL = {
     "market_value": "market value",
     "po_market_value": "market value estimate",
     "po_avm_value": "AVM market estimate",
+    "v_brevard_td_sold_cma.median_comp": "recent comparable sales estimate",
     "assessed_value": "county assessed value",
 }
 
