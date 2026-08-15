@@ -5364,6 +5364,7 @@ function buildHomepageHtml() { return `<!DOCTYPE html>
 <meta name="description" content="Florida investors: stop guessing on tax-deed surplus and zoning risk. BidDeed.AI + ZoneWise.AI turn 20 years of Florida deed/foreclosure expertise into an auction-by-auction edge. See your county's live report now.">
 <meta property="og:title" content="Florida Tax-Deed &amp; Foreclosure Investors — See What Competitors Miss">
 <meta property="og:description" content="For Florida tax-deed and foreclosure investors — surface the deals your competitors miss, backed by 20 years of Florida auction data and 67-county parcel coverage. Start your first Gold Standard county report free.">
+${POSTHOG_SCRIPT}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
