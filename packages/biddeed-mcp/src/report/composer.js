@@ -255,10 +255,15 @@ async function scoreModel(auction, county, deps) {
       county_target_enc: countyEncoding,
     };
   } catch (err) {
+    // FIX (issue #19079, found during code review): this claimed
+    // model_version: 'v14.0' on any scoring failure - but v14.0 is
+    // explicitly retired elsewhere in this codebase ("DEAD... Never call
+    // it", ensemble-model.js). Nothing v14.0-related ever runs; this was a
+    // stale placeholder misrepresenting what was attempted.
     return {
       available: false,
-      model_version: 'v14.0',
-      probability_third_party_purchase: 'unavailable — artifact not deployed',
+      model_version: null,
+      probability_third_party_purchase: 'unavailable — V4 ensemble scoring failed (see error)',
       feature_vector: byName,
       error: err.message,
     };
