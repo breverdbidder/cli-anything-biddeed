@@ -870,8 +870,17 @@ async function fetchReportCounties() {
       sale_types: r.sale_types || null,
     }));
 
-    const resp = new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=120' } });
-    await cache.put(cacheKey, resp.clone());
+    // Never cache an empty/failed upstream result — a single failed or
+    // slow-to-return get_all_counties_with_status call would otherwise
+    // poison this fixed cache key for every visitor for a full 120s
+    // (repeatable: reproduced live 2026-08-15, RPC + anon key both healthy
+    // yet /buy-report/counties served `[]` for 15+ min straight because one
+    // bad response got cached and nothing ever re-primed it early). Only a
+    // real, non-empty county list is worth caching.
+    if (res.ok && result.length > 0) {
+      const resp = new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=120' } });
+      await cache.put(cacheKey, resp.clone());
+    }
     return result;
   } catch(_) { return []; }
 }
@@ -1447,12 +1456,16 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const safeInterval = intervalParam === 'annual' ? 'annual' : 'monthly';
         const isPro = safeTier === 'pro' || safeTier === 'proplus';
         const tierLabel = isPro ? 'Pro' : 'Investor';
-        const tierPrice = isPro ? '$199' : '$99';
-        const annualPrice = isPro ? '$1,990' : '$990';
+        const monthlyNum = isPro ? 199 : 99;
+        const annualNum = isPro ? 1990 : 990;
+        const tierPrice = '$' + monthlyNum;
+        const annualPrice = '$' + annualNum.toLocaleString('en-US');
+        const savePrice = '$' + (monthlyNum * 12 - annualNum).toLocaleString('en-US');
         const html = SUBSCRIBE_HTML
           .replace(/TIER_LABEL_PLACEHOLDER/g, tierLabel)
           .replace(/TIER_PRICE_PLACEHOLDER/g, tierPrice)
           .replace(/ANNUAL_PRICE_PLACEHOLDER/g, annualPrice)
+          .replace(/SAVE_PRICE_PLACEHOLDER/g, savePrice)
           .replace('INTERVAL_PLACEHOLDER_monthly_active', safeInterval === 'monthly' ? 'active' : '')
           .replace('INTERVAL_PLACEHOLDER_annual_active', safeInterval === 'annual' ? 'active' : '')
           .replace(/INTERVAL_PLACEHOLDER/g, safeInterval)
@@ -4076,7 +4089,7 @@ button.cta:disabled{opacity:.6;cursor:default}
   <p class="sub">Enter your email to continue to secure checkout. Redirected to Stripe — no card stored here.</p>
   <div class="interval-toggle">
     <div class="interval-btn INTERVAL_PLACEHOLDER_monthly_active" id="btn-monthly" onclick="setInterval('monthly')">Monthly<br><span style="font-weight:400;font-size:12px">TIER_PRICE_PLACEHOLDER/mo</span></div>
-    <div class="interval-btn INTERVAL_PLACEHOLDER_annual_active" id="btn-annual" onclick="setInterval('annual')">Annual — Pioneer<br><span style="font-weight:400;font-size:12px">ANNUAL_PRICE_PLACEHOLDER/yr</span><span class="save-badge">Save $198</span></div>
+    <div class="interval-btn INTERVAL_PLACEHOLDER_annual_active" id="btn-annual" onclick="setInterval('annual')">Annual — Pioneer<br><span style="font-weight:400;font-size:12px">ANNUAL_PRICE_PLACEHOLDER/yr</span><span class="save-badge">Save SAVE_PRICE_PLACEHOLDER</span></div>
   </div>
   <form id="sub-form">
     <label for="sub-email">Email</label>
