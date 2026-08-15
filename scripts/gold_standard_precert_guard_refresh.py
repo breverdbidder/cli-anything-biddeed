@@ -59,15 +59,22 @@ V2_PRIORITY_COUNTIES = [
 ]
 
 
-def run_sql(sql: str, timeout: int = 120) -> list:
-    r = httpx.post(
-        API,
-        headers={"Authorization": f"Bearer {SUPABASE_ACCESS_TOKEN}", "Content-Type": "application/json"},
-        json={"query": sql},
-        timeout=timeout,
-    )
-    r.raise_for_status()
-    return r.json()
+def run_sql(sql: str, timeout: int = 120, retries: int = 3) -> list:
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            r = httpx.post(
+                API,
+                headers={"Authorization": f"Bearer {SUPABASE_ACCESS_TOKEN}", "Content-Type": "application/json"},
+                json={"query": sql},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            return r.json()
+        except httpx.ReadTimeout as exc:
+            last_exc = exc
+            print(f"    [retry {attempt + 1}/{retries}] read timeout, retrying...")
+    raise last_exc
 
 
 def main():
