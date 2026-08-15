@@ -479,19 +479,34 @@ function sectionComposition({ locatable }) {
 
 function buildProvenance(auction, { model }) {
   const available = model?.available === true;
-  const ensemble = available && model?.ensemble === true;
+  // FIX (issue #19079, Aug 14 2026, found during code review): this used
+  // to check model?.ensemble === true, but neither runModal() nor
+  // runPureJsV4() in ensemble-model.js ever set an `ensemble` field on
+  // their return value - method is 'v4_pkl_modal' or 'v4_pure_js_fallback'
+  // instead. That made this branch permanently dead code: every real V4
+  // score (Modal or JS fallback) fell through to the wrong disclosure text
+  // below, which claims "a single XGBoost v14.0 classifier" ran even when
+  // the real V4 stacked ensemble genuinely scored the report. available
+  // alone is the correct signal - it's true only when predictEnsemble()
+  // actually succeeded via either real path.
+  const ensemble = available;
   const isTaxDeed = (auction.sale_type || '').toLowerCase() === 'tax_deed';
 
   let modelDisclosure;
   if (!available) {
     modelDisclosure = 'Verdict/value-estimate math is a deterministic prior/anchor framework, NOT an ML model. The v14.0 XGBoost artifact was not available at scoring time for this call — no probability is rendered (see context_layers.ml_model).';
   } else if (ensemble) {
-    modelDisclosure = `Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. This is informational, not the deal verdict driver.
+    // FIX (issue #19079): disclosure now reflects which path actually ran
+    // (model.method), instead of a hardcoded claim that was already wrong
+    // before today's fix (referenced "XGBoost v14.0" and "approximated via
+    // XGBoost weighting" - neither matches what ensemble-model.js does).
+    modelDisclosure = model.method === 'v4_pkl_modal'
+      ? `Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. This is informational, not the deal verdict driver.
 
-ML Stack: SUMMIT-B V4 Stacked Ensemble (Patent Claim 8), model_version=${model.model_version}
-- XGBoost v14.0 — LIVE (native JS gbtree inference, see xgboost-model.js)
-- LightGBM, CatBoost, RF meta-learner — trained (scripts/train_v4_ensemble.py) but stored as a Python pickle this Node process cannot execute; approximated via XGBoost weighting rather than independent inference (see context_layers.ml_model.caveat)
-- Ensemble AUC: ${model.ensemble_auc} (from shapira_models, live at scoring time — not the same as the accuracy of the weighted approximation actually served here)`;
+ML Stack: SUMMIT-B V4 Stacked Ensemble (Patent Claim 8), model_version=${model.model_version}. Ran on the primary path: XGBoost + LightGBM + CatBoost base learners, Random Forest meta-learner, native Python inference on Modal (ensemble.pkl). Ensemble AUC: ${model.auc}.`
+      : `Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. This is informational, not the deal verdict driver.
+
+ML Stack: SUMMIT-B V4 Stacked Ensemble (Patent Claim 8), model_version=${model.model_version}. Modal primary path unavailable for this call - ran on the pure-JS fallback: XGBoost + LightGBM base learners only (CatBoost/RF meta-learner require the Python pickle, not available in this runtime), simple average in place of the meta-learner. AUC ${model.auc} (fallback, vs ${model.auc ? model.auc : '0.9468'} for the full Modal ensemble).`;
   } else {
     modelDisclosure = isTaxDeed
       ? 'Verdict/value-estimate math uses county tax-deed clearance priors + prior sale anchors. Judgment ratio anchor NOT used (tax deed — no FJ). Third-party purchase probability is directional; tax deeds have different buyer dynamics than foreclosures.'
