@@ -4,18 +4,48 @@ social_content_queue -- one real closed deal per post, one post per
 target_platform (linkedin_personal, telegram, reddit, bigger_pockets).
 
 Issue: breverdbidder/cli-anything-biddeed#19088
+Equity formula: breverdbidder/cli-anything-biddeed#19129 (AMEND #19128)
 Additive only -- does not touch the county_snapshot generator (see
 supabase/functions/social-content-generator/index.ts).
 
 Source filter (see issue body for full spec + rationale):
   multi_county_auctions, tier1_authoritative=true, tier1_verified_at in the
   last 30 days, tier1_sale_status not REDEEMED/RESCHEDULED/withdrawn,
-  effective sold amount > $1,000, assessed_value_source excludes inferred/
-  fallback/proxy/arv/bid_decisions/opening_bid_derived valuations, real
-  parcel_id, deduped per (county, parcel_id), and (county, assessed_value)
-  pairs that repeat 3+ times dropped as placeholder valuations. Rows with no
-  auction_url/realforeclose_url in the row are dropped -- the issue requires
-  a source citation "already in the row"; this script never fabricates one.
+  effective sold amount > $1,000, sale_type='foreclosure' only (#19129 item 4
+  -- outstanding_certs_total has zero coverage on sold tax_deed rows, so
+  surviving-lien risk is unknown for tax deeds; foreclosure-only avoids
+  presenting an equity claim we can't back), real parcel_id, deduped per
+  (county, parcel_id), and (county, value_estimate) pairs that repeat 3+
+  times dropped as placeholder valuations. Rows with no auction_url/
+  realforeclose_url in the row are dropped -- the issue requires a source
+  citation "already in the row"; this script never fabricates one.
+
+Value estimate (#19129 item 1-2): first non-null of market_value,
+po_market_value, po_avm_value, assessed_value (assessed_value only counts if
+its own assessed_value_source clears the same inferred/fallback/proxy/arv/
+bid_decisions/opening_bid_derived exclusions as before). value_source is
+persisted per row (social_content_queue.value_source) so copy can say
+"market value" vs "county assessed value" accurately -- never assessed_value
+labeled as market value.
+
+Equity filter (#19129 item 3): equity_dollars > 15% of effective_sold_amount
+-- no negative or trivial-equity properties featured as wins.
+
+HOA/condo-association lien exclusion (found during this session, not in the
+original #19129 text, logged as a deviation): a chunk of extreme-equity rows
+(one seen at 33,127%) trace to plaintiff = a condo/HOA association with a
+small judgment_amount -- i.e. a junior-lien foreclosure where the first
+mortgage is not extinguished by the sale. Presenting the full value_estimate
+minus the token winning bid as "paper equity" would be misleading in the same
+way #19129 item 4 already flagged for tax deeds (surviving senior claim,
+different lien type). Excluded by plaintiff name pattern where identifiable;
+rows with plaintiff=NULL and a judgment_amount small relative to
+value_estimate carry the same unquantified risk but aren't filtered here --
+no reliable lien-priority column exists to classify them. Flagged in the
+session report, not solved -- this is a real data ceiling, see Findings.
+
+Copy (#19129 item 5): always "Paper equity" / "estimated equity", never
+"profit" -- excludes rehab, closing costs, holding costs.
 
 Pacing: highest-paper-equity-dollar rows go out first, PACE_PER_DAY
 properties per platform per day, via the scheduled_for column
@@ -39,57 +69,81 @@ PLATFORMS = ["linkedin_personal", "telegram", "reddit", "bigger_pockets"]
 CLEAN_ROW_SQL = """
 WITH base AS (
   SELECT *,
-    COALESCE(tier1_sold_amount, sold_amount) AS effective_sold_amount
+    COALESCE(tier1_sold_amount, sold_amount) AS effective_sold_amount,
+    CASE
+      WHEN assessed_value_source IS NOT NULL
+        AND assessed_value_source NOT ILIKE '%inferred%'
+        AND assessed_value_source NOT ILIKE '%fallback%'
+        AND assessed_value_source NOT ILIKE '%proxy%'
+        AND assessed_value_source NOT ILIKE '%arv%'
+        AND assessed_value_source NOT ILIKE '%bid_decisions%'
+        AND assessed_value_source <> 'opening_bid_derived'
+        AND assessed_value > 0
+      THEN assessed_value
+      ELSE NULL
+    END AS quality_assessed_value
   FROM public.multi_county_auctions
   WHERE tier1_authoritative = true
     AND tier1_verified_at >= now() - interval '30 days'
     AND tier1_sale_status IS NOT NULL
     AND tier1_sale_status NOT IN ('REDEEMED', 'RESCHEDULED')
     AND (property_address IS NULL OR property_address NOT ILIKE '%Withdrawn%')
+    AND sale_type = 'foreclosure'
     AND COALESCE(tier1_sold_amount, sold_amount) > 1000
-    AND assessed_value_source IS NOT NULL
-    AND assessed_value_source NOT ILIKE '%inferred%'
-    AND assessed_value_source NOT ILIKE '%fallback%'
-    AND assessed_value_source NOT ILIKE '%proxy%'
-    AND assessed_value_source NOT ILIKE '%arv%'
-    AND assessed_value_source NOT ILIKE '%bid_decisions%'
-    AND assessed_value_source <> 'opening_bid_derived'
-    AND assessed_value IS NOT NULL
-    AND assessed_value > 0
     AND parcel_id IS NOT NULL
     AND parcel_id <> 'Property Appraiser'
+    AND (plaintiff IS NULL OR plaintiff !~* '(condominium|homeowners|community association|owners association| hoa )')
+),
+valued AS (
+  SELECT *,
+    COALESCE(market_value, po_market_value, po_avm_value, quality_assessed_value) AS value_estimate,
+    CASE
+      WHEN market_value IS NOT NULL THEN 'market_value'
+      WHEN po_market_value IS NOT NULL THEN 'po_market_value'
+      WHEN po_avm_value IS NOT NULL THEN 'po_avm_value'
+      WHEN quality_assessed_value IS NOT NULL THEN 'assessed_value'
+      ELSE NULL
+    END AS value_source
+  FROM base
+),
+priced AS (
+  SELECT *,
+    (value_estimate - effective_sold_amount) AS equity_dollars,
+    ((value_estimate - effective_sold_amount) / NULLIF(effective_sold_amount, 0)) * 100 AS equity_pct
+  FROM valued
+  WHERE value_estimate IS NOT NULL
 ),
 deduped_parcel AS (
   SELECT DISTINCT ON (county, parcel_id) *
-  FROM base
+  FROM priced
   ORDER BY county, parcel_id,
     (effective_sold_amount IS NOT NULL) DESC,
     created_at DESC
 ),
 value_repeats AS (
-  SELECT county, assessed_value, COUNT(*) AS cnt
+  SELECT county, value_estimate, COUNT(*) AS cnt
   FROM deduped_parcel
-  WHERE assessed_value IS NOT NULL
-  GROUP BY county, assessed_value
+  GROUP BY county, value_estimate
   HAVING COUNT(*) >= 3
 ),
 clean AS (
   SELECT d.*
   FROM deduped_parcel d
   LEFT JOIN value_repeats vr
-    ON vr.county = d.county AND vr.assessed_value = d.assessed_value
+    ON vr.county = d.county AND vr.value_estimate = d.value_estimate
   WHERE vr.county IS NULL
+    AND equity_dollars > 0.15 * effective_sold_amount
 )
 SELECT
   id, county, city, parcel_id, case_number, sale_type, tier1_sale_status,
-  effective_sold_amount, assessed_value, assessed_value_source,
+  effective_sold_amount, value_estimate, value_source,
   auction_date, tier1_verified_at,
   COALESCE(auction_url, realforeclose_url) AS source_url,
-  ROUND((assessed_value - effective_sold_amount)::numeric, 2) AS equity_dollars,
-  ROUND((((assessed_value - effective_sold_amount) / NULLIF(effective_sold_amount,0)) * 100)::numeric, 1) AS equity_pct
+  ROUND(equity_dollars::numeric, 2) AS equity_dollars,
+  ROUND(equity_pct::numeric, 1) AS equity_pct
 FROM clean
 WHERE COALESCE(auction_url, realforeclose_url) IS NOT NULL
-ORDER BY (assessed_value - effective_sold_amount) DESC
+ORDER BY equity_dollars DESC
 """
 
 
@@ -130,14 +184,27 @@ def location_label(row) -> str:
     return f"{city}, {county} County, FL" if city else f"{county} County, FL"
 
 
+VALUE_SOURCE_LABEL = {
+    "market_value": "market value",
+    "po_market_value": "market value estimate",
+    "po_avm_value": "AVM market estimate",
+    "assessed_value": "county assessed value",
+}
+
+
+def value_label(row) -> str:
+    return VALUE_SOURCE_LABEL.get(row["value_source"], "estimated value")
+
+
 def equity_line(row) -> str:
     eq = float(row["equity_dollars"])
     pct = row.get("equity_pct")
+    label = value_label(row)
     if eq >= 0:
-        pct_str = f" ({float(pct):.0f}% under assessed value)" if pct is not None else ""
+        pct_str = f" ({float(pct):.0f}% under {label})" if pct is not None else ""
         return f"Paper equity: {money(eq)}{pct_str}"
-    pct_str = f" ({abs(float(pct)):.0f}% over assessed value)" if pct is not None else ""
-    return f"Sold above assessed value by {money(abs(eq))}{pct_str} -- not every lot is a discount, which is exactly why you screen before bidding"
+    pct_str = f" ({abs(float(pct)):.0f}% over {label})" if pct is not None else ""
+    return f"Sold above {label} by {money(abs(eq))}{pct_str} -- not every lot is a discount, which is exactly why you screen before bidding"
 
 
 DISCLAIMER = "Informational only -- not legal, financial, or investment advice. Verify independently before bidding."
@@ -148,7 +215,7 @@ def build_linkedin_telegram(row) -> str:
         f"Closed {sale_type_label(row['sale_type'])} deal -- {location_label(row)}:",
         "",
         f"Sold: {money(row['effective_sold_amount'])}",
-        f"Assessed value: {money(row['assessed_value'])}",
+        f"{value_label(row).capitalize()}: {money(row['value_estimate'])}",
         equity_line(row),
         f"Sale date: {row['auction_date']}",
         "",
@@ -165,7 +232,7 @@ def build_reddit(row) -> str:
         f"{sale_type_label(row['sale_type'])} sale closed in {location_label(row)}:",
         "",
         f"- Sold: {money(row['effective_sold_amount'])}",
-        f"- County assessed value: {money(row['assessed_value'])}",
+        f"- {value_label(row).capitalize()}: {money(row['value_estimate'])}",
         f"- {equity_line(row)}",
         f"- Sale date: {row['auction_date']}",
         f"- Source (public auction record, check it yourself): {row['source_url']}",
@@ -183,8 +250,8 @@ def build_bigger_pockets(row) -> str:
     return "\n".join([
         f"Market update -- {location_label(row)} {sale_type_label(row['sale_type']).lower()} auction result:",
         "",
-        f"A property in {location_label(row)} closed at {money(row['effective_sold_amount'])} against a county "
-        f"assessed value of {money(row['assessed_value'])} ({equity_line(row).lower()}), sale date {row['auction_date']}.",
+        f"A property in {location_label(row)} closed at {money(row['effective_sold_amount'])} against a "
+        f"{value_label(row)} of {money(row['value_estimate'])} ({equity_line(row).lower()}), sale date {row['auction_date']}.",
         "",
         f"Public record source: {row['source_url']}",
         "",
@@ -232,6 +299,7 @@ def main():
                 "content_text": content_text,
                 "status": "pending",
                 "scheduled_for": scheduled_for,
+                "value_source": row["value_source"],
                 "_equity_dollars": float(row["equity_dollars"]),
                 "_day_offset": day_offset,
             })
@@ -240,10 +308,18 @@ def main():
 
     if dry_run:
         by_day = {}
+        by_value_source = {}
         for ins in inserts:
             by_day.setdefault(ins["_day_offset"], 0)
             by_day[ins["_day_offset"]] += 1
-        print(json.dumps({"total_candidates": len(inserts), "by_day_offset": by_day}, indent=2))
+            by_value_source.setdefault(ins["value_source"], 0)
+            by_value_source[ins["value_source"]] += 1
+        print(json.dumps({
+            "total_candidates": len(inserts),
+            "by_day_offset": by_day,
+            "by_value_source": by_value_source,
+            "sale_types": sorted(set(r["sale_type"] for r in rows)),
+        }, indent=2))
         return
 
     # Insert in batches via PostgREST, checking existing content_hash first
