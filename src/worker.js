@@ -5361,7 +5361,9 @@ function buildHomepageHtml() { return `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>BidDeed.AI — AI-Powered Foreclosure &amp; Tax Deed Auction Intelligence</title>
-<meta name="description" content="Know your walk-away number before the gavel falls. One $25 report gives you the Shapira Max Bid, value bands, rehab budget, lien flags, and an ML read — 18 sections, every number traced to a named source.">
+<meta name="description" content="Florida investors: stop guessing on tax-deed surplus and zoning risk. BidDeed.AI + ZoneWise.AI turn 20 years of Florida deed/foreclosure expertise into an auction-by-auction edge. See your county's live report now.">
+<meta property="og:title" content="Florida Tax-Deed &amp; Foreclosure Investors — See What Competitors Miss">
+<meta property="og:description" content="For Florida tax-deed and foreclosure investors — surface the deals your competitors miss, backed by 20 years of Florida auction data and 67-county parcel coverage. Start your first Gold Standard county report free.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
