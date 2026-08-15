@@ -413,7 +413,10 @@ def pass_c_fl_parcels_stubs() -> int:
         return 0
 
     # Upsert stubs — minimal required fields
-    co_no_map = {"brevard": 15, "duval": 16}
+    # co_no values are the REAL FL DOR county codes (verified Aug 15 2026 against
+    # the statewide zw_parcels table, NOT the alphabetical rank formerly (and
+    # wrongly) stored in public.fl_counties). Brevard=15, Duval=26.
+    co_no_map = {"brevard": 15, "duval": 26}
     stubs = []
     for pid in missing:
         county = by_pid[pid]
@@ -577,7 +580,10 @@ def pass_e_synthetic_stubs() -> int:
 
     print(f"  {len(rows)} rows still null — assigning synthetic parcel_ids")
 
-    co_no_map = {"brevard": 15, "duval": 16}
+    # co_no values are the REAL FL DOR county codes (verified Aug 15 2026 against
+    # the statewide zw_parcels table, NOT the alphabetical rank formerly (and
+    # wrongly) stored in public.fl_counties). Brevard=15, Duval=26.
+    co_no_map = {"brevard": 15, "duval": 26}
     brevard_juris_id = find_jurisdiction_id("Brevard", "Unincorporated")
     if not brevard_juris_id:
         brevard_juris_id = find_jurisdiction_id("Brevard")
@@ -755,7 +761,7 @@ def main() -> None:
     # ── Pass A: Fill null Brevard parcel_ids ─────────────────────────────────
     pass_a_null_parcel_ids()
 
-    # ── Pass B: BCPAO crosswalk numeric → space-dash ──────────────────────────
+    # ── Pass B: BCPAO crosswalk numeric → space-dash ───────────────────────────
     pass_b_bcpao_crosswalk()
 
     # ── Pass C: fl_parcels stubs (Gate 3 insurance) ───────────────────────────
