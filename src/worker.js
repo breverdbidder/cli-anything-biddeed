@@ -5628,6 +5628,18 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   #chat-panel{width:100vw;height:100dvh;max-width:none;border-radius:0;border:none}
   #chat-bubble{bottom:16px;right:16px;padding:12px 16px;font-size:13px}
 }
+
+/* EXIT-INTENT MODAL */
+#exit-overlay{display:none;position:fixed;inset:0;z-index:9200;background:rgba(2,6,23,.75);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:1.25rem}
+#exit-overlay.open{display:flex}
+#exit-panel{position:relative;width:100%;max-width:420px;background:var(--navy);border:1px solid var(--charcoal);border-radius:16px;padding:2rem 1.75rem;box-shadow:0 24px 80px rgba(0,0,0,.7);text-align:center}
+#exit-close{position:absolute;top:10px;right:10px;background:transparent;border:none;color:var(--slate);font-size:18px;cursor:pointer;width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;line-height:1;transition:background .15s,color .15s}
+#exit-close:hover{background:var(--charcoal);color:#fff}
+#exit-panel h3{font-size:1.3rem;font-weight:800;color:#fff;letter-spacing:-.02em;margin-bottom:.5rem}
+#exit-panel p{color:var(--slate);font-size:14px;line-height:1.6;margin-bottom:1.25rem}
+#exit-panel .lead-input{width:100%;margin-bottom:10px}
+#exit-panel .lead-submit{width:100%}
+#exit-form-wrap.hidden,#exit-success.hidden{display:none}
 </style>
 </head>
 <body>
@@ -5961,6 +5973,24 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
   </div>
 </div>
 
+<!-- EXIT-INTENT LEAD CAPTURE -->
+<div id="exit-overlay" role="dialog" aria-modal="true" aria-label="Get your free county report" onclick="handleExitOverlayClick(event)">
+  <div id="exit-panel">
+    <button id="exit-close" onclick="closeExitIntent()" aria-label="Close">&#x2715;</button>
+    <div id="exit-form-wrap">
+      <h3>Before you go — get your county's free auction report</h3>
+      <p>One email. Your county's next upcoming tax-deed &amp; foreclosure auctions, free.</p>
+      <input class="lead-input" id="exit-email" type="email" placeholder="your@email.com" autocomplete="email">
+      <button class="lead-submit" onclick="submitExitIntentLead()" id="exit-submit-btn">Get My Free County Report &rarr;</button>
+      <div class="lead-error" id="exit-error"></div>
+    </div>
+    <div id="exit-success" class="hidden">
+      <h3>Check your inbox</h3>
+      <p>Your free report is on its way. We'll also flag your county's next upcoming auctions.</p>
+    </div>
+  </div>
+</div>
+
 <script>
 function openChat(){
   var overlay=document.getElementById('chat-overlay');
@@ -5979,6 +6009,73 @@ function handleOverlayClick(e){
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape') closeChat();
 });
+
+// ── EXIT-INTENT LEAD CAPTURE — fires once per session, never on checkout/report pages ──
+var EXIT_EXCLUDED_PATHS=['/buy-report','/subscribe','/report-success'];
+var exitIntentTriggerKind='';
+function shouldSkipExitIntent(){
+  return !!sessionStorage.getItem('exitIntentShown') || EXIT_EXCLUDED_PATHS.indexOf(window.location.pathname)!==-1;
+}
+function showExitIntent(){
+  if(shouldSkipExitIntent()) return;
+  sessionStorage.setItem('exitIntentShown','1');
+  document.getElementById('exit-overlay').classList.add('open');
+  document.body.style.overflow='hidden';
+  try{if(window.posthog)posthog.capture('exit_intent_shown',{trigger:exitIntentTriggerKind});}catch(e){}
+}
+function closeExitIntent(){
+  document.getElementById('exit-overlay').classList.remove('open');
+  document.body.style.overflow='';
+}
+function handleExitOverlayClick(e){
+  if(e.target===document.getElementById('exit-overlay')) closeExitIntent();
+}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape') closeExitIntent();
+});
+
+// Desktop: mouseleave through the top edge of the viewport (about-to-close-tab signal)
+document.addEventListener('mouseleave',function(e){
+  if(e.clientY>10) return;
+  exitIntentTriggerKind='desktop_mouseleave';
+  showExitIntent();
+});
+
+// Mobile: exit-intent has no touch equivalent — use first-scroll-then-idle-15s instead
+if(('ontouchstart' in window)||navigator.maxTouchPoints>0){
+  var mobileIdleTimer=null;
+  window.addEventListener('scroll',function(){
+    if(mobileIdleTimer) clearTimeout(mobileIdleTimer);
+    mobileIdleTimer=setTimeout(function(){
+      exitIntentTriggerKind='mobile_idle';
+      showExitIntent();
+    },15000);
+  },{passive:true});
+}
+
+async function submitExitIntentLead(){
+  var email=document.getElementById('exit-email').value.trim();
+  var err=document.getElementById('exit-error');
+  err.textContent='';
+  if(!email||!email.includes('@')){err.textContent='Please enter a valid email address.';return;}
+  var btn=document.getElementById('exit-submit-btn');
+  btn.disabled=true;btn.textContent='Sending…';
+  try{
+    var r=await fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,source:'exit_intent',email_consent:true})});
+    var data=r.ok?await r.json():{ok:false};
+    if(data.ok){
+      document.getElementById('exit-form-wrap').classList.add('hidden');
+      document.getElementById('exit-success').classList.remove('hidden');
+      try{if(window.posthog)posthog.capture('exit_intent_captured',{trigger:exitIntentTriggerKind});}catch(e){}
+    } else {
+      btn.disabled=false;btn.textContent='Get My Free County Report →';
+      err.textContent='Something went wrong. Please try again.';
+    }
+  }catch(e){
+    btn.disabled=false;btn.textContent='Get My Free County Report →';
+    err.textContent='Something went wrong. Please try again.';
+  }
+}
 </script>
 
 ${HOMEPAGE_SCRIPT}
