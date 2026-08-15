@@ -5651,8 +5651,8 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
 <!-- HERO -->
 <section class="hero">
   <div class="eyebrow">Shapira Auction Intelligence · Florida Foreclosure &amp; Tax Deed</div>
-  <h1>Know your walk-away number<br>before the gavel falls.</h1>
-  <p class="hero-sub">BidDeed.AI is the only platform that tells you what's coming to auction, what to bid, and what the zoning allows.</p>
+  <h1>For Florida Tax-Deed &amp; Foreclosure Investors —<br>See What Competitors Miss.</h1>
+  <p class="hero-sub">Backed by 20 years of Florida auction data and 67-county parcel coverage. Start your first Gold Standard county report free.</p>
   <div class="hero-cred">67 FL counties tracked · <b>⭐ GOLD_COUNT_PLACEHOLDER Gold Standard certified</b></div>
   <div class="hero-artifact">Real case · Marion County: Shapira Max Bid <b>$82,000</b> <span class="res">→ sale closed $73,501 · ceiling held ✓</span></div>
   <div class="hero-ctas">
