@@ -30,7 +30,7 @@ SLEEP_BETWEEN = 0.25 # politeness delay between FeatureServer requests
 
 # co_no -> name, smallest first so failures surface early/cheap
 TARGET_COUNTIES = [
-    (44, "Lafayette"), (17, "Calhoun"), (43, "Jefferson"), (25, "Dixie"),
+    (42, "Jackson"), (17, "Calhoun"), (43, "Jefferson"), (25, "Dixie"),
     (24, "DeSoto"), (22, "Columbia"), (77, "Washington"), (20, "Clay"),
     (67, "Santa Rosa"), (47, "Leon"), (64, "Putnam"), (76, "Walton"),
     (61, "Pasco"), (68, "Sarasota"), (19, "Citrus"), (59, "Osceola"),
