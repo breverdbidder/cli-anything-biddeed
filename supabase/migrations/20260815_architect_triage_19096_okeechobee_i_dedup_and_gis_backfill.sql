@@ -1,0 +1,87 @@
+-- ARCHITECT TRIAGE issue #19096 (SHARD-1: brevard/okeechobee/hamilton/holmes/union,
+-- dispatch a74613f1). DoD: EXISTS certified over the 5 counties. All 5 read FALSE
+-- live at session start (all previously certified-then-revoked). brevard/hamilton/
+-- holmes/union have real, multi-letter, GIS/court-record data gaps (not freshness
+-- artifacts) already tracked by dozens of prior dedicated sessions -- left
+-- unaddressed here, no fabrication. okeechobee was 9/10 live, I=90.7%
+-- (card_complete=78 of 86, need >=82) -- closed this session, documented below.
+--
+-- Applied LIVE via REST/RPC + Management API SQL this session (this file documents
+-- it for the repo per SHIP-TO-MAIN MANDATE; psql/SUPABASE_DB_PASSWORD not attempted
+-- per the documented decision_log ids 169/205/287 constraint).
+--
+-- STEP 1 -- duplicate-row purge. Of the 8 I-failing rows, 2025-CA-130/143/205 were
+-- confirmed empty-shell DUPLICATES of already-complete rows under the full clerk
+-- case_number format (same county+auction_date+sale_type; e.g. 2025-CA-130 duplicates
+-- 472025CA000130CAAXMX which has real parcel_id/address). Verified zero
+-- foreclosure_outcomes/tax_deed_outcomes references before deleting (bid_decisions
+-- had orphan rows against the short case_number -- left in place, out of scope).
+-- 2025-CA-189 has no duplicate twin and remains a genuine unresolved row, untouched.
+--
+-- STEP 2 -- real GIS enrichment for 2026TD096 (1-25-37-35-0070-00060-0160) and
+-- 2026TD097 (1-17-37-35-0020-00040-0020), NOT previously attempted by any prior
+-- session (absent from scripts/shard5_okeechobee_i_backfill_9e12d062.py and
+-- scripts/gold_standard_okeechobee_i_wms_pixel_20260808_9c6b9b03.py TARGET_PARCELS
+-- lists). Address/value/lat-lon fetched live via the proven okeechobeepa.com
+-- Grizzly-GIS showDetails POST (cross-checked against fl_parcels, exact match).
+-- Zone fetched live via the proven okeechobeegis.com WMS GetMap point-in-polygon
+-- raster sample against the real centroid -- both resolved unambiguously to
+-- zoning_ResidentialSingleFamily (zone_code RSF), no ambiguous/zero hits.
+--
+-- STEP 3 -- NOT touched, already exhaustively diagnosed genuinely blocked by the
+-- 2026-08-08 session (see scripts/gold_standard_okeechobee_i_wms_pixel_20260808_9c6b9b03.py
+-- header) and re-confirmed structurally unrecoverable without fabrication:
+--   2026TD050 (1-25-37-35-0070-00060-1760) -- PA roll "No Matching Records Found"
+--   2026TD087 (1-06-36-34-0010-00360-0140) -- WMS zero-layer hit, highway ROW gap
+--
+-- RESULT: I moved from card_complete=78 of 86 (90.7% FAIL) to 80 of 83 (96.4% PASS).
+-- okeechobee live 10/10 A-J. Ran gold_standard_ultraloop_audit_refresh.py +
+-- gold_standard_precert_guard_refresh.py (fleet-wide, never claims survival for a
+-- letter failing live) then gold_standard_loop()+gold_standard_certify() twice
+-- (loop_run_id 11769, 11770; okeechobee started at consecutive_gold=0, certify
+-- requires 2 consecutive gold runs). Blast-radius check (consecutive_non_gold IN
+-- (1,2) before running loop): bay and gadsden at =2, live-re-checked and confirmed
+-- genuinely FAILing (bay C+I, gadsden C) BEFORE the run -- predicted, accepted,
+-- pre-existing revocation, unrelated to this fix.
+--
+-- DoD re-executed and read back TRUE:
+--   SELECT EXISTS (SELECT 1 FROM public.gold_standard_certifications
+--     WHERE county_slug = ANY('{brevard,okeechobee,hamilton,holmes,union}'::text[])
+--     AND certified);  -- => true (okeechobee certified=true, consecutive_gold=2)
+--
+-- This file is a documentation-only record of live-applied changes (DML against
+-- multi_county_auctions/parcel_zones, plus the two idempotent audit/guard refresh
+-- scripts and gold_standard_loop()/gold_standard_certify() RPC calls) -- no DDL.
+-- Re-running the DELETE/INSERT statements below is safe: the DELETE targets
+-- specific known ids (no-op if already gone) and the INSERT is a net-new
+-- parcel_zones row keyed by parcel_id+jurisdiction_id (would need an ON CONFLICT
+-- guard to be blindly re-run twice; not re-run here since it was already applied
+-- live and verified).
+
+-- (Historical record only -- already applied live via REST at session time.)
+-- DELETE FROM public.multi_county_auctions
+--  WHERE county = 'okeechobee'
+--    AND case_number IN ('2025-CA-130', '2025-CA-143', '2025-CA-205');
+--
+-- UPDATE public.multi_county_auctions
+--    SET property_address = '3813 SE 26TH ST OKEECHOBEE', assessed_value = 60672.0,
+--        latitude = 27.22065839402547, longitude = -80.78917071974283
+--  WHERE county = 'okeechobee' AND case_number = '2026TD096';
+--
+-- UPDATE public.multi_county_auctions
+--    SET property_address = '1664 NW 5TH ST OKEECHOBEE', assessed_value = 70414.0,
+--        latitude = 27.247848777464192, longitude = -80.84526616631118
+--  WHERE county = 'okeechobee' AND case_number = '2026TD097';
+--
+-- INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source)
+-- VALUES
+--   ('1-25-37-35-0070-00060-0160', 943, 'RSF', 'zoning_ResidentialSingleFamily',
+--    'okeechobeegis.com_wms_ol_themes_point_in_polygon;layer=zoning_ResidentialSingleFamily;dispatch=a74613f1'),
+--   ('1-17-37-35-0020-00040-0020', 943, 'RSF', 'zoning_ResidentialSingleFamily',
+--    'okeechobeegis.com_wms_ol_themes_point_in_polygon;layer=zoning_ResidentialSingleFamily;dispatch=a74613f1');
+
+-- Verification:
+-- SELECT public.pencil_dod_evaluate_county('okeechobee');
+-- Expect: I = {"pass": true, "detail": "card_complete=80 of 83", "metric": 96.4}
+-- SELECT * FROM public.gold_standard_certifications WHERE county_slug = 'okeechobee';
+-- Expect: certified=true, consecutive_gold=2, revoked_at=NULL
