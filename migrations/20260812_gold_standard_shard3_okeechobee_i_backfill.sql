@@ -99,22 +99,32 @@ WHERE lower(mca.county) = 'okeechobee'
 -- HONESTY MARKER: INFERRED from DOR_UC code — not verified from GIS layer.
 -- Only zones with clear, direct mappings are inserted.
 
+-- BUGFIX (2026-08-15, gold-standard shard-1 dc01bfe6): fp.dor_uc is TEXT
+-- storing 4-char codes ("0100","0107","0200"...), not an integer. The
+-- original CASE compared it directly to integer literals, which raised
+-- 42883 and rolled back the ENTIRE migration (VERIFIED: pencil_dod_evaluate_county
+-- before/after was byte-identical for okeechobee). Fixed by casting the first 2
+-- chars (the standard FL DOR 2-digit use code) to int. Also moves DOR 02 (mobile
+-- home) from the RSF bucket into RMH to match the real DOR convention already
+-- used by okeechobeegis.com-sourced rows in this same table
+-- (source='okeechobeegis.com_wms_ol_themes_point_in_polygon').
+
 INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source)
 SELECT DISTINCT
     mca.parcel_id,
     943 AS jurisdiction_id,
     CASE
-        WHEN fp.dor_uc IN (0, 1, 2, 8) THEN 'RSF'
-        WHEN fp.dor_uc IN (4, 7) THEN 'RMH'
-        WHEN fp.dor_uc BETWEEN 10 AND 39 THEN 'C'
-        WHEN fp.dor_uc BETWEEN 50 AND 89 THEN 'A'
+        WHEN substring(fp.dor_uc from 1 for 2)::int IN (0, 1, 8) THEN 'RSF'
+        WHEN substring(fp.dor_uc from 1 for 2)::int IN (2, 4, 7) THEN 'RMH'
+        WHEN substring(fp.dor_uc from 1 for 2)::int BETWEEN 10 AND 39 THEN 'C'
+        WHEN substring(fp.dor_uc from 1 for 2)::int BETWEEN 50 AND 89 THEN 'A'
         ELSE NULL
     END AS zone_code,
     CASE
-        WHEN fp.dor_uc IN (0, 1, 2, 8) THEN 'Residential Single-Family'
-        WHEN fp.dor_uc IN (4, 7) THEN 'Residential Mobile/Manufactured Home'
-        WHEN fp.dor_uc BETWEEN 10 AND 39 THEN 'Commercial'
-        WHEN fp.dor_uc BETWEEN 50 AND 89 THEN 'Agriculture'
+        WHEN substring(fp.dor_uc from 1 for 2)::int IN (0, 1, 8) THEN 'Residential Single-Family'
+        WHEN substring(fp.dor_uc from 1 for 2)::int IN (2, 4, 7) THEN 'Residential Mobile/Manufactured Home'
+        WHEN substring(fp.dor_uc from 1 for 2)::int BETWEEN 10 AND 39 THEN 'Commercial'
+        WHEN substring(fp.dor_uc from 1 for 2)::int BETWEEN 50 AND 89 THEN 'Agriculture'
         ELSE NULL
     END AS zone_name,
     'dor_uc_crosswalk:fl_parcels:shard3_7be9b60b' AS source
@@ -125,11 +135,12 @@ JOIN public.fl_parcels fp
 WHERE lower(mca.county) = 'okeechobee'
   AND mca.parcel_id IS NOT NULL
   AND mca.parcel_id NOT IN ('MULTIPLE PARCELS')
+  AND fp.dor_uc ~ '^[0-9]{2,4}$'
   AND CASE
-        WHEN fp.dor_uc IN (0, 1, 2, 8) THEN 'RSF'
-        WHEN fp.dor_uc IN (4, 7) THEN 'RMH'
-        WHEN fp.dor_uc BETWEEN 10 AND 39 THEN 'C'
-        WHEN fp.dor_uc BETWEEN 50 AND 89 THEN 'A'
+        WHEN substring(fp.dor_uc from 1 for 2)::int IN (0, 1, 8) THEN 'RSF'
+        WHEN substring(fp.dor_uc from 1 for 2)::int IN (2, 4, 7) THEN 'RMH'
+        WHEN substring(fp.dor_uc from 1 for 2)::int BETWEEN 10 AND 39 THEN 'C'
+        WHEN substring(fp.dor_uc from 1 for 2)::int BETWEEN 50 AND 89 THEN 'A'
         ELSE NULL
       END IS NOT NULL
   AND NOT EXISTS (
