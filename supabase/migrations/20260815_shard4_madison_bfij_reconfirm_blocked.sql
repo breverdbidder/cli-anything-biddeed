@@ -1,0 +1,61 @@
+-- Gold Standard shard-4, dispatch 4b4e845c-ef16-4a20-a22d-17dafccc47e6, county=madison, letters B/F/I/J
+-- Date: 2026-08-15
+--
+-- LIVE STATE (pencil_dod_evaluate_county('madison'), unchanged before/after this session):
+--   B: {"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--   F: {"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}
+--   I: {"pass": false, "detail": "card_complete=6 of 8", "metric": 75.0}
+--   J: {"pass": false, "detail": "deal_complete=6 of 8", "metric": 75.0}
+-- A,C,D,E,G,H already PASS (C/D fixed 2026-08-13, see 20260813_shard3_madison_cd_parity_verify.sql).
+--
+-- This is the 3rd consecutive session finding these letters blocked (prior:
+-- 20260711_shard13_wakulla_madison_b_f_no_historical_data_blocked.sql,
+-- 20260813_shard3_madison_b_f_reconfirm_blocked.sql /
+-- 20260813_shard3_madison_cd_parity_verify.sql). Per ULTRALOOP protocol, this session
+-- ran two independent fresh-context research agents (not a repeat of the same fetches)
+-- to genuinely try to break the blocker before re-confirming it.
+--
+-- B/F FRESH FINDING (new this session): 3 of 8 madison rows now have auction_date in
+-- the past (21-36-CA 2026-07-16, 24-62-CA 2026-07-28, 26-20-CA 2026-08-05 -- the third
+-- is newly past-due since 2026-08-13), all still sold_amount IS NULL. This reframes the
+-- blocker precisely: it is NOT "no closed sales exist yet" (sales have in fact
+-- occurred/passed) -- it IS "sale results are structurally unpublished anywhere public".
+-- Discovered a previously-unknown madisonclerk.com WordPress REST post type
+-- `foreclosures` (wp-json/wp/v2/foreclosures, distinct from the `taxdeeds` type found
+-- 2026-08-13) covering all 6 CA cases -- but it exposes only judgment_amount and a
+-- static status field that is NEVER updated post-sale (21-36-CA and 24-62-CA both still
+-- show "Scheduled" 30-42 days after their sale dates). civitekflorida.com/ocrs/county/40
+-- re-confirmed as a static access-tier landing page with zero search form or API in the
+-- raw HTML (not just JS-rendered-and-missed). No independent third-party sale-results
+-- aggregator found via WebSearch. CONCLUSION: B/F genuinely blocked -- Madison Clerk
+-- publishes no sale-outcome field on any public channel, for any case, live or past.
+--
+-- I/J FRESH FINDING: re-verified all 4 avenues from the 2026-08-13 session are still
+-- exhausted, not merely re-asserted: (1) Firecrawl API called directly with the live
+-- FIRECRAWL_API_KEY, confirmed still "Insufficient credits" on both /v1/scrape and
+-- /v1/search. (2) FL GIO CO_NO=40 field/value re-verified correct via layer metadata,
+-- AND independently proven not the cause of zero results by querying the KNOWN-GOOD
+-- control parcel 35-3N-09-5540-018-000 with NO county filter at all against the full
+-- statewide dataset -- still zero features, confirming Madison's STRAP-format parcel_id
+-- strings genuinely are not covered by this dataset, not a CO_NO bug. (3) No
+-- browser-automation tool available in this session's toolset (ToolSearch confirmed).
+-- qpublic.schneidercorp.com (AppID=911) and madisonpa.com both still return Cloudflare
+-- 403 to direct curl with a real Chrome UA. (4) WebSearch found two third-party
+-- aggregators (Regrid, TaxNetUSA) that index the target parcels but both require paid
+-- login before showing any data -- no address/value/lat-lon actually retrieved.
+-- CONCLUSION: I/J genuinely blocked on parcels 21-2N-09-5288-022-000 (26-7-TD) and
+-- 21-2N-09-5288-021-000 (26-9-TD) -- no real address/geo/value source reachable this
+-- session. Per BLANK > WRONG, no fabricated data written.
+--
+-- Next real unblock paths (unchanged from 2026-08-13, still the correct next steps):
+--   B/F: none found this session -- would require madisonclerk.com to add a
+--        sale-results field, or a working OCRS credential, neither achievable from a
+--        headless session. Candidate for a manual-outreach exception rather than
+--        further automated retries.
+--   I/J: Firecrawl credits replenishing, a browser-automation tool becoming available,
+--        or direct phone contact with Madison County Property Appraiser (850-973-6133).
+--
+-- No schema or data changes. Documentation-only audit-trail record (no writes made,
+-- consistent with BLANK > WRONG).
+
+SELECT 1; -- no-op; this migration is an audit-trail record only
