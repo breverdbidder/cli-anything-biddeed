@@ -1,0 +1,45 @@
+name: "MCP ZoneWise — Create mcp.zonewise.ai CNAME"
+# One-off for issue #19091 Phase 1. zonewise-web's own CLOUDFLARE_API_TOKEN
+# secret failed auth (code 10000) against the zonewise.ai zone; this repo's
+# CF_API_TOKEN is confirmed valid for that same zone (see cf-dns-op.yml,
+# ZONE_ID b32406b78aaaefd55557d77c843a5940), so this workflow uses that one
+# instead. Creates mcp.zonewise.ai -> cname.vercel-dns.com, DNS-only
+# (proxied:false — required for Vercel's own TLS/domain verification).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  create-cname:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      ZONE_ID: b32406b78aaaefd55557d77c843a5940
+    steps:
+      - name: Mask token
+        run: echo "::add-mask::${CF_API_TOKEN}"
+
+      - name: Create/update CNAME mcp.zonewise.ai -> cname.vercel-dns.com
+        run: |  # nosemgrep: yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell -- curl output piped to python3 for JSON parsing only, never executed as shell
+          set -euo pipefail
+          EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=mcp.zonewise.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('result',[]); print(r[0]['id'] if r else 'NONE')")
+
+          if [ "$EXISTING" != "NONE" ]; then
+            echo "CNAME already exists (id=$EXISTING), updating..."
+            RESULT=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EXISTING" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+              -d '{"type":"CNAME","name":"mcp.zonewise.ai","content":"cname.vercel-dns.com","ttl":1,"proxied":false}')
+          else
+            echo "Creating CNAME mcp.zonewise.ai -> cname.vercel-dns.com..."
+            RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+              -d '{"type":"CNAME","name":"mcp.zonewise.ai","content":"cname.vercel-dns.com","ttl":1,"proxied":false}')
+          fi
+          echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print('success=', d.get('success'), 'errors=', d.get('errors'))"
+
+      - name: Verify record
+        run: |
+          curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=mcp.zonewise.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | python3 -m json.tool
