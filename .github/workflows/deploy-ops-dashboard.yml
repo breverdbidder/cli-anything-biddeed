@@ -1,0 +1,105 @@
+name: Deploy Ops Dashboard Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - workers/ops-dashboard/**
+  workflow_dispatch:
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/ops-dashboard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Deploy worker
+        id: deploy
+        run: |
+          npx wrangler deploy 2>&1 | tee /tmp/deploy_output.txt
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy_output.txt | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not extract deployed URL from wrangler output"
+            exit 1
+          fi
+          echo "worker_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $URL"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      - name: Set Worker secrets
+        run: |
+          echo "${{ secrets.SUPABASE_URL }}" | npx wrangler secret put SUPABASE_URL
+          echo "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" | npx wrangler secret put SUPABASE_SERVICE_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      - name: Verify — tiles endpoint returns 200 with real data (retries for edge propagation)
+        id: verify_tiles
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          for attempt in 1 2 3 4 5 6; do
+            RESP=$(curl -s -w "\n%{http_code}" "$URL/api/tiles")
+            STATUS=$(echo "$RESP" | tail -1)
+            BODY=$(echo "$RESP" | sed '$d')
+            echo "attempt $attempt: HTTP status: $STATUS"
+            if [ "$STATUS" = "200" ] && echo "$BODY" | grep -q '"inventory"'; then
+              echo "PASS: tiles endpoint returns real data (attempt $attempt)"
+              echo "$BODY" > /tmp/tiles_body.json
+              exit 0
+            fi
+            echo "  body: $BODY"
+            echo "  not ready yet, waiting 8s before retry..."
+            sleep 8
+          done
+          echo "::error::Still not returning tile data after 6 attempts (~48s) — not a propagation delay, real failure"
+          exit 1
+
+      - name: Verify — root page renders HTML with real content
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" "$URL/")
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Expected 200 for root page, got $STATUS"
+            exit 1
+          fi
+          echo "$BODY" | grep -q "Ops Dashboard" || { echo "::error::Root page missing expected title text"; exit 1; }
+          echo "PASS: root page renders"
+
+      - name: Verify — pull-metrics action is correctly blocked (negative test)
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/action/pull-metrics")
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          echo "Body: $BODY"
+          if [ "$STATUS" != "501" ]; then
+            echo "::error::Expected 501 (blocked, no RPC exists) for pull-metrics, got $STATUS"
+            exit 1
+          fi
+          echo "$BODY" | grep -q '"blocked": true' || { echo "::error::pull-metrics response missing blocked:true"; exit 1; }
+          echo "PASS: pull-metrics correctly blocked, not silently faked"
+
+      - name: Summary
+        run: |
+          echo "### Ops Dashboard Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed URL: ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tiles snapshot:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/tiles_body.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
