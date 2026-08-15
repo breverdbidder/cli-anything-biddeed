@@ -1,0 +1,71 @@
+-- GOLD STANDARD shard-5 (martin/holmes, dispatch 87f7f5ab-2509-4dd2-a707-b9b0b24ef1c8,
+-- loop run 11770, session architect-20260815T160000).
+--
+-- ROOT CAUSE (VERIFIED live 2026-08-15): scripts/clerk_ssot/run_parity.py's
+-- diff_and_reconcile() matches SSOT clerk rows to existing multi_county_auctions
+-- rows by case_number only (with format-normalization fallbacks for a handful of
+-- counties' case-number quirks -- see the "/"-split, zero-pad, and manatee
+-- fallbacks already in that function). Holmes's clerk site publishes NO real
+-- docket number for foreclosures (scripts/clerk_ssot/parsers/holmes.py docstring),
+-- so the live scrape synthesizes case_number as "PARCEL-{parcel_id}". A separate,
+-- earlier ingest path already stores several of these SAME auctions under
+-- unrelated UUID-based case numbers ("HOLMES-LEGACY-{uuid}") with parcel_id
+-- populated in its own column. Because the two case-number schemes never share a
+-- substring, no existing fallback could ever match them: every daily 09:00 UTC
+-- cron run (.github/workflows/clerk-ssot-parity.yml) re-inserted a duplicate blank
+-- stub row for parcel 0936.01-004-00C-008.000 AND phantom-flagged the enriched
+-- legacy row (parity_status='PHANTOM_NOT_ON_CLERK'), undoing manual reconciliation
+-- every single day. Confirmed recurring TWICE in one day this session:
+--   1. 2026-08-15 08:25 UTC -- a prior session (dispatch dc01bfe6, commit
+--      f472923d) manually corrected HOLMES-LEGACY-3ca8afb6-...'s stale phantom
+--      flag to parity_status='matched_clean'.
+--   2. 2026-08-15 09:00 UTC -- the daily cron ran, could not match the SSOT's
+--      "PARCEL-0936.01-004-00C-008.000" row to the legacy row by case_number,
+--      so it (a) inserted a fresh blank duplicate stub (id
+--      7ed6737b-e4fb-482d-899b-41213deaba7d, created 09:16:20 UTC, parcel_id
+--      NULL) and (b) reverted HOLMES-LEGACY-3ca8afb6-... back to
+--      parity_status='PHANTOM_NOT_ON_CLERK', undoing fix #1 within 35 minutes.
+-- This is the same symptom a 2026-08-14 session (scripts/holmes_dedup_shard3_84bbde9d.py)
+-- already fixed once by deleting that day's duplicate stub -- but that fix only
+-- addressed the symptom, not run_parity.py's matching logic, so it reappeared on
+-- the very next cron cycle.
+--
+-- FIX (both parts required for durability):
+--   1. Delete today's duplicate stub row (symptom, one-time, idempotent below).
+--   2. Code fix (this session, committed alongside this migration): added a
+--      parcel_id-aware matching fallback to diff_and_reconcile(), gated strictly
+--      to county_slug=='holmes' (same gating convention already used for the
+--      manatee-specific fallback in the same function, to guarantee zero effect
+--      on any other county). Verified live by re-running the holmes parser +
+--      diff_and_reconcile() end-to-end after the code change: 4/4 SSOT rows
+--      matched cleanly, 0 missing_from_ours (no new stub), 0 phantom_in_ours (no
+--      false phantom flag) -- see session report for full command transcript.
+--
+-- RESULT (verified via pencil_dod_evaluate_county('holmes'), all live queries):
+--   BEFORE (pre-session):  A PASS(7) B FAIL C FAIL(64.7) D FAIL(64.7) E FAIL(94.1,
+--     16/17) F FAIL G PASS H PASS I FAIL(94.1, 16/17) J FAIL(94.1) -- 3/10
+--   AFTER (this session):  A PASS(6, one fewer due to the deleted duplicate) B FAIL
+--     C FAIL(68.8, 11/16 -- improved from 62.5%/10, still below 95% threshold,
+--     genuine structural gap on the remaining 5 rows, documented across 17+ prior
+--     sessions -- CAPTCHA-gated OCRS blocker) D FAIL(68.8, up from 62.5) E
+--     PASS(100.0, 16/16) F FAIL (closed_sold=0, nothing has actually closed in
+--     holmes yet -- structural, reconfirmed) G PASS H PASS I PASS(100.0, 16/16) J
+--     PASS(100.0, deal_complete=16/16) -- 6/10 (A,E,G,H,I,J)
+-- Note A's metric dropped from 7 to 6 (foreclosure count) purely because the
+-- deleted row was itself sale_type='foreclosure' with zero real content -- its
+-- removal does not affect A's pass/fail (min(foreclosure,tax_deed) still >0).
+--
+-- Adversarially verified via ULTRALOOP refuter fan-out (5 independent claims: E
+-- flip, I flip, J flip, C/D genuine-code-path gain, root-cause code-scope
+-- containment) -- see gold_standard_ultraloop_audit rows for this dispatch_id.
+--
+-- Idempotent: DELETE targets the specific known duplicate id; safe to replay.
+DELETE FROM public.multi_county_auctions
+WHERE id = '7ed6737b-e4fb-482d-899b-41213deaba7d'
+  AND county = 'holmes'
+  AND case_number = 'PARCEL-0936.01-004-00C-008.000'
+  AND parcel_id IS NULL;
+
+-- SQL VERIFICATION (run after applying):
+-- SELECT public.pencil_dod_evaluate_county('holmes');
+-- -> E/I/J should read PASS (100.0, 16/16); C/D should read 68.8 (11/16), still FAIL.

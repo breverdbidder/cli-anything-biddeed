@@ -165,13 +165,36 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
 
     ssot_by_case = {r["case_number"]: r for r in rows if _in_window(r["sale_date"])}
     ours = run_sql(f"""
-        SELECT case_number, auction_status, parity_status
+        SELECT case_number, auction_status, parity_status, parcel_id
         FROM public.multi_county_auctions
         WHERE lower(county) = {sql_str(county_slug)}
           AND sale_type = {sql_str(sale_type)}
           AND auction_date BETWEEN {sql_str(window_start.isoformat())} AND {sql_str(window_end.isoformat())}
     """)
     ours_by_case = {r["case_number"]: r for r in ours}
+
+    # Holmes's clerk site never publishes a real docket number for
+    # foreclosures (see scripts/clerk_ssot/parsers/holmes.py docstring), so
+    # the live scrape synthesizes case_number as "PARCEL-{parcel_id}". A
+    # separate, earlier ingest path already stores some of these same
+    # auctions under unrelated UUID-based case numbers
+    # ("HOLMES-LEGACY-{uuid}") with parcel_id populated in its own column.
+    # Since the two case-number schemes share no substring in common, none
+    # of the fallbacks above (or the case_number-only "ours" lookup) can ever
+    # match them -- every daily run re-inserted a duplicate blank stub AND
+    # phantom-flagged the enriched legacy row, undoing manual reconciliation
+    # every 24h (confirmed live 2026-08-14 and again 2026-08-15, same row,
+    # same parcel_id 0936.01-004-00C-008.000, two occurrences one cron cycle
+    # apart). Match "PARCEL-{parcel_id}" SSOT rows against any existing row
+    # for this county+sale_type whose parcel_id column equals that parcel_id,
+    # regardless of case_number scheme. Gated on county_slug=='holmes' to
+    # stay a no-op elsewhere, matching the manatee-gating convention above.
+    ours_by_parcel_id = {}
+    if county_slug == "holmes":
+        for case_number, row in ours_by_case.items():
+            pid = row.get("parcel_id")
+            if pid:
+                ours_by_parcel_id.setdefault(pid, case_number)
 
     # Some counties' clerk PDF case numbers ("4680/2019-2108") don't match
     # the short numeric case_number an earlier ingest sweep already stored
@@ -256,6 +279,11 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
         if our_row is None:
             canon = _canonical_case(case_number)
             real_case_number = ours_by_canonical.get(canon)
+            if real_case_number is not None:
+                our_row = ours_by_case.get(real_case_number)
+                matched_case_number = real_case_number
+        if our_row is None and county_slug == "holmes" and case_number.startswith("PARCEL-"):
+            real_case_number = ours_by_parcel_id.get(case_number[len("PARCEL-"):])
             if real_case_number is not None:
                 our_row = ours_by_case.get(real_case_number)
                 matched_case_number = real_case_number
