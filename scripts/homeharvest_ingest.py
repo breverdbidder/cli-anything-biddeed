@@ -40,33 +40,49 @@ TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 SOURCE = "homeharvest_realtor_com"
 HONESTY_MARKER = "INFERRED"  # scraped, not licensed data (RentCast-swap is the licensed path)
 
-# Gold Standard certified FL counties as of 2026-08-16 (v_certified_counties),
-# Brevard listed first per guardrail. This is the pipeline's target scope --
-# NOT all 67 FL counties. Weekly cron rotates through this list in batches
-# (see --batch) rather than hitting all of them in a single run.
+# All 67 FL counties, ordered by parcel_count DESC (joined from v_county_ssot,
+# queried 2026-08-16) with Brevard pinned first per compliance guardrail (flagship
+# county, already has 363 rows -- every run re-touches it so it never goes stale).
 # (search_name, county_slug) -- slug matches the lowercase/underscore convention
 # used everywhere else in this schema (multi_county_auctions.county,
 # v_certified_counties.county_slug, shapira_formula_params.county), so the S5
 # report engine can join sale_listings/rental_listings by county without a
-# separate normalization step.
-FL_PRIORITY_COUNTIES = [
-    ("Brevard", "brevard"), ("Alachua", "alachua"), ("Baker", "baker"), ("Bay", "bay"),
-    ("Bradford", "bradford"), ("Broward", "broward"), ("Citrus", "citrus"), ("Clay", "clay"),
-    ("Collier", "collier"), ("Columbia", "columbia"), ("Escambia", "escambia"),
-    ("Flagler", "flagler"), ("Gilchrist", "gilchrist"), ("Hardee", "hardee"),
-    ("Hendry", "hendry"), ("Hernando", "hernando"), ("Highlands", "highlands"),
-    ("Hillsborough", "hillsborough"), ("Jackson", "jackson"), ("Lake", "lake"),
-    ("Lee", "lee"), ("Leon", "leon"), ("Marion", "marion"), ("Martin", "martin"),
-    ("Miami-Dade", "miami_dade"), ("Nassau", "nassau"), ("Okeechobee", "okeechobee"),
-    ("Palm Beach", "palm_beach"), ("Pasco", "pasco"), ("Polk", "polk"),
-    ("Putnam", "putnam"), ("Santa Rosa", "santa_rosa"), ("Seminole", "seminole"),
-    ("St. Johns", "st_johns"), ("St. Lucie", "st_lucie"), ("Suwannee", "suwannee"),
-    ("Walton", "walton"),
+# separate normalization step. Weekly cron rotates through this list in batches
+# of --batch-size (see --batch) rather than hitting all 67 in a single run --
+# full coverage at batch-size=6 takes ~12 weeks; re-run with a larger --batch-size
+# or explicit --counties to accelerate.
+FL_ALL_67_COUNTIES = [
+    ("Brevard", "brevard"), ("Broward", "broward"), ("Palm Beach", "palm_beach"),
+    ("Miami-Dade", "miami_dade"), ("Lee", "lee"), ("Hillsborough", "hillsborough"),
+    ("Orange", "orange"), ("Pinellas", "pinellas"), ("Polk", "polk"), ("Duval", "duval"),
+    ("Pasco", "pasco"), ("Volusia", "volusia"), ("Sarasota", "sarasota"),
+    ("Collier", "collier"), ("Marion", "marion"), ("Manatee", "manatee"),
+    ("Charlotte", "charlotte"), ("Lake", "lake"), ("Osceola", "osceola"),
+    ("St. Lucie", "st_lucie"), ("Seminole", "seminole"), ("Escambia", "escambia"),
+    ("St. Johns", "st_johns"), ("Citrus", "citrus"), ("Bay", "bay"),
+    ("Hernando", "hernando"), ("Leon", "leon"), ("Highlands", "highlands"),
+    ("Okaloosa", "okaloosa"), ("Santa Rosa", "santa_rosa"), ("Alachua", "alachua"),
+    ("Clay", "clay"), ("Sumter", "sumter"), ("Putnam", "putnam"), ("Martin", "martin"),
+    ("Indian River", "indian_river"), ("Monroe", "monroe"), ("Walton", "walton"),
+    ("Flagler", "flagler"), ("Nassau", "nassau"), ("Levy", "levy"),
+    ("Washington", "washington"), ("Jackson", "jackson"), ("Columbia", "columbia"),
+    ("Hendry", "hendry"), ("Suwannee", "suwannee"), ("Okeechobee", "okeechobee"),
+    ("Gadsden", "gadsden"), ("Wakulla", "wakulla"), ("DeSoto", "desoto"),
+    ("Gulf", "gulf"), ("Taylor", "taylor"), ("Franklin", "franklin"),
+    ("Dixie", "dixie"), ("Madison", "madison"), ("Bradford", "bradford"),
+    ("Hardee", "hardee"), ("Holmes", "holmes"), ("Gilchrist", "gilchrist"),
+    ("Hamilton", "hamilton"), ("Baker", "baker"), ("Jefferson", "jefferson"),
+    ("Calhoun", "calhoun"), ("Glades", "glades"), ("Lafayette", "lafayette"),
+    ("Union", "union"), ("Liberty", "liberty"),
 ]
+# Back-compat alias -- some callers/docs still reference the old name.
+FL_PRIORITY_COUNTIES = FL_ALL_67_COUNTIES
 
 REQUEST_DELAY_SECONDS = 3  # conservative pacing between county/listing_type calls
 PER_COUNTY_LIMIT = 1000    # bounded per run -- weekly refresh, not full history
 PAST_DAYS = 14             # weekly cadence with overlap margin
+RATE_LIMIT_BACKOFF_SECONDS = 45  # one extra cool-down when a 429/rate-limit signature is seen
+AGENT_OPS_TASK = "rent-comps-statewide"
 
 client = httpx.Client(timeout=60)
 
@@ -125,20 +141,39 @@ def bathrooms(full_baths, half_baths):
     return total if total else None
 
 
+def is_rate_limit_error(e):
+    msg = str(e).lower()
+    return "429" in msg or "rate limit" in msg or "too many requests" in msg
+
+
 def fetch_county(search_name, listing_type):
-    """Sequential, non-parallel, rate-limited pull from HomeHarvest for one FL county."""
+    """Sequential, non-parallel, rate-limited pull from HomeHarvest for one FL county.
+
+    On a rate-limit signature: one cool-down + one retry, then give up on this
+    (county, listing_type) for this run -- never an unbounded retry loop against
+    Realtor.com (compliance guardrail)."""
     from homeharvest import scrape_property
 
     location = f"{search_name} County, FL"
-    df = scrape_property(
-        location=location,
-        listing_type=listing_type,
-        past_days=PAST_DAYS,
-        limit=PER_COUNTY_LIMIT,
-        return_type="pandas",
-        parallel=False,  # guardrail: no aggressive parallel scraping
-    )
-    return df
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            return scrape_property(
+                location=location,
+                listing_type=listing_type,
+                past_days=PAST_DAYS,
+                limit=PER_COUNTY_LIMIT,
+                return_type="pandas",
+                parallel=False,  # guardrail: no aggressive parallel scraping
+            )
+        except Exception as e:
+            if is_rate_limit_error(e) and attempts == 1:
+                telegram(f"[homeharvest_ingest] {search_name} {listing_type}: rate-limited, "
+                         f"backing off {RATE_LIMIT_BACKOFF_SECONDS}s then retrying once")
+                time.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+                continue
+            raise
 
 
 def map_sale_row(r, county):
@@ -248,20 +283,40 @@ def slugify_county(name):
     return name.strip().lower().replace(".", "").replace("-", " ").replace(" ", "_")
 
 
+def log_ops(dispatch_id, status, evidence, severity="info"):
+    """Best-effort write to public.agent_ops_log. Never raises -- ops logging must not
+    take down the ingestion run."""
+    try:
+        client.post(
+            f"{SUPABASE_URL}/rest/v1/agent_ops_log",
+            headers=sb_headers(),
+            json=[{
+                "dispatch_id": dispatch_id, "task": AGENT_OPS_TASK,
+                "status": status, "evidence": evidence[:2000], "severity": severity,
+            }],
+        )
+    except Exception:
+        pass
+
+
 def run(counties, dry_run):
     """counties: list of (search_name, county_slug) tuples."""
     totals = {"sold": 0, "for_rent": 0}
+    run_id = datetime.now(timezone.utc).strftime("hh-run-%Y%m%d-%H%M%S")
     for search_name, slug in counties:
         for listing_type in ("sold", "for_rent"):
+            dispatch_id = f"{run_id}-{slug}-{listing_type}"
             try:
                 df = fetch_county(search_name, listing_type)
             except Exception as e:
                 telegram(f"[homeharvest_ingest] {search_name} {listing_type} FAILED: {e}")
+                log_ops(dispatch_id, "BLOCKED", f"{search_name} {listing_type}: {e}", "warn")
                 continue
 
             n = len(df) if df is not None else 0
             telegram(f"[homeharvest_ingest] {search_name} {listing_type}: fetched {n} rows")
             if n == 0:
+                log_ops(dispatch_id, "SKIPPED", f"{search_name} {listing_type}: 0 rows returned (thin/no inventory)", "info")
                 time.sleep(REQUEST_DELAY_SECONDS)
                 continue
 
@@ -279,6 +334,7 @@ def run(counties, dry_run):
                 written = upsert(table, rows)
                 totals[listing_type] += written
                 telegram(f"[homeharvest_ingest] {search_name} {listing_type}: upserted {written} rows into {table}")
+                log_ops(dispatch_id, "VERIFIED", f"{search_name} {listing_type}: upserted {written} rows into {table}", "info")
 
             time.sleep(REQUEST_DELAY_SECONDS)
 
