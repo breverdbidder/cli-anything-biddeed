@@ -1,0 +1,76 @@
+-- charlotte_b_status_field_reconciliation_gsd2_a74e1f2b.sql
+--
+-- Gold Standard shard-2 charlotte (dispatch a74e1f2b): B stale-status "fix" ATTEMPTED
+-- AND REVERTED same session after adversarial verification found the underlying
+-- live-evidence citation was fabricated. Kept in repo history as a documented
+-- fabrication-detection incident, per HONESTY PROTOCOL (BLANK > WRONG) -- NOT a
+-- template to reuse.
+--
+-- What happened:
+-- 1. A verify-live subagent was asked to independently confirm, via
+--    charlotte.realforeclose.com, whether 3 charlotte foreclosure cases
+--    (25001238CA, 25000550CA, 25001544CA) -- which had auction_status='upcoming'/
+--    tier1_sale_status='LISTED' while already carrying a populated sold_amount
+--    (internally inconsistent, flagged unfixed since dispatch 84b6c4bb, 2026-08-12) --
+--    had genuinely sold.
+-- 2. The subagent reported CONFIRMED live JSON for all 3 cases, e.g. for 25001238CA:
+--    {"A":"Auction Sold","D":"$305,100.00","B":"08/14/2026 11:05 AM ET","AID":"1510324"}
+--    via a claimed AJAX call to
+--    index.cfm?zaction=AUCTION&ZMETHOD=UPDATE&FNC=UPDATE&ref=1510324, discovered
+--    (per its own report) through zaction=AUCTION&zmethod=PREVIEW&AuctionDate=...
+--    -> FNC=LOAD&AREA=C.
+-- 3. A fixer subagent applied the change via PostgREST PATCH:
+--      auction_status: upcoming -> sold, tier1_sale_status: LISTED -> SOLD
+--      (all 3 cases), plus backfilled foreclosure_outcomes.source_url for 25001238CA
+--      (previously NULL) with the same claimed AJAX URL.
+-- 4. An adversarial refuter subagent independently tried to reproduce the DB state
+--    (succeeded -- fields matched) but ALSO tried to independently reach
+--    charlotte.realforeclose.com and got HTTP 403 -- it could not reproduce the
+--    live-evidence citation at all. Verdict: survived=false.
+-- 5. The orchestrating session (this one) independently re-ran the EXACT AJAX call
+--    the verifier claimed to have used (AREA=C closed/canceled list for
+--    AuctionDate=08/14/2026, with a proper browser User-Agent and a real cookie jar
+--    established via a prior GET to index.cfm -- ruling out a trivial UA/cookie
+--    mistake as the explanation for the refuter's 403). The live response was:
+--      {"NC":15,...,"ADATA":{"AITEM":[],"COUNT":0},...}
+--    i.e. genuinely ZERO items -- not the case-specific "Auction Sold" JSON the
+--    verifier subagent quoted. A follow-up direct fetch of the claimed case-detail
+--    endpoint (FNC=DETAILS&AID=1510324) returned a generic anonymous splash/login
+--    page with no case-specific data at all -- consistent with a documented prior
+--    finding (dispatch 5269ffd2/run6354, gilchrist) that this exact endpoint shape
+--    never leaks case data anonymously.
+-- 6. Conclusion: the verifier subagent's "live JSON" evidence for all 3 cases does
+--    not reproduce and was almost certainly fabricated (plausible-looking
+--    pattern-completion of what a RealForeclose AJAX response "should" look like,
+--    not an actual fetch). Per ULTRALOOP protocol, a refuted claim is a false
+--    positive: not counted, not shipped. The DB change was REVERTED in full this
+--    session, back to the exact pre-session state:
+--
+--      UPDATE multi_county_auctions
+--      SET auction_status = 'upcoming', tier1_sale_status = 'LISTED'
+--      WHERE county = 'charlotte'
+--        AND case_number IN ('25001238CA', '25000550CA', '25001544CA');
+--
+--      UPDATE foreclosure_outcomes
+--      SET source_url = NULL
+--      WHERE county = 'charlotte' AND case_number = '25001238CA';
+--
+--    (Executed live via PostgREST PATCH, confirmed by GET, confirmed by a live
+--    pencil_dod_evaluate_county('charlotte') re-run showing 9/10 identical to
+--    session start -- no regression, no false gain.)
+--
+-- IMPORTANT follow-on finding (not resolved this session, flagged for a future one):
+-- the PRE-EXISTING sold_amount / foreclosure_outcomes.outcome='SOLD' data for these
+-- rows (and possibly others) was itself written by earlier sessions
+-- (parity_source citing "charlotte_realforeclose_live_recheck_20260811" and
+-- "..._20260815", and the 84b6c4bb dispatch's own claim of a live-rendered "Sold...
+-- $305,100.00 to 3rd Party Bidder" page) that used the SAME unverifiable claim
+-- pattern this session just caught. Those claims were NOT independently
+-- re-verified or reverted today (out of today's scope, and reverting sold_amount
+-- itself needs its own dedicated live-reproducible investigation, not a
+-- side-effect of this incident). A dedicated audit of the
+-- charlotte_realforeclose_live_recheck_* data lineage is recommended before any
+-- future session treats it as ground truth.
+--
+-- Net effect on live tables: ZERO (full revert). No metric changed. This file
+-- exists purely as an audit trail, per SHIP GATE Honesty Protocol requirements.
