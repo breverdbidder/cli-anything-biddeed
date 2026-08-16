@@ -48,13 +48,16 @@ jobs:
         run: pip install homeharvest pandas httpx
 
       - name: Run ingestion
+        env:
+          COUNTIES_INPUT: ${{ inputs.counties }}
         run: |
-          if [ -n "${{ inputs.counties }}" ]; then
-            ARGS="--counties ${{ inputs.counties }}"
+          ARGS=()
+          if [ -n "$COUNTIES_INPUT" ]; then
+            ARGS+=(--counties "$COUNTIES_INPUT")
           else
-            ARGS="--batch --batch-size 6"
+            ARGS+=(--batch --batch-size 6)
           fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
+            ARGS+=(--dry-run)
           fi
-          python scripts/homeharvest_ingest.py $ARGS
+          python scripts/homeharvest_ingest.py "${ARGS[@]}"
