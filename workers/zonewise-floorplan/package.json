@@ -7,8 +7,7 @@
   "dependencies": {
     "@chanmeng666/archlang": "^1.24.0",
     "pdfkit": "^0.19.1",
-    "proj4": "^2.21.0",
-    "dxf-writer": "^1.18.4"
+    "proj4": "^2.21.0"
   },
-  "devDependencies": { "wrangler": "^4.0.0", "dxf-parser": "^1.1.2" }
+  "devDependencies": { "wrangler": "^4.0.0" }
 }
