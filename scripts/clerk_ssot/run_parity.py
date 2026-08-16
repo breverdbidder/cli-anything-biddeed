@@ -248,9 +248,29 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
     _MANATEE_SHORT_RE = re.compile(r"^(\d{4})(CA|CC)0*(\d+)AX$")
     _MANATEE_LONG_RE = re.compile(r"^41(\d{4})(CA|CC)0*(\d+)(?:CA|CC)AXMA$")
 
+    # okeechobeeclerk.com's live foreclosure calendar publishes the
+    # hyphenated short form ("2025-CA-130"), while calendar_sweep_mca_v3
+    # already stores the 19th Judicial Circuit's long clerk form
+    # ("472025CA000130CAAXMX" = "47" circuit prefix + YYYY + CA + zero-padded
+    # sequence + "CAAXMX" division/case-type suffix). Neither the exact-match,
+    # "/"-split, nor _CASE_SUFFIX_RE (which requires the year to be
+    # immediately followed by CA/CC with no separator, and no leading circuit
+    # prefix or trailing suffix) matches either shape, so every clerk_ssot run
+    # re-inserted a blank stub under the short form and flagged the enriched
+    # long-form row PHANTOM_NOT_ON_CLERK -- confirmed live 2026-08-16: cases
+    # 130/143/205 regressed this way, revoking okeechobee's certification
+    # (consecutive_non_gold=3). Same failure shape as the manatee fix above;
+    # gated on county_slug=='okeechobee' for the same collision-risk reason.
+    _OKEECHOBEE_SHORT_RE = re.compile(r"^(\d{4})-(CA|CC|TD)-0*(\d+)$")
+    _OKEECHOBEE_LONG_RE = re.compile(r"^\d{2}(\d{4})(CA|CC)0*(\d+)(?:CA|CC)AX[A-Z]{2}$")
+
     def _canonical_case(case_number):
         if county_slug == "manatee":
             m = _MANATEE_SHORT_RE.match(case_number) or _MANATEE_LONG_RE.match(case_number)
+            if m:
+                return f"{m.group(1)}{m.group(2)}{m.group(3)}"
+        if county_slug == "okeechobee":
+            m = _OKEECHOBEE_SHORT_RE.match(case_number) or _OKEECHOBEE_LONG_RE.match(case_number)
             if m:
                 return f"{m.group(1)}{m.group(2)}{m.group(3)}"
         m = _CASE_SUFFIX_RE.match(case_number)

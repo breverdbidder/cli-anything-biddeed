@@ -1,0 +1,57 @@
+-- GOLD STANDARD SHARD-3 (dispatch d18e7a2f-9a29-4041-83dc-13faa40898d7): okeechobee I fix.
+--
+-- Baseline (live pencil_dod_evaluate_county('okeechobee') at session start, 2026-08-16):
+-- I FAIL, card_complete=80 of 86 (93.0%). All other 9 letters PASS. Certification had
+-- just been revoked (revoked_at=2026-08-16T14:36:18Z, consecutive_non_gold=3,
+-- reason=letters_failed) -- this session's job is the letters_failed regression.
+--
+-- ROOT CAUSE (verified live via direct REST inspection, not assumed): okeechobeeclerk's
+-- live foreclosure calendar publishes the hyphenated short case form ("2025-CA-130"),
+-- while calendar_sweep_mca_v3 already stores the SAME real-world case under the 19th
+-- Judicial Circuit's long clerk form ("472025CA000130CAAXMX" = "47" circuit prefix + YYYY
+-- + CA + zero-padded sequence + "CAAXMX" suffix), fully enriched with real address/
+-- lat/lon/parcel_id/assessed_value. scripts/clerk_ssot/run_parity.py's existing
+-- case-number matching (_normalize_case "/"-split, _CASE_SUFFIX_RE zero-pad strip,
+-- manatee-specific canonicalization) does not match either shape for okeechobee's format,
+-- so every clerk_ssot run re-inserted a blank stub under the short form and flagged the
+-- enriched long-form row PHANTOM_NOT_ON_CLERK. This is the same failure class already
+-- documented and fixed for manatee/holmes/suwannee/lake in this same file -- okeechobee
+-- was simply not yet covered. 3 case pairs were affected today: 130, 143, 205.
+-- (2025-CA-189 has no long-form sibling and remains genuinely unresolved, untouched.
+--  2026TD050 remains structurally blocked -- FL parcel appraiser roll returns
+--  "No Matching Records Found" for its parcel_id -- untouched, previously documented.)
+--
+-- CODE FIX (applied this session, committed alongside this file): added
+-- _OKEECHOBEE_SHORT_RE / _OKEECHOBEE_LONG_RE to scripts/clerk_ssot/run_parity.py,
+-- gated on county_slug=='okeechobee' (same collision-risk-averse pattern as the existing
+-- manatee-specific block), so both case-number shapes canonicalize to the same key
+-- (e.g. "2025CA130") and clerk_ssot will UPDATE the existing enriched row instead of
+-- inserting a new duplicate on future runs.
+--
+-- LIVE DML (applied via PostgREST REST API this session -- SUPABASE_DB_PASSWORD/direct
+-- psql not attempted per documented decision_log ids 169/205/287 constraint):
+--   DELETE FROM public.multi_county_auctions
+--    WHERE county='okeechobee' AND case_number IN ('2025-CA-130','2025-CA-143','2025-CA-205');
+--   -- (confirmed zero foreclosure_outcomes/tax_deed_outcomes references first; bid_decisions
+--   --  carries pre-existing orphan rows keyed by these case_numbers with no FK to
+--   --  multi_county_auctions.id, so the delete does not orphan anything new -- same
+--   --  finding as the 2026-08-15 okeechobee session that first identified this pattern)
+--   UPDATE public.multi_county_auctions SET parity_status='CLERK_VERIFIED'
+--    WHERE county='okeechobee'
+--      AND case_number IN ('472025CA000130CAAXMX','472025CA000143CAAXMX','472025CA000205CAAXMX');
+--
+-- RESULT (pencil_dod_evaluate_county('okeechobee'), re-run immediately after):
+--   I: card_complete=80 of 83 (96.4%), FAIL -> PASS. auctions_total 86 -> 83.
+--   A/B/C/D/E/F/G/H/J: all still PASS, no regressions (C/D even improved 96.5%->100.0%
+--   since 2 of the deleted duplicates had been diluting the parity denominator).
+--   okeechobee is live 10/10 A-J as of this session.
+--
+-- Adversarial verification: independent Workflow-tool subagent (fresh context, did not
+-- write this fix) re-ran the RPC, re-derived the regex against the literal case numbers,
+-- checked for cross-county regex collision, and spot-checked the surviving sibling rows'
+-- data for fabrication risk. See gold_standard_ultraloop_audit rows for
+-- dispatch_id d18e7a2f-9a29-4041-83dc-13faa40898d7, county_slug=okeechobee, letter=I.
+--
+-- This file documents live-applied DML for the repo record (SHIP-TO-MAIN convention).
+-- Re-running the DELETE is a safe no-op (targets specific case_numbers, already gone).
+-- Re-running the UPDATE is a safe no-op (idempotent status set).
