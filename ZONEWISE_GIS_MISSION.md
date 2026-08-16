@@ -23,8 +23,18 @@ https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_State
   used in fl_parcels / fl_parcels_stage / fl_county_codes — high join-key compatibility,
   but ALWAYS sample-verify PARCEL_ID against zw_parcels.pin before a bulk write; a prior
   join in this same project silently zero-matched on a format mismatch once already.
-- spatialReference wkid 3086 (Florida State Plane) — NOT 4326. Confirm zw_parcels.geom
-  SRID live via Find_SRID before any UPDATE, transform accordingly.
+- The layer's NATIVE storage SRID is 3086 (Florida GDL Albers, meters), but requests
+  with `f=geojson` always return WGS84/EPSG:4326 coordinates regardless of native SRID
+  (RFC 7946 / Esri spec) — CONFIRMED live 2026-08-16 via a raw fetch (Washington County
+  parcel returned (-85.63, 30.54), real FL lon/lat). zw_parcels.geom is also 4326
+  (confirmed via Find_SRID). **Do not wrap the GeoJSON in ST_SetSRID(...,3086)** — that
+  was a bug in an earlier version of scripts/backfill_geom_fdor.py that silently
+  collapsed every written geometry to a near-zero-area point near the 3086 projection
+  origin (~23.94N,-87.93W, open Gulf water). It corrupted 182,726 rows across 11
+  counties (Pasco, Columbia, Washington, DeSoto, Dixie, Jefferson, Calhoun, Lafayette,
+  Walton, Sarasota, Jackson) before being caught and fixed 2026-08-16 — see
+  migrations/20260816_repair_fdor_srid_corruption.sql. Just ST_SetSRID(...,4326)
+  directly; no ST_Transform needed since source and target SRID already match.
 - Pagination cap 2000 records/request (resultOffset + resultRecordCount).
 - geometryType esriGeometryPolygon.
 

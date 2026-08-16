@@ -35,10 +35,13 @@ SLEEP_BETWEEN = 2.0  # politeness delay between FeatureServer requests (was 0.25
                       # retry/split storms that cost far more time than they saved)
 
 # co_no -> name, smallest first so failures surface early/cheap
+# NOTE: Lafayette (44) was missing from this list until 2026-08-16 -- it had been
+# corrupted by the SRID bug (see git history) but the --all sweep never reached it,
+# so it silently sat at a correctly-NULLed-but-unrepaired 0% between sessions.
 TARGET_COUNTIES = [
     (42, "Jackson"), (17, "Calhoun"), (43, "Jefferson"), (25, "Dixie"),
-    (24, "DeSoto"), (22, "Columbia"), (77, "Washington"), (20, "Clay"),
-    (67, "Santa Rosa"), (47, "Leon"), (64, "Putnam"), (76, "Walton"),
+    (24, "DeSoto"), (22, "Columbia"), (44, "Lafayette"), (77, "Washington"),
+    (20, "Clay"), (67, "Santa Rosa"), (47, "Leon"), (64, "Putnam"), (76, "Walton"),
     (61, "Pasco"), (68, "Sarasota"), (19, "Citrus"), (59, "Osceola"),
     (45, "Lake"), (18, "Charlotte"), (58, "Orange"), (21, "Collier"),
     (63, "Polk"), (62, "Pinellas"), (60, "Palm Beach"), (16, "Broward"),
@@ -158,14 +161,23 @@ def apply_update_chunk(co_no, chunk):
         f"('{esc(pin)}', '{esc(json.dumps(geom, separators=(',', ':')))}')"
         for pin, _, geom in chunk
     )
+    # f=geojson responses from ArcGIS REST are always WGS84 (RFC 7946 / Esri spec),
+    # regardless of the layer's native storage SRID (3086 for this FeatureServer).
+    # Confirmed live 2026-08-16: a raw fetch returned (-85.63, 30.54) -- real lon/lat
+    # for Washington County, FL -- and Find_SRID('public','zw_parcels','geom') = 4326.
+    # A prior version of this script wrapped the already-4326 GeoJSON in
+    # ST_SetSRID(...,3086) before transforming to 4326, which silently collapsed
+    # every written geometry to a near-zero-area point next to the 3086 projection
+    # origin (~23.94N,-87.93W -- open Gulf water, not Florida). That corrupted
+    # 182,726 rows across 11 counties in prior sessions; see repair migration.
     query = f"""
 WITH v(pin, gj) AS (VALUES
 {values}
 )
 UPDATE zw_parcels z
-SET geom = ST_Multi(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 3086), 4326)),
-    centroid_lat = ST_Y(ST_Centroid(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 3086), 4326))),
-    centroid_lon = ST_X(ST_Centroid(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 3086), 4326)))
+SET geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 4326)),
+    centroid_lat = ST_Y(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 4326))),
+    centroid_lon = ST_X(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(v.gj), 4326)))
 FROM v
 WHERE z.pin = v.pin AND z.co_no = {co_no} AND z.geom IS NULL;
 """
