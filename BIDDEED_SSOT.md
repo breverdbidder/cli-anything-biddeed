@@ -279,6 +279,20 @@ force-revoking a core PostGIS utility function via a role that lacks the
 authority to safely do so. Revisit only with a `supabase_admin`-privileged
 session.
 
+**Re-detection (issue #19169, same day):** `bug_registry` re-flagged this
+same object ~3 min after the exception row above was approved. Root cause:
+whatever populates `bug_registry` scans the raw H5 candidate shape (PUBLIC
+EXECUTE still literally present on the grant, since it was never actually
+revoked — only the platform boundary was documented) and does not join
+against `schema_health_exceptions` the way `assert_schema_health()` does.
+Live re-check in that session confirmed `assert_schema_health()` — the
+canonical/gating check named in the bug's own fix_strategy — returns zero
+`H5_SECDEF_PUBLIC_GRANT` rows, because it filters through the exception.
+Closed `bug_registry` row 164418 as `fixed` on that evidence, not via a new
+revoke. Expect further re-dispatches from this same detector until it is
+taught to honor `schema_health_exceptions`; that detector lives outside this
+repo and is out of scope here.
+
 ## 7. MACHINE SSOT (Supabase) — this file defers to it for inventory
 
 The queryable inventory layer lives in Supabase and is cron-verified; this file is the
