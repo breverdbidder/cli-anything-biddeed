@@ -24,8 +24,8 @@ had existed.
 | **GitHub Actions** | Dispatch (`cc-runner-ghonly.yml` id 297104962), crons, deploys. Guard table `public.cc_redispatch_guard` + reconciler drive the loop; a brief without a guard row has no retry and no DoD enforcement. | `mcp-vercel-deploy.yml` is dead: no Vercel project exists for biddeed (verified 2026-07-20); Vercel secrets absent. Do not chase it. |
 | **Stripe** | LIVE mode only: 4 products, 2 payment links, S5 meter. No test-mode path exists (known gap). | Not yet carrying real customer traffic. |
 | **npm `biddeed-mcp`** | Intended stdio distribution channel. **Unpublished** (registry 404). `NPM_TOKEN` absent from repo secrets. | Not required for the HTTP surface to go live. Publish is a separate owner decision; canonical endpoint and npm name are registered in mcp_server_registry. |
-| **`zonewise-floorplan` Worker** (`workers/zonewise-floorplan/` in this repo, deployed via `.github/workflows/deploy-zonewise-floorplan.yml` → `zonewise-floorplan.brevardbidderai.workers.dev`) | Two ZoneWise tools sharing one Worker: (1) `/floorplan/*` — interior room-layout compiler (ArchLang wrapper). (2) `/site-massing/*` — generative parcel-level footprint/unit-placement solver + DXF export (added 2026-08-16, Algoma-parity issue). Routes: `POST /site-massing/generate`, `GET /site-massing/:run_id`, `GET /site-massing/:run_id/options/:option_id/dxf`. Reads `zw_parcels` (boundary + zoning_code) and `zoning_districts`/`zone_standards` (setbacks/coverage/density — NOT `zw_zoning`, which has zero Brevard rows and null setbacks everywhere, contrary to that issue's original spec text). Writes `public.site_massing_runs` / `public.site_massing_options` (RLS on, no anon policy) and Storage bucket `site-dxf` (private). Proxied from zonewise-web at `/api/floorplan/*` and `/api/site-massing/*` (`app/api/.../[...path]/route.ts` — NOT a next.config rewrite, Vercel serves zonewise.ai directly so the Worker's own `routes` entry can never fire). | `/site-massing/*` is NOT an extension of an "ArchLang DXF path" — no such path ever existed (ArchLang only produces SVG reliably; PDF is confirmed broken under Workers, see `worker.js`'s `handleCompilePdf` comment). The DXF exporter (`site-dxf.js`) is new, built directly on `dxf-writer`. Parcel→zoning-district jurisdiction resolution is a **known-honest v1 gap**: `zw_parcels.zoning_jurisdiction` is unpopulated fleet-wide, and the same zoning code (e.g. Brevard's `RU-1-11`) is reused with different standards across up to 10 municipalities — resolution falls back through `site_city` match → "Unincorporated `<county>`", tagged in `zoning_snapshot.jurisdiction_resolution_method`, never presented as authoritative without that tag. **`/api/site-massing/*` proxy route is BROKEN live (2026-08-16 finding, issue #19148 session)**: the route file exists on `main` and the Vercel deploy at that commit reports success and `/api/health` shows the matching version, but every request 404s with `x-matched-path: /_not-found` — Next.js never registered the catch-all handler, while the sibling `/api/floorplan/*` proxy (same code pattern) works correctly. Root cause not found (ruled out: next.config rewrites, vercel.json, middleware — none touch this path). Not fixed in this session — new ElevenLabs voice tools call the Worker (`zonewise-floorplan.brevardbidderai.workers.dev`) directly instead, same as the existing `compile_floor_plan`/`save_floor_plan` voice tools already did. |
-| **ElevenLabs ConvAI voice agents** (`elevenlabs_get_agent`/`elevenlabs_api_patch`/`elevenlabs_api_post` SECURITY DEFINER helpers, vault key `elevenlabs_api_key`) | Two production agents, extended 2026-08-16 for Algoma-"AL" parity (issue #19148). **ZoneWise Voice Assistant** (`agent_8801kzppqvkqewtaabvh8wyg7tyv`): 6 webhook tools total — pre-existing `query_zoning_database` (`POST https://zonewise.ai/api/zoning-chat`), `compile_floor_plan`/`save_floor_plan` (Worker `/floorplan/*`), plus new `rerun_capacity` (Worker `POST /site-massing/generate` — real levers are `layout_types[]`/`stories`, NOT `target_far`/`unit_count`, which the engine doesn't accept), `run_proforma` (`POST https://zonewise.ai/api/reports/proforma`, mirrors `proFormaInputsSchema` from `lib/development-analysis/proforma-engine.ts`), `search_sites` (`GET https://zonewise.ai/api/parcels/search`, address/city/zip prefix only — no zoning-type or lot-size-range filter exists). Now has the same 6 `language_presets` (ar/es/fr/pt/ru/zh) as Deed, translated first_messages only (Claude-authored, not a translation-API call — same method implied by Deed's pre-existing presets). **Deed** (`agent_5301kzeg7pj8ezrbaarvkyyfgyd9`, "BidDeed Distressed Property Advisor"): redesigned from zero tools / explicit no-live-data prompt to 2 real webhook tools — `search_upcoming_auctions` and `check_case_status`, both hitting `GET https://zonewise.ai/api/auctions` (public, `multi_county_auctions`) with new query filters added this session (`case_number`, `address`, `sale_type` — `sale_type` added because the pre-existing `type` filter targets `auction_type`, which is NULL on ~72% of Brevard rows; `sale_type` is the reliably-populated column). The full S5 title/lien/equity report stays gated behind Clerk auth + paid entitlement (`/api/report`, confirmed live-401/404 for unauthenticated calls) — intentionally not reachable from voice, per the issue's guardrail that the paid report isn't replaced. Email-capture/upsell CTA preserved, all legal/financial-advice guardrails preserved and one strengthened (see below). | Backend readiness for the 3 new ZoneWise tools was independently curl-verified against real Brevard data (`21 3529-02-*-11`→no geom found honestly; `22351532*5`→full real solver run with real Titusville R-1B/PUD standards) — see `docs/security/` session evidence, not restated here. **Fabrication finding (2026-08-16, real, not hypothetical):** a `simulate-conversation` test of Deed in Arabic produced a fabricated case number (`2023-CA-001234`), date, and placeholder street address (`123 Main Street`) after `search_upcoming_auctions` returned only a stub `"Tool Called."` result (simulate-conversation does not execute real webhooks — known limitation, confirmed again here). Prompt guardrail strengthened same session ("a successful call is not the same as having real data... never fill that gap with a plausible-sounding case number, date, or street address") and a repeat Arabic test did not reproduce the fabrication — single-run evidence, not a controlled A/B, given LLM non-determinism. **Audio/voice-quality validation is UNTESTED, not verified**: `simulate-conversation` is text/LLM-only (confirmed via ElevenLabs docs and by inspecting the real response shape — no audio field), and the sanctioned `elevenlabs_api_*` helpers are hardcoded to the `/v1/convai/` path prefix, so the raw `/v1/text-to-speech/{voice_id}` endpoint needed to generate real audio for a given language is unreachable without adding a new helper function, which this issue explicitly said not to do. Conversational/text fluency in Spanish and Arabic (including correctly localized tool-call parameter extraction, e.g. county names round-tripping correctly out of Arabic input) is verified; whether voice_id `cjVigY5qzO86Huf0OWal` sounds natural spoken in Arabic/Spanish/etc. is not, and should not be assumed. |
+| **`zonewise-floorplan` Worker** (`workers/zonewise-floorplan/` in this repo, deployed via `.github/workflows/deploy-zonewise-floorplan.yml` → `zonewise-floorplan.brevardbidderai.workers.dev`) | **`/floorplan/*` ONLY as of 2026-08-16 (SSOT consolidation, issue #19149).** The Worker briefly also served `/site-massing/*` (a duplicate generative-massing implementation, shipped by a session that kept running after being told to stop on #19143) — that code (`site-massing.js`, `site-dxf.js`, `site-massing-lookup.js`, `site-massing-persistence.js`, their tests/fixtures) and its three routes (`POST /site-massing/generate`, `GET /site-massing/:run_id`, `GET /site-massing/:run_id/options/:option_id/dxf`) were **removed** and the Worker **redeployed live** (`gh run 31940834387`, success) — confirmed `POST /site-massing/generate` now 404s live, `GET /floorplan/schema` still 200s. `geo.js` was left in place per the issue's explicit scope lock even though it's now unreferenced by `worker.js` (only `site-massing.js`/`site-dxf.js` imported it) — flagged, not deleted. `public.site_massing_runs`/`site_massing_options` and the `site-dxf` Storage bucket are unaffected (still live, now written only by zonewise-web's `/api/massing/*`, see below). | **CRITICAL, live production break caused by this same commit**: the ElevenLabs "ZoneWise Voice Assistant" agent's `rerun_capacity` webhook tool (added same-day by the concurrent #19148 session, see ElevenLabs row below) calls `POST zonewise-floorplan.brevardbidderai.workers.dev/site-massing/generate` **directly** — confirmed live via `elevenlabs_get_agent` RPC immediately before this deploy. That route is now gone. Voice customers asking "what could I build here" will get a tool-call failure until `rerun_capacity`'s URL is repointed (there is no drop-in replacement today: zonewise-web's `/api/massing/run` expects the caller to already have resolved zoning + parcel boundary, unlike the Worker's endpoint which took only `parcel_id`+`co_no` and did that resolution server-side — porting that resolution into a callable voice-tool endpoint is new scope, not done here). **Not fixed in this session** — flagged on #19143/#19144/#19148 for owner decision; deliberately not patched blind given it's a live customer-facing voice agent. |
+| **ElevenLabs ConvAI voice agents** (`elevenlabs_get_agent`/`elevenlabs_api_patch`/`elevenlabs_api_post` SECURITY DEFINER helpers, vault key `elevenlabs_api_key`) | Two production agents, extended 2026-08-16 for Algoma-"AL" parity (issue #19148). **ZoneWise Voice Assistant** (`agent_8801kzppqvkqewtaabvh8wyg7tyv`): 6 webhook tools total — pre-existing `query_zoning_database` (`POST https://zonewise.ai/api/zoning-chat`), `compile_floor_plan`/`save_floor_plan` (Worker `/floorplan/*`), plus new `rerun_capacity` (**BROKEN live as of 2026-08-16 SSOT consolidation #19149** — pointed at Worker `POST /site-massing/generate`, which that session removed; real levers were `layout_types[]`/`stories`, NOT `target_far`/`unit_count`, which the engine doesn't accept), `run_proforma` (`POST https://zonewise.ai/api/reports/proforma`, mirrors `proFormaInputsSchema` from `lib/development-analysis/proforma-engine.ts`), `search_sites` (`GET https://zonewise.ai/api/parcels/search`, address/city/zip prefix only — no zoning-type or lot-size-range filter exists). Now has the same 6 `language_presets` (ar/es/fr/pt/ru/zh) as Deed, translated first_messages only (Claude-authored, not a translation-API call — same method implied by Deed's pre-existing presets). **Deed** (`agent_5301kzeg7pj8ezrbaarvkyyfgyd9`, "BidDeed Distressed Property Advisor"): redesigned from zero tools / explicit no-live-data prompt to 2 real webhook tools — `search_upcoming_auctions` and `check_case_status`, both hitting `GET https://zonewise.ai/api/auctions` (public, `multi_county_auctions`) with new query filters added this session (`case_number`, `address`, `sale_type` — `sale_type` added because the pre-existing `type` filter targets `auction_type`, which is NULL on ~72% of Brevard rows; `sale_type` is the reliably-populated column). The full S5 title/lien/equity report stays gated behind Clerk auth + paid entitlement (`/api/report`, confirmed live-401/404 for unauthenticated calls) — intentionally not reachable from voice, per the issue's guardrail that the paid report isn't replaced. Email-capture/upsell CTA preserved, all legal/financial-advice guardrails preserved and one strengthened (see below). | Backend readiness for the 3 new ZoneWise tools was independently curl-verified against real Brevard data (`21 3529-02-*-11`→no geom found honestly; `22351532*5`→full real solver run with real Titusville R-1B/PUD standards) — see `docs/security/` session evidence, not restated here. **Fabrication finding (2026-08-16, real, not hypothetical):** a `simulate-conversation` test of Deed in Arabic produced a fabricated case number (`2023-CA-001234`), date, and placeholder street address (`123 Main Street`) after `search_upcoming_auctions` returned only a stub `"Tool Called."` result (simulate-conversation does not execute real webhooks — known limitation, confirmed again here). Prompt guardrail strengthened same session ("a successful call is not the same as having real data... never fill that gap with a plausible-sounding case number, date, or street address") and a repeat Arabic test did not reproduce the fabrication — single-run evidence, not a controlled A/B, given LLM non-determinism. **Audio/voice-quality validation is UNTESTED, not verified**: `simulate-conversation` is text/LLM-only (confirmed via ElevenLabs docs and by inspecting the real response shape — no audio field), and the sanctioned `elevenlabs_api_*` helpers are hardcoded to the `/v1/convai/` path prefix, so the raw `/v1/text-to-speech/{voice_id}` endpoint needed to generate real audio for a given language is unreachable without adding a new helper function, which this issue explicitly said not to do. Conversational/text fluency in Spanish and Arabic (including correctly localized tool-call parameter extraction, e.g. county names round-tripping correctly out of Arabic input) is verified; whether voice_id `cjVigY5qzO86Huf0OWal` sounds natural spoken in Arabic/Spanish/etc. is not, and should not be assumed. |
 
 | **HomeHarvest ingestion pipeline** (`scripts/homeharvest_ingest.py`, `.github/workflows/homeharvest-ingest.yml`) | Interim/bootstrap closed-sales + rental comps source (Ariel, 2026-08-16), until revenue supports a licensed API (RentCast/Rentometer). Weekly cron (Mondays 09:00 UTC) pulls `homeharvest` (PyPI, identical to `breverdbidder/HomeHarvest` fork's `master` — no divergence, diffed 2026-08-16) against Realtor.com, `listing_type=sold\|for_rent`, `parallel=False`, sequential with a 3s delay between calls. Writes `public.sale_listings` (+ new `sold_price`/`last_sold_price` columns, migration `20260816_homeharvest_ingestion_pipeline.sql`) and `public.rental_listings`. Every row: `source='homeharvest_realtor_com'`, `honesty_marker='INFERRED'` — never labeled MLS/Zillow/Redfin. Scope: FL only, Brevard + the 37-county Gold Standard-certified list (`v_certified_counties`, `FL_PRIORITY_COUNTIES` in the script), rotated 6 counties/week (Brevard every run) — not all 67 FL counties. `id` is a deterministic hash of `(source, listing_type, mls_id\|property_url)`, upserted via `on_conflict=id` — proven idempotent live 2026-08-16 (two consecutive real runs against Brevard, no duplicate rows). `county` column uses the same lowercase/underscore slug convention as `multi_county_auctions.county` (e.g. `brevard`, `st_johns`), not the Title Case search string. | Not a live/per-request path — biddeed.ai and zonewise.ai only ever read the Supabase tables, never call `homeharvest` directly. Not RentCast — `getRentalComps()`/comp-fetch call sites should stay swappable to a licensed API later, this is explicitly interim. |
 
@@ -86,48 +86,69 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
   pipeline populates `brevard_account_parcel`, out of scope for a UI-wiring
   session). Any future work reading this view should re-check row coverage
   before assuming the GRANT fix alone makes it usable.
-- **Site Massing CAD/DXF export shipped in `breverdbidder/zonewise-web`
-  (2026-08-16, issue #19144, superseding #19143)**: `MassingEngine.tsx`'s
-  `computeEnvelope()` (idealized-rectangle-only) now has a sibling solver,
-  `lib/development-analysis/site-massing-solver.ts`, that walks the real
-  parcel boundary polygon and ranks up to 5 candidate footprints per lot
-  orientation, each validated against the true (non-rectangular) boundary.
-  New DXF export, `lib/development-analysis/site-dxf.js`, via new deps
-  `dxf-writer` + `proj4` — **no ArchLang/existing DXF writer was found
-  anywhere in this repo** despite #19143/#19144's spec assuming one existed
-  (the floorplan tool only exports PDF client-side); this is the first DXF
-  dependency in zonewise-web. Reprojects EPSG:4326 → FL State Plane
-  (EPSG:2236/2237/2238, verified against epsg.io, not guessed) by county
-  name. New API routes `/api/massing/run` (persistence) and `/api/massing/dxf`
-  (export), both added to the public route matcher (no login gate, matching
-  `/massing` itself). Tables `site_massing_runs`/`site_massing_options`
-  already existed live pre-commit (created directly against the DB by the
-  superseded #19143 dispatch, no migration file had been committed) — this
-  shipped a `create table if not exists` migration
-  (`supabase/migrations/20260816_site_massing_runs.sql` in zonewise-web) to
-  make that schema reproducible; zero rows existed at the time, so nothing
-  needed reconciling. **Open finding, not resolved by this commit:** a
-  different, apparently still-active CC session
-  (`site_massing_runs.created_by = 'cc-session-test'`) wrote a run to these
-  same tables at `2026-08-16T08:47:28Z` — **after** the 08:27 UTC comment on
-  #19143 told that dispatch to stop — using a materially different schema
-  convention (footprint vertices pre-projected to state-plane feet at
-  write time rather than lng/lat, a richer `zoning_snapshot` sourced from
-  `zone_standards`, and populated `dxf_path` values implying DXF files are
-  being written to storage). That row was left untouched (no evidence it is
-  wrong, just evidence of a second writer). Needs owner attention: confirm
-  whether #19143's dispatch is still running and should be stopped, and
-  whether its design should supersede or be merged with this one before
-  either is treated as final.
+- **Site Massing CAD/DXF export — SSOT consolidated to ONE canonical
+  implementation (2026-08-16, issue #19149, closing the #19143/#19144 dual-
+  implementation finding via Ariel's explicit same-day decision)**: two
+  independent implementations of this feature briefly coexisted — a Next.js-
+  native solver in `breverdbidder/zonewise-web` (issue #19144) and a
+  Cloudflare Worker version (`workers/zonewise-floorplan/site-massing.js`)
+  shipped by a session that kept running after being told to stop on #19143.
+  The Next.js version was canonicalized (more geometrically correct — true
+  parcel-polygon point-in-polygon fit vs. the Worker's bounding-box
+  approximation); the Worker's one real advantage, real townhome_row/
+  multifamily_grid unit-packing + access-drive logic (the Next.js version
+  only did single-family-style orientation/shrink variants), was ported into
+  `lib/development-analysis/site-massing-solver.ts`'s new
+  `computeMultiUnitCandidates()`, adapted to run per hull-edge orientation
+  against the true-polygon-fit envelope rather than the Worker's single fixed
+  bbox orientation. Verified live against a real 9.75ac Brevard RU-2-15
+  parcel (Cocoa, 15 du/acre, zone_standards id 71) for all three layout
+  types, 0 boundary violations across all returned footprints. Widened
+  multifamily_grid's coverage-fraction tiers (ported [0.9,0.7,0.5] -> added
+  0.3/0.15) after finding the original tiers imply 29-52 units/acre at
+  default stories/sqftPerUnit, producing zero surviving candidates against
+  this real zone's 15 du/acre cap — the Worker's own defaults would have hit
+  the same wall on real Brevard data, not a regression introduced here.
+  `lib/development-analysis/site-dxf.js` gained real per-unit + access-drive
+  DXF geometry for multi-unit candidates (previously single_family-only) and
+  Storage persistence (`saveSiteMassingDxfToStorage`) to the pre-existing
+  private `site-dxf` bucket at `<run_id>/<option_id>.dxf` — same convention
+  as the decommissioned Worker's `persistence.js`, reused not reinvented.
+  `/api/massing/dxf` now accepts optional `runId`/`optionId` and persists
+  best-effort (a Storage failure doesn't block the download). Verified via a
+  real HTTP round trip against `next start` for all three layout types:
+  persist run -> generate DXF -> upload to Storage -> write `dxf_path` ->
+  fetch the file back from Storage (not just the DB row) -> byte-match the
+  streamed download. `MassingEngine.tsx` got a layout-type selector so all
+  three paths are reachable from the shipped "Download CAD (DXF)" button,
+  not just single_family. `/api/site-massing/*` (zonewise-web proxy) and the
+  Worker's `site-massing.js`/`site-dxf.js`/`site-massing-lookup.js`/
+  `site-massing-persistence.js` + their tests/fixtures were removed; the
+  Worker was redeployed live (confirmed `/site-massing/generate` now 404s,
+  `/floorplan/*` unaffected). `site_massing_runs.created_by = 'cc-session-
+  test'` (the Worker's own test row, `2026-08-16T08:47:28Z`) and two
+  `created_by = 'cc-deploy-verification'` rows (from the now-removed deploy-
+  workflow verify step) were left in place — explicitly in scope for "your
+  call" per #19149's DoD; this session's own test rows/Storage objects were
+  deleted after verification. **New CRITICAL finding from this same
+  decommission**: the ElevenLabs "ZoneWise Voice Assistant" agent's
+  `rerun_capacity` tool (added same-day by the concurrent #19148 session)
+  calls the now-deleted `Worker POST /site-massing/generate` directly — see
+  §1's `zonewise-floorplan` Worker row and ElevenLabs row for detail. Not
+  fixed here; flagged on #19143, #19144, and #19148 for owner attention.
 - **Voice agent parity session (2026-08-16, issue #19148)** shipped two small,
   additive `breverdbidder/zonewise-web` API changes to `app/api/auctions/route.ts`
   (main, commits `10d1d81` and `74bdf70`, both live-verified post-deploy):
   new `case_number`/`address` ilike filters, and a new `sale_type` filter
   (`auction_type`, the pre-existing filter, is NULL on ~72% of Brevard rows —
   `sale_type` is the reliable column). See the ElevenLabs row in §1 for what
-  consumes these. **Separately confirmed broken and NOT fixed this session:**
+  consumes these. **Separately confirmed broken this session, later removed
+  entirely (not fixed) by the 2026-08-16 SSOT consolidation, issue #19149:**
   `/api/site-massing/*`'s Next.js proxy route 404s live despite existing in
-  the deployed commit — see §1's `zonewise-floorplan` Worker row.
+  the deployed commit. #19149 deleted the route outright as part of
+  decommissioning the duplicate Worker implementation it proxied to — see
+  §1's `zonewise-floorplan` Worker row for the resulting live break in this
+  session's `rerun_capacity` voice tool.
 
 - **S5 report Layer 2 (Retail CMA) now falls back to HomeHarvest/Realtor.com
   comps when `fl_parcels` has none** (2026-08-16, `packages/biddeed-mcp/src/report/cma.js`
