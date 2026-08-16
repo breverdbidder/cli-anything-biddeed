@@ -66,6 +66,39 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
   `claude-login-telegram.yml` failing on its last 3 observed runs. Not
   investigated further — out of scope for the 2026-08-03 security audit,
   flagged as a finding.
+- **Site Massing CAD/DXF export shipped in `breverdbidder/zonewise-web`
+  (2026-08-16, issue #19144, superseding #19143)**: `MassingEngine.tsx`'s
+  `computeEnvelope()` (idealized-rectangle-only) now has a sibling solver,
+  `lib/development-analysis/site-massing-solver.ts`, that walks the real
+  parcel boundary polygon and ranks up to 5 candidate footprints per lot
+  orientation, each validated against the true (non-rectangular) boundary.
+  New DXF export, `lib/development-analysis/site-dxf.js`, via new deps
+  `dxf-writer` + `proj4` — **no ArchLang/existing DXF writer was found
+  anywhere in this repo** despite #19143/#19144's spec assuming one existed
+  (the floorplan tool only exports PDF client-side); this is the first DXF
+  dependency in zonewise-web. Reprojects EPSG:4326 → FL State Plane
+  (EPSG:2236/2237/2238, verified against epsg.io, not guessed) by county
+  name. New API routes `/api/massing/run` (persistence) and `/api/massing/dxf`
+  (export), both added to the public route matcher (no login gate, matching
+  `/massing` itself). Tables `site_massing_runs`/`site_massing_options`
+  already existed live pre-commit (created directly against the DB by the
+  superseded #19143 dispatch, no migration file had been committed) — this
+  shipped a `create table if not exists` migration
+  (`supabase/migrations/20260816_site_massing_runs.sql` in zonewise-web) to
+  make that schema reproducible; zero rows existed at the time, so nothing
+  needed reconciling. **Open finding, not resolved by this commit:** a
+  different, apparently still-active CC session
+  (`site_massing_runs.created_by = 'cc-session-test'`) wrote a run to these
+  same tables at `2026-08-16T08:47:28Z` — **after** the 08:27 UTC comment on
+  #19143 told that dispatch to stop — using a materially different schema
+  convention (footprint vertices pre-projected to state-plane feet at
+  write time rather than lng/lat, a richer `zoning_snapshot` sourced from
+  `zone_standards`, and populated `dxf_path` values implying DXF files are
+  being written to storage). That row was left untouched (no evidence it is
+  wrong, just evidence of a second writer). Needs owner attention: confirm
+  whether #19143's dispatch is still running and should be stopped, and
+  whether its design should supersede or be merged with this one before
+  either is treated as final.
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
