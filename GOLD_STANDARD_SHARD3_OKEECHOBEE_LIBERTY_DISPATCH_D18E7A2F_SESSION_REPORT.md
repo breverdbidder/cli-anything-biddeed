@@ -121,5 +121,33 @@ okeechobee regex fix, re-ran the live RPC, checked all 10 letters for regression
 independently re-curled both liberty pages plus the two gated sources. See
 `gold_standard_ultraloop_audit` rows for `dispatch_id=d18e7a2f-9a29-4041-83dc-13faa40898d7`.
 
+**okeechobee verdict: survives.** Independent verifier re-ran the regex standalone,
+re-hit the live RPC, confirmed zero rows for the 3 deleted stubs, confirmed the 3
+sibling rows carry real in-bounds data, confirmed all 10 letters pass, and found the
+migration file corroborating the claim. One immaterial discrepancy noted (its own
+naive 5-field recount got 81/83 vs the RPC's 80/83, almost certainly because the RPC's
+`card_complete` definition checks fields beyond the verifier's simplified 5-field
+check) — does not contradict the claim, which cites the RPC's own live output as
+ground truth throughout.
+
+**liberty verdict: initially refuted, then corrected (I was wrong, not the county).**
+The verifier confirmed 3 of 4 sub-claims (tax-deed list empty, case off calendar,
+outcome tables empty) but refuted the characterization of the OCRS source: the
+hostname this report originally cited (`ocrs.myfloridacounty.com`) does not resolve —
+a genuine error on my part, not evidence the real system is reachable. Correcting
+live, same session: the actual Civitek OCRS system for Liberty County is
+`https://www.civitekflorida.com/ocrs/county/39/`, linked directly from
+libertyclerk.com's own pages, reached via a 3-step JSF flow (Public access button →
+I Agree disclaimer → `/ocrs/app/search.xhtml`). That search page renders a live
+Cloudflare Turnstile widget (`sitekey 0x4AAAAAAAR0Af-5MfzdbO3p`, `action: 'Search'`)
+guarding the Search submit button — the identical sitekey documented live by the
+2026-07-24 and 2026-07-27 sessions, now re-confirmed live today via the *correct*
+URL rather than cited secondhand from an old report. No CAPTCHA bypass attempted, per
+guardrails. **Net effect: the A/B/F ceiling claim itself survives, now with a more
+precise and freshly-verified reachable path** — but the specific hostname in this
+report's first draft was wrong and has been retracted. Both the retraction and the
+corrected finding are logged in `gold_standard_ultraloop_audit` (ids 16091-16093
+superseded by 16101 for the OCRS sub-claim).
+
 ## Session close-out
 See `gold_standard_campaign` row update for this dispatch_id.
