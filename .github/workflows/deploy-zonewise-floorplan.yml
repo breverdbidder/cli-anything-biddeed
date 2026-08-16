@@ -128,7 +128,7 @@ jobs:
             echo "::error::Expected 200, got $STATUS. Body: $BODY"
             exit 1
           fi
-          echo "$BODY" | grep -q '"ok":true' || { echo "::error::generate response missing ok:true. Body: $BODY"; exit 1; }
+          echo "$BODY" | grep -q '"ok": true' || { echo "::error::generate response missing ok:true. Body: $BODY"; exit 1; }
           RUN_ID=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['run_id'])")
           OPT_ID=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['options'][0]['id'])")
           echo "run_id=$RUN_ID" >> "$GITHUB_ENV"
