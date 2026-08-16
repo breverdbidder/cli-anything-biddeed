@@ -1,0 +1,42 @@
+name: Countdown Re-engagement — Auction Email Send
+
+on:
+  schedule:
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (true) or real send (false)"
+        required: false
+        default: "false"
+      limit:
+        description: "Max sends this run"
+        required: false
+        default: "50"
+      test_email:
+        description: "Route all due sends to this single address instead (deliverability test)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Send countdown re-engagement emails
+        env:
+          SUPABASE_URL: https://mocerqjnksmhcjzxrewo.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          ARGS="--limit ${{ github.event.inputs.limit || '50' }}"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "${{ github.event.inputs.test_email }}" ]; then ARGS="$ARGS --test-email ${{ github.event.inputs.test_email }}"; fi
+          python scripts/countdown_reengagement_send.py $ARGS
