@@ -25,9 +25,14 @@ MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/q
 ACCESS_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
 FDOR_QUERY_URL = "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query"
 
-BATCH_FETCH = 1500   # pins per FeatureServer POST (indexed IN-list, well under maxRecordCount 2000)
+BATCH_FETCH = 150    # pins per FeatureServer POST. Live-probed 2026-08-16: batches >=800
+                      # reliably time out (45s+) under current FeatureServer load — this
+                      # public Esri service is congested well below its documented
+                      # maxRecordCount 2000. 150 w/ 2s spacing ran 8/8 clean in probing.
 BATCH_UPDATE = 150   # rows per UPDATE VALUES batch (400 was timing out server-side -> Cloudflare 544)
-SLEEP_BETWEEN = 0.25 # politeness delay between FeatureServer requests
+SLEEP_BETWEEN = 2.0  # politeness delay between FeatureServer requests (was 0.25 — too
+                      # aggressive for current server load, was triggering cascading
+                      # retry/split storms that cost far more time than they saved)
 
 # co_no -> name, smallest first so failures surface early/cheap
 TARGET_COUNTIES = [
@@ -110,7 +115,7 @@ def fetch_geoms_batch(pins, retries=4):
     last_err = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=90) as r:
+            with urllib.request.urlopen(req, timeout=30) as r:
                 d = json.loads(r.read())
             if "error" in d:
                 # ArcGIS returned HTTP 200 with an in-body error object — this is a
