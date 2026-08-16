@@ -65,6 +65,23 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
   `claude-login-telegram.yml` failing on its last 3 observed runs. Not
   investigated further — out of scope for the 2026-08-03 security audit,
   flagged as a finding.
+- **`pipeline.tier1_card_raw` and 3 sibling `pipeline.*` tables had no GRANT
+  for `service_role`/`anon`/`authenticated`** (only `postgres` — a config gap,
+  not RLS), so `v_brevard_td_sold_cma` 403'd for every PostgREST caller even
+  though the view itself was exposed. Fixed 2026-08-16 (issue #19146 session):
+  `GRANT USAGE ON SCHEMA pipeline` + `GRANT SELECT` on `tier1_card_raw`,
+  `brevard_account_parcel`, `brevard_realtdm_cases`, `brevard_trtax_deeds` to
+  those three roles, via the Management API SQL endpoint (`api.supabase.com`,
+  not direct psql — see CREDENTIAL HANDLING's `SUPABASE_DB_PASSWORD`
+  constraint in `CLAUDE.md`, which does not apply to this HTTPS-based path).
+  **Separately, the view's own join is broken**: `pipeline.brevard_account_parcel.parcel_id`
+  uses a different tokenization than `fl_parcels.parcel_id` for the same
+  parcel (e.g. `20-34-09-00-6` vs `20 3404-00-1`), so the join to `fl_parcels`
+  never matches and `median_comp`/`n_comps` are NULL for all 2,504 rows in the
+  view today — verified via direct query, not fixed here (owned by whatever
+  pipeline populates `brevard_account_parcel`, out of scope for a UI-wiring
+  session). Any future work reading this view should re-check row coverage
+  before assuming the GRANT fix alone makes it usable.
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
