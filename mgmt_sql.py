@@ -7,7 +7,7 @@ TOKEN = os.environ["SUPABASE_ACCESS_TOKEN"]
 
 def run(query: str):
     h = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-    r = httpx.post(f"https://api.supabase.com/v1/projects/{REF}/database/query", headers=h, json={"query": query}, timeout=120)
+    r = httpx.post(f"https://api.supabase.com/v1/projects/{REF}/database/query", headers=h, json={"query": query}, timeout=580)
     return r
 
 if __name__ == "__main__":
