@@ -1,0 +1,60 @@
+-- Gold Standard shard-1, dispatch 6a9e3c3a, county=madison, letters B (verified
+-- independent outcomes) / F (tier1 sold-amount)
+-- Date: 2026-08-16
+--
+-- Target row: multi_county_auctions id=a49b3e75-6aab-4248-91dd-6e71a9f2003b,
+-- case_number=24-62-CA, auction_status='sold', sale_result_date=2026-07-28,
+-- sold_amount IS NULL, data_source='madisonclerk_foreclosure_sales_page'
+-- (Auction.com-derived scrape of the clerk's calendar page, not an
+-- independent post-sale outcome record). This single row is 100% of
+-- madison's closed_sold denominator gap (7 of 8 rows are still future-dated
+-- or otherwise excluded).
+--
+-- 4th consecutive session confirming this letter pair blocked for madison
+-- (prior: 20260711_shard13_wakulla_madison_b_f_no_historical_data_blocked.sql,
+-- 20260813_shard3_madison_b_f_reconfirm_blocked.sql,
+-- 20260815_shard4_madison_bfij_reconfirm_blocked.sql).
+--
+-- NEW THIS SESSION (not merely re-asserted): drove the civitekflorida.com
+-- OCRS PrimeFaces/JSF flow by hand via curl + cookie jar + ViewState replay
+-- -- selected "Public" (anonymous access) on
+-- /ocrs/county/40/index.xhtml, accepted the disclaimer, and successfully
+-- reached /ocrs/app/search.xhtml with zero credentials (no prior session
+-- got this far; 08-13 and 08-15 both described OCRS as a dead end without
+-- attempting the actual form flow). The search UI has two tabs: "Person
+-- Search" (fully server-rendered) and "Case Search" (DOM node present but
+-- its input panel is lazy-loaded via a PrimeFaces AJAX tabChange event --
+-- requires real JS execution). Hand-replayed the tabChange AJAX POST twice
+-- with fresh ViewState tokens; both attempts redirected to
+-- /ocrs/errorpages/exception.xhtml (JSF component-tree state cannot be
+-- faithfully reproduced without a real browser runtime). Checked for a
+-- working browser-automation tool this session (a `browser-use` skill now
+-- exists that did not in the 08-15 session) -- ran `browser-use doctor`,
+-- binary not installed/found in this environment, so still not usable.
+--
+-- Also re-confirmed (still true, not re-explored in depth): madisonclerk.com
+-- WP REST `foreclosures` post 1559 for case 24-62-CA still shows
+-- acf.status="scheduled" (never updated post-sale, last modified
+-- 2026-06-04, before the 2026-07-28 sale date); no sold-amount field exists
+-- in that schema; only 1 media attachment (pre-sale Final Judgment PDF, no
+-- Certificate of Title/Sale ever posted); foreclosure-sales calendar page
+-- has dropped the case (expected, post-sale); kofilequicklinks.com only
+-- indexes 1831-1946 volumes; madisonpa.com/qpublic both Cloudflare-gated to
+-- non-browser requests; WebSearch found no independent third-party hit.
+--
+-- CONCLUSION: B/F remain genuinely BLOCKED. The OCRS "Public" anonymous
+-- path is a real, newly-confirmed lever for a FUTURE session with a working
+-- browser-automation tool (not available this session despite the skill
+-- existing) to search case 24-62-CA / 24000062CAAXMX on the Case Search tab
+-- and read the Certificate of Title for the actual clerk-recorded sale
+-- amount. Per BLANK > WRONG, no sold_amount, sold_amount_source, or
+-- foreclosure_outcomes row was fabricated or written this session.
+--
+-- pencil_dod_evaluate_county('madison') B/F, before AND after (identical,
+-- no writes made):
+--   B: {"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--   F: {"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}
+--
+-- No schema or data changes. Documentation-only audit-trail record.
+
+SELECT 1; -- no-op; this migration is an audit-trail record only
