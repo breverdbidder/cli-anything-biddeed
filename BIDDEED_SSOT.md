@@ -220,6 +220,65 @@ vault entry silently skips email without blocking the Telegram leg (or vice vers
 
 ---
 
+## 6.4 SCHEMA HEALTH — H5 (SECURITY DEFINER + PUBLIC EXECUTE) AUTO-ENFORCEMENT
+
+**Root cause (issue #19168, 2026-08-16), evidence-backed:** `ALTER DEFAULT
+PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` is correctly recorded
+in `pg_default_acl` — grants to named roles (`postgres`, `service_role`, etc.)
+from that default-ACL row DO get applied to newly created functions, confirmed
+via a canary-role A/B test. But the implicit "PUBLIC gets EXECUTE" default
+PostgreSQL applies to every new function is **not suppressible via that
+mechanism** in this project (PG 17.6): toggling GRANT/REVOKE EXECUTE ON
+FUNCTIONS FROM PUBLIC at the default-ACL layer made zero difference to whether
+new functions carried PUBLIC EXECUTE — reproduced repeatedly in both `public`
+and a brand-new throwaway schema — while the identical default-ACL mechanism
+works exactly as expected for **tables** in the same schema. All 8 registered
+event triggers and every `cron.job` row were inspected; none re-grant PUBLIC.
+This is a genuine PostgreSQL/Supabase-managed-Postgres behavior, not a fixable
+misconfiguration — the only way to prevent it is an explicit `REVOKE` issued
+**after** each function is created.
+
+**Fix — auto-remediation, not just detection.** `evt_capture_schema_health_on_ddl()`
+(fired by the existing `trg_event_capture_schema_health` event trigger on
+`ddl_command_end`) now identifies newly created/altered SECURITY DEFINER
+functions in `public` that still carry PUBLIC EXECUTE and issues
+`REVOKE EXECUTE ... FROM PUBLIC` on them immediately, using
+`cmd.objid::regprocedure` (not `assert_schema_health()`'s text-based
+`object_name`, which always renders `name()` regardless of real argument list
+and would misidentify overloaded functions). The action is logged to
+`schema_health_enforcement_log` as an already-resolved row
+(`resolved_by='trg_event_capture_schema_health'`). Only PUBLIC is touched —
+`anon`/`authenticated`/`service_role` grants are never modified by this path.
+Migration: `supabase/migrations/20260816_h5_secdef_public_grant_autoremediate.sql`.
+
+**Known residual gap:** PostgreSQL does not fire `ddl_command_end` for bare
+`GRANT`/`REVOKE` statements (only object CREATE/ALTER/DROP) — confirmed by
+deliberately re-running `GRANT EXECUTE ... TO PUBLIC` on an already-remediated
+function and observing PUBLIC reappear untouched. A standalone follow-up GRANT
+after creation is not caught live; it will surface on the next
+`assert_schema_health()` sweep. This is an inherent Postgres event-trigger
+limitation, not a gap in this fix.
+
+**One-time sweep (DoD item 4):** `assert_schema_health()` found 199 pre-existing
+app-owned SECURITY DEFINER functions with PUBLIC EXECUTE beyond the 7
+`elevenlabs_*` functions already fixed manually. All 199 already carried an
+explicit `anon` and/or `authenticated` grant, so revoking PUBLIC removed zero
+currently-relied-upon access path (same shape as the `elevenlabs_*` fix).
+Swept via `supabase/migrations/20260816_h5_secdef_public_grant_bulk_sweep.sql`.
+
+**PostGIS exception (`st_estimatedextent`, 3 overloads):** flagged by H5 but
+owned by `supabase_admin` (extension-installed, `pg_depend` confirms
+`postgis` membership). `postgres` is not a member of `supabase_admin`
+(`pg_has_role('postgres','supabase_admin','MEMBER')` = false) and cannot
+revoke a grant it did not issue — the sweep's `REVOKE` silently no-op'd
+(Postgres WARNING, not an error) and the sweep script's original log entry
+incorrectly claimed "resolved" without verifying; corrected in the same
+session once the live re-check caught it (0 rows still showed PUBLIC
+post-sweep). Filed as a permanent `schema_health_exceptions` row instead of
+force-revoking a core PostGIS utility function via a role that lacks the
+authority to safely do so. Revisit only with a `supabase_admin`-privileged
+session.
+
 ## 7. MACHINE SSOT (Supabase) — this file defers to it for inventory
 
 The queryable inventory layer lives in Supabase and is cron-verified; this file is the
