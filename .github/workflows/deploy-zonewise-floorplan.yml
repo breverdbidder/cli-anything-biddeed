@@ -115,8 +115,59 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
           echo "PASS: test row cleaned up"
 
+      - name: Verify — site-massing/generate against a real Brevard parcel (223528013813, co_no 15)
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$URL/site-massing/generate" \
+            -H "Content-Type: application/json" \
+            -d '{"parcel_id":"223528013813","co_no":15,"layout_types":["single_family"],"created_by":"cc-deploy-verification"}')
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Expected 200, got $STATUS. Body: $BODY"
+            exit 1
+          fi
+          echo "$BODY" | grep -q '"ok": true' || { echo "::error::generate response missing ok:true. Body: $BODY"; exit 1; }
+          RUN_ID=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['run_id'])")
+          OPT_ID=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['options'][0]['id'])")
+          echo "run_id=$RUN_ID" >> "$GITHUB_ENV"
+          echo "opt_id=$OPT_ID" >> "$GITHUB_ENV"
+          echo "PASS: generate returned a run + ranked options for a real parcel"
+
+      - name: Verify — DXF export round-trips through a real DXF parser
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          RESP=$(curl -s -w "\n%{http_code}" "$URL/site-massing/$run_id/options/$opt_id/dxf")
+          STATUS=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Expected 200, got $STATUS. Body: $BODY"
+            exit 1
+          fi
+          DXF_URL=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['dxf_url'])")
+          curl -s "$DXF_URL" -o /tmp/verify_massing.dxf
+          BYTES=$(wc -c < /tmp/verify_massing.dxf)
+          echo "Downloaded DXF: $BYTES bytes"
+          if [ "$BYTES" -lt 500 ]; then
+            echo "::error::Downloaded DXF is implausibly small ($BYTES bytes)"
+            exit 1
+          fi
+          npm install dxf-parser --no-save --no-audit --no-fund >/dev/null 2>&1
+          node -e "
+            const DxfParser = require('dxf-parser');
+            const fs = require('fs');
+            const dxf = new DxfParser().parseSync(fs.readFileSync('/tmp/verify_massing.dxf', 'utf8'));
+            const layers = Object.keys(dxf.tables.layer.layers);
+            const required = ['PARCEL-BNDY','SETBACK-LINES','BLDG-FOOTPRINT','ACCESS-DRIVE','DIMENSIONS','TEXT-ANNO'];
+            for (const l of required) { if (!layers.includes(l)) { console.error('missing layer', l); process.exit(1); } }
+            console.log('PASS: all 6 layers present in parsed-back DXF:', layers.join(', '));
+          "
+          rm -f /tmp/verify_massing.dxf
+
       - name: Summary
         run: |
           echo "### ZoneWise Floor Plan Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
           echo "Deployed URL: ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "All live checks passed: compile, negative test, save/persist round trip." >> "$GITHUB_STEP_SUMMARY"
+          echo "All live checks passed: compile, negative test, save/persist round trip, site-massing generate, DXF round-trip." >> "$GITHUB_STEP_SUMMARY"

@@ -24,6 +24,7 @@ had existed.
 | **GitHub Actions** | Dispatch (`cc-runner-ghonly.yml` id 297104962), crons, deploys. Guard table `public.cc_redispatch_guard` + reconciler drive the loop; a brief without a guard row has no retry and no DoD enforcement. | `mcp-vercel-deploy.yml` is dead: no Vercel project exists for biddeed (verified 2026-07-20); Vercel secrets absent. Do not chase it. |
 | **Stripe** | LIVE mode only: 4 products, 2 payment links, S5 meter. No test-mode path exists (known gap). | Not yet carrying real customer traffic. |
 | **npm `biddeed-mcp`** | Intended stdio distribution channel. **Unpublished** (registry 404). `NPM_TOKEN` absent from repo secrets. | Not required for the HTTP surface to go live. Publish is a separate owner decision; canonical endpoint and npm name are registered in mcp_server_registry. |
+| **`zonewise-floorplan` Worker** (`workers/zonewise-floorplan/` in this repo, deployed via `.github/workflows/deploy-zonewise-floorplan.yml` → `zonewise-floorplan.brevardbidderai.workers.dev`) | Two ZoneWise tools sharing one Worker: (1) `/floorplan/*` — interior room-layout compiler (ArchLang wrapper). (2) `/site-massing/*` — generative parcel-level footprint/unit-placement solver + DXF export (added 2026-08-16, Algoma-parity issue). Routes: `POST /site-massing/generate`, `GET /site-massing/:run_id`, `GET /site-massing/:run_id/options/:option_id/dxf`. Reads `zw_parcels` (boundary + zoning_code) and `zoning_districts`/`zone_standards` (setbacks/coverage/density — NOT `zw_zoning`, which has zero Brevard rows and null setbacks everywhere, contrary to that issue's original spec text). Writes `public.site_massing_runs` / `public.site_massing_options` (RLS on, no anon policy) and Storage bucket `site-dxf` (private). Proxied from zonewise-web at `/api/floorplan/*` and `/api/site-massing/*` (`app/api/.../[...path]/route.ts` — NOT a next.config rewrite, Vercel serves zonewise.ai directly so the Worker's own `routes` entry can never fire). | `/site-massing/*` is NOT an extension of an "ArchLang DXF path" — no such path ever existed (ArchLang only produces SVG reliably; PDF is confirmed broken under Workers, see `worker.js`'s `handleCompilePdf` comment). The DXF exporter (`site-dxf.js`) is new, built directly on `dxf-writer`. Parcel→zoning-district jurisdiction resolution is a **known-honest v1 gap**: `zw_parcels.zoning_jurisdiction` is unpopulated fleet-wide, and the same zoning code (e.g. Brevard's `RU-1-11`) is reused with different standards across up to 10 municipalities — resolution falls back through `site_city` match → "Unincorporated `<county>`", tagged in `zoning_snapshot.jurisdiction_resolution_method`, never presented as authoritative without that tag. |
 
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
@@ -82,6 +83,39 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
   pipeline populates `brevard_account_parcel`, out of scope for a UI-wiring
   session). Any future work reading this view should re-check row coverage
   before assuming the GRANT fix alone makes it usable.
+- **Site Massing CAD/DXF export shipped in `breverdbidder/zonewise-web`
+  (2026-08-16, issue #19144, superseding #19143)**: `MassingEngine.tsx`'s
+  `computeEnvelope()` (idealized-rectangle-only) now has a sibling solver,
+  `lib/development-analysis/site-massing-solver.ts`, that walks the real
+  parcel boundary polygon and ranks up to 5 candidate footprints per lot
+  orientation, each validated against the true (non-rectangular) boundary.
+  New DXF export, `lib/development-analysis/site-dxf.js`, via new deps
+  `dxf-writer` + `proj4` — **no ArchLang/existing DXF writer was found
+  anywhere in this repo** despite #19143/#19144's spec assuming one existed
+  (the floorplan tool only exports PDF client-side); this is the first DXF
+  dependency in zonewise-web. Reprojects EPSG:4326 → FL State Plane
+  (EPSG:2236/2237/2238, verified against epsg.io, not guessed) by county
+  name. New API routes `/api/massing/run` (persistence) and `/api/massing/dxf`
+  (export), both added to the public route matcher (no login gate, matching
+  `/massing` itself). Tables `site_massing_runs`/`site_massing_options`
+  already existed live pre-commit (created directly against the DB by the
+  superseded #19143 dispatch, no migration file had been committed) — this
+  shipped a `create table if not exists` migration
+  (`supabase/migrations/20260816_site_massing_runs.sql` in zonewise-web) to
+  make that schema reproducible; zero rows existed at the time, so nothing
+  needed reconciling. **Open finding, not resolved by this commit:** a
+  different, apparently still-active CC session
+  (`site_massing_runs.created_by = 'cc-session-test'`) wrote a run to these
+  same tables at `2026-08-16T08:47:28Z` — **after** the 08:27 UTC comment on
+  #19143 told that dispatch to stop — using a materially different schema
+  convention (footprint vertices pre-projected to state-plane feet at
+  write time rather than lng/lat, a richer `zoning_snapshot` sourced from
+  `zone_standards`, and populated `dxf_path` values implying DXF files are
+  being written to storage). That row was left untouched (no evidence it is
+  wrong, just evidence of a second writer). Needs owner attention: confirm
+  whether #19143's dispatch is still running and should be stopped, and
+  whether its design should supersede or be merged with this one before
+  either is treated as final.
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
