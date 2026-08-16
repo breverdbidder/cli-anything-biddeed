@@ -42,3 +42,9 @@ pipeline_reports/
 graphify-out/cache/
 .firecrawl/
 .vercel
+
+# Claude Code worktrees (Workflow tool isolation:'worktree') — ephemeral,
+# never meant to be tracked; un-ignored accumulation committed 73 orphaned
+# gitlinks to main over 2026-07-10..08-16, breaking checkout's post-job
+# `git submodule foreach` (no .gitmodules entry -> exit 128 warning every run)
+.claude/worktrees/
