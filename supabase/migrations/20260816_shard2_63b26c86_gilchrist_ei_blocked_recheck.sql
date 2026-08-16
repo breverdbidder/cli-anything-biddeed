@@ -1,0 +1,92 @@
+-- Shard-2 dispatch 63b26c86-ea13-4541-b62a-6ba6f8abc9df — gilchrist letters E and I, fresh-attempt recheck
+-- Date: 2026-08-16
+-- Outcome: STILL BLOCKED — no write applied (zero rows changed). Structural ceiling
+-- reconfirmed independently, 6th+ documented session on this exact wall.
+--
+-- ROOT CAUSE (unchanged from 5+ prior documented sessions, most recently
+--   supabase/migrations/20260813_shard3_5ad58d0a_gilchrist_ei_blocked_recheck.sql
+--   and GOLD_STANDARD_SHARD4_GILCHRIST_HOLMES_DISPATCH_DE923487_RUN10213_SESSION_REPORT.md):
+--
+-- 3 gilchrist auction rows in multi_county_auctions lack parcel_id entirely
+-- (verified live via fresh GET on 2026-08-16, identical set to every prior session):
+--   212025CA000033CAAXMX  owner="Chad Slocum"                            judgment=$255,341.38  auction=2026-09-28
+--   212025CA000043CAAXMX  owner="DANIELLE JAY MERCADO AS KNOWN HEIR..."  judgment=$73,058.30   auction=2026-10-12
+--   212025CA000070CAAXMX  owner="RAYA C. HUTCHINSON, PERSONAL REP..."    judgment=$207,391.25  auction=2026-09-28
+-- All sale_type=foreclosure, all property_address/latitude/longitude NULL.
+-- This drives letter E (parcel_linked=11 of 14, 78.6%) and letter I
+-- (card_complete=11 of 14, 78.6%), both below the 95% PASS threshold.
+--
+-- SOURCES RE-ATTEMPTED LIVE THIS SESSION (2026-08-16), ALL RECONFIRMED BLOCKED:
+--   1. Firecrawl API (api.firecrawl.dev/v1/scrape) -> HTTP 402 "Insufficient
+--      credits" (unchanged; documented reset date 2026-08-28 UTC still not reached).
+--   2. gilchristclerk.com (both www and bare) -> HTTP 403 (unchanged).
+--   3. qpublic.schneidercorp.com -> HTTP 403 (unchanged).
+--   4. gilchrist.realforeclose.com case detail pages, fetched directly by AID
+--      (AID=1512459/1512462/1512464, the real auction_url values stored on
+--      these 3 rows) -> HTTP 200 but each returns the identical 16,462-16,463
+--      byte shell/login page with zero per-case parcel or address content —
+--      the real data is behind a JS AJAX call this account/session cannot
+--      trigger, same finding as every prior session.
+--   5. FL GIO statewide cadastral (services9.arcgis.com FeatureServer,
+--      CO_NO=21, owner-name LIKE query on SLOCUM / MERCADO / HUTCHINSON)
+--      -> Two of three queries timed out at 120s wall-clock with zero
+--      response body (reconfirms the "6 owner-name variants tried, all
+--      timeout" finding logged 2026-08-10). This closes the one item the
+--      2026-08-10 session flagged as "not confirmed as a permanent block" --
+--      it is still timing out today, 6 days later.
+--
+--   NEW LEVER TRIED THIS SESSION (not attempted in any prior gilchrist report):
+--   6. gis1.hcpao.org/arcgiscv/rest/services/Gilchrist/GilchristCounty_Basemap
+--      MapServer/0 (live, reachable, confirmed working -- this is a real
+--      parcel-level ArcGIS layer with a populated ThematicData_owner_name
+--      field). Ran UPPER(ThematicData_owner_name) LIKE '%<lastname>%' for
+--      SLOCUM, MERCADO, HUTCHINSON:
+--        SLOCUM -> 1 match: "SLOCUM DOUGLAS L & VIRGINIA E", strap
+--          20-07-15-0000-0003-0070, Bell FL. NOT a match -- foreclosure
+--          defendant is "Chad Slocum", a different first name/household;
+--          no corroborating signal (no judgment/address overlap) to treat
+--          this as the same person. Do not link on a bare surname match per
+--          HARD GUARDRAIL 4.
+--        MERCADO -> 2 matches, neither is "Danielle Jay Mercado" (one is
+--          "MERCADO ANGEO & ADONALIS D" in Newberry FL, county-adjacent but
+--          wrong person; one is "MERCADO PAMELA ANN" in Branford FL). The
+--          DB owner_name is explicitly "AS KNOWN HEIR OF KENNETH MARC..."
+--          -- meaning the parcel is very likely still titled under the
+--          decedent's (Kenneth Marc ...) name, not any Mercado, and the
+--          full decedent surname was truncated in our own DB field before
+--          this session began (out of scope to recover without a source
+--          that isn't already blocked).
+--        HUTCHINSON -> 4 matches, none matching "Raya C. Hutchinson" as a
+--          titled owner (she is named "PERSONAL REPRESENTATIVE OF THE..."
+--          in our DB -- i.e. an estate administrator, not necessarily on
+--          title at all; the 4 real Hutchinson parcels found are Stanley R.,
+--          Cody, James Jason -- all different households in Trenton/High
+--          Springs, no overlap signal).
+--      Conclusion: this GIS layer is real and queryable, but owner-name
+--      matching fails for all 3 cases because the DB's captured "owner_name"
+--      values are estate/heir/PR designations, not the parcel's titled
+--      owner name -- the actual title name was never captured by the
+--      original scrape and is not derivable from a surname LIKE search
+--      without risking a false positive (explicitly banned).
+--
+-- BEFORE metric (pencil_dod_evaluate_county('gilchrist'), verified live 2026-08-16):
+--   E: parcel_linked=11 of 14, metric=78.6, pass=false
+--   I: card_complete=11 of 14, metric=78.6, pass=false
+--
+-- AFTER metric: IDENTICAL (no write applied)
+--   E: parcel_linked=11 of 14, metric=78.6, pass=false
+--   I: card_complete=11 of 14, metric=78.6, pass=false
+--
+-- No UPDATE statement applied via REST PATCH this session. Zero rows in
+-- multi_county_auctions modified. This is the 6th+ independently-documented
+-- session confirming this is a genuine structural ceiling for gilchrist E/I:
+-- Firecrawl account exhausted, clerk/qpublic Cloudflare-gated, RealAuction's
+-- own detail pages don't expose parcel data without JS/session state we
+-- can't replicate, FL GIO owner-name queries time out, and the one
+-- previously-untried county GIS layer (gis1.hcpao.org GilchristCounty_Basemap)
+-- is reachable but cannot resolve these 3 specific cases because the
+-- defendant names captured at scrape time are estate/heir designations, not
+-- titled-owner names. Genuinely blocked pending either a funded Firecrawl
+-- account, a Cloudflare-Turnstile-capable browser session, or direct clerk
+-- phone/in-person lookup (352-463-3170) to recover the true title owner or
+-- property address for these 3 cases.
