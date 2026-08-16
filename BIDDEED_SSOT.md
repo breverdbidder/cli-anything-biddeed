@@ -26,6 +26,8 @@ had existed.
 | **npm `biddeed-mcp`** | Intended stdio distribution channel. **Unpublished** (registry 404). `NPM_TOKEN` absent from repo secrets. | Not required for the HTTP surface to go live. Publish is a separate owner decision; canonical endpoint and npm name are registered in mcp_server_registry. |
 | **`zonewise-floorplan` Worker** (`workers/zonewise-floorplan/` in this repo, deployed via `.github/workflows/deploy-zonewise-floorplan.yml` → `zonewise-floorplan.brevardbidderai.workers.dev`) | Two ZoneWise tools sharing one Worker: (1) `/floorplan/*` — interior room-layout compiler (ArchLang wrapper). (2) `/site-massing/*` — generative parcel-level footprint/unit-placement solver + DXF export (added 2026-08-16, Algoma-parity issue). Routes: `POST /site-massing/generate`, `GET /site-massing/:run_id`, `GET /site-massing/:run_id/options/:option_id/dxf`. Reads `zw_parcels` (boundary + zoning_code) and `zoning_districts`/`zone_standards` (setbacks/coverage/density — NOT `zw_zoning`, which has zero Brevard rows and null setbacks everywhere, contrary to that issue's original spec text). Writes `public.site_massing_runs` / `public.site_massing_options` (RLS on, no anon policy) and Storage bucket `site-dxf` (private). Proxied from zonewise-web at `/api/floorplan/*` and `/api/site-massing/*` (`app/api/.../[...path]/route.ts` — NOT a next.config rewrite, Vercel serves zonewise.ai directly so the Worker's own `routes` entry can never fire). | `/site-massing/*` is NOT an extension of an "ArchLang DXF path" — no such path ever existed (ArchLang only produces SVG reliably; PDF is confirmed broken under Workers, see `worker.js`'s `handleCompilePdf` comment). The DXF exporter (`site-dxf.js`) is new, built directly on `dxf-writer`. Parcel→zoning-district jurisdiction resolution is a **known-honest v1 gap**: `zw_parcels.zoning_jurisdiction` is unpopulated fleet-wide, and the same zoning code (e.g. Brevard's `RU-1-11`) is reused with different standards across up to 10 municipalities — resolution falls back through `site_city` match → "Unincorporated `<county>`", tagged in `zoning_snapshot.jurisdiction_resolution_method`, never presented as authoritative without that tag. |
 
+| **HomeHarvest ingestion pipeline** (`scripts/homeharvest_ingest.py`, `.github/workflows/homeharvest-ingest.yml`) | Interim/bootstrap closed-sales + rental comps source (Ariel, 2026-08-16), until revenue supports a licensed API (RentCast/Rentometer). Weekly cron (Mondays 09:00 UTC) pulls `homeharvest` (PyPI, identical to `breverdbidder/HomeHarvest` fork's `master` — no divergence, diffed 2026-08-16) against Realtor.com, `listing_type=sold\|for_rent`, `parallel=False`, sequential with a 3s delay between calls. Writes `public.sale_listings` (+ new `sold_price`/`last_sold_price` columns, migration `20260816_homeharvest_ingestion_pipeline.sql`) and `public.rental_listings`. Every row: `source='homeharvest_realtor_com'`, `honesty_marker='INFERRED'` — never labeled MLS/Zillow/Redfin. Scope: FL only, Brevard + the 37-county Gold Standard-certified list (`v_certified_counties`, `FL_PRIORITY_COUNTIES` in the script), rotated 6 counties/week (Brevard every run) — not all 67 FL counties. `id` is a deterministic hash of `(source, listing_type, mls_id\|property_url)`, upserted via `on_conflict=id` — proven idempotent live 2026-08-16 (two consecutive real runs against Brevard, no duplicate rows). `county` column uses the same lowercase/underscore slug convention as `multi_county_auctions.county` (e.g. `brevard`, `st_johns`), not the Title Case search string. | Not a live/per-request path — biddeed.ai and zonewise.ai only ever read the Supabase tables, never call `homeharvest` directly. Not RentCast — `getRentalComps()`/comp-fetch call sites should stay swappable to a licensed API later, this is explicitly interim. |
+
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
 Customer → `mcp.biddeed.ai` → Cloudflare Tunnel → **local Dell** → MCP HTTP server (this repo, `main`) → Supabase.
@@ -116,6 +118,31 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
   whether #19143's dispatch is still running and should be stopped, and
   whether its design should supersede or be merged with this one before
   either is treated as final.
+
+- **S5 report Layer 2 (Retail CMA) now falls back to HomeHarvest/Realtor.com
+  comps when `fl_parcels` has none** (2026-08-16, `packages/biddeed-mcp/src/report/cma.js`
+  `buildCma()`): previously a subject with zero DOR-recorded sale comps in
+  `fl_parcels` (common — that data is thin/stale) rendered "Pending — no
+  retail comps returned." with no fallback. `buildCma()` now queries
+  `public.sale_listings` (zip + ±30% sqft match, `source='homeharvest_realtor_com'`)
+  only when the `fl_parcels` path (including its existing jv/lot-band widen
+  fallback) returns zero comps, and tags the response `comp_source:
+  'fl_parcels_dor'` vs `'homeharvest_realtor_com'` so the two are never
+  conflated — verified live both ways 2026-08-16 (real Brevard parcel →
+  `fl_parcels_dor`, 6 comps; synthetic parcel with an unmatched zip →
+  `homeharvest_realtor_com`, 6 real closed sales, zip 32940). **Layer 1
+  (`buildDistressedCma`, the Shapira/auction-outcome CMA sourced from
+  `multi_county_auctions`) is untouched** — this is additive to Layer 2 only.
+  `composer.js`'s `computeValueEstimate()` consumes `cma.median_sale_price`/
+  `cma.n`/`cma.jv_twin` exactly as before; the new fallback branch populates
+  the same contract so no caller-side change was needed. **Known pre-existing
+  bug, not introduced or fixed here**: `src/worker.js`'s `renderS5ReportHtml()`
+  comp-table getter for the "Sold" column reads `c.sale_price1 ?? c.sold_amount`,
+  but `cma.comps` rows (both the pre-existing `fl_parcels` path and the new
+  HomeHarvest path) use the field name `sale_price` — the Sold column has
+  likely rendered blank in production for Layer 2 comps since this section
+  first shipped. Left as-is (out of scope for this session); flagging for
+  whoever next touches that renderer.
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.

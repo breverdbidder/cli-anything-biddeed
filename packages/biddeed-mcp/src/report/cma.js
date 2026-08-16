@@ -190,6 +190,36 @@ export async function buildDistressedCma(subjectParcel, auction, {
   };
 }
 
+const HOMEHARVEST_SQFT_TOLERANCE = 0.30; // same window as the fl_parcels retail comp match
+
+// ─── LAYER 2b: Realtor.com (HomeHarvest) retail comps fallback ─────────────
+// Interim/bootstrap comps source (Ariel, Aug 16 2026) until revenue supports
+// a licensed API (RentCast or similar) -- see scripts/homeharvest_ingest.py.
+// Only consulted when fl_parcels (the DOR-recorded sale history) has NO
+// comps for this subject -- fl_parcels sale history is often thin/stale;
+// this fills that gap with closed MLS-adjacent sales instead of leaving the
+// section on "Pending". Never merged silently with fl_parcels comps --
+// comp_source on the returned object always says which one actually ran.
+async function fetchHomeHarvestSaleComps(subjectParcel, { get }) {
+  const zip = subjectParcel.phy_zipcd || '';
+  if (!zip) return [];
+
+  const sqft = Number(subjectParcel.tot_lvg_ar) || 0;
+  const sqftMin = sqft > 0 ? Math.round(sqft * (1 - HOMEHARVEST_SQFT_TOLERANCE)) : 0;
+  const sqftMax = sqft > 0 ? Math.round(sqft * (1 + HOMEHARVEST_SQFT_TOLERANCE)) : 999999;
+
+  const rows = await get(
+    `sale_listings?zip_code=eq.${encodeURIComponent(zip)}` +
+    `&source=eq.homeharvest_realtor_com` +
+    `&sold_price=gte.${MIN_SALE_PRICE}` +
+    (sqft > 0 ? `&square_footage=gte.${sqftMin}&square_footage=lte.${sqftMax}` : '') +
+    `&select=formatted_address,square_footage,lot_size,year_built,sold_price,listed_date,honesty_marker` +
+    `&order=listed_date.desc&limit=${MAX_COMPS}`
+  ).catch(() => []);
+
+  return rows;
+}
+
 // ─── LAYER 2: Retail ARV CMA ────────────────────────────────────────────────
 // Source: fl_parcels (DOR state cadastral, READ-ONLY).
 // Answers: What is this property worth on the OPEN MARKET?
@@ -290,9 +320,47 @@ export async function buildCma(subjectParcel, {
       ) || null
     : null;
 
+  // fl_parcels (DOR-recorded sale history) has nothing for this subject --
+  // fall back to Realtor.com (HomeHarvest) closed-sale comps before giving
+  // up and reporting Pending. This is a distinct, honestly-labeled comp
+  // source, not a merge with the DOR-sourced comps above.
+  if (top.length === 0) {
+    const hhRows = await fetchHomeHarvestSaleComps(subjectParcel, { get });
+    if (hhRows.length > 0) {
+      const hhPrices = hhRows.map(r => Number(r.sold_price)).filter(v => v > 0);
+      const hhMedian = median(hhPrices);
+      const hhRange  = hhPrices.length ? { min: Math.min(...hhPrices), max: Math.max(...hhPrices) } : null;
+      return {
+        section_key: 'cma',
+        layer: 2,
+        comp_source: 'homeharvest_realtor_com',
+        label: 'Retail Market Comps (Open Market ARV) — Realtor.com closed sales — Exit value after acquisition',
+        comps: hhRows.map(r => ({
+          address: r.formatted_address,
+          sqft: r.square_footage,
+          lot_sqft: r.lot_size ?? null,
+          year_built: r.year_built,
+          sale_price: Number(r.sold_price),
+          sale_date: r.listed_date,
+          price_per_sqft: r.square_footage > 0
+            ? Number((Number(r.sold_price) / r.square_footage).toFixed(2))
+            : null,
+          honesty_marker: r.honesty_marker,
+        })),
+        n: hhRows.length,
+        median_sale_price: hhMedian,
+        range: hhRange,
+        match_criteria: { sqft_tolerance_pct: Math.round(HOMEHARVEST_SQFT_TOLERANCE * 100), zip_match: true },
+        jv_twin: null,
+        note: 'No DOR-recorded sale comps for this parcel — showing Realtor.com closed-sale comps instead (scraped, not MLS/Zillow/Redfin-licensed data; interim source pending a licensed comps API).',
+      };
+    }
+  }
+
   return {
     section_key: 'cma',
     layer: 2,
+    comp_source: 'fl_parcels_dor',
     label: 'Retail Market Comps (Open Market ARV) — Exit value after acquisition',
     comps: top.map(r => ({
       address:       r.phy_addr1,
@@ -325,7 +393,7 @@ export async function buildCma(subjectParcel, {
         }
       : null,
     note: top.length === 0
-      ? `No retail comps found within ±${Math.round(SQFT_TOLERANCE * 100)}% sqft / same zip+DOR-use in the last 2 years.`
+      ? `No retail comps found within ±${Math.round(SQFT_TOLERANCE * 100)}% sqft / same zip+DOR-use in the last 2 years, and no Realtor.com closed-sale comps available for this zip either.`
       : usedFallback
       ? `Assessed-value/lot-size match criteria too tight for this market (thin comp pool) — widened to sqft+zip+type only. Comps shown may span a wider value tier than the subject; treat median with more caution.`
       : null,
