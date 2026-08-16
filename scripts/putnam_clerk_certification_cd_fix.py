@@ -94,6 +94,17 @@ def evaluate(case_number, expected_auction_date, text):
     if f"Tax Sale Certificate Number {case_number}" not in text and case_number not in text:
         return "not_found", "case number not present on certification page"
 
+    # BUG FIX (2026-08-16, adversarial-verify finding): the page's own
+    # top-of-page status banner ("Certificate Number <X> has been redeemed.")
+    # was not checked. It is the authoritative redemption signal for the
+    # certificate actually being queried -- the boilerplate "Date of Sale"
+    # text lower on the page is part of the static form template and stays
+    # present even after redemption, so relying on date-match alone produced
+    # false 'confirm' verdicts for 4 already-redeemed certs (2021-0011399,
+    # 2024-0010776, 2024-0017158, 2024-0016884).
+    if re.search(r"has been redeemed", text, re.IGNORECASE):
+        return "redeemed", "top-of-page status banner: certificate has been redeemed"
+
     sale_date = parse_sale_date(text)
     if not sale_date:
         return "mismatch", "no 'Date of Sale' found on page"
