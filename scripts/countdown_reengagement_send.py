@@ -289,6 +289,7 @@ def main():
                         county=row["county"].replace("_", " ").title(), auction_date=row["auction_date"]),
                     "template": f"countdown_{template_key}_v1",
                     "county": row["county"],
+                    "sent_at": "now()",
                 })
             sent += 1
         else:
