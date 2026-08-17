@@ -1,0 +1,80 @@
+-- Shard-4 dispatch e20abc8f-1620-4b56-8b0b-4bd62d2895a3 — gilchrist letters E and I
+-- Date: 2026-08-17. Outcome: STILL BLOCKED — no write applied (zero rows changed).
+-- This is the 9th+ independently-documented session confirming this structural ceiling.
+--
+-- BASELINE (VERIFIED live via public.pencil_dod_evaluate_county('gilchrist'), start of
+-- session, matching every prior session exactly -- no drift either direction):
+--   E: pass=false, parcel_linked=11 of 14, metric=78.6
+--   I: pass=false, card_complete=11 of 14, metric=78.6
+--   All other letters PASS and were not touched: A=4(fc10 td4), B=100(1/1), C=100(14),
+--     D=100(14), F=100(1/1), G=100(density), H=0.0h, J=100(14, deal_complete).
+--
+-- THE 3 BLOCKING ROWS (identical set to every prior session, all data_source=
+-- calendar_sweep_mca_v3, parcel_id/property_address/lat/lon/assessed_value/market_value
+-- all NULL):
+--   212025CA000033CAAXMX  Chad Slocum, plaintiff Carrington Mortgage Services LLC,
+--                         judgment $255,341.38, auction 2026-09-28
+--   212025CA000043CAAXMX  "DANIELLE JAY MERCADO AS KNOWN HEIR OF KENNETH MARC[truncated]",
+--                         plaintiff U S Bank Trust National Association, judgment
+--                         $73,058.30, auction 2026-10-12
+--   212025CA000070CAAXMX  "RAYA C. HUTCHINSON, PERSONAL REPRESENTATIVE OF THE[truncated]",
+--                         plaintiff Wintrust Mortgage, judgment $207,391.25, auction
+--                         2026-09-28
+--
+-- METHOD THIS SESSION: per the ULTRALOOP protocol (ultracode), ran a Workflow fanning one
+-- subagent per case (3 parallel), each explicitly instructed to try ONLY vectors not
+-- already exhausted in the 8 prior documented sessions (see
+-- gilchrist_e_parcel_linkage_blocked.sql, gilchrist_i_card_completeness_blocked_followup.sql,
+-- supabase/migrations/20260813_shard3_5ad58d0a_gilchrist_ei_blocked_recheck.sql,
+-- supabase/migrations/20260816_shard2_63b26c86_gilchrist_ei_blocked_recheck.sql, and the
+-- GOLD_STANDARD_SHARD*_GILCHRIST_*_SESSION_REPORT.md files at repo root). A verify phase
+-- (adversarial refuter, 2-signal corroboration minimum) was wired but never triggered
+-- because zero candidates were found -- nothing to refute.
+--
+-- NEW VECTORS TRIED THIS SESSION (via WebSearch, a different network path/index than the
+-- direct curl/WebFetch calls that dead-ended in prior sessions), ALL NEGATIVE:
+--   1. Court-record aggregators (trellis.law, courtlistener.com, unicourt.com, justia,
+--      kbforeclosures.com) for all 3 case numbers and owner names -- zero hits. Gilchrist
+--      cases are simply not indexed on any of these public aggregators.
+--   2. People-search aggregator snippets (truepeoplesearch, spokeo, radaris, zoominfo,
+--      floridaresidentsdirectory, truthfinder) for Slocum / Mercado / Hutchinson -- surfaced
+--      only same-surname individuals in OTHER FL counties (Opa Locka/Miami-Dade, North
+--      Port/Sarasota) with zero geographic or case corroboration. Correctly NOT linked per
+--      HARD GUARDRAIL 4 (no bare-surname matching).
+--   3. Legal-notice / notice-of-sale publications -- NEW NEGATIVE FINDING: the historical
+--      paper of record, Gilchrist County Journal, closed in 2022 (confirmed via WUFT news
+--      report). No successor publisher covers Gilchrist (Business Observer and Summation
+--      Weekly both explicitly exclude Gilchrist from their coverage counties). The domain
+--      gilchristcountyjournal.net now resolves to a compromised/spam link-farm and should
+--      NOT be used as a source in any future session. This explains why no notice-of-sale
+--      text has ever been discoverable via search for this county -- it structurally
+--      doesn't exist online, not merely hard to find. Additionally the Slocum case's sale
+--      is 2026-09-28 (>1mo out from this 2026-08-17 session) so under FL's 2-consecutive-
+--      week pre-sale publication requirement a notice wouldn't exist yet regardless.
+--   4. Companion Gilchrist probate (CP) case search for the decedent behind the Mercado
+--      ("Kenneth Marc [surname]") and Hutchinson estate cases -- no probate case found for
+--      either. Full decedent surnames remain unrecovered.
+--   5. Gilchrist County Tax Collector, a genuinely different vendor/domain
+--      (gilchrist.floridatax.us) than the Cloudflare-blocked qpublic.schneidercorp.com
+--      appraiser site -- confirmed LIVE and reachable, confirmed to advertise an owner-name
+--      search feature, but is a dynamic JS/form-POST application that this session's
+--      non-interactive WebFetch/WebSearch tooling cannot drive (same access-limitation
+--      class as the Civitek OCRS JSF/xhtml app, though a genuinely different, previously
+--      untried domain). GENUINELY UNTESTED, not confirmed-dead: flagged for a future
+--      session with browser-automation tooling (e.g. the firecrawl-browser or browser-use
+--      skill, which this session's Workflow subagents did not have wired in) to actually
+--      submit the owner-name search form.
+--
+-- CONCLUSION: still structurally blocked. No parcel_id, address, or any other field was
+-- fabricated or guessed for the 3 rows. Zero rows in multi_county_auctions modified.
+--
+-- CONCRETE NEXT LEVER for the next session (more specific than prior reports): drive
+-- https://gilchrist.floridatax.us/ owner-name search via an interactive browser tool
+-- (firecrawl-browser / browser-use), not a static WebFetch/WebSearch call, for all 3
+-- surnames (Slocum, Mercado, Hutchinson). This is the only vector in 9 sessions that is
+-- confirmed-reachable, confirmed-has-owner-search, and NOT yet actually attempted with
+-- capable tooling.
+--
+-- AFTER metric (re-verified live, end of session): IDENTICAL to baseline (no write applied)
+--   E: parcel_linked=11 of 14, metric=78.6, pass=false
+--   I: card_complete=11 of 14, metric=78.6, pass=false
