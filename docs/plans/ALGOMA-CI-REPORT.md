@@ -14,6 +14,7 @@
 
 1. [Executive Summary](#1-executive-summary)
 2. [Company Overview](#2-company-overview)
+2A. [Technology Stack & Hosting (Verified — Aug 17 2026)](#2a-technology-stack--hosting-verified--aug-17-2026)
 3. [PRD — Product Requirements Decomposition](#3-prd--product-requirements-decomposition)
 4. [PRS — Competitive Positioning Statement](#4-prs--competitive-positioning-statement)
 5. [SWOT Analysis](#5-swot-analysis)
@@ -70,6 +71,81 @@
 |------|-------|--------|
 | 2023 | Founded at Harvard Innovation Labs | — |
 | May 2025 | Seed round closed | $2.3M |
+
+---
+
+## 2A. Technology Stack & Hosting (Verified — Aug 17 2026)
+
+**Method note:** Web search on "Algoma" is unreliable for this competitor — it collides with the unrelated public company Algoma Steel. This section is built entirely from real HTTP header, DNS, and page-markup fingerprinting (`curl -sI`, `dig`), not search results. Raw command output is preserved below rather than summarized, per NEVER-LIE.
+
+### 2A.1 Marketing site — `www.algoma.co` — Squarespace (VERIFIED)
+
+```
+$ curl -sI https://www.algoma.co
+HTTP/2 200
+server: Squarespace
+x-contextid: hL0NVMBI/3hESlrVY
+strict-transport-security: max-age=15552000
+set-cookie: crumb=...;Secure;Path=/
+
+$ curl -sI https://algoma.co        (bare domain)
+HTTP/2 301
+location: https://www.algoma.co/
+server: Squarespace
+
+$ dig +short algoma.co
+198.49.23.145 / 198.185.159.144 / 198.49.23.144 / 198.185.159.145
+
+$ dig +short www.algoma.co CNAME
+ext-sq.squarespace.com.
+
+$ dig +short NS algoma.co
+connect1.squarespacedns.com.
+connect2.squarespacedns.com.
+```
+
+`Server: Squarespace`, the `ext-sq.squarespace.com` CNAME, the Squarespace-owned NS delegation, and the Squarespace IP block are four independent, mutually-confirming signals. **VERIFIED: the algoma.co marketing site is hosted on Squarespace**, not a custom-built site as the product's polished UI might suggest.
+
+### 2A.2 Product app — `app.algoma.co` — separate origin (VERIFIED)
+
+The marketing site links to a distinct product subdomain with its own DNS record — this is the actual application, not the Squarespace site:
+
+```
+$ dig +short app.algoma.co
+34.149.105.236
+
+$ curl -sI https://app.algoma.co/
+HTTP/2 200
+server: UploadServer
+via: 1.1 google
+x-goog-generation: 1786626646584339
+x-goog-metageneration: 2
+x-goog-stored-content-encoding: identity
+x-goog-storage-class: STANDARD
+x-goog-hash: crc32c=..., md5=...
+```
+
+`Server: UploadServer` + `Via: 1.1 google` + the `x-goog-*` family of headers is the signature of Google Cloud Storage's object-serving API — **VERIFIED: the Algoma product app is served as static files directly out of a GCS bucket** (fronted by Google's edge network on a custom domain), not from Squarespace, Vercel, Netlify, or AWS. This differs from Firebase Hosting, which returns `Server: Google Frontend` rather than `UploadServer`.
+
+Page markup confirms the bundle:
+
+```html
+<link rel="icon" href="/katmanTimber16.ico" />
+<script type="module" crossorigin src="/assets/index-gjKKAXU3.js"></script>
+<link rel="stylesheet" crossorigin href="/assets/index-DUHzzUZq.css">
+<body><div id="root"></div></body>
+```
+
+`/assets/index-[8-char-hash].js` loaded as an ES module, paired with `/assets/index-[hash].css` and a bare `<div id="root">` mount point, is the canonical **Vite production build** output pattern. **HYPOTHESIS (framework):** React — `id="root"` plus a Vite bundle is the standard Vite+React scaffold, but the framework itself isn't directly provable from a minified single-file bundle without executing the JS, which curl does not do.
+
+### 2A.3 What's UNKNOWN for Algoma
+
+| Item | Status | Why |
+|------|--------|-----|
+| Backend / API framework | UNKNOWN | app.algoma.co is a client-rendered SPA; API calls happen after JS execution, invisible to `curl` |
+| Database technology | UNKNOWN | Not observable from frontend fingerprint at all — no backend endpoints were probed (out of scope: would require authenticated app interaction) |
+| Exact GCS delivery path (raw bucket vs. Cloud CDN/Load Balancer in front) | INFERRED | `x-goog-*` headers confirm GCS-origin; whether a GCLB/Cloud CDN sits in front is not distinguishable from these headers alone |
+| LLM vendor | UNKNOWN | No model-identifying headers or client-side markers found; the original 2026-03 CI report's "GPT-4 likely" claim (§3.4/3.5) remains INFERRED, unchanged by this pass |
 
 ---
 

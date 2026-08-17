@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ZoneWise vs Algoma vs Acres — Trio Battle Card | ZoneWise.AI</title>
+<meta name="description" content="Head-to-head: ZoneWise.ai vs Algoma vs Acres.com — company overview, feature matrix, verified tech stack &amp; hosting, and positioning. Built from real HTTP/DNS fingerprinting, not search results." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --navy: #1E3A5F; --orange: #F59E0B; --bg: #020617; --bg2: #0a1628; --bg3: #0f1f38;
+  --text: #E2E8F0; --muted: #64748B; --border: #1e3a5f55;
+  --green: #22c55e; --red: #ef4444; --yellow: #eab308; --purple: #a855f7; --cyan: #06b6d4;
+  --radius: 12px; --font: 'Inter', system-ui, sans-serif; --mono: 'JetBrains Mono', monospace;
+}
+html { scroll-behavior: smooth; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.6; }
+a { color: var(--orange); }
+header.hero {
+  padding: 56px 24px 40px; text-align: center; border-bottom: 1px solid var(--border);
+  background: radial-gradient(ellipse at top, var(--bg3) 0%, var(--bg) 70%);
+}
+.badge { display:inline-block; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); border:1px solid var(--orange); border-radius:999px; padding:4px 14px; margin-bottom:16px; }
+h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 800; margin-bottom: 14px; }
+h1 span.vs { color: var(--muted); font-weight: 400; }
+h1 span.us { color: var(--orange); }
+.hero p.sub { color: var(--muted); max-width: 760px; margin: 0 auto; font-size: 15px; }
+.section { max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+.section-label { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--orange); font-weight: 700; }
+.section-title { font-size: 26px; font-weight: 800; margin: 6px 0 8px; }
+.section-sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 900px) { .grid3 { grid-template-columns: 1fr; } }
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.card.us { border-color: var(--orange); background: linear-gradient(180deg, rgba(245,158,11,0.08), var(--bg2)); }
+.card h3 { font-size: 18px; margin-bottom: 4px; }
+.card .url { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; }
+.card dt { color: var(--muted); }
+.card dd { color: var(--text); }
+.threat { display:inline-block; font-size:11px; font-weight:700; padding:2px 10px; border-radius:999px; margin-top:10px; }
+.threat.medium { background: rgba(234,179,8,0.15); color: var(--yellow); border:1px solid var(--yellow); }
+.threat.low { background: rgba(34,197,94,0.15); color: var(--green); border:1px solid var(--green); }
+.threat.us-badge { background: rgba(245,158,11,0.15); color: var(--orange); border:1px solid var(--orange); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td:first-child, th:first-child { white-space: normal; min-width: 220px; }
+thead th { background: var(--bg3); color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; position: sticky; top: 0; }
+th.zonewise-col, td.col-zonewise { background: rgba(245,158,11,0.06); }
+tr.category-row td { background: var(--bg3); color: var(--orange); font-weight: 700; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+tr.tech-row td { background: rgba(6,182,212,0.05); }
+.check { color: var(--green); } .partial { color: var(--yellow); } .cross { color: var(--red); }
+.evidence { font-family: var(--mono); font-size: 11.5px; background: #000; color: #94e2ff; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); white-space: pre-wrap; word-break: break-word; margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.tag { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:5px; margin-right:6px; font-family: var(--mono); }
+.tag.verified { background: rgba(34,197,94,0.15); color: var(--green); }
+.tag.hypothesis { background: rgba(234,179,8,0.15); color: var(--yellow); }
+.tag.unknown { background: rgba(148,163,184,0.15); color: var(--muted); }
+.stack-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+.stack-card h4 { font-size: 15px; margin-bottom: 10px; color: var(--orange); }
+.stack-row { display:flex; justify-content:space-between; gap: 12px; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.stack-row:last-child { border-bottom: none; }
+.stack-row .k { color: var(--muted); min-width: 140px; }
+.stack-row .v { text-align: right; }
+.unknown-box { border: 1px dashed var(--muted); border-radius: var(--radius); padding: 18px; background: rgba(100,116,139,0.06); }
+.unknown-box ul { margin: 10px 0 0 20px; font-size: 13.5px; color: var(--text); }
+.unknown-box ul li { margin-bottom: 6px; }
+.note { border-left: 3px solid var(--orange); padding: 12px 16px; background: rgba(245,158,11,0.05); font-size: 13.5px; color: var(--muted); margin-bottom: 24px; border-radius: 0 8px 8px 0; }
+footer { text-align:center; padding: 36px 24px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="badge">Competitive Intelligence · GTM-011 Trio Card</div>
+  <h1>Algoma <span class="vs">vs</span> <span class="us">ZoneWise.ai</span> <span class="vs">vs</span> Acres.com</h1>
+  <p class="sub">Company overview, feature matrix, verified technology stack &amp; hosting, and battle-card positioning — three-column head-to-head. The tech-stack section is new: Algoma and Acres are real HTTP/DNS fingerprints (<code>curl -sI</code> / <code>dig</code>), not search results (web search collides "algoma.co" with the unrelated Algoma Steel company). ZoneWise's stack is pulled directly from the <code>zonewise-web</code> repo's own <code>package.json</code>/<code>vercel.json</code>/<code>next.config.js</code> — internal source of truth, not "detected."</p>
+</header>
+
+<div class="section">
+  <span class="section-label">Company Overview</span>
+  <div class="section-title">Who's in the Room</div>
+  <div class="grid3">
+
+    <div class="card">
+      <h3>Algoma</h3>
+      <div class="url">algoma.co</div>
+      <dl>
+        <dt>Category</dt><dd>AI site feasibility / pre-construction workflow</dd>
+        <dt>Founded</dt><dd>2023 · New York, NY</dd>
+        <dt>Funding</dt><dd>$2.3M seed (May 2025) · Zacua, SOSV et al.</dd>
+        <dt>Coverage</dt><dd>National (claimed), depth unverified</dd>
+        <dt>Tagline</dt><dd>"Address to investor-ready in days"</dd>
+      </dl>
+      <span class="threat medium">Threat: MEDIUM (ZoneWise) · LOW (BidDeed.AI)</span>
+    </div>
+
+    <div class="card us">
+      <h3>ZoneWise.ai ★</h3>
+      <div class="url">zonewise.ai</div>
+      <dl>
+        <dt>Category</dt><dd>Raw zoning data infrastructure &amp; API</dd>
+        <dt>Founded</dt><dd>BidDeed.AI / Everest Capital USA · Brevard FL</dd>
+        <dt>Funding</dt><dd>$0 external — bootstrapped</dd>
+        <dt>Coverage</dt><dd>FL-focused, expanding county-by-county (Brevard live, Orange/Duval in progress)</dd>
+        <dt>Tagline</dt><dd>The data layer beneath the workflow tools</dd>
+      </dl>
+      <span class="threat us-badge">Us</span>
+    </div>
+
+    <div class="card">
+      <h3>Acres</h3>
+      <div class="url">acres.com (formerly AcreValue)</div>
+      <dl>
+        <dt>Category</dt><dd>Nationwide land/parcel data + AI search</dd>
+        <dt>Founded</dt><dd>Fayetteville, AR · CEO Carter Malloy · AgAnalytics</dd>
+        <dt>Funding</dt><dd>UNKNOWN — not verified this session</dd>
+        <dt>Coverage</dt><dd>150M+ US parcels (claimed), nationwide</dd>
+        <dt>Tagline</dt><dd>"Acres Intelligence" AI land-data agent</dd>
+      </dl>
+      <span class="threat medium">Threat: MEDIUM — nationwide breadth, zero FL auction/tax-deed layer</span>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <span class="section-label">NEW — Verified This Session</span>
+  <div class="section-title">Technology Stack &amp; Hosting</div>
+  <p class="section-sub">Full raw evidence (every <code>curl</code>/<code>dig</code> command and its output) lives in <a href="TECH-STACK-TRIO.md">TECH-STACK-TRIO.md</a>. This is the condensed view.</p>
+
+  <div class="grid3">
+
+    <div class="stack-card">
+      <h4>Algoma</h4>
+      <div class="stack-row"><span class="k">Marketing site</span><span class="v"><span class="tag verified">VERIFIED</span>Squarespace</span></div>
+      <div class="stack-row"><span class="k">Product app</span><span class="v"><span class="tag verified">VERIFIED</span>Static bundle on Google Cloud Storage (app.algoma.co)</span></div>
+      <div class="stack-row"><span class="k">Frontend build</span><span class="v"><span class="tag verified">VERIFIED</span>Vite <span class="tag hypothesis">HYPOTH.</span>+React</span></div>
+      <div class="stack-row"><span class="k">Backend/API</span><span class="v"><span class="tag unknown">UNKNOWN</span>SPA hides it</span></div>
+      <div class="stack-row"><span class="k">Database</span><span class="v"><span class="tag unknown">UNKNOWN</span>not observable</span></div>
+      <div class="evidence">Server: Squarespace (www)
+CNAME www.algoma.co -> ext-sq.squarespace.com
+
+app.algoma.co -> 34.149.105.236
+Server: UploadServer / Via: 1.1 google / x-goog-storage-class: STANDARD
+&lt;script type="module" src="/assets/index-gjKKAXU3.js"&gt;
+&lt;div id="root"&gt;&lt;/div&gt;</div>
+    </div>
+
+    <div class="stack-card" style="border-color:var(--orange)">
+      <h4>ZoneWise.ai ★ (internal source of truth)</h4>
+      <div class="stack-row"><span class="k">Framework</span><span class="v">Next.js 16.1.6 · React 18.3.1 · TS</span></div>
+      <div class="stack-row"><span class="k">Hosting</span><span class="v">Vercel (vercel.json + @vercel/analytics)</span></div>
+      <div class="stack-row"><span class="k">Auth</span><span class="v">Clerk (@clerk/nextjs 7.0.4)</span></div>
+      <div class="stack-row"><span class="k">Database</span><span class="v">Supabase (@supabase/ssr, supabase-js 2.95.3)</span></div>
+      <div class="stack-row"><span class="k">Payments</span><span class="v">Stripe 17.2.0</span></div>
+      <div class="stack-row"><span class="k">AI</span><span class="v">Anthropic Claude SDK 0.30.0</span></div>
+      <div class="stack-row"><span class="k">Maps/GIS</span><span class="v">Mapbox GL 3.0.0 + Cesium 1.115</span></div>
+      <div class="stack-row"><span class="k">Analytics</span><span class="v">PostHog</span></div>
+      <div class="stack-row"><span class="k">Email</span><span class="v"><span class="tag unknown">UNKNOWN</span>not in package.json</span></div>
+      <div class="evidence">Source: gh api repos/breverdbidder/zonewise-web/contents/package.json
+"next": "16.1.6", "@clerk/nextjs": "^7.0.4",
+"@supabase/supabase-js": "2.95.3", "stripe": "17.2.0",
+"@anthropic-ai/sdk": "0.30.0", "mapbox-gl": "^3.0.0", "cesium": "1.115"
+vercel.json present at repo root (Vercel-schema headers/rewrites)</div>
+    </div>
+
+    <div class="stack-card">
+      <h4>Acres</h4>
+      <div class="stack-row"><span class="k">Marketing + blog</span><span class="v"><span class="tag verified">VERIFIED</span>HubSpot CMS (portal 22215745)</span></div>
+      <div class="stack-row"><span class="k">Edge/DNS</span><span class="v"><span class="tag verified">VERIFIED</span>Cloudflare (whole zone)</span></div>
+      <div class="stack-row"><span class="k">Legacy app (acrevalue.com)</span><span class="v"><span class="tag verified">VERIFIED</span>Django + nginx, AWS CloudFront</span></div>
+      <div class="stack-row"><span class="k">Map product (maps.acres.com)</span><span class="v"><span class="tag verified">VERIFIED</span>Next.js (x-powered-by header)</span></div>
+      <div class="stack-row"><span class="k">Auth API (auth.acres.com)</span><span class="v"><span class="tag verified">VERIFIED</span>JSON API, <span class="tag unknown">UNKNOWN</span>framework</span></div>
+      <div class="stack-row"><span class="k">Compute host (Next.js/API)</span><span class="v"><span class="tag unknown">UNKNOWN</span>hidden by Cloudflare</span></div>
+      <div class="evidence">www.acres.com: server: cloudflare, x-hs-hub-id: 22215745 (HubSpot)
+acrevalue.com: server: nginx/1.30.3, x-cache: Miss from cloudfront
+  set-cookie: csrftoken=...  (Django default cookie name)
+  body contains: django, csrfmiddlewaretoken, React
+maps.acres.com/plat-map/map: x-powered-by: Next.js
+auth.acres.com/sessions/whoami: HTTP 401, content-type: application/json</div>
+    </div>
+
+  </div>
+
+  <div class="unknown-box" style="margin-top:20px">
+    <strong>Explicitly UNKNOWN (not fabricated):</strong>
+    <ul>
+      <li>Algoma: backend/API framework, database, LLM vendor</li>
+      <li>Acres: compute host for maps.acres.com + auth.acres.com (AWS/GCP/self-managed — Cloudflare hides origin), backend framework for those layers, database technology</li>
+      <li>ZoneWise: email-sending provider (no Resend/SendGrid/etc. in zonewise-web's package.json)</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <span class="section-label">Feature Matrix</span>
+  <div class="section-title">Core Capabilities · 3 Platforms</div>
+  <p class="section-sub">✅ Full support &nbsp;·&nbsp; ⚡ Partial &nbsp;·&nbsp; ✗ Not available &nbsp;·&nbsp; — N/A. Reuses the same matrix format as <code>public/competitors.html</code> (the real, previously-committed battle-card structure) with the new Tech Stack &amp; Hosting rows folded in.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Feature / Capability</th><th>Algoma</th><th class="zonewise-col">ZoneWise ★</th><th>Acres</th></tr>
+      </thead>
+      <tbody>
+        <tr class="category-row"><td colspan="4">Parcel &amp; Zoning Data</td></tr>
+        <tr><td>Geographic coverage</td><td>National (claimed)</td><td class="col-zonewise">FL — Brevard live, expanding</td><td>Nationwide, 150M+ parcels (claimed)</td></tr>
+        <tr><td>Raw zone codes/standards export</td><td><span class="cross">✗</span> summarized only</td><td class="col-zonewise"><span class="check">✅</span></td><td><span class="partial">⚡</span> via AI search layer</td></tr>
+        <tr><td>Zoning jurisdiction depth</td><td><span class="partial">⚡</span></td><td class="col-zonewise"><span class="check">✅</span> per-district standards</td><td><span class="check">✅</span> 30,000+ jurisdictions (claimed)</td></tr>
+        <tr class="category-row"><td colspan="4">Foreclosure / Auction Intelligence</td></tr>
+        <tr><td>Foreclosure/tax-deed data</td><td><span class="cross">✗</span></td><td class="col-zonewise"><span class="check">✅</span> BidDeed.AI core</td><td><span class="cross">✗</span></td></tr>
+        <tr><td>Deal scoring / ARV math</td><td><span class="cross">✗</span></td><td class="col-zonewise"><span class="check">✅</span></td><td><span class="cross">✗</span></td></tr>
+        <tr class="category-row"><td colspan="4">Developer / Workflow Features</td></tr>
+        <tr><td>Pro forma / financial modeling</td><td><span class="check">✅</span></td><td class="col-zonewise"><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+        <tr><td>AI massing / renderings</td><td><span class="check">✅</span></td><td class="col-zonewise"><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+        <tr><td>Natural-language / AI agent search</td><td><span class="partial">⚡</span></td><td class="col-zonewise"><span class="cross">✗</span></td><td><span class="check">✅</span> "Acres Intelligence" (May 2026)</td></tr>
+        <tr class="category-row tech-row"><td colspan="4">Technology Stack &amp; Hosting (new this session)</td></tr>
+        <tr class="tech-row"><td>Marketing site platform</td><td>Squarespace</td><td class="col-zonewise">Next.js (self-built)</td><td>HubSpot CMS</td></tr>
+        <tr class="tech-row"><td>Product app framework</td><td>Vite (+React, hypothesis)</td><td class="col-zonewise">Next.js 16.1.6</td><td>Next.js (maps.acres.com) + Django (acrevalue.com legacy)</td></tr>
+        <tr class="tech-row"><td>Primary hosting</td><td>Google Cloud Storage (static)</td><td class="col-zonewise">Vercel</td><td>Cloudflare-fronted; origin host UNKNOWN, legacy on AWS/nginx</td></tr>
+        <tr class="tech-row"><td>Database</td><td>UNKNOWN</td><td class="col-zonewise">Supabase (Postgres)</td><td>UNKNOWN</td></tr>
+        <tr class="tech-row"><td>Auth</td><td>UNKNOWN</td><td class="col-zonewise">Clerk</td><td>Custom JSON API (auth.acres.com), framework UNKNOWN</td></tr>
+        <tr class="tech-row"><td>Pricing transparency</td><td><span class="cross">✗</span> no public pricing</td><td class="col-zonewise"><span class="check">✅</span></td><td><span class="cross">✗</span> enterprise/contact-sales (UNKNOWN)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <span class="section-label">Battle Card</span>
+  <div class="section-title">Positioning</div>
+  <div class="note">Full Algoma SWOT/PRD/positioning lives in <code>docs/plans/ALGOMA-CI-REPORT.md</code> (unchanged by this session except for the new §2A tech-stack addition). This card summarizes the three-way read.</div>
+
+  <div class="grid3">
+    <div class="card">
+      <h3>Algoma — the workflow tool</h3>
+      <p style="font-size:13.5px;color:var(--muted)">Wins when the prospect is a new-construction developer who wants address-to-investor-pitch in one tool: pro forma, AI massing, renderings. Loses on data depth, FL specificity, and any foreclosure/auction use case — it has zero coverage there.</p>
+    </div>
+    <div class="card us">
+      <h3>ZoneWise — the data layer</h3>
+      <p style="font-size:13.5px;color:var(--muted)">Wins on raw, queryable, DB-verified FL zoning depth + the only one of the three with foreclosure/auction intelligence baked in. Loses on national breadth (Acres) and developer workflow polish (Algoma) — by design, not by gap.</p>
+    </div>
+    <div class="card">
+      <h3>Acres — the nationwide breadth play</h3>
+      <p style="font-size:13.5px;color:var(--muted)">Wins on scale: 150M+ parcels, nationwide, an actual AI search agent shipped (not vaporware — "Acres Intelligence," May 2026). Loses on FL-specific auction/tax-deed intelligence entirely, and its own stack shows a company mid-migration (legacy Django monolith still live alongside a newer Next.js product).</p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Sources: real <code>curl -sI</code> / <code>dig</code> output captured 2026-08-17 (full log in <a href="TECH-STACK-TRIO.md">TECH-STACK-TRIO.md</a>) · ZoneWise stack sourced from <code>breverdbidder/zonewise-web</code> package.json/vercel.json/next.config.js via GitHub API, same session · Algoma SWOT/PRD from <code>docs/plans/ALGOMA-CI-REPORT.md</code> (Mar 2026, tech-stack §2A added Aug 2026) · Issue #19256 (Acres CI dossier) had zero prior output to extend — no comments, no commits, GHA dispatch runs show <code>conclusion: skipped</code> — so this card was built directly on the real, pre-existing structures instead (this report + <code>public/competitors.html</code>).
+</footer>
+
+</body>
+</html>
