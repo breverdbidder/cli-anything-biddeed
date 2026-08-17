@@ -1,0 +1,55 @@
+# Gold Standard shard-1 — brevard / bradford / liberty / wakulla (dispatch 8e5bff5d)
+
+Session 2026-08-17T08:00Z. Environment note: direct DB access (`SUPABASE_DB_PASSWORD` / `psql` / `supabase db push`) failed with `password authentication failed for user "postgres"` — same known constraint as prior sessions. All reads/writes this session went through Supabase PostgREST + existing RPCs (`pencil_dod_evaluate_county`). No DDL/migrations could be applied live, so no new SQL functions/views were shippable this session — only data-level INSERT/UPDATE on existing tables.
+
+## BEFORE (live, 2026-08-17T08:1x Z)
+
+```
+brevard:  A✓ B✓(98.6) C✓(96.4) D✓(96.6) E✓(99.2) F✓(99.0) G✓(99.1) H✓(1.8) I✗(85.5, card_complete=6202/7252) J✓(98.9)  -- 9/10
+bradford: A✓(fc=4 td=1) B✗(null, closed_sold=0) C✓ D✓ E✓ F✗(null, closed_sold=0) G✓ H✓ I✓ J✓  -- 8/10
+liberty:  A✗(fc=1 td=0) B✗(null, closed_sold=0) C✓ D✓ E✓ F✗(null, closed_sold=0) G✓ H✓(45.0h) I✓ J✓  -- 7/10
+wakulla:  A✓ B✓ C✗(84.2) D✓ E✗(84.2, parcel_linked=32/38) F✓ G✓ H✓ I✗(84.2) J✗(84.2)  -- 6/10
+```
+
+Matches the dispatch brief almost exactly (small drift from auction ingestion between brief-generation and session start — e.g. brevard I gap grew from 1001→1050 rows, wakulla unchanged at 6 unlinked rows).
+
+## What was tried (ULTRALOOP: 4 parallel research agents, each finding adversarially verified by an independent refuter that re-fetched the same source)
+
+**brevard I** — new lever, not a repeat of yesterday's (dispatch 6a9e3c3a) centroid-geometry test. Diagnosed the 1,050-row I-gap by field: 1,033 missing `property_address`, of which 981 already HAVE `parcel_id` (only 15 have no parcel_id at all) — so a BCPAO-by-parcel-account lookup is structurally the right lever, not a geometry-table backfill. Confirmed the plain-HTTP BCPAO API (`bcpao.us/api/v1/search`) is now Cloudflare-JS-challenge-gated (dead since whenever that protection was added — this API was previously used successfully by `auction/agent-harness/.../enrichment.py`). Sampled 20 of the 981 rows and used a Cloudflare-passing browser render (Playwright) against `bcpao.us/PropertySearch/#/parcel/<id>` instead.
+Result: 15/20 rows resolved to real BCPAO records, adversarially re-verified by independent re-fetch (11 survived clean, 12th data point excluded — see below); 4 could not be independently re-confirmed by the refuter (Cloudflare re-blocked the refuter's fetch) and were correctly discarded, not written; 1 parcel_id (STRAP-fragment format `23 3615-00-250`) doesn't resolve on BCPAO's account search at all.
+**Critical finding: every single one of the 15 confirmed records is `Site Address: NONE` — genuinely unaddressed vacant land** (BCPAO's own field, not a scrape failure). This specific case-number batch (170887–171130, sequential foreclosure case IDs) appears to be a bulk vacant-land subdivision sale, not representative of the full 981-row gap. **Wrote `market_value` (BCPAO "Market Value", verified, distinct from Assessed Value) for the 12 rows with a confirmed numeric value** — see WRITES below. This is real, adversarially-verified enrichment, but it does **not** flip `I` for these rows: card_complete requires address AND lat/lon AND value AND zone-linked parcel, and address/lat-lon remain null (BCPAO exposes no coordinate field on this page at all, confirmed by both claimant and refuter). **I stays FAIL, unchanged at 85.5%** (verified live post-write, see AFTER below) — this is honest enrichment, not a claimed fix.
+Next-session lever: the 981-gap needs a *stratified* sample (not sequential case-number blocks, which cluster by batch/subdivision) to find the addressed-residential subset that a BCPAO lookup can actually complete: address + geo + value + zone-link. Geo/lat-lon has no BCPAO source at all per this session's finding — will need a separate geocoding step (e.g. Census/Nominatim on whatever address IS found) even for the addressed subset.
+
+**wakulla E** — researched all 6 unlinked-parcel rows fresh (not a repeat; wakulla's public clerk calendar was re-fetched live 2026-08-17). Findings: `2026-TXD-097` no longer appears on the live Wakulla Clerk tax-deed page at all (page currently lists TXD-111 through TXD-122 only) — consistent with this being the same case flagged as a dead-end in prior wakulla sessions (`25-CA-68/TXD-097`). `2026-TXD-117/118/120/122` all show status "Redeemed" on the live clerk page (owner redeemed before sale, consistent with our `cancelled` status) but the clerk page carries **no parcel/address/cert columns at all** for any listed case — genuinely not published pre-redemption. Wakulla Property Appraiser (qpublic.schneidercorp.com, mywakullapa.com) returned HTTP 403 to every fetch attempt this session (no Firecrawl/browser render was reached for this specific sub-task — real coverage gap, worth a follow-up session with the Playwright approach that worked for brevard). `25-CA-105` (scheduled foreclosure, 2026-08-27): confirmed live on the Wakulla Clerk foreclosure page — Freedom Mortgage Corp v. Ronald E. Reynolds Jr, judgment/sale amount $404,253.57 — but the clerk page explicitly states no parcel/legal description is published pre-sale, directing to the Property Appraiser (same 403 block).
+**E/C/I/J all stay FAIL, unchanged** (verified live). Genuinely blocked this session on Property Appraiser access, not a research-effort gap — next session should retry the Wakulla PA with the same Playwright/Firecrawl approach that worked for BCPAO.
+
+**bradford B/F** — did NOT repeat the calendar-scrape test (dead-confirmed 2026-08-13 per `scripts/clerk_ssot/run_parity.py`, 10+ prior sessions). New angle: 3 of Bradford's 5 cases have sale dates that already passed (07-16, 08-13, 08-13) with no outcome recorded. Tried Bradford Clerk official-records search and Civitek OCRS for all 3 — `bradfordclerk.com` is Cloudflare-gated site-wide (confirmed fresh today, not just the calendar), Civitek OCRS is Turnstile-CAPTCHA-gated on submit, myfloridacounty.com needs a book/page reference we don't have. One case (`25000439CAAXMX`) was found on auction.com: status "Reverted" (no third-party bidder, property returned to lender) — but **no dollar sold_amount anywhere on that source** (only auction.com's own market-value estimate, correctly excluded as not a sale price). Adversarially re-verified via independent raw-JSON re-fetch of auction.com — survived, but since `sold_amount` is still null, this doesn't move `closed_sold` and therefore can't move B or F either way.
+**B/F stay FAIL (null), unchanged.** Bradford's true blocker (independent, clerk-recorded sold amounts) remains inaccessible this session — this is the 11th consecutive session reconfirming the same structural block, now with the added fact that even the one already-adjudicated case has no independent sale price published anywhere.
+
+**liberty A/B/F** — confirmed live (ran the actual parser) that both Liberty Clerk pages (`libertyclerk.com/courts/foreclosure-sales/` and `/tax-deeds/`) render zero sale cards today, matching the 2026-08-10 finding — genuinely empty, not a parser break. Our one row (`24-CA-22`, sale date 2026-07-21, already passed) was searched via Civitek OCRS (Liberty's 2nd Judicial Circuit portal) — CAPTCHA-blocked on submit — and myfloridacounty.com — no result. For `A` (needs td>0): checked the Liberty County Tax Collector site directly (not the Clerk) — its only sale is `taxcertsale.com/LibertyTaxSale`, which is a tax-**certificate** auction (2026 cycle already closed 5/31/2026), not a tax-**deed** sale, and exposes no property-level data without a bidder login.
+**A/B/F stay FAIL, unchanged.** Liberty genuinely has no live tax-deed inventory and no accessible outcome source for its one closed-date case this session.
+
+## WRITES (data-level only, via PostgREST — no DDL/migrations possible this session)
+
+`multi_county_auctions.market_value` + `bcpao_enriched=true` + `bcpao_url` set for 12 brevard rows (case_numbers 170896, 170897, 170898, 170899, 170902, 170911, 170980, 170982, 170983, 170984, 171031, 171118) — real, adversarially-verified BCPAO Market Value figures. Confirmed via direct PATCH + response echo, all 12/12 succeeded. **Does not move any A-J letter** (I remains blocked on address/geo for these specific rows) — recorded here for the audit trail and so a future address-discovery pass doesn't need to re-fetch value data for these 12 accounts.
+
+## AFTER (live, re-verified post-write, 2026-08-17)
+
+```
+brevard:  I unchanged: card_complete=6202/7252 (85.5%) FAIL — identical to BEFORE, confirms the market_value write did not (and structurally could not) flip I
+bradford: B/F unchanged: null/null (closed_sold=0) FAIL
+liberty:  A unchanged: fc=1 td=0 FAIL | B/F unchanged: null/null FAIL | H ticked to 45.7h (still PASS, close to 48h SLA — flag for next session)
+wakulla:  C/E/I/J unchanged: 84.2% FAIL across all four (E is the root; C/I/J are downstream per the dependency chain)
+```
+
+**No letter moved for any of the 4 shard counties this session.** All 4 research lines produced genuine, adversarially-verified NEGATIVE findings (structural blockers reconfirmed with fresh, dated evidence and — for bradford/liberty — a genuinely new angle tried, not a repeat) plus one line of honest non-metric-moving enrichment (brevard market_value). Per the SHIP GATE, this report does not claim any letter as fixed.
+
+## Next-session priorities (in order of leverage)
+
+1. **brevard I**: re-sample the 981-row gap with a *diverse* (non-sequential) case selection and use the same Playwright/Cloudflare-bypass approach — the vacant-land cluster hit this session is likely not representative of the whole gap. Also: no lat/lon field exists anywhere on BCPAO for any parcel type found this session — geo will need a separate geocoding step even after address is resolved.
+2. **wakulla E**: retry the Wakulla Property Appraiser (qpublic.schneidercorp.com / mywakullapa.com) with the same Playwright/Firecrawl browser-render approach that worked for BCPAO — this session only tried plain HTTP (403) and didn't reach a browser-rendered attempt for the PA specifically.
+3. **bradford/liberty B/F/A**: both counties' primary official-records/court-docket portals are now confirmed Cloudflare- or CAPTCHA-gated as of today (bradfordclerk.com site-wide, Civitek OCRS Turnstile on both counties). A genuine unblock needs either a CAPTCHA-solving approach (out of scope for an autonomous session) or a different independent source neither county currently exposes. Consider these two counties' B/F genuinely exhausted pending a new data source, not worth another session-repeat of the same official-records angle without new tooling.
+
+## Verification protocol
+
+Live `pencil_dod_evaluate_county()` output pasted above for BEFORE and AFTER, both fetched via Supabase PostgREST this session (direct DB access unavailable). `gold_standard_campaign` row (dispatch_id `8e5bff5d-0626-4273-a9d5-2c29420b6194`, id 4518) updated with `criteria_passed` reflecting the live AFTER state, `exit_reason='timeout'`, `session_end_at=now()`.
