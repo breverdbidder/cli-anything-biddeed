@@ -91,24 +91,22 @@ LOOKBACK_DAYS = 7
 CHROMIUM_PATH = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH")
 
 VARIANT_A_SAMPLE_SQL = """
+-- Reuses public.lead_auction_activity (supabase/migrations/20260817d_lead_auction_activity_view.sql)
+-- for the auctions_won/total_deployed computation instead of re-joining
+-- multi_county_auctions here -- single source of truth shared with
+-- email/SMS/countdown-cron personalization surfaces (#19176 join-fix task).
 WITH matched AS (
-  SELECT lp.id AS lead_id, lp.name, lp.county,
-         COUNT(mca.id) AS auctions_won,
-         SUM(COALESCE(mca.tier1_sold_amount, mca.sold_amount)) AS total_deployed
-  FROM public.lead_profiles lp
-  JOIN public.multi_county_auctions mca
-    ON upper(trim(mca.winning_bidder)) = upper(trim(lp.name))
-   AND mca.county = lp.county
-   AND mca.auction_date <= CURRENT_DATE
+  SELECT laa.lead_id, laa.name, laa.county, laa.auctions_won, laa.total_deployed
+  FROM public.lead_auction_activity laa
+  JOIN public.lead_profiles lp ON lp.id = laa.lead_id
   WHERE lp.source = 'auction_llc_expansion'
     AND lp.bidder_activity_tier = 'INVESTOR_LLC'
+    AND laa.auctions_won > 0
     AND NOT EXISTS (
       SELECT 1 FROM public.social_content_queue scq
       WHERE scq.source_type = 'lead_audit_card_a'
         AND scq.source_ref = 'lead_profiles:' || lp.id::text
     )
-  GROUP BY lp.id, lp.name, lp.county
-  HAVING COUNT(mca.id) > 0
 ),
 upcoming AS (
   SELECT county, COUNT(*) AS upcoming_count
