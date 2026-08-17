@@ -9,39 +9,38 @@ Playwright HTML->PNG render, same 'social-banners' storage bucket (new
 navy/orange brand tokens.
 
 Variant A (personalized, per-lead, email-attachment asset):
-  For lead_profiles rows with source='auction_llc_expansion', joins to
-  multi_county_auctions on winning_bidder (case/whitespace-insensitive) +
-  county to compute: auctions won, total sold_amount deployed, and count of
-  upcoming auctions (auction_date within 30 days, sold_amount IS NULL) in the
-  lead's county. Leads with zero auctions-won matches are excluded by the
-  query itself (HAVING COUNT > 0) -- nothing fabricated, nothing padded.
+  For lead_profiles rows with source='auction_llc_expansion' AND
+  bidder_activity_tier='INVESTOR_LLC', joins to multi_county_auctions on
+  winning_bidder (case/whitespace-insensitive) + county to compute: auctions
+  won, total sold_amount deployed, and count of upcoming auctions
+  (auction_date within 30 days, sold_amount IS NULL) in the lead's county.
+  Leads with zero auctions-won matches are excluded by the query itself
+  (HAVING COUNT > 0) -- nothing fabricated, nothing padded.
 
-  DEVIATION FROM BRIEF (logged per CC_META_PROMPT.md 2.3 -- the DoD query
-  itself may be wrong, verified live rather than silently "corrected"):
-  the brief specifies a `bidder_activity_tier` column with value
-  'INVESTOR_LLC' and a 185-row count, and a `historical_county` column.
-  None of the three exist anywhere in this repo or in the live lead_profiles
-  schema (confirmed via information_schema.columns + repo-wide grep, zero
-  hits). The only tier-like signal on source='auction_llc_expansion' rows is
-  investor_type='corporate_bidder' (uniform across all 288 rows, tier IS
-  NULL for all of them) -- there is no sub-tier to filter on. The live count
-  for source='auction_llc_expansion' is 288, not 185. This script uses
-  source='auction_llc_expansion' (the only filter that actually exists) and
-  `county` (the only county column that actually exists) and reports the
-  real 288 population size in its output; it does not invent a tier filter
-  to force a match to 185.
+  CORRECTION (issue #19174 -> #19174-followup, fixed on 2026-08-17):
+  `bidder_activity_tier` is now a real, persisted column on lead_profiles
+  (added and backfilled this session -- see supabase/migrations for the
+  ALTER/UPDATE), not a one-off query. It is computed once via regex against
+  `name` in this priority order: HOA_CONDO_ASSOCIATION, then
+  RESORT_TIMESHARE_MAJOR, then INSTITUTIONAL_LENDER, then INVESTOR_LLC (all
+  other `, LLC`/`, INC.`/`INCORPORATED` names), else OTHER. Live counts for
+  source='auction_llc_expansion' (n=288): INVESTOR_LLC=185,
+  INSTITUTIONAL_LENDER=48, HOA_CONDO_ASSOCIATION=44,
+  RESORT_TIMESHARE_MAJOR=7, OTHER=4. The 185 figure referenced in the
+  original #19174 brief was correct; the bug was that the filter was never
+  applied because the column never existed until now.
 
-  FINDING (not a fabrication issue, a fit-for-purpose one worth a human
-  look): several of the highest auctions-won matches are institutional loan
-  servicers/plaintiffs (e.g. "LAKEVIEW LOAN SERVICING, LLC", "FREEDOM
-  MORTGAGE CORPORATION") that appear in multi_county_auctions.winning_bidder
-  because they credit-bid their own foreclosure back rather than an
-  independent investor deploying cash. The numbers are real, but "YOUR
-  AUCTION ACTIVITY" outreach copy may not land the way it would for an
-  actual investor LLC. Left in scope since the brief's population filter
-  (source='auction_llc_expansion') does not exclude them and excluding them
-  would be an unrequested scope change -- flagged for review before any card
-  leaves draft status.
+  FINDING (still true post-fix, a fit-for-purpose note not a fabrication
+  issue): institutional loan servicers/plaintiffs (e.g. "LAKEVIEW LOAN
+  SERVICING, LLC", "FREEDOM MORTGAGE CORPORATION") that credit-bid their own
+  foreclosure back are now correctly excluded by the INSTITUTIONAL_LENDER
+  tier (checked before INVESTOR_LLC in the CASE, so "...SERVICING, LLC"
+  matches lender first despite the trailing "LLC"). One known regex gap
+  remains: "THE FALLS OF INVERRARY CONDOMINIUMS, INC." classifies as
+  INVESTOR_LLC because the HOA regex requires the literal substring
+  "CONDOMINIUM ASSOCIATION", not "CONDOMINIUMS" alone -- this is the
+  brief's exact specified regex, reproduced as given, not a bug introduced
+  here. Flagged for a human look at the regex, not silently patched.
 
   DATA-QUALITY FIX (found live, not in the brief): some multi_county_auctions
   rows have winning_bidder already populated for a FUTURE auction_date with
@@ -102,6 +101,12 @@ WITH matched AS (
    AND mca.county = lp.county
    AND mca.auction_date <= CURRENT_DATE
   WHERE lp.source = 'auction_llc_expansion'
+    AND lp.bidder_activity_tier = 'INVESTOR_LLC'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.social_content_queue scq
+      WHERE scq.source_type = 'lead_audit_card_a'
+        AND scq.source_ref = 'lead_profiles:' || lp.id::text
+    )
   GROUP BY lp.id, lp.name, lp.county
   HAVING COUNT(mca.id) > 0
 ),
@@ -122,10 +127,11 @@ LIMIT %(limit)s
 """
 
 VARIANT_A_POPULATION_SQL = """
-SELECT source, investor_type, tier, count(*) AS n
+SELECT source, investor_type, bidder_activity_tier, count(*) AS n
 FROM public.lead_profiles
 WHERE source = 'auction_llc_expansion'
 GROUP BY 1, 2, 3
+ORDER BY n DESC
 """
 
 VARIANT_B_COUNTY_SQL = """
