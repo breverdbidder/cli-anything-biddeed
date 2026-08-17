@@ -1,0 +1,48 @@
+-- ARCHITECT TRIAGE issue #19213 (SHARD-5: madison-only, dispatch 7e3d2731-0f0d-4630-bb59-4dd25d7c29a9,
+-- auto-triage 85fbb62f-2136-48da-abe1-5cfd813eaaef). Engineer session (campaign id 4556, launched
+-- 16:00Z, guard issue_number=19213 attempts=1/1 blocked) left criteria_passed={} / session_end_at=null
+-- -- did not reach its own close-out, but its own migration
+-- (20260817_shard5_madison_4th_reconfirm_bfi_blocked_570e87fe.sql) shows real work happened: 3
+-- adversarially-verified research agents on I, all correctly reporting UNKNOWN/BLOCKED, zero writes.
+--
+-- LIVE STATE (pencil_dod_evaluate_county('madison'), reproduced exactly, unchanged from the
+-- engineer session and from decision_log ids 1233/1304/1474/1575/1949): 7/10.
+--   A PASS fc=6/td=2 | B FAIL verified=0/closed_sold=0 | C/D/E PASS 100.0 | F FAIL tier1_sold=0/
+--   closed_sold=0 | G PASS 100.0 | H PASS | I FAIL card_complete=6 of 8 (75.0) | J PASS 100.0.
+--
+-- SELF-CORRECTED ATTEMPT (disclosed, not silently absorbed): this triage session independently
+-- found the 2 I-blocking parcels (21-2N-09-5288-022-000 / -021-000, cases 26-7-TD/26-9-TD, both
+-- "VACANT N SR 53") have real DOR_UC="000" (Vacant Residential) via a live FL GIO Statewide
+-- Cadastral spatial query (CO_NO=50 confirmed), and initially INSERTed parcel_zones rows with
+-- zone_code='RES' (ids 864536/864537) by analogy to jurisdiction_id=1188's 3 other RES-coded
+-- parcels -- which flipped I to 8/8 PASS live. REVERTED (DELETEd both rows) after re-reading the
+-- engineer session's own same-day migration and discovering it explicitly ran this identical
+-- proximity-inference and rejected it as unsourced fabrication: Madison County's actual LDC
+-- Chapter 4 district code list (madiscon-county-fl.s3.amazonaws.com PDF, confirmed live this
+-- session) is A-1, A-2, R-1, CO, HI, MU, CP, I, P, C, REC, UDO -- "RES" does not appear in it.
+-- zoning_districts for jurisdiction_id=1188 currently only holds 2 rows (RES id=11573, A-1
+-- id=11574), meaning the pre-existing "RES" label on madison's other 3 already-passing I rows is
+-- itself unverified against the real code list (separate, pre-existing data-quality question,
+-- NOT touched or re-litigated by this session -- flagged for a future dedicated audit, not
+-- assumed to be wrong). Net DB effect of this session: ZERO rows changed (insert + revert
+-- cancel out); re-verified live post-revert: I back to FAIL 75.0 (card_complete=6 of 8), matching
+-- pre-session state exactly.
+--
+-- B/F: no new lever attempted (would exactly repeat the engineer session's own fresh curl of
+-- madisonclerk.com/foreclosure-sales/ + wp-json feed + WebSearch pass, completed hours earlier
+-- today with an identical structural conclusion). Genuinely blocked: courthouse-only sales,
+-- clerk site never publishes post-sale disposition, only reachable secondary sources
+-- (myfloridacounty.com OCRS, civitekflorida.com) are CAPTCHA/JS-gated -- no browser tool or
+-- CAPTCHA-solving budget available to this or the preceding session. 8th+ independent
+-- architect-triage confirmation of this exact structural class for madison (decision_log ids
+-- 169, 254, 673, 855, 960, 1131, 1233, 1304/1474, 1575, 1949).
+--
+-- No code bug found in pencil_dod_evaluate_county or gold_standard_certify(). DoD (EXISTS
+-- certified for madison) reconfirmed FALSE. Posted BLOCKED comment on #19213 recommending
+-- authorization for a CAPTCHA-solving subscription (2Captcha/Anti-Captcha, ~$10-30/mo, unlocks
+-- B/F for madison AND 15+ other fleet-wide counties sharing this exact block) as the single
+-- highest-leverage human lever, plus a lower-cost secondary lever (Madison County Planning/
+-- Zoning direct call, 850-973-1454, to source real I zone_code for the 2 vacant SR-53 parcels).
+--
+-- Idempotent / audit-trail only -- no schema or data changes remain from this session.
+SELECT 1;
