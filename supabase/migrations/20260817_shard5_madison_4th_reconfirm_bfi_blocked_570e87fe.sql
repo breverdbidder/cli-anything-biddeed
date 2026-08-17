@@ -1,0 +1,80 @@
+-- Gold Standard shard-5, dispatch 570e87fe-ce1d-4346-9272-0e1f640179ef, county=madison, letters B/F/I
+-- Date: 2026-08-17 (loop run 12108)
+--
+-- LIVE STATE (pencil_dod_evaluate_county('madison'), unchanged before/after this session):
+--   B: {"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}
+--   F: {"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}
+--   I: {"pass": false, "detail": "card_complete=6 of 8", "metric": 75.0}
+-- A,C,D,E,G,H,J already PASS (7/10, unchanged).
+--
+-- This is the 4th consecutive session finding B/F blocked (prior: 2026-07-11, 2026-08-13,
+-- 2026-08-15) and the 2nd session finding the exact I gap unresolved (prior: 2026-08-15,
+-- which discovered these are the same 2 parcels blocked on I). Per ULTRALOOP protocol, this
+-- session ran THREE parallel fresh-context research agents on I (independent, non-overlapping
+-- angles) plus a lightweight B/F fresh-recheck, then adversarially verified every claim with a
+-- dedicated refuter agent per lead (3/3 survived as honest UNKNOWN reports; 0/3 produced a real
+-- zone_code -- nothing to certify).
+--
+-- I ROOT CAUSE (re-confirmed, narrowed further this session): the 2 blocking rows
+-- (case 26-7-TD, parcel 21-2N-09-5288-022-000; case 26-9-TD, parcel 21-2N-09-5288-021-000;
+-- both "VACANT N SR 53, Madison, FL") already have property_address + latitude/longitude +
+-- assessed_value populated (backfilled in a prior session) -- the ONLY missing field is a real
+-- zone_code in parcel_zones. Three genuinely new angles were probed and each is now a
+-- CONFIRMED dead end, not a repeat of a prior finding:
+--   1. madisoncounty.maps.arcgis.com -- resolves (HTTP 302) but portals/self confirms this
+--      ArcGIS Online org is Madison County, MONTANA (id=xh3dsZbIkSAmWWRV), a subdomain
+--      name collision, not Madison County FL. Zero indexed items, no zoning content.
+--   2. ArcGIS Online sharing-API global search (arcgis.com/sharing/rest/search) for
+--      "Madison County Florida zoning" / "future land use" -- the only FL-specific parcel
+--      layer found is Madison_County_Florida FeatureServer
+--      (services3.arcgis.com/DvTqoyLKkslnGFR5/.../FeatureServer/0, owner
+--      jkennedy_SpatialDataLogic). Queried directly for both target parcels/coordinates:
+--      returns PARCEL_ID match but only DOR_UC/PA_UC fields (both "000"/"00" -- raw DOR
+--      use codes, NOT a zoning designation) -- same DOR cadastral mirror already ruled out
+--      in the 2026-08-15 session, confirmed independently again. hub.arcgis.com /
+--      opendata.arcgis.com search surfaced only a 715MB static multi-county FLWC shapefile
+--      (Florida Wildlife Corridor study) with no confirmed parcel-level zoning content and
+--      no REST query interface -- not downloaded (cost-discipline: no guarantee of a usable
+--      result for the spend).
+--   3. madisoncountyfl.com/departments-services/planning-zoning/ (NOT Cloudflare-blocked,
+--      unlike qpublic/madisonpa.com) -- located and downloaded the real Madison County LDC
+--      Chapter 4 (Land Use Districts and Development Standards, 90pp PDF, verified source
+--      madiscon-county-fl.s3.amazonaws.com). Confirms the real district code list (A-1, A-2,
+--      R-1, CO, HI, MU, CP, I, P, C, REC, UDO) -- validates the RES/A-1 codes already in
+--      parcel_zones for madison's other 6 rows, but the PDF is district-definition text only,
+--      referencing an "Adopted Future Land Use Map Atlas" with NO accessible URL or
+--      parcel-level lookup. planning.madisoncountyfla.com/gis/ redirects to the same
+--      gz.floridapa.com MapServer backend as madisonpa.com (already logged
+--      Cloudflare-403-blocked) -- same dead end via a different door, not independent.
+--      library.municode.com/fl/madison_county does not exist (only the city of Madison is
+--      indexed). Firecrawl re-confirmed dead ("Insufficient credits").
+-- Per the fabrication ban, none of the 3 agents inferred a zone_code from the 4 nearby
+-- jurisdiction_id=1188 parcels (RES/A-1) without a direct source confirming this specific
+-- location -- all 3 correctly reported UNKNOWN/BLOCKED. All 3 reports independently
+-- adversarially verified (dedicated refuter agent per lead, re-fetching every checkable URL)
+-- -- 0 refuted, 0 produced a real zone_code. Nothing to write to parcel_zones.
+--
+-- B/F FRESH FINDING: re-curled madisonclerk.com/foreclosure-sales/ (still calendar-only) and
+-- the wp-json/wp/v2/foreclosures endpoint (still 6 records, all 3 past-due cases --
+-- 21-36-CA, 24-62-CA, 26-20-CA -- still "status":"scheduled" with unchanged "modified"
+-- timestamps that predate their sale dates, confirming the field is genuinely never updated
+-- post-sale, not merely stale-at-fetch-time). One fresh WebSearch pass found no new
+-- third-party aggregator -- only listing-only pre-sale sites (RealtyTrac, Zillow,
+-- Foreclosure.com, Homes.com, Auctions.com), none of which surface post-auction results.
+-- CONCLUSION: B/F genuinely blocked, 4th consecutive independent confirmation.
+--
+-- Next real unblock paths (unchanged from 2026-08-15):
+--   B/F: none found -- would require madisonclerk.com to add a sale-results field or a
+--        working OCRS credential; candidate for manual-outreach exception.
+--   I:   FGDL (fgdl.org) metadata explorer is JS-driven (not reachable via curl this
+--        session) -- a future session with browser automation (Playwright/firecrawl-browser,
+--        once Firecrawl credits replenish) could check its catalog for a Madison zoning/FLU
+--        shapefile. Direct contact with Madison County Planning/Zoning
+--        (madisoncountyfl.com/departments-services/planning-zoning/) or GIS Dept
+--        (850-973-1454, found in search results) is the most credible real unblock path but
+--        is outside automated-session tool scope.
+--
+-- No schema or data changes. Documentation-only audit-trail record (no writes made,
+-- consistent with BLANK > WRONG).
+
+SELECT 1; -- no-op; this migration is an audit-trail record only
