@@ -68,6 +68,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_USERNAME: ${{ secrets.REALFORECLOSE_USERNAME }}
