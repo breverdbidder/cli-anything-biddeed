@@ -12,10 +12,11 @@
 
 ## 0. Correction to the dispatch brief (read first)
 
-Two premises in the dispatch brief do not match what was found live in this session. Per HONESTY PROTOCOL, both are corrected here rather than silently followed:
+Three premises do not match what was found live in this session — two in the original dispatch brief, one discovered mid-session in this report's own first draft. Per HONESTY PROTOCOL, all three are corrected here rather than silently followed or silently left wrong:
 
-1. **"18 sections."** No file in `cli-anything-biddeed` or `breverdbidder/pp-ci-engine` (commit `c32b8c5`, current `main`) contains an 18-section battle-card schema. Searched `agent_ops_log`-referencing docs and `ssot_registry_components`-referencing docs repo-wide — no hit. The one real, previously-shipped, structurally complete competitor report in this repo is `docs/plans/ALGOMA-CI-REPORT.md`, and it has **8 sections** (Executive Summary, Company Overview, PRD, PRS, SWOT, Battle Card, Strategic Implications, Appendix). This report reuses that real structure.
+1. **"18 sections."** No file in `cli-anything-biddeed` or `breverdbidder/pp-ci-engine` (commit `c32b8c5`, current `main`) contains an 18-section battle-card schema. Searched `agent_ops_log`-referencing docs and `ssot_registry_components`-referencing docs repo-wide — no hit. The one real, previously-shipped, structurally complete competitor report in this repo is `docs/plans/ALGOMA-CI-REPORT.md`, and it has **8 sections** (Executive Summary, Company Overview, PRD, PRS, SWOT, Battle Card, Strategic Implications, Appendix). This report reuses that real structure. (A concurrent session working the same issue independently confirmed the same finding and additionally fingerprinted real tech-stack/hosting facts — see `docs/competitive-intel/TECH-STACK-TRIO.md` and `docs/competitive-intel/trio-battle-card.html`, committed alongside this report.)
 2. **"3rd CI-engine component blocked on an OpenAI key."** True as of the engine's first smoke test (2026-08-12), false as of `pp-ci-engine`'s own `docs/SMOKE-TEST-REPORT.md` update dated 2026-08-14: Ariel decided against adding an OpenAI key, and the 3rd component (`ui-screenshot-to-prompt`) was rewired to a from-scratch Gemini adapter (`ui_screenshot_to_prompt_gemini_adapter.py`) that no longer touches OpenAI at all. Running the engine live against Acres.com today (2026-08-17), the 3rd component was attempted 3 times and BLOCKED all 3 times on `Gemini HTTP 503 — "This model is currently experiencing high demand"` — a transient capacity error, not a credential gap. See §8 for the raw evidence.
+3. **"AcreTrader is Acres.com's parent company" — wrong, self-caught mid-session.** This report's first draft stated Acres.com is "operated by AcreTrader," based on AcreTrader's own older newsroom post ("AcreTrader Launches Acres, a Geospatial Analytics Platform") and the mobile app's legacy package id (`com.acretrader.acremapsmobile`). Further research surfaced a **PR Newswire release confirming Proterra Investment Partners acquired AcreTrader FROM Acres.com on August 12, 2025** — the ownership relationship inverted, and as of that date **Acres.com is the independent company; AcreTrader is the divested asset**, now operating under Proterra (GM Rob Moore, Managing Director Drew Lipke). Carter Malloy is named in that release as "Founder and CEO of Acres.com and AcreTrader," continuing to lead Acres.com "alongside over 60 talented individuals" (Aug 2025 headcount — see §2 for how this reconciles with the separate "close to 100" figure from a Dec 2025 article). All references to "AcreTrader as Acres' parent" below have been corrected; the AcreTrader funding history is retained only as **pre-divestiture historical context**, explicitly not Acres.com's current capital structure. **This correction was made after the first version of this report was already committed and pushed to `main`** — the wrong claim was live on `main` briefly before being caught and fixed in a follow-up commit. Flagging that explicitly rather than quietly rewriting history, per this repo's "wrong = I was wrong" rule.
 
 ---
 
@@ -34,13 +35,13 @@ Two premises in the dispatch brief do not match what was found live in this sess
 
 ## 1. Executive Summary
 
-**Acres.com** (acres.com, legal entity **AcreMaps, LLC dba Acres**) is a nationwide land-data and zoning-intelligence platform operated by **AcreTrader** (Fayetteville, AR; founder/CEO **Carter Malloy**). It analyzes **150M+ US parcels** across **1,000+ data sources** and **12,000–13,000+ data/map layers** (both figures scraped live from acres.com — see discrepancy note in §2), and in 2026 shipped two major AI releases: native AI zoning search (Feb 16, 2026) and **Acres Intelligence**, a full AI land-research agent (May 8, 2026). It was named a **2026 HousingWire Tech100 winner**, the only Arkansas company on that year's list.
+**Acres.com** (acres.com, legal entity **AcreMaps, LLC dba Acres**) is a nationwide land-data and zoning-intelligence platform, independently operated as of August 2025 (Fayetteville, AR; founder/CEO **Carter Malloy**) after Proterra Investment Partners acquired its former sibling/parent AcreTrader. It analyzes **150M+ US parcels** across **1,000+ data sources** and **12,000–13,000+ data/map layers** (both figures scraped live from acres.com — see discrepancy note in §2), and in 2026 shipped two major AI releases: native AI zoning search (Feb 16, 2026) and **Acres Intelligence**, a full AI land-research agent (May 8, 2026). It was named a **2026 HousingWire Tech100 winner**, the only Arkansas company on that year's list.
 
 **Competitive verdict:** Acres is a **direct, head-on competitor to ZoneWise** on the exact axis ZoneWise competes: parcel-level zoning data at scale. Unlike Algoma (a workflow tool one layer above zoning data) or Gridics/Zoneomics (API-first but narrower), Acres is a nationwide, enterprise-funded, AI-native version of what ZoneWise is building for Florida — with real enterprise customers (CBRE, Lennar, PGIM, Century Communities, PG&E, Vulcan Materials confirmed live on acres.com) and a 30,000+ jurisdiction zoning-coverage claim. It has **zero** foreclosure or tax-deed auction intelligence — BidDeed.AI's core product is untouched by Acres.
 
 **Threat level:** **HIGH for ZoneWise** (direct nationwide overlap on the zoning-data-at-scale category). **LOW for BidDeed.AI** (zero overlap on foreclosure/auction deal scoring).
 
-**Opportunity:** ZoneWise cannot out-resource Acres nationally (Acres has ~100 employees, AcreTrader's $60M+ raised capital behind it, and a 5-figure-per-jurisdiction data operation already running). ZoneWise's defensible ground is FL-specific depth combined with the auction/foreclosure layer Acres has no interest in building — the same "raw-data-layer-vs-workflow" framing used against Algoma, but here it's "deep-FL-vertical-vs-nationwide-horizontal," a different and harder fight.
+**Opportunity:** ZoneWise cannot out-resource Acres nationally (Acres has ~60-100 employees per two 2025 press sources, a 5-figure-per-jurisdiction data operation already running, and — even independent of AcreTrader's now-divested capital — real enterprise reference customers most bootstrapped competitors don't have). ZoneWise's defensible ground is FL-specific depth combined with the auction/foreclosure layer Acres has no interest in building — the same "raw-data-layer-vs-workflow" framing used against Algoma, but here it's "deep-FL-vertical-vs-nationwide-horizontal," a different and harder fight.
 
 ---
 
@@ -50,13 +51,13 @@ Two premises in the dispatch brief do not match what was found live in this sess
 |-------|-------|-----|
 | **Product** | Acres.com | VERIFIED |
 | **Legal entity** | AcreMaps, LLC dba Acres | VERIFIED — scraped footer disclaimer, live 2026-08-17 |
-| **Parent company** | AcreTrader | VERIFIED — Acres.com mobile app package id is `com.acretrader.acremapsmobile`; AcreTrader's own newsroom describes "AcreTrader Launches Acres, a Geospatial Analytics Platform" |
+| **Corporate history** | Originally an AcreTrader product/subsidiary ("AcreTrader Launches Acres, a Geospatial Analytics Platform"). **Ownership inverted 2025-08-12**: Proterra Investment Partners acquired **AcreTrader** *from* Acres.com. Acres.com "remains independent" per the transaction announcement; AcreTrader now operates under Proterra (GM Rob Moore, MD Drew Lipke). **Acres.com currently has no disclosed parent company.** | VERIFIED — PR Newswire transaction announcement, 2025-08-12 |
 | **URL** | https://www.acres.com | VERIFIED |
 | **HQ** | Fayetteville, AR | VERIFIED |
-| **Founder/CEO** | Carter Malloy | VERIFIED |
-| **Founded (AcreTrader)** | 2018 (widely reported); Acres.com product launched later as an AcreTrader spinoff product | INFERRED — exact Acres.com product-launch date not confirmed this session |
-| **Team size** | "Close to 100" | VERIFIED (secondary source: Arkansas Democrat-Gazette / Talk Business & Politics reporting) — not independently confirmed via a primary Acres filing |
-| **Funding** | AcreTrader (parent): $5M seed (Apr 2020, led by RZC Investments), $12M Series A (led by Jump Capital), $40M Series B (Jan 2022, led by Anthemis Group), expanded to **$60M+ Series B** (Mar 2022, adding Drive Capital) | VERIFIED — this is AcreTrader corporate funding, **not** a disclosed Acres.com-specific round. No standalone Acres.com/AcreMaps LLC funding figure was found. |
+| **Founder/CEO** | Carter Malloy — named in the Aug 2025 transaction release as "Founder and CEO of Acres.com and AcreTrader" | VERIFIED |
+| **Founded (AcreTrader entity)** | 2018 (widely reported); Acres.com product launched later as an AcreTrader-affiliated product, then separated into its own company via the Aug 2025 divestiture | INFERRED — exact Acres.com product-launch/incorporation date not confirmed this session |
+| **Team size** | "Over 60 talented individuals" (Aug 2025, PR Newswire transaction release) vs. "close to 100" (Dec 2025, Arkansas Democrat-Gazette). Both VERIFIED as reported, at different points in time — plausible headcount growth over ~4 months, not treated as a contradiction | VERIFIED (secondary/journalistic + press-release sources) — not independently confirmed via a primary Acres filing |
+| **Funding** | **Historical, pre-divestiture context only, not Acres.com's current capital structure:** the AcreTrader entity raised $5M seed (Apr 2020, RZC Investments), $12M Series A (Jump Capital), $40M Series B (Jan 2022, Anthemis Group), expanded to $60M+ Series B (Mar 2022, adding Drive Capital) — before being sold to Proterra in Aug 2025. **Acres.com's own, current, independent funding/ownership structure is UNKNOWN** — not disclosed in any source found this session. | VERIFIED (historical AcreTrader funding) / **UNKNOWN** (Acres.com's current capital structure) |
 | **Category** | Nationwide land intelligence / AI zoning search | VERIFIED |
 | **Tagline (site)** | "Analyze and Value Land With Confidence" | VERIFIED |
 
@@ -217,7 +218,7 @@ Site copy: **"Analyze and Value Land With Confidence."** Product framing: "the l
 | S1 | Nationwide scale — 150M+ parcels, 1,000+ data sources | Live site scrape, consistent across two pages |
 | S2 | Real enterprise reference customers | CBRE, Lennar, PGIM, Century Communities, PG&E, Vulcan Materials — logos live on homepage |
 | S3 | AI-native roadmap shipping fast | Two major AI launches in 6 months (Feb + May 2026) |
-| S4 | Backed by AcreTrader's balance sheet | $60M+ Series B raised by parent company |
+| S4 | Historical capital base | The now-divested AcreTrader entity raised $60M+ Series B pre-Aug-2025; Acres.com's own current funding is undisclosed, but it operates at a scale (enterprise customers, 60-100+ staff) suggesting it isn't cash-starved post-divestiture |
 | S5 | Industry press validation | 2026 HousingWire Tech100 winner |
 | S6 | Multi-vertical packaging | Dedicated pages for Builders, Data Center, Energy, Finance, Real Estate, Retail |
 | S7 | Mobile app already shipped | Live on iOS App Store + Google Play |
@@ -267,7 +268,7 @@ Site copy: **"Analyze and Value Land With Confidence."** Product framing: "the l
 | W2 | No AI natural-language query layer | Acres shipped two major AI launches in 2026; ZoneWise has none yet |
 | W3 | No enterprise reference customers of Acres' caliber | CBRE/Lennar/PGIM tier logos vs. ZoneWise's current customer base |
 | W4 | No mobile app | Acres has a live iOS/Android app |
-| W5 | Far less funded | AcreTrader's $60M+ raised vs. ZoneWise's $0 external |
+| W5 | Funding gap presumed but unconfirmed | Acres.com's current, independent capital structure is UNKNOWN (post-Aug-2025 divestiture from AcreTrader); ZoneWise's is $0 external — the comparison itself is UNKNOWN pending Acres.com-specific disclosure |
 
 ---
 
@@ -309,7 +310,7 @@ Lose when the prospect needs:
 > "That's true, and if you need 50-state coverage, Acres wins outright. For Florida specifically — the most active foreclosure/tax-deed market in the US — we go deeper on a use case Acres doesn't build for at all: courthouse auction tracking + zoning-informed deal scoring in one place."
 
 #### "Acres is backed by $60M+ and has CBRE as a customer."
-> "That capital and those logos are real, and it's AcreTrader's balance sheet behind Acres, not a bootstrap operation. We're not claiming to out-fund them. We're claiming a narrower, sharper edge: 10+ years of Ariel's own FL foreclosure investing translated directly into the product, and zero invented data — every auction count is DB-verified, not AI-summarized."
+> "Those enterprise logos are real. Acres was originally an AcreTrader product, but AcreTrader itself was sold to Proterra in August 2025 — Acres.com now runs independently, and its current funding isn't public. We're not claiming to out-fund them either way. We're claiming a narrower, sharper edge: 10+ years of Ariel's own FL foreclosure investing translated directly into the product, and zero invented data — every auction count is DB-verified, not AI-summarized."
 
 ### 6.5 Win/Loss Decision Tree
 
@@ -340,11 +341,12 @@ Prospect asks about land/zoning data
 | Mobile app | ❌ None | ✅ iOS + Android live | Acres |
 | Enterprise reference customers | ⚠️ Not publicly comparable this session | ✅ CBRE, Lennar, PGIM, Century Communities | Acres |
 | Public pricing transparency | ✅ | ❌ UNKNOWN — tier names only, no $ found | **ZoneWise** |
-| Funding | $0 external | $60M+ (parent AcreTrader) | Acres |
+| Funding | $0 external | UNKNOWN current — $60M+ historical (now-divested AcreTrader entity, pre-Aug-2025) | Unclear — not a like-for-like comparison |
 | Data verification discipline | ✅ NEVER-LIE, DB-verified | ⚠️ Site shows internal 12K/13K layer-count inconsistency | **ZoneWise** |
 
 **ZoneWise/BidDeed.AI wins:** 4 features (FL zoning depth, auction calendar, ARV bid math, pricing transparency/data discipline)
-**Acres wins:** 7 features (breadth, AI agent, valuation reports, collaboration, mobile, customer logos, funding)
+**Acres wins:** 6 features (breadth, AI agent, valuation reports, collaboration, mobile, customer logos)
+**Unclear/not a like-for-like comparison:** 1 (funding — Acres.com's current capital structure is UNKNOWN post-divestiture from AcreTrader)
 **Read:** Acres is a stronger *general* product with vastly more resources. ZoneWise/BidDeed.AI's win path is narrow and specific (FL + foreclosure), not broad.
 
 ### 6.7 Elevator Pitch (30 seconds)
@@ -362,7 +364,7 @@ Prospect asks about land/zoning data
 | Acres announces any foreclosure/tax-deed/auction feature | Immediate escalation — this is the one move that turns Acres from "adjacent, high-resource" into "direct existential threat" to BidDeed.AI |
 | Acres publishes public pricing | Re-run this dossier's §3.3 with real numbers |
 | Acres' 12K vs 13K layer-count inconsistency gets fixed | Minor — re-verify current live numbers before quoting in future sales conversations |
-| Acres raises a dedicated round for Acres.com (separate from AcreTrader) | Signals independent scaling ambitions — re-assess funding delta |
+| Acres.com discloses its own post-divestiture funding/ownership structure | Currently UNKNOWN — re-assess funding delta once real numbers exist |
 | ZoneWise expands past Brevard/Orange/Duval | Narrows the "FL depth" gap that's currently the core differentiator vs. Acres' breadth |
 
 ### 7.2 Recommendation
@@ -412,10 +414,12 @@ Raw output files (page.md, page.html, screenshot.png, reproduction.html, run_rep
 | Acres Intelligence launch | https://www.globenewswire.com/news-release/2026/05/08/3291039/0/en/acres-com-launches-acres-intelligence-the-first-ai-agent-built-for-land-teams.html | VERIFIED |
 | Native AI search + zoning intelligence launch | https://www.globenewswire.com/news-release/2026/02/16/3238680/0/en/Acres-com-Launches-Native-AI-Search-and-Zoning-Intelligence-Transforming-How-Teams-Discover-and-Evaluate-Land.html | VERIFIED |
 | 2026 HousingWire Tech100 win | https://www.globenewswire.com/news-release/2026/02/02/3230677/0/en/Acres-com-Named-a-2026-HousingWire-Tech100-Winner-for-Transforming-Land-Intelligence-in-Homebuilding-and-Real-Estate.html | VERIFIED |
-| AcreTrader launches Acres (parent-company relationship) | https://acretrader.com/newsroom/acretrader-launches-acres-geospatial-analytics-platform-providing-comprehensive-insights-land-value | VERIFIED |
-| AcreTrader Series B $40M | https://www.businesswire.com/news/home/20220111005413/en/AcreTrader-Raises-%2440-Million-in-Series-B-Funding-to-Fuel-Strategic-Growth | VERIFIED |
-| AcreTrader Series B expanded to $60M+ | https://acretrader.com/newsroom/acretrader-expands-series-b-round-over-60-million | VERIFIED |
-| Acres.com ~100 employees | https://www.arkansasonline.com/news/2025/dec/14/fayetteville-company-using-artificial/ | VERIFIED (secondary/journalistic source) |
+| AcreTrader launches Acres (original, now-superseded parent-company relationship) | https://acretrader.com/newsroom/acretrader-launches-acres-geospatial-analytics-platform-providing-comprehensive-insights-land-value | VERIFIED (historical) |
+| **Proterra acquires AcreTrader FROM Acres.com — ownership correction, 2025-08-12** | https://www.prnewswire.com/news-releases/proterra-acquires-farmland-investment-platform-acretrader-from-acrescom-transaction-accelerates-opportunities-for-both-investors-and-farmers-302526006.html | **VERIFIED — supersedes the row above** |
+| AcreTrader Series B $40M (historical, pre-divestiture) | https://www.businesswire.com/news/home/20220111005413/en/AcreTrader-Raises-%2440-Million-in-Series-B-Funding-to-Fuel-Strategic-Growth | VERIFIED |
+| AcreTrader Series B expanded to $60M+ (historical, pre-divestiture) | https://acretrader.com/newsroom/acretrader-expands-series-b-round-over-60-million | VERIFIED |
+| Acres.com "over 60" employees (Aug 2025) | PR Newswire transaction release, above | VERIFIED (press release) |
+| Acres.com "close to 100" employees (Dec 2025) | https://www.arkansasonline.com/news/2025/dec/14/fayetteville-company-using-artificial/ | VERIFIED (secondary/journalistic source) |
 | pp-ci-engine repo + smoke test report | https://github.com/breverdbidder/pp-ci-engine | VERIFIED (this session, direct repo read) |
 
 ### 8.3 Claims explicitly marked UNKNOWN (not fabricated)
@@ -423,16 +427,16 @@ Raw output files (page.md, page.html, screenshot.png, reproduction.html, run_rep
 | Claim | Status |
 |---|---|
 | Exact Acres+/Pro/Enterprise dollar pricing | **UNKNOWN** — `/pricing` returned HTTP 403 to automated fetch; public search did not surface dollar figures; tier names only |
-| Whether AcreTrader's $60M+ raise was specifically earmarked for Acres.com vs. AcreTrader's core farmland-investing business | **UNKNOWN** — funding is disclosed at the AcreTrader corporate level, not broken out by product |
+| Acres.com's current, independent capital structure / funding / ownership post-Aug-2025 divestiture | **UNKNOWN** — the pre-divestiture AcreTrader funding history is retained as historical context only, not as Acres.com's current backing |
 | Total Acres.com customer count beyond the 6 logos + 3 testimonials scraped live | **UNKNOWN** |
-| Acres.com product-launch date (as distinct from AcreTrader's 2018 founding) | **UNKNOWN** — not confirmed this session |
+| Acres.com product-launch/incorporation date (as distinct from the AcreTrader entity's 2018 founding) | **UNKNOWN** — not confirmed this session |
 | Which LLM vendor powers Acres Intelligence in production | **UNKNOWN** — not disclosed publicly; not assumed to be Gemini/OpenAI/Claude |
 
 ### 8.4 HONESTY PROTOCOL tags applied throughout
 
-- **VERIFIED:** Legal entity name, parent-company relationship, HQ, founder, live scrape stats (parcels/sources/layers/transactions), enterprise customer logos, testimonials, AI-launch dates, Tech100 award, AcreTrader funding history, CI-engine run results (both VERIFIED and BLOCKED outcomes)
-- **INFERRED:** Acres.com product-launch date relative to AcreTrader's founding
-- **UNKNOWN:** Exact pricing, Acres-specific (vs. AcreTrader-level) funding allocation, full customer count, production LLM vendor
+- **VERIFIED:** Legal entity name, current independent-ownership status (and the Aug 2025 Proterra/AcreTrader divestiture that produced it), HQ, founder, live scrape stats (parcels/sources/layers/transactions), enterprise customer logos, testimonials, AI-launch dates, Tech100 award, historical AcreTrader funding (as historical, not current), CI-engine run results (both VERIFIED and BLOCKED outcomes)
+- **INFERRED:** Acres.com product-launch date relative to the AcreTrader entity's founding
+- **UNKNOWN:** Exact pricing, Acres.com's current post-divestiture funding/ownership, full customer count, production LLM vendor
 
 ---
 

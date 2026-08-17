@@ -4,7 +4,9 @@
 competitor_slug: acres
 display_name: Acres.com
 legal_entity: "AcreMaps, LLC dba Acres"  # VERIFIED — footer disclaimer, scraped live 2026-08-17
-parent_company: AcreTrader  # VERIFIED — Acres.com is AcreTrader's geospatial analytics product
+parent_company: null  # CORRECTED — originally AcreTrader, but Proterra Investment Partners acquired
+  # AcreTrader FROM Acres.com on 2025-08-12 (PR Newswire). Acres.com is independent as of that
+  # date; current ownership/funding structure is UNKNOWN. See ACRES-CI-REPORT.md §0.3.
 domain: acres.com
 category: nationwide-land-zoning-intelligence
 threat_level: high  # to ZoneWise (direct nationwide overlap on zoning data). LOW to BidDeed.AI (zero auction/foreclosure overlap).
