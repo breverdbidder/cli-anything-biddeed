@@ -3537,7 +3537,10 @@ function buildCard(a){
         '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
         '<div class="btn-locked" onclick="showUpgradePrompt(\\'maps\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
-        (a.po_url?('<a class="btn-po" href="'+esc(a.po_url)+'" target="_blank" rel="noopener">PropertyOnion details ↗</a>'):'')+'</div>';
+        (''/* outbound competitor link removed Aug 17 2026 (Ariel, standing rule): that
+       vendor is never named on our sites, and we were sending our own paying
+       traffic straight to them from the property card. po_url stays on the
+       record as an internal parity field; it is simply not rendered. */)+'</div>';
   if(a.appraiser_url){
     html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">'+
           '<a href="'+esc(a.appraiser_url)+'" target="_blank" rel="noopener" onclick="trackOutbound(\\'appraiser\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')" style="font-size:12px;color:#64748b;text-decoration:none;">📋 Property Appraiser Record ↗</a>'+
