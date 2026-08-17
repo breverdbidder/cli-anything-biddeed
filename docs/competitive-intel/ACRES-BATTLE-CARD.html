@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZoneWise / BidDeed.AI vs Acres.com — Battle Card</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#1E3A5F;--orange:#F59E0B;--slate:#0F172A;
+  --green:#22C55E;--red:#EF4444;--text:#E2E8F0;
+  --muted:#94A3B8;--border:#1E3A5F;--card:#0F172A;--void:#020617;
+}
+body{background:var(--void);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.6}
+a{color:var(--orange);text-decoration:none}
+h1,h2,h3{font-weight:700;letter-spacing:-.02em}
+.container{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+.header{text-align:center;padding:32px 0 24px;border-bottom:1px solid var(--border)}
+.header h1{font-size:1.9rem;color:white}
+.header h1 span{color:var(--orange)}
+.header .subtitle{color:var(--muted);margin-top:8px;font-size:.95rem}
+.header .updated{color:var(--muted);font-size:.8rem;margin-top:4px}
+.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:10px}
+.badge-high{background:#7F1D1D;color:var(--red)}
+.badge-low{background:#166534;color:var(--green)}
+
+section{margin-top:32px}
+section h2{font-size:1.15rem;color:white;border-left:4px solid var(--orange);padding-left:10px;margin-bottom:14px}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.two-col{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}
+.card h3{font-size:.95rem;color:var(--orange);margin-bottom:10px}
+.card ul{list-style:none}
+.card li{padding:4px 0 4px 18px;position:relative;font-size:.85rem;color:var(--text)}
+.win li::before{content:"✅";position:absolute;left:0;font-size:.72rem}
+.lose li::before{content:"❌";position:absolute;left:0;font-size:.72rem}
+
+.pitch{background:var(--navy);border:1px solid var(--orange);border-radius:10px;padding:18px;font-size:.9rem;color:#F1F5F9;font-style:italic}
+
+.table-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th{background:var(--navy);padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid #1E293B;vertical-align:middle;font-size:.82rem}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#111827}
+.winner-zw{color:var(--green);font-weight:700}
+.winner-ac{color:#A78BFA;font-weight:700}
+.winner-bd{color:var(--orange);font-weight:700}
+
+.score-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px}
+.score-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center}
+.score-card .val{font-size:2rem;font-weight:800;line-height:1}
+.score-card .lbl{color:var(--muted);font-size:.72rem;margin-top:6px;text-transform:uppercase;letter-spacing:.06em}
+.score-card.zw .val{color:var(--green)}
+.score-card.ac .val{color:#A78BFA}
+.score-card.gap .val{color:var(--red)}
+
+.obj{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+.obj .q{color:var(--muted);font-size:.8rem;font-style:italic;margin-bottom:6px}
+.obj .a{font-size:.85rem;color:var(--text)}
+
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:14px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+.stat .n{font-size:1.5rem;font-weight:800;color:var(--orange)}
+.stat .l{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
+
+.unknown{background:#3F2D0B;border:1px solid var(--orange);border-radius:6px;padding:2px 8px;font-size:.7rem;color:var(--orange);font-weight:700}
+.footer{text-align:center;color:var(--muted);font-size:.75rem;margin-top:40px;padding-top:20px;border-top:1px solid var(--border)}
+
+@media print{
+  body{background:white;color:black}
+  .container{max-width:100%}
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>ZoneWise / BidDeed.AI <span>vs</span> Acres.com</h1>
+    <div class="subtitle">Battle Card — nationwide land intelligence vs. Florida foreclosure &amp; zoning depth</div>
+    <div class="updated">Live-scraped 2026-08-17 · pp-ci-engine CI v6.5 · legal entity: AcreMaps, LLC dba Acres</div>
+    <span class="badge badge-high">Threat to ZoneWise: HIGH</span>
+    &nbsp;
+    <span class="badge badge-low">Threat to BidDeed.AI: LOW</span>
+  </div>
+
+  <section>
+    <h2>Acres.com — verified scale (live scrape)</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="n">150M+</div><div class="l">Parcel Records</div></div>
+      <div class="stat"><div class="n">1,000+</div><div class="l">Data Sources</div></div>
+      <div class="stat"><div class="n">12–13K+</div><div class="l">Data/Map Layers*</div></div>
+      <div class="stat"><div class="n">45M+</div><div class="l">Land Transactions</div></div>
+      <div class="stat"><div class="n">30,000+</div><div class="l">Zoning Jurisdictions</div></div>
+      <div class="stat"><div class="n">$60M+</div><div class="l">Parent (AcreTrader) Raised</div></div>
+    </div>
+    <p style="color:var(--muted);font-size:.75rem;margin-top:10px">*Two live Acres.com pages show two different numbers under two labels — homepage says "12,000+ Map Layers," /data page says "13,000+ Data Layers." Real site inconsistency, not our error.</p>
+  </section>
+
+  <section>
+    <h2>One-line positioning</h2>
+    <div class="pitch">
+      "ZoneWise + BidDeed.AI: the only platform combining deep Florida zoning intelligence with real foreclosure/tax-deed auction deal-scoring.<br><br>
+      Acres.com: the best nationwide land-data + AI-research platform available — for land acquisition and development, not auction-day foreclosure bidding."
+    </div>
+  </section>
+
+  <section>
+    <h2>When you win / lose</h2>
+    <div class="two-col">
+      <div class="card win">
+        <h3>✅ You win when the prospect needs</h3>
+        <ul>
+          <li>FL foreclosure/tax-deed auction calendars — Acres has zero</li>
+          <li>ARV-based BID/REVIEW/SKIP deal scoring — Acres has zero</li>
+          <li>Raw, queryable FL zone codes/standards/uses, not AI summaries</li>
+          <li>A founder-operator's FL-specific domain judgment</li>
+          <li>A lower-cost tool scoped to FL, not a nationwide enterprise platform</li>
+        </ul>
+      </div>
+      <div class="card lose">
+        <h3>❌ You lose when the prospect needs</h3>
+        <ul>
+          <li>Nationwide coverage (150M+ parcels, 30,000+ jurisdictions)</li>
+          <li>A natural-language AI research agent (Acres Intelligence)</li>
+          <li>Enterprise portfolio collaboration (tagging, comments, shared maps)</li>
+          <li>A mobile app (Acres has iOS + Android live)</li>
+          <li>Land valuation / comp reports for non-foreclosure acquisitions</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Feature comparison matrix</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Feature</th><th>ZoneWise / BidDeed.AI</th><th>Acres.com</th><th>Winner</th></tr></thead>
+        <tbody>
+          <tr><td>Parcel-level zoning depth (FL)</td><td>✅ Raw zone codes/standards/uses</td><td>✅ AI-summarized, nationwide-spread</td><td class="winner-zw">ZoneWise</td></tr>
+          <tr><td>Nationwide coverage</td><td>❌ FL only</td><td>✅ 150M+ parcels / 30,000+ jurisdictions</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Natural-language AI research agent</td><td>❌ None</td><td>✅ Acres Intelligence (May 2026)</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Foreclosure/tax-deed auction calendar</td><td>✅ 245K+ auctions tracked</td><td>❌ None found</td><td class="winner-bd">BidDeed.AI</td></tr>
+          <tr><td>ARV × 70% max-bid deal scoring</td><td>✅ Core product</td><td>❌ None</td><td class="winner-bd">BidDeed.AI</td></tr>
+          <tr><td>Land valuation / comp reports</td><td>❌ Not the product</td><td>✅ "Value Land" feature</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Portfolio collaboration tools</td><td>❌ None</td><td>✅ Tagging, commenting, shared maps</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Mobile app</td><td>❌ None</td><td>✅ iOS + Android live</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Enterprise reference customers</td><td>⚠️ Not publicly comparable</td><td>✅ CBRE, Lennar, PGIM, Century Communities</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Public pricing transparency</td><td>✅</td><td><span class="unknown">UNKNOWN</span> tier names only, no $</td><td class="winner-zw">ZoneWise</td></tr>
+          <tr><td>Funding</td><td>$0 external</td><td>$60M+ (parent AcreTrader)</td><td class="winner-ac">Acres</td></tr>
+          <tr><td>Data verification discipline</td><td>✅ NEVER-LIE, DB-verified</td><td>⚠️ Internal 12K/13K layer-count inconsistency</td><td class="winner-zw">ZoneWise</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="score-grid">
+      <div class="score-card zw"><div class="val">4</div><div class="lbl">ZoneWise / BidDeed.AI wins</div></div>
+      <div class="score-card ac"><div class="val">7</div><div class="lbl">Acres wins</div></div>
+      <div class="score-card gap"><div class="val">FL only</div><div class="lbl">vs. nationwide breadth gap</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Objection handling</h2>
+    <div class="obj"><div class="q">"We're already evaluating Acres.com."</div><div class="a">Acres is a strong nationwide choice — one of the best-funded, best-reviewed platforms in that category. Ask directly: do they have a FL tax-deed/foreclosure auction calendar or ARV-based bid math? They don't — it's not their product.</div></div>
+    <div class="obj"><div class="q">"Acres has an AI agent, you don't."</div><div class="a">True, and a real gap we're tracking. Acres Intelligence answers acquisition/feasibility questions — it doesn't compute a BID/REVIEW/SKIP recommendation against a real courthouse auction calendar. Different job.</div></div>
+    <div class="obj"><div class="q">"Acres covers the whole country, you're FL-only."</div><div class="a">True, and if you need 50-state coverage, Acres wins outright. For FL specifically — the most active foreclosure/tax-deed market in the US — we go deeper on a use case Acres doesn't build for at all.</div></div>
+    <div class="obj"><div class="q">"Acres is backed by $60M+ and has CBRE as a customer."</div><div class="a">Real, and it's AcreTrader's balance sheet behind Acres, not a bootstrap operation. We're not claiming to out-fund them — we're claiming a narrower, sharper edge: 10+ years of FL foreclosure investing built directly into the product, zero invented data.</div></div>
+  </section>
+
+  <section>
+    <h2>Threat monitoring triggers</h2>
+    <div class="card">
+      <ul style="list-style:disc;padding-left:18px">
+        <li style="padding-left:0">Acres announces any foreclosure/tax-deed/auction feature → <b>immediate escalation</b>, this is the one move that turns Acres into an existential threat to BidDeed.AI</li>
+        <li style="padding-left:0">Acres publishes public pricing → re-run §3.3 of the full dossier with real numbers</li>
+        <li style="padding-left:0">Acres raises a dedicated Acres.com-specific round → reassess funding delta</li>
+        <li style="padding-left:0">ZoneWise expands past Brevard/Orange/Duval → narrows the FL-depth differentiator this battle card relies on</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="footer">
+    Full dossier: <code>docs/competitive-intel/ACRES-CI-REPORT.md</code> · Config: <code>config/ci-dossiers/acres.yaml</code><br>
+    Sources and CI-engine run evidence in dossier §8. All UNKNOWN items marked explicitly — none fabricated.
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Acres.com — CI Dossier Config
+# Requested by Ariel 2026-08-17 (headless dispatch). No prior SUMMIT # exists for this dossier.
+
+competitor_slug: acres
+display_name: Acres.com
+legal_entity: "AcreMaps, LLC dba Acres"  # VERIFIED — footer disclaimer, scraped live 2026-08-17
+parent_company: AcreTrader  # VERIFIED — Acres.com is AcreTrader's geospatial analytics product
+domain: acres.com
+category: nationwide-land-zoning-intelligence
+threat_level: high  # to ZoneWise (direct nationwide overlap on zoning data). LOW to BidDeed.AI (zero auction/foreclosure overlap).
+
+pre_recon_assumption: |
+  Nationwide land/parcel data platform with recently-added AI zoning search.
+  150M+ US parcels claimed. No foreclosure or tax-deed auction intelligence
+  known. Enterprise/contact-sales pricing model suspected (no public price
+  list found in initial pass).
+pre_recon_corrections: null
+
+recon_objectives:
+  - Run pp-ci-engine (CI v6.5) against acres.com, landvalues.acres.com, acres.com/data
+  - Confirm real parcel/data-layer counts from live site, not press releases alone
+  - Confirm legal entity name and parent-company relationship (AcreTrader)
+  - Confirm presence/absence of foreclosure, tax-deed, or auction features
+  - Confirm public pricing status (numbers vs. contact-sales gate)
+
+extra_recon_depth: false
