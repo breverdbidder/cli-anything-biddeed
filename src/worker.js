@@ -4508,11 +4508,14 @@ const COUNTY_PAGE_TEMPLATE = `<!doctype html>
 <title>BidDeed.AI · COUNTY_TITLE Auctions</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#020617">
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js"></script>
+<script>window.__bdAssetFail=[];window.__bdFail=function(e){try{window.__bdAssetFail.push(String(e&&e.message||e));var f=document.getElementById('bd-fallback');if(f){f.style.display='block';}var s=document.getElementById('bd-app');if(s){s.style.display='none';}}catch(_){}}</script>
+<script src="https://cdn.tailwindcss.com" onerror="window.__bdFail('tailwind-cdn')"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" onerror="window.__bdFail('papaparse-cdn')"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" onerror="window.__bdFail('alpine-cdn')"></script>
+<script>setTimeout(function(){if(!window.Alpine){window.__bdFail('alpine-boot-timeout');}},4000);</script>
 <style>
 :root { --safe-bottom: env(safe-area-inset-bottom,0px); --safe-top: env(safe-area-inset-top,0px); }
+html { background:#020617; color:#e2e8f0; }
 body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:#020617; color:#e2e8f0; -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
 .glass { background:rgba(30,41,59,0.55); backdrop-filter:blur(10px); border:1px solid rgba(245,158,11,0.12); }
 .glass-diamond { background:linear-gradient(135deg,rgba(56,189,248,0.12),rgba(168,85,247,0.12)); backdrop-filter:blur(10px); border:1px solid rgba(168,85,247,0.35); }
@@ -4556,7 +4559,18 @@ input, select { font-size:16px; min-height:48px; }
 input[type=range] { accent-color:#f59e0b; }
 </style>
 </head>
-<body x-data="app()" x-init="init()" x-cloak class="min-h-screen pb-24">
+<body x-data="app()" x-init="init()" class="min-h-screen pb-24">
+<noscript><div style="padding:20px;max-width:760px;margin:0 auto;color:#e2e8f0">
+<h1 style="color:#fcd34d;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h1>
+<p style="color:#94a3b8;font-size:15px;line-height:1.6">Upcoming Clerk of Court auctions in COUNTY_TITLE_PLACEHOLDER County. This page needs JavaScript for the interactive table. The full auction list is available as data at
+<a style="color:#fcd34d" href="/county/COUNTY_SLUG_PLACEHOLDER/lots">/county/COUNTY_SLUG_PLACEHOLDER/lots</a>.</p>
+<p style="font-size:15px"><a style="color:#fcd34d" href="/counties">Browse all 67 Florida counties</a> &middot; <a style="color:#fcd34d" href="/buy-report">Get a Shapira Bid Card</a></p>
+</div></noscript>
+<div id="bd-fallback" style="display:none;padding:20px;max-width:760px;margin:0 auto;color:#e2e8f0">
+<h1 style="color:#fcd34d;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h1>
+<p style="color:#94a3b8;font-size:15px;line-height:1.6">The interactive auction table did not load. Your connection may have blocked one of our assets.</p>
+<p style="font-size:15px"><a style="color:#fcd34d" href="">Retry</a> &middot; <a style="color:#fcd34d" href="/county/COUNTY_SLUG_PLACEHOLDER/lots">View the raw auction data</a> &middot; <a style="color:#fcd34d" href="/counties">All 67 counties</a> &middot; <a style="color:#fcd34d" href="/buy-report">Get a Shapira Bid Card</a></p>
+</div>
 
 <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-amber-500/20" style="padding-top:var(--safe-top)">
   <div class="px-4 py-3 flex items-center justify-between gap-3">
@@ -5009,6 +5023,9 @@ function app() {
     ],
 
     init() {
+      try { this.__init(); } catch (e) { window.__bdFail && window.__bdFail(e); }
+    },
+    __init() {
       const today = new Date().toISOString().slice(0,10);
       const cutoff = new Date(Date.now()+35*24*60*60*1000).toISOString().slice(0,10);
       fetch('/county/'+COUNTY_SLUG+'/lots')
