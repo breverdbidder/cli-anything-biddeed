@@ -34,17 +34,22 @@ SLEEP_BETWEEN = 2.0  # politeness delay between FeatureServer requests (was 0.25
                       # aggressive for current server load, was triggering cascading
                       # retry/split storms that cost far more time than they saved)
 
-# co_no -> name, smallest first so failures surface early/cheap
-# NOTE: Lafayette (44) was missing from this list until 2026-08-16 -- it had been
-# corrupted by the SRID bug (see git history) but the --all sweep never reached it,
-# so it silently sat at a correctly-NULLed-but-unrepaired 0% between sessions.
+# co_no -> name, smallest-missing-count first so failures surface early/cheap.
+# Re-derived live 2026-08-18 from issue #19307 dispatch (SUMMIT ZoneWise GIS 100%
+# mission continuation): the counties from earlier sessions (Jackson, Calhoun,
+# Jefferson, Dixie, DeSoto, Columbia, Lafayette, Washington, Clay, Polk, Pinellas)
+# already cleared the 99% bar and were dropped from this list. Remaining 14
+# counties below target_pct=99.0, ordered by missing-pin count ascending:
+# Walton 6,690 / Pasco 10,990 / Putnam 41,478 / Sarasota 46,195 / Lake 51,237 /
+# Santa Rosa 74,400 / Leon 112,817 / Citrus 147,281 / Charlotte 221,123 /
+# Osceola 206,867 / Collier 290,989 / Orange 259,144 / Palm Beach 406,069 /
+# Broward 526,837 (~2.39M pins total -- will not fully complete in one session,
+# see mission doc's 7h dispatch cadence for continuation).
 TARGET_COUNTIES = [
-    (42, "Jackson"), (17, "Calhoun"), (43, "Jefferson"), (25, "Dixie"),
-    (24, "DeSoto"), (22, "Columbia"), (44, "Lafayette"), (77, "Washington"),
-    (20, "Clay"), (67, "Santa Rosa"), (47, "Leon"), (64, "Putnam"), (76, "Walton"),
-    (61, "Pasco"), (68, "Sarasota"), (19, "Citrus"), (59, "Osceola"),
-    (45, "Lake"), (18, "Charlotte"), (58, "Orange"), (21, "Collier"),
-    (63, "Polk"), (62, "Pinellas"), (60, "Palm Beach"), (16, "Broward"),
+    (76, "Walton"), (61, "Pasco"), (64, "Putnam"), (68, "Sarasota"), (45, "Lake"),
+    (67, "Santa Rosa"), (47, "Leon"), (19, "Citrus"), (18, "Charlotte"),
+    (59, "Osceola"), (21, "Collier"), (58, "Orange"), (60, "Palm Beach"),
+    (16, "Broward"),
 ]
 
 
