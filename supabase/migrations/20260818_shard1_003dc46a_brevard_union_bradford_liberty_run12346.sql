@@ -1,0 +1,186 @@
+-- Gold Standard shard-1, dispatch 003dc46a-fe4f-4905-ab5d-cbcfffd2e778,
+-- counties=brevard/bradford/liberty/union. Date: 2026-08-18 (loop run 12346).
+-- ULTRALOOP native mode (Workflow-tool 2-agent fan-out + adversarial refuter
+-- pass on each candidate, both verdicts SURVIVED).
+--
+-- RESULT: union B and F flip FAIL -> PASS (real fix, verified). brevard I
+-- reconfirmed as a genuine data ceiling (BLANK > WRONG, zero fabrication).
+-- bradford and liberty B/F/A intentionally NOT re-chased this session (see
+-- below) -- unchanged from session start.
+--
+-- LIVE STATE BEFORE (pencil_dod_evaluate_county, fresh calls at session start):
+--   brevard  9/10 (I FAIL card_complete=6202 of 7252 = 85.5%%)
+--   bradford 8/10 (B FAIL verified=0/closed_sold=0 | F FAIL tier1_sold=0/closed_sold=0)
+--   liberty  7/10 (A FAIL fc=1/td=0 | B FAIL | F FAIL)
+--   union    6/10 (B FAIL | C FAIL matched_clean=2/3=66.7%% | D FAIL matched_any=2/3=66.7%%
+--                  | F FAIL)
+--
+-- LIVE STATE AFTER (fresh calls, session end):
+--   brevard  9/10 (I unchanged -- ceiling, see below)
+--   bradford 8/10 (unchanged -- see below)
+--   liberty  7/10 (unchanged -- see below)
+--   union    8/10 (B PASS verified=1/closed_sold=1=100.0%% | F PASS tier1_sold=1/
+--                  closed_sold=1=100.0%% | C/D still FAIL, see below)
+--
+-- =====================================================================
+-- UNION B/F FIX (case UNION-TD-CERT223, tax deed cert #223, parcel
+-- 32-05-20-22-018-0022-0) -- scripts/union_bf_cert223_duprocess_deed_resolution.py
+-- =====================================================================
+-- The 2026-07-10 session (scripts/shard10_run3645_union_b_cert223.py) had
+-- exhausted unionclerk.com/tax-deed-sales (stale "scheduled" listing),
+-- the Lands-Available-for-Taxes list (absence only proves NOT unsold, not
+-- which of sold/redeemed), unionclerk.com/announcements, and confirmed
+-- civitekflorida.com/ocrs/county/63 is Person/Case-Search ONLY with no
+-- deed/O.R. index. A 2026-08-08 session then wrote tax_deed_outcomes.
+-- outcome='redeemed' as an INFERENCE from the LAFT absence alone (no
+-- dollar figure, no grantee) -- directionally reasonable but wrong on
+-- which outcome, and re-confirmed as "survived" by a daily adversarial
+-- refuter (gold_standard_ultraloop_audit) every day 2026-06-25 through
+-- 2026-08-17 because none of those ~50 sessions tried a genuinely
+-- different source.
+--
+-- THIS SESSION found a real, previously-untried Official-Records/deed
+-- portal distinct from both unionclerk.com (Cloudflare 403) and civitek
+-- OCRS: recording.unionclerk.com/DuProcessWebInquiry/ (DuProcess /
+-- courtalliance.com vendor). Located via WebSearch, only reachable via a
+-- real Playwright browser session (curl/WebFetch both 403). An Inst
+-- Type=Deed search surfaced Inst #20260000665 (Book 482 / Page 647,
+-- recorded 2026-03-13), whose Description field is an exact match to
+-- parcel 32-05-20-22-018-0022-0. The actual recorded PDF (scanned image,
+-- 122,501 bytes) was downloaded via the browser's authenticated session
+-- and read directly (rendered to PNG, OCR-by-eye -- pypdf text extraction
+-- only recovers the "Un-Official" watermark on this document, not the
+-- body). The deed face reads, verbatim:
+--   "Tax Deed File No. 63-2025-TD-0002. Property Identification No.
+--    32-05-20-22-018-0022-0. ... Tax Sale Certificate numbered 223 issued
+--    MAY 30, 2018 ... sold to J. R. Davis Acquisitions, LLC ... in
+--    consideration of the sum of THREE THOUSAND SEVEN HUNDRED & 00/100
+--    ($3,700.00) ..."
+-- This is a genuine SALE, not a redemption -- correcting the 08-08
+-- inference. Grantee "J. R. Davis Acquisitions, LLC" is consistent with
+-- the pre-existing cert_holder "J. R. Davis Trust" on this row, and no
+-- other Union County deed recorded in the window references this parcel
+-- or cert number.
+--
+-- WRITES (idempotent, scoped to case_number=UNION-TD-CERT223):
+--   1. UPDATE tax_deed_outcomes SET outcome='sold' (was 'redeemed'),
+--      winning_bid=3700.00, winner_name='J. R. Davis Acquisitions, LLC',
+--      winner_type='cert_holder_entity',
+--      data_source='union_clerk_official_records:recording.unionclerk.com/
+--      DuProcessWebInquiry/Inst-20260000665',
+--      source_url set to the instrument-details page
+--      WHERE id='a965b45d-2711-4ab9-99a9-ed35d87bbde4';
+--   2. public.promote_tier1_from_outcomes() called live -> promoted:1 ->
+--      multi_county_auctions row now carries sold_amount=3700.00,
+--      tier1_sold_amount, winning_bidder='J. R. Davis Acquisitions, LLC',
+--      auction_status='sold'.
+--   3. gold_standard_ultraloop_audit rows logged for county=union,
+--      letters B and F, survived=true (adversarial refuter independently
+--      re-derived the portal, re-downloaded and re-read the same PDF, and
+--      re-ran pencil_dod_evaluate_county live -- verdict SURVIVED both
+--      times, see workflow transcript wf_9d23ce84-dbd for full evidence).
+--
+-- ADDITIONALLY CHECKED (report-only, no write): case 63-2025-CA-0053
+-- (parity_status='PHANTOM_NOT_ON_CLERK', flagged by a 2026-08-13 session
+-- as a reverted/unverified bctelegraph claim) was freshly re-checked
+-- against unionclerk.com's live "Upcoming Foreclosure Sales" listing
+-- (only 63-2024-CA-0047 present) and a DuProcess legal-description search
+-- for "2025-CA-0053" (0 results). Its auction_date (2026-08-13) has
+-- passed with no re-listing anywhere. This CONFIRMS, does not refute, the
+-- existing PHANTOM_NOT_ON_CLERK classification -- union C/D (66.7%%,
+-- 2 of 3 matched) remains a genuine structural ceiling on the current
+-- 3-row denominator, not a bug. No DB change made to this row.
+--
+-- =====================================================================
+-- BREVARD I -- 51-ROW (49 distinct TaxAcct) NO-GIS-FEATURE BUCKET
+-- =====================================================================
+-- scripts/brevard_i_card_complete_shard1_3ce988ac.py (pre-existing,
+-- re-run fresh this session) confirmed its own documented dominant
+-- bucket is exhausted: of 980 numeric-parcel rows missing
+-- property_address, 929 are genuinely vacant land with STREET_NAME=
+-- 'UNKNOWN' in Brevard's own live GIS (fabrication guard correctly
+-- refuses to write a fake address -- 0 applied, matches the prior
+-- session's own finding exactly).
+--
+-- This session targeted the narrower, previously-unexamined remainder:
+-- 49 distinct TaxAccts (51 case_number rows) that return ZERO features
+-- from Brevard's live parcel layer entirely (not "found but vacant" --
+-- genuinely absent from that layer). Two fallback sources were
+-- attempted and both are confirmed structurally unavailable, not merely
+-- untried:
+--   (a) FL GIO statewide cadastral: the only indexed/queryable field is
+--       PARCEL_ID (Brevard's own formatted parcel string, e.g.
+--       "24 3620-BV-*-108"), which is not available for these 49
+--       TaxAccts. ALT_KEY (which does hold the raw TaxAcct as a string)
+--       is confirmed NOT queryable -- even a single-value
+--       where=ALT_KEY='2001605' returns HTTP 400 "Cannot perform query.
+--       Invalid query parameters." -- matching the repo's own prior
+--       finding in scripts/backfill_geom_fdor.py that only OBJECTID/
+--       PARCEL_ID/Shape are indexed on this FeatureServer.
+--   (b) BCPAO (bcpao.us): Cloudflare-gated to both curl and WebFetch
+--       (HTTP 403, "Just a moment..." challenge), consistent with 8+
+--       other scripts in this repo. The one proven workaround
+--       (scripts/bcpao_bridge.py, Firecrawl residential-rendering proxy)
+--       is confirmed out of credits for the current billing period:
+--       GET api.firecrawl.dev/v1/team/credit-usage ->
+--       remaining_credits=-15 of plan_credits=1000, billing period
+--       2026-07-28 to 2026-08-28 (same account-level exhaustion the
+--       madison session, migration
+--       20260818_shard5_madison_run12346_firecrawl_exhaustion_
+--       reconfirmed_blocked.sql, independently hit today).
+--
+-- Zero rows patched (matches HONESTY PROTOCOL BLANK > WRONG -- no
+-- fabricated addresses written). pencil_dod_evaluate_county('brevard')
+-- I metric unchanged: card_complete=6202 of 7252 (85.5%%) before and
+-- after. Adversarial refuter independently re-derived every figure
+-- (981/980/841 baseline counts, the ALT_KEY 400 error, a live
+-- methodology CONTROL TaxAcct 2002497 that DOES return a feature via the
+-- identical query pattern, the Cloudflare 403, and the exact Firecrawl
+-- credit-usage response) and reproduced them exactly -- verdict SURVIVED.
+--
+-- The 49 TaxAccts (case_number/TaxAcct pairs) are logged in the
+-- workflow transcript (run wf_9d23ce84-dbd) and in
+-- scripts/brevard_i_card_complete_shard1_3ce988ac.py's own re-run output
+-- for the next session: recommend either (1) waiting for the Firecrawl
+-- credit reset (2026-08-28) and re-running the BCPAO fallback on exactly
+-- these 51 case_numbers, or (2) sourcing Brevard Tax Collector's
+-- delinquent-tax-roll / TaxSmartWeb export as a third fallback (proven
+-- pattern for Okeechobee per the gold-standard-shard8-okeechobee skill),
+-- not yet attempted for Brevard.
+--
+-- =====================================================================
+-- BRADFORD (8/10) AND LIBERTY (7/10) -- INTENTIONALLY NOT RE-CHASED
+-- =====================================================================
+-- Both counties' B/F/A gaps have extensive, recent, dedicated
+-- investigation history already in this repo:
+--   bradford: scripts/bradford_bf_recheck_shard1_3ce988ac.py (08-14),
+--     scripts/bradford_bf_recheck_gsd2_84b6c4bb.py (08-15 morning),
+--     scripts/bradford_bf_recheck_gsd4_41bd7ce3_10th.py (08-15, 10th
+--     dedicated B/F session) -- bradfordclerk.com is Cloudflare-403
+--     site-wide, bctelegraph.com is pre-sale-only, civitek/
+--     myfloridacounty are Turnstile-gated. The 10th session's own
+--     conclusion: the two 2026-08-13 cases (25000439CAAXMX,
+--     25000487CAAXMX) are only worth re-checking once >=7-10 days past
+--     due (~2026-08-20/23). As of this session (2026-08-18) they are 5
+--     days past -- below that threshold. Re-chasing today would
+--     duplicate the 10th session's own identical check with zero new
+--     signal, so this session did not.
+--   liberty: scripts/liberty_bf_recheck_2026-07-27.py and
+--     scripts/liberty_a_bf_recheck_gsd2_84b6c4bb.py (2026-08-15, 3 days
+--     before this session) both CONFIRMED CEILINGs with fresh live
+--     checks: A -- libertyclerk.com/courts/tax-deeds/ genuinely lists
+--     ZERO tax deed cases (5th consecutive identical check across 6
+--     weeks); B/F -- every avenue for case 24-CA-22 (Civitek OCRS,
+--     myfloridacounty ORI, Firecrawl) is Cloudflare-Turnstile-gated at
+--     the search-SUBMIT step specifically (page load is clean, POST is
+--     gated), a real, guardrail-respecting block, not an under-tried
+--     one. Re-running the identical check 3 calendar days later, with no
+--     new tooling capability and no threshold newly crossed, would not
+--     produce new information, so this session did not.
+-- Both counties are unchanged from session start; this is a deliberate,
+-- evidence-based scope decision (per Karpathy K3 surgical changes / cost
+-- discipline), not an oversight.
+--
+-- No schema change in this migration -- data-only fixes via PostgREST +
+-- RPC, documented here per repo convention for session evidence.
+SELECT 1;
