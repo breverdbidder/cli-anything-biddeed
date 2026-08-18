@@ -25,6 +25,16 @@ pages:
 
 Fail-loud invariant: if this script parses>0 rows but inserts=0, it raises.
 It never falls back to placeholder/synthetic rows.
+
+Does NOT set parity_status: this scraper only confirms a case is still
+listed, it doesn't diff against a second source. clerk-ssot-parity.yml
+(scripts/clerk_ssot/run_parity.py) owns parity_status and marks clean
+matches PARITY_OK — a prior version of this script hardcoded
+parity_status='matched_clean' on every upsert, which silently downgraded
+rows run_parity.py had already verified (PARITY_OK doesn't count as a
+weaker string than a literal 'matched_clean' with a non-tier1 source under
+pencil_dod_evaluate_county's matched_clean filter), causing letter C to
+regress on every daily run that touched an already-verified case.
 """
 import os
 import sys
@@ -131,7 +141,6 @@ def parse_taylor_sales(html: str, sale_type: str, source_url: str) -> list[dict]
             'property_address': property_address,
             'plaintiff': parties[:200] if parties else None,
             'state': 'FL',
-            'parity_status': 'matched_clean',
             'clerk_url': source_url,
             'source_url': case_pdf_url,
             'provenance': f'live_source_scrape_{date.today().isoformat()}',
@@ -213,7 +222,6 @@ def parse_taylor_tax_deeds_json(html_text: str, source_url: str) -> list[dict]:
             'parcel_id': parcel_id,
             'plaintiff': cert_holder[:200] if cert_holder else None,
             'state': 'FL',
-            'parity_status': 'matched_clean',
             'clerk_url': source_url,
             'source_url': item_link,
             'provenance': f'live_source_scrape_{date.today().isoformat()}',
