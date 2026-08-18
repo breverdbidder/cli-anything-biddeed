@@ -4508,7 +4508,7 @@ const COUNTY_PAGE_TEMPLATE = `<!doctype html>
 <title>BidDeed.AI · COUNTY_TITLE Auctions</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#020617">
-<script>window.__bdAssetFail=[];window.__bdFail=function(e){try{window.__bdAssetFail.push(String(e&&e.message||e));var f=document.getElementById('bd-fallback');if(f){f.style.display='block';}var s=document.getElementById('bd-app');if(s){s.style.display='none';}}catch(_){}}</script>
+<script>window.__bdAssetFail=[];window.__bdFail=function(e){try{window.__bdAssetFail.push(String(e&&e.message||e));var f=document.getElementById('bd-fallback');if(f){f.style.display='block';}var kids=document.body.children;for(var i=0;i<kids.length;i++){var k=kids[i];if(k.id!=='bd-fallback'&&k.tagName!=='NOSCRIPT'&&k.tagName!=='SCRIPT'){k.style.display='none';}}}catch(_){}}</script>
 <script src="https://cdn.tailwindcss.com" onerror="window.__bdFail('tailwind-cdn')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" onerror="window.__bdFail('papaparse-cdn')"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" onerror="window.__bdFail('alpine-cdn')"></script>
