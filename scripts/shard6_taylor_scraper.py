@@ -106,9 +106,14 @@ def parse_taylor_sales(html: str, sale_type: str, source_url: str) -> list[dict]
             continue
 
         judgment = float(judgment_str) if judgment_str else None
-        auction_status = 'upcoming' if status in ('scheduled', 'upcoming') else (
-            'sold' if 'sold' in status else 'upcoming'
-        )
+        if status in ('scheduled', 'upcoming'):
+            auction_status = 'upcoming'
+        elif status in ('cancelled', 'canceled', 'redeemed'):
+            auction_status = 'cancelled'
+        elif 'sold' in status:
+            auction_status = 'sold'
+        else:
+            auction_status = 'upcoming'
         property_address = address if address and 'legal description' not in address.lower() else 'TAYLOR COUNTY, FL'
 
         pdf_link = card.find_next('a', href=re.compile(r'\.pdf$'))
@@ -241,12 +246,17 @@ def upsert_records(records: list[dict], dry_run: bool = False) -> int:
 
     inserted = 0
     for batch in batches.values():
-        r = client.post(
-            f'{BASE}/multi_county_auctions',
-            headers=HEADERS,
-            params={'on_conflict': 'county,case_number,sale_type'},
-            content=json.dumps(batch),
-        )
+        r = None
+        for attempt in range(3):
+            r = client.post(
+                f'{BASE}/multi_county_auctions',
+                headers=HEADERS,
+                params={'on_conflict': 'county,case_number,sale_type'},
+                content=json.dumps(batch),
+            )
+            if r.status_code in (200, 201) or r.status_code < 500:
+                break
+            log.warning(f'Upsert attempt {attempt + 1}/3 got {r.status_code} (transient), retrying...')
         if r.status_code in (200, 201):
             inserted += len(r.json())
         else:
