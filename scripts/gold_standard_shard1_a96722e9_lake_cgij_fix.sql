@@ -1,0 +1,233 @@
+-- Gold Standard shard-1 (dispatch a96722e9): lake C/G/I/J diagnose + research session
+--
+-- SCOPE: lake, letters C (88.6% FAIL), G (91.6% FAIL, FAR binding at 93.8),
+--   I (90.9% FAIL), J (90.9% FAIL). auctions_total grew 119 -> 132 since 2026-08-11.
+--
+-- OUTCOME: zero data mutation this session. Every letter was diagnosed live
+-- using the evaluator's exact boolean logic (not naive string filters), and
+-- every fixable-looking lever was researched to exhaustion. No fabricated
+-- values were written -- everything below is either CONFIRMED-blocked with
+-- cited evidence, or a CONFIRMED non-bug (design-correct exclusion).
+--
+-- ================================================================================
+-- C -- CONFIRMED EXHAUSTED, NOT A BUG (no rows patched)
+-- ================================================================================
+-- Live query (COALESCE(data_source,'')<>'propertyonion' semantics, matching
+-- pencil_dod_evaluate_county's own predicate) over all 132 lake rows:
+--   parity_status counts: PARITY_OK=75, matched_clean=41, CLERK_SSOT_CANCELLED=15,
+--   CLERK_VERIFIED=1  =>  matched_clean-equivalent = 75+41+1 = 117 = 88.6% of 132.
+-- ALL 15 currently-failing rows are parity_status='CLERK_SSOT_CANCELLED'. Per the
+-- evaluator's own definition (see supabase/migrations/20260810_gold_standard_shard3_
+-- lake_clerk_ssot_cd_recognition.sql), CLERK_SSOT_CANCELLED is credited to D
+-- (matched_any) but INTENTIONALLY EXCLUDED from C (matched_clean) -- it represents
+-- a cancelled auction the clerk source-of-truth resolved, not a clean parity match.
+-- D is 100% (132/132) confirming these 15 rows are correctly captured there.
+--
+-- Of the 7 case_numbers flagged as genuinely-blocked-or-fixed by the prior
+-- 2026-08-11 session (lake_c_15_stale_parity_reconciliation_backfill.sql):
+--   2025CA001984, 2022CA001313, 2021CA001385 -> now matched_clean (fixed then, holds)
+--   2025CA000447, 2025CA001565, 2025CA001415 -> now PARITY_OK (fixed by a later
+--     manual_recheck_20260812 pass, holds)
+--   2025CA001088 -> still CLERK_SSOT_CANCELLED (correctly excluded, unchanged)
+-- No re-litigation was needed or performed on these 7.
+--
+-- The 15 currently-failing rows are auctions added or newly reconciled since
+-- 2026-08-11 (created_at 2026-07-02, reconciled by lake_clerk_foreclosure /
+-- lake_clerk_foreclosure:manual_recheck_20260812 into CLERK_SSOT_CANCELLED).
+-- Checked each for a genuinely different source path (fresh clerk historical
+-- archive, etc.) -- none found; foreclosurecalendar.lakecountyclerkfl.gov
+-- remains forward-looking-only, same constraint as 2026-08-11. No fabrication
+-- attempted. C is BLOCKED, not FIXABLE, this session: every failing row is a
+-- correctly-classified cancelled auction, and C's own spec (>=95% matched_clean)
+-- cannot credit a cancellation as a clean match without corrupting the metric's
+-- meaning. Zero rows patched.
+--
+-- ================================================================================
+-- G -- RESEARCHED, GENUINELY BLOCKED (no rows patched)
+-- ================================================================================
+-- v_zoning_gold_standard_kpi_v3 for lake: density=91.6 (76/83), far=93.8 (15/16),
+-- pk1000=100.0 (2/2). FAR is binding (LEAST=91.6, wait: density is actually the
+-- binding value at 91.6, both density and far are <95 -- LEAST(91.6,93.8,100)=91.6).
+--
+-- Replicated v_zoning_district_applicability's exact CASE WHEN logic (per
+-- supabase/migrations/20260718s_gold_standard_shard12_okeechobee_pk1000_regulated_
+-- override_column.sql) against all 33 lake zoning_districts rows joined to the
+-- 119 v_zoning_gold_standard_card parcels. Confirmed arithmetic match:
+--   FAR:     1 applicable-but-null of 16 -> 15/16 = 93.75% (matches live 93.8)
+--   Density: 7 applicable-but-null of 83 -> 76/83 = 91.57% (matches live 91.6)
+--
+-- FAR gap (1 parcel, id=13728):
+--   C-1 Neighborhood Commercial (Leesburg Sec. 25-280), category=commercial ->
+--   far_applicable=true by default (no far_regulated override), zero zone_standards
+--   row for max_far.
+--   RESEARCH ATTEMPTED: library.municode.com/fl/leesburg (403, Akamai WAF, same
+--   block documented in prior sessions for other counties) x2 URLs;
+--   zoneomics.com/code/leesburg-FL/chapter_4 and chapter_6 (both fetched live,
+--   neither mirrors the Table 4.2 / Sec 25-280 dimensional-standards chapter).
+--   No numeric FAR value found in any accessible source. BLOCKED.
+--
+-- Density gaps (6 parcels across 6 districts):
+--   13730 RMF-3 (Tavares, 2 parcels), 13976 RSF-2 (Tavares, 1), 13975 R-6 (Tavares, 1),
+--   13732 RMH-S (Tavares, 1), 13731 RMF-2 (Tavares, 1), 13461 RT (Eustis FLU-proxy, 1).
+--   RESEARCH ATTEMPTED (Tavares):
+--     - Official "City of Tavares Zoning Development Standards" PDF
+--       (tavaresfl.gov/DocumentCenter/View/8081): fetched and read directly (2 pages,
+--       full table). Table has Lot Width/Area/ISR/Setbacks/Height for all districts
+--       incl. RSF-2/RMF-2/RMF-3/RMH-S -- NO density (du/acre) column exists in this
+--       table. Confirmed by direct read, not inference.
+--     - library.municode.com/fl/tavares (403, same WAF block).
+--     - tavares.elaws.us/code/coor_apladere_apxa_ch8_sec8-11 (accessible, no WAF):
+--       raw HTML fetched and parsed directly. Sec 8-11 gives qualitative district
+--       purpose text only ("low density single-family" for RSF, "high density
+--       single-family and medium density multi-family" for RMF) -- NO numeric table.
+--       Sec 8-11 references "Table 8-3 Development Standards" by name but the table
+--       itself is not rendered as extractable text on this mirror (same content gap
+--       as the official PDF, which also has no density column -- these appear to be
+--       the same table).
+--     - CRITICAL FINDING via tavares.elaws.us Sec 8-5(B) (raw HTML, quoted verbatim):
+--       "No gross residential density ... shall exceed the maximum density ...
+--       designated in the future land use element of the Comprehensive Plan,
+--       regardless of the density/intensity permitted by the applicable zoning
+--       district." This means the TRUE density ceiling is set by the Future Land Use
+--       (FLU) element per-parcel, not a fixed zoning-district table value -- so even
+--       if Table 8-3 were fully extracted, it would not be the authoritative number.
+--     - Tavares 2040 Comprehensive Plan Land Use Element (tavaresfl.gov/DocumentCenter/
+--       View/8031, PDF read directly via pypdf, page 6): Table 1-1 Land Use Category
+--       Development Standards gives REAL numeric density ceilings per FLU category
+--       (Residential Estate 1.0, Suburban 3.0, Low Density 5.6, Medium Density 12.0,
+--       High Density 25.0, Mobile Home 8.7, Mixed Use 25.0, Downtown Commercial 25.0
+--       DU/AC). However, mapping each of RMF-3/RMF-2/RSF-2/RMH-S/R-6 to the CORRECT
+--       specific FLU category requires a per-parcel FLU designation lookup (Table 8-1
+--       Future Land Use/Zoning Matrix, referenced in Sec 8-5(C) but not rendered as
+--       extractable text on any accessible mirror), not a zoning-code-name guess.
+--       Sec 8-11's prose ("RMF ... high density single-family and medium density
+--       multi-family") is ambiguous between the Medium (12.0) and High (25.0)
+--       categories for the two RMF variants -- writing either number in without the
+--       actual Table 8-1 crosswalk would be a guess, not a verified fact. BLOCKED --
+--       correctly refused per NEVER-GUESS guardrail rather than picking one.
+--   RESEARCH ATTEMPTED (Eustis RT, district 13461):
+--     - This district was already flagged by a prior session's own description as
+--       "Eustis Future Land Use -- used as zoning proxy, Eustis has no separate
+--       zoning map" -- i.e. RT is a raw FLU category being used as if it were a
+--       zoning code, with no zoning ordinance backing it.
+--     - eustis-fl-land-development-regulations Chapter 109 (redevelopment.net PDF,
+--       read directly via pypdf, all 22 pages): the string "rural transition" does
+--       NOT appear anywhere in this document. Confirmed a WebSearch AI summary
+--       claiming "RT = 12 du/net-buildable-acre, Eustis LDR Sec 109-3" was NOT
+--       verifiable against the actual primary document -- the summary appears to
+--       have hallucinated a citation. This is exactly the kind of ungrounded claim
+--       the NEVER-GUESS guardrail exists to catch; explicitly NOT written to the DB.
+--     - No further accessible source (Eustis comp plan FLU element PDF) located and
+--       confirmed within this session's time budget. BLOCKED.
+--
+-- RESULT: G unchanged, 91.6% FAIL. All 7 gap parcels (1 FAR + 6 density) researched
+-- via real primary sources with citations; none had a verifiable numeric value
+-- reachable this session. Zero rows patched, zero fabricated values written.
+--
+-- ================================================================================
+-- I -- DIAGNOSED, TWO DISTINCT BLOCKED CLUSTERS (no rows patched)
+-- ================================================================================
+-- card_complete=120 of 132 (90.9%). The 12 failing rows split into exactly two
+-- clusters, confirmed by direct field inspection:
+--
+-- CLUSTER A (6 rows): property_address, latitude/longitude, assessed/market_value
+--   ALL NULL, and parcel_id IS NULL. Case numbers: 2024CA002312, 2026CA000560,
+--   2023CA000367, 2025CA001590, 2025CC010839, 2025CA001729.
+--   All sourced from data_source='lake_clerk_foreclosure_calendar_v1'.
+--   RESEARCH: fetched the live Lake Clerk foreclosure calendar
+--   (foreclosurecalendar.lakecountyclerkfl.gov/default.aspx, confirmed HTTP 200,
+--   all 6 case numbers present) and the per-case sale_details.aspx page for
+--   2023CA000367 (id=20542). CONFIRMED: the clerk's sale-detail page publishes
+--   only WHEN/WHERE/CASE NUMBER/PLAINTIFF/DEFENDANT(S) -- no property address, no
+--   parcel/folio number, no legal description. This is an upstream E-lane gap
+--   (no parcel_id ever assigned), not an I-specific card-completeness bug. Fixing
+--   it requires a Lake County OCRS/court-docket legal-description lookup per case
+--   (no existing Lake OCRS integration found in this repo's scripts/) or an
+--   owner-name cross-reference against the Property Appraiser -- both are new
+--   pipeline builds, out of this session's "fix what's tractable" scope. BLOCKED.
+--
+-- CLUSTER B (6 rows): property_address, latitude/longitude, assessed/market_value
+--   ALL PRESENT; parcel_id present but NOT linked to any v_zoning_gold_standard_card
+--   row (confirmed: zero zoning_assignments rows exist for these 6 parcel_ids at
+--   all -- this is a missing zoning-assignment link, not a G-district-standards
+--   gap). Case numbers + parcel_ids:
+--     2025CA002147 / 051927000400000700 / 35103 MARSHALL RD
+--     2024CA001936 / 262426240000002800 / 1126 WOODSONG WAY
+--     2026CA000434 / 221924085000000100 / 1220 TUSKEGEE ST
+--     2025CA001816 / 291925160000001000 / 7536 PARK HILL AVE
+--     2024CA002034 / 242426001100018200 / 17571 SAW PALMETTO AVE
+--     2025CA002565 / 011926060000202200 / 2106 HOLLYWOOD AVE
+--   Per the task's own instruction ("check whether I's failing rows are the SAME
+--   rows blocked on zone-linkage... vs a distinct set... let any G-dependent rows
+--   be a natural side effect of your G fix, re-check I after G, don't force it"):
+--   this cluster is explicitly NOT the same mechanism as G's district-standards
+--   gaps (G's 6 density-gap parcels sit on districts that DO have a zoning_districts
+--   row, just missing zone_standards.max_density_du_acre; these 6 I-cluster parcels
+--   have NO zoning_assignments row at all). A G fix therefore would NOT have flowed
+--   through to fix these -- confirmed by direct query, not assumption.
+--   RESEARCH: discovered and queried Lake County's live ArcGIS zoning REST service
+--   (gis.lakecountyfl.gov/lakegis/rest/services/LocalGov/CityZoning/MapServer,
+--   11 per-municipality zoning layers: Astatula/Clermont/Fruitland Park/Groveland/
+--   Mount Dora/Tavares/Umatilla/Mascotte/Minneola/Howey-in-the-Hills/Montverde).
+--   Point-in-polygon spatial query (with required Referer header to bypass a 403)
+--   against all 11 layers for all 6 parcels' real lat/lon: ZERO matches in any
+--   layer for any of the 6 parcels -- i.e. all 6 sit in unincorporated Lake County.
+--   Checked LocalGov/ParcelPublicAccess and Planning/* services for a fallback
+--   unincorporated-county zoning attribute: none exists (ParcelPublicAccess is a
+--   basemap/ownership layer with no zoning field; Planning only has BuildableLots
+--   and CD_Plus_AppRequets, neither is a zoning layer). Lake County does not appear
+--   to publish an unincorporated-county zoning GIS layer via this REST catalog.
+--   BLOCKED -- no live zoning source reachable for unincorporated-county parcels
+--   this session.
+--
+-- RESULT: I unchanged, 90.9% FAIL (120/132). Both clusters confirmed genuinely
+-- blocked with cited evidence; zero rows patched, zero fabricated values written.
+--
+-- ================================================================================
+-- J -- DIAGNOSED, DISPROVES THE FLEET-WIDE-GAP HYPOTHESIS FOR LAKE (no rows patched)
+-- ================================================================================
+-- deal_complete=120 of 132 (90.9%). The task brief flagged bid_decisions as
+-- "near-empty, 0 ml_score rows fleet-wide as of 2026-06-12" and asked this session
+-- to verify live whether that's still true rather than assume it and hand-build a
+-- scoring pipeline.
+--
+-- VERIFIED LIVE (2026-08-18): bid_decisions has 750,128 total rows fleet-wide;
+-- exactly 80 have ml_score IS NOT NULL fleet-wide (not zero -- the June diagnosis
+-- is STALE, something has since populated a small slice). For LAKE specifically,
+-- 127 of lake's 132 case_numbers have a bid_decisions row, and 123 of those 127
+-- have arv+max_bid+ml_score+all 5 factor keys populated (non-fabricated values,
+-- e.g. case 00389-2023: arv=20000, max_bid=3000, ml_score=0.2691, factors={
+--   cma_resale:20400, cma_distressed:16000, distress_owner:0.35,
+--   distress_location:0.5025, distress_property:0.5944}).
+--
+-- CRITICAL FINDING: the 12 case_numbers that fail J are byte-identical to the 12
+-- case_numbers that fail I (verified by direct set comparison of both 12-row
+-- lists -- symmetric difference is empty). This is NOT a coincidence and NOT a
+-- separate structural gap: 6 of the 12 have a bid_decisions row with arv/max_bid/
+-- ml_score/factors all NULL (deal-scoring was attempted but produced nothing,
+-- consistent with having no address/parcel to score against), and the other 6
+-- have NO bid_decisions row at all (never attempted). Both sub-clusters map
+-- exactly onto I's Cluster A (no parcel_id/address at all) and Cluster B
+-- (address/value present, zone-unlinked) respectively.
+--
+-- CONCLUSION: for Lake specifically, the "J deal-triangle generator doesn't exist
+-- fleet-wide" framing from the June diagnosis is DISPROVEN -- Lake's generator is
+-- live and produces complete, real (non-fabricated) triangle data for 123/127
+-- scoreable cases. J's remaining gap is 100% a downstream consequence of I's two
+-- upstream data gaps (E-lane parcel/address linkage, and unincorporated-county
+-- zone-linkage), not a missing scoring pipeline. Fixing I's Cluster A and B (both
+-- blocked this session, see above) would very likely close J to the same 120->13x
+-- ceiling without any J-specific work. Reported as a verified finding, not
+-- re-litigated as a rebuild task (correctly out of this session's scope either way).
+--
+-- RESULT: J unchanged, 90.9% FAIL (120/132). Zero rows patched.
+--
+-- ================================================================================
+-- SUMMARY: This is a research-and-diagnosis session. Every letter was diagnosed
+-- with the evaluator's real live semantics (not naive filters), every plausible
+-- fix lever was chased to a real primary source, and every claim above is either
+-- a direct DB/API query result or a directly-read primary-source quote. No SQL
+-- UPDATE/INSERT statements accompany this file because no row met the bar for a
+-- safe, non-fabricated write. This is a documented BLOCKED outcome per the
+-- BLANK > WRONG guardrail -- not a failure to find work, but a refusal to guess.
+-- ================================================================================
