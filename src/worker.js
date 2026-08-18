@@ -833,7 +833,7 @@ async function fetchCountyLots(county) {
   try {
     const today = new Date().toISOString().slice(0,10);
     const cutoff = new Date(Date.now() + 35*24*60*60*1000).toISOString().slice(0,10);
-    const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&order=auction_date.asc,sale_type.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff`;
+    const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&or=(auction_status.in.(upcoming,active,scheduled),auction_status.is.null)&order=auction_date.asc,sale_type.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff,auction_status`;
     const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } });
     if (!res.ok) return [];
     return await res.json();
