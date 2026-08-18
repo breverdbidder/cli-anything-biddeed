@@ -2478,9 +2478,44 @@ function buildCountyPage(slug, d, lots, rtConfig) {
   const name = toDisplay(slug);
   const s5List = (rtConfig && rtConfig.s5Counties) ? JSON.stringify(rtConfig.s5Counties) : '[]';
   const isGold = !!(rtConfig && Array.isArray(rtConfig.goldCounties) && rtConfig.goldCounties.includes(slug));
+  // ── SEO head: canonical, description and JSON-LD were absent on all 67
+  // county pages until 2026-08-18 (verified: 0/67 had any of the three).
+  // These are the top of the lead funnel and they are ranked URLs.
+  const urlSlug = slug.replace(/_/g, '-');
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lotRows   = Array.isArray(lots) ? lots : [];
+  const lotCount  = lotRows.length;
+  const lotTd     = lotRows.filter(x => x && x.sale_type === 'tax_deed').length;
+  const lotFc     = lotRows.filter(x => x && x.sale_type === 'foreclosure').length;
+  const lotDates  = lotRows.map(x => x && x.auction_date).filter(Boolean).sort();
+  const nextDate  = lotDates.length ? lotDates[0] : null;
+  const metaDesc  = lotCount
+    ? lotCount + ' upcoming ' + name + ' County, Florida auctions — ' + lotTd
+      + ' tax deed and ' + lotFc + ' foreclosure sales'
+      + (nextDate ? ', next on ' + nextDate : '')
+      + '. Opening bids, assessed values and direct links to every listing.'
+    : name + ' County, Florida tax deed and foreclosure auction listings. '
+      + 'No sales are scheduled in the current window — the calendar refills every month.';
+  const jsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Dataset',
+    name: name + ' County, Florida tax deed and foreclosure auctions',
+    description: metaDesc,
+    url: 'https://biddeed.ai/county/' + urlSlug,
+    isAccessibleForFree: true,
+    creator: { '@type': 'Organization', name: 'BidDeed.AI', url: 'https://biddeed.ai' },
+    spatialCoverage: { '@type': 'Place', name: name + ' County, Florida, USA' },
+    variableMeasured: ['auction_date','sale_type','opening_bid','assessed_value','case_number']
+  }).replace(/</g, '\\u003c');
+
   // Serve the full interactive county page (Alpine.js + Tailwind)
   // Template has COUNTY_SLUG_PLACEHOLDER, COUNTY_TITLE_PLACEHOLDER, COUNTY_TITLE tokens
   return COUNTY_PAGE_TEMPLATE
+    .replace(/COUNTY_URLSLUG/g, urlSlug)
+    .replace(/COUNTY_META_DESC/g, esc(metaDesc))
+    .replace('COUNTY_JSONLD', jsonLd)
     .replace(/COUNTY_SLUG_PLACEHOLDER/g, slug)
     .replace(/COUNTY_TITLE_PLACEHOLDER/g, name)
     .replace('S5_COUNTIES_PLACEHOLDER', s5List)
@@ -4508,6 +4543,14 @@ const COUNTY_PAGE_TEMPLATE = `<!doctype html>
 <title>BidDeed.AI · COUNTY_TITLE Auctions</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#020617">
+<link rel="canonical" href="https://biddeed.ai/county/COUNTY_URLSLUG">
+<meta name="description" content="COUNTY_META_DESC">
+<meta property="og:title" content="COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions">
+<meta property="og:description" content="COUNTY_META_DESC">
+<meta property="og:url" content="https://biddeed.ai/county/COUNTY_URLSLUG">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BidDeed.AI">
+<script type="application/ld+json">COUNTY_JSONLD</script>
 <script>window.__bdAssetFail=[];window.__bdFail=function(e){try{window.__bdAssetFail.push(String(e&&e.message||e));var f=document.getElementById('bd-fallback');if(f){f.style.display='block';}var kids=document.body.children;for(var i=0;i<kids.length;i++){var k=kids[i];if(k.id!=='bd-fallback'&&k.tagName!=='NOSCRIPT'&&k.tagName!=='SCRIPT'){k.style.display='none';}}}catch(_){}}</script>
 <script src="https://cdn.tailwindcss.com" onerror="window.__bdFail('tailwind-cdn')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" onerror="window.__bdFail('papaparse-cdn')"></script>
