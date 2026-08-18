@@ -14,7 +14,7 @@ sibling <span class='pscalendar-red'>reason</span> — that reason is the
 cancellation signal and must be preserved in raw_comment.
 """
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import httpx
 from bs4 import BeautifulSoup
@@ -27,14 +27,24 @@ DATE_RE = re.compile(r"^[A-Za-z]{3}, (\d{1,2})/(\d{1,2})$")
 
 
 def _normalize_date(raw: str) -> str | None:
-    """Lake's list view prints 'Tue, 8/11' — no year. Infer the year from
-    today's date, rolling forward to next year if the month has already
-    passed (calendar wrapping around a year boundary)."""
-    m = DATE_RE.match(raw.strip())
+    """Lake's list view prints 'Tue, 8/11' — no year — for sales more than a
+    day out, but swaps in the bare word 'Today' (and, per the same relative-
+    date convention, presumably 'Tomorrow') for the current/next day instead
+    of the weekday-and-date form. Unhandled, that word never matches DATE_RE,
+    sale_date comes back None, and diff_and_reconcile's window filter drops
+    the row from ssot_by_case entirely — six genuinely-live 2026-08-18 sales
+    were flagged PHANTOM_NOT_ON_CLERK by every run this way even though they
+    were live on the clerk site the whole time (confirmed 2026-08-18)."""
+    raw = raw.strip()
+    today = date.today()
+    if raw == "Today":
+        return today.isoformat()
+    if raw == "Tomorrow":
+        return (today + timedelta(days=1)).isoformat()
+    m = DATE_RE.match(raw)
     if not m:
         return None
     mm, dd = int(m.group(1)), int(m.group(2))
-    today = date.today()
     yyyy = today.year
     if mm < today.month or (mm == today.month and dd < today.day - 3):
         yyyy += 1
@@ -56,8 +66,12 @@ def parse_foreclosure() -> list[dict]:
             continue  # skip Tax Deed events — out of scope
 
         time_div = item.find("div", class_="event_time")
-        # event_time text is "Tue, 8/11<time range>" run together after strip(); extract via regex
-        date_match = re.search(r"[A-Za-z]{3},\s*\d{1,2}/\d{1,2}", time_div.get_text(" ", strip=True)) if time_div else None
+        # event_time text is "Tue, 8/11<time range>" run together after strip()
+        # for sales more than a day out, or "Today<time range>" / "Tomorrow
+        # <time range>" for the next two days — extract via regex, relative
+        # form first since it has no comma/slash for the dated regex to match.
+        time_text = time_div.get_text(" ", strip=True) if time_div else ""
+        date_match = re.search(r"^(Today|Tomorrow)\b", time_text) or re.search(r"[A-Za-z]{3},\s*\d{1,2}/\d{1,2}", time_text)
         sale_date_raw = date_match.group(0) if date_match else ""
 
         case_span = item.find("span", class_="pscalendar-foreclosure") or item.find("span", class_="pscalendar-cancelled")
