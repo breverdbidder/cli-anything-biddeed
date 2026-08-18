@@ -348,18 +348,45 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
         # stored date is the PRE-continuance date -- leaving it unsynced would
         # silently keep showing the wrong sale date even though the duplicate
         # stub that carried the correct date is gone (see manatee 2026-08-15).
-        values = ",".join(
-            f"({sql_str(r['case_number'])},{sql_str(r['sale_date'])})" for r in clean_matches
-        )
-        run_sql(f"""
-            UPDATE public.multi_county_auctions m
-            SET parity_status='PARITY_OK', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')},
-                auction_date=v.sale_date::date
-            FROM (VALUES {values}) AS v(case_number, sale_date)
-            WHERE lower(m.county)={sql_str(county_slug)} AND m.sale_type={sql_str(sale_type)}
-              AND m.case_number = v.case_number
-              AND m.parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED';
-        """)
+        #
+        # clean_matches mixes two cases that need different handling: rows
+        # where the SSOT now says NOT cancelled (reactivate/reschedule) vs.
+        # rows where the SSOT still says cancelled and we already agree
+        # (already_cancelled). The old single UPDATE guarded on
+        # "m.parity_status IS DISTINCT FROM 'CLERK_SSOT_CANCELLED'" to avoid
+        # re-marking an agreeing-cancelled row PARITY_OK, but that guard also
+        # permanently locked out the reactivate case: once a row's stored
+        # parity_status was CLERK_SSOT_CANCELLED, this UPDATE could never
+        # touch it again even after the SSOT rescheduled it, and the SET
+        # clause never assigned auction_status, so a reactivated row would
+        # anyway stay stuck at auction_status='CANCELLED' (lake case
+        # 2024CA000186, first diagnosed 2026-08-13, re-broken 2026-08-17).
+        reactivate = [r for r in clean_matches if not r["cancelled"]]
+        already_cancelled = [r for r in clean_matches if r["cancelled"]]
+        if reactivate:
+            values = ",".join(
+                f"({sql_str(r['case_number'])},{sql_str(r['sale_date'])})" for r in reactivate
+            )
+            run_sql(f"""
+                UPDATE public.multi_county_auctions m
+                SET parity_status='PARITY_OK', parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')},
+                    auction_date=v.sale_date::date, auction_status='scheduled'
+                FROM (VALUES {values}) AS v(case_number, sale_date)
+                WHERE lower(m.county)={sql_str(county_slug)} AND m.sale_type={sql_str(sale_type)}
+                  AND m.case_number = v.case_number;
+            """)
+        if already_cancelled:
+            values = ",".join(
+                f"({sql_str(r['case_number'])},{sql_str(r['sale_date'])})" for r in already_cancelled
+            )
+            run_sql(f"""
+                UPDATE public.multi_county_auctions m
+                SET parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')},
+                    auction_date=v.sale_date::date
+                FROM (VALUES {values}) AS v(case_number, sale_date)
+                WHERE lower(m.county)={sql_str(county_slug)} AND m.sale_type={sql_str(sale_type)}
+                  AND m.case_number = v.case_number;
+            """)
 
     if phantom_in_ours:
         in_list = ",".join(sql_str(c) for c in phantom_in_ours)
