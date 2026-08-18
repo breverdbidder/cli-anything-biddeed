@@ -1239,6 +1239,56 @@ export default {
   }
 };
 
+// ── AuctionRadar proxy ──────────────────────────────────────────────────────
+// biddeed.ai stays served by this Worker. The Next.js app (biddeed-web) mounts
+// UNDERNEATH it at /radar/* rather than replacing it, because this Worker owns
+// 40+ routes the new app does not have: every checkout path, 66 county SEO
+// pages, the legal pages, and /unsubscribe - which is linked from email that
+// has already been sent. Repointing DNS at Vercel would delete all of it
+// silently, including every /report/:id?key= link already sitting in a paying
+// customer inbox.
+//
+// The app sets basePath:"/radar", so its own asset, chunk and API URLs already
+// carry the prefix. That is what makes this single branch sufficient: there is
+// no path rewriting to get wrong, and /auctions (JSON here, HTML there) never
+// collides.
+//
+// The upstream response is passed through with only hop-by-hop headers removed.
+// The app ships its own Content-Security-Policy carrying a per-request nonce,
+// and withSecurityHeaders() only fills in a CSP when one is absent - so the
+// nonce survives. Overwriting it would make the browser refuse every script and
+// paint a blank page, which is the exact failure this rebuild already fixed.
+const RADAR_ORIGIN = "https://biddeed-web.vercel.app";
+
+async function proxyToRadar(request, url) {
+  const upstream = new URL(url.pathname + url.search, RADAR_ORIGIN);
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  headers.set("X-Forwarded-Host", url.host);
+  headers.set("X-Forwarded-Proto", "https");
+
+  const init = { method: request.method, headers, redirect: "manual" };
+  if (request.method !== "GET" && request.method !== "HEAD") init.body = request.body;
+
+  let res;
+  try {
+    res = await fetch(upstream.toString(), init);
+  } catch (e) {
+    // Fail loudly on /radar only. The rest of biddeed.ai is unaffected by an
+    // upstream outage precisely because it is not served from there.
+    return new Response("AuctionRadar is temporarily unavailable. Please try again shortly.", {
+      status: 502,
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
+  }
+
+  const out = new Headers(res.headers);
+  out.delete("content-encoding");
+  out.delete("content-length");
+  out.delete("transfer-encoding");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
+}
+
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -1248,6 +1298,13 @@ async function handleRequest(request, env, ctx) {
     try {
       if (method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: corsHeaders(origin) });
+      }
+
+      // ── AuctionRadar ─────────────────────────────────────────────────────
+      // Placed first so it cannot be shadowed by a later prefix match. See
+      // proxyToRadar() above for why this is a merge and not a cutover.
+      if (path === '/radar' || path.startsWith('/radar/')) {
+        return proxyToRadar(request, url);
       }
 
       // ── Legal ────────────────────────────────────────────────────────────
