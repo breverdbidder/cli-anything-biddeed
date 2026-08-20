@@ -191,8 +191,17 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
   but `cma.comps` rows (both the pre-existing `fl_parcels` path and the new
   HomeHarvest path) use the field name `sale_price` — the Sold column has
   likely rendered blank in production for Layer 2 comps since this section
-  first shipped. Left as-is (out of scope for this session); flagging for
-  whoever next touches that renderer.
+  first shipped. **FIXED 2026-08-20** (worker commit `2389eec`): the getter now reads
+  `c.sale_price ?? c.sale_price1 ?? c.sold_amount` behind a Number.isFinite
+  guard. Shipped in the same commit as a separate, worse bug found in that
+  renderer the same day: `opp.entry_bid` is a `{ value, display }` object, so
+  `Number()` on it produced a literal **"$NaN" Entry Bid on a live PAID S5
+  report** (7830 Stirling Bridge Blvd S, Palm Beach — observed in production,
+  now renders $17,404). A new `s5Money()` helper normalises number | numeric
+  string | {value,display} to a dispVal-compatible value or null, and is now
+  used for Entry Bid, Value Midpoint, Walk Away Above and the headline Max Bid,
+  so an unusable figure falls back to the honest placeholder instead of
+  printing NaN at a bidder.
 
 ## 6. CHANGE RULES
 Additive by default. New surface, box, service, tunnel, or deploy target ⇒ update §1 in the same commit. A session that cannot find an answer here asks the owner; it does not infer from what happens to be running.
