@@ -1302,8 +1302,21 @@ async function handleRequest(request, env, ctx) {
 
       // ── AuctionRadar ─────────────────────────────────────────────────────
       // Placed first so it cannot be shadowed by a later prefix match. See
-      // proxyToRadar() above for why this is a merge and not a cutover.
-      if (path === '/radar' || path.startsWith('/radar/')) {
+      // proxyToRadar() above for the original merge rationale. As of the
+      // 2026-08-20 cutover (biddeed-web next.config.mjs contract: "the Worker
+      // gains explicit proxy branches for /, /_next/*, /api/*, /radar* and
+      // /success"), the app also serves the apex, its assets, its API routes,
+      // and the order-confirmation pages. The Worker keeps every other route
+      // (checkout, county SEO, legal, /report/:id, /auctions JSON, /chat).
+      // Rollback: remove the extra path tests below, leaving only /radar.
+      if (
+        path === '/' ||
+        path === '/radar' || path.startsWith('/radar/') ||
+        path.startsWith('/_next/') ||
+        path.startsWith('/api/') ||
+        path === '/success' || path.startsWith('/success/') ||
+        path === '/order' || path.startsWith('/order/')
+      ) {
         return proxyToRadar(request, url);
       }
 
