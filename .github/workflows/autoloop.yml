@@ -1,8 +1,17 @@
 name: "Autoloop: Overnight Skill Self-Improvement (Hetzner)"
 
 on:
-  schedule:
-    - cron: '0 7 * * *'  # 2 AM EST = 7 AM UTC
+  # ---------------------------------------------------------------------
+  # NIGHTLY SCHEDULE DISABLED 2026-08-20 (approved by Ariel).
+  # Reason: this ran an ungoverned Claude Code session on Max OAuth every
+  # night — up to 170 min / 50 iterations with --dangerously-skip-permissions
+  # and no quota gate. It is the largest uncontrolled consumer of the weekly
+  # subscription limit. It was also SSH-dependent on Hetzner 87.99.129.125,
+  # whose sshd has been down since ~Aug 10 (runs Aug 18/19/20 all failed).
+  # To restore: rebuild GHA-only and gate on quota_gate_check('engineering').
+  # schedule:
+  #   - cron: '0 7 * * *'  # 2 AM EST = 7 AM UTC
+  # ---------------------------------------------------------------------
   workflow_dispatch:
     inputs:
       skill:
