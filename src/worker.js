@@ -1332,7 +1332,12 @@ async function handleRequest(request, env, ctx) {
         path.startsWith('/_next/') ||
         path.startsWith('/api/') ||
         path === '/success' || path.startsWith('/success/') ||
-        path === '/order' || path.startsWith('/order/')
+        path === '/order' || path.startsWith('/order/') ||
+        // Clerk auth pages (added 2026-08-20 when login was enabled on the
+        // app). Without these branches biddeed.ai/sign-in hits this Worker's
+        // 404 and auth.protect() redirects users into a dead URL.
+        path === '/sign-in' || path.startsWith('/sign-in/') ||
+        path === '/sign-up' || path.startsWith('/sign-up/')
       ) {
         return proxyToRadar(request, url);
       }
