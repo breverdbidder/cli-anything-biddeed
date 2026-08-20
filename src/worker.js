@@ -4657,6 +4657,16 @@ const COUNTY_PAGE_TEMPLATE = `<!doctype html>
 <script type="application/ld+json">COUNTY_JSONLD</script>
 <script>window.__bdAssetFail=[];window.__bdFail=function(e){try{window.__bdAssetFail.push(String(e&&e.message||e));var f=document.getElementById('bd-fallback');if(f){f.style.display='block';}var kids=document.body.children;for(var i=0;i<kids.length;i++){var k=kids[i];if(k.id!=='bd-fallback'&&k.tagName!=='NOSCRIPT'&&k.tagName!=='SCRIPT'){k.style.display='none';}}}catch(_){}}</script>
 <link rel="stylesheet" href="/assets/tailwind-county.css" onerror="window.__bdFail('tailwind-css')">
+<script>
+/* Alpine's standard build compiles every x-* expression with new Function(),
+   which the page CSP blocks (no 'unsafe-eval'). When that happens Alpine
+   loads without error -- so the asset onerror fallbacks never fire -- and the
+   page renders with x-show modals stuck open and dead controls. Probe eval
+   up front and route to the same honest fallback the CDN-failure path uses.
+   Remove this probe only when either 'unsafe-eval' is approved for script-src
+   or this page is rewritten without runtime-evaluated expressions. */
+try { new Function('return 1')() } catch (e) { window.__bdFail && window.__bdFail('csp-eval') }
+</script>
 <script src="/assets/papaparse.min.js" onerror="window.__bdFail('papaparse-local')"></script>
 <script defer src="/assets/alpine.min.js" onerror="window.__bdFail('alpine-local')"></script>
 <script>setTimeout(function(){if(!window.Alpine){window.__bdFail('alpine-boot-timeout');}},4000);</script>
