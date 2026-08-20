@@ -48,6 +48,28 @@ every other route it owns (checkout, 67 county SEO pages, legal, `/report/:id`,
 design; the app's own `/auctions` page is intentionally unreachable via biddeed.ai.
 Rollback: reduce the proxy condition back to the `/radar` tests alone.
 
+### 1.2 COUNTY-PAGE ASSETS + CSP (2026-08-20)
+
+The 67 `/county/:slug` pages' third-party CDN dependencies (Tailwind dev CDN,
+Alpine 3.13.5, PapaParse 5.4.1) were being blocked by the Worker's own CSP
+(`script-src 'self' …`), so every county page served only the Phase-0 fallback
+banner to every visitor — the interactive table never booted in production.
+Fixed 2026-08-20 (commits `5b5cc0c`, `4afca0b`, `e3f6ef7`): Phase 0 items 3–4
+completed — assets are now vendored into the Worker and served from
+`/assets/tailwind-county.css` (static Tailwind build from the county template's
+class set; no inline tailwind.config existed so default-config output is
+equivalent), `/assets/alpine.min.js` and `/assets/papaparse.min.js` (exact
+pinned CDN versions, length-verified 43838/19469). An inline eval-probe routes
+to the honest fallback if expression evaluation is ever blocked again.
+**CSP change, owner-approved in-session (Ariel, 2026-08-20):** `'unsafe-eval'`
+added to the Worker CSP's script-src — required by Alpine's standard build;
+marginal on a policy already carrying `'unsafe-inline'`; scope is Worker-served
+pages only (the proxied biddeed-web app ships its own nonce CSP). Phase 3 SSR
+migration of the county pages remains the real fix and removes both tokens.
+Verified live post-deploy: /county/alachua and /county/brevard render the full
+interactive table (equity totals, Shapira Triangle filters) with zero console
+errors, first verified fully-working production render of these pages.
+
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
 Customer → `mcp.biddeed.ai` → Cloudflare Tunnel → **local Dell** → MCP HTTP server (this repo, `main`) → Supabase.
