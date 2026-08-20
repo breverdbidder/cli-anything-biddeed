@@ -1196,7 +1196,7 @@ const AUCTION_INTENT_RE = /(?:show|find|list|what|upcoming|auction|properties?|f
 // on the homepage (see HOMEPAGE_HTML .cfw block), so it needs frame-ancestors
 // 'self' / X-Frame-Options SAMEORIGIN instead of the site-wide 'none'/DENY —
 // otherwise the browser blocks the frame and it renders as a broken box.
-const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com https://us.i.posthog.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co https://static.cloudflareinsights.com https://api.elevenlabs.io wss://api.elevenlabs.io; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://us-assets.i.posthog.com https://us.i.posthog.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co https://static.cloudflareinsights.com https://api.elevenlabs.io wss://api.elevenlabs.io; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 const SECURITY_CSP_CHAT = SECURITY_CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
 function withSecurityHeaders(response, path) {
   const headers = new Headers(response.headers);
