@@ -108,6 +108,23 @@ function escHtml(s) {
 // Renders a money-shaped { value, display, source } field, or a plain
 // scalar/null — never the raw `source` string (S5 SSOT v1.2: RL formula
 // coefficient names must never reach the page — see §15 note below).
+// Money fields from the composer arrive in three shapes: a bare number, a
+// numeric string, or a { value, display } object (see cover.entry_bid).
+// Number() on that object yields NaN, which rendered a literal "$NaN" as the
+// Entry Bid on a live PAID S5 report (7830 Stirling Bridge Blvd S, Palm Beach
+// — observed in production 2026-08-20). Returns a dispVal-compatible
+// { display } or null, so an unusable value falls back to the caller's honest
+// placeholder instead of printing a fabricated figure at a bidder.
+function s5Money(v) {
+  if (v == null) return null;
+  if (typeof v === 'object') {
+    if (v.display != null) return { display: String(v.display) };
+    return Number.isFinite(Number(v.value)) ? { display: `$${Number(v.value).toLocaleString()}` } : null;
+  }
+  if (v === '') return null;
+  return Number.isFinite(Number(v)) ? { display: `$${Number(v).toLocaleString()}` } : null;
+}
+
 function dispVal(obj, fallback = 'Pending') {
   if (obj == null) return fallback;
   if (typeof obj === 'object') return obj.display != null ? escHtml(obj.display) : fallback;
@@ -401,7 +418,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
       ${s5Row('Comp Count', String(cma.n ?? 0))}
       ${s5CompTable(cma.comps, [
         { label: 'Address', get: c => c.address || c.property_address },
-        { label: 'Sold', get: c => (c.sale_price1 ?? c.sold_amount) != null ? `$${Number(c.sale_price1 ?? c.sold_amount).toLocaleString()}` : null },
+        { label: 'Sold', get: c => { const v = c.sale_price ?? c.sale_price1 ?? c.sold_amount; return (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))) ? `$${Number(v).toLocaleString()}` : null; } },
         { label: 'Sqft', get: c => c.tot_lvg_ar ?? c.living_area_sqft },
         { label: 'Year Built', get: c => c.act_yr_blt ?? c.year_built },
       ])}
@@ -467,13 +484,13 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
         <div class="grade">Investment Grade ${escHtml(cover.investment_grade || '—')}</div>
         <div class="maxbid-block">
           <div class="maxbid-label">SHAPIRA MAX BID</div>
-          <div class="maxbid">${maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : 'Hidden'}</div>
+          <div class="maxbid">${dispVal(s5Money(maxBidVal), 'Hidden')}</div>
           <div class="maxbid-sub">Walk away above this number. No exceptions.</div>
         </div>
         <div class="bidcard-rows" style="margin-top:16px">
-          ${s5Row('Entry Bid', dispVal(opp.entry_bid != null ? { display: `$${Number(opp.entry_bid).toLocaleString()}` } : cover.entry_bid))}
-          ${s5Row('Value Midpoint', opp.value_midpoint != null ? `$${Number(opp.value_midpoint).toLocaleString()}` : 'Pending')}
-          ${s5Row('Walk Away Above', maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : 'Hidden')}
+          ${s5Row('Entry Bid', dispVal(s5Money(opp.entry_bid) ?? s5Money(cover.entry_bid)))}
+          ${s5Row('Value Midpoint', dispVal(s5Money(opp.value_midpoint)))}
+          ${s5Row('Walk Away Above', dispVal(s5Money(maxBidVal), 'Hidden'))}
         </div>
         <div style="color:#b8cfe0;font-size:12px;margin-top:14px;font-style:italic">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
       </div>
