@@ -13,6 +13,11 @@
 const ESTATE_RE         = /\b(ESTATE OF|HEIRS OF|DECEASED|SURVIVING)\b/i;
 const JUNIOR_CASE_RE    = /\bCC\b/;
 const JUNIOR_PLAINTIFF_RE = /\b(ASSOCIATION|CONDOMINIUM|HOA|MASTER|VILLAS|HOMEOWNERS)\b/i;
+// A first-mortgage final judgment is essentially never this small a share of
+// assessed value. A judgment below this ratio is junior/HOA scale. Exported
+// because the composer's judgment-ratio clearing anchor keys off the same
+// constant — the two checks must never drift apart.
+export const JUNIOR_JUDGMENT_TO_ASSESSED = 0.15;
 
 // ── Shared flags (both sale types) ─────────────────────────────────────────
 function sharedFlags(auction) {
@@ -65,10 +70,20 @@ function foreclosureFlags(auction) {
     flags.push({ code: 'HIDDEN_CAP', severity: 'pending',
       text: 'Hidden — plaintiff max bid not disclosed on the docket/render as of report time.' });
 
-  // Junior / HOA lien — CC case number OR HOA plaintiff pattern
+  // Junior / HOA lien — CC case number OR HOA plaintiff pattern OR a judgment
+  // too small to be a first-mortgage FJ. The third trigger exists because of
+  // Palm Beach 502025CA005319XXXAMB: a $17,403.61 judgment on a $457,184
+  // assessed house (3.8%) — an HOA-style foreclosure filed under a CA case
+  // number with no plaintiff on file, invisible to the two pattern checks.
   const caseNo    = auction.case_number || '';
   const plaintiff = auction.plaintiff   || '';
-  if (JUNIOR_CASE_RE.test(caseNo) || JUNIOR_PLAINTIFF_RE.test(plaintiff))
+  const jRatio    = (auction.judgment_amount > 0 && auction.assessed_value > 0)
+    ? auction.judgment_amount / auction.assessed_value : null;
+  const tinyJudgment = jRatio != null && jRatio < JUNIOR_JUDGMENT_TO_ASSESSED;
+  if (tinyJudgment && !JUNIOR_CASE_RE.test(caseNo) && !JUNIOR_PLAINTIFF_RE.test(plaintiff))
+    flags.push({ code: 'JUNIOR_LIEN_RISK', severity: 'risk',
+      text: `Judgment ($${auction.judgment_amount.toLocaleString()}) is only ${Math.round(jRatio * 100)}% of assessed value ($${auction.assessed_value.toLocaleString()}) — inconsistent with a first-mortgage foreclosure. This is junior/HOA-lien scale: the first mortgage likely SURVIVES the sale, and the clearing price will track equity above the surviving debt, not property value. BID suppressed to REVIEW until lien priority is confirmed.` });
+  else if (JUNIOR_CASE_RE.test(caseNo) || JUNIOR_PLAINTIFF_RE.test(plaintiff))
     flags.push({ code: 'JUNIOR_LIEN_RISK', severity: 'risk',
       text: `Case number (${caseNo}) or plaintiff (${plaintiff || 'unknown'}) suggests a junior/HOA lien rather than a primary mortgage. The first mortgage likely SURVIVES — verify lien priority before bidding. BID suppressed to REVIEW until lien survival confirmed.` });
 
