@@ -354,8 +354,15 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   // ── §2-3 Value Estimate ───────────────────────────────────────────────────
   let sec23 = '<div class="pending">Value estimate pending — parcel not located.</div>';
   if (value && value.midpoint != null) {
-    const spread = (mb?.midpoint != null && cb?.midpoint != null) ? mb.midpoint - cb.midpoint : null;
-    const dayOneEquity = cover.equity_at_entry_bid ?? (mb?.midpoint != null && cb?.midpoint != null ? mb.midpoint - cb.midpoint : null);
+    // NaN-safe: != null lets NaN through (NaN != null is true) — the historical
+    // "$NaN" render on live cards. Only finite numbers become dollar strings.
+    const spread = (Number.isFinite(Number(mb?.midpoint)) && Number.isFinite(Number(cb?.midpoint)))
+      ? Number(mb.midpoint) - Number(cb.midpoint) : null;
+    // Entry-bid equity ONLY — never fall back to the spread: it is a different
+    // quantity (market−clearing, not market−entry) and rendering it under the
+    // "EQUITY AT ENTRY BID" label was the §2-3 mismatch.
+    const dayOneEquity = Number.isFinite(Number(cover.equity_at_entry_bid))
+      ? Number(cover.equity_at_entry_bid) : null;
     sec23 = `
       <div class="bands-grid">
         <div class="band-card clearing">
@@ -523,7 +530,10 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   // ── Summary grid (top stat bar) ───────────────────────────────────────────
   const mlProb = typeof ml.probability_third_party_purchase === 'number'
     ? `${(ml.probability_third_party_purchase * 100).toFixed(1)}%` : null;
-  const dayOneEquitySg = cover.equity_at_entry_bid ?? ((mb?.midpoint != null && cb?.midpoint != null) ? mb.midpoint - cb.midpoint : null);
+  // Same quantity as the §2-3 entry-bid bar — no spread fallback, no NaN passthrough.
+  const dayOneEquitySg = Number.isFinite(Number(cover.equity_at_entry_bid))
+    ? Number(cover.equity_at_entry_bid) : null;
+  const maxBidFinite = Number.isFinite(Number(maxBidVal)) ? Number(maxBidVal) : null;
   const summaryGrid = `<div class="summary-grid">
     <div>
       <div class="sg-label">Verdict</div>
@@ -531,11 +541,11 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
     </div>
     <div>
       <div class="sg-label">Shapira Max Bid</div>
-      <div class="sg-val orange">${maxBidVal != null ? `$${Number(maxBidVal).toLocaleString()}` : '—'}</div>
+      <div class="sg-val orange">${maxBidFinite != null ? `$${Math.round(maxBidFinite).toLocaleString()}` : '—'}</div>
     </div>
     <div>
-      <div class="sg-label">Day-1 Equity Surface</div>
-      <div class="sg-val">${dayOneEquitySg != null ? `$${dayOneEquitySg.toLocaleString()}` : '—'}</div>
+      <div class="sg-label">Equity at Entry Bid</div>
+      <div class="sg-val">${dayOneEquitySg != null ? `$${Math.round(dayOneEquitySg).toLocaleString()}` : '—'}</div>
     </div>
     ${mlProb ? `<div>
       <div class="sg-label">Third-party probability</div>
