@@ -12,7 +12,6 @@
 // guess them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,20 +19,25 @@ process.env.SUPABASE_URL ||= 'https://test.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 
 const { buildReport } = await import('../src/report/composer.js');
-const { _setModelForTest, _resetModelForTest } = await import('../src/report/xgboost-model.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const tinyModelDoc = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/tiny-xgb-model.json'), 'utf8'));
 
-function installTinyModel() {
-  const gbm = tinyModelDoc.learner.gradient_booster.model;
-  _setModelForTest({
-    version: 'v14.0',
-    trees: gbm.trees,
-    baseScore: parseFloat(tinyModelDoc.learner.learner_model_param.base_score),
-    featureNames: [],
-  });
-}
+// FIX (S5 Report Integrity Mission, Aug 21 2026): this suite used to mock the
+// retired v14.0 XGBoost model via xgboost-model.js's _setModelForTest, which
+// composer.js has not called since the V4 ensemble cutover (it now calls
+// ensemble-model.js's predictEnsemble exclusively — see composer.js
+// scoreModel()). xgboost-model.js was also independently overwritten on
+// Aug 7 with an unrelated ONNX-Node V4 module (issue found this session:
+// top-level `import ort from 'onnxruntime-node'`, a package not even in
+// package.json), so this suite's model-mock import crashed the entire test
+// file at load time - `node --test` never ran a single assertion in it.
+// None of the assertions below check model-score fields; scoreModel() in
+// composer.js already catches predictEnsemble() failures non-fatally
+// (available:false, model_version:null) so buildReport() completes fine
+// without a live Modal/Supabase connection. The mock calls are removed
+// rather than repaired because there is nothing left in the current
+// architecture for them to mock.
+function installTinyModel() {}
 
 // Live snapshot, 2026-07-20 (multi_county_auctions.id, resolved from case
 // number suffix per the brief's fixture numbering 414/2330/569/1771).
@@ -136,7 +140,6 @@ test('414: locatable, resolves state parcel, shapira_formula_params-driven verdi
   assert.equal(report.zoning.land_sqft, 15000);
   assert.equal(report.zoning.zoning_district, 'PENDING');
   assert.ok(report.red_flags.some(f => f.code === 'MH_TITLE'));
-  _resetModelForTest();
 });
 
 test('2330: unlocatable subject — SKIP, no value estimate, exact refusal sentence, no comps', async () => {
@@ -159,7 +162,6 @@ test('569: hidden plaintiff max bid renders literal "Hidden", never $0, plus hom
   assert.ok(report.red_flags.some(f => f.code === 'HOMESTEAD_OCCUPIED'));
   assert.ok(report.red_flags.some(f => f.code === 'PRE_1990_MH'));
   assert.ok(report.red_flags.some(f => f.code === 'HIDDEN_CAP'));
-  _resetModelForTest();
 });
 
 test('1771: stale (>5yr) prior sale is excluded from the value anchor but retained in transaction_history', async () => {
@@ -173,7 +175,6 @@ test('1771: stale (>5yr) prior sale is excluded from the value anchor but retain
   assert.match(priorSaleAnchor.source, /stale/);
   assert.equal(report.zoning.dor_jv_vs_assessed_divergence.dor_jv, 297594);
   assert.equal(report.zoning.dor_jv_vs_assessed_divergence.pa_assessed, 289040);
-  _resetModelForTest();
 });
 
 test('every dollar figure in the cover block carries a source', () => {
@@ -183,5 +184,95 @@ test('every dollar figure in the cover block carries a source', () => {
     assert.ok(report.cover.shapira_max_bid.source);
     assert.ok(report.cover.entry_bid.source);
   });
-  _resetModelForTest();
+});
+
+// ── S5 REPORT INTEGRITY MISSION regression fixture ──────────────────────────
+// Palm Beach 502025CA005319XXXAMB, mca_id cad5d07a-b9c7-433d-b365-3165637b7cbe.
+// Live defect (verified against multi_county_auctions this session): a
+// $17,403.61 judgment on a $457,184 assessed house (3.8% ratio) — an
+// HOA-style junior-lien foreclosure filed under a CA case number with no
+// plaintiff on file — shipped a $329K max bid on a lot that actually cleared
+// at $50,100 (auction_status=completed, tier1_sold_amount=50100,
+// tier1_sale_status=SOLD). This fixture pins the three fixes (red-flags.js
+// c041784, composer.js 33d6996) so this exact defect class cannot silently
+// regress: (1) JUNIOR_LIEN_RISK fires off the judgment/assessed ratio even
+// with plaintiff null and a CA (not CC) case number, (2) the judgment-ratio
+// clearing anchor is excluded (value:null) rather than dragging the average,
+// (3) a completed auction carries AUCTION_COMPLETED and never a bare BID.
+const PARCEL_PALM_BEACH = {
+  parcel_id: 'PB-TEST-00531', co_no: 60, phy_addr1: '123 TEST LN',
+  phy_city: 'WEST PALM BEACH', municipality: 'WEST PALM BEACH', dor_uc: '001',
+  jv: 457184, lnd_val: 120000, lnd_sqfoot: 8000, tot_lvg_ar: 2400,
+  phy_zipcd: '33401',
+};
+
+const AUCTION_PALM_BEACH = {
+  case_number: '502025CA005319XXXAMB', county: 'palm_beach',
+  property_address: '123 TEST LN, WEST PALM BEACH, FL- 33401',
+  auction_date: '2026-06-01', judgment_amount: 17403.61, plaintiff: null,
+  opening_bid: 17403.61, assessed_value: 457184, market_value: 457184,
+  plaintiff_max_bid: null, sale_type: 'foreclosure',
+  auction_status: 'completed', tier1_sold_amount: 50100,
+  tier1_sale_status: 'SOLD', homestead_status: 'non-homestead',
+  owner_name: 'TEST OWNER', parity_status: 'matched_clean',
+};
+
+// Palm Beach-shaped priors (roughly mirrors the live median_sold_to_assessed
+// ~0.50 noted for this county) — not a byte-copy of the live corpus.
+const PALM_BEACH_PRIORS_ROWS = [
+  { sold_amount: 60000, assessed_value: 120000, judgment_amount: 140000 },
+  { sold_amount: 75000, assessed_value: 150000, judgment_amount: 175000 },
+  { sold_amount: 90000, assessed_value: 180000, judgment_amount: 210000 },
+  { sold_amount: 50000, assessed_value: 100000, judgment_amount: 118000 },
+  { sold_amount: 110000, assessed_value: 220000, judgment_amount: 255000 },
+  { sold_amount: 65000, assessed_value: 130000, judgment_amount: 152000 },
+  { sold_amount: 80000, assessed_value: 160000, judgment_amount: 188000 },
+  { sold_amount: 95000, assessed_value: 190000, judgment_amount: 222000 },
+  { sold_amount: 55000, assessed_value: 110000, judgment_amount: 129000 },
+  { sold_amount: 100000, assessed_value: 200000, judgment_amount: 233000 },
+  { sold_amount: 70000, assessed_value: 140000, judgment_amount: 163000 },
+  { sold_amount: 85000, assessed_value: 170000, judgment_amount: 198000 },
+];
+
+function mockGetForPalmBeach() {
+  return async (pathStr) => {
+    if (pathStr.startsWith('multi_county_auctions')) return PALM_BEACH_PRIORS_ROWS;
+    if (pathStr.startsWith('county_co_no_resolution')) return [{ co_no: 60 }]; // palm_beach, live-confirmed
+    if (pathStr.startsWith('fl_parcels')) {
+      const match = decodeURIComponent(pathStr).match(/phy_addr1=eq\.([^&]+)/);
+      const addr = match?.[1];
+      return addr === '123 TEST LN' ? [PARCEL_PALM_BEACH] : [];
+    }
+    if (pathStr.startsWith('zoning_assignments')) return [];
+    if (pathStr.startsWith('shapira_formula_params')) return []; // falls to default params
+    return [];
+  };
+}
+
+test('Palm Beach 502025CA005319XXXAMB: junior-lien judgment ratio fires, garbage anchor excluded, completed sale never bare BID', async () => {
+  installTinyModel();
+  const get = mockGetForPalmBeach();
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+
+  assert.ok(report.red_flags.some(f => f.code === 'JUNIOR_LIEN_RISK'),
+    'a 3.8% judgment/assessed ratio must fire JUNIOR_LIEN_RISK even with plaintiff null and a CA case number');
+  assert.ok(report.red_flags.some(f => f.code === 'AUCTION_COMPLETED'),
+    'a completed auction (tier1_sold_amount set) must carry AUCTION_COMPLETED');
+  assert.ok(report.value_estimate, 'a locatable property with priors must still carry a value estimate');
+  const judgmentAnchor = report.value_estimate.anchors.find(a => a.key === 'judgment_ratio_prior');
+  assert.equal(judgmentAnchor.value, null,
+    'the judgment-ratio anchor must be excluded (null), not $17,403.61 x ratio dragging the clearing average');
+  assert.match(judgmentAnchor.source, /junior-lien scale, excluded/);
+  assert.ok(!report.cover.verdict.startsWith('BID'),
+    `a completed junior-lien lot must never render a bare BID verdict, got ${report.cover.verdict}`);
+  // The historical defect: a raw-assessed ARV fallback produced a ~$329K
+  // ceiling. With that fallback removed, either there is no ceiling at all
+  // (null) or, if clearing anchors alone produce one, it must be nowhere
+  // near assessed value ($457,184) — the failure mode was ceiling tracking
+  // assessed_value directly.
+  const maxBid = report.cover.shapira_max_bid.value;
+  if (maxBid != null) {
+    assert.ok(maxBid < AUCTION_PALM_BEACH.assessed_value * 0.5,
+      `shapira_max_bid ($${maxBid}) must not track raw assessed value ($${AUCTION_PALM_BEACH.assessed_value}) on a junior-lien lot);
+  }
 });
