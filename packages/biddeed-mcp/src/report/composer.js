@@ -18,7 +18,7 @@ import { buildCma, buildDistressedCma } from './cma.js';
 import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
 import { predictEnsemble } from './ensemble-model.js';
-import { deriveRedFlags, hasJuniorLienRisk, hasTaxDeedLienRisk } from './red-flags.js';
+import { deriveRedFlags, hasJuniorLienRisk, hasTaxDeedLienRisk, JUNIOR_JUDGMENT_TO_ASSESSED } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 
@@ -87,11 +87,27 @@ function computeValueEstimate(auction, priors, cma, distressedCma) {
     });
   }
   if (priors && !priors.insufficient && priors.median_sold_to_judgment && auction.judgment_amount > 0) {
-    clearingAnchors.push({
-      key: 'judgment_ratio_prior',
-      value: auction.judgment_amount * priors.median_sold_to_judgment,
-      source: `county clearance prior (median sold/FJ=${priors.median_sold_to_judgment.toFixed(3)}, n=${priors.n_sold_to_judgment})`,
-    });
+    // Junior-lien guard: the sold/FJ ratio prior is fit on first-mortgage
+    // foreclosures. A judgment far below assessed value is junior/HOA scale,
+    // and multiplying it by the ratio produces a garbage anchor that drags
+    // the whole clearing average ($17,403 x 0.538 = $9,357 on a $457K house
+    // — Palm Beach 502025CA005319XXXAMB). Excluded, reason shown, following
+    // the same value:null convention as the stale prior-sale exclusion.
+    const jToAssessed = auction.assessed_value > 0
+      ? auction.judgment_amount / auction.assessed_value : null;
+    if (jToAssessed != null && jToAssessed < JUNIOR_JUDGMENT_TO_ASSESSED) {
+      clearingAnchors.push({
+        key: 'judgment_ratio_prior',
+        value: null,
+        source: `judgment $${auction.judgment_amount.toLocaleString()} is ${Math.round(jToAssessed * 100)}% of assessed — junior-lien scale, excluded as clearing anchor (sold/FJ prior assumes a first-mortgage judgment)`,
+      });
+    } else {
+      clearingAnchors.push({
+        key: 'judgment_ratio_prior',
+        value: auction.judgment_amount * priors.median_sold_to_judgment,
+        source: `county clearance prior (median sold/FJ=${priors.median_sold_to_judgment.toFixed(3)}, n=${priors.n_sold_to_judgment})`,
+      });
+    }
   }
   // Layer 1 distressed CMA median (from multi_county_auctions)
   if (distressedCma?.median_distressed_price > 0) {
@@ -321,7 +337,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   ]);
   const value = computeValueEstimate(auction, priors, cma, distressedCma);
   const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
-  const shapira = await computeShapiraCeiling(auction, county, value.midpoint ?? auction.assessed_value, sellProb, parcel?.dor_uc, { get });
+  const shapira = await computeShapiraCeiling(auction, county, value.midpoint, sellProb, parcel?.dor_uc, { get });
   const ceiling = shapira.ceiling;
   // Entry bid preference: opening_bid (rare — usually null in this feed) >
   // plaintiff_max_bid (the plaintiff's disclosed credit-bid floor, when not
@@ -336,6 +352,16 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     ? (auction.opening_bid ? 'opening_bid (unpaid taxes + certificate interest + fees)' : 'opening_bid (not on file)')
     : (auction.opening_bid ? 'opening_bid' : auction.plaintiff_max_bid ? 'plaintiff_max_bid (disclosed credit-bid floor)' : 'judgment_amount (no opening bid or plaintiff max bid on file — conservative fallback)');
   const redFlags = deriveRedFlags(auction);
+
+  // A completed sale must never present itself as an actionable bid card.
+  // The pre-sale verdict is preserved (it is what §18 grades), but the card
+  // carries an explicit completed-auction notice.
+  const saleCompleted = String(auction.auction_status || '').toLowerCase() === 'completed'
+    || auction.tier1_sold_amount != null || auction.sold_amount != null;
+  if (saleCompleted) {
+    redFlags.push({ code: 'AUCTION_COMPLETED', severity: 'pending',
+      text: `This auction has already completed${auction.auction_date ? ` (${auction.auction_date})` : ''}. The verdict on this card is the model pre-sale call, preserved for grading in the SECTION 18 Outcome Scorecard — do not treat it as an actionable bid recommendation.` });
+  }
 
   // hasHiddenCap: foreclosure-only concept. Tax deeds have no plaintiff.
   const hasHiddenCap = !isTaxDeed && auction.plaintiff_max_bid == null;
