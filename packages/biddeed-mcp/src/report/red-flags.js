@@ -18,6 +18,11 @@ const JUNIOR_PLAINTIFF_RE = /\b(ASSOCIATION|CONDOMINIUM|HOA|MASTER|VILLAS|HOMEOW
 // because the composer's judgment-ratio clearing anchor keys off the same
 // constant — the two checks must never drift apart.
 export const JUNIOR_JUDGMENT_TO_ASSESSED = 0.15;
+// Bank-name guard: "US BANK TRUST NATIONAL ASSOCIATION", "FEDERAL NATIONAL
+// MORTGAGE ASSOCIATION" et al. contain ASSOCIATION but are first-mortgage
+// plaintiffs. Without this guard every spelled-out national-association bank
+// was falsely flagged junior (caught live on the Marion reference card).
+const BANKLIKE_PLAINTIFF_RE = /\b(NATIONAL ASSOCIATION|BANK|MORTGAGE|CREDIT UNION|SAVINGS)\b/i;
 
 // ── Shared flags (both sale types) ─────────────────────────────────────────
 function sharedFlags(auction) {
@@ -80,10 +85,11 @@ function foreclosureFlags(auction) {
   const jRatio    = (auction.judgment_amount > 0 && auction.assessed_value > 0)
     ? auction.judgment_amount / auction.assessed_value : null;
   const tinyJudgment = jRatio != null && jRatio < JUNIOR_JUDGMENT_TO_ASSESSED;
-  if (tinyJudgment && !JUNIOR_CASE_RE.test(caseNo) && !JUNIOR_PLAINTIFF_RE.test(plaintiff))
+  const plaintiffJunior = JUNIOR_PLAINTIFF_RE.test(plaintiff) && !BANKLIKE_PLAINTIFF_RE.test(plaintiff);
+  if (tinyJudgment && !JUNIOR_CASE_RE.test(caseNo) && !plaintiffJunior)
     flags.push({ code: 'JUNIOR_LIEN_RISK', severity: 'risk',
       text: `Judgment ($${auction.judgment_amount.toLocaleString()}) is only ${Math.round(jRatio * 100)}% of assessed value ($${auction.assessed_value.toLocaleString()}) — inconsistent with a first-mortgage foreclosure. This is junior/HOA-lien scale: the first mortgage likely SURVIVES the sale, and the clearing price will track equity above the surviving debt, not property value. BID suppressed to REVIEW until lien priority is confirmed.` });
-  else if (JUNIOR_CASE_RE.test(caseNo) || JUNIOR_PLAINTIFF_RE.test(plaintiff))
+  else if (JUNIOR_CASE_RE.test(caseNo) || plaintiffJunior)
     flags.push({ code: 'JUNIOR_LIEN_RISK', severity: 'risk',
       text: `Case number (${caseNo}) or plaintiff (${plaintiff || 'unknown'}) suggests a junior/HOA lien rather than a primary mortgage. The first mortgage likely SURVIVES — verify lien priority before bidding. BID suppressed to REVIEW until lien survival confirmed.` });
 
