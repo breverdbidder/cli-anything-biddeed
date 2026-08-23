@@ -1,0 +1,80 @@
+-- Gold Standard shard-2 (dispatch f6a6977d-0263-42f8-8255-d26612af2a16): levy E/I/J
+-- structural-ceiling documentation. NO DATA CHANGED — this is a research-attempt
+-- finding, not a fix. pencil_dod_evaluate_county('levy') is unchanged before/after:
+-- E=93.5% (29/31), I=93.5% (29/31), J=93.5% (29/31).
+--
+-- Root cause: exactly 2 of Levy's 31 rows are completely unenriched stubs with
+-- NULL parcel_id / property_address / latitude / longitude / assessed_value /
+-- market_value:
+--   case_number = '2026-4163TD'        (tax_deed,   auction_date 2026-11-09,
+--                                        parity_status='PARITY_OK', source=levy_clerk_tax_deed)
+--   case_number = '2025000075CAAXMX'   (foreclosure, auction_date 2026-04-20,
+--                                        data_source='cert-fix-criteria-1letter-manual-verify',
+--                                        source_url=https://floridapublicnotices.com/notices/11527932)
+--
+-- These 2 rows are also the I-gap (card_complete needs the same fields) and the
+-- J-gap (SELECT against bid_decisions for both case numbers returned zero rows —
+-- no address/parcel means no CMA inputs means the deal-triangle pipeline has
+-- nothing to build a deal on; this is downstream of the same root cause, not an
+-- independent scheduling gap).
+--
+-- Real research performed this session (all live, all VERIFIED):
+--   1. floridapublicnotices.com/notices/11527932 (the foreclosure's own source_url)
+--      DID yield real identifying detail: legal description "Lots 5 and 6, Block 1,
+--      Map of Oak Villa, Plat Book 1 Page 39" and owner/defendant names
+--      "Harman A. Ross III" and "Lakeyra D. Ross". No parcel ID is published in the
+--      notice itself (legal description serves as the identifier per the notice).
+--   2. Attempted to cross-reference that owner name / legal description against the
+--      FL GIO Statewide Cadastral ArcGIS FeatureServer
+--      (services9.arcgis.com/.../Florida_Statewide_Cadastral/FeatureServer/0/query)
+--      to recover a parcel_id + address + geometry + JV/AV_NSD for the Ross parcel.
+--      15+ query variants were attempted (OWN_NAME='ROSS HARMAN A III', OWN_NAME LIKE
+--      'ROSS HARMAN%', S_LEGAL LIKE '%OAK VILLA%', PHY_CITY='BRONSON', CO_NO=37/38/48
+--      per fl_counties.co_no=48 and co_no_old_alphabetical=38 for Levy). Every one of
+--      these targeted queries returned either HTTP 400 "Cannot perform query. Invalid
+--      query parameters." or a curl connect/read timeout. Control queries against the
+--      same endpoint in the same session (OWN_NAME LIKE 'ROSS%' unscoped, PHY_CITY
+--      LIKE 'MACC%', PHY_CITY='MACCLENNY', CO_NO=12) succeeded reliably, confirming
+--      the endpoint itself is reachable and functioning — the failures are specific
+--      to this research target (Levy-scoped queries) in this session, not a general
+--      outage. A CO_NO=48 sanity probe also returned HTTP 400, which combined with
+--      CLAUDE.md's separate note that CO_NO=48 is Orange County means fl_counties'
+--      stored co_no for Levy is suspect and should be re-verified in a future session
+--      before being relied on for county-scoped FL GIO queries.
+--   3. Attempted qpublic.net/fl/levy (Levy County Property Appraiser's platform,
+--      confirmed live via redirect from levypa.com) directly — returned HTTP 403
+--      (Cloudflare/bot-protection) to both WebFetch and curl.
+--   4. Attempted levyclerk.com and levy.realtaxdeed.com (Levy Clerk case docket /
+--      tax deed sale system, for case 2026-4163TD) — both returned HTTP 403
+--      (Cloudflare bot-protection).
+--   5. Attempted Firecrawl (/v1/search and /v1/scrape) as a JS-rendering fallback for
+--      both qpublic and the clerk sites — both endpoints returned HTTP 402
+--      "Insufficient credits" (fleet-wide account state, not fixable from this
+--      county-scoped session).
+--   6. browser-use CLI is not installed in this sandbox (command not found), so no
+--      interactive-browser fallback was available either.
+--
+-- Conclusion: this is a genuine structural-ceiling / tooling-availability blocker for
+-- THIS session, not a fabrication-vs-effort tradeoff. Real, identifying data (owner
+-- names + legal description) WAS recovered for the foreclosure case and is available
+-- for a future session with working qpublic/ArcGIS access to complete the parcel
+-- match. The tax deed case (2026-4163TD) has no docket detail recovered at all this
+-- session because its only lead (the Levy Clerk tax deed portal) was Cloudflare-
+-- blocked. Per HONESTY PROTOCOL / fail-loud invariant, no parcel_id, address,
+-- coordinates, or value was fabricated for either row.
+--
+-- Residual for a future session:
+--   - Re-verify Levy's true CO_NO against FL GIO (fl_counties.co_no=48 collides with
+--     Orange County's CO_NO per CLAUDE.md and was itself rejected by the cadastral
+--     API with HTTP 400 — do not trust it uncritically).
+--   - Retry qpublic.net/fl/levy and levy.realtaxdeed.com with an interactive browser
+--     tool (browser-use or Playwright) once available, using the Ross owner
+--     name / "Oak Villa" legal description already recovered here for
+--     2025000075CAAXMX.
+--   - Retry the Levy Clerk portal for case 2026-4163TD once Cloudflare-passable
+--     tooling is available; no identifying detail beyond the case number itself has
+--     been recovered for this case yet.
+--
+-- No schema change and no data mutation — this migration is documentation-only and
+-- intentionally contains no DDL/DML.
+SELECT 1;
