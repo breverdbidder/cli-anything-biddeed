@@ -96,6 +96,7 @@ def parse_tax_deed() -> list[dict]:
             "raw_comment": f"status={status} | cert={f.get('certificate_number', '').strip()} | base_bid={f.get('base_bid', '').strip()}",
             "case_title": f"{applicant} VS {owners}".strip(" VS"),
             "source_url": BASE_URL,
+            "parcel_id": f.get("parcel_id", "").strip() or None,
         })
     if not rows_out:
         raise RuntimeError("walton tax_deed: parsed 0 rows from a successful fetch — treat as FAILURE, not an empty calendar")
