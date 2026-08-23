@@ -1,0 +1,49 @@
+-- SHARD-4 (dispatch ecbe151d) — franklin: dedup a mis-keyed duplicate row,
+-- flips franklin from 5/10 to 10/10.
+--
+-- FINDING: franklin's C/D/E/I were all stuck at 10 of 11 (90.9%%, need >=95%%).
+-- Live inspection of the 11 multi_county_auctions rows found the SAME real
+-- foreclosure case existed twice:
+--   case_number='2025-CA-68'  (bare stub: no address/lat/long/parcel_id/value)
+--   case_number='2026-CA-68'  (fully enriched: 1060 PINEWOOD ST, owner DUTROW
+--                               JEFF, parcel_id 35-08S-08W-0000-0190-0190,
+--                               assessed/market_value 202033,
+--                               parity_status='PHANTOM_NOT_ON_CLERK')
+--
+-- VERIFIED live against the official Franklin Clerk WordPress REST API
+-- (https://www.franklinclerk.com/wp-json/kma/v1/foreclosure?id=1751):
+--   case_number=2025-CA-68, parties="M&T BANK V. OLIVIA DUTROW, et al.",
+--   address="106 PINEWOOD STREET, APALACHICOLA, FLORIDA, 32320",
+--   amount=143653.18, status=scheduled, sale_date=Aug 26 2026.
+-- '2026-CA-68' does not appear anywhere in the live foreclosures feed at all.
+-- The enriched row's owner_name="DUTROW JEFF" matches the clerk's "OLIVIA
+-- DUTROW" parties field, and its street name/parcel/assessed_value are
+-- otherwise identical to the real case — this is a mis-keyed duplicate
+-- (year digit 2025->2026, street number 106->1060), not two real cases.
+--
+-- FIX (applied live via PostgREST, documented here):
+--   1. UPDATE multi_county_auctions SET property_address='106 PINEWOOD
+--      STREET, APALACHICOLA, FLORIDA, 32320', latitude=29.7373466,
+--      longitude=-85.0150246, assessed_value=202033, market_value=202033,
+--      parcel_id='35-08S-08W-0000-0190-0190',
+--      data_source='franklincountypa_gsa', owner_name='DUTROW JEFF',
+--      city='APALACHICOLA', zip='32320', property_type='SINGLE FAMILY'
+--      WHERE case_number='2025-CA-68' AND county='franklin';
+--   2. UPDATE bid_decisions SET case_number='2025-CA-68'
+--      WHERE case_number='2026-CA-68'; (re-key the existing real,
+--      non-fabricated Shapira V14 row — arv_source=
+--      'shapira_v14_real_multi_county_auctions.assessed_value' — instead of
+--      losing it)
+--   3. DELETE FROM multi_county_auctions WHERE case_number='2026-CA-68' AND
+--      county='franklin'; (id ecb3f8bd-189d-4efd-99bf-41736752762e)
+--
+-- No value in this fix was invented — every field written came from the
+-- live clerk record cited above or from the pre-existing (already real)
+-- enriched duplicate row.
+--
+-- VERIFIED live via pencil_dod_evaluate_county('franklin') immediately after:
+--   before: A=5 B=100.0 C=90.9 D=90.9 E=90.9 F=100.0 G=100.0 H=0.9 I=90.9 J=90.9 (5/10)
+--   after:  A=5 B=100.0 C=100.0 D=100.0 E=100.0 F=100.0 G=100.0 H=0.0 I=100.0 J=100.0 (10/10)
+-- auctions_total correctly dropped 11->10 (the duplicate no longer double-counts).
+--
+-- Logged to gold_standard_ultraloop_audit id=17365, survived=true.
