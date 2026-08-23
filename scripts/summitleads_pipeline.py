@@ -161,17 +161,27 @@ where not exists (select 1 from summitleads.routing_decisions rd where rd.lead_i
 """
 
 BATCH_QUERY = """
-select l.lead_id, l.entity_name, l.parcel_id, l.consent_certificate, l.closing_date, l.temperature,
-       l.product_line, qd.completeness_pct, qd.open_gaps, qd.payload, se.event_payload, p.full_name as producer_name
+select distinct on (l.lead_id)
+       l.lead_id, l.entity_name, l.parcel_id, l.contact_phone, l.contact_email, l.dnc_scrubbed_at,
+       l.consent_certificate, l.closing_date, l.temperature, l.product_line,
+       qd.completeness_pct, qd.open_gaps, qd.assembled_at,
+       se.county, se.occurred_at as signal_occurred_at,
+       se.event_payload->>'case_number' as case_number,
+       se.event_payload->>'sale_type' as sale_type,
+       (se.event_payload->>'sold_amount')::numeric as sold_amount,
+       se.event_payload->>'property_address' as property_address,
+       mca.assessed_value, mca.market_value,
+       p.full_name as producer_name
 from summitleads.leads l
 join summitleads.quote_drafts qd on qd.lead_id = l.lead_id
 join summitleads.signal_events se on se.signal_id = l.signal_id
 join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
 join summitleads.producers p on p.producer_id = rd.producer_id
+left join public.multi_county_auctions mca on mca.parcel_id = l.parcel_id and mca.county = se.county
 where not exists (
   select 1 from summitleads.lead_activity la where la.lead_id = l.lead_id and la.activity_type = 'delivered'
 )
-order by l.entity_name;
+order by l.lead_id, mca.assessed_value desc nulls last;
 """
 
 
