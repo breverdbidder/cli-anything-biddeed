@@ -1,0 +1,112 @@
+-- Gold Standard shard-3 (dispatch 0c873526-996a-4f5d-9123-99836d1d585f): LEE
+-- letter I (property card completeness) zone-linkage backfill.
+--
+-- BASELINE (live pencil_dod_evaluate_county, verified this session, 2026-08-23):
+--   I: card_complete=309 of 327 (94.5%) -- FAIL, need >=95% (311/327)
+--
+-- ROOT CAUSE: E=96.6% (316/327 have parcel_id) but I=94.5% (309/327). Of the
+-- 316 parcel-linked rows, 7 failed I: 3 unresolvable placeholder parcel_id
+-- values (MULTIPLE PARCEL / TIMESHARE / Property Appraiser -- not real
+-- STRAPs, left untouched), and 4 real STRAPs with full address/geo/value
+-- already on file but no parcel_zones row (pure zone-linkage gap, not a
+-- data-completeness gap).
+--
+-- FIX (3 of 4 rows -- see REGRESSION note below for the 4th):
+--   INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code,
+--     zone_name, source) VALUES
+--     ('29-43-25-11-00000.0670', 630, 'RS-1',
+--      'Residential Single-Family Low Density',
+--      'lee_gsd3_0c873526_dcdzoning_crosscheck_20260823'),
+--     ('22-43-24-03-00013.0010', 630, 'RPD',
+--      'Residential Planned Development',
+--      'lee_gsd3_0c873526_dcdzoning_crosscheck_20260823'),
+--     ('33-44-26-L3-07014.0040', 630, 'RM-2',
+--      'Residential Multiple Low Density',
+--      'lee_gsd3_0c873526_dcdzoning_crosscheck_20260823');
+-- Applied LIVE via Supabase REST POST (id=868744, 868745, 868746 -- confirmed
+-- via return=representation response). This file is the record, not the
+-- mechanism of the write (psql/pooler auth is broken in this sandbox).
+--
+-- Sources (both agree exactly on all 3 codes):
+--   1. Lee County Property Appraiser Parcels FeatureServer, exact STRAP match
+--      (digits-only normalized): https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/
+--      arcgis/rest/services/Lee_County_Parcels/FeatureServer/0/query, field
+--      ZONING.
+--   2. Lee County DCD_Zoning MapServer layer 0 "Zoning" (unincorporated Lee,
+--      the more authoritative parcel-level zoning layer, same source used in
+--      the precedent 20260803_gold_standard_shard2_lee_lake_i_zone_gap.sql):
+--      https://gismapserver.leegov.com/gisserver910/rest/services/Layers/
+--      DCD_Zoning/MapServer/0/query, point-in-polygon at each row's own
+--      stored latitude/longitude, field ZONING.
+-- All 3 zone codes already existed in zoning_districts for jurisdiction_id=
+-- 630 (verified live before insert: RS-1 id=11108, RPD id=11210,
+-- RM-2 id=11208) -- no new zoning_districts rows, no G-denominator expansion
+-- from these three.
+--
+-- ============================================================================
+-- REGRESSION FOUND AND REVERTED: 25-CA-006956 / 21-44-22-02-00000.009A
+-- ============================================================================
+-- Both sources agreed the parcel's zone is Transitional Fringe Commercial,
+-- but disagreed on the exact code string: Parcels FeatureServer ZONING field
+-- returned "TFC2" (no dash), DCD_Zoning (the more authoritative, spatially-
+-- verified source) returned "TFC-2" (with dash, matching the pre-existing
+-- zoning_districts.code='TFC-2', id=11215).
+--
+-- Inserting parcel_zones(parcel_id='21-44-22-02-00000.009A',
+-- jurisdiction_id=630, zone_code='TFC-2') flipped letter G from PASS
+-- (density=97.5 far=100.0 pk1000=100.0, metric=97.5) to FAIL
+-- (pk1000=88.9, metric=88.9). Root cause: TFC-2's zoning_districts row has
+-- category='commercial' and pk1000_regulated=NULL; v_zoning_district_
+-- applicability's fallback rule (see 20260718s_...pk1000_regulated_
+-- override_column.sql) marks any commercial/industrial/mixed-use district
+-- (not named 'pud') as pk1000_applicable=true when the override column is
+-- NULL. TFC-2's zone_standards row (id=3956) has parking_per_1000sf=NULL
+-- (a pre-existing low-confidence 0.65 municode scrape with every numeric
+-- field null) -- so this single new parcel counted against the pk1000
+-- denominator with no filled value, dropping pk1000_applicable_parcels'
+-- fill rate from 100% to 88.9% (8 of 9).
+--
+-- This is exactly the "unfillable liability" class flagged in this
+-- dispatch's KNOWN HISTORY section (Fort Myers Beach / Bonita Springs /
+-- Unincorporated Lee under-seeding) and in scripts/shard2_main_executor.py's
+-- disabled run_cd_parity() worked example: do not create a new denominator
+-- entry you cannot honestly fill. Per the hard prohibition on fabricating
+-- zoning-standard values, filling parking_per_1000sf for TFC-2 (real Lee
+-- County ordinance research) or confirming pk1000_regulated=false via
+-- ordinance text (okeechobee-PD-style override) was judged out of scope for
+-- this narrow I-only session.
+--
+-- REVERTED live: DELETE FROM public.parcel_zones WHERE id=868747
+-- (confirmed via REST DELETE return=representation, and via a fresh
+-- pencil_dod_evaluate_county('lee') call immediately after showing G back
+-- to PASS, pk1000=100.0, metric=97.5 -- byte-for-byte the pre-session G
+-- value). 25-CA-006956 remains an I residual: NOT fabricated, NOT silently
+-- dropped, documented here for the next session.
+--
+-- ============================================================================
+-- METRIC (live pencil_dod_evaluate_county, before -> after, this session)
+-- ============================================================================
+--   BEFORE: I card_complete=309 of 327 (94.5%) -- FAIL
+--   AFTER:  I card_complete=312 of 327 (95.4%) -- PASS
+--   Regression check (fresh live re-run after the TFC-2 revert): A/B/C/D/E/F/
+--   G/H/J all unchanged from baseline and still PASS:
+--     A fc=287 td=40 (metric=40) | B verified=20/20 (100.0) |
+--     C matched_clean=318 (97.2) | D matched_any=318 (97.2) |
+--     E parcel_linked=316 (96.6) | F tier1_sold=20/20 (100.0) |
+--     G density=97.5 far=100.0 pk1000=100.0 (metric=97.5) |
+--     H 1.1h since last_seen | J deal_complete=327 (100.0)
+--
+-- Residual (4 rows, NOT fabricated):
+--   24-CA-007460  parcel_id='Property Appraiser' (placeholder, not a real
+--                  STRAP) -- missing assessed_value/market_value too.
+--   25-CA-003367  parcel_id='MULTIPLE PARCEL' -- no property_address, not
+--                  resolvable to a single STRAP.
+--   25-CA-004116  parcel_id='TIMESHARE' -- no property_address/geo, not
+--                  resolvable to a single STRAP.
+--   25-CA-006956  parcel_id='21-44-22-02-00000.009A' -- real STRAP, zone
+--                  code TFC-2 confirmed via 2 independent live sources, but
+--                  applying it regresses G (see above). Needs real
+--                  parking_per_1000sf ordinance research for Lee County
+--                  TFC-2 (Sec. TBD, library.municode.com/fl/lee_county) or a
+--                  documented pk1000_regulated=false override before it can
+--                  be safely applied.
