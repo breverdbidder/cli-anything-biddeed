@@ -1,0 +1,84 @@
+-- SHARD-4 (dispatch 41bd7ce3, loop run 8166) -- osceola: criterion J re-run
+-- of the existing REAL per-property Shapira V14 generator
+-- (scripts/gold_standard_shard9_osceola_run255f_j_generator_real.py, first
+-- built for dispatch 255f0be0) against a NEW gap set that reappeared since
+-- that run (new tax_deed rows ingested 2026-08-18).
+--
+-- CONTEXT (fresh live check, 2026-08-23, this session):
+--   Session start: osceola A/B/E/F/G/H pass; C/D 89.3% (134/150) FAIL;
+--   I 90.7% (136/150) FAIL; J 90.7% (136/150) FAIL.
+--   Mid-session (background fleet activity, other concurrent shard sessions
+--   per PARALLEL-FLEET RULES): I moved to 96.7% (145/150) PASS on its own,
+--   unrelated to this session's writes -- reconfirmed live, not claimed by
+--   this session.
+--   J gap: 14 case_numbers had zero bid_decisions row at all (first-time
+--   fill, not stale/bucketed rows to purge). 13 of the 14 are the SAME
+--   2026-08-18 tax_deed batch implicated in the C/D parity_source gap below.
+--
+-- FIX: re-ran scripts/gold_standard_shard9_osceola_run255f_j_generator_real.py
+-- unmodified (idempotent, already-proven real-data pattern: real per-property
+-- assessed_value/market_value/parcel_valuations comps for ARV, Shapira
+-- Formula max_bid = (ARV*0.70)-repairs-10000 floored at MIN($25k,15%*ARV)
+-- profit, real XGBoost v14 model inference for ml_score via
+-- shapira-models/v14/2026-05-27-180308/model.json, osceola's real trained
+-- county_target_encoding_map rate 0.5563829787234043). No hardcoded
+-- county-wide constant (the anti-pattern purged fleet-wide today in dispatch
+-- ecbe151d for pasco/jackson) -- every row's arv/max_bid/ml_score/factors is
+-- computed from that specific property's own judgment/opening
+-- bid/assessed/market/comp data.
+--
+-- Result: 13 of 14 gap case_numbers had a real assessed/market/comps value
+-- on file and were inserted. 1 case_number (2025 CA 001721 MF, a foreclosure
+-- case, not part of the 2026-08-18 tax_deed batch) had no real value on file
+-- anywhere and was correctly SKIPPED by the script's existing BLANK > WRONG
+-- guard -- left unfixed, not fabricated.
+--
+-- VERIFIED live via pencil_dod_evaluate_county('osceola'), before -> after:
+--   J: deal_complete=136/150 (90.7%) FAIL -> deal_complete=149/150 (99.3%) PASS
+--   All other letters unchanged (A pass, B 100.0 pass, C 89.3 FAIL [unchanged,
+--   see companion finding below], D 89.3 FAIL [unchanged], E 100.0 pass,
+--   F 100.0 pass, G 98.4 pass, H pass, I 96.7 pass [unchanged by this write]).
+--   No regression on any previously-passing letter.
+--
+-- Applied live via the script itself (PostgREST POST/PATCH to bid_decisions),
+-- this file documents it per migration convention (direct psql unavailable
+-- in this environment).
+
+-- Re-run to confirm (Management API):
+-- SELECT public.pencil_dod_evaluate_county('osceola');
+
+-- ============================================================
+-- COMPANION FINDING (no write made, documented per BLANK > WRONG):
+-- osceola C/D remain FAIL (89.3%, 134/150). Root cause: 16 rows
+-- (parity_status='matched_clean', tier1_authoritative=true, sale_type=
+-- 'tax_deed', all from the same 2026-08-18T05:42-43Z batch) have
+-- parity_source IS NULL. The evaluator's C/D pass conditions require
+-- parity_source LIKE 'tier1%%' for matched_clean rows to count.
+--
+-- Reconfirmed live this session (scripts/shard4_run8166_osceola_cd_parity_source_backfill_41bd7ce3.py
+-- --dry-run, unmodified from the prior 2026-08-02 session that first found
+-- this): FOUR distinct parity_source conventions coexist among osceola's
+-- already-labeled tax_deed/tier1_authoritative rows (tier1_realforeclose_aids_osceola
+-- 94 rows, tier1:shard9_run3059_osceola_ajax_harvest 21 rows,
+-- tier1_realforeclose_aids_osceola_ext 5 rows, tier1_osceola_clerk_taxdeed_browserview
+-- 8 rows), none of which share a date range or auction_status shape with the
+-- 2026-08-18 batch (which is tagged auction_status='redeemed', a shape none
+-- of the 4 known source pipelines produced). No script or log in this repo
+-- documents what pipeline actually produced the 2026-08-18 batch.
+--
+-- Assigning any of the 4 existing labels (or inventing a 5th) to these 16
+-- rows would be guessing a provenance tag to force C/D to pass -- the exact
+-- fabrication pattern this campaign's guardrails prohibit, and the same
+-- anti-pattern already caught and reverted twice for this exact county
+-- (see scripts/shard4_run5153_osceola_i_enrichment.py docstring, the
+-- 2026-07-19/07-31 Osceola PD-fallback ghost-success revert). tier1_authoritative
+-- and parity_status='matched_clean' are left AS-IS (no evidence they are
+-- wrong -- only that the source label is unrecoverable this session).
+--
+-- DECISION: BLANK > WRONG. C/D remain FAIL, documented as a genuine
+-- structural/provenance gap requiring either (a) access to the actual
+-- harvest job's run-id/logs that produced the 2026-08-18 redeemed batch, or
+-- (b) an independent live re-verification path (e.g. re-querying the
+-- osceola tax collector directly for these 16 specific case numbers) for a
+-- future session.
+-- ============================================================
