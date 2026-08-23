@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 140" width="620" height="140">
+<g transform="translate(30,38)"><rect x="0" y="0" width="64" height="64" rx="17" fill="#d97757"/><path d="M15 19 L23 45 L32 24 L41 45 L49 19" fill="none" stroke="#faf9f5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="114" y="88" font-family="Poppins, Arial, sans-serif" font-size="42" font-weight="700" fill="#141413">Winner Data</text><text x="393.5" y="88" font-family="Poppins, Arial, sans-serif" font-size="42" font-weight="700" fill="#d97757">AI</text>
+</svg>
