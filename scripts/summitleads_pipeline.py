@@ -210,9 +210,22 @@ def main():
     if not os.environ.get("BRIGHTDATA_API_KEY") or not os.environ.get("BRIGHTDATA_BROWSER_WSS"):
         print("Sprint 1b BLOCKED: BRIGHTDATA_API_KEY/BRIGHTDATA_BROWSER_WSS absent — "
               "skipping winner harvest, running on existing winning_bidder data only.")
+    else:
+        print("Sprint 1b SCOPE GAP: BRIGHTDATA_* secrets are present, but no Bright Data "
+              "Scraping Browser client exists in this repo yet (no connect_over_cdp usage "
+              "anywhere; county_outcome_harvester.py is plain urllib, not a browser). "
+              "Secrets landing did not unblock this — the harvester still needs to be "
+              "written and verified against a live county site before it can run. "
+              "Running on existing winning_bidder data only.")
     if not os.environ.get("TRACERFY_API_KEY"):
         print("Sprint 2 degraded: TRACERFY_API_KEY absent — no phone/email skip-trace, "
               "leads created with contact info gaps flagged per compliance rails.")
+    else:
+        print("Sprint 2 SCOPE GAP: TRACERFY_API_KEY is present, but no Tracerfy API client "
+              "exists in this repo yet and its endpoint/auth contract is undocumented here. "
+              "Guessing at the API shape risks burning paid lookups or mishandling PII, so "
+              "this session leaves skip-trace degraded rather than faking a call. Leads "
+              "created with contact info gaps flagged per compliance rails.")
 
     run_sql(SPRINT1)
     print("Sprint 1 done: signal_events synced from last-7-day completed FL auctions.")
