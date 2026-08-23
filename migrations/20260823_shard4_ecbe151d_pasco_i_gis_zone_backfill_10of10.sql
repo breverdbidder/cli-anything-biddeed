@@ -1,0 +1,57 @@
+-- SHARD-4 (dispatch ecbe151d) — pasco: I criterion GIS zone backfill,
+-- 93.9%% (341/363) -> 95.0%% (345/363, PASS), flips pasco 9/10 -> 10/10.
+--
+-- Live point-in-polygon queries against Pasco County Property Appraiser's
+-- own public zoning GIS (mapping.pascopa.com/arcgis/rest/services/
+-- Land_Use/MapServer/1, ZN_TYPE field), continuing the exact real-source
+-- convention already established by prior sessions
+-- (source='pasco_bocc_gis:mapping.pascopa.com/... GS-PASCO-4-I-BATCH6-V1'
+-- etc, visible in the existing parcel_zones rows for jurisdiction_id=1258).
+--
+-- 3 parcels already had real address/lat/long/assessed_value but no
+-- zoning_districts match:
+--   34-25-16-0760-00300-0010 (7425 BETULA DR, NEW PORT RICHEY)  -> R-4
+--   23-25-16-0090-00000-7890 (8019 COLTON DR, PORT RICHEY)      -> R-3
+--   25-26-15-006D-00001-0320 (3518 CHAUNCY RD, HOLIDAY)         -> R-4
+--   (confirmed via mapping.pascopa.com point-in-polygon on each row's
+--   existing real lat/long; R-3/R-4 already exist in zoning_districts for
+--   jurisdiction_id=1258, "Unincorporated Pasco County")
+--
+-- 1 parcel had no lat/long/value at all (bare calendar-sweep row):
+--   19-26-17-0030-00500-0050 (3211 TOWN AVE, NEW PORT RICHEY,
+--   case 51-2025-CA-003757-CAAX-WS): sourced real JV=534744 and a polygon
+--   centroid from FL GIO Statewide Cadastral (services9.arcgis.com,
+--   Florida_Statewide_Cadastral/FeatureServer/0, single-parcel query
+--   WHERE CO_NO=61 AND PARCEL_ID=<this>, PHY_ADDR1 returned "3211 TOWN"
+--   confirming the match), then zone MPUD via the same point-in-polygon
+--   method as above.
+--
+-- DELIBERATELY SKIPPED 2 candidate parcels (would have been ghost-success):
+--   ZN_TYPE returned "ZH" for both (6256 BRADFORD WOODS DR and 6964 RIPPLE
+--   POND LOOP, both ZEPHYRHILLS). "ZH" does NOT appear in the Land_Use
+--   MapServer's own published legend (every real code links to a page in
+--   the county LDC ch500 PDF; "ZH" has no such entry — only a bare
+--   "Zephyrhills" municipal label appears nearby). Both parcels are
+--   physically within Zephyrhills city limits. This is the same pitfall
+--   class documented for osceola's PRIM_ZON=INCORP annexed parcels: the
+--   county's zoning layer flags "not ours to zone," not a real zoning
+--   district. Inserting "ZH" as zone_code would satisfy the evaluator's
+--   `zone_code IS NOT NULL` check without being a real answer — left
+--   unfixed. BLANK > WRONG.
+--
+-- Applied live via PostgREST:
+--   UPDATE multi_county_auctions SET latitude=..., longitude=...,
+--     assessed_value=534744, geo_source='fl_gio_statewide_cadastral_polygon_centroid_ecbe151d'
+--     WHERE case_number='51-2025-CA-003757-CAAX-WS' AND county='pasco';
+--   INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code,
+--     zone_name, source) VALUES (...) for the 4 parcels above, jurisdiction_id=1258,
+--     source='pasco_bocc_gis:mapping.pascopa.com/Land_Use/MapServer/1
+--     point-in-polygon (ZN_TYPE), GS-PASCO-4-I-ecbe151d-BATCH1'
+--
+-- VERIFIED live via pencil_dod_evaluate_county('pasco'):
+--   before: I=93.9 (341/363) FAIL, 9/10 overall
+--   after:  I=95.0 (345/363) PASS, all other letters unchanged
+--     (A=162 B=100.0 C=95.6 D=95.6 E=98.9 F=100.0 G=95.6 H=0.0 J=100.0)
+--     -> 10/10 PASS
+--
+-- Logged to gold_standard_ultraloop_audit id=17366, survived=true.
