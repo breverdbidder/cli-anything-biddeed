@@ -1,0 +1,137 @@
+-- Gold Standard shard-4 dispatch 2a2187fa-aa9f-426d-aa6f-f560909568d2: dixie
+-- Loop run 6080. Brief: "C/D fresh-check on 15-2023-CA-57 (sale date now
+-- passed) + 7-day audit-freshness sweep on the 8 stale-but-passing letters,
+-- adversarially verify."
+--
+-- IMPORTANT STATE-CHANGE FINDING: the dispatch's BASELINE text (auctions_total
+-- 33, C/D FAIL at 75.8%%, E/I PASS) describes the county's state as of
+-- 2026-07-19/07-24. Between then and this session (2026-08-23) a separate
+-- prior session (2026-08-01, per gold_standard_ultraloop_audit history)
+-- already resolved C/D to 100%% -- including the exact 15-2023-CA-57 lead
+-- this dispatch was written to chase (parity_source=
+-- 'tier1:dixieclerk_foreclosure_calendar:shard3_run17148_architect_triage_17148').
+-- No re-fix was needed or attempted; this migration documents the live
+-- re-verification only. In the same window, auctions_total grew 33 -> 35 (2
+-- new upcoming foreclosure cases scraped: 15-2025-CA-46 due 2026-08-25,
+-- 15-2025-CA-24 due 2026-09-08), and because neither yet has a real
+-- discoverable parcel_id, letters E and I -- PASS at baseline -- now FAIL
+-- live. This is reported honestly below as a genuine new residual, not
+-- silently absorbed into a "sweep was clean" narrative.
+--
+-- BASELINE PER DISPATCH BRIEF (as originally written, 2026-07-19/24, NOT
+-- re-verified live -- superseded, shown for traceability only):
+--   A=PASS(2) B=PASS(100.0) C=FAIL(75.8) D=FAIL(75.8) E=PASS(97.0)
+--   F=PASS(100.0) G=PASS(100.0) H=PASS(~a few h) I=PASS(97.0) J=PASS(100.0)
+--   auctions_total=33
+--
+-- LIVE STATE THIS SESSION (verified via pencil_dod_evaluate_county('dixie'),
+-- 2026-08-23T16:19Z):
+--   A=PASS metric=4     (fc=4 td=31)
+--   B=PASS metric=100.0 (verified=12 closed_sold=12)
+--   C=PASS metric=100.0 (matched_clean=35)   -- MOVED, already fixed pre-session
+--   D=PASS metric=100.0 (matched_any=35)     -- MOVED, already fixed pre-session
+--   E=FAIL metric=94.3  (parcel_linked=33 of 35)  -- REGRESSED vs baseline (new rows)
+--   F=PASS metric=100.0 (tier1_sold=12 closed_sold=12)
+--   G=PASS metric=100.0 (density=100.0 far=100.0 pk1000=null/no-applicable-districts)
+--   H=PASS metric=0.1h  (hours since last_seen, SLA 48h -- live clock)
+--   I=FAIL metric=94.3  (card_complete=33 of 35)  -- REGRESSED vs baseline (new rows, gated on E)
+--   J=PASS metric=100.0 (deal_complete=35)
+--   auctions_total=35
+--
+-- ADVERSARIAL SPOT-CHECKS THIS SESSION (all real queries against live data):
+--
+--   A -- SURVIVED. GROUP BY sale_type reproduces fc=4 td=31 exactly.
+--
+--   B -- SURVIVED. All 12 verified<->closed_sold rows spot-checked: source
+--      data_source='dixieclerk_tax_deed_page_live_v1' (never propertyonion),
+--      real varied non-round sold amounts (2839.02, 1567.88, 36600.00, etc).
+--      No regression to the 2026-07-10 fabrication-then-purge pattern.
+--
+--   C/D -- SURVIVED. Direct anti-join for any row NOT satisfying the C pass
+--      predicate returns zero rows fleet-wide for dixie. 15-2023-CA-57
+--      confirmed parity_status='matched_clean',
+--      parity_source='tier1:dixieclerk_foreclosure_calendar:...'. Genuine
+--      fix, not this session's doing -- landed by a prior session on or
+--      before 2026-08-01.
+--
+--   E -- DID NOT SURVIVE (i.e. genuinely fails, correctly so -- not a
+--      ghost-pass). 2 new rows (15-2025-CA-46, 15-2025-CA-24) have
+--      parcel_id IS NULL. Both have only a county-level placeholder
+--      property_address; defendant/plaintiff names ARE known
+--      (CROSSCOUNTRY MORTGAGE LLC vs ROGER THOMAS ANSIN JR et al;
+--      MIDFIRST BANK vs LYNDI BROOKE BRIDGE et al) but no legal_description
+--      is populated by the clerk scraper yet, and both this session's
+--      qpublic.schneidercorp.com owner-name-search attempt (HTTP 403,
+--      Cloudflare, reconfirmed) and dixiecountypropertyappraiser.org (no
+--      scriptable search endpoint found) failed to resolve a parcel_id via
+--      owner name. This matches this county's long-documented exhausted-
+--      source list. Genuine structural gap for these 2 specific
+--      still-upcoming cases (2026-08-25, 2026-09-08); not fabricated
+--      around. Distinctness regression-check on the OTHER 33 already-linked
+--      rows: 34 distinct latitude values, 24 distinct assessed_value values
+--      out of 35 total rows -- confirms the 2026-07-31 real-data fix (which
+--      replaced an earlier uniform-placeholder ghost-pass caught by a
+--      2026-07-24 session, see 20260724_shard4_dixie_8letter_freshness_audit_run5361.sql)
+--      still holds; no regression back to placeholder data.
+--
+--   F -- SURVIVED. Same 12 rows as B; tier1_sold_amount matches sold_amount
+--      to the cent for all 12, real non-zero varied amounts.
+--
+--   G -- SURVIVED. v_zoning_gold_standard_kpi_v3 for dixie:
+--      pk1000_applicable_parcels=0, pk1000_na_parcels=34 -- genuine
+--      structural N/A (no parking-per-1000sf-applicable zoning districts in
+--      dixie), not silently-excluded missing data.
+--
+--   H -- SURVIVED. last_seen_at=2026-08-23T16:12:08Z, ~7 minutes before the
+--      query -- genuinely live, well within the 48h SLA.
+--
+--   I -- DID NOT SURVIVE (genuinely fails, correctly so). Same 2 rows as E
+--      (I is structurally gated on E per the evaluator: a row can't be
+--      card_complete without first being parcel-linked). Regression-check
+--      on the 33 already-complete rows confirms real distinct per-parcel
+--      data (see E section above) -- the 2026-07-24 ghost-pass this letter
+--      previously exhibited (uniform county-centroid values across all 33
+--      rows) is NOT present now; genuinely fixed since 2026-07-31, holding.
+--
+--   J -- SURVIVED. deal_complete=35/35. 10-case distinct sample: 25 distinct
+--      ARV values and 15 distinct max_bid values across the 35 cases --
+--      confirms the 2026-07-24 ghost-pass this letter previously exhibited
+--      (1 shared arv/max_bid pair across 32 of 33 cases, traced to a
+--      uniform-placeholder-assessed-value root cause) is NOT present now;
+--      genuinely fixed since 2026-07-31 (same session as the I fix), still
+--      holding. Observation (informational only, not a finding): ml_score
+--      clusters at 0.72/0.74 across most cases -- plausibly a coarse model
+--      output range; flagged for awareness, out of this session's scope to
+--      investigate the ML scoring model internals.
+--
+-- ACTIONS APPLIED LIVE THIS SESSION:
+--   - No data was written to multi_county_auctions, tax_deed_outcomes,
+--     foreclosure_outcomes, parcel_zones, or bid_decisions. This was a
+--     read-only re-verification + adversarial spot-check pass; C/D's fix
+--     was made by a prior session, not this one. E/I's gap was investigated
+--     (owner-name lookup attempted, blocked) but not force-fixed --
+--     genuinely residual, reported honestly rather than fabricated around.
+--   - 10 rows INSERTed into public.gold_standard_ultraloop_audit
+--     (dispatch_id 2a2187fa-aa9f-426d-aa6f-f560909568d2, county_slug
+--     'dixie', ultraloop_mode 'fallback'): A, B, C, D, F, G, H, J
+--     survived=true; E, I survived=false (correctly reflecting their live
+--     FAIL state -- "survived=false" here means the adversarial check
+--     found the letter genuinely does NOT pass, which is the honest
+--     result, not a data-quality problem with a passing letter).
+--
+-- HONESTY NOTE: this migration intentionally reports 2 letters (E, I) that
+-- were PASSING per the dispatch's written baseline as now FAILING live. The
+-- brief scoped this session narrowly to C/D + "the 8 stale-but-passing
+-- letters" freshness sweep; E and I were part of that original 8 but have
+-- since regressed due to 2 new auction rows arriving via the normal scraper
+-- pipeline (not a bug introduced by this session). Per the campaign's
+-- fail-loud + BLANK > WRONG rules, this is reported plainly rather than
+-- silently logging survived=true audit rows for letters that no longer
+-- pass. Root-causing/fixing E/I's new gap (owner-name-based parcel
+-- discovery via a source other than the 2 already-exhausted ones) is out of
+-- this bounded pass's budget and is left as residual for a future session.
+--
+-- This is a documentation-only migration mirroring live REST/RPC calls
+-- already made during this session (10 gold_standard_ultraloop_audit
+-- INSERTs via PostgREST). No schema change. Idempotent no-op below.
+SELECT 1;
