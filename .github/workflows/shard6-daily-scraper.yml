@@ -58,7 +58,18 @@ jobs:
       - name: Generate bid_decisions for all SHARD-6 counties
         run: |
           set -euo pipefail
-          for county in okeechobee jackson dixie; do
+          # jackson REMOVED 2026-08-23 (gold-standard shard-4, dispatch ecbe151d):
+          # shard6_j_generator.py writes ONE hardcoded county-wide ARV/max_bid
+          # (arv=135000 for every property, ignoring real assessed_value/market_value)
+          # with no dedup, so this daily unconditional call had been re-inserting
+          # duplicate bid_decisions rows for jackson every day since ~2026-07
+          # (7,200 ghost rows fleet-wide from this generator, ~3,060 of them
+          # jackson's). Purged + rebuilt jackson with real per-property ARV this
+          # session; see PURGED_GHOST_2026-08-23_shard4_ecbe151d_jackson_j_gen_*
+          # tombstone in bid_decisions.arv_source. okeechobee/dixie are left
+          # running here (out of this shard's scope) but carry the identical bug —
+          # flagged for their owning shard, not fixed here.
+          for county in okeechobee dixie; do
             echo "=== Running J-generator for $county ==="
             python scripts/shard6_j_generator.py --county "$county"
           done

@@ -78,7 +78,18 @@ jobs:
       - name: Generate bid_decisions for run651 counties
         run: |
           set -euo pipefail
-          for county in manatee indian_river pasco; do
+          # pasco REMOVED 2026-08-23 (gold-standard shard-4, dispatch ecbe151d):
+          # shard9_j_generator.py writes ONE hardcoded county-wide ARV/max_bid
+          # (ignores each property's real assessed_value/market_value) with no
+          # dedup, so this daily unconditional call had been re-inserting ~50-90
+          # byte-identical duplicate bid_decisions rows for pasco every day since
+          # 2026-07-01 (76,672 ghost rows fleet-wide from this generator, 29,034
+          # of them pasco's). Purged + rebuilt pasco with real per-property ARV
+          # this session; see PURGED_GHOST_2026-08-23_shard4_ecbe151d_pasco_j_gen_*
+          # tombstone in bid_decisions.arv_source. manatee/indian_river are left
+          # running here (out of this shard's scope) but carry the identical bug —
+          # flagged for their owning shard, not fixed here.
+          for county in manatee indian_river; do
             echo "=== J-generator for $county ==="
             python scripts/shard9_j_generator.py --county "$county" || echo "WARN: $county failed, continuing"
           done

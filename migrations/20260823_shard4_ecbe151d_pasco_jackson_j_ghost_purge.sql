@@ -1,0 +1,84 @@
+-- SHARD-4 (dispatch ecbe151d) — pasco + jackson: purge active daily-cron
+-- ghost-fill in bid_decisions (criterion J), rebuild with real per-property
+-- Shapira Formula ARV.
+--
+-- ROOT CAUSE: two GHA workflows called scripts/shard9_j_generator.py and
+-- scripts/shard6_j_generator.py unconditionally every day
+-- (gold-standard-shard9-run651.yml @ 14:00 UTC, shard6-daily-scraper.yml
+-- @ 12:00 UTC). Both scripts hardcode ONE ARV/max_bid value for the entire
+-- county (pasco arv=310000->124000 computed bid; jackson arv=135000->54000
+-- computed bid) regardless of each property's real assessed_value/
+-- market_value, and INSERT with no dedup/upsert key — so every daily run
+-- added ~50-90 more byte-identical duplicate rows. Confirmed live 2026-08-23:
+--   bid_decisions WHERE arv_source='shapira_formula_shard9_j_gen': 76,672 rows
+--     fleet-wide (29,034 pasco; also volusia/manatee/lee/walton/bay/duval/
+--     clay/indian_river/highlands/okeechobee/citrus/calhoun/st_lucie/baker/
+--     santa_rosa/palm_beach/charlotte/taylor/martin/broward — NOT this
+--     shard's scope, left untouched, flagged for owning shards)
+--   bid_decisions WHERE arv_source='shapira_formula_shard6_j_gen': 7,200 rows
+--     fleet-wide (~2,894-3,060 jackson; also okeechobee/dixie/monroe — NOT
+--     this shard's scope, left untouched)
+-- Running since >=2026-07-01 (pasco) / ~2026-06-25 (jackson), i.e. this had
+-- been live and undetected for ~7-8 weeks. This is the ghost-success anti-
+-- pattern HARD GUARDRAIL 2 (fail-loud, never fabricate) and the ULTRALOOP
+-- protocol exist to catch; both workflows additionally swallowed all
+-- per-county errors with `|| echo "WARN: ... continuing"`, masking failures.
+--
+-- FIX (applied live via PostgREST, this file documents it per migration
+-- convention):
+--   1. Tombstoned pasco's 29,034 + jackson's ~2,894 ghost rows (case_number
+--      match to multi_county_auctions) by renaming arv_source to
+--      PURGED_GHOST_2026-08-23_shard4_ecbe151d_<county>_j_gen_hardcoded_county_constant
+--      (no DELETE — matches existing tombstone convention, e.g.
+--      PURGED_GHOST_2026-07-28_shard5_pasco_default_bucket_or_po_source).
+--      199 additional ghost rows had no matching multi_county_auctions
+--      case_number (orphans) and were tombstoned under the same label since
+--      county cannot be determined for them either way.
+--   2. An initial pass mistakenly matched purely on arv_source (not county),
+--      touching 47,548 other-shard rows (shard9_j_gen) + 3,901 (shard6_j_gen)
+--      that belong to other shards' counties. Reverted immediately in the
+--      same session (arv_source restored to original) once caught — no
+--      other shard's live metric was ever affected by this (arv_source is
+--      not read by pencil_dod_evaluate_county's J CTE), but per PARALLEL-
+--      FLEET RULES the label touch itself should not have happened and was
+--      undone.
+--   3. Rebuilt: for every pasco/jackson case_number without a pre-existing
+--      real (non-ghost) bid_decisions row, inserted a new row using real
+--      per-property assessed_value/market_value (market_value if present,
+--      else assessed_value*1.15), Shapira Formula max_bid computation,
+--      arv_source in ('market_value','assessed_x1.15'). 165 pasco rows had
+--      neither assessed_value nor market_value on file and were left
+--      unbuilt rather than fabricated (BLANK > WRONG).
+--
+-- VERIFIED live via pencil_dod_evaluate_county (2026-08-23, before -> after,
+-- identical for every other letter, no regression):
+--   pasco J: deal_complete=360/363 (99.2%) -> 363/363 (100.0%) [PASS both]
+--   jackson J: deal_complete=129/129 (100.0%) -> 129/129 (100.0%) [PASS both,
+--     now backed by real per-property data instead of a fabricated constant]
+--
+-- RESIDUAL / FOLLOW-UP (not fixed here, flagged per Honesty Protocol):
+--   1. ml_score (0.74), confidence (0.74), triangle_score (0.72), and all
+--      five `factors` boolean keys are still structural constants, not live
+--      Shapira V14 model inference — this matches the fleet-wide convention
+--      established across dozens of prior J-generator sessions (e.g.
+--      scripts/shard28_run338_j_generator.py) and the brief's own guidance
+--      not to modify the real scoring pipeline (cron 109). A true per-
+--      property ml_score would require loading the trained model artifact
+--      from the shapira-models storage bucket, out of scope for this
+--      session.
+--   2. The identical hardcoded-county-constant bug still runs daily, live,
+--      for manatee + indian_river (gold-standard-shard9-run651.yml) and
+--      okeechobee + dixie (shard6-daily-scraper.yml) — NOT this shard's
+--      counties, left untouched, flagged here for their owning shards.
+--   3. suwannee was already purged/quarantined for the same class of bug on
+--      2026-07-21 (see comment header in scripts/shard28_run338_j_generator.py)
+--      — orange/dixie/citrus/okaloosa were flagged then as carrying it too
+--      and still do.
+--
+-- Idempotent: this file is a record of a REST-applied fix, not a re-runnable
+-- migration (the UPDATE targeted specific arv_source string matches which no
+-- longer exist post-fix).
+
+-- (documentation-only; the actual UPDATE/INSERT statements were executed
+--  live via Supabase PostgREST during the shard-4 2026-08-23 session, see
+--  session report GOLD_STANDARD_SHARD4_PASCO_GILCHRIST_JACKSON_MADISON_FRANKLIN_DISPATCH_ECBE151D_SESSION_REPORT.md)
