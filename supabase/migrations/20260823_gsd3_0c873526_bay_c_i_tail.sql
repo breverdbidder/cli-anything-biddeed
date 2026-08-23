@@ -1,0 +1,96 @@
+-- Gold Standard shard-3, dispatch 0c873526-996a-4f5d-9123-99836d1d585f, county=bay, letters C/I
+-- Date: 2026-08-23
+--
+-- BEFORE (live pencil_dod_evaluate_county('bay')):
+--   C: {"pass": false, "detail": "matched_clean=233", "metric": 94.7}
+--   I: {"pass": false, "detail": "card_complete=219 of 246", "metric": 89.0}
+-- auctions_total grew 230 -> 246 since the last bay C/I fix
+-- (20260815_shard4_bay_c_i_10of10.sql), which regressed both letters back below
+-- threshold via denominator growth, not a reversal of that fix's 4 parcels.
+--
+-- LETTER C FIX: 10 bay tax_deed rows (auction_date 2026-10-06, all with
+-- parity_status IS NULL, never parity-checked) were harvested against the live
+-- bay.realtaxdeed.com AJAX auction-calendar (scripts/shard9_run6046_bay_cd_
+-- future_harvest.py, the same proven harvester used in the 2026-08-15 fix).
+-- All 10 case numbers matched exactly and were promoted to
+-- parity_status='matched_clean', parity_source=
+-- 'tier1:shard9_run6046_bay_ajax_harvest:tax_deed:2026-10-06'.
+-- Command:
+--   python3 scripts/shard9_run6046_bay_cd_future_harvest.py \
+--     '[{"county":"bay","sale_type":"tax_deed","auction_date":"2026-10-06"}]'
+-- Result: matched_clean 233 -> 243 (98.8%). D also went to 100.0% (246/246).
+--
+-- LETTER I FIX (two scripts, both in this commit):
+--
+-- 1. scripts/bay_gsd3_0c873526_i_td_tail_zonepoint.py -- of the 10 tax_deed rows
+--    just C-fixed (plus 3 more from the same TD batch that already had complete
+--    address/geo/value), all 13 had a real parcel_id but no parcel_zones linkage.
+--    Live point-in-polygon zoning query against gis.baycountyfl.gov/arcgis/rest/
+--    services/Land_Use_Planning/MapServer/1/query at each parcel's existing
+--    centroid (same proven method as scripts/gold_standard_shard9_bay_run6253_
+--    i_fix_pass2_zonepoint.py) returned an unambiguous ZONING code for 12 of 13
+--    directly from the known JURISDICTION_ID map. The 13th (parcel 23913-000-000)
+--    returned SUB_ZONING label "See FLU(SPR)" with zone_code "See FLU" -- not in
+--    the original numeric JURISDICTION_ID map, but corroborated against 5 prior
+--    verified rows (all sourced the same live-GIS way, across 3 separate prior
+--    sessions) that already carry jurisdiction_id=984 (Springfield) + identical
+--    zone_code "See FLU" for the same "(SPR)" label suffix -- e.g. parcel
+--    15026-020-000 from the 2026-08-15 shard-4 fix. Applied with that
+--    corroborated mapping, not a guess.
+--
+-- 2. scripts/bay_gsd3_0c873526_i_fc_tail_ajax_backfill.py +
+--    scripts/bay_gsd3_0c873526_i_fc_tail_geo_zone.py -- 8 bay foreclosure rows
+--    added to the tail had no parcel_id/address/value at all. Live harvest of
+--    the bay.realforeclose.com AJAX preview calendar (same mechanism as the C
+--    fix) for their 6 distinct auction dates returned exact case-number matches
+--    carrying real parcel_id/property_address/assessed_value for 7 of 8:
+--    25001240CA, 24001056CA, 26000160CA, 25001319CA, 25001056CA, 26000281CA,
+--    26000084CA. The 8th, 23001288CA, hit the documented "Property Appraiser"
+--    anchor-text parser gap (the county's own displayed Parcel ID link has no
+--    real value for this case) and was left NULL -- BLANK > WRONG.
+--    The 7 real addresses were geocoded via the free US Census geocoder
+--    (geocoding.geo.census.gov, same proven method as scripts/shard14_bay_
+--    geocode_backfill.py), exact-unique matches only, then zoning-linked via the
+--    same gis.baycountyfl.gov point lookup. 6 of 7 mapped cleanly via the known
+--    JURISDICTION_ID map; the 7th (25001056CA) returned SUB_ZONING label
+--    "See FLU(PKR)" -- corroborated live against an EXISTING jurisdictions row
+--    (id=1588, name='Parker') and the consistent Label-abbreviation convention
+--    already verified for every other jurisdiction in this county (CAL=Callaway,
+--    BC=unincorporated Bay County, SPR=Springfield). Applied as jurisdiction_id
+--    1588, not a guess.
+--
+-- Two rows remain genuinely card-incomplete and were left alone:
+--   23001288CA -- known RealForeclose parser-gap case, no real parcel data found.
+--   26000070CC (263 NELLIE STREET) -- FL GIO statewide cadastral confirms parcel
+--     40001075000 / OWN_NAME="NELLIE TOWNHOMES" / S_LEGAL="NELLIE TOWNHOMES, A
+--     CONDO" (address match verified via owner-name text), and address+lat/lon+
+--     zoning (C-2, jurisdiction 1332) were researched and are ready to apply, but
+--     ALL FL GIO value fields for this parcel (JV, AV_SD, AV_NSD, TV_SD, TV_NSD,
+--     LND_VAL) are literally 1 -- a real characteristic of this master/common-
+--     area condo record, not a query error, and not a usable assessed_value.
+--     qpublic.schneidercorp.com and baypa.net both return HTTP 403 for this
+--     runner's IP (confirmed live, matches the documented fleet-wide blocker).
+--     Left NULL rather than inventing a number.
+--
+-- Applied live via PostgREST (direct psql/pooler auth confirmed still broken
+-- this session, per documented long-standing constraint).
+--
+-- AFTER (live pencil_dod_evaluate_county('bay'), re-verified same session):
+--   C: {"pass": true, "detail": "matched_clean=243", "metric": 98.8}
+--   D: {"pass": true, "detail": "matched_any=246", "metric": 100.0}
+--   E: {"pass": true, "detail": "parcel_linked=241", "metric": 98.0}
+--   I: {"pass": true, "detail": "card_complete=240 of 246", "metric": 97.6}
+--
+-- OBSERVED SIDE EFFECT (out of scope for this dispatch, not touched): G
+-- regressed from 96.8% (density=96.8 far=100.0 pk1000=97.2) to 94.9% then 92.5%
+-- (density=96.2 far=98.1 pk1000=92.5) as new parcels entered parcel_zones without
+-- zone_standards coverage for their zone codes. This dispatch's scope was
+-- explicitly C and I only ("do not touch G unless explicitly asked") -- flagged
+-- here for the next session, not remediated.
+--
+-- No schema changes. Documentation of live PostgREST writes only: 10 parity
+-- PATCHes + 7 parcel_id/address/value PATCHes + 7 lat/lon PATCHes on
+-- multi_county_auctions; 20 INSERTs into parcel_zones (13 tax_deed tail + 7
+-- foreclosure tail).
+
+SELECT 1; -- no-op; this migration is an audit-trail record only
