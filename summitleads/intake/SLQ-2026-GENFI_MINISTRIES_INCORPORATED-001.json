@@ -1,0 +1,142 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-GENFI_MINISTRIES_INCORPORATED-001",
+  "generated_at": "2026-08-23T14:52:12.004970+00:00",
+  "lead_id": "d34ee85d-5981-43b8-ba21-1588a74ad3bc",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "GENFI MINISTRIES INCORPORATED",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "GENFI MINISTRIES INCORPORATED",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "404 NW 14TH AVE",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "404 NW 14TH AVE, GAINESVILLE, FL 32601",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "alachua",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "09755-000-000",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 1900,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "43262",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 8,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "0",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "071",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 2583490.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": true,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-13",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "01 2025 CA 003156",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": null,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": null,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": null,
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": false,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": true,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "commercial_bop"
+  ],
+  "readiness_score": 83.3,
+  "missing_required_fields": [
+    "contact_phone",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi GENFI MINISTRIES INCORPORATED, saw you picked up 404 NW 14TH AVE, GAINESVILLE, FL 32601 at the Alachua County foreclosure auction on 2026-08-13; we already pulled the property card (built 1900, 43262 sqft) so we can have a landlord/dwelling quote ready today.",
+  "product_line": "commercial_bop"
+}

@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-<YEAR>-<ENTITY_SLUG>-<seq>",
+  "generated_at": null,
+  "sources_legend": {
+    "SL": "summitleads.leads / Tracerfy skip-trace data already purchased -- do not re-purchase",
+    "ABP": "auction_buyer_profiles / auction_buyer_sightings (buyer aggregate history)",
+    "MCA": "public.multi_county_auctions (the auction that created this lead)",
+    "FLP": "public.fl_parcels (county appraiser parcel data)",
+    "PC": "producer call only -- not available from any queried source, must be asked live"
+  },
+  "lead_id": null,
+  "org_id": null,
+  "applicant": {
+    "entity_name": { "value": null, "source": "SL" },
+    "entity_type": { "value": null, "source": "SL" },
+    "contact_name": { "value": null, "source": "SL" },
+    "contact_phone": { "value": null, "source": "SL" },
+    "contact_email": { "value": null, "source": "SL" },
+    "mailing_address": { "value": null, "source": "FLP" }
+  },
+  "property": {
+    "address": { "value": null, "source": "MCA" },
+    "county": { "value": null, "source": "MCA" },
+    "parcel_id": { "value": null, "source": "SL" },
+    "year_built": { "value": null, "source": "FLP" },
+    "sqft": { "value": null, "source": "FLP" },
+    "num_buildings": { "value": null, "source": "FLP" },
+    "construction_class": { "value": null, "source": "FLP" },
+    "dor_use_code": { "value": null, "source": "FLP" },
+    "zone_code": { "value": null, "source": "FLP" },
+    "just_value": { "value": null, "source": "FLP" },
+    "improved": { "value": null, "source": "FLP", "note": "true only when num_buildings > 0 is FLP-confirmed; null (not false) when FLP has no row for this county/parcel -- never guessed" },
+    "occupancy_status": { "value": "unknown", "source": "PC" }
+  },
+  "purchase": {
+    "sale_type": { "value": null, "source": "MCA" },
+    "sold_amount": { "value": null, "source": "MCA" },
+    "auction_date": { "value": null, "source": "MCA" },
+    "case_number": { "value": null, "source": "MCA" }
+  },
+  "buyer_profile": {
+    "total_wins": { "value": null, "source": "ABP" },
+    "total_deployed": { "value": null, "source": "ABP" },
+    "counties_active": { "value": null, "source": "ABP" },
+    "is_repeat_investor": { "value": null, "source": "ABP", "note": "true when total_wins >= 2" }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": null,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": null,
+    "flood_basis": null,
+    "commercial_bop_if_applicable": null,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": null
+  },
+  "must_quote": [],
+  "readiness_score": null,
+  "missing_required_fields": [],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": null,
+  "product_line": null,
+  "_doctrine_notes": {
+    "umbrella": "umbrella_quote_requested = true when total_wins >= 2 (ABP) OR this buyer has multiple leads in the current delivered batch. umbrella_limit = 1000000 base, 2000000 when total_deployed > 250000.",
+    "flood": "flood_if_indicated is INFERRED from a static FL coastal-county list, not a verified FEMA flood-zone lookup -- zone_code is not populated in FLP for these parcels yet. Tag flood_basis='INFERRED_coastal_county_heuristic' whenever used; never present as VERIFIED.",
+    "commercial_bop": "true when dor_use_code indicates a commercial DOR use class OR num_buildings > 2.",
+    "master_policy": "master_policy_conversation = true only when total_wins >= 5 (portfolio-scale buyer).",
+    "must_quote": "[product_line, umbrella_if_multi_property, flood_if_indicated, builders_risk_if_renovation] -- only include the conditional ones when their flag is true.",
+    "readiness_score": "percent of the 12 carrier-required fields (entity_name, contact_name, contact_phone, address, county, year_built, sqft, num_buildings, construction_class, dor_use_code, sold_amount, auction_date) that are non-null."
+  }
+}

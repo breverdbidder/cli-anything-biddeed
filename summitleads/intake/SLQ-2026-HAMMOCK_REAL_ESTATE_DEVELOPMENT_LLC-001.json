@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-HAMMOCK_REAL_ESTATE_DEVELOPMENT_LLC-001",
+  "generated_at": "2026-08-23T14:52:12.005100+00:00",
+  "lead_id": "2fb21f42-209a-4b2f-9ea0-fab380ad5002",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "HAMMOCK REAL ESTATE DEVELOPMENT, LLC",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "HAMMOCK REAL ESTATE DEVELOPMENT, LLC",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "36 FELING LANE",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "BUNNELL, FL- 32110",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "flagler",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "10-12-30-0850-01700-0040",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 0,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "0",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 0,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "0",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "010",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 59282.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": false,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-07",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "2025 CA 000010",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": 1,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": 100.0,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": [
+        "flagler"
+      ],
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": true,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "other",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 83.3,
+  "missing_required_fields": [
+    "contact_phone",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi HAMMOCK REAL ESTATE DEVELOPMENT, LLC, saw you picked up BUNNELL, FL- 32110 at the Flagler County foreclosure auction on 2026-08-07; we already pulled the property card (built ?, 0 sqft) so we can have a landlord/dwelling quote ready today.",
+  "product_line": "other"
+}

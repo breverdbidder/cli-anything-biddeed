@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-DAVID_RABEN_ANABEL_LEWIS-001",
+  "generated_at": "2026-08-23T14:52:12.004533+00:00",
+  "lead_id": "4d730c0c-d9af-4473-bf79-32118b2e0496",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "DAVID RABEN & ANABEL LEWIS",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "DAVID RABEN & ANABEL LEWIS",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": "daveraben@gmail.com",
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "3200 N OCEAN DR #404",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "3200 N OCEAN DR, HOLLYWOOD, 33019",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "broward",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "514212BH0220",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 1985,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "1060",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 0,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "2",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "004",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 566040.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": false,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-06",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "CACE-25-012076",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": null,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": null,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": null,
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": false,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "home",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 83.3,
+  "missing_required_fields": [
+    "contact_phone",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi DAVID RABEN & ANABEL LEWIS, saw you picked up 3200 N OCEAN DR, HOLLYWOOD, 33019 at the Broward County foreclosure auction on 2026-08-06; we already pulled the property card (built 1985, 1060 sqft) so we can have a landlord/dwelling quote ready today.",
+  "product_line": "home"
+}

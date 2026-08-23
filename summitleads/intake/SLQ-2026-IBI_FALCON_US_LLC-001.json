@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-IBI_FALCON_US_LLC-001",
+  "generated_at": "2026-08-23T14:52:12.005516+00:00",
+  "lead_id": "dffd6e0d-62cf-49ac-90e3-ce34e775f596",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "IBI FALCON US LLC",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "IBI FALCON US LLC",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "14813 DRAFT HORSE LN",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "14813 DRAFT HORSE LN, WELLINGTON, FL- 33414",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "palm_beach",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "73414408010350010",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 2002,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "5399",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 1,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "3",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "001",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 1896469.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": true,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-04",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "502023CA016824XXXAMB",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": 1,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": 1200100.0,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": [
+        "palm_beach"
+      ],
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": false,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 83.3,
+  "missing_required_fields": [
+    "contact_phone",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi IBI FALCON US LLC, saw you picked up 14813 DRAFT HORSE LN, WELLINGTON, FL- 33414 at the Palm_Beach County foreclosure auction on 2026-08-04; we already pulled the property card (built 2002, 5399 sqft) so we can have a landlord/dwelling quote ready today.",
+  "product_line": "dwelling_landlord"
+}

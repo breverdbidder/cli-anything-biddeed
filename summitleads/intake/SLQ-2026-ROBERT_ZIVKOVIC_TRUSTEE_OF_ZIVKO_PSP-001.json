@@ -1,0 +1,148 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-ROBERT_ZIVKOVIC_TRUSTEE_OF_ZIVKO_PSP-001",
+  "generated_at": "2026-08-23T14:52:12.006706+00:00",
+  "lead_id": "6b4f2914-5da1-444f-9b5b-3590220a4206",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "ROBERT ZIVKOVIC, TRUSTEE OF ZIVKO PSP",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "ROBERT ZIVKOVIC, TRUSTEE OF ZIVKO PSP",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": null,
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "4104 NW 25TH ST, CAPE CORAL, FL- 33993",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "lee",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "25-43-22-C3-05177.0340",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": null,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": null,
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": null,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": null,
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": null,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": null,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-13",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "25-CA-004126",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": null,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": null,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": null,
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": null,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 41.7,
+  "missing_required_fields": [
+    "contact_phone",
+    "year_built",
+    "sqft",
+    "num_buildings",
+    "construction_class",
+    "dor_use_code",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi ROBERT ZIVKOVIC, TRUSTEE OF ZIVKO PSP, saw you picked up 4104 NW 25TH ST, CAPE CORAL, FL- 33993 at the Lee County foreclosure auction on 2026-08-13.",
+  "product_line": "dwelling_landlord"
+}

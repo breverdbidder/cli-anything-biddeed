@@ -1,0 +1,146 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-PAFFORD_PROPERTIES_CONSTRUCTION-001",
+  "generated_at": "2026-08-23T14:52:12.006111+00:00",
+  "lead_id": "dc5fb9d3-cc20-4621-b079-e9803d77708a",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "PAFFORD PROPERTIES & CONSTRUCTION",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "PAFFORD PROPERTIES & CONSTRUCTION",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": "8505567746",
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": "micahdpafford@gmail.com",
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": null,
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "30 CHICKAT TRL, CRAWFORDVILLE, FL 32327",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "wakulla",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "00-00-034-012-09571-064",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": null,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": null,
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": null,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": null,
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": null,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": null,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "tax_deed",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": 70000.0,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-19",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "2026-TXD-112",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": null,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": null,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": null,
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": null,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 58.3,
+  "missing_required_fields": [
+    "year_built",
+    "sqft",
+    "num_buildings",
+    "construction_class",
+    "dor_use_code"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": "NO_CONTACT_INFO_SUNBIZ_LOOKUP_PENDING",
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi PAFFORD PROPERTIES & CONSTRUCTION, saw you picked up 30 CHICKAT TRL, CRAWFORDVILLE, FL 32327 at the Wakulla County tax_deed auction on 2026-08-19 for $70000.00.",
+  "product_line": "dwelling_landlord"
+}

@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-ROJOPA_LLC-001",
+  "generated_at": "2026-08-23T14:52:12.006820+00:00",
+  "lead_id": "c683b37f-08ec-4d6d-8b7b-df874bf077ac",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "ROJOPA LLC",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "ROJOPA LLC",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": "9417452522",
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": "robbiehong@hotmail.com",
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "3908 26TH ST W",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "1808 17TH ST E, PALMETTO, FL- 34221",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "manatee",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "785800004",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 1963,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "920",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 1,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "4",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "001",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 158181.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": true,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-12",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "412026CA001304CAAXMA",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": 1,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": 87300.0,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": [
+        "manatee"
+      ],
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": false,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 91.7,
+  "missing_required_fields": [
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi ROJOPA LLC, saw you picked up 1808 17TH ST E, PALMETTO, FL- 34221 at the Manatee County foreclosure auction on 2026-08-12; we already pulled the property card (built 1963, 920 sqft) so we can have a landlord/dwelling quote ready today.",
+  "product_line": "dwelling_landlord"
+}

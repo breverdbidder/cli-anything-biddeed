@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-DANIEL_VARGO_LLC-001",
+  "generated_at": "2026-08-23T14:52:12.004221+00:00",
+  "lead_id": "81bf0446-3291-4140-9b1f-03463bf69fc7",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "DANIEL VARGO LLC",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "DANIEL VARGO LLC",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "1800 NW CORPORATE BLVD STE 303",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "1400 NW 32 AVE, LAUDERHILL, 33311",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "broward",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "494231070060",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 1964,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "1877",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 1,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "2",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "001",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 79310.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": true,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-13",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "CACE-19-008235",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": 1,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": 150100.0,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": [
+        "broward"
+      ],
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": false,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": false,
+    "umbrella_quote_reason": null,
+    "umbrella_limit": null,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": false,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 83.3,
+  "missing_required_fields": [
+    "contact_phone",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi DANIEL VARGO LLC, saw you picked up 1400 NW 32 AVE, LAUDERHILL, 33311 at the Broward County foreclosure auction on 2026-08-13; we already pulled the property card (built 1964, 1877 sqft) so we can have a landlord/dwelling quote ready today.",
+  "product_line": "dwelling_landlord"
+}

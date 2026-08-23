@@ -1,0 +1,146 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-GALLEON_TRUST_I-001",
+  "generated_at": "2026-08-23T14:52:12.004831+00:00",
+  "lead_id": "0f29ef81-af80-48f5-9de2-863af37746df",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "GALLEON TRUST I",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "GALLEON TRUST I",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": "8539 PIPPEN DR",
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "12 SE 8TH ST, GAINESVILLE, FL- 32601",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "alachua",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "12631-000-000",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": 1926,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": "3839",
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": 2,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": "0",
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": "008",
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": 419801.0,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": true,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-18",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "01 2023 CA 004261",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": 2,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": 210200.0,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": [
+        "pinellas",
+        "duval"
+      ],
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": true,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": true,
+    "umbrella_quote_reason": "total_wins=2 (repeat investor)",
+    "umbrella_limit": 1000000,
+    "flood_if_indicated": false,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": false,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "umbrella_if_multi_property"
+  ],
+  "readiness_score": 83.3,
+  "missing_required_fields": [
+    "contact_phone",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi GALLEON TRUST I, saw you picked up 12 SE 8TH ST, GAINESVILLE, FL- 32601 at the Alachua County foreclosure auction on 2026-08-18; we already pulled the property card (built 1926, 3839 sqft) so we can have a landlord/dwelling quote ready today; with 2 recent auction wins on file you'd likely qualify for an umbrella policy across the portfolio too.",
+  "product_line": "dwelling_landlord"
+}

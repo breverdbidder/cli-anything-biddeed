@@ -1,0 +1,152 @@
+{
+  "schema_version": "1.0",
+  "id": "SLQ-2026-NEXUS_NOVA_LLC-001",
+  "generated_at": "2026-08-23T14:52:12.005892+00:00",
+  "lead_id": "81b893b2-e9a5-4ae2-aa06-a4ee409996e5",
+  "org_id": "032f4717-545f-4a18-b48b-28ea4257699d",
+  "applicant": {
+    "entity_name": {
+      "value": "NEXUS NOVA LLC",
+      "source": "SL"
+    },
+    "contact_name": {
+      "value": "NEXUS NOVA LLC",
+      "source": "SL"
+    },
+    "contact_phone": {
+      "value": null,
+      "source": "SL"
+    },
+    "contact_email": {
+      "value": null,
+      "source": "SL"
+    },
+    "mailing_address": {
+      "value": null,
+      "source": "FLP"
+    }
+  },
+  "property": {
+    "address": {
+      "value": "2825 PALM BEACH BLVD 406, FORT MYERS, FL- 33916",
+      "source": "MCA"
+    },
+    "county": {
+      "value": "lee",
+      "source": "MCA"
+    },
+    "parcel_id": {
+      "value": "18-44-25-P1-03700.0406",
+      "source": "SL"
+    },
+    "year_built": {
+      "value": null,
+      "source": "FLP"
+    },
+    "sqft": {
+      "value": null,
+      "source": "FLP"
+    },
+    "num_buildings": {
+      "value": null,
+      "source": "FLP"
+    },
+    "construction_class": {
+      "value": null,
+      "source": "FLP"
+    },
+    "dor_use_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "zone_code": {
+      "value": null,
+      "source": "FLP"
+    },
+    "just_value": {
+      "value": null,
+      "source": "FLP"
+    },
+    "improved": {
+      "value": null,
+      "source": "FLP"
+    },
+    "occupancy_status": {
+      "value": "unknown",
+      "source": "PC"
+    }
+  },
+  "purchase": {
+    "sale_type": {
+      "value": "foreclosure",
+      "source": "MCA"
+    },
+    "sold_amount": {
+      "value": null,
+      "source": "MCA"
+    },
+    "auction_date": {
+      "value": "2026-08-13",
+      "source": "MCA"
+    },
+    "case_number": {
+      "value": "25-CA-004959",
+      "source": "MCA"
+    }
+  },
+  "buyer_profile": {
+    "total_wins": {
+      "value": 2,
+      "source": "ABP"
+    },
+    "total_deployed": {
+      "value": 332200.0,
+      "source": "ABP"
+    },
+    "counties_active": {
+      "value": [
+        "lee",
+        "leon"
+      ],
+      "source": "ABP"
+    },
+    "is_repeat_investor": {
+      "value": true,
+      "source": "ABP"
+    }
+  },
+  "bundle_doctrine": {
+    "umbrella_quote_requested": true,
+    "umbrella_quote_reason": "total_wins=2 (repeat investor)",
+    "umbrella_limit": 2000000,
+    "flood_if_indicated": true,
+    "flood_basis": "INFERRED_coastal_county_heuristic",
+    "commercial_bop_if_applicable": null,
+    "builders_risk_if_renovation": null,
+    "auto_bundle": "ask_on_call_only",
+    "master_policy_conversation": false
+  },
+  "must_quote": [
+    "dwelling_landlord",
+    "umbrella_if_multi_property",
+    "flood_if_indicated"
+  ],
+  "readiness_score": 41.7,
+  "missing_required_fields": [
+    "contact_phone",
+    "year_built",
+    "sqft",
+    "num_buildings",
+    "construction_class",
+    "dor_use_code",
+    "sold_amount"
+  ],
+  "compliance": {
+    "outbound_lane": "compliant_outbound",
+    "consent_status": "none",
+    "compliance_flag": null,
+    "dnc_scrubbed": false
+  },
+  "producer_message_draft": "Hi NEXUS NOVA LLC, saw you picked up 2825 PALM BEACH BLVD 406, FORT MYERS, FL- 33916 at the Lee County foreclosure auction on 2026-08-13; with 2 recent auction wins on file you'd likely qualify for an umbrella policy across the portfolio too.",
+  "product_line": "dwelling_landlord"
+}
