@@ -1,0 +1,58 @@
+-- Gold Standard shard-3 (dispatch 0c873526). County: bay.
+-- Self-caused G regression, caught and fixed same session (mirrors the
+-- hernando 20260816 precedent's pattern of documenting a same-session
+-- caught-and-fixed regression).
+--
+-- Bay's C+I fix this session (RealTaxDeed/RealForeclose AJAX-calendar
+-- parity harvest + gis.baycountyfl.gov point-in-polygon zoning linkage for
+-- 20 newly-added auction rows) flipped C 94.7->98.8 and I 89.0->97.6
+-- (both FAIL->PASS), but as a side effect flipped G 96.8->92.5
+-- (PASS->FAIL): pk1000 dropped from ~100% to 92.5% (37/40 applicable
+-- parcels covered).
+--
+-- ROOT CAUSE (confirmed live via v_zoning_district_applicability +
+-- zone_standards, not guessed): one of the 20 newly-linked parcels
+-- (22491-000-000, case tax-deed tail) was written with zone_code='GC 2'
+-- (space), a formatting variant of the ALREADY-EXISTING canonical
+-- zoning_districts row 'GC-2' (hyphen, district_id=7273) for the same
+-- Panama City General Commercial-2 district. The space-variant row
+-- (district_id=13832, created 2026-08-11 by a prior session, dispatch
+-- 9f070f2b 3rd firing) was deliberately left parking_per_1000sf=NULL
+-- pending a methodology decision -- but that exact decision was already
+-- made and applied to its sibling districts: zoning_districts id=11610
+-- (MU-1)'s own ordinance_section text states "Parking: Panama City ULDC
+-- Chapter 108, Table 108-1 ... = 4.0 spaces/1,000 sq ft. Citywide
+-- use-based table (not zone-specific); same rate already used for sibling
+-- districts GC-1/GC-2/MU-2" -- and the canonical hyphenated 'GC-2' row
+-- (district_id=7273) already carries that real, sourced value
+-- (parking_per_1000sf=4.0, confidence_score=0.53).
+--
+-- FIX: normalized the one new parcel_zones row to the canonical code
+-- spelling ('GC 2' -> 'GC-2'), pointing it at the already-populated,
+-- already-ordinance-sourced district instead of the unresolved duplicate.
+-- No new value was invented -- this reuses a real citywide parking rate a
+-- prior session already sourced and already applied to GC-2's siblings.
+-- The 'GC 2' (space, district_id=13832) duplicate row itself was left
+-- as-is (not deleted) since other counties/sessions may still reference
+-- it and reconciling/merging the duplicate zoning_districts rows entirely
+-- is out of scope for this session -- flagged here for a future dedicated
+-- pass, not silently worked around.
+--
+-- Applied live via PostgREST:
+--   PATCH parcel_zones?id=eq.868731  {"zone_code":"GC-2"}
+--
+-- LIVE RESULT (pencil_dod_evaluate_county('bay'), re-run fresh after this
+-- fix): G: pk1000 92.5 -> 95.0, density=96.2 far=98.1 unchanged -- FAIL
+-- -> PASS. C, D, I, all other letters unchanged. bay is now 10/10 live
+-- (A,B,C,D,E,F,G,H,I,J all PASS) -- pending a second consecutive daily
+-- 10/10 run to auto-certify per campaign policy.
+--
+-- KNOWN FOLLOW-UP (not fixed here, flagged honestly): zoning_districts
+-- for jurisdiction_id=884 (Panama City) carries both 'GC-2' (7273) and
+-- 'GC 2' (13832) as separate rows for what is almost certainly the same
+-- real district (one hyphen-spelled from a bulk table load, one
+-- space-spelled from the ArcGIS point-in-polygon source layer's raw
+-- label). A future session should reconcile/merge Panama City's
+-- hyphen-vs-space zone-code duplicates fleet-wide rather than patching
+-- them one parcel at a time.
+SELECT 1; -- no-op: the live data change was already applied via PostgREST above; this file is the audit record.
