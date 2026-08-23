@@ -1,0 +1,111 @@
+-- Shard-2 dispatch f6a6977d-0263-42f8-8255-d26612af2a16 -- calhoun letters C, D, I
+-- Date: 2026-08-23. Outcome: STILL BLOCKED -- no write applied (zero rows changed).
+--
+-- BASELINE (VERIFIED live via public.pencil_dod_evaluate_county('calhoun'), start of
+-- session):
+--   C: pass=false, matched_clean=7 of 9, metric=77.8
+--   D: pass=false, matched_any=8 of 9, metric=88.9
+--   I: pass=false, card_complete=8 of 9, metric=88.9
+--   All other letters PASS and were not touched: A=3(fc3 td6), B=100(1/1 verified/closed_sold),
+--     E=100(parcel_linked=9), F=100(tier1_sold=1/closed_sold=1), G=100(density/far),
+--     H=1.1h (fresh), J=100(deal_complete=9).
+--
+-- THE 2 C-BLOCKING ROWS:
+--   1. case_number=25-52CA, sale_type=foreclosure, auction_status=upcoming,
+--      parcel_id=29-1N-08-0000-0030-0000, property_address="20156 NE Hentz Ave
+--      Blountstown FL 32424", parity_status=NULL, parity_source=NULL. This row ALSO
+--      blocks D and I (the only row responsible for both of those gaps).
+--   2. case_number="546 OF 2024", sale_type=tax_deed, auction_status=CANCELLED (uppercase),
+--      parity_status=CLERK_SSOT_CANCELLED, parity_source=
+--      calhoun_clerk_taxdeeds_wpapi_20260814_reconfirm_empty_feed. This row blocks C only
+--      (already counted toward D via the CLERK_SSOT_CANCELLED branch of matched_any).
+--
+-- ROOT-CAUSE CONFIRMATION (pg_get_functiondef, live, this session):
+--   pencil_dod_evaluate_county's matched_any (D) definition is:
+--     (parity_status IN ('matched_clean','matched_divergent') AND parity_source LIKE 'tier1%')
+--     OR parity_status IN ('PARITY_OK','CLERK_VERIFIED','CLERK_SSOT_CANCELLED')
+--   25-52CA has parity_status=NULL, which satisfies NONE of these branches. This means a
+--   geo/value-only backfill on 25-52CA is NOT sufficient to flip D -- the row structurally
+--   requires a parity_status value from the ONLY sanctioned writer,
+--   refresh_parity_tier1_outcomes('calhoun'), which requires a real
+--   tax_deed_outcomes/foreclosure_outcomes row to match against. None exists (see below).
+--   card_complete (I) additionally requires the parcel to appear in
+--   v_zoning_gold_standard_card with a non-null zone_code -- CONFIRMED LIVE that
+--   parcel_id=29-1N-08-0000-0030-0000 has ZERO row in parcel_zones/v_zoning_gold_standard_card
+--   (all 8 other calhoun parcels do have a zone_code entry), a second, independent blocker
+--   for I beyond geo/value alone.
+--
+-- OUTCOMES-TABLE CHECK (re-verified live, fresh query, this session):
+--   SELECT count(*) FROM tax_deed_outcomes WHERE case_number IN ('25-52CA','546 OF 2024') -> 0
+--   SELECT count(*) FROM foreclosure_outcomes WHERE case_number IN ('25-52CA','546 OF 2024') -> 0
+--   Zero independent outcome rows exist for either case. Ran
+--   `SELECT * FROM public.refresh_parity_tier1_outcomes('calhoun');` per protocol (safe,
+--   idempotent, canonical writer) -- returned matched_clean=0, matched_divergent=0 on both
+--   the case-number and parcel-id passes, confirming no latent match was waiting to be
+--   picked up. This is expected: 25-52CA's auction_status='upcoming' is correctly excluded
+--   by the function's WHERE clause (only resolved statuses are eligible), and "546 OF 2024"'s
+--   auction_status='CANCELLED' (uppercase) does not match the function's case-sensitive
+--   `IN ('redeemed','completed','sold','cancelled','canceled')` filter -- a real, narrow,
+--   documented bug (needs `lower(auction_status)`), but even if fixed it would NOT flip this
+--   row because there is still zero row in either outcomes table to join against. Per this
+--   dispatch's explicit instruction, the shared refresh_parity_tier1_outcomes() function was
+--   NOT edited -- documenting the finding here instead.
+--
+-- METHOD THIS SESSION -- REAL DATA SOURCE ATTEMPTS FOR 25-52CA (geo + assessed/market value):
+--   1. calhounclerk.com/foreclosure-sales/ (live clerk listing, WebFetch) -- POSITIVE:
+--      confirms case 25-52CA is Scheduled (not cancelled), sale date 2026-12-03, judgment
+--      amount $108,345.29, address and parcel_id matching our DB exactly. This is useful
+--      independent confirmation the row is a genuine live upcoming foreclosure, but judgment
+--      amount is NOT assessed_value/market_value and was correctly NOT written to either
+--      field (would be a category-error fabrication).
+--   2. qpublic.schneidercorp.com (Calhoun County's qPublic/Schneider parcel search) --
+--      NEGATIVE: returns HTTP 403 to non-interactive WebFetch (bot-blocked).
+--   3. calhounpa.net (Calhoun County Property Appraiser) -- NEGATIVE: HTTP 403 to curl/WebFetch
+--      (bot-blocked), and DNS/connect failure on one retry (54.215.31.113 ECONNREFUSED).
+--   4. FL GIO Florida_Statewide_Cadastral ArcGIS FeatureServer (CO_NO=17 for Calhoun,
+--      confirmed via fl_counties table) -- NEGATIVE: exact PARCEL_ID='29-1N-08-0000-0030-0000'
+--      match returns zero features; tried 3 STRAP format variants (with/without leading
+--      zeros, 2-digit vs 1-digit township padding), all zero. Broader LIKE/section-township-
+--      range queries against this service consistently timed out (45-90s, HTTP 000/504) from
+--      this session's network path -- the service itself is real and CO_NO=17 is confirmed
+--      correct (fl_counties.co_no=17 for Calhoun), but this specific parcel's exact-match
+--      query returns empty and broader diagnostic queries could not complete in time budget.
+--   5. floridaparcels.com -- NEGATIVE: direct guessed URL 404s; the site requires an
+--      interactive form POST (address/owner search) that this session's WebFetch tool cannot
+--      drive (GET-only, no form submission).
+--   6. gis.calhouncounty.org/Parcelviewer2/ and app.fetchgis.com -- NEGATIVE: both are
+--      JS-rendered interactive map applications with no discoverable static query API from
+--      page source alone; same access-limitation class as qpublic/floridaparcels (needs
+--      browser-automation tooling this session did not have wired in for this target).
+--   Firecrawl API was also attempted first but returned "Insufficient credits" for this
+--   account -- not used as a source, not counted as a negative finding against the target
+--   sites themselves.
+--
+-- METHOD THIS SESSION -- INDEPENDENT-CONFIRMATION ATTEMPT FOR "546 OF 2024" (C only):
+--   calhounclerk.com/court-services/property-sales/tax-deed-sales/ (live) -- states
+--   verbatim "There are no properties on the list of tax deeds at this time."
+--   calhounclerk.com/lands-available-for-taxes/ (live) -- states verbatim "There are no
+--   properties on the list of lands available at this time."
+--   Both are corroborating (case does not appear as an active/pending sale anywhere on the
+--   clerk's live site, consistent with it having been cancelled) but NEITHER is an
+--   authoritative outcome record of *why*/*that* it was cancelled -- absence-of-listing is
+--   not equivalent to a tax_deed_outcomes row, and per this dispatch's explicit guardrail
+--   (fail-loud, no fabrication) no outcomes row was inserted from this evidence alone.
+--
+-- CONCLUSION: still structurally blocked for both rows. No parcel_id, address, coordinate,
+-- value, or outcomes row was fabricated or guessed. Zero rows in multi_county_auctions,
+-- tax_deed_outcomes, or foreclosure_outcomes modified this session.
+--
+-- CONCRETE NEXT LEVER for a future session: drive qpublic.schneidercorp.com's
+-- CalhounCountyFL parcel search (or calhounpa.net) via an interactive browser-automation
+-- tool (firecrawl-browser / browser-use skill), not a static WebFetch/curl call -- both
+-- sites are confirmed-reachable-but-bot-blocked, not confirmed-dead. That is the only path
+-- to a genuine assessed/market value + zone_code for 29-1N-08-0000-0030-0000 found this
+-- session. For "546 OF 2024", the only remaining honest lever is a phone/in-person records
+-- request to the Calhoun Clerk (850-674-4545) for the case's disposition -- there is no
+-- further web-accessible independent source discovered this session.
+--
+-- AFTER metric (re-verified live, end of session): IDENTICAL to baseline (no write applied)
+--   C: matched_clean=7 of 9, metric=77.8, pass=false
+--   D: matched_any=8 of 9, metric=88.9, pass=false
+--   I: card_complete=8 of 9, metric=88.9, pass=false
