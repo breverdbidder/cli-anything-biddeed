@@ -1,0 +1,140 @@
+<!--
+  FACT_FINDER_MASTER_TEMPLATE.html — Winner Data master Fact Finder template.
+
+  Built per issue #19392 comment 5390376020 (2026-08-24 persistence task): a
+  single master template with 20 placeholders, replacing the 22 hand-patched
+  per-lead files so one template edit propagates everywhere. Placeholders are
+  substituted server-side via plain string replace ({{token}}) — no
+  client-side templating, matching the convention already established in
+  templates/FF_TEMPLATE_A_AUCTION_SALES.html and FF_TEMPLATE_B_HOMEOWNER.html.
+
+  THE 20 PLACEHOLDERS (verbatim from the spec):
+  lead_id, first_name, last_name, entity_name, phone, email, mailing_address,
+  risk_address_full, producer_name, prepared_date, agency_name, case_number,
+  year_built, living_area_sqft, county_just_value, land_value, purchase_price,
+  county, policy_type, construction_type.
+
+  TWO ADDITIONAL BLOCKS beyond the 20 (not optional — required by the Honesty
+  Protocol / SHIP GATE rule that a Fact Finder must never show a blank field
+  with no explanation):
+    {{missing_required_fields_block}} — pre-rendered HTML (empty string if
+      nothing is missing), naming convention matches missing_required_fields
+      already used in scripts/summitleads_slq_generator.py and
+      pipelines/winnerdata/momentum_delivery.py.
+    {{compliance_notice_block}} — pre-rendered HTML for DNC / consent status
+      on the phone number, so a licensed human dialer knows the constraint
+      before calling. Empty string when there is nothing to flag.
+
+  Brand: Winner Data, Claude palette (cream/ink/terracotta), Poppins wordmark.
+  Assets: assets/brand/BRAND.md, assets/brand/icon-transparent.svg (inlined
+  below so this file renders standalone with no external asset fetch).
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Fact Finder — {{entity_name}}</title>
+<style>
+  :root{
+    --cream:#faf9f5; --ink:#141413; --terracotta:#d97757; --gray:#b0aea5; --surface:#e8e6dc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:'Poppins',Arial,Helvetica,sans-serif;line-height:1.45}
+  .masthead{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.25rem;border-bottom:1px solid var(--gray)}
+  .masthead a.brand{display:flex;align-items:center;gap:.6rem;text-decoration:none;color:var(--ink)}
+  .masthead .tile{width:34px;height:34px;flex:0 0 auto}
+  .masthead .wordmark{font-weight:700;font-size:1.1rem}
+  .masthead .wordmark .ai{color:var(--terracotta)}
+  .masthead .domain{font-weight:500;color:var(--gray);font-size:.8rem;display:block}
+  .masthead .tagline{font-size:.75rem;color:var(--gray);text-align:right;max-width:260px}
+  main{max-width:840px;margin:0 auto;padding:1.25rem}
+  .block{background:#fff;border:1px solid var(--gray);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem}
+  .block h2{margin:0 0 .6rem;font-size:1rem;text-transform:uppercase;letter-spacing:.04em;color:var(--terracotta)}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem;font-size:.92rem}
+  .kv dt{color:var(--gray);font-weight:600}
+  .kv dd{margin:0}
+  .note{font-size:.8rem;color:var(--gray);margin-top:.5rem}
+  .missing{background:#fdf1ec;border:1px solid #c96a4a;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.88rem}
+  .missing h2{color:#c96a4a;margin:0 0 .4rem;font-size:.9rem;text-transform:uppercase;letter-spacing:.04em}
+  .compliance{background:var(--surface);border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.85rem}
+  footer{max-width:840px;margin:0 auto;padding:0 1.25rem 1.5rem;font-size:.75rem;color:var(--gray)}
+  @media (max-width:700px){ .kv{grid-template-columns:1fr} .masthead{flex-direction:column;align-items:flex-start} .masthead .tagline{text-align:left;max-width:none} }
+  @media print{
+    body{background:#fff}
+    .block{border:1px solid #999;print-color-adjust:exact;-webkit-print-color-adjust:exact;page-break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <a class="brand" href="https://winnerdataai.com" target="_blank" rel="noopener">
+    <svg class="tile" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="16" fill="#d97757"/><path d="M15 19 L23 45 L32 24 L41 45 L49 19" fill="none" stroke="#faf9f5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>
+      <span class="wordmark">Winner Data<span class="ai"> AI</span></span>
+      <span class="domain">winnerdataai.com</span>
+    </span>
+  </a>
+  <div class="tagline">Every Deal Creates a Customer. Our Winner Data AI Finds Them First.</div>
+</div>
+
+<main>
+
+  {{missing_required_fields_block}}
+
+  {{compliance_notice_block}}
+
+  <div class="block">
+    <h2>Fact Finder</h2>
+    <dl class="kv">
+      <dt>Lead ID</dt><dd>{{lead_id}}</dd>
+      <dt>Entity / Seller Name</dt><dd>{{entity_name}}</dd>
+      <dt>First Name</dt><dd>{{first_name}}</dd>
+      <dt>Last Name</dt><dd>{{last_name}}</dd>
+      <dt>Phone</dt><dd>{{phone}}</dd>
+      <dt>Email</dt><dd>{{email}}</dd>
+    </dl>
+  </div>
+
+  <div class="block">
+    <h2>Contact &amp; Property Address</h2>
+    <dl class="kv">
+      <dt>Mailing Address</dt><dd>{{mailing_address}}</dd>
+      <dt>Risk Address (Full)</dt><dd>{{risk_address_full}}</dd>
+      <dt>County</dt><dd>{{county}}</dd>
+      <dt>Case Number</dt><dd>{{case_number}}</dd>
+    </dl>
+  </div>
+
+  <div class="block">
+    <h2>Property Appraiser Data</h2>
+    <dl class="kv">
+      <dt>Year Built</dt><dd>{{year_built}}</dd>
+      <dt>Living Area (sqft)</dt><dd>{{living_area_sqft}}</dd>
+      <dt>County Just Value</dt><dd>{{county_just_value}}</dd>
+      <dt>Land Value</dt><dd>{{land_value}}</dd>
+      <dt>Purchase Price</dt><dd>{{purchase_price}}</dd>
+      <dt>Construction Type</dt><dd>{{construction_type}}</dd>
+    </dl>
+  </div>
+
+  <div class="block">
+    <h2>Producer Intake</h2>
+    <dl class="kv">
+      <dt>Policy Type</dt><dd>{{policy_type}}</dd>
+      <dt>Producer</dt><dd>{{producer_name}}</dd>
+      <dt>Agency</dt><dd>{{agency_name}}</dd>
+      <dt>Prepared</dt><dd>{{prepared_date}}</dd>
+    </dl>
+  </div>
+
+</main>
+
+<footer>
+  Winner Data AI &mdash; <a href="https://winnerdataai.com" target="_blank" rel="noopener" style="color:inherit">winnerdataai.com</a>. Internal use only. Not for public distribution.
+</footer>
+
+</body>
+</html>
