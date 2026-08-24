@@ -55,7 +55,7 @@ jobs:
       - name: Verify live - real HTTP, not a checkmark
         run: |
           sleep 8
-          CODE=$(curl -s -o /dev/null -w "%{{http_code}}" https://ff.winnerdataai.com/healthz || echo "000")
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" https://ff.winnerdataai.com/healthz || echo "000")
           echo "/healthz returned $CODE"
           if [ "$CODE" = "000" ]; then
             echo "::warning::Endpoint unreachable - check route/DNS binding for ff.winnerdataai.com"

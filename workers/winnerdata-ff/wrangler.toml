@@ -1,0 +1,21 @@
+name = "winnerdata-ff"
+main = "src/index.js"
+compatibility_date = "2026-08-24"
+account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
+
+# templates/FF_TEMPLATE_*.html are imported as text at deploy time (esbuild,
+# bundled by `wrangler deploy` itself — no separate build step to maintain).
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = false
+
+[[routes]]
+pattern = "ff.winnerdataai.com/*"
+zone_name = "winnerdataai.com"
+
+# No [vars] — this Worker holds no secrets. SUPABASE_URL and the anon key are
+# non-secret constants embedded in src/index.js (same pattern as
+# src/worker.js:36-37); RLS/RPC validation is the access boundary, not key
+# secrecy. If a future secret is ever needed: `wrangler secret put <NAME>`,
+# never written here.

@@ -1,0 +1,151 @@
+<!--
+  FF_TEMPLATE_B_HOMEOWNER.html — Winner Data Fact Finder, Homeowner / HO3 track.
+
+  RECONSTRUCTION NOTICE: see FF_TEMPLATE_A_AUCTION_SALES.html header comment —
+  same situation, same caveat. Rebuilt from issue #19392 comment 5390376020's
+  written spec, not a copy of the lost original chat-session file.
+
+  Used when own_addr1 = phy_addr1 (owner-occupied) — workers/winnerdata-ff
+  picks this template over Template A on that basis, per spec.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Fact Finder — {{entity_name}}</title>
+<style>
+  :root{
+    --cream:#faf9f5; --ink:#141413; --terracotta:#d97757; --gray:#b0aea5;
+    --banner-tax-deed:#d97757; --banner-foreclosure:#8b5cf6; --banner-none:#6b6b66;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:Arial,Helvetica,sans-serif;line-height:1.45}
+  .masthead{display:flex;align-items:center;gap:.6rem;padding:1rem 1.25rem;border-bottom:1px solid var(--gray)}
+  .masthead a{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:var(--ink)}
+  .masthead .wordmark{font-weight:700;font-size:1.1rem}
+  .masthead .domain{font-weight:500;color:var(--gray);font-size:.85rem}
+  .banner{padding:.75rem 1.25rem;color:#fff;font-weight:700;letter-spacing:.02em}
+  .banner.tax_deed{background:var(--banner-tax-deed)}
+  .banner.foreclosure{background:var(--banner-foreclosure)}
+  .banner.not_established{background:var(--banner-none)}
+  main{max-width:840px;margin:0 auto;padding:1.25rem}
+  .block{background:#fff;border:1px solid var(--gray);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem}
+  .block h2{margin:0 0 .6rem;font-size:1rem;text-transform:uppercase;letter-spacing:.04em;color:var(--terracotta)}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem;font-size:.92rem}
+  .kv dt{color:var(--gray);font-weight:600}
+  .kv dd{margin:0}
+  .note{font-size:.8rem;color:var(--gray);margin-top:.5rem}
+  .flags{list-style:none;margin:0;padding:0}
+  .flags li{padding:.35rem 0;border-bottom:1px dashed var(--gray)}
+  .flags li:last-child{border-bottom:none}
+  .askfetch a.cta{display:inline-block;margin-top:.6rem;background:var(--terracotta);color:#fff;padding:.55rem 1rem;border-radius:6px;text-decoration:none;font-weight:700}
+  .call-script{white-space:pre-wrap;font-size:.92rem;background:var(--cream);border-radius:6px;padding:.75rem}
+  form.intake label{display:block;font-size:.85rem;font-weight:600;margin:.5rem 0 .2rem}
+  form.intake input,form.intake select{width:100%;padding:.5rem;border:1px solid var(--gray);border-radius:6px;font-size:.92rem}
+  form.intake button{margin-top:.8rem;background:var(--ink);color:#fff;border:none;padding:.6rem 1.1rem;border-radius:6px;font-weight:700;cursor:pointer}
+  @media (max-width:700px){ .kv{grid-template-columns:1fr} }
+  @media print{
+    body{background:#fff}
+    .masthead,.askfetch,form.intake{display:none}
+    .block{border:1px solid #999;print-color-adjust:exact;-webkit-print-color-adjust:exact;page-break-inside:avoid}
+    .banner{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <a href="https://winnerdataai.com" target="_blank" rel="noopener">
+    <span class="wordmark">Winner Data AI</span>
+    <span class="domain">winnerdataai.com</span>
+  </a>
+</div>
+
+<div class="banner {{banner_class}}">{{banner_label}}</div>
+
+<main>
+
+  <div class="block">
+    <h2>Producer Call Script</h2>
+    <div class="call-script">{{call_script}}</div>
+  </div>
+
+  <div class="block">
+    <h2>Property Profile — Owner-Occupied (HO3)</h2>
+    <dl class="kv">
+      <dt>Sale Type</dt><dd>{{sale_type_label}}</dd>
+      <dt>Auction Date</dt><dd>{{auction_date}}</dd>
+      <dt>Days Since Auction</dt><dd>{{days_since_auction}}</dd>
+      <dt>Sold Amount</dt><dd>{{sold_amount}}</dd>
+      <dt>Case Number</dt><dd>{{case_number}}</dd>
+      <dt>Parcel</dt><dd>{{parcel_id}}</dd>
+      <dt>Certificate-of-Title Recording Date</dt><dd>{{ct_recording_date}}</dd>
+    </dl>
+  </div>
+
+  <div class="block">
+    <h2>Property Appraiser</h2>
+    <dl class="kv">
+      <dt>Just Value</dt><dd>{{county_just_value}}</dd>
+      <dt>Assessed Value</dt><dd>{{assessed_value}}</dd>
+      <dt>Land Value</dt><dd>{{land_value}}</dd>
+      <dt>Building Value</dt><dd>{{building_value}}</dd>
+      <dt>Construction Quality</dt><dd>{{construction_type}}</dd>
+      <dt>Coverage A (computed)</dt><dd>{{coverage_a}}</dd>
+    </dl>
+    <p class="note">Coverage A = building value x 1.25. Land value is not insured and is excluded. Coverage A is not the purchase price.</p>
+  </div>
+
+  <div class="block">
+    <h2>Underwriting Flags</h2>
+    <ul class="flags">{{underwriting_flags}}</ul>
+  </div>
+
+  <div class="block askfetch">
+    <h2>AskFetch — Section 9</h2>
+    <dl class="kv">
+      <dt>Name</dt><dd>{{first_name}} {{last_name}}</dd>
+      <dt>Mailing Address</dt><dd>{{mailing_address}}</dd>
+      <dt>Risk Address</dt><dd>{{risk_address_full}}</dd>
+      <dt>Policy Type</dt><dd>{{policy_type}}</dd>
+      <dt>Date of Birth</dt><dd>{{date_of_birth}}</dd>
+      <dt>Roof Shape</dt><dd>{{roof_shape}}</dd>
+    </dl>
+    <a class="cta" href="https://app.askfetch.com" target="_blank" rel="noopener">Open in AskFetch &rarr;</a>
+  </div>
+
+  <div class="block">
+    <h2>Producer Intake</h2>
+    <form class="intake" method="post" action="/ff/{{lead_id}}">
+      <label for="date_of_birth">Date of Birth</label>
+      <input type="date" id="date_of_birth" name="date_of_birth" value="{{date_of_birth}}">
+      <label for="roof_shape">Roof Shape</label>
+      <select id="roof_shape" name="roof_shape">
+        <option value="">Select…</option>
+        <option value="gable">Gable</option>
+        <option value="hip">Hip</option>
+        <option value="flat">Flat</option>
+        <option value="gambrel">Gambrel</option>
+        <option value="other">Other</option>
+      </select>
+      <label for="ct_recording_date">Certificate-of-Title Recording Date</label>
+      <input type="date" id="ct_recording_date" name="ct_recording_date" value="{{ct_recording_date}}">
+      <label for="occupancy">Occupancy</label>
+      <select id="occupancy" name="occupancy">
+        <option value="owner" selected>Owner-occupied</option>
+        <option value="tenant">Tenant-occupied</option>
+        <option value="vacant">Vacant</option>
+      </select>
+      <label for="call_notes">Call Notes</label>
+      <input type="text" id="call_notes" name="call_notes" value="">
+      <label><input type="checkbox" name="consent_obtained" value="true"> Consent obtained on this call</label>
+      <button type="submit">Save</button>
+    </form>
+    <p class="note">Prepared {{prepared_date}} for {{producer_name}}, {{agency_name}}.</p>
+  </div>
+
+</main>
+</body>
+</html>
