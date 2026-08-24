@@ -142,6 +142,17 @@ function renderFF(data) {
   const firstName = nameParts[0] || '';
   const lastName = nameParts.slice(1).join(' ') || '';
 
+  // Verification badge is mandatory and never blank -- ff_get_lead's
+  // `verification` object always resolves to a badge + reason (see
+  // supabase/migrations/20260824_ff_verification_badge_rpc.sql), but this
+  // Worker still defaults defensively in case an older cached RPC result
+  // (or a lead_id predating that migration) lacks the key.
+  const verification = data.verification || {};
+  const verified = verification.badge === 'VERIFIED';
+  const appraiserLink = verification.appraiser_url
+    ? `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">View county property appraiser record &rarr;</a>`
+    : '<span>No property appraiser URL on file for this county.</span>';
+
   const values = {
     lead_id: lead.lead_id,
     entity_name: esc(lead.entity_name),
@@ -176,6 +187,10 @@ function renderFF(data) {
     roof_shape: esc(responses.roof_shape) || 'Collect on call',
     underwriting_flags: computeFlags(lead, parcel),
     call_script: esc(callScript(lead, auction)),
+    verify_badge_class: verified ? 'verified' : 'not-verified',
+    verify_badge_label: verified ? 'VERIFIED' : 'NOT VERIFIED',
+    verify_reason: esc(verification.reason) || 'No property appraiser cross-verification available for this county.',
+    appraiser_link: appraiserLink,
   };
 
   return template.replace(/{{(\w+)}}/g, (_, key) => (values[key] !== undefined ? values[key] : ''));

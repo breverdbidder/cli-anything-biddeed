@@ -15,12 +15,35 @@ and this script will pick up the resulting rows on its next run.
 """
 import json
 import os
+import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from datetime import date
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "property_appraiser"))
+import tracerfy_client  # noqa: E402
+import ff_credit_ledger  # noqa: E402
+import dispatch as appraiser_dispatch  # noqa: E402
+
 PROJECT_REF = "mocerqjnksmhcjzxrewo"
 MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co").rstrip("/")
+SUPABASE_ANON_OR_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+# Retryable = not yet resolved either way, safe to attempt again next run
+# (including a run that was skipped only because the daily credit cap was
+# already hit). Terminal = attempted at least once; per Tracerfy's
+# documented near-zero hit rate on pure-entity names with no person name on
+# record, a terminal no-hit is a real ceiling, not retried forever.
+TRACERFY_RETRYABLE_STATUSES = ("SKIP_TRACE_PENDING_TRACERFY_KEY_ABSENT", "SKIP_TRACE_SKIPPED_DAILY_CAP")
+
+
+def _sql_str(v):
+    if v is None:
+        return "null"
+    return "'" + str(v).replace("'", "''") + "'"
 
 
 def run_sql(query):
@@ -216,6 +239,195 @@ order by l.lead_id, mca.assessed_value desc nulls last;
 """
 
 
+BRIGHTDATA_PLACEHOLDER_COUNTIES_QUERY = """
+select distinct county from summitleads.signal_events
+where event_type = 'auction_close' and source = 'biddeed'
+  and coalesce((event_payload->>'is_placeholder_identity')::boolean, false) = true
+  and occurred_at >= (current_date - interval '1 day');
+"""
+
+
+def sprint1b_brightdata_harvest():
+    """Bright Data winner harvest for placeholder-identity ('3rd Party
+    Bidder') winners from the last day, across whichever of the 67 counties
+    actually have one -- never a hardcoded 'certified counties' list. One
+    combined-ledger unit spent per county attempt (a scraper run touches many
+    pages within that county); see ff_credit_ledger.py header for why this is
+    call-count-based, not a reconciled Tracerfy/BrightData dollar figure."""
+    if not os.environ.get("BRIGHTDATA_BROWSER_WSS") or not os.environ.get("REALFORECLOSE_EMAIL") or not os.environ.get("REALFORECLOSE_PASSWORD"):
+        print("Sprint 1b BLOCKED: BRIGHTDATA_BROWSER_WSS/REALFORECLOSE_EMAIL/REALFORECLOSE_PASSWORD "
+              "absent -- skipping winner harvest, running on existing winning_bidder data only.")
+        return
+
+    counties = [r["county"] for r in run_sql(BRIGHTDATA_PLACEHOLDER_COUNTIES_QUERY) if r.get("county")]
+    if not counties:
+        print("Sprint 1b: no placeholder-identity winners in the last day across any county -- nothing to harvest.")
+        return
+
+    run_counties, skipped_counties = [], []
+    for county in counties:
+        ledger = ff_credit_ledger.spend("brightdata", 1)
+        if not ledger.get("granted"):
+            skipped_counties.append((county, ledger.get("error") or "daily combined credit cap reached"))
+            continue
+        run_counties.append(county)
+
+    if skipped_counties:
+        print(f"Sprint 1b: {len(skipped_counties)} county attempt(s) skipped on the daily credit cap: {skipped_counties}")
+    if not run_counties:
+        print("Sprint 1b: all candidate counties skipped (cap already hit before this run started).")
+        return
+
+    result = subprocess.run(
+        [sys.executable, os.path.join(os.path.dirname(__file__), "brightdata_auction_harvester.py"),
+         "--counties", ",".join(run_counties)],
+        env=os.environ.copy(),
+    )
+    if result.returncode != 0:
+        print(f"Sprint 1b: brightdata_auction_harvester.py exited {result.returncode} for counties {run_counties} "
+              "-- see its own FATAL-on-login-failure logging above. Continuing pipeline on existing data.")
+    else:
+        print(f"Sprint 1b done: harvested {run_counties}.")
+
+
+class MailingAddressLookupError(Exception):
+    """Raised on a transport/query failure (e.g. timeout) -- NOT the same as
+    a successful zero-row result. Conflating the two would mislabel a
+    transient failure as the terminal 'this buyer has no fl_parcels history'
+    ceiling, permanently losing the lookup (see idx_fl_parcels_ownname_trgm
+    migration header for the live timeout this caught)."""
+
+
+def lookup_mailing_address(entity_name):
+    """Buyer's own prior-deed mailing address (fl_parcels.own_addr1) -- the
+    proven 88%-hit-rate method (see tracerfy_client.py module docstring).
+    Returns None if the query succeeded but this buyer genuinely has no
+    fl_parcels history to trace against (a real ceiling for pure LLC/trust
+    names never seen as an owner before, not a bug). Raises
+    MailingAddressLookupError on a transport/query failure so the caller
+    can leave the lead retryable instead of terminal."""
+    if not entity_name:
+        return None
+    pattern = urllib.parse.quote(f"*{entity_name.strip()}*")
+    url = f"{SUPABASE_URL}/rest/v1/fl_parcels?select=own_addr1,own_city,own_state,own_zipcd&own_name=ilike.{pattern}&own_addr1=not.is.null&limit=1"
+    req = urllib.request.Request(url, headers={
+        "apikey": SUPABASE_ANON_OR_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_ANON_OR_SERVICE_KEY}",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            rows = json.loads(resp.read())
+    except Exception as e:
+        raise MailingAddressLookupError(str(e)) from e
+    return rows[0] if rows else None
+
+
+TRACERFY_CANDIDATES_QUERY = f"""
+select l.lead_id, l.entity_name
+from summitleads.leads l
+where l.contact_phone is null and l.contact_email is null
+  and coalesce(l.consent_certificate->>'skip_trace_status', '') in (
+    {", ".join(_sql_str(s) for s in TRACERFY_RETRYABLE_STATUSES)}
+  );
+"""
+
+
+def sprint2b_tracerfy_skiptrace():
+    """Real Tracerfy enhanced-trace calls for leads still in a retryable
+    skip-trace state, ledger-gated, never re-attempting a lead that already
+    reached a terminal outcome (hit, confirmed no-hit, or no mailing address
+    to trace against) on a prior run."""
+    if not os.environ.get("TRACERFY_API_KEY"):
+        print("Sprint 2b BLOCKED: TRACERFY_API_KEY absent -- leads stay in degraded/pending skip-trace state.")
+        return
+
+    candidates = run_sql(TRACERFY_CANDIDATES_QUERY)
+    if not candidates:
+        print("Sprint 2b: no leads pending skip-trace.")
+        return
+
+    hits = no_hits = no_address = cap_skipped = lookup_errors = 0
+    for lead in candidates:
+        try:
+            addr = lookup_mailing_address(lead["entity_name"])
+        except MailingAddressLookupError as e:
+            # Leave skip_trace_status untouched (stays in a retryable state)
+            # -- a transport/query failure is not proof this buyer has no
+            # fl_parcels history, and must not be permanently mislabeled as
+            # the terminal no-address ceiling.
+            print(f"  lookup_mailing_address({lead['entity_name']!r}) failed, leaving retryable: {e}")
+            lookup_errors += 1
+            continue
+        if not addr:
+            run_sql(f"""
+                update summitleads.leads set consent_certificate = consent_certificate ||
+                  jsonb_build_object('skip_trace_status', 'TRACED_NO_MAILING_ADDRESS')
+                where lead_id = {_sql_str(lead['lead_id'])};
+            """)
+            no_address += 1
+            continue
+
+        ledger = ff_credit_ledger.spend("tracerfy", 1)
+        if not ledger.get("granted"):
+            run_sql(f"""
+                update summitleads.leads set consent_certificate = consent_certificate ||
+                  jsonb_build_object('skip_trace_status', 'SKIP_TRACE_SKIPPED_DAILY_CAP')
+                where lead_id = {_sql_str(lead['lead_id'])};
+            """)
+            cap_skipped += 1
+            continue
+
+        result = tracerfy_client.trace_lead(
+            lead["entity_name"], addr.get("own_addr1"), addr.get("own_city"), addr.get("own_state"), addr.get("own_zipcd"),
+        )
+        if result.get("phone") or result.get("email"):
+            run_sql(f"""
+                update summitleads.leads set
+                  contact_phone = {_sql_str(result.get('phone'))},
+                  contact_email = {_sql_str(result.get('email'))},
+                  contact_name = {_sql_str(result.get('full_name') or lead['entity_name'])},
+                  consent_certificate = consent_certificate ||
+                    jsonb_build_object('skip_trace_status', 'TRACED_HIT', 'skip_trace_parse_status', {_sql_str(result.get('parse_status'))})
+                where lead_id = {_sql_str(lead['lead_id'])};
+            """)
+            hits += 1
+        else:
+            run_sql(f"""
+                update summitleads.leads set consent_certificate = consent_certificate ||
+                  jsonb_build_object('skip_trace_status', 'TRACED_NO_HIT', 'skip_trace_parse_status', {_sql_str(result.get('parse_status'))})
+                where lead_id = {_sql_str(lead['lead_id'])};
+            """)
+            no_hits += 1
+
+    print(f"Sprint 2b done: {hits} hit(s), {no_hits} confirmed no-hit, {no_address} with no fl_parcels "
+          f"mailing address to trace against, {cap_skipped} skipped on daily credit cap, "
+          f"{lookup_errors} left retryable after a lookup error.")
+
+
+APPRAISER_VERIFY_CANDIDATES_QUERY = """
+select l.lead_id, se.event_payload->>'case_number' as case_number, se.county,
+       l.parcel_id, se.event_payload->>'property_address' as address, fp.own_name as owner
+from summitleads.leads l
+join summitleads.signal_events se on se.signal_id = l.signal_id
+left join public.fl_parcels fp on fp.parcel_id = l.parcel_id
+where l.parcel_id is not null
+  and se.county in ('manatee', 'lee', 'broward', 'palm_beach', 'marion');
+"""
+
+
+def sprint3b_appraiser_verify():
+    """Property appraiser cross-verification for the 5 counties with a live
+    scraper (see scripts/property_appraiser/dispatch.py). Every other county
+    gets its NOT VERIFIED badge + reason straight from public.ff_get_lead's
+    fl_property_appraiser_configs/fl_counties fallback -- no placeholder row
+    needed here."""
+    leads = run_sql(APPRAISER_VERIFY_CANDIDATES_QUERY)
+    if not leads:
+        print("Sprint 3b: no leads in a property-appraiser-scraper-supported county.")
+        return
+    stats = appraiser_dispatch.verify_leads(leads)
+    print(f"Sprint 3b done: {stats}")
+
+
 def sprint5_deliver(batch_date):
     new_rows = run_sql(BATCH_QUERY)
     if not new_rows:
@@ -256,30 +468,13 @@ def sprint5_deliver(batch_date):
 def main():
     batch_date = os.environ.get("SUMMITLEADS_BATCH_DATE", date.today().isoformat())
 
-    if not os.environ.get("BRIGHTDATA_API_KEY") or not os.environ.get("BRIGHTDATA_BROWSER_WSS"):
-        print("Sprint 1b BLOCKED: BRIGHTDATA_API_KEY/BRIGHTDATA_BROWSER_WSS absent — "
-              "skipping winner harvest, running on existing winning_bidder data only.")
-    else:
-        print("Sprint 1b SCOPE GAP: BRIGHTDATA_* secrets are present, but no Bright Data "
-              "Scraping Browser client exists in this repo yet (no connect_over_cdp usage "
-              "anywhere; county_outcome_harvester.py is plain urllib, not a browser). "
-              "Secrets landing did not unblock this — the harvester still needs to be "
-              "written and verified against a live county site before it can run. "
-              "Running on existing winning_bidder data only.")
-    if not os.environ.get("TRACERFY_API_KEY"):
-        print("Sprint 2 degraded: TRACERFY_API_KEY absent — no phone/email skip-trace, "
-              "leads created with contact info gaps flagged per compliance rails.")
-    else:
-        print("Sprint 2 SCOPE GAP: TRACERFY_API_KEY is present, but no Tracerfy API client "
-              "exists in this repo yet and its endpoint/auth contract is undocumented here. "
-              "Guessing at the API shape risks burning paid lookups or mishandling PII, so "
-              "this session leaves skip-trace degraded rather than faking a call. Leads "
-              "created with contact info gaps flagged per compliance rails.")
-
     run_sql(SPRINT1)
-    print("Sprint 1 done: signal_events synced from last-7-day completed FL auctions.")
+    print("Sprint 1 done: signal_events synced from last-7-day completed FL auctions, all 67 counties.")
+    sprint1b_brightdata_harvest()
     run_sql(SPRINT2)
     print("Sprint 2 done: leads created for non-placeholder-identity signals.")
+    sprint2b_tracerfy_skiptrace()
+    sprint3b_appraiser_verify()
     run_sql(SPRINT3)
     print("Sprint 3 done: quote_drafts assembled for un-drafted leads.")
     run_sql(SPRINT4)
@@ -290,8 +485,11 @@ def main():
         select
           (select count(*) from summitleads.signal_events) as signal_events,
           (select count(*) from summitleads.leads) as leads,
+          (select count(*) from summitleads.leads where contact_phone is not null or contact_email is not null) as leads_with_contact,
           (select count(*) from summitleads.quote_drafts) as quote_drafts,
-          (select count(*) from summitleads.lead_activity where activity_type='delivered') as delivered;
+          (select count(*) from summitleads.lead_activity where activity_type='delivered') as delivered,
+          (select count(*) from public.parity_audit where verdict='pass' and field_name='parcel_id') as appraiser_verified_parcels,
+          (select total_calls from public.ff_daily_credit_ledger where usage_date = current_date) as credit_units_spent_today;
     """)
     print("Sprint 6 QA — live counts:", json.dumps(counts[0]))
 

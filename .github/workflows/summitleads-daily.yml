@@ -1,27 +1,51 @@
 name: summitleads-daily
-# SummitLeads Signal -> Skip-trace -> Quote-Draft -> Route -> Deliver, daily at 7AM Eastern.
-# See scripts/summitleads_pipeline.py. Degrades (does not fail) when BRIGHTDATA_*/TRACERFY_API_KEY
-# are absent — logs BLOCKED and runs on existing winning_bidder data only. Never fabricates leads.
+# Daily automated FF pipeline (BidDeed + ZoneWise + Bright Data + Tracerfy),
+# all 67 FL counties: Signal -> BrightData winner harvest -> Skip-trace ->
+# Appraiser cross-verify -> Quote-Draft -> Route -> Deliver.
+# See scripts/summitleads_pipeline.py. Degrades (does not fail) when
+# BRIGHTDATA_*/TRACERFY_API_KEY/REALFORECLOSE_* are absent — logs BLOCKED and
+# runs on existing data only. Never fabricates leads. Combined Tracerfy +
+# Bright Data spend is hard-capped at 100 units/UTC day by
+# public.ff_ledger_spend() (scripts/ff_credit_ledger.py) — no borrowing
+# across days.
+#
+# CRON TIMING (INFERRED 2026-08-24, not vendor-confirmed per county — flagged
+# explicitly, do not treat as verified fact): RealAuction/RealTaxDeed FL
+# foreclosure/tax-deed sales run online starting ~9-11am ET (confirmed for
+# Flagler: 11am; Palm Beach: 10am Mon-Thu) and, since a single county session
+# auctions many parcels sequentially, typically continue into the afternoon.
+# The PRIOR cron (11:00 UTC = 7:00 AM ET) ran *before* same-day auctions even
+# started, so it could only ever pick up results from days-old sales via
+# Sprint 1's 7-day lookback -- same-day FF generation was structurally
+# impossible at that hour. Moved to 23:00 UTC (7:00 PM EDT / 6:00 PM EST) --
+# well after all 67 counties' single daily session should have concluded --
+# so same-day SOLD/winner data is actually available when this runs. Revisit
+# if a specific county's clerk posts later than this.
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 11 * * *"   # 7:00 AM EDT (11:00 UTC) — issue #19392 Sprint 5
+    - cron: "0 23 * * *"   # 7:00 PM EDT / 6:00 PM EST (23:00 UTC) — daily FF pipeline
 concurrency: {group: summitleads-daily, cancel-in-progress: false}
 permissions:
   contents: write
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: Run SummitLeads pipeline
+      - run: pip install httpx playwright && playwright install --with-deps chromium
+      - name: Run daily FF pipeline
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
           BRIGHTDATA_BROWSER_WSS: ${{ secrets.BRIGHTDATA_BROWSER_WSS }}
+          REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
+          REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
           TRACERFY_API_KEY: ${{ secrets.TRACERFY_API_KEY }}
         run: python scripts/summitleads_pipeline.py
       - name: Commit batch files

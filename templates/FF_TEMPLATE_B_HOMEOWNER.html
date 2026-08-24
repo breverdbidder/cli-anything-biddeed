@@ -42,6 +42,11 @@
   .flags li:last-child{border-bottom:none}
   .askfetch a.cta{display:inline-block;margin-top:.6rem;background:var(--terracotta);color:#fff;padding:.55rem 1rem;border-radius:6px;text-decoration:none;font-weight:700}
   .call-script{white-space:pre-wrap;font-size:.92rem;background:var(--cream);border-radius:6px;padding:.75rem}
+  .verify-badge{display:inline-block;font-size:.75rem;font-weight:700;letter-spacing:.03em;padding:.25rem .6rem;border-radius:999px;color:#fff;margin-bottom:.5rem}
+  .verify-badge.verified{background:#1e7d3c}
+  .verify-badge.not-verified{background:#c0392b}
+  .verify-row{margin-bottom:.6rem}
+  .verify-row a{color:var(--terracotta);font-weight:600}
   form.intake label{display:block;font-size:.85rem;font-weight:600;margin:.5rem 0 .2rem}
   form.intake input,form.intake select{width:100%;padding:.5rem;border:1px solid var(--gray);border-radius:6px;font-size:.92rem}
   form.intake button{margin-top:.8rem;background:var(--ink);color:#fff;border:none;padding:.6rem 1.1rem;border-radius:6px;font-weight:700;cursor:pointer}
@@ -87,6 +92,11 @@
 
   <div class="block">
     <h2>Property Appraiser</h2>
+    <div class="verify-row">
+      <span class="verify-badge {{verify_badge_class}}">{{verify_badge_label}}</span><br>
+      {{appraiser_link}}
+      <p class="note">{{verify_reason}}</p>
+    </div>
     <dl class="kv">
       <dt>Just Value</dt><dd>{{county_just_value}}</dd>
       <dt>Assessed Value</dt><dd>{{assessed_value}}</dd>

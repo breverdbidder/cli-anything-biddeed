@@ -1,6 +1,6 @@
 # SummitLeads — Auction Flash Batch 2026-08-24
 
-Generated: 2026-08-24T11:11:20.870433+00:00Z (live-queried, org=Protection Partners)
+Generated: 2026-08-24T16:58:10.615729+00:00Z (live-queried, org=Protection Partners)
 
 Total leads: 21 | Producers: 1
 
@@ -41,7 +41,7 @@ Total leads: 21 | Producers: 1
 ### RILEY CHRISTOPHER D / KELLEY MATTHEW W — LOIS LN, CRAWFORDVILLE, FL 32327
 
 **MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
-**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed. Contact info not yet available.**
+**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed.**
 
 - **Entity type:** person
 - **Parcel ID:** 00-00-044-000-09819-004
@@ -50,7 +50,7 @@ Total leads: 21 | Producers: 1
 - **Product line:** other (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
 - **Quote-draft completeness:** 60.00% — open gaps: contact phone/email (where missing), occupancy confirmation, prior claims, roof age/type (county data lacks roof detail), coverage limits
 - **Valuation:** assessed $178,800, market $178,800
-- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Contact phone/email:** 8507975292 / ichristopherriley@gmail.com
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up LOIS LN, CRAWFORDVILLE, FL 32327 at the tax deed auction in Wakulla County on 2026-08-19 for $73,000. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
 ### HAMMOCK REAL ESTATE DEVELOPMENT, LLC — (vacant land) BUNNELL, FL 32110
@@ -101,7 +101,7 @@ Total leads: 21 | Producers: 1
 ### ROBERT ZIVKOVIC, TRUSTEE OF ZIVKO PSP — 4104 NW 25TH ST, CAPE CORAL, FL 33993
 
 **MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
-**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed. Contact info not yet available.**
+**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed.**
 
 - **Entity type:** person
 - **Parcel ID:** 25-43-22-C3-05177.0340
@@ -110,7 +110,7 @@ Total leads: 21 | Producers: 1
 - **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
 - **Quote-draft completeness:** 55.00% — open gaps: contact phone, contact email, occupancy confirmation, prior claims, desired coverage limits
 - **Valuation:** assessed $44,413, market unknown
-- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Contact phone/email:** 9546469784 / robziv@yahoo.com
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 4104 NW 25TH ST, CAPE CORAL, FL 33993 at the foreclosure auction in Lee County on 2026-08-13 for unknown. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
 ### JUPI LLC — 2608 NW 21ST TER, CAPE CORAL, FL 33993
@@ -220,7 +220,7 @@ Total leads: 21 | Producers: 1
 ### DAVIS, RONALD L. — 10431 NEW BEDFORD CT, LEHIGH ACRES, FL 33936
 
 **MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
-**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed. Contact info not yet available.**
+**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed.**
 
 - **Entity type:** person
 - **Parcel ID:** 05-45-27-22-00021.0720
@@ -229,7 +229,7 @@ Total leads: 21 | Producers: 1
 - **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
 - **Quote-draft completeness:** 70.00% — open gaps: contact phone/email (where missing), occupancy confirmation, prior claims, roof age/type (county data lacks roof detail), coverage limits
 - **Valuation:** assessed $108,122, market unknown
-- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Contact phone/email:** 9092422685 / mollykay31@hotmail.com
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 10431 NEW BEDFORD CT, LEHIGH ACRES, FL 33936 at the foreclosure auction in Lee County on 2026-08-13 for unknown. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
 ### ROJOPA LLC — 1808 17TH ST E, PALMETTO, FL 34221
