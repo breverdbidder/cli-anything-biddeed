@@ -70,6 +70,51 @@ Verified live post-deploy: /county/alachua and /county/brevard render the full
 interactive table (equity totals, Shapira Triangle filters) with zero console
 errors, first verified fully-working production render of these pages.
 
+### 1.3 SUMMITLEADS `mls_sale_close` SIGNAL WIRING (2026-08-24)
+
+`public.sale_listings` (HomeHarvest, `source='homeharvest_realtor_com'`, see §1's
+HomeHarvest row) is now a second signal source into `summitleads.signal_events`,
+alongside the pre-existing `event_type='auction_close'` rows from BidDeed
+(`scripts/summitleads_pipeline.py` SPRINT1). Issue #19429.
+`supabase/migrations/20260824_summitleads_mls_sale_close_wiring.sql`:
+- **Scheduler: pg_cron**, not GHA — `cron.job` `summitleads-mls-sale-close-daily`
+  (`40 10 * * *` UTC), calling `public.sync_mls_sale_close_events()`. Pure-SQL job
+  (select → match → insert → backfill), no external HTTP/scrape call needed, so it
+  follows the same in-DB pg_cron pattern as `dispatch_homeharvest_rental_ingest()`
+  and the b2c/trial-expiry jobs rather than round-tripping through GHA.
+- **Watermark**: `summitleads.mls_sync_state` (one row, `job_name='mls_sale_close_sync'`)
+  tracks `last_watermark` against `sale_listings.fetched_at`; each run is capped at
+  20,000 candidate rows (current backlog 6,201 — cap never binds today, kept for
+  future growth) and only advances the watermark to the max `fetched_at` actually
+  processed, so a capped run can never skip the remainder.
+- **Order**: LIFO — `removed_date DESC NULLS LAST, fetched_at DESC` — freshest sale
+  processed/inserted first (issue correction 2026-08-24: hottest leads first if a
+  run is interrupted).
+- **parcel_id**: `sale_listings.parcel_uuid` is **0% populated live** (0/6201 SOLD
+  rows, checked 2026-08-24) — HomeHarvest never sets it — so the join is address
+  match only: exact `fl_parcels.phy_addr1` + `phy_zipcd`, scoped by `co_no` via
+  `fl_counties.slug = sale_listings.county`. Live hit rate: **3,810/6,201 = 61.4%**.
+  Multi-unit buildings sharing one street address resolve to one `fl_parcels` row
+  deterministically (`DISTINCT ON ... ORDER BY parcel_id`) — a documented
+  approximation, not a guaranteed-correct unit-level match.
+- **entity_name**: NULL at insert — buyer name is not present anywhere in
+  `sale_listings` (known gap, not invented). Separate backfill step in the same
+  function fills `entity_name` from `fl_parcels.own_name` only where
+  `fl_parcels.updated_at > signal_events.occurred_at` (a proxy for "this parcel
+  record was refreshed after the sale closed"). Live hit rate as of first run
+  2026-08-24: **0/6,201 = 0%** — `fl_parcels` has not been rescraped since any of
+  these sales closed. Not a dead step: it will start finding hits organically as
+  the existing zoning/appraiser pipelines rescrape `fl_parcels`. Reported as 0%,
+  not claimed solved.
+- **Dedup**: partial unique index `signal_events_mls_sale_close_listing_id_key` on
+  `(event_payload->>'listing_id')` scoped to `event_type='mls_sale_close'` (never
+  collides with `auction_close` rows). Proven live: watermark reset to epoch +
+  re-run → 6,201 candidates rescanned, 0 inserted, row count unchanged; a raw
+  duplicate `INSERT` throws `23505 duplicate key value` on this index by name.
+- **Non-goals honored**: `po_listings`/`propertyonion_listings` untouched;
+  existing 49 `auction_close` rows untouched; no skip-trace/Tracerfy call added;
+  `summitleads.leads` not modified by this migration.
+
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
 Customer → `mcp.biddeed.ai` → Cloudflare Tunnel → **local Dell** → MCP HTTP server (this repo, `main`) → Supabase.
