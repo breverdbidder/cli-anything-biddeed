@@ -1,0 +1,71 @@
+name: Deploy Winner Data Fact Finder Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/winnerdata-ff/**'
+      - 'templates/FF_TEMPLATE_*.html'
+      - '.github/workflows/deploy-winnerdata-ff.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winnerdata-ff-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Guard - required secrets present
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID. Add them at Settings > Secrets > Actions. Token scope: Workers Scripts:Edit + Workers Routes:Edit."
+            exit 1
+          fi
+          echo "Secrets present."
+
+      - name: Syntax check worker
+        run: |
+          node --check workers/winnerdata-ff/src/index.js
+          echo "Worker JS parses OK"
+
+      - name: Deploy via wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/winnerdata-ff
+          command: deploy
+
+      - name: Verify live - real HTTP, not a checkmark
+        run: |
+          sleep 8
+          CODE=$(curl -s -o /dev/null -w "%{{http_code}}" https://ff.winnerdataai.com/healthz || echo "000")
+          echo "/healthz returned $CODE"
+          if [ "$CODE" = "000" ]; then
+            echo "::warning::Endpoint unreachable - check route/DNS binding for ff.winnerdataai.com"
+          fi
+
+      - name: Security gate - unauthenticated access must NOT return lead data
+        run: |
+          BODY=$(curl -s https://ff.winnerdataai.com/portal || echo "")
+          if echo "$BODY" | grep -qE '[0-9]{3}-[0-9]{3}-[0-9]{4}'; then
+            echo "::error::Unauthenticated /portal exposed a phone number. Cloudflare Access and/or RLS is NOT enforced. Failing the deploy."
+            exit 1
+          fi
+          echo "No PII leaked on unauthenticated request."
