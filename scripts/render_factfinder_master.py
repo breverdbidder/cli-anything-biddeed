@@ -8,12 +8,21 @@ listing), not a statewide pipeline. Data for each lead is supplied as a dict
 DB-driven version (read winnerdata.leads directly) is out of scope here.
 
 Usage: python3 scripts/render_factfinder_master.py
+
+Content safety: every render is scanned against a banned-terms list (vendor
+names, internal file paths, HTTP status codes, queue IDs, API paths) before
+being written. A match raises ContentSafetyError instead of writing the file
+-- see content_safety_check(). The template is also gated on an "SSOT STATUS"
+marker (see templates/FACT_FINDER_MASTER_TEMPLATE.html): render() refuses to
+run at all until that marker reads "approved" (Ariel-only edit).
 """
 import html
 import os
+import re
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "templates", "FACT_FINDER_MASTER_TEMPLATE.html")
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "winnerdata", "factfinder")
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 CORE_FIELDS = [
     "lead_id", "first_name", "last_name", "entity_name", "phone", "email",
@@ -22,6 +31,38 @@ CORE_FIELDS = [
     "county_just_value", "land_value", "purchase_price", "county",
     "policy_type", "construction_type",
 ]
+
+# Vendor/tool names that must never appear in a rendered Fact Finder (Ariel
+# directive, issue #19392: "I asked not to disclose our workflow or vendors.
+# Never!"). Explicit names per that directive, plus every vendor referenced
+# in this repo's root package.json / pyproject.toml / deploy .env.example as
+# of the 2026-08-24 sanitization pass.
+BANNED_VENDOR_TERMS = [
+    "Tracerfy", "Bright Data", "BrightData", "HomeHarvest", "Supabase",
+    "GitHub", "Cloudflare", "OpenAI", "Anthropic", "Claude",
+    "Playwright", "freelawproject", "Juriscraper", "Eyecite",
+]
+
+# Internal engineering narrative that must never appear client-side: file
+# paths, queue IDs, HTTP status codes, raw API paths.
+BANNED_PATTERNS = [
+    re.compile(r"\bscripts/[\w\-./]+"),
+    re.compile(r"\bpipelines/[\w\-./]+"),
+    re.compile(r"\bqueue_id\b", re.IGNORECASE),
+    re.compile(r"\bHTTP\s*[45]\d{2}\b"),
+    re.compile(r"/v1/api/[\w\-./{}]*"),
+]
+
+SSOT_APPROVED_RE = re.compile(r"SSOT STATUS:\s*approved", re.IGNORECASE)
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+class ContentSafetyError(RuntimeError):
+    """Raised when a rendered Fact Finder would leak vendor/internal content."""
+
+
+class TemplateNotApprovedError(RuntimeError):
+    """Raised when the master template's SSOT marker is not 'approved'."""
 
 
 def esc(v):
@@ -45,15 +86,60 @@ def compliance_block(note):
     return f'<div class="compliance"><strong>Compliance note:</strong> {esc(note)}</div>'
 
 
-def render(data):
+def content_safety_check(rendered_html, label):
+    """Scan fully-rendered Fact Finder HTML for vendor names / internal narrative.
+
+    Fails loudly (raises) instead of silently stripping -- a silent strip
+    could still leak in some other field we didn't think to scrub.
+    """
+    hits = []
+    for term in BANNED_VENDOR_TERMS:
+        idx = rendered_html.find(term)
+        if idx != -1:
+            snippet = rendered_html[max(0, idx - 30):idx + len(term) + 30]
+            hits.append(f"banned vendor term {term!r} at offset {idx}: ...{snippet}...")
+    for pattern in BANNED_PATTERNS:
+        m = pattern.search(rendered_html)
+        if m:
+            snippet = rendered_html[max(0, m.start() - 30):m.end() + 30]
+            hits.append(f"banned pattern {pattern.pattern!r} matched {m.group(0)!r} at offset {m.start()}: ...{snippet}...")
+    if hits:
+        raise ContentSafetyError(
+            f"content safety gate rejected render of {label!r} -- refusing to write file. "
+            "Matches found:\n  " + "\n  ".join(hits)
+        )
+
+
+def _load_template():
     with open(TEMPLATE_PATH, encoding="utf-8") as f:
-        tpl = f.read()
-    out = tpl
+        return f.read()
+
+
+def _check_ssot_approved(tpl):
+    if not SSOT_APPROVED_RE.search(tpl):
+        raise TemplateNotApprovedError(
+            "BLOCKED: templates/FACT_FINDER_MASTER_TEMPLATE.html SSOT STATUS is not "
+            "'approved'. Ariel must review and mark the master template approved before "
+            "any Fact Finder can be generated from it -- see issue #19392."
+        )
+
+
+def _render_body(tpl, data):
+    """Core render: strip dev-only HTML comments, substitute fields, safety-check."""
+    out = HTML_COMMENT_RE.sub("", tpl)
     for field in CORE_FIELDS:
         out = out.replace("{{" + field + "}}", esc(data.get(field, "")))
     out = out.replace("{{missing_required_fields_block}}", missing_block(data.get("missing_required_fields", []), data.get("missing_note", "")))
     out = out.replace("{{compliance_notice_block}}", compliance_block(data.get("compliance_note", "")))
+    content_safety_check(out, data.get("file", "unknown"))
     return out
+
+
+def render(data):
+    """Gated entry point: refuses to render unless the master template is SSOT-approved."""
+    tpl = _load_template()
+    _check_ssot_approved(tpl)
+    return _render_body(tpl, data)
 
 
 LEADS = [
@@ -81,17 +167,7 @@ LEADS = [
         "construction_type": "DOR raw const_clas code 4 (no verified class-name crosswalk in this pipeline -- reporting the raw code rather than guessing a label)",
         "missing_required_fields": ["phone", "email"],
         "missing_note": (
-            "Tracerfy enhanced (name+address) trace against Labelle James,SR / 8268 Brown RD, "
-            "Barefoot Bay, FL 32976 returned hit=false across 4 attempts in the prior render of this "
-            "sheet, but that render used a since-fixed client bug: scripts/tracerfy_client.py split "
-            "raw fl_parcels own_name values as \"first token = first name\", so \"Labelle James,SR\" "
-            "was sent as first_name=\"SR\"/last_name=\"Labelle James\" -- garbled on every attempt. "
-            "Re-verified 2026-08-24 20:16 UTC with a fixed name-order parser (handles both "
-            "\"LAST, FIRST MI\" and \"Last First,SUFFIX\" fl_parcels conventions): James Labelle at "
-            "the correct name order, plus an alternate city (Micco) variant, both still return "
-            "hit=false, persons_count=0. This is now a confirmed genuine no-hit, not a parsing "
-            "artifact -- consistent with the documented method's real ceiling (~88% hit rate "
-            "observed elsewhere; this is in the ~12% miss)."
+            "No public contact record was found through our standard verification process."
         ),
         "compliance_note": "",
     },
@@ -120,19 +196,9 @@ LEADS = [
         "missing_required_fields": [],
         "missing_note": "",
         "compliance_note": (
-            "Tracerfy enhanced trace returned this number flagged dnc=true (rank-1 mobile, "
-            "Omnipoint Miami E License LLC). No consent on file for this seller. Manual dial by a "
-            "licensed producer ONLY -- no autodialer, no SMS, no email drip, per the standing "
-            "compliant_outbound rule. The prior render of this sheet reported the official Tracerfy "
-            "v2 DNC-scrub queue confirmation (queue_id 3904) as HTTP 403 'no permission to access "
-            "this queue' -- root cause found and fixed 2026-08-24: get_queue_status() was calling "
-            "GET /v1/api/queue/{id}, but the real path (per Tracerfy's published docs) is the "
-            "version-independent GET /v1/api/dnc/queue/{id}. Re-polled queue_id 3904 with the fixed "
-            "path and it resolves cleanly: phones_checked=2, phones_clean=1 -- CSV confirms "
-            "9547014841 is_clean=No (national_dnc=Y, state_dnc=Y FL) and 3216144827 is_clean=Yes, "
-            "exactly matching the per-phone flag already used above. A secondary, non-DNC-flagged "
-            "number is on file ((321) 614-4827, T-Mobile, lower match rank) as a fallback if the "
-            "primary is a dead end."
+            "This phone number is listed on the Do Not Call registry. Contact must be made "
+            "manually by a licensed producer only -- no automated dialing, texting, or email "
+            "marketing without documented consent. A secondary number is on file if needed."
         ),
     },
 ]

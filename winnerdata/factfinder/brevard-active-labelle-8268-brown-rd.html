@@ -1,34 +1,5 @@
-<!--
-  FACT_FINDER_MASTER_TEMPLATE.html — Winner Data master Fact Finder template.
 
-  Built per issue #19392 comment 5390376020 (2026-08-24 persistence task): a
-  single master template with 20 placeholders, replacing the 22 hand-patched
-  per-lead files so one template edit propagates everywhere. Placeholders are
-  substituted server-side via plain string replace ({{token}}) — no
-  client-side templating, matching the convention already established in
-  templates/FF_TEMPLATE_A_AUCTION_SALES.html and FF_TEMPLATE_B_HOMEOWNER.html.
 
-  THE 20 PLACEHOLDERS (verbatim from the spec):
-  lead_id, first_name, last_name, entity_name, phone, email, mailing_address,
-  risk_address_full, producer_name, prepared_date, agency_name, case_number,
-  year_built, living_area_sqft, county_just_value, land_value, purchase_price,
-  county, policy_type, construction_type.
-
-  TWO ADDITIONAL BLOCKS beyond the 20 (not optional — required by the Honesty
-  Protocol / SHIP GATE rule that a Fact Finder must never show a blank field
-  with no explanation):
-    <div class="missing"><h2>Missing Required Fields</h2><p>phone, email could not be verified for this lead. Tracerfy enhanced (name+address) trace against Labelle James,SR / 8268 Brown RD, Barefoot Bay, FL 32976 returned hit=false across 4 attempts in the prior render of this sheet, but that render used a since-fixed client bug: scripts/tracerfy_client.py split raw fl_parcels own_name values as &quot;first token = first name&quot;, so &quot;Labelle James,SR&quot; was sent as first_name=&quot;SR&quot;/last_name=&quot;Labelle James&quot; -- garbled on every attempt. Re-verified 2026-08-24 20:16 UTC with a fixed name-order parser (handles both &quot;LAST, FIRST MI&quot; and &quot;Last First,SUFFIX&quot; fl_parcels conventions): James Labelle at the correct name order, plus an alternate city (Micco) variant, both still return hit=false, persons_count=0. This is now a confirmed genuine no-hit, not a parsing artifact -- consistent with the documented method&#x27;s real ceiling (~88% hit rate observed elsewhere; this is in the ~12% miss). This is reported honestly rather than left blank -- no fabricated contact data.</p></div> — pre-rendered HTML (empty string if
-      nothing is missing), naming convention matches missing_required_fields
-      already used in scripts/summitleads_slq_generator.py and
-      pipelines/winnerdata/momentum_delivery.py.
-     — pre-rendered HTML for DNC / consent status
-      on the phone number, so a licensed human dialer knows the constraint
-      before calling. Empty string when there is nothing to flag.
-
-  Brand: Winner Data, Claude palette (cream/ink/terracotta), Poppins wordmark.
-  Assets: assets/brand/BRAND.md, assets/brand/icon-transparent.svg (inlined
-  below so this file renders standalone with no external asset fetch).
--->
 <!doctype html>
 <html lang="en">
 <head>
@@ -82,7 +53,7 @@
 
 <main>
 
-  <div class="missing"><h2>Missing Required Fields</h2><p>phone, email could not be verified for this lead. Tracerfy enhanced (name+address) trace against Labelle James,SR / 8268 Brown RD, Barefoot Bay, FL 32976 returned hit=false across 4 attempts in the prior render of this sheet, but that render used a since-fixed client bug: scripts/tracerfy_client.py split raw fl_parcels own_name values as &quot;first token = first name&quot;, so &quot;Labelle James,SR&quot; was sent as first_name=&quot;SR&quot;/last_name=&quot;Labelle James&quot; -- garbled on every attempt. Re-verified 2026-08-24 20:16 UTC with a fixed name-order parser (handles both &quot;LAST, FIRST MI&quot; and &quot;Last First,SUFFIX&quot; fl_parcels conventions): James Labelle at the correct name order, plus an alternate city (Micco) variant, both still return hit=false, persons_count=0. This is now a confirmed genuine no-hit, not a parsing artifact -- consistent with the documented method&#x27;s real ceiling (~88% hit rate observed elsewhere; this is in the ~12% miss). This is reported honestly rather than left blank -- no fabricated contact data.</p></div>
+  <div class="missing"><h2>Missing Required Fields</h2><p>phone, email could not be verified for this lead. No public contact record was found through our standard verification process. This is reported honestly rather than left blank -- no fabricated contact data.</p></div>
 
   
 

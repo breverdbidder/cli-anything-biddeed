@@ -33,7 +33,7 @@ def card(row, producer):
 
     banner = "**MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**"
     if has_phone and row.get("dnc_scrubbed_at"):
-        banner += f"\n**DNC scrub run {row['dnc_scrubbed_at']} — result not independently re-verified this session; treat as scrubbed per Tracerfy call record, not a fabricated claim.**"
+        banner += f"\n**DNC scrub run {row['dnc_scrubbed_at']} — result not independently re-verified this session; treat as scrubbed per prior DNC verification record, not a fabricated claim.**"
     elif has_phone and not is_business:
         banner += "\n**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed.**"
     elif not has_phone and is_business:

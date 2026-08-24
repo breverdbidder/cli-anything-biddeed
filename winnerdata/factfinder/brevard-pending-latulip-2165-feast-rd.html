@@ -1,34 +1,5 @@
-<!--
-  FACT_FINDER_MASTER_TEMPLATE.html — Winner Data master Fact Finder template.
 
-  Built per issue #19392 comment 5390376020 (2026-08-24 persistence task): a
-  single master template with 20 placeholders, replacing the 22 hand-patched
-  per-lead files so one template edit propagates everywhere. Placeholders are
-  substituted server-side via plain string replace ({{token}}) — no
-  client-side templating, matching the convention already established in
-  templates/FF_TEMPLATE_A_AUCTION_SALES.html and FF_TEMPLATE_B_HOMEOWNER.html.
 
-  THE 20 PLACEHOLDERS (verbatim from the spec):
-  lead_id, first_name, last_name, entity_name, phone, email, mailing_address,
-  risk_address_full, producer_name, prepared_date, agency_name, case_number,
-  year_built, living_area_sqft, county_just_value, land_value, purchase_price,
-  county, policy_type, construction_type.
-
-  TWO ADDITIONAL BLOCKS beyond the 20 (not optional — required by the Honesty
-  Protocol / SHIP GATE rule that a Fact Finder must never show a blank field
-  with no explanation):
-     — pre-rendered HTML (empty string if
-      nothing is missing), naming convention matches missing_required_fields
-      already used in scripts/summitleads_slq_generator.py and
-      pipelines/winnerdata/momentum_delivery.py.
-    <div class="compliance"><strong>Compliance note:</strong> Tracerfy enhanced trace returned this number flagged dnc=true (rank-1 mobile, Omnipoint Miami E License LLC). No consent on file for this seller. Manual dial by a licensed producer ONLY -- no autodialer, no SMS, no email drip, per the standing compliant_outbound rule. The prior render of this sheet reported the official Tracerfy v2 DNC-scrub queue confirmation (queue_id 3904) as HTTP 403 &#x27;no permission to access this queue&#x27; -- root cause found and fixed 2026-08-24: get_queue_status() was calling GET /v1/api/queue/{id}, but the real path (per Tracerfy&#x27;s published docs) is the version-independent GET /v1/api/dnc/queue/{id}. Re-polled queue_id 3904 with the fixed path and it resolves cleanly: phones_checked=2, phones_clean=1 -- CSV confirms 9547014841 is_clean=No (national_dnc=Y, state_dnc=Y FL) and 3216144827 is_clean=Yes, exactly matching the per-phone flag already used above. A secondary, non-DNC-flagged number is on file ((321) 614-4827, T-Mobile, lower match rank) as a fallback if the primary is a dead end.</div> — pre-rendered HTML for DNC / consent status
-      on the phone number, so a licensed human dialer knows the constraint
-      before calling. Empty string when there is nothing to flag.
-
-  Brand: Winner Data, Claude palette (cream/ink/terracotta), Poppins wordmark.
-  Assets: assets/brand/BRAND.md, assets/brand/icon-transparent.svg (inlined
-  below so this file renders standalone with no external asset fetch).
--->
 <!doctype html>
 <html lang="en">
 <head>
@@ -84,7 +55,7 @@
 
   
 
-  <div class="compliance"><strong>Compliance note:</strong> Tracerfy enhanced trace returned this number flagged dnc=true (rank-1 mobile, Omnipoint Miami E License LLC). No consent on file for this seller. Manual dial by a licensed producer ONLY -- no autodialer, no SMS, no email drip, per the standing compliant_outbound rule. The prior render of this sheet reported the official Tracerfy v2 DNC-scrub queue confirmation (queue_id 3904) as HTTP 403 &#x27;no permission to access this queue&#x27; -- root cause found and fixed 2026-08-24: get_queue_status() was calling GET /v1/api/queue/{id}, but the real path (per Tracerfy&#x27;s published docs) is the version-independent GET /v1/api/dnc/queue/{id}. Re-polled queue_id 3904 with the fixed path and it resolves cleanly: phones_checked=2, phones_clean=1 -- CSV confirms 9547014841 is_clean=No (national_dnc=Y, state_dnc=Y FL) and 3216144827 is_clean=Yes, exactly matching the per-phone flag already used above. A secondary, non-DNC-flagged number is on file ((321) 614-4827, T-Mobile, lower match rank) as a fallback if the primary is a dead end.</div>
+  <div class="compliance"><strong>Compliance note:</strong> This phone number is listed on the Do Not Call registry. Contact must be made manually by a licensed producer only -- no automated dialing, texting, or email marketing without documented consent. A secondary number is on file if needed.</div>
 
   <div class="block">
     <h2>Fact Finder</h2>
