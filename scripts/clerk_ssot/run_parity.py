@@ -65,10 +65,18 @@ MGMT_API = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/q
 # navigation (no "view all") -- left unparsed pending a follow-up session,
 # NOT added to PARSERS since an untested per-date loop would risk PARSE_FAIL
 # noise or wrong data more than it's worth today.
+#
+# highlands tax_deed added 2026-08-24: highlands.realtdm.com/public/cases/list
+# is a plain, unauthenticated public case-search form (isPublic=1, no login) --
+# distinct from the gated RealForeclose/RealAuction bidding platforms this
+# pipeline avoids driving. Live-verified against 10 known gap rows (case
+# numbers 25000900-25000910) before registering; see
+# scripts/clerk_ssot/parsers/highlands.py module docstring for the full
+# gate-vs-public distinction and status-id derivation.
 PARSERS = {
     "brevard": {"foreclosure": brevard.parse_foreclosure},
     "gadsden": {"foreclosure": gadsden.parse_foreclosure, "tax_deed": gadsden.parse_tax_deed},
-    "highlands": {"foreclosure": highlands.parse_foreclosure},
+    "highlands": {"foreclosure": highlands.parse_foreclosure, "tax_deed": highlands.parse_tax_deed},
     "lake": {"foreclosure": lake.parse_foreclosure},
     "okeechobee": {"foreclosure": okeechobee.parse_foreclosure},
     "st_johns": {"tax_deed": st_johns.parse_tax_deed},
