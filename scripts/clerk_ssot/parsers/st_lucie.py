@@ -158,13 +158,14 @@ def parse_tax_deed() -> list[dict]:
         cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
         if len(cells) < 9 or not CASE_RE.match(cells[1]):
             continue
-        applicant, case_number, cert_number, sale_date_raw, status, owners = (
-            cells[0], cells[1], cells[2], cells[5], cells[6], cells[8]
+        applicant, case_number, cert_number, parcel_id, sale_date_raw, status, owners = (
+            cells[0], cells[1], cells[2], cells[4], cells[5], cells[6], cells[8]
         )
         rows_out.append({
             "county_slug": "st_lucie",
             "sale_type": "tax_deed",
             "case_number": case_number,
+            "parcel_id": parcel_id or None,
             "sale_date": _normalize_date(sale_date_raw),
             "cancelled": status.strip().upper() in CANCEL_STATUSES,
             "raw_comment": f"{status} | cert {cert_number}",
