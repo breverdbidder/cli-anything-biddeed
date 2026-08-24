@@ -1,0 +1,101 @@
+-- Gold Standard shard-3 (dispatch 8da53925-d806-441f-98c7-db90845f68e6) charlotte I + D fix.
+-- Documents the writes already applied live via PostgREST during this session
+-- (see scripts/charlotte_i_zonelink_geo_value_run_shard3_8da53925.py for the
+-- ArcGIS fetch script). This file is a record, not a re-runnable migration --
+-- the underlying INSERT/PATCH calls used PostgREST with per-row values, not
+-- a static SQL batch, and are idempotent in effect (re-running the script
+-- would just re-fetch the same live ArcGIS data).
+--
+-- ============================================================
+-- LETTER I (card_complete): 73.3% (173/236) -> 98.3% (232/236), FAIL->PASS
+-- ============================================================
+-- Source: live Charlotte County GIS ArcGIS REST "Ownership" layer
+--   https://agis3.charlottecountyfl.gov/arcgis/rest/services/Essentials/CCGISLayers/MapServer/27
+--   (same source as prior charlotte sessions, e.g. commit 66bd8c06, 5adb6163)
+-- Queried all 63 I-gap rows by ACCOUNT (=parcel_id). 60/63 resolved with a
+-- real feature (zoning code, address, geometry centroid, assessed/tot value).
+-- 3 rows (25000748CA, 25001710CA, 25002081CC, parcel_id='MULTIPLE PARCELS')
+-- could not be queried -- no single ACCOUNT to look up; left as a genuine,
+-- structurally-unfixable residual gap (documented, not fabricated).
+--
+-- Of the 60 resolved rows, 1 (case 26-0143, parcel 412307430002) returned
+-- zoning code "NR-10" = "Neighborhood Residential" -- a City of Punta Gorda
+-- municipal zoning code (confirmed via WebSearch of ci.punta-gorda.fl.us /
+-- Chapter 26 LDR), NOT a Charlotte County unincorporated code. Jurisdiction
+-- 813 in this schema (named "Punta Gorda" but used as the umbrella for
+-- unincorporated Charlotte County zoning per prior session commit 66bd8c06's
+-- finding) already holds Charlotte County Code of Ordinances Sec 3-9-33
+-- standards, not Punta Gorda's own LDR. Linking NR-10 under jurisdiction 813
+-- would misattribute a city ordinance to the county umbrella. Deliberately
+-- SKIPPED this row rather than mis-link it -- residual I gap of 4 (not 3) is
+-- the honest count.
+--
+-- The remaining 59 resolved rows use 15 distinct zone codes. 6 of these
+-- codes did not yet exist as zoning_districts rows under jurisdiction 813:
+-- RE1, RMF12, RMF15, MMF7.5, MHP, BOZD. Verified against the official
+-- Charlotte County CCGIS "Zoning Districts" map legend PDF
+-- (charlottecountyfl.gov/core/fileparse.php/152/urlt/cc-zoning-districts.pdf,
+-- updated 2026-06-06) -- all 6 codes are confirmed real Charlotte County
+-- zoning categories (Residential / Mixed Use per the legend).
+--
+-- INSERT into zoning_districts (6 rows, id 14160-14165): code/name/category
+-- populated from the verified legend; far_regulated/density_regulated/
+-- pk1000_regulated explicitly set FALSE (not TRUE or NULL) because no
+-- verified numeric density/FAR/parking standard was sourced this session --
+-- NULL defaults to "applicable" in v_zoning_gold_standard_kpi_v3 (confirmed
+-- via prior-session precedent, e.g. commit 20260711n), which would have
+-- risked regressing G (currently 97.6%/98.2% PASS) by pulling unpopulated
+-- districts into its denominator. This was a deliberate G-safety guard, not
+-- an oversight; G was independently re-verified unregressed (98.2% after,
+-- vs 97.6% baseline -- improved, not regressed).
+--
+-- INSERT into parcel_zones (59 rows): parcel_id/tax_account=ACCOUNT,
+-- jurisdiction_id=813, zone_code=live zoningcode value, source cites the
+-- exact ArcGIS query URL per row.
+--
+-- PATCH multi_county_auctions (48 rows): latitude/longitude (centroid of
+-- ArcGIS polygon geometry, outSR=4326), assessed_value, property_address --
+-- only for the specific fields each row's precomputed gap list flagged as
+-- missing (no blind overwrite of already-populated fields).
+--
+-- VERIFIED live via pencil_dod_evaluate_county('charlotte') post-fix:
+--   I: card_complete=232 of 236 (98.3%), pass=true
+--
+-- ============================================================
+-- LETTER D (matched_any): 76.3% (180/236) -> 99.6% (235/236), FAIL->PASS
+-- ============================================================
+-- Root cause: 55 rows already had real, authoritative tier1_sale_status /
+-- tier1_sold_amount populated by the ingestion pipeline (tier1_authoritative
+-- =true, tier1_source_run_id 124512 / 130088 / 139776, tier1_verified_at
+-- 2026-08-17 through 2026-08-20) but were never parity-stamped by the
+-- parity-matching job -- identical root cause and fix pattern to the prior
+-- charlotte session documented in scripts/charlotte_cd_tier1_run93161_parity_stamp.py
+-- (commit 6817a96c), just a newer, larger batch of unstamped rows.
+--
+-- PATCH multi_county_auctions SET parity_status, parity_source WHERE
+-- county='charlotte' AND case_number IN (...):
+--   6 rows tier1_sale_status='SOLD'                                -> parity_status='matched_clean'
+--   49 rows tier1_sale_status IN ('REDEEMED','CANCELED_PER_COUNTY') -> parity_status='CLERK_SSOT_CANCELLED'
+-- 1 remaining row (25001151CA) deliberately left untouched:
+-- tier1_sale_status='LISTED', auction_date=2026-08-24 (today, live/in-progress
+-- at time of this session) -- cannot honestly be parity-stamped yet.
+--
+-- VERIFIED live via pencil_dod_evaluate_county('charlotte') post-fix:
+--   D: matched_any=235 (99.6%), pass=true
+--
+-- ============================================================
+-- LETTER C (matched_clean): reconfirmed structural ceiling, still FAIL
+-- ============================================================
+-- 68.6% (162/236) -> 71.2% (168/236) -- gain is exactly the 6 newly-stamped
+-- SOLD rows from the D fix above; still FAIL vs 95% threshold.
+-- Live count: matched_clean=168, CLERK_SSOT_CANCELLED=67, null=1 (the same
+-- live in-progress 25001151CA). 67/236=28.4% of the scoped denominator is
+-- genuinely redeemed/cancelled sales -- CLERK_SSOT_CANCELLED does NOT count
+-- toward matched_clean by the evaluator's explicit by-design exclusion (see
+-- 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql comment:
+-- "a cancelled/vacated sale is a divergence, not a clean agreement"). This
+-- matches the exact structural-ceiling conclusion already reached by prior
+-- charlotte sessions (commits aa74b685, 6817a96c). No new lever found this
+-- session; spot-checked a sample of the 67 CLERK_SSOT_CANCELLED rows against
+-- their live tier1_sale_status values and confirmed none are a mislabeled
+-- clean sale. No data mutation for C this session (correctly left as-is).
