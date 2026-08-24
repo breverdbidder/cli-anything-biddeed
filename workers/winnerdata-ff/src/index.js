@@ -56,6 +56,15 @@ const BANNER = {
   foreclosure: { cls: 'foreclosure', label: 'FORECLOSURE SALE' },
 };
 
+// issue #19434: MLS-sourced leads have no auction.sale_type, so the old
+// `BANNER[auction.sale_type] || not_established` fallback mislabeled every
+// MLS lead "SALE TYPE NOT ESTABLISHED" (implies unknown, not "not an
+// auction"). Keyed by lead_source_type instead for these two.
+const MLS_BANNER = {
+  mls_active: { cls: 'mls_active', label: 'ACTIVE LISTING' },
+  mls_pending: { cls: 'mls_pending', label: 'PENDING LISTING' },
+};
+
 async function rpc(fn, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
@@ -113,6 +122,40 @@ function computeFlags(lead, parcel) {
   return flags.map((f) => `<li>${esc(f)}</li>`).join('');
 }
 
+// issue #19434: Property Profile block on Template B now branches on
+// lead_source_type instead of always assuming auction-sourced data. Default
+// stays 'auction' when data.lead_source_type is absent so the 22 existing
+// auction-track leads (none of which set this field) render byte-identical
+// rows to before this change -- only an explicit 'mls_active'/'mls_pending'
+// switches to the MLS block. Template A is untouched (still hardcodes its
+// own auction-only block) since it never receives MLS-sourced leads.
+function profileRow(label, value) {
+  return `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`;
+}
+
+function auctionProfileRows({ saleTypeLabel, auctionDate, daysSinceAuction, soldAmount, caseNumber, parcelId, ctRecordingDate }) {
+  return [
+    profileRow('Sale Type', saleTypeLabel),
+    profileRow('Auction Date', auctionDate),
+    profileRow('Days Since Auction', daysSinceAuction),
+    profileRow('Sold Amount', soldAmount),
+    profileRow('Case Number', caseNumber),
+    profileRow('Parcel', parcelId),
+    profileRow('Certificate-of-Title Recording Date', ctRecordingDate),
+  ].join('\n      ');
+}
+
+function mlsProfileRows(mls, parcelId) {
+  return [
+    profileRow('MLS Status', mls.status || 'Not established'),
+    profileRow('List Date', mls.list_date || 'Not established'),
+    profileRow('List Price', mls.list_price !== null && mls.list_price !== undefined ? money(mls.list_price) : 'Not established'),
+    profileRow('MLS Number', mls.mls_number || 'Not established'),
+    profileRow('Days on Market', mls.days_on_market ?? 'Not established'),
+    profileRow('Parcel', parcelId || 'Not established'),
+  ].join('\n      ');
+}
+
 function callScript(lead, auction) {
   const days = auction.auction_date
     ? Math.floor((Date.now() - Date.parse(auction.auction_date)) / 86400000)
@@ -134,7 +177,12 @@ function renderFF(data) {
   const ownerOccupied = parcel.own_addr1 && parcel.phy_addr1 && parcel.own_addr1 === parcel.phy_addr1;
   const template = ownerOccupied ? TEMPLATE_B : TEMPLATE_A;
 
-  const banner = BANNER[auction.sale_type] || { cls: 'not_established', label: 'SALE TYPE NOT ESTABLISHED' };
+  const leadSourceType = data.lead_source_type === 'mls_active' || data.lead_source_type === 'mls_pending'
+    ? data.lead_source_type
+    : 'auction';
+  const banner = leadSourceType === 'auction'
+    ? (BANNER[auction.sale_type] || { cls: 'not_established', label: 'SALE TYPE NOT ESTABLISHED' })
+    : MLS_BANNER[leadSourceType];
   const bldgVal = parcel.bldg_val;
   const coverageA = bldgVal !== null && bldgVal !== undefined ? bldgVal * 1.25 : null;
 
@@ -153,6 +201,31 @@ function renderFF(data) {
     ? `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">View county property appraiser record &rarr;</a>`
     : '<span>No property appraiser URL on file for this county.</span>';
 
+  // issue #19434 requirement 1: producer_name/agency_name are hard-required
+  // on every seller FF -- fail closed rather than render with a blank
+  // producer/agency. Currently always the dogfood-stage constants below, but
+  // the check stays live so a future per-org value can never silently blank.
+  const producerName = 'Mariam Shapira';
+  const agencyName = 'Protection Partners';
+  if (!producerName.trim() || !agencyName.trim()) {
+    throw new Error('producer_name and agency_name are required and cannot be blank');
+  }
+
+  const mls = data.mls || {};
+  const propertyProfileRows = leadSourceType === 'auction'
+    ? auctionProfileRows({
+        saleTypeLabel: esc(auction.sale_type) || 'Not established',
+        auctionDate: esc(auction.auction_date) || 'Not established',
+        daysSinceAuction: auction.auction_date
+          ? Math.floor((Date.now() - Date.parse(auction.auction_date)) / 86400000)
+          : 'Not established',
+        soldAmount: money(auction.sold_amount),
+        caseNumber: esc(auction.case_number) || 'Not established',
+        parcelId: esc(lead.parcel_id),
+        ctRecordingDate: esc(responses.ct_recording_date) || 'Not yet recorded',
+      })
+    : mlsProfileRows(mls, esc(lead.parcel_id));
+
   const values = {
     lead_id: lead.lead_id,
     entity_name: esc(lead.entity_name),
@@ -160,9 +233,9 @@ function renderFF(data) {
     last_name: esc(lastName),
     mailing_address: esc(parcel.own_addr1),
     risk_address_full: esc(auction.property_address || parcel.phy_addr1),
-    producer_name: 'Mariam Shapira',
+    producer_name: producerName,
     prepared_date: new Date().toISOString().slice(0, 10),
-    agency_name: 'Protection Partners',
+    agency_name: agencyName,
     case_number: esc(auction.case_number),
     parcel_id: esc(lead.parcel_id),
     county_just_value: money(parcel.jv),
@@ -191,6 +264,7 @@ function renderFF(data) {
     verify_badge_label: verified ? 'VERIFIED' : 'NOT VERIFIED',
     verify_reason: esc(verification.reason) || 'No property appraiser cross-verification available for this county.',
     appraiser_link: appraiserLink,
+    property_profile_rows: propertyProfileRows,
   };
 
   return template.replace(/{{(\w+)}}/g, (_, key) => (values[key] !== undefined ? values[key] : ''));

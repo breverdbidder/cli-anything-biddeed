@@ -30,10 +30,18 @@
   below so this file renders standalone with no external asset fetch).
 
   This entire comment block, and any other HTML comment in this template, is
-  stripped by scripts/render_factfinder_master.py before a Fact Finder is
-  written to disk -- it never ships to a client.
+  stripped by any render script before a Fact Finder is written to disk --
+  it never ships to a client.
+
+  SSOT STATUS: SUPERSEDED for seller Fact Finders (issue #19434, Aug 24 2026).
+  Ariel confirmed the seller FF standard is templates/FF_TEMPLATE_B_HOMEOWNER.html,
+  not this file -- this template has no property-appraiser link and no MLS
+  active/pending status fields. Do not render new seller Fact Finders from
+  this file; it is kept only as a historical reference. The single live
+  pending-approval marker for the seller-FF track now lives on
+  FF_TEMPLATE_B_HOMEOWNER.html (SSOT STATUS: pending).
 -->
-<!-- SSOT STATUS: pending -- approved by Ariel on TBD -->
+<!-- SSOT STATUS: SUPERSEDED, see block above -->
 <!doctype html>
 <html lang="en">
 <head>

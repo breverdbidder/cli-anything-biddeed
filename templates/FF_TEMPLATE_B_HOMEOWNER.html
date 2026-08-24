@@ -7,6 +7,22 @@
 
   Used when own_addr1 = phy_addr1 (owner-occupied) — workers/winnerdata-ff
   picks this template over Template A on that basis, per spec.
+
+  SSOT STATUS: pending -- not yet approved by Ariel. Confirmed as the seller
+  Fact Finder standard (chat, Aug 24 2026, issue #19434) over
+  FACT_FINDER_MASTER_TEMPLATE.html, which lacks the property appraiser link.
+  Render scripts must not mark this approved themselves -- that is Ariel's
+  call only.
+
+  PROPERTY PROFILE BLOCK (issue #19434): {{property_profile_rows}} is filled
+  server-side with one <dt>/<dd> pair per row, branched on lead_source_type --
+  auction rows (sale type/date/sold amount/case number/CT recording date) for
+  lead_source_type='auction' (default, matches pre-#19434 behavior exactly),
+  or MLS rows (status/list date/list price/MLS number/days on market) for
+  'mls_active'/'mls_pending'. Both renderers (workers/winnerdata-ff/src/index.js
+  and scripts/render_factfinder_master.py) must keep producing the same
+  auction rows when lead_source_type is absent/'auction' -- this is what keeps
+  the existing auction-track rendering unchanged after this block was added.
 -->
 <!doctype html>
 <html lang="en">
@@ -19,6 +35,7 @@
   :root{
     --cream:#faf9f5; --ink:#141413; --terracotta:#d97757; --gray:#b0aea5;
     --banner-tax-deed:#d97757; --banner-foreclosure:#8b5cf6; --banner-none:#6b6b66;
+    --banner-mls-active:#2563eb; --banner-mls-pending:#b7852e;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--cream);color:var(--ink);font-family:Arial,Helvetica,sans-serif;line-height:1.45}
@@ -30,6 +47,8 @@
   .banner.tax_deed{background:var(--banner-tax-deed)}
   .banner.foreclosure{background:var(--banner-foreclosure)}
   .banner.not_established{background:var(--banner-none)}
+  .banner.mls_active{background:var(--banner-mls-active)}
+  .banner.mls_pending{background:var(--banner-mls-pending)}
   main{max-width:840px;margin:0 auto;padding:1.25rem}
   .block{background:#fff;border:1px solid var(--gray);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem}
   .block h2{margin:0 0 .6rem;font-size:1rem;text-transform:uppercase;letter-spacing:.04em;color:var(--terracotta)}
@@ -80,13 +99,7 @@
   <div class="block">
     <h2>Property Profile — Owner-Occupied (HO3)</h2>
     <dl class="kv">
-      <dt>Sale Type</dt><dd>{{sale_type_label}}</dd>
-      <dt>Auction Date</dt><dd>{{auction_date}}</dd>
-      <dt>Days Since Auction</dt><dd>{{days_since_auction}}</dd>
-      <dt>Sold Amount</dt><dd>{{sold_amount}}</dd>
-      <dt>Case Number</dt><dd>{{case_number}}</dd>
-      <dt>Parcel</dt><dd>{{parcel_id}}</dd>
-      <dt>Certificate-of-Title Recording Date</dt><dd>{{ct_recording_date}}</dd>
+      {{property_profile_rows}}
     </dl>
   </div>
 
