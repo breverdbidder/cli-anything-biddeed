@@ -1,0 +1,147 @@
+{
+  "_delivery_gate": {
+    "eligible": false,
+    "reason": "non_tracerfy_verified_phone"
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "1b8b22a0-7b31-4413-b6b1-22a40b222ef0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-RILEY_CHRISTOPHER_D_KELLEY_MATTHEW_W-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "wakulla"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "00-00-044-000-09819-004"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "LOIS LN, CRAWFORDVILLE, FL 32327"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "tax_deed"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sold Amount",
+      "value": "73000.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-19"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "2026-TXD-119"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"other\", \"flood_if_indicated\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "50.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"contact_phone\", \"year_built\", \"sqft\", \"num_buildings\", \"construction_class\", \"dor_use_code\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "other"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "RILEY CHRISTOPHER D  KELLEY MATTHEW W",
+  "meta": {
+    "ff_id": "SLQ-2026-RILEY_CHRISTOPHER_D_KELLEY_MATTHEW_W-001",
+    "is_business": false,
+    "lead_id": "1b8b22a0-7b31-4413-b6b1-22a40b222ef0",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "LOIS LN",
+    "city": "CRAWFORDVILLE",
+    "commercial_name": "",
+    "email": "",
+    "first_name": "RILEY CHRISTOPHER D / KELLEY MATTHEW",
+    "insuredType": 1,
+    "last_name": "W",
+    "phone_number": "",
+    "referral_source": "SummitLeads: other",
+    "state": "FL",
+    "type": 1,
+    "zip_code": "32327"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi RILEY CHRISTOPHER D / KELLEY MATTHEW W, saw you picked up LOIS LN, CRAWFORDVILLE, FL 32327 at the Wakulla County tax_deed auction on 2026-08-19 for $73000.00.",
+    "priority": "medium",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: RILEY CHRISTOPHER D / KELLEY MATTHEW W"
+  }
+}

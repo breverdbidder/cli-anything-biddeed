@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NowCerts delivery payload fixture (Winner Data FF -> Momentum bridge)",
+  "type": "object",
+  "required": ["dedupe_key", "prospect", "custom_fields", "task", "meta", "_delivery_gate"],
+  "properties": {
+    "dedupe_key": {"type": "string"},
+    "_delivery_gate": {
+      "type": "object",
+      "required": ["eligible"],
+      "properties": {
+        "eligible": {"type": "boolean"},
+        "reason": {"type": ["string", "null"], "enum": [null, "vacant_land", "non_tracerfy_verified_phone"]}
+      }
+    },
+    "prospect": {
+      "type": "object",
+      "required": ["first_name", "last_name", "commercial_name", "address_line_1", "city",
+                   "state", "zip_code", "email", "phone_number", "active",
+                   "referral_source", "type", "insuredType"],
+      "properties": {
+        "first_name": {"type": "string"},
+        "last_name": {"type": "string"},
+        "commercial_name": {"type": "string"},
+        "address_line_1": {"type": "string"},
+        "city": {"type": "string"},
+        "state": {"type": "string", "pattern": "^[A-Z]{2}$"},
+        "zip_code": {"type": "string"},
+        "email": {"type": "string"},
+        "phone_number": {"type": "string"},
+        "active": {"type": "boolean"},
+        "referral_source": {"type": "string"},
+        "type": {"type": "integer", "enum": [1, 2]},
+        "insuredType": {"type": "integer", "enum": [1, 2]}
+      }
+    },
+    "custom_fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "value", "insuredDatabaseId"],
+        "properties": {
+          "text": {"type": "string"},
+          "value": {"type": "string"},
+          "insuredDatabaseId": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["title", "description", "status", "priority", "completion"],
+      "properties": {
+        "title": {"type": "string", "pattern": "^Quote-ready Winner Data lead: .+"},
+        "description": {"type": "string"},
+        "status": {"type": "string"},
+        "priority": {"type": "string", "enum": ["high", "medium"]},
+        "completion": {"type": "integer"}
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["ff_id", "lead_id", "org_id", "is_business"],
+      "properties": {
+        "ff_id": {"type": "string"},
+        "lead_id": {"type": ["string", "null"]},
+        "org_id": {"type": ["string", "null"]},
+        "is_business": {"type": "boolean"}
+      }
+    }
+  }
+}

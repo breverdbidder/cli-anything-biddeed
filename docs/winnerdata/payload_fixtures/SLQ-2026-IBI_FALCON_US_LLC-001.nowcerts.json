@@ -1,0 +1,197 @@
+{
+  "_delivery_gate": {
+    "eligible": false,
+    "reason": "non_tracerfy_verified_phone"
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "dffd6e0d-62cf-49ac-90e3-ce34e775f596"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-IBI_FALCON_US_LLC-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "palm_beach"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "73414408010350010"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "14813 DRAFT HORSE LN, WELLINGTON, FL- 33414"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Year Built",
+      "value": "2002"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Square Footage",
+      "value": "5399"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Number of Buildings",
+      "value": "1"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Construction Class",
+      "value": "3"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DOR Use Code",
+      "value": "001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Just Value",
+      "value": "1896469.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Improved",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "foreclosure"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-04"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "502023CA016824XXXAMB"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Wins",
+      "value": "1"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Deployed",
+      "value": "1200100.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Counties Active",
+      "value": "[\"palm_beach\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Commercial BOP If Applicable",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\", \"flood_if_indicated\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "83.3"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"contact_phone\", \"sold_amount\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "IBI FALCON US LLC",
+  "meta": {
+    "ff_id": "SLQ-2026-IBI_FALCON_US_LLC-001",
+    "is_business": true,
+    "lead_id": "dffd6e0d-62cf-49ac-90e3-ce34e775f596",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "14813 DRAFT HORSE LN",
+    "city": "WELLINGTON",
+    "commercial_name": "IBI FALCON US LLC",
+    "email": "",
+    "first_name": "",
+    "insuredType": 2,
+    "last_name": "",
+    "phone_number": "",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 2,
+    "zip_code": "33414"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi IBI FALCON US LLC, saw you picked up 14813 DRAFT HORSE LN, WELLINGTON, FL- 33414 at the Palm_Beach County foreclosure auction on 2026-08-04; we already pulled the property card (built 2002, 5399 sqft) so we can have a landlord/dwelling quote ready today.",
+    "priority": "high",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: IBI FALCON US LLC"
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "_delivery_gate": {
+    "eligible": false,
+    "reason": "non_tracerfy_verified_phone"
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "ab8e722c-57db-4fc8-8c7d-643f27781ae4"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-DAVIS_RONALD_L-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "lee"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "05-45-27-22-00021.0720"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "10431 NEW BEDFORD CT, LEHIGH ACRES, FL- 33936"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "foreclosure"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-13"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "26-CA-000371"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Wins",
+      "value": "1"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Deployed",
+      "value": "200.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Counties Active",
+      "value": "[\"lee\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\", \"flood_if_indicated\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "41.7"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"contact_phone\", \"year_built\", \"sqft\", \"num_buildings\", \"construction_class\", \"dor_use_code\", \"sold_amount\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "DAVIS RONALD L",
+  "meta": {
+    "ff_id": "SLQ-2026-DAVIS_RONALD_L-001",
+    "is_business": false,
+    "lead_id": "ab8e722c-57db-4fc8-8c7d-643f27781ae4",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "10431 NEW BEDFORD CT",
+    "city": "LEHIGH ACRES",
+    "commercial_name": "",
+    "email": "",
+    "first_name": "RONALD L.",
+    "insuredType": 1,
+    "last_name": "DAVIS",
+    "phone_number": "",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 1,
+    "zip_code": "33936"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi DAVIS, RONALD L., saw you picked up 10431 NEW BEDFORD CT, LEHIGH ACRES, FL- 33936 at the Lee County foreclosure auction on 2026-08-13.",
+    "priority": "medium",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: DAVIS, RONALD L."
+  }
+}

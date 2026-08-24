@@ -1,0 +1,142 @@
+{
+  "_delivery_gate": {
+    "eligible": false,
+    "reason": "non_tracerfy_verified_phone"
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "6b4f2914-5da1-444f-9b5b-3590220a4206"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-ROBERT_ZIVKOVIC_TRUSTEE_OF_ZIVKO_PSP-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "lee"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "25-43-22-C3-05177.0340"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "4104 NW 25TH ST, CAPE CORAL, FL- 33993"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "foreclosure"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-13"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "25-CA-004126"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\", \"flood_if_indicated\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "41.7"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"contact_phone\", \"year_built\", \"sqft\", \"num_buildings\", \"construction_class\", \"dor_use_code\", \"sold_amount\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "ROBERT ZIVKOVIC TRUSTEE OF ZIVKO PSP",
+  "meta": {
+    "ff_id": "SLQ-2026-ROBERT_ZIVKOVIC_TRUSTEE_OF_ZIVKO_PSP-001",
+    "is_business": false,
+    "lead_id": "6b4f2914-5da1-444f-9b5b-3590220a4206",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "4104 NW 25TH ST",
+    "city": "CAPE CORAL",
+    "commercial_name": "",
+    "email": "",
+    "first_name": "ROBERT ZIVKOVIC TRUSTEE OF ZIVKO PSP",
+    "insuredType": 1,
+    "last_name": "",
+    "phone_number": "",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 1,
+    "zip_code": "33993"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi ROBERT ZIVKOVIC, TRUSTEE OF ZIVKO PSP, saw you picked up 4104 NW 25TH ST, CAPE CORAL, FL- 33993 at the Lee County foreclosure auction on 2026-08-13.",
+    "priority": "medium",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: ROBERT ZIVKOVIC, TRUSTEE OF ZIVKO PSP"
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "_delivery_gate": {
+    "eligible": true,
+    "reason": null
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "86fa87f3-db42-4172-bc06-8dbcbcfbad2c"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-PAFFORD_PROPERTIES_CONSTRUCTION-002"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "wakulla"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "00-00-034-009-08162-000"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "90 SPOKAN TRL, CRAWFORDVILLE, FL 32327"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "tax_deed"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sold Amount",
+      "value": "45000.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-19"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "2026-TXD-111"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\", \"flood_if_indicated\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "58.3"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"year_built\", \"sqft\", \"num_buildings\", \"construction_class\", \"dor_use_code\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Compliance Flag",
+      "value": "NO_CONTACT_INFO_SUNBIZ_LOOKUP_PENDING"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "PAFFORD PROPERTIES  CONSTRUCTION",
+  "meta": {
+    "ff_id": "SLQ-2026-PAFFORD_PROPERTIES_CONSTRUCTION-002",
+    "is_business": true,
+    "lead_id": "86fa87f3-db42-4172-bc06-8dbcbcfbad2c",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "90 SPOKAN TRL",
+    "city": "CRAWFORDVILLE",
+    "commercial_name": "PAFFORD PROPERTIES & CONSTRUCTION",
+    "email": "micahdpafford@gmail.com",
+    "first_name": "",
+    "insuredType": 2,
+    "last_name": "",
+    "phone_number": "8505567746",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 2,
+    "zip_code": "32327"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi PAFFORD PROPERTIES & CONSTRUCTION, saw you picked up 90 SPOKAN TRL, CRAWFORDVILLE, FL 32327 at the Wakulla County tax_deed auction on 2026-08-19 for $45000.00.",
+    "priority": "medium",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: PAFFORD PROPERTIES & CONSTRUCTION"
+  }
+}

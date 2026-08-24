@@ -1,0 +1,207 @@
+{
+  "_delivery_gate": {
+    "eligible": false,
+    "reason": "non_tracerfy_verified_phone"
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "0f29ef81-af80-48f5-9de2-863af37746df"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-GALLEON_TRUST_I-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "alachua"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "12631-000-000"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "12 SE 8TH ST, GAINESVILLE, FL- 32601"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Year Built",
+      "value": "1926"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Square Footage",
+      "value": "3839"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Number of Buildings",
+      "value": "2"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Construction Class",
+      "value": "0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DOR Use Code",
+      "value": "008"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Just Value",
+      "value": "419801.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Improved",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "foreclosure"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-18"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "01 2023 CA 004261"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Wins",
+      "value": "2"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Deployed",
+      "value": "210200.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Counties Active",
+      "value": "[\"pinellas\", \"duval\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Reason",
+      "value": "total_wins=2 (repeat investor)"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Limit",
+      "value": "1000000"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Commercial BOP If Applicable",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\", \"umbrella_if_multi_property\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "83.3"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"contact_phone\", \"sold_amount\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "GALLEON TRUST I",
+  "meta": {
+    "ff_id": "SLQ-2026-GALLEON_TRUST_I-001",
+    "is_business": true,
+    "lead_id": "0f29ef81-af80-48f5-9de2-863af37746df",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "12 SE 8TH ST",
+    "city": "GAINESVILLE",
+    "commercial_name": "GALLEON TRUST I",
+    "email": "",
+    "first_name": "",
+    "insuredType": 2,
+    "last_name": "",
+    "phone_number": "",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 2,
+    "zip_code": "32601"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi GALLEON TRUST I, saw you picked up 12 SE 8TH ST, GAINESVILLE, FL- 32601 at the Alachua County foreclosure auction on 2026-08-18; we already pulled the property card (built 1926, 3839 sqft) so we can have a landlord/dwelling quote ready today; with 2 recent auction wins on file you'd likely qualify for an umbrella policy across the portfolio too.",
+    "priority": "high",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: GALLEON TRUST I"
+  }
+}

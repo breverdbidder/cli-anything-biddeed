@@ -15,7 +15,7 @@ jobs:
           python-version: '3.12'
       - name: Install all packages
         run: |
-          pip install pytest click prompt-toolkit httpx python-docx pdfplumber
+          pip install pytest click prompt-toolkit httpx python-docx pdfplumber jsonschema
           pip install -e shared/
           pip install -e zonewise/agent-harness/
           pip install -e auction/agent-harness/
@@ -26,6 +26,7 @@ jobs:
             zonewise/agent-harness/cli_anything/zonewise/tests/ \
             auction/agent-harness/cli_anything/auction/tests/ \
             swimintel/agent-harness/cli_anything/swimintel/tests/ \
+            pipelines/winnerdata/tests/ \
             -v --tb=short
       - name: Verify CLIs
         run: |

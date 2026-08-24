@@ -1,0 +1,157 @@
+{
+  "_delivery_gate": {
+    "eligible": true,
+    "reason": null
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "0f6c9b20-3830-4999-bbba-984e6f66ef2c"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-RANDY_COUNTS-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "marion"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "767468"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "18679 SE 22ND LN, SILVER SPRINGS, FL- 34488"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "foreclosure"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-11"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "422025CC001660CCAXMX"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Wins",
+      "value": "1"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Deployed",
+      "value": "501.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Counties Active",
+      "value": "[\"marion\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "50.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"year_built\", \"sqft\", \"num_buildings\", \"construction_class\", \"dor_use_code\", \"sold_amount\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "RANDY COUNTS",
+  "meta": {
+    "ff_id": "SLQ-2026-RANDY_COUNTS-001",
+    "is_business": false,
+    "lead_id": "0f6c9b20-3830-4999-bbba-984e6f66ef2c",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "18679 SE 22ND LN",
+    "city": "SILVER SPRINGS",
+    "commercial_name": "",
+    "email": "",
+    "first_name": "RANDY",
+    "insuredType": 1,
+    "last_name": "COUNTS",
+    "phone_number": "9046253939",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 1,
+    "zip_code": "34488"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi RANDY COUNTS, saw you picked up 18679 SE 22ND LN, SILVER SPRINGS, FL- 34488 at the Marion County foreclosure auction on 2026-08-11.",
+    "priority": "medium",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: RANDY COUNTS"
+  }
+}

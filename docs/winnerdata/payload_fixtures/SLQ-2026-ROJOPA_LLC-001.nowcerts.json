@@ -1,0 +1,197 @@
+{
+  "_delivery_gate": {
+    "eligible": true,
+    "reason": null
+  },
+  "custom_fields": [
+    {
+      "insuredDatabaseId": null,
+      "text": "SummitLeads Lead ID",
+      "value": "c683b37f-08ec-4d6d-8b7b-df874bf077ac"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Winner Data FF ID",
+      "value": "SLQ-2026-ROJOPA_LLC-001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property County",
+      "value": "manatee"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Parcel ID",
+      "value": "785800004"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Property Address (Full)",
+      "value": "1808 17TH ST E, PALMETTO, FL- 34221"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Year Built",
+      "value": "1963"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Square Footage",
+      "value": "920"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Number of Buildings",
+      "value": "1"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Construction Class",
+      "value": "4"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DOR Use Code",
+      "value": "001"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Just Value",
+      "value": "158181.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Improved",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Occupancy Status",
+      "value": "unknown"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Sale Type",
+      "value": "foreclosure"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Auction Date",
+      "value": "2026-08-12"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Case Number",
+      "value": "412026CA001304CAAXMA"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Wins",
+      "value": "1"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Total Deployed",
+      "value": "87300.0"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Buyer Counties Active",
+      "value": "[\"manatee\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Is Repeat Investor",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Umbrella Quote Requested",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood If Indicated",
+      "value": "True"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Flood Basis",
+      "value": "INFERRED_coastal_county_heuristic"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Commercial BOP If Applicable",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Master Policy Conversation",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Must Quote",
+      "value": "[\"dwelling_landlord\", \"flood_if_indicated\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Readiness Score",
+      "value": "91.7"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Missing Required Fields",
+      "value": "[\"sold_amount\"]"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Product Line",
+      "value": "dwelling_landlord"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Consent Status",
+      "value": "none"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "DNC Scrubbed",
+      "value": "False"
+    },
+    {
+      "insuredDatabaseId": null,
+      "text": "Outbound Lane",
+      "value": "compliant_outbound"
+    }
+  ],
+  "dedupe_key": "ROJOPA LLC",
+  "meta": {
+    "ff_id": "SLQ-2026-ROJOPA_LLC-001",
+    "is_business": true,
+    "lead_id": "c683b37f-08ec-4d6d-8b7b-df874bf077ac",
+    "org_id": "032f4717-545f-4a18-b48b-28ea4257699d"
+  },
+  "prospect": {
+    "active": true,
+    "address_line_1": "1808 17TH ST E",
+    "city": "PALMETTO",
+    "commercial_name": "ROJOPA LLC",
+    "email": "robbiehong@hotmail.com",
+    "first_name": "",
+    "insuredType": 2,
+    "last_name": "",
+    "phone_number": "9417452522",
+    "referral_source": "SummitLeads: dwelling_landlord",
+    "state": "FL",
+    "type": 2,
+    "zip_code": "34221"
+  },
+  "task": {
+    "completion": 0,
+    "description": "Hi ROJOPA LLC, saw you picked up 1808 17TH ST E, PALMETTO, FL- 34221 at the Manatee County foreclosure auction on 2026-08-12; we already pulled the property card (built 1963, 920 sqft) so we can have a landlord/dwelling quote ready today.",
+    "priority": "high",
+    "status": "New",
+    "title": "Quote-ready Winner Data lead: ROJOPA LLC"
+  }
+}
