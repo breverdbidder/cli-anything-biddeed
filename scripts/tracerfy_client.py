@@ -111,14 +111,49 @@ def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = 
         return None
 
 
+_NAME_SUFFIXES = {"SR", "JR", "II", "III", "IV", "V", "ESQ"}
+
+
+def _split_owner_name(name: str) -> tuple[str, str]:
+    """FL property-appraiser own_name / auction-winner name convention is
+    SURNAME-FIRST -- "DAVIS, RONALD L." or "Sanchez Juan" (last name is
+    always the first token, comma or not). Verified live 2026-08-24: naive
+    "first token = first name" splitting sent a garbled/reversed name on
+    every call against fl_parcels-sourced input (e.g. "DAVIS, RONALD L."
+    -> first_name="DAVIS,", last_name="RONALD L.") and silently produced
+    hit=false on a request that hits=true once reordered correctly. Do not
+    revert to a plain str.split(" ", 1) -- that bug already cost a full
+    session's worth of false NO_MATCH results.
+
+    Some rows use the comma as a SUFFIX separator instead of a name
+    separator -- "Labelle James,SR" is "Labelle James" (Last First) +
+    suffix "SR", not "Labelle James" (last) + "SR" (first). Detect that
+    case by checking whether the token after the comma is a known suffix.
+    """
+    cleaned = name.strip()
+    if "," in cleaned:
+        before, _, after = cleaned.partition(",")
+        before = before.strip()
+        after = after.strip()
+        after_first_tok = after.split(" ", 1)[0].upper().rstrip(".") if after else ""
+        if not after or after_first_tok in _NAME_SUFFIXES:
+            parts = before.split(" ", 1)
+            return (parts[1], parts[0]) if len(parts) > 1 else ("", before)
+        first = after.split(" ", 1)[0]
+        return first, before
+    parts = cleaned.split(" ", 1)
+    if len(parts) > 1:
+        return parts[1], parts[0]
+    return "", cleaned
+
+
 def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str) -> dict | None:
     """Name + known mailing address -> phone/email. The PROVEN method
     (per issue comment: trace the buyer at THEIR OWN prior address, not the
     address they just bought). Endpoint + payload verified live 2026-08-24
     against /v1/api/trace/enhanced/lookup/.
     """
-    parts = name.strip().split(" ", 1)
-    first, last = (parts[0], parts[1]) if len(parts) > 1 else (name, "")
+    first, last = _split_owner_name(name)
     payload = {
         "first_name": first, "last_name": last,
         "address": address, "city": city, "state": state, "zip": zipcode,
@@ -131,7 +166,11 @@ def dnc_scrub(phones: list[str]) -> dict | None:
 
 
 def get_queue_status(queue_id: int) -> dict | None:
-    return _request(f"queue/{queue_id}", None, _queue_limiter, method="GET")
+    """Poll a DNC scrub queue. Verified live 2026-08-24: the plain
+    `queue/{id}` path 403s ("You do not have permission to access this
+    queue") -- the real, version-independent path is `dnc/queue/{id}`
+    (confirmed against tracerfy.com's published docs and a live 200)."""
+    return _request(f"dnc/queue/{queue_id}", None, _queue_limiter, method="GET")
 
 
 def _parse_trace_response(resp: dict) -> dict:

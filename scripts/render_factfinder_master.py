@@ -82,10 +82,16 @@ LEADS = [
         "missing_required_fields": ["phone", "email"],
         "missing_note": (
             "Tracerfy enhanced (name+address) trace against Labelle James,SR / 8268 Brown RD, "
-            "Barefoot Bay, FL 32976 returned hit=false across 4 attempts (original name order, "
-            "swapped first/last, alternate city Micco, suffix variants). Confirmed no-hit, not a "
-            "lookup error -- consistent with the documented method's real ceiling (not every seller "
-            "resolves; ~88% hit rate observed elsewhere, this is in the ~12% miss)."
+            "Barefoot Bay, FL 32976 returned hit=false across 4 attempts in the prior render of this "
+            "sheet, but that render used a since-fixed client bug: scripts/tracerfy_client.py split "
+            "raw fl_parcels own_name values as \"first token = first name\", so \"Labelle James,SR\" "
+            "was sent as first_name=\"SR\"/last_name=\"Labelle James\" -- garbled on every attempt. "
+            "Re-verified 2026-08-24 20:16 UTC with a fixed name-order parser (handles both "
+            "\"LAST, FIRST MI\" and \"Last First,SUFFIX\" fl_parcels conventions): James Labelle at "
+            "the correct name order, plus an alternate city (Micco) variant, both still return "
+            "hit=false, persons_count=0. This is now a confirmed genuine no-hit, not a parsing "
+            "artifact -- consistent with the documented method's real ceiling (~88% hit rate "
+            "observed elsewhere; this is in the ~12% miss)."
         ),
         "compliance_note": "",
     },
@@ -117,12 +123,16 @@ LEADS = [
             "Tracerfy enhanced trace returned this number flagged dnc=true (rank-1 mobile, "
             "Omnipoint Miami E License LLC). No consent on file for this seller. Manual dial by a "
             "licensed producer ONLY -- no autodialer, no SMS, no email drip, per the standing "
-            "compliant_outbound rule. The official Tracerfy v2 DNC-scrub queue confirmation "
-            "(queue_id 3904) returned HTTP 403 'no permission to access this queue' on 6 polls over "
-            "2 minutes -- a genuine platform/permission gap, not a false negative; this DNC flag is "
-            "sourced from the per-phone flag already embedded in the enhanced-trace response, not "
-            "a completed async scrub. A secondary, non-DNC-flagged number is on file "
-            "((321) 614-4827, T-Mobile, lower match rank) as a fallback if the primary is a dead end."
+            "compliant_outbound rule. The prior render of this sheet reported the official Tracerfy "
+            "v2 DNC-scrub queue confirmation (queue_id 3904) as HTTP 403 'no permission to access "
+            "this queue' -- root cause found and fixed 2026-08-24: get_queue_status() was calling "
+            "GET /v1/api/queue/{id}, but the real path (per Tracerfy's published docs) is the "
+            "version-independent GET /v1/api/dnc/queue/{id}. Re-polled queue_id 3904 with the fixed "
+            "path and it resolves cleanly: phones_checked=2, phones_clean=1 -- CSV confirms "
+            "9547014841 is_clean=No (national_dnc=Y, state_dnc=Y FL) and 3216144827 is_clean=Yes, "
+            "exactly matching the per-phone flag already used above. A secondary, non-DNC-flagged "
+            "number is on file ((321) 614-4827, T-Mobile, lower match rank) as a fallback if the "
+            "primary is a dead end."
         ),
     },
 ]
