@@ -17,14 +17,27 @@ name: summitleads-daily
 # The PRIOR cron (11:00 UTC = 7:00 AM ET) ran *before* same-day auctions even
 # started, so it could only ever pick up results from days-old sales via
 # Sprint 1's 7-day lookback -- same-day FF generation was structurally
-# impossible at that hour. Moved to 23:00 UTC (7:00 PM EDT / 6:00 PM EST) --
-# well after all 67 counties' single daily session should have concluded --
-# so same-day SOLD/winner data is actually available when this runs. Revisit
-# if a specific county's clerk posts later than this.
+# impossible at that hour.
+#
+# 2026-08-24 follow-up check: pulled actual auction_time data from
+# public.multi_county_auctions + public.auction_calendar. Only 15 of 67
+# counties have any recorded start-time data at all, but for those 15
+# (Brevard, Orange, Palm Beach, Polk, Hillsborough, Marion, Hernando, Dixie,
+# Sumter, Levy, Madison, Hendry, Monroe, Miami-Dade) every recorded start
+# time falls between 9:00-11:00 AM ET, nothing later. 00:00 UTC (8:00 PM
+# EDT / 7:00 PM EST) is confirmed safe for those 15; the other 52 counties
+# remain unverified (no start-time data exists to check against) -- Ariel
+# accepted this as an acceptable risk given the midnight catch-up pass below,
+# rather than blocking on scraping all 67 counties' actual posted times.
+# Primary pass moved from 23:00 UTC to 00:00 UTC (8:00 PM ET) plus a second
+# midnight-ET catch-up pass added as a safety net for any county whose
+# results post later than expected. Revisit if a specific county's clerk
+# posts later than the catch-up pass.
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 23 * * *"   # 7:00 PM EDT / 6:00 PM EST (23:00 UTC) — daily FF pipeline
+    - cron: "0 0 * * *"    # 8:00 PM EDT / 7:00 PM EST (00:00 UTC) — daily FF pipeline, primary pass
+    - cron: "0 4 * * *"    # 12:00 AM EDT / 11:00 PM EST (04:00 UTC) — midnight-ET catch-up pass for late-posting counties
 concurrency: {group: summitleads-daily, cancel-in-progress: false}
 permissions:
   contents: write
@@ -51,7 +64,5 @@ jobs:
       - name: Commit batch files
         run: |
           git config user.name "summitleads-bot"
-          git config user.email "actions@github.com"
-          git add summitleads/batches/
           git diff --cached --quiet || git commit -m "SummitLeads daily batch $(date -u +%Y-%m-%d)"
           git push
