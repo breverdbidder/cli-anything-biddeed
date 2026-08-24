@@ -1,0 +1,36 @@
+[project]
+name = "cli-anything-biddeed"
+version = "0.1.0"
+description = "BidDeed.AI / Everest Capital CLI-Anything monorepo root metadata (does not replace subproject requirements.txt/setup.py files)"
+requires-python = ">=3.10"
+
+# NOTE: this file intentionally declares no base install_requires. Existing
+# subprojects (shared/, auction/, zonewise/, etc.) keep installing via their
+# own requirements.txt / setup.py. This root pyproject.toml exists only to
+# host the `legal` optional-dependency group below.
+dependencies = []
+
+[project.optional-dependencies]
+# INTERIM PIN — see docs/plans/CC_META_PROMPT.md issue "Fork juriscraper +
+# eyecite (BSD-2) into breverdbidder". Spec asks for these pinned to
+# github.com/breverdbidder/{juriscraper,eyecite} forks. That fork step is
+# BLOCKED: breverdbidder is a personal GitHub *user* account (not an org) and
+# holds zero org memberships, so `gh repo fork --org breverdbidder` fails with
+# HTTP 422 ("Fork.organization is invalid"). Falling back to a personal-
+# account fork is explicitly forbidden by the issue. Logged to
+# public.agent_ops_log (dispatch_id=fl-appellate-watch-20260824, status=BLOCKED).
+# Until an org exists, this pins directly to the verified upstream
+# freelawproject commits (both BSD-2-Clause, verified via `gh api
+# repos/freelawproject/{juriscraper,eyecite}` on 2026-08-24). Re-point both
+# lines at breverdbidder forks the moment the org fork succeeds.
+legal = [
+    "juriscraper @ git+https://github.com/freelawproject/juriscraper.git@0c0e21ffd55a09b51bf504c2264648ea454886a0",
+    "eyecite @ git+https://github.com/freelawproject/eyecite.git@047af17e13806a437e75f2ea85cb9615f69516c3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []

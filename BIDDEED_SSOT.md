@@ -115,6 +115,74 @@ alongside the pre-existing `event_type='auction_close'` rows from BidDeed
   existing 49 `auction_close` rows untouched; no skip-trace/Tracerfy call added;
   `summitleads.leads` not modified by this migration.
 
+### 1.4 FL APPELLATE WATCH + CITATION AUDIT (2026-08-24)
+
+`scripts/fl_appellate_watch.py` — two independent BSD-2-only passes, no
+CourtListener/AGPL code anywhere. `pyproject.toml` `legal` extra
+(`pip install -e .[legal]`, verified in this session) pins `juriscraper` and
+`eyecite`.
+- **Fork status: BLOCKED.** Spec asked for
+  `github.com/breverdbidder/{juriscraper,eyecite}` forks pinned by SHA.
+  `gh repo fork --org breverdbidder` fails with HTTP 422
+  ("Fork.organization is invalid") — `breverdbidder` is a personal GitHub
+  **user** account, not an org, and the token has zero org memberships
+  (`gh api user/orgs` → `[]`). Falling back to a personal-account fork is
+  explicitly forbidden by the issue, so this step is BLOCKED, not done.
+  Logged: `public.agent_ops_log` `dispatch_id='fl-appellate-watch-20260824'`,
+  `status='BLOCKED'`.
+- **Interim pin**: `legal` extra points directly at the verified upstream
+  `freelawproject/juriscraper@0c0e21ffd55a09b51bf504c2264648ea454886a0` and
+  `freelawproject/eyecite@047af17e13806a437e75f2ea85cb9615f69516c3` (both
+  confirmed `BSD-2-Clause` via `gh api repos/freelawproject/{repo}` on
+  2026-08-24). Re-point to `breverdbidder` forks once an org exists.
+  `freelawproject/courtlistener` is `AGPL-3.0` and is never cloned/vendored/
+  imported anywhere in this pipeline.
+- **Pass 1 — appellate watch**: polls Florida Supreme Court (`fla`) + all six
+  DCAs (`fladistctapp_1`..`fladistctapp_6`) via juriscraper site classes, one
+  HTTP request per court per run (`Site.set_url()` default, no backscraping),
+  plus one bounded 5s retry on a transient `ConnectError`/timeout only.
+  Case-insensitive substring match on `--party` (default `"Everest Capital"`,
+  watching for `Abreu v. Everest Capital of Brevard LLC`, Case
+  05-2025-CA-014890, Brevard Circuit — juriscraper has no circuit-docket
+  support, so this only fires if/when that case reaches the 5th/6th DCA).
+  Upserts to `public.fl_appellate_watch`.
+- **Pass 2 — citation audit**: runs `eyecite.get_citations` over
+  `--cite-file`, or by default every file matched by
+  `git grep -li "lien priority" -- '*.md'` (7 files, live-checked 2026-08-24 —
+  general planning docs that mention the phrase; no dedicated
+  `fl-lien-priority` Academy workspace folder exists in this repo yet).
+  Classifies each span `resolved` (real `FullCitation`, e.g. `410 U.S. 113`),
+  `unresolved` (short-form/`Id.`/supra needing antecedent resolution), or
+  `malformed` (citation-shaped text eyecite's reporters-db tokenizer refuses
+  to recognize, e.g. a fabricated `So. 99d` series — eyecite's own
+  `get_citations()` silently drops these, so a supplementary loose regex
+  catches them instead of letting them vanish). Upserts to
+  `public.fl_citation_audit`.
+- **Live-verified 2026-08-24**: real run against all 7 courts returned 0
+  party matches (no known appeal filed yet) — see `public.fl_appellate_watch`
+  for current row count, not a number pinned here (it changes every run).
+  Default cite-audit target discovery is `git grep -li "lien priority" --
+  '*.md'`, which as a side effect will match this very SSOT section once
+  committed (self-referential — this paragraph mentions "lien priority" and
+  quotes citation-shaped example text) — check `public.fl_citation_audit`
+  live for the current row count rather than trusting a number written here.
+  Negative tests both pass: `--party ZZZNOSUCHPARTY --dry-run` → exit 0, zero
+  writes; a file containing the fake cite `999 So. 99d 1 (Fla. 1DCA 1800)` →
+  lands in `malformed`, never `resolved` (proven with a real citation
+  `410 U.S. 113` alongside it in the same test file, which correctly landed
+  in `resolved`).
+- **Tables**: `public.fl_appellate_watch`, `public.fl_citation_audit`
+  (`supabase/migrations/20260824_fl_appellate_watch_table.sql`, applied via
+  Management API). Both `relrowsecurity=true`, `relforcerowsecurity=true`,
+  zero rows in `pg_policies` — deny-all for anon/authenticated, matching the
+  existing deny-by-default pattern; only `service_role` reads/writes.
+- **Workflow**: `.github/workflows/fl-appellate-watch.yml`,
+  `workflow_dispatch` only — **no cron**, quota gate not wired up yet.
+- **Observed flakiness (not a code bug)**: this session's runner occasionally
+  hit `httpx.ConnectError` against `flcourts-media.flcourts.gov` on 2 of 7
+  sequential per-court requests — recovered by the single bounded retry;
+  script never crashed, always exited 0.
+
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
 Customer → `mcp.biddeed.ai` → Cloudflare Tunnel → **local Dell** → MCP HTTP server (this repo, `main`) → Supabase.
@@ -128,6 +196,12 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
 `gold_standard_certify()` with N=3 strike hysteresis, persisted `revocation_reason` + `last_evaluated_run`, warn-before-revoke (GTM-22H, 2026-07-19). Cert gates S5 (`predict_auction_outcome`, $25). A county with empty enrichment data will and should fail cert — fix the data, not the gate.
 
 ## 5. KNOWN GAPS (open, owner-visible)
+- **`breverdbidder` cannot receive org forks**: it is a personal GitHub user
+  account (zero org memberships), so `gh repo fork --org breverdbidder`
+  always fails HTTP 422. Blocks the `juriscraper`/`eyecite` fork step in §1.4
+  — pinned to upstream `freelawproject` SHAs as an interim workaround
+  instead. Needs a real breverdbidder-controlled org before any future
+  "fork X into breverdbidder org" ask can complete as specified.
 - Marion (and non-Brevard generally): property-appraiser enrichment absent; FJ was mis-mapped into `opening_bid`; `plaintiff_max_bid` not captured. In flight: issue #12851.
 - No Stripe test mode; no live customer subscriptions yet.
 - `NPM_TOKEN` absent — npm channel dark (owner decision).

@@ -1,0 +1,72 @@
+name: fl-appellate-watch
+# Polls the Florida Supreme Court + all six DCAs via juriscraper (BSD-2, see
+# pyproject.toml [project.optional-dependencies] "legal") for case-name hits
+# on --party, and runs an eyecite citation audit over the lien-priority
+# corpus. Writes public.fl_appellate_watch / public.fl_citation_audit.
+#
+# workflow_dispatch ONLY -- no cron. Quota gate not wired up yet (see issue
+# "Fork juriscraper + eyecite (BSD-2) into breverdbidder"). Do not add a
+# schedule: block until that gate exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      courts:
+        description: "Comma-separated court modules, e.g. fla,fladistctapp_5 (default: all seven)"
+        required: false
+        default: "all"
+      party:
+        description: "Case-insensitive party-name substring to watch for"
+        required: false
+        default: "Everest Capital"
+      since:
+        description: "YYYY-MM-DD -- only fetch opinions on/after this date"
+        required: false
+        default: ""
+      cite_file:
+        description: "Path to a markdown/text file for the eyecite citation audit (default: git-grep lien-priority discovery)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (no writes)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install legal extras (juriscraper + eyecite)
+        run: pip install -e ".[legal]"
+
+      - name: Run fl_appellate_watch
+        env:
+          COURTS_INPUT: ${{ inputs.courts }}
+          PARTY_INPUT: ${{ inputs.party }}
+          SINCE_INPUT: ${{ inputs.since }}
+          CITE_FILE_INPUT: ${{ inputs.cite_file }}
+        run: |
+          ARGS=(--courts "$COURTS_INPUT" --party "$PARTY_INPUT")
+          if [ -n "$SINCE_INPUT" ]; then
+            ARGS+=(--since "$SINCE_INPUT")
+          fi
+          if [ -n "$CITE_FILE_INPUT" ]; then
+            ARGS+=(--cite-file "$CITE_FILE_INPUT")
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          python scripts/fl_appellate_watch.py "${ARGS[@]}"
