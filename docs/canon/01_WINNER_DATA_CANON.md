@@ -14,10 +14,10 @@ not separate lead-generation efforts.
 ## What it is NOT
 
 Winner Data is **not an auction-lead vendor**, **not a mover-lead vendor**,
-and **not a distressed-property engine**. Those are downstream verticals it
-happens to feed today, not what the company is. Describing Winner Data by any
-single vertical it currently serves is the exact drift this canon exists to
-stop.
+**not a distressed-property engine**, and **not a foreclosure business**.
+Those are downstream verticals it happens to feed today, not what the
+company is. Describing Winner Data by any single vertical it currently
+serves is the exact drift this canon exists to stop.
 
 ## Buyer avatar
 
