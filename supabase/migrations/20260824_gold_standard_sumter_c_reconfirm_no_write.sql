@@ -1,0 +1,102 @@
+-- Gold Standard campaign, county=sumter, letter=C (matched_clean) --
+-- RE-CONFIRM, structural gap unchanged (audit-trail-only write).
+--
+-- BEFORE (pencil_dod_evaluate_county('sumter'), live, 2026-08-24T16:10Z):
+--   A pass metric=10 (fc=10 td=14) | B pass metric=100.0 | C FAIL metric=91.7
+--   (matched_clean=22 of 24) | D pass metric=100.0 (matched_any=24) |
+--   E pass metric=100.0 | F pass metric=100.0 | G pass metric=100.0 |
+--   H pass metric=0.8h | I pass metric=100.0 | J pass metric=100.0 |
+--   auctions_total=24
+--
+-- CONTEXT: the dispatch brief for this session assumed the evaluator still
+-- required parity_status='matched_clean' AND parity_source LIKE 'tier1%%' for
+-- C, with PARITY_OK rows invisible to it (the vocabulary gap fixed for
+-- highlands in 20260812_highlands_cd_parity_ok_tier1_normalize.sql). That gap
+-- was ALREADY CLOSED FLEET-WIDE by a later migration --
+-- 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql -- which
+-- rewrote pencil_dod_evaluate_county's C filter to
+-- `(parity_status='matched_clean' AND parity_source LIKE 'tier1%%') OR
+-- parity_status IN ('PARITY_OK','CLERK_VERIFIED')`. Confirmed live: the
+-- current function body (re-read directly from the migration file, matches
+-- the live RPC's reported county/letters) already recognizes PARITY_OK as
+-- matched_clean.
+--
+-- Live row breakdown for sumter (verified via PostgREST against
+-- multi_county_auctions, 24 unique ids, matches evaluator's auctions_total):
+--   parity_status='matched_clean', parity_source LIKE 'tier1%%'  : 11
+--   parity_status='PARITY_OK', parity_source IN
+--     ('sumter_clerk_tax_deed','sumter_clerk_foreclosure')        : 11
+--   parity_status='CLERK_SSOT_CANCELLED', parity_source=
+--     'sumter_clerk_tax_deed' (case_number 104, 1400)              : 2
+--   -----------------------------------------------------------------
+--   TOTAL                                                          : 24
+-- 11 + 11 = 22 = the evaluator's live matched_clean count. The 2
+-- CLERK_SSOT_CANCELLED rows are the entire remaining gap: they correctly
+-- satisfy D's matched_any filter (which explicitly includes
+-- 'CLERK_SSOT_CANCELLED' as of the same 20260810 migration) but are, by the
+-- same migration's explicit design intent, excluded from C's matched_clean --
+-- this is identical fleet-wide canon already independently re-confirmed for
+-- taylor, st_lucie, calhoun, gadsden, charlotte, bay, and manatee (see
+-- supabase/migrations/20260815_gold_standard_shard3_taylor_stlucie_cd_tier1_promote.sql,
+-- 20260814_gold_standard_shard2_5f3a88a5_calhoun_c_reconfirm_no_write.sql,
+-- 20260823_shard2_gadsden_C_tax_deed_outcomes_redeemed.sql,
+-- 20260824_gold_standard_shard3_8da53925_charlotte_i_d_fix.sql,
+-- 20260815_shard4_bay_c_i_10of10.sql,
+-- 20260823_manatee_letter_c_phantom_reschedule_fix.sql).
+--
+-- FRESH RE-VERIFICATION THIS SESSION (2026-08-24, independent live re-parse,
+-- NOT a re-trust of the stored DB status): ran
+-- scripts/clerk_ssot/parsers/sumter.py's parse_tax_deed() live against
+-- https://www.sumterclerk.com/public-records/tax-deeds/tax-deed-sales/
+-- (HTTP 200, structured JSON extracted from the page's embedded
+-- <tax-deed-sales :taxdeeds="[...]"> Vue-component attribute -- the same
+-- authoritative structured source run_parity.py itself uses, not an HTML
+-- text-scan). Fresh pull returned 7 tax_deed rows; certs 104 and 1400 both
+-- carry `status: "redeemed"` (raw field value, unchanged from the DB's
+-- stored parity_source label). "Redeemed" for a Florida tax deed certificate
+-- means the certificate holder was paid off / the property owner satisfied
+-- the lien before the scheduled sale -- the auction itself never completed
+-- as a sale. This is a genuinely different final state from a clean
+-- completed-or-still-scheduled match, not a scraper artifact or a stale
+-- label. No overbid/surplus record exists for either cert on the live page
+-- (only "scheduled" and "redeemed" statuses are present in this county's
+-- feed; no separate surplus-disbursement listing was found to
+-- cross-reference, unlike calhoun's WP REST overbid endpoint -- sumter's
+-- site is not a matching CMS, no equivalent endpoint exists).
+--
+-- CONCLUSION: C's ceiling for sumter is structurally capped at 22/24 (91.7%)
+-- under current live data. Forcing parity_status='matched_clean' on either
+-- redeemed row would misrepresent a redemption as a clean auction match --
+-- fabrication, banned by this repo's guardrails (BLANK > WRONG). C correctly
+-- and permanently stays FAIL at 22/24 until/unless one of these two
+-- certificates is re-listed for a new sale (a redemption is final; this is
+-- not expected) or a 3rd, currently-uncounted auction row is added to the
+-- county's dataset and independently comes back clean.
+--
+-- DATA WRITE (audit-trail refresh only -- parity_status UNCHANGED, still
+-- 'CLERK_SSOT_CANCELLED', which correctly satisfies D's matched_any filter
+-- but intentionally not C's matched_clean filter; only parity_checked_at and
+-- parity_source updated to record this session's independent reconfirmation):
+
+UPDATE public.multi_county_auctions
+SET parity_checked_at = now(),
+    parity_source = 'sumter_clerk_taxdeeds_widget_20260824_reconfirm_redeemed',
+    updated_at = now()
+WHERE lower(county) = 'sumter'
+  AND case_number IN ('104', '1400')
+  AND parity_status = 'CLERK_SSOT_CANCELLED';
+
+-- VERIFICATION (live, this session, 2026-08-24): PATCH RETURNING confirmed
+-- 2 rows updated, parity_status unchanged at 'CLERK_SSOT_CANCELLED'.
+-- pencil_dod_evaluate_county('sumter') AFTER is expected identical to
+-- BEFORE for all 10 letters (audit-trail-only write, no metric-affecting
+-- column touched) -- see session report for the literal post-write RPC
+-- output.
+--
+-- No further action recommended for these 2 rows absent a genuinely new
+-- source (e.g. the certificates being re-listed for a future sale). Per the
+-- dispatch brief's own math, C only needs 1 more genuine clean match beyond
+-- 22/24 to reach the >=95%% threshold (23/24 = 95.8%%) -- but no 23rd
+-- candidate row exists in the current 24-row dataset; both non-matched rows
+-- are conclusively, independently, freshly-confirmed genuine redemptions,
+-- not a labeling or scraping gap. This is a residual, not a bug.
