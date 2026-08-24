@@ -13,6 +13,24 @@ had existed.
 
 ---
 
+## CANON — read first
+
+Positioning, avatars, and compliance posture for Winner Data / BidDeed /
+ZoneWise are canon, not something to re-derive from a log or prior chat.
+Full canon: [`docs/canon/`](docs/canon/README.md) (mirrored in
+`everest-battle-cards/canon/`, recorded live in
+`public.unified_context.winnerdata_canon_v1`). **Canon overrides any log,
+memory line, or prior chat.**
+
+CANON 01 summary (Winner Data):
+- **What it is:** FL property-data/intelligence PLATFORM LAYER, 10.5M-parcel moat, supplies all leads for biddeed.ai + zonewise.ai + Protection Partners.
+- **What it is NOT:** not an auction-lead vendor, not a mover-lead vendor, not a distressed-property engine.
+- **Buyer avatar:** businesses buying resolved property signals (insurance agencies, movers, contractors, investors/small developers) — self-serve small B2B/B2C that ATTOM/Cotality won't onboard.
+- **Subject avatar:** MLS active/pending sellers (non-distressed) and auction winners — never contacted.
+- **Compliance one-liner:** B2B data sales only — no homeowner contact, no foreclosure/mortgage-relief marketing, no outcome-tied compensation (see [`docs/canon/02_COMPLIANCE_DOCTRINE.md`](docs/canon/02_COMPLIANCE_DOCTRINE.md)).
+
+---
+
 ## 1. INFRASTRUCTURE INVENTORY
 
 | Component | What it is | What it is NOT |
