@@ -1,6 +1,6 @@
 # SummitLeads — Auction Flash Batch 2026-08-24
 
-Generated: 2026-08-24T03:59:36.689754+00:00Z (live-queried, org=Protection Partners)
+Generated: 2026-08-24T11:11:20.870433+00:00Z (live-queried, org=Protection Partners)
 
 Total leads: 21 | Producers: 1
 
