@@ -1,0 +1,96 @@
+-- Gold Standard alachua letters C/D/E/I/J (dispatch 39359e83, all writes via PostgREST --
+-- direct psql/DB password auth confirmed broken, documented, not retried this session).
+-- This file is a RECORD of the live writes performed via curl/python against PostgREST;
+-- it is not itself executable against a fresh DB (parcel_zones/zoning_districts rows are
+-- idempotent inserts already applied live, see scripts/alachua-I_fix4_gold_standard_c39359e83.py).
+--
+-- LIVE BASELINE (verified 2026-08-24 via POST rpc/pencil_dod_evaluate_county p_county=alachua):
+--   auctions_total=85. C FAIL matched_clean=77 (90.6%). D FAIL matched_any=77 (90.6%).
+--   E FAIL parcel_linked=78 (91.8%). I FAIL card_complete=69 of 85 (81.2%).
+--   J FAIL deal_complete=77 (90.6%). A/B/F/G/H already PASS.
+--
+-- ROOT CAUSE #1 (E/I residual, 7 rows, GENUINE STRUCTURAL CEILING -- confirmed live):
+-- 7 of 8 parity_status IS NULL rows (all data_source='calendar_sweep_mca_v3') have NO
+-- discoverable real parcel_id/property_address from ANY accessible source:
+--   01 2025 CA 003287, 01 2025 CA 001928, 01 2025 CA 002643, 01 2025 CA 003919,
+--   01 2026 CA 000588, 01 2025 CA 002983, 01 2026 CA 000169
+-- Verified live via scripts/shard2_run2450_ajax_realforeclose_harvest.py's
+-- harvest_date('alachua','alachua', <mmddyyyy>) against alachua.realforeclose.com for
+-- all 5 unique auction dates (05/04/2026, 05/14/2026, 07/23/2026, 08/18/2026, 09/17/2026):
+-- the RealForeclose AJAX AITEM blocks for these EXACT case numbers return literal
+-- "Property Appraiser" / "MULTIPLE PARCEL" link TEXT for the Parcel ID field (not a real
+-- parcel_id), with the underlying qPublic href's KeyValue= query param EMPTY -- meaning
+-- Alachua County's own auction platform has not yet linked a parcel to these cases. The
+-- clerk docid= query param is also empty for all 7 (isol.alachuaclerk.org detail page not
+-- indexed). qpublic.schneidercorp.com direct query returns HTTP 403 (WAF). This is a real,
+-- confirmed source-side gap -- NOT a harvest bug -- left unfixed per NEVER-FABRICATE rule.
+-- A separate 8th row (01 2025 CA 003002, parcel_id already populated 18470-009-001) and
+-- 3 tax_deed rows (TD 2026-033/034/035, parcel_id already populated) are the SAME
+-- structural situation: all 8 NULL-parity rows are auction_status='upcoming' with
+-- auction_date in the future (2026-09-17 / 2026-10-06) -- public.refresh_parity_tier1_outcomes
+-- only classifies rows with auction_status IN ('redeemed','completed','sold','cancelled',
+-- 'canceled'); upcoming auctions genuinely have no sale outcome to match against yet. This
+-- is why C/D/E/J's 90.6%/90.6%/91.8%/90.6% is a structural ceiling this session, not a bug:
+-- 77/85 and 78/85 are both below the 95% pass threshold in pencil_dod_evaluate_county, and
+-- the only way to close it is for these 8 real future auctions to actually occur (or for a
+-- real parcel_id source to surface before then). refresh_parity_tier1_outcomes('alachua')
+-- was re-run live this session as a confirming no-op (7 rows reset+rematched to the SAME
+-- matched_clean status they already held from prior sessions' real tier1_foreclosure_outcome/
+-- tier1_tax_deed_outcome joins -- net zero change, proving the function is already correctly
+-- excluding the 8 genuinely-upcoming rows rather than mis-skipping real matches).
+--
+-- ROOT CAUSE #2 (I, 9 rows, FIXED -- real ArcGIS source, applied live via
+-- scripts/alachua-I_fix4_gold_standard_c39359e83.py): 9 rows in
+-- public.v_auction_property_card already had parcel_id/property_address but were missing
+-- zoning_code (parcel_zones link never ran), 3 of which were also missing assessed_value.
+-- Source: Alachua County Property Appraiser ArcGIS FeatureServer, Parcels35_view layer
+-- (https://services1.arcgis.com/MiBZ4u97DWldovjI/arcgis/rest/services/Parcels35_view/
+-- FeatureServer/0/query), same layer proven live in alachua-I_fix.py/_fix2.py/_fix3.py.
+-- Live query per parcel returned real JurisNo/ZONEDISTRICT/ZoneDefin/JustValue:
+--   10498-000-000 JurisNo=300 Gainesville(915) SF          -- parcel_zones inserted
+--   04334-024-000 JurisNo=0   Unincorporated(1404) R-1A    -- parcel_zones inserted
+--   06650-208-004 JurisNo=0   Unincorporated(1404) R-3     -- parcel_zones + assessed_value=72000 inserted
+--   00206-002-003 JurisNo=500 High Springs(891) R-1        -- NEW zoning_districts row + parcel_zones inserted
+--   03307-001-000 JurisNo=100 Alachua(973) RSF-3           -- parcel_zones inserted
+--   04603-005-000 JurisNo=0   Unincorporated(1404) A       -- parcel_zones + assessed_value=184692 inserted
+--   14785-000-000 JurisNo=300 Gainesville(915) U2          -- parcel_zones + assessed_value=356520 inserted
+--   18470-009-001 JurisNo=0   Unincorporated(1404) A       -- parcel_zones inserted
+--   06014-001-008 JurisNo=300 Gainesville(915) SF          -- parcel_zones inserted
+-- JurisNo 500 (High Springs) -> jurisdiction_id 891 is a NEW mapping not present in any
+-- prior alachua-I_fix script, added to JURIS_NO_TO_ID this session.
+-- Result: v_auction_property_card incomplete rows dropped from 16 -> 7 live (the remaining
+-- 7 are exactly the ROOT CAUSE #1 rows above with no discoverable parcel_id at all).
+-- I metric moved card_complete=69 of 85 (81.2%) -> 78 of 85 (91.8%) live, still below the
+-- 95% pass threshold by 3 rows (structurally bound by the same 7-row gap as C/D/E).
+--
+-- ROOT CAUSE #3 (J, unchanged 77/85=90.6%, CONFIRMED did not cascade this session): checked
+-- bid_decisions live for all 9 zoning-fixed parcel_ids before/after -- only
+-- 04334-024-000 had a pre-existing bid_decisions row (1), the other 8 (including the 3
+-- assessed_value backfills) show ZERO bid_decisions rows as of this session's close. The
+-- valuations/bid_decisions re-armer (cron jobs 109/111/115, NOT modified per mandate) had
+-- not picked these up within the session window. J is a genuine pending-cascade residual,
+-- not investigated further per the task's explicit instruction not to build a new J
+-- generator -- flagged for a future session's re-check once the cron has had a chance to run.
+--
+-- NO ghost-success stamping performed: parity_status was never hand-PATCHed by this session
+-- -- the only parity_status change came from calling the existing, already-reviewed
+-- public.refresh_parity_tier1_outcomes('alachua') function (see
+-- 20260710_shard9_run3497_duval_putnam_parity_cancelled_spelling_fix.sql for its
+-- definition), which is a real case/parcel join against foreclosure_outcomes/
+-- tax_deed_outcomes, not a fabrication. No A/B/F/G/H rows or logic were touched.
+--
+-- LIVE RE-CHECK (verified 2026-08-24, same session, POST rpc/pencil_dod_evaluate_county
+-- p_county=alachua, AFTER all writes above):
+--   A PASS fc=66 td=19            (unchanged)
+--   B PASS verified=6 closed_sold=6 (unchanged)
+--   C FAIL matched_clean=77 (90.6%)      (unchanged -- structural ceiling, see above)
+--   D FAIL matched_any=77 (90.6%)        (unchanged -- structural ceiling, see above)
+--   E FAIL parcel_linked=78 (91.8%)      (unchanged -- structural ceiling, see above)
+--   F PASS tier1_sold=6 closed_sold=6 (unchanged)
+--   G PASS density=96.5 (unchanged, no rows touched)
+--   H PASS hours since last_seen=0.0 (unchanged)
+--   I FAIL card_complete=78 of 85 (91.8%)  (IMPROVED from 69/85, 81.2% -- still below 95% threshold)
+--   J FAIL deal_complete=77 (90.6%)       (unchanged -- pending cron cascade, see above)
+--
+-- This migration file is documentation-only (no DDL/DML to replay) -- see
+-- scripts/alachua-I_fix4_gold_standard_c39359e83.py for the executed, idempotent writer.
