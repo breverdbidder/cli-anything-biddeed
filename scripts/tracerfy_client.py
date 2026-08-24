@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """SummitLeads Sprint 2 — Tracerfy skip-trace client.
 
-STATUS: UNTESTED this session. TRACERFY_API_KEY was not present in this
-session's environment (confirmed: `env | grep -i tracer` returned nothing,
-despite the secret existing in the repo since 2026-08-23 ~13:15 UTC — same
-cc-runner-ghonly.yml wiring gap as Bright Data, fixed in the same commit
-as this file). No prior session has ever called tracerfy.com from this
-repo; the endpoint/auth contract below is transcribed from the issue
-comments (Ariel's own account-dashboard verification), not independently
-confirmed by a live call from this codebase. Treat the first real
-invocation as a validation call: run it against ONE known buyer first,
-print the raw response shape, and confirm it matches the field names
-assumed in _parse_trace_response() before trusting it in a batch.
+STATUS: VERIFIED live 2026-08-24. Endpoint paths and response schema below
+are confirmed against https://www.tracerfy.com/skip-tracing-api-documentation/
+and a live 200 response (see decision log). Two bugs found and fixed in this
+same session, both blocking every prior call attempt:
+  1. Cloudflare (error code 1010) silently blocks the default urllib
+     User-Agent on tracerfy.com — fixed by setting a real UA on every request.
+  2. The endpoint paths guessed from issue comments ("enhanced", "dnc",
+     "queues/") were wrong (404/405) — real paths are
+     /v1/api/trace/enhanced/lookup/, /v2/api/dnc/scrub/, /v1/api/queue/{id}.
 
 Auth: Bearer TRACERFY_API_KEY. Base: https://tracerfy.com/v1/api/
 Rate limits (per issue comments, pace under all of these):
@@ -45,6 +43,7 @@ from collections import deque
 from datetime import datetime, timezone
 
 TRACERFY_BASE = "https://tracerfy.com/v1/api/"
+TRACERFY_BASE_V2 = "https://tracerfy.com/v2/api/"
 TRACERFY_KEY = os.environ.get("TRACERFY_API_KEY", "")
 
 ENHANCED_COST_CENTS = 1500  # 15 credits, credit=~1 cent per issue comment; verify against real invoice
@@ -81,19 +80,24 @@ def log(msg: str, tag: str = "INFO") -> None:
     print(f"[{ts}] {tag}: {msg}", flush=True)
 
 
-def _request(path: str, payload: dict, limiter: RateLimiter) -> dict | None:
+def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = TRACERFY_BASE, method: str = "POST") -> dict | None:
     if not TRACERFY_KEY:
         log("TRACERFY_API_KEY absent -- cannot call Tracerfy.", "ERROR")
         return None
     limiter.wait()
     req = urllib.request.Request(
-        TRACERFY_BASE + path,
-        data=json.dumps(payload).encode(),
+        base + path,
+        data=json.dumps(payload).encode() if payload is not None else None,
         headers={
             "Authorization": f"Bearer {TRACERFY_KEY}",
             "Content-Type": "application/json",
+            # Cloudflare (error 1010) blocks the default urllib UA on tracerfy.com —
+            # confirmed live 2026-08-24: identical requests succeed once a
+            # non-default User-Agent is set. Same root cause class as the
+            # Supabase Management API UA requirement in summitleads_pipeline.py.
+            "User-Agent": "summitleads-pipeline/1.0",
         },
-        method="POST",
+        method=method,
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -110,41 +114,48 @@ def _request(path: str, payload: dict, limiter: RateLimiter) -> dict | None:
 def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str) -> dict | None:
     """Name + known mailing address -> phone/email. The PROVEN method
     (per issue comment: trace the buyer at THEIR OWN prior address, not the
-    address they just bought). Field names below (`first_name`/`last_name`
-    split, `address1`) are the shape documented in the issue comment set;
-    UNVERIFIED against a live response this session -- confirm on first
-    real call before trusting downstream.
+    address they just bought). Endpoint + payload verified live 2026-08-24
+    against /v1/api/trace/enhanced/lookup/.
     """
     parts = name.strip().split(" ", 1)
     first, last = (parts[0], parts[1]) if len(parts) > 1 else (name, "")
     payload = {
         "first_name": first, "last_name": last,
-        "address1": address, "city": city, "state": state, "zip": zipcode,
+        "address": address, "city": city, "state": state, "zip": zipcode,
     }
-    return _request("enhanced", payload, _enhanced_limiter)
+    return _request("trace/enhanced/lookup/", payload, _enhanced_limiter)
 
 
-def dnc_scrub(phone: str) -> dict | None:
-    return _request("dnc", {"phone": phone}, _dnc_limiter)
+def dnc_scrub(phones: list[str]) -> dict | None:
+    return _request("dnc/scrub/", {"phones": phones}, _dnc_limiter, base=TRACERFY_BASE_V2)
 
 
-def get_queue_status() -> dict | None:
-    return _request("queues/", {}, _queue_limiter)
+def get_queue_status(queue_id: int) -> dict | None:
+    return _request(f"queue/{queue_id}", None, _queue_limiter, method="GET")
 
 
 def _parse_trace_response(resp: dict) -> dict:
-    """Best-effort extraction -- UNVERIFIED field names. If Tracerfy's real
-    response shape differs, this returns all-null rather than raising, and
-    the caller must treat a fully-null result as SKIP_TRACE_PARSE_MISMATCH,
-    not as "person has no phone" (BLANK > WRONG)."""
+    """Extract best contact from the verified /trace/enhanced/lookup/ schema:
+    {hit, persons_count, persons: [{full_name, phones: [{number, rank, dnc}],
+    emails: [{email, rank}]}]}. Picks the first person (Tracerfy's own best
+    match) and their rank-1 phone/email. If the shape doesn't match what was
+    verified live 2026-08-24, returns all-null tagged SKIP_TRACE_PARSE_MISMATCH
+    rather than guessing (BLANK > WRONG) -- Tracerfy may still change its API."""
     if not isinstance(resp, dict):
-        return {"phone": None, "email": None, "parse_status": "UNEXPECTED_RESPONSE_SHAPE"}
-    data = resp.get("data", resp)
-    phone = data.get("phone") or data.get("phone_number")
-    email = data.get("email") or data.get("email_address")
+        return {"phone": None, "email": None, "full_name": None, "parse_status": "UNEXPECTED_RESPONSE_SHAPE"}
+    if not resp.get("hit"):
+        return {"phone": None, "email": None, "full_name": None, "parse_status": "NO_MATCH"}
+    persons = resp.get("persons") or []
+    if not persons:
+        return {"phone": None, "email": None, "full_name": None, "parse_status": "HIT_BUT_NO_PERSONS_SHAPE_MISMATCH"}
+    person = persons[0]
+    phones = sorted(person.get("phones") or [], key=lambda p: p.get("rank", 999))
+    emails = sorted(person.get("emails") or [], key=lambda e: e.get("rank", 999))
+    phone = phones[0].get("number") if phones else None
+    email = emails[0].get("email") if emails else None
     if phone is None and email is None:
-        return {"phone": None, "email": None, "parse_status": "NO_MATCH_OR_UNPARSED"}
-    return {"phone": phone, "email": email, "parse_status": "OK"}
+        return {"phone": None, "email": None, "full_name": person.get("full_name"), "parse_status": "HIT_NO_CONTACT_FIELDS"}
+    return {"phone": phone, "email": email, "full_name": person.get("full_name"), "parse_status": "OK"}
 
 
 def trace_lead(entity_name: str, mailing_address: str, city: str, state: str, zipcode: str) -> dict:

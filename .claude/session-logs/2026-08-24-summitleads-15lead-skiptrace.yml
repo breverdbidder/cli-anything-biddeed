@@ -1,0 +1,57 @@
+session:
+  date: "2026-08-24"
+  issue: "Skip-trace the 15 unmatched Winner Data leads (quote_drafts batch never traced)"
+  agent: claude-code
+
+decisions:
+  - step: "Confirm root cause and scope against live DB before acting"
+    action: "Queried summitleads.leads for all 15 lead_ids"
+    result: "All 15 confirmed: contact_name == entity_name exactly, contact_phone/contact_email both null, matching the issue's stated root cause (never handed to Tracerfy)"
+    reason: "Evidence-before-claims -- verify the premise fresh, not from the issue text alone"
+
+  - step: "Check auction_buyer_profiles for pre-existing skip-trace data to avoid redundant spend"
+    action: "Queried auction_buyer_profiles.email/phone for all 15 buyer names (exact + ILIKE)"
+    result: "3 of 15 buyer names exist as rows in that table but all have email=null, phone=null -- no reusable prior trace"
+    reason: "COST DISCIPLINE -- check for existing paid data before spending new Tracerfy credits"
+
+  - step: "Discover and fix two live bugs blocking scripts/tracerfy_client.py entirely"
+    action: "Called tracerfy.com directly; got Cloudflare error 1010 on every request. Added a real User-Agent header (matches the same class of fix summitleads_pipeline.py already needed for the Supabase Management API) -- 1010 cleared. Then got 404/405 on the guessed endpoint paths ('enhanced', 'dnc', 'queues/'); WebSearch+WebFetch of tracerfy.com's own published API docs gave the real paths (/v1/api/trace/enhanced/lookup/, /v2/api/dnc/scrub/, /v1/api/queue/{id}) and real response schema (hit/persons[]/phones[]/emails[] with rank, not the guessed data.phone/data.email shape)"
+    result: "scripts/tracerfy_client.py rewritten to the verified contract; committed as a standalone fix"
+    reason: "The client had never been called live before this session (per its own docstring) -- this was genuinely the first real invocation, and both bugs were structural, not data problems"
+
+  - step: "Match each of the 15 buyer/entity names to fl_parcels.own_name to find a real prior mailing address (the documented 88%-hit-rate method)"
+    action: "Ran targeted ILIKE searches against fl_parcels (10.5M rows, no name index outside a Duval-only partial trigram index) for each buyer, one query at a time to stay under Management API's response timeout on unanchored scans"
+    result: "8 of 15 had a plausible prior-address match (DANIEL VARGO LLC, DAVIS RONALD L, GALLEON TRUST I [foreign/Poland address], HAMMOCK REAL ESTATE [2 tied addresses], HARVEY SCHONBRUN, L.A. 360 INVESTMENT, RILEY CHRISTOPHER D + KELLEY MATTHEW W [joint lead, 2 addresses], ROBERT ZIVKOVIC). 7 of 15 had zero fl_parcels rows under any name variant tried (GENFI MINISTRIES, HUNTLEY FC HOLDINGS, IBI FALCON US LLC, JUPI LLC, NEXUS NOVA LLC, ROBERT BARTHO custodial-IRA, SHER JUDITH) -- no address existed to trace against"
+    reason: "Per the issue's own method note -- LLC-piercing via own_name match, never find_owner on the just-bought property"
+
+  - step: "Run Tracerfy enhanced trace (name+address) against every address found; never call find_owner"
+    action: "9 live enhanced-trace calls total (incl. both Hammock addresses and both Riley/Kelley co-buyers)"
+    result: "3 real hits (Ronald Davis, Robert Zivkovic, Christopher Riley -- all with corroborating detail: matching age/DOB range, FL address history, and for Zivkovic a zivrealestate.com email matching his trustee/PSP profile), 6 genuine no-hit misses (0 credits charged on every miss, per Tracerfy's own documented cost model)"
+    reason: "Only the proven method was used -- no find_owner, no guessing at the auction property's own address"
+
+  - step: "Write back results, preferring non-DNC-flagged phone numbers where Tracerfy returned a DNC flag per phone"
+    action: "UPDATE summitleads.leads SET contact_name/contact_phone/contact_email for the 3 hits; entity_name left untouched on all 15; consent_certificate jsonb populated on all 15 with skip_trace_status + method + timestamp so no row is left indistinguishable from never-attempted"
+    result: "15/15 rows updated, verified by fresh SELECT immediately after"
+    reason: "Write-back requirement explicit in the issue: never overwrite entity_name, always record an attempt even on failure"
+
+artifacts:
+  - path: scripts/tracerfy_client.py
+    type: script
+    status: fixed (User-Agent + real endpoint paths/schema) and committed
+
+verification:
+  - check: "15/15 leads have consent_certificate.skip_trace_status != null"
+    proof: "Fresh SELECT after write-back: 3x TRACED_VIA_TRACERFY_ENHANCED_LOOKUP, 6x ATTEMPTED_NO_HIT, 7x ATTEMPTED_NO_MAILING_ADDRESS_FOUND -- see this session's tool output, 2026-08-24T15:42Z"
+    status: VERIFIED
+  - check: "entity_name unchanged on all 15 rows"
+    proof: "Fresh SELECT shows entity_name identical to pre-session values for every row"
+    status: VERIFIED
+  - check: "3 hits have real contact_phone/contact_email, non-DNC phone preferred where possible"
+    proof: "Ronald Davis 9092422685 (Tracerfy dnc=false, T-Mobile) / mollykay31@hotmail.com; Robert Zivkovic 9546469784 (dnc=false) / robziv@yahoo.com; Christopher Riley 8507975292 (dnc=false) / ichristopherriley@gmail.com -- raw Tracerfy JSON responses captured in this session's tool output"
+    status: VERIFIED
+  - check: "Tracerfy credit spend stayed within the ~30-45 credit estimate"
+    proof: "9 enhanced-trace calls: 3 hits x 15 credits = 45, 6 misses x 0 credits = 0. Total 45 credits ($0.90 @ $0.02/credit), matching the issue's own worst-case estimate"
+    status: VERIFIED
+  - check: "No re-trace of the 5 already-contacted leads or the prior 18-buyer batch"
+    proof: "Only the 15 lead_ids explicitly listed in the issue were queried or updated this session"
+    status: VERIFIED
