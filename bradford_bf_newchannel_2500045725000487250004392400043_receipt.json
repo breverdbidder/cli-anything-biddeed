@@ -1,0 +1,92 @@
+{
+  "dispatch": "f68d2ec5 / gold-standard-shard6-bradford-run7177",
+  "session_number": 12,
+  "session_type": "B/F sale-outcome discovery, new-channel search only",
+  "timestamp_utc": "2026-08-24T16:14:40Z",
+  "target_cases": [
+    {
+      "case_number": "25000457CAAXMX",
+      "sale_type": "foreclosure",
+      "auction_date": "2026-07-16",
+      "plaintiff_vs_defendant": "VYSTAR CREDIT UNION vs EBENAL, AMY R et al",
+      "property_address": "18737 CHARLOTTE AVE, BROOKER, FL 32622",
+      "parcel_id": "00273-0-01000"
+    },
+    {
+      "case_number": "25000487CAAXMX",
+      "sale_type": "foreclosure",
+      "auction_date": "2026-08-13",
+      "plaintiff_vs_defendant": "LEMIRE, MICHAEL et al vs WILLIAMS, BILLY JOE et al",
+      "property_address": "7656 SW CR 225, STARKE, FL 32091",
+      "parcel_id": "00868-0-01801"
+    },
+    {
+      "case_number": "25000439CAAXMX",
+      "sale_type": "foreclosure",
+      "auction_date": "2026-08-13",
+      "plaintiff_vs_defendant": "PLANET HOME LENDING, LLC vs BARRANCO PINTO, JONATTAN H et al",
+      "property_address": "7594 SW 130TH ST, STARKE, FL 32091",
+      "parcel_id": "00868-0-01200"
+    },
+    {
+      "case_number": "24000431CAAXMX",
+      "sale_type": "foreclosure",
+      "auction_date": "2026-08-20",
+      "plaintiff_vs_defendant": "PROVIDENT FUNDING ASSOCIATES LP vs MCDAVID, PAUL et al",
+      "property_address": "13296 SW CR 231, BROOKER, FL",
+      "parcel_id": "00441-0-00100"
+    }
+  ],
+  "prior_confirmed_dead_channels_not_retried": [
+    "bradfordclerk.com/tax-deeds-and-foreclosure-sales/ -> HTTP 403 (WAF-blocked, reconfirmed indirectly this session via /official-records/ on same domain also 403)",
+    "bctelegraph.com legal-notice archive -> no post-sale results",
+    "courthouse/browser-based leads -> nothing found (11 prior sessions)"
+  ],
+  "new_channels_probed_this_session": [
+    {
+      "channel": "1. floridapublicnotices.com",
+      "method": "WebFetch site search page + WebSearch queries per case number / defendant name",
+      "result": "NO_DATA",
+      "detail": "Found one tangential hit: an AMY R. EBENAL foreclosure notice indexed, but for case 25000030CAAXMX (final judgment 2026-01-12) -- NOT our target case 25000457CAAXMX. Also found a pre-sale 'notice of action' for unrelated case 24000272CAAXMX. No notice found for any of our 4 case numbers. No post-sale/sold-amount content exists on this site for foreclosures generally -- it publishes pre-sale legal notices, not results."
+    },
+    {
+      "channel": "2. web.archive.org (Wayback Machine)",
+      "method": "CDX API query for bradfordclerk.com/tax-deeds-and-foreclosure-sales/ and /foreclosures/ and /tax-deeds/, filtered to snapshots after each sale date",
+      "result": "NO_DATA",
+      "detail": "Only 2 historical snapshots of the tax-deeds page exist total (2023-12-10, 2024-05-24) -- both far predate all 4 sale dates. A domain-wide 2026 crawl (2026-07-08) exists but only captured static image assets (wp-content/uploads PNGs), not the actual page HTML -- consistent with the page's WAF blocking crawlers too. No cached snapshot exists from after any of the 4 sale dates."
+    },
+    {
+      "channel": "3. myfloridacounty.com",
+      "method": "WebFetch site root + official_records path probes + WebSearch",
+      "result": "NO_DATA / REDIRECT_ONLY",
+      "detail": "myfloridacounty.com is a pure gateway/directory site (child support, traffic tickets, official records finder) with no independent Bradford County data of its own. It redirects county selections to each county's own clerk system. For Bradford County this points to the civitek OCRS system (see below), not to any independent myfloridacounty.com-hosted database."
+    },
+    {
+      "channel": "3b. civitek OCRS (discovered via myfloridacounty.com trail)",
+      "method": "Drove the JSF (JavaServer Faces) PrimeFaces app via curl: captured session cookie -> POST'd Public-access button ajax postback -> followed disclaimer redirect -> POST'd 'I Agree' ajax postback -> reached /ocrs/app/search.xhtml -> located 'Case Search' tab (lazily-loaded via ajax tabChange event)",
+      "result": "BLOCKED",
+      "detail": "Successfully navigated the public-access flow through 3 JSF postbacks (Public button -> disclaimer I Agree -> search page) using raw curl with view-state/cookie tracking -- no browser tooling required for that part. However, the actual search widget is gated behind a Cloudflare Turnstile CAPTCHA (turnstile.render(...) with sitekey 0x4AAAAAAAR0Af-5MfzdbO3p, action:'Search') that must be solved client-side via validateUser() before any case-number query executes. browser-use CLI is not installed in this environment (browser-use: command not found; not present via pip3/npm either) and installing it is out of scope for a single lightweight session. This is a genuine structural blocker, not a re-try of a previously-exhausted channel -- flagging for a future session with real browser + CAPTCHA-solving capability."
+    },
+    {
+      "channel": "4. doxpop.com",
+      "method": "WebFetch site root + WebFetch prod/counties.jsp (official partner-county directory) + WebSearch",
+      "result": "NOT_APPLICABLE",
+      "detail": "doxpop.com's government-partner coverage is Indiana-only. No Florida counties, including Bradford, are covered by this service at all. Ruling this out definitively (not just 'not tried') so future sessions do not re-check it."
+    },
+    {
+      "channel": "5. Distinct Bradford official-records subdomain",
+      "method": "5 URL probes: bradfordclerk.com/official-records/, oncorepublic.aptitudeeg.com/bradfordfl/, acclaimweb.bradfordclerk.com/, records.bradfordclerk.com/, mypublicrecords.us/bradford/",
+      "result": "NO_DATA",
+      "detail": "bradfordclerk.com/official-records/ returns HTTP 403 (same WAF as the tax-deeds page, same root domain). The 4 guessed subdomains (acclaimweb./records./oncorepublic./mypublicrecords.) all failed to resolve/connect (HTTP 000). Also probed bradfordcountyfl.gov's linked 'Online Court Records Search' page directly -> HTTP 403. A tangential appraiser-to-clerk link pattern (bradfordappraiser.com/gis/linkClerk/?ClerkBook=X&ClerkPage=Y) resolves HTTP 200 but requires book/page numbers we do not have for these 4 cases, and ultimately routes through the same blocked clerk infrastructure -- not independently actionable."
+    }
+  ],
+  "outcome": "CEILING_RECONFIRMED_12TH_SESSION",
+  "rows_written_to_foreclosure_outcomes": 0,
+  "rows_patched_in_multi_county_auctions": 0,
+  "recommendation_for_next_session": "The only channel with a live, unexhausted lead is civitek OCRS (Bradford County OCRS, county code 04) -- it has a working public-access case-search UI but is gated by Cloudflare Turnstile. A future session with real browser automation (browser-use CLI installed, or a Turnstile-capable agent) reaching /ocrs/county/04/ -> Public -> I Agree -> Case Search tab -> search by case number could plausibly retrieve real case status/disposition data. This is NOT a dead channel like the prior two -- it is a capability gap in this session's tooling, not evidence of no data existing there.",
+  "hard_rules_compliance": {
+    "propertyonion_used": false,
+    "fabricated_data": false,
+    "claimed_fix_without_evidence": false
+  }
+}

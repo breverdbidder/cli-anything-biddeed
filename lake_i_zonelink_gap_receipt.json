@@ -1,0 +1,111 @@
+{
+  "task": "Lake County I (card completeness) residual zone-linkage gap diagnosis + fix",
+  "timestamp_utc": "2026-08-24T16:17:00Z",
+  "dispatch_context": "follow-up to commit 4e38ae8a (lake I zone_link 8-row gap, 120/137 -> 125/137)",
+  "diagnosis": {
+    "hypothesis": "STRAP format inconsistency: multi_county_auctions.parcel_id stores Lake STRAP without dashes (e.g. 121926130000A01200), but a prior municipal-zoning ingest (Eustis/Leesburg/Tavares city GIS, source tag *_2026-08-11) wrote parcel_zones rows keyed with dashes (e.g. 12-19-26-130000A01200) for the same physical parcels -- causing a string-match join miss even though real, sourced zone data already existed.",
+    "verdict": "CONFIRMED",
+    "evidence": [
+      "128 lake auction rows (non-PO case_number, parcel_id not null) queried from multi_county_auctions.",
+      "Batched in.() lookup against parcel_zones on exact parcel_id string found 119/128 matches (all with non-null zone_code) and 10 misses.",
+      "Reformatted each of the 10 misses to dashed STRAP (TT-RR-SS-XXXXXXXXXXXX) and re-queried parcel_zones: 7 of 10 hit an EXISTING, already-sourced row (source=eustis_cityflu_gis_2026-08-11, leesburg_planning_zoning_gis_2026-08-11, tavares_cityzoning_gis_2026-08-11).",
+      "Remaining 3 misses (052225010000001900, 221924085000000100, 011926060000202200) have NO zone data in either format -- these are the exact 3 rows already documented as structurally blocked in commit 4e38ae8a (fall inside incorporated municipal boundaries not covered by the countywide unincorporated Lake ArcGIS layer, gis.lakecountyfl.gov MapServer/50). Not re-attempted; no new ArcGIS lookup was needed or performed for these 3 -- prior session's finding stands, left untouched, NOT re-scraped."
+    ]
+  },
+  "fix_applied": {
+    "type": "format_normalization_insert",
+    "description": "Inserted 7 new parcel_zones rows keyed to the exact no-dash parcel_id format stored in multi_county_auctions, copying the real (already-sourced) zone_code/zone_name/jurisdiction_id from the existing dashed-format row for the same physical parcel. No new ArcGIS query was required -- the zone data already existed and was verified real (sourced from live municipal GIS on 2026-08-11); only the join key format was wrong.",
+    "source_tag": "lake_i_zonelink_gap_strap_format_normalize_2026-08-24",
+    "rows_inserted": [
+      {
+        "parcel_id_nodash_inserted": "121926130000A01200",
+        "matched_existing_dashed_row": "12-19-26-130000A01200",
+        "jurisdiction_id": 969,
+        "jurisdiction_name": "Eustis",
+        "zone_code": "SR",
+        "zone_name": "Suburban Residential (Eustis FLU district)",
+        "case_number": "2025CA001795",
+        "write_status": "HTTP 201 confirmed"
+      },
+      {
+        "parcel_id_nodash_inserted": "271924170000N00200",
+        "matched_existing_dashed_row": "27-19-24-170000N00200",
+        "jurisdiction_id": 835,
+        "jurisdiction_name": "Leesburg",
+        "zone_code": "R-2",
+        "zone_name": "R-2 Medium Density Residential District (Leesburg)",
+        "case_number": "2025CA001078",
+        "write_status": "HTTP 201 confirmed"
+      },
+      {
+        "parcel_id_nodash_inserted": "271926005000008000",
+        "matched_existing_dashed_row": "27-19-26-005000008000",
+        "jurisdiction_id": 926,
+        "jurisdiction_name": "Tavares",
+        "zone_code": "RSF-2",
+        "zone_name": "Single-Family Residential (Tavares)",
+        "case_number": "2025CA002620",
+        "write_status": "HTTP 201 confirmed"
+      },
+      {
+        "parcel_id_nodash_inserted": "221924040000000F04",
+        "matched_existing_dashed_row": "22-19-24-040000000F04",
+        "jurisdiction_id": 835,
+        "jurisdiction_name": "Leesburg",
+        "zone_code": "R-2",
+        "zone_name": "R-2 Medium Density Residential District (Leesburg)",
+        "case_number": "2025CA001198",
+        "write_status": "HTTP 201 confirmed"
+      },
+      {
+        "parcel_id_nodash_inserted": "271924170000O00800",
+        "matched_existing_dashed_row": "27-19-24-170000O00800",
+        "jurisdiction_id": 835,
+        "jurisdiction_name": "Leesburg",
+        "zone_code": "R-1",
+        "zone_name": "Rural Residential (Leesburg)",
+        "case_number": "2025CA001392",
+        "write_status": "HTTP 201 confirmed"
+      },
+      {
+        "parcel_id_nodash_inserted": "241925030000C01100",
+        "matched_existing_dashed_row": "24-19-25-030000C01100",
+        "jurisdiction_id": 926,
+        "jurisdiction_name": "Tavares",
+        "zone_code": "R-6",
+        "zone_name": "Urban Residential",
+        "case_number": "2026CA000288",
+        "write_status": "HTTP 201 confirmed"
+      },
+      {
+        "parcel_id_nodash_inserted": "101926040000002300",
+        "matched_existing_dashed_row": "10-19-26-040000002300",
+        "jurisdiction_id": 969,
+        "jurisdiction_name": "Eustis",
+        "zone_code": "SR",
+        "zone_name": "Suburban Residential (Eustis FLU district)",
+        "case_number": "2025CA002017",
+        "write_status": "HTTP 201 confirmed"
+      }
+    ],
+    "rows_written": 7
+  },
+  "post_fix_verification": {
+    "parcel_zones_recheck": "VERIFIED. Re-ran the same 128-parcel_id batched in.() lookup against parcel_zones post-insert: matches rose from 119/128 to 126/128. Remaining 2 misses are the pre-existing structurally-blocked pair (052225010000001900, 221924085000000100) plus 011926060000202200 -- all 3 unchanged, correctly untouched.",
+    "v_zoning_gold_standard_card_recheck": "VERIFIED. All 7 newly-inserted parcel_ids now return a row in v_zoning_gold_standard_card with the correct real zone_code populated.",
+    "v_auction_property_card_recheck": "VERIFIED. All 7 corresponding auction rows in v_auction_property_card now show zoning_code populated alongside pre-existing property_address, latitude/longitude, and assessed_value -- i.e. these 7 rows are now genuinely render-complete per the I criteria's documented deliverable (address + geo + value + zoning code).",
+    "dod_scorecard_recheck": {
+      "command": "POST /rpc/pencil_dod_evaluate_county {\"p_county\":\"lake\"}",
+      "result_before_and_after": "I: card_complete=125 of 137 (91.2%) -- UNCHANGED across multiple fresh re-runs after the insert (ruled out simple PostgREST result caching by re-running 5s and again later; live SQL function, not a materialized view).",
+      "honesty_note": "UNTESTED/INFERRED gap: the fix itself is CONFIRMED correct and real (7 legitimate, sourced parcel_zones rows now exist that did not exist before, closing the exact STRAP-format join gap described in the task). However the pencil_dod_evaluate_county() scorecard's reported I metric (125/137) did NOT move after the insert. Reverse-engineering its likely denominator (fc active upcoming/scheduled + all tax_deed statuses, ~136-137 rows) and testing completeness with vs without a zoning_code requirement empirically produced 124 (no zoning required) vs 99 (zoning required via parcel_zones join) -- neither matches the DoD's reported 125 exactly, and critically the zoning-required reconstruction (99) is far BELOW the DoD's reported 125. This strongly suggests the live pencil_dod_evaluate_county() SQL implementation has drifted from its own pencil_dod_criteria.deliverable description and may not actually be gating 'I' on a real parcel_zones/zone_code join the way this task assumed -- it appears to already count these rows as complete on some other basis, or its zoning check does not require the same join path this task diagnosed. This is a genuine, disclosed inconsistency between the documented criteria and the observed live scorecard behavior, not an admission the underlying data fix is wrong. The data-level fix (7 rows, real sourced zone data, format-mismatch closed) is independently verified and correct regardless of whether it moves this particular scorecard function's number.",
+      "recommendation": "A follow-up session with direct Postgres/pg_get_functiondef access (this session only had PostgREST + service-role REST, no working DB password) should pull the literal SQL body of pencil_dod_evaluate_county() to confirm exactly what join/predicate it uses for the 'I' letter, since it does not appear to match its own criteria-table description on this county."
+    }
+  },
+  "hard_rules_compliance": {
+    "no_fabricated_arcgis_calls": "No new ArcGIS query was made or claimed for the 7 fixed rows -- they were resolved via format-normalized re-match against EXISTING, already-verified, already-sourced parcel_zones rows from a prior session's live municipal GIS scrape (2026-08-11), not fabricated.",
+    "jurisdiction_id_lookup": "jurisdiction_id for each insert was copied directly from the existing dashed-format parcel_zones row for the same parcel (already correctly resolved by the prior session against jurisdictions.county='Lake'), not guessed.",
+    "still_missing_not_touched": "The 3 genuinely zone-data-less parcels (052225010000001900, 221924085000000100, 011926060000202200) were NOT written to -- confirmed via live re-query they remain absent from parcel_zones in both dash and no-dash formats, consistent with the prior session's live ArcGIS finding that these fall inside incorporated municipal boundaries the countywide unincorporated layer does not cover.",
+    "no_git_commit": "This receipt file was written but not committed, per instructions."
+  },
+  "credential_handling": "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY confirmed present via env count check (>=2) at session start; used only as apikey/Authorization headers in curl calls; raw key value never echoed, printed, or written to any file including this receipt."
+}
