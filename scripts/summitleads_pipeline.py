@@ -154,10 +154,12 @@ from summitleads.organizations where name = 'Protection Partners'
 and not exists (select 1 from summitleads.producers p join summitleads.organizations o on o.org_id=p.org_id where o.name='Protection Partners' and p.full_name='Mariam Shapira');
 
 insert into summitleads.routing_decisions (lead_id, org_id, producer_id, product_line, routing_reason, routed_at)
-select l.lead_id, l.org_id, p.producer_id, l.product_line, 'calibration', now()
+select distinct on (l.lead_id) l.lead_id, l.org_id, p.producer_id, l.product_line, 'calibration', now()
 from summitleads.leads l
 join summitleads.producers p on p.org_id = l.org_id and p.full_name = 'Mariam Shapira'
-where not exists (select 1 from summitleads.routing_decisions rd where rd.lead_id = l.lead_id);
+where exists (select 1 from summitleads.quote_drafts qd where qd.lead_id = l.lead_id)
+  and not exists (select 1 from summitleads.routing_decisions rd where rd.lead_id = l.lead_id)
+order by l.lead_id, p.created_at;
 """
 
 BATCH_QUERY = """
@@ -184,11 +186,58 @@ where not exists (
 order by l.lead_id, mca.assessed_value desc nulls last;
 """
 
+# Same shape as BATCH_QUERY but scoped to everything already delivered under
+# this batch_date (not just leads new to this run). The rendered file must
+# always reflect the full day's cumulative batch — a same-day re-run of this
+# script must not clobber the file down to only this run's delta.
+RENDERED_BATCH_QUERY_TMPL = """
+select distinct on (l.lead_id)
+       l.lead_id, l.entity_name, l.parcel_id, l.contact_phone, l.contact_email, l.dnc_scrubbed_at,
+       l.consent_certificate, l.closing_date, l.temperature, l.product_line,
+       qd.completeness_pct, qd.open_gaps, qd.assembled_at,
+       se.county, se.occurred_at as signal_occurred_at,
+       se.event_payload->>'case_number' as case_number,
+       se.event_payload->>'sale_type' as sale_type,
+       (se.event_payload->>'sold_amount')::numeric as sold_amount,
+       se.event_payload->>'property_address' as property_address,
+       mca.assessed_value, mca.market_value,
+       p.full_name as producer_name
+from summitleads.leads l
+join summitleads.quote_drafts qd on qd.lead_id = l.lead_id
+join summitleads.signal_events se on se.signal_id = l.signal_id
+join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
+join summitleads.producers p on p.producer_id = rd.producer_id
+left join public.multi_county_auctions mca on mca.parcel_id = l.parcel_id and mca.county = se.county
+where exists (
+  select 1 from summitleads.lead_activity la
+  where la.lead_id = l.lead_id and la.activity_type = 'delivered' and (la.payload->>'batch_date') = '{batch_date}'
+)
+order by l.lead_id, mca.assessed_value desc nulls last;
+"""
+
 
 def sprint5_deliver(batch_date):
-    rows = run_sql(BATCH_QUERY)
+    new_rows = run_sql(BATCH_QUERY)
+    if not new_rows:
+        print("Sprint 5: no newly-undelivered leads this run.")
+    else:
+        lead_ids = ",".join(f"'{r['lead_id']}'" for r in new_rows)
+        run_sql(f"""
+            insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
+            select l.lead_id, l.org_id, rd.producer_id, 'delivered', 'call_sheet',
+              jsonb_build_object('batch_date', '{batch_date}'), now()
+            from summitleads.leads l
+            join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
+            where l.lead_id in ({lead_ids})
+              and not exists (select 1 from summitleads.lead_activity la where la.lead_id = l.lead_id and la.activity_type='delivered');
+        """)
+        print(f"Sprint 5: marked {len(new_rows)} newly-delivered lead(s) for batch_date={batch_date}.")
+
+    # Always re-render from the FULL cumulative batch_date set, not just this run's delta,
+    # so a same-day re-run never clobbers previously-delivered leads out of the committed file.
+    rows = run_sql(RENDERED_BATCH_QUERY_TMPL.format(batch_date=batch_date))
     if not rows:
-        print("Sprint 5: no undelivered leads — nothing to batch today.")
+        print(f"Sprint 5: nothing delivered for batch_date={batch_date} — no file written.")
         return
     out_dir = f"summitleads/batches/{batch_date}"
     os.makedirs(out_dir, exist_ok=True)
@@ -201,17 +250,7 @@ def sprint5_deliver(batch_date):
         check=True,
         env={**os.environ, "BATCH_DATE_OVERRIDE": batch_date},
     )
-    lead_ids = ",".join(f"'{r['lead_id']}'" for r in rows)
-    run_sql(f"""
-        insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
-        select l.lead_id, l.org_id, rd.producer_id, 'delivered', 'call_sheet',
-          jsonb_build_object('batch_date', '{batch_date}'), now()
-        from summitleads.leads l
-        join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
-        where l.lead_id in ({lead_ids})
-          and not exists (select 1 from summitleads.lead_activity la where la.lead_id = l.lead_id and la.activity_type='delivered');
-    """)
-    print(f"Sprint 5: delivered {len(rows)} lead(s) to {out_dir}")
+    print(f"Sprint 5: rendered {len(rows)} cumulative lead(s) to {out_dir}")
 
 
 def main():

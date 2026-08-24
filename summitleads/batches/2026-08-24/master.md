@@ -1,12 +1,12 @@
 # SummitLeads — Auction Flash Batch 2026-08-24
 
-Generated: 2026-08-23T21:23:53.181677+00:00Z (live-queried, org=Protection Partners)
+Generated: 2026-08-24T03:59:36.689754+00:00Z (live-queried, org=Protection Partners)
 
-Total leads: 20 | Producers: 1
+Total leads: 21 | Producers: 1
 
-**Scope note:** Bright Data winner harvest (Sprint 1b) attempted live this session (secrets present) but Bright Data's Scraping Browser itself rejected navigation to realforeclose.com/realtaxdeed.com per robots.txt ("restricted... ask your account manager") — an account-tier restriction, not a secrets/code issue. See issue #19392 comment. This batch only includes signals with a real (non-placeholder) winning_bidder already captured by other harvesters — many completed auctions (e.g. generic "3rd Party Bidder" records) are excluded until the account restriction is lifted. Honest volume for today, not the full pipeline ceiling.
+**Scope note:** Bright Data winner harvest (Sprint 1b) not run this session (set BRIGHTDATA_HARVEST_STATUS=live once verified working). This batch only includes signals with a real (non-placeholder) winning_bidder already captured by other harvesters — many completed auctions are excluded until harvest lands. Honest volume for today, not the full pipeline ceiling.
 
-## Mariam Shapira (20 leads)
+## Mariam Shapira (21 leads)
 
 ### GALLEON TRUST I — 12 SE 8TH ST, GAINESVILLE, FL 32601
 
@@ -260,6 +260,21 @@ Total leads: 20 | Producers: 1
 - **Valuation:** assessed $2,583,490, market unknown
 - **Contact phone/email:** none on file — SKIP_TRACE_PENDING
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 404 NW 14TH AVE, GAINESVILLE, FL 32601 at the foreclosure auction in Alachua County on 2026-08-13 for unknown. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
+
+### RILEY CHRISTOPHER D | / KELLEY MATTHEW W — LOIS LN, CRAWFORDVILLE, FL 32327
+
+**MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
+**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed. Contact info not yet available.**
+
+- **Entity type:** person
+- **Parcel ID:** 00-00-044-000-09819-004
+- **County:** Wakulla
+- **Auction:** Tax Deed, case 2026-TXD-119, closed 2026-08-19, sold $73,000
+- **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
+- **Quote-draft completeness:** 60.00% — open gaps: year_built, square_footage, bed_bath_count, occupancy_status, construction_type, roof_type, protection_class
+- **Valuation:** assessed $178,800, market $178,800
+- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up LOIS LN, CRAWFORDVILLE, FL 32327 at the tax deed auction in Wakulla County on 2026-08-19 for $73,000. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
 ### PAFFORD PROPERTIES & CONSTRUCTION — 30 CHICKAT TRL, CRAWFORDVILLE, FL 32327
 
