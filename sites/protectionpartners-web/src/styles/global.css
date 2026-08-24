@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  /* Protection Partners brand -- distinct from the BidDeed.AI/ZoneWise navy+amber
+     system (that palette is scoped to those two products per CLAUDE.md). Deep ink
+     + brass reads as an established agency, not a SaaS template. */
+  --color-ink: #0b1f33;
+  --color-ink-2: #132c47;
+  --color-brass: #c6942c;
+  --color-brass-light: #e0b969;
+  --color-paper: #f7f4ec;
+  --color-paper-2: #efe9da;
+  --color-slate: #4b5a67;
+  --color-evergreen: #1f5d4b;
+
+  --font-display: "Fraunces", "Georgia", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Focus states legible on both paper and ink backgrounds */
+:focus-visible {
+  outline: 2px solid var(--color-brass);
+  outline-offset: 2px;
+}

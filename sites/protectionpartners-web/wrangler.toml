@@ -1,0 +1,12 @@
+# Cloudflare Pages config for Protection Partners v1.
+# DNS/domain binding is a HITL step for Ariel -- this builds against the
+# default *.pages.dev preview until a domain is chosen (see src/config/site.ts).
+name = "protectionpartners-web"
+compatibility_date = "2026-08-24"
+pages_build_output_dir = "dist"
+
+# Non-secret build-time vars. Secrets (SUPABASE_SERVICE_ROLE, MOMENTUM_DELIVERY_URL,
+# VAPI_PUBLIC_KEY where applicable) are set in the Cloudflare Pages dashboard --
+# see README.md, never committed here.
+[vars]
+PUBLIC_SITE_DOMAIN = "protectionpartners.pages.dev"

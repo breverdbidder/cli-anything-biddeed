@@ -1,0 +1,56 @@
+---
+import { AGENCY_NAME, PHONE_DISPLAY, PHONE_TEL } from "../config/site";
+
+const nav = [
+  { href: "/commercial-business-auto", label: "Commercial & Business Auto" },
+  { href: "/personal-lines", label: "Personal Lines" },
+  { href: "/about", label: "About" },
+  { href: "/client-service", label: "Client Service" },
+];
+const current = Astro.url.pathname;
+---
+
+<header class="sticky top-0 z-50 border-b border-ink/10 bg-paper/95 backdrop-blur">
+  <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+    <a href="/" class="font-display text-lg font-semibold tracking-tight text-ink sm:text-xl">
+      {AGENCY_NAME}
+    </a>
+
+    <nav class="hidden items-center gap-6 md:flex" aria-label="Primary">
+      {nav.map((item) => (
+        <a
+          href={item.href}
+          class:list={[
+            "text-sm font-medium transition-colors hover:text-brass",
+            current === item.href ? "text-brass" : "text-ink/80",
+          ]}
+        >
+          {item.label}
+        </a>
+      ))}
+    </nav>
+
+    <div class="flex items-center gap-3">
+      <a
+        href={PHONE_TEL}
+        class="hidden text-sm font-medium text-ink/80 hover:text-brass sm:inline"
+      >
+        {PHONE_DISPLAY}
+      </a>
+      <a
+        href="/get-a-quote"
+        class="rounded-none border border-ink bg-ink px-4 py-2 text-sm font-semibold text-paper transition-colors hover:bg-brass hover:border-brass hover:text-ink"
+      >
+        Get a Quote
+      </a>
+    </div>
+  </div>
+
+  <nav class="flex items-center gap-4 overflow-x-auto border-t border-ink/10 px-4 py-2 md:hidden" aria-label="Primary mobile">
+    {nav.map((item) => (
+      <a href={item.href} class="whitespace-nowrap text-sm font-medium text-ink/80">
+        {item.label}
+      </a>
+    ))}
+  </nav>
+</header>

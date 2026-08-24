@@ -1,0 +1,60 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { MOMENTUM_PORTAL_URL, PHONE_DISPLAY, PHONE_TEL } from "../config/site";
+---
+
+<Layout
+  title="Client Service"
+  description="Existing Protection Partners clients: access certificates, ID cards, and policy changes through the insured portal, or call your producer directly."
+>
+  <section class="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+    <p class="text-sm font-semibold uppercase tracking-widest text-brass">Existing clients</p>
+    <h1 class="mt-3 font-display text-4xl text-ink sm:text-5xl">Client service</h1>
+    <p class="mt-6 text-lg leading-relaxed text-slate">
+      Already insured with us? Certificates of insurance, ID cards, and
+      policy changes are handled through our insured portal. For anything
+      urgent — including a claim — call your producer directly; we don't
+      route claims through this website.
+    </p>
+
+    <div class="mt-10 grid gap-6 sm:grid-cols-2">
+      <a
+        href={MOMENTUM_PORTAL_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="block border border-ink/10 bg-white/50 p-6 transition-colors hover:border-brass"
+      >
+        <p class="text-sm font-semibold uppercase tracking-wide text-brass">Insured portal</p>
+        <h2 class="mt-2 font-display text-xl text-ink">
+          Certificates, ID cards &amp; policy changes →
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate">
+          Log in to request a certificate of insurance, download an auto ID
+          card, or submit a policy change request.
+        </p>
+        <p class="mt-4 text-xs text-slate/70">
+          [Portal URL placeholder — Ariel to confirm the live Momentum
+          insured-portal link before go-live.]
+        </p>
+      </a>
+
+      <a
+        href={PHONE_TEL}
+        class="block border border-ink/10 bg-white/50 p-6 transition-colors hover:border-brass"
+      >
+        <p class="text-sm font-semibold uppercase tracking-wide text-brass">Call your producer</p>
+        <h2 class="mt-2 font-display text-xl text-ink">{PHONE_DISPLAY} →</h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate">
+          For anything urgent, or if you'd rather talk it through, call us
+          directly during business hours.
+        </p>
+      </a>
+    </div>
+
+    <p class="mt-10 border-t border-ink/10 pt-6 text-sm text-slate">
+      New to Protection Partners? Head to
+      <a href="/get-a-quote" class="font-semibold text-brass hover:underline">Get a Quote</a>
+      instead — this page is for existing policyholders.
+    </p>
+  </section>
+</Layout>

@@ -1,0 +1,108 @@
+---
+import Layout from "../layouts/Layout.astro";
+import ProofPoint from "../components/ProofPoint.astro";
+import VoiceWidget from "../components/VoiceWidget.astro";
+---
+
+<Layout
+  title="AI-Native Independent Insurance, Human-Bound"
+  description="Protection Partners is a Florida independent insurance agency built around commercial and business auto coverage, backed by licensed producers who quote fast and bind every policy themselves."
+>
+  <section class="relative overflow-hidden border-b border-ink/10 bg-paper">
+    <div class="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 md:grid-cols-2 md:items-center md:py-28">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-widest text-brass">
+          Florida independent insurance agency
+        </p>
+        <h1 class="mt-4 font-display text-4xl leading-tight text-ink sm:text-5xl md:text-6xl">
+          AI-native independent insurance, human-bound.
+        </h1>
+        <p class="mt-6 max-w-xl text-lg leading-relaxed text-slate">
+          We use AI to compress the slow parts of insurance shopping —
+          intake, carrier matching, paperwork — down to minutes. Every quote
+          is still reviewed, and every policy is still bound, by a licensed
+          Florida producer who knows your risk. Commercial, business auto,
+          and personal lines, from an agency built for how fast your
+          business actually moves.
+        </p>
+        <div class="mt-8 flex flex-wrap items-center gap-4">
+          <a
+            href="/get-a-quote"
+            class="inline-flex items-center justify-center bg-ink px-6 py-3 text-sm font-semibold text-paper transition-colors hover:bg-brass hover:text-ink"
+          >
+            Get a Quote →
+          </a>
+          <VoiceWidget />
+        </div>
+      </div>
+
+      <div class="relative border border-ink/10 bg-ink p-8 text-paper shadow-xl">
+        <p class="font-display text-lg text-brass">Why agencies like ours exist</p>
+        <ul class="mt-4 space-y-3 text-sm leading-relaxed text-paper/85">
+          <li>— No 40-field PDF before you get a call back.</li>
+          <li>— No CSR reading your risk off a script.</li>
+          <li>— A producer who already has your numbers when they call.</li>
+        </ul>
+        <p class="mt-6 border-t border-paper/15 pt-4 text-xs text-paper/60">
+          A licensed producer reviews and completes every quote. This site
+          never binds coverage or collects payment.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <div class="max-w-2xl">
+      <h2 class="font-display text-2xl text-ink sm:text-3xl">Built to move at your speed</h2>
+      <p class="mt-3 text-slate">
+        Three things separate Protection Partners from the mega-menu agency
+        sites: speed, licensing, and specialty.
+      </p>
+    </div>
+    <div class="mt-10 grid gap-6 md:grid-cols-3">
+      <ProofPoint
+        number="01"
+        title="Speed-to-quote"
+        body="Our intake is a five-minute form, not a phone tag exercise. AI structures your submission the moment you hit send so a producer opens your file already knowing your risk."
+      />
+      <ProofPoint
+        number="02"
+        title="Licensed FL producers bind every policy"
+        body="Nothing this site collects becomes a bound policy on its own. A Florida-licensed producer reviews every submission, quotes it against real carriers, and is the one who binds it."
+      />
+      <ProofPoint
+        number="03"
+        title="Commercial + business auto specialty"
+        body="We built this agency around the coverage general agencies treat as an afterthought — commercial auto, fleet, and business property for operators who can't afford a lapse."
+      />
+    </div>
+  </section>
+
+  <section class="border-t border-ink/10 bg-ink/95 py-16 text-paper">
+    <div class="mx-auto max-w-6xl px-4 sm:px-6">
+      <p class="text-xs font-semibold uppercase tracking-widest text-brass">Carriers</p>
+      <p class="mt-3 max-w-2xl text-paper/70">
+        [CARRIER LOGOS PENDING APPOINTMENTS] — carrier relationships are being
+        finalized. This row will list our appointed carriers once contracts
+        are signed.
+      </p>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-16 text-center sm:px-6">
+    <h2 class="font-display text-2xl text-ink sm:text-3xl">Ready when you are</h2>
+    <p class="mx-auto mt-3 max-w-xl text-slate">
+      Tell us about your business or your household once. A licensed producer
+      takes it from there.
+    </p>
+    <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
+      <a
+        href="/get-a-quote"
+        class="inline-flex items-center justify-center bg-ink px-6 py-3 text-sm font-semibold text-paper transition-colors hover:bg-brass hover:text-ink"
+      >
+        Get a Quote →
+      </a>
+      <VoiceWidget />
+    </div>
+  </section>
+</Layout>

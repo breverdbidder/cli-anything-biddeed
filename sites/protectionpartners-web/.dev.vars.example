@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local `wrangler pages dev` testing. Never commit .dev.vars.
+SUPABASE_URL=https://mocerqjnksmhcjzxrewo.supabase.co
+SUPABASE_SERVICE_ROLE=
+MOMENTUM_DELIVERY_URL=

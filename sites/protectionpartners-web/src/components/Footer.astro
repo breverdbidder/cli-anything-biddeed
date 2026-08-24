@@ -1,0 +1,47 @@
+---
+import { AGENCY_NAME, AGENCY_CITY, LICENSE_LINE, PHONE_DISPLAY, PHONE_TEL } from "../config/site";
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-ink/10 bg-ink text-paper/80">
+  <div class="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-4">
+    <div>
+      <p class="font-display text-lg text-paper">{AGENCY_NAME}</p>
+      <p class="mt-2 text-sm">{AGENCY_CITY}</p>
+      <p class="mt-1 text-sm">{LICENSE_LINE}</p>
+    </div>
+
+    <div>
+      <p class="text-sm font-semibold uppercase tracking-wide text-brass">Lines</p>
+      <ul class="mt-3 space-y-2 text-sm">
+        <li><a href="/commercial-business-auto" class="hover:text-brass">Commercial &amp; Business Auto</a></li>
+        <li><a href="/personal-lines" class="hover:text-brass">Personal Lines</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="text-sm font-semibold uppercase tracking-wide text-brass">Agency</p>
+      <ul class="mt-3 space-y-2 text-sm">
+        <li><a href="/about" class="hover:text-brass">About &amp; Contact</a></li>
+        <li><a href="/client-service" class="hover:text-brass">Client Service</a></li>
+        <li><a href="/get-a-quote" class="hover:text-brass">Get a Quote</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="text-sm font-semibold uppercase tracking-wide text-brass">Talk to us</p>
+      <p class="mt-3 text-sm">
+        <a href={PHONE_TEL} class="hover:text-brass">{PHONE_DISPLAY}</a>
+      </p>
+      <p class="mt-4 text-xs leading-relaxed text-paper/60">
+        Every quote is reviewed and every policy is bound by a licensed Florida
+        producer. Protection Partners does not bind coverage or collect payment
+        through this website.
+      </p>
+    </div>
+  </div>
+
+  <div class="border-t border-paper/10 px-4 py-4 text-center text-xs text-paper/50 sm:px-6">
+    &copy; {year} {AGENCY_NAME}. All rights reserved.
+  </div>
+</footer>

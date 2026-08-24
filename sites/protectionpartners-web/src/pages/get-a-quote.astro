@@ -1,0 +1,404 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
+---
+
+<Layout
+  title="Get a Quote"
+  description="Tell us about your business or household in five minutes. A licensed Florida producer reviews every submission and calls you with real numbers."
+>
+  <section class="mx-auto max-w-3xl px-4 py-14 sm:px-6">
+    <p class="text-sm font-semibold uppercase tracking-widest text-brass">Get a Quote</p>
+    <h1 class="mt-3 font-display text-3xl text-ink sm:text-4xl">
+      Five minutes now. A real call back, not a robo-email.
+    </h1>
+    <p class="mt-4 max-w-xl text-slate">
+      This intake goes straight to a licensed Florida producer — not a lead
+      farm. Nothing here binds coverage; a producer will call to finish your
+      quote.
+    </p>
+
+    <ol class="mt-8 flex items-center gap-2 overflow-x-auto whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-slate" id="step-indicator">
+      <li data-step-label="1" class="step-pill">1. Coverage</li>
+      <li aria-hidden="true">—</li>
+      <li data-step-label="2" class="step-pill">2. About You</li>
+      <li aria-hidden="true">—</li>
+      <li data-step-label="3" class="step-pill">3. Risk Details</li>
+      <li aria-hidden="true">—</li>
+      <li data-step-label="4" class="step-pill">4. Consent &amp; Send</li>
+    </ol>
+
+    <form id="quote-form" class="mt-8 space-y-8" novalidate>
+      <!-- Step 1: product line -->
+      <fieldset data-step="1" class="quote-step space-y-4">
+        <legend class="font-display text-xl text-ink">What are we quoting?</legend>
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="option-card">
+            <input type="radio" name="product_line" value="commercial" required class="peer sr-only" />
+            <span class="block font-semibold text-ink">Commercial</span>
+            <span class="mt-1 block text-xs text-slate">General liability, property, BOP</span>
+          </label>
+          <label class="option-card">
+            <input type="radio" name="product_line" value="business_auto" class="peer sr-only" />
+            <span class="block font-semibold text-ink">Business Auto</span>
+            <span class="mt-1 block text-xs text-slate">Fleet, commercial vehicles</span>
+          </label>
+          <label class="option-card">
+            <input type="radio" name="product_line" value="personal" class="peer sr-only" />
+            <span class="block font-semibold text-ink">Personal Lines</span>
+            <span class="mt-1 block text-xs text-slate">Home, auto, umbrella</span>
+          </label>
+        </div>
+        <p class="field-error" data-error-for="product_line"></p>
+      </fieldset>
+
+      <!-- Step 2: applicant -->
+      <fieldset data-step="2" class="quote-step hidden space-y-4">
+        <legend class="font-display text-xl text-ink">About you</legend>
+
+        <div>
+          <label class="field-label" for="entity_type">This quote is for a</label>
+          <select id="entity_type" name="entity_type" class="field-input" required>
+            <option value="">Select one</option>
+            <option value="business">Business</option>
+            <option value="individual">Individual / Household</option>
+          </select>
+          <p class="field-error" data-error-for="entity_type"></p>
+        </div>
+
+        <div>
+          <label class="field-label" for="entity_name">Business or full name</label>
+          <input id="entity_name" name="entity_name" type="text" class="field-input" required autocomplete="name" />
+          <p class="field-error" data-error-for="entity_name"></p>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="field-label" for="contact_phone">Phone</label>
+            <input id="contact_phone" name="contact_phone" type="tel" class="field-input" required autocomplete="tel" />
+            <p class="field-error" data-error-for="contact_phone"></p>
+          </div>
+          <div>
+            <label class="field-label" for="contact_email">Email (optional)</label>
+            <input id="contact_email" name="contact_email" type="email" class="field-input" autocomplete="email" />
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Step 3: risk details -->
+      <fieldset data-step="3" class="quote-step hidden space-y-4">
+        <legend class="font-display text-xl text-ink">Risk details</legend>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <label class="field-label" for="address">Address (business or home)</label>
+            <input id="address" name="address" type="text" class="field-input" required autocomplete="street-address" />
+            <p class="field-error" data-error-for="address"></p>
+          </div>
+          <div>
+            <label class="field-label" for="county">Florida county</label>
+            <input id="county" name="county" type="text" class="field-input" />
+          </div>
+          <div>
+            <label class="field-label" for="num_vehicles">Number of vehicles</label>
+            <input id="num_vehicles" name="num_vehicles" type="number" min="0" class="field-input" />
+          </div>
+        </div>
+
+        <div data-business-only class="hidden grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="field-label" for="industry">Industry</label>
+            <input id="industry" name="industry" type="text" class="field-input" />
+          </div>
+          <div>
+            <label class="field-label" for="years_in_business">Years in business</label>
+            <input id="years_in_business" name="years_in_business" type="number" min="0" class="field-input" />
+          </div>
+          <div>
+            <label class="field-label" for="num_employees">Number of employees</label>
+            <input id="num_employees" name="num_employees" type="number" min="0" class="field-input" />
+          </div>
+          <div>
+            <label class="field-label" for="annual_revenue">Approx. annual revenue</label>
+            <input id="annual_revenue" name="annual_revenue" type="number" min="0" class="field-input" />
+          </div>
+        </div>
+
+        <div data-personal-only class="hidden grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="field-label" for="num_drivers">Number of drivers</label>
+            <input id="num_drivers" name="num_drivers" type="number" min="0" class="field-input" />
+          </div>
+          <div>
+            <label class="field-label" for="home_type">Home type</label>
+            <select id="home_type" name="home_type" class="field-input">
+              <option value="">Select one</option>
+              <option value="single_family">Single family</option>
+              <option value="condo">Condo</option>
+              <option value="renter">Renter</option>
+              <option value="mobile_home">Mobile / manufactured</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="field-label" for="notes">Anything else the producer should know? (optional)</label>
+          <textarea id="notes" name="notes" rows="3" class="field-input"></textarea>
+        </div>
+      </fieldset>
+
+      <!-- Step 4: consent -->
+      <fieldset data-step="4" class="quote-step hidden space-y-4">
+        <legend class="font-display text-xl text-ink">Consent &amp; send</legend>
+
+        <div class="border border-ink/15 bg-white/50 p-4 text-xs leading-relaxed text-slate">
+          {TCPA_CONSENT_TEXT}
+        </div>
+
+        <label class="flex items-start gap-3 text-sm text-ink">
+          <input type="checkbox" id="tcpa_consent" name="tcpa_consent" required class="mt-1 h-4 w-4" />
+          <span>
+            I have read and agree to the consent language above.
+            <span class="text-red-700">*</span>
+          </span>
+        </label>
+        <p class="field-error" data-error-for="tcpa_consent"></p>
+
+        <input type="hidden" name="consent_version" value={TCPA_CONSENT_VERSION} />
+
+        <div id="form-status" class="hidden border p-4 text-sm" role="status"></div>
+
+        <div class="flex items-center justify-between pt-2">
+          <button type="button" data-back class="quote-nav-btn">← Back</button>
+          <button type="submit" id="submit-btn" class="bg-ink px-6 py-3 text-sm font-semibold text-paper transition-colors hover:bg-brass hover:text-ink">
+            Send to a producer →
+          </button>
+        </div>
+      </fieldset>
+
+      <div class="quote-step flex items-center justify-between pt-2" data-nav-default>
+        <button type="button" data-back class="quote-nav-btn invisible">← Back</button>
+        <button type="button" data-next class="bg-ink px-6 py-3 text-sm font-semibold text-paper transition-colors hover:bg-brass hover:text-ink">
+          Continue →
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <style>
+    .field-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--color-ink);
+      margin-bottom: 0.25rem;
+    }
+    .field-input {
+      width: 100%;
+      border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+      background: white;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.95rem;
+      color: var(--color-ink);
+    }
+    .field-input:focus {
+      border-color: var(--color-brass);
+    }
+    .field-error {
+      min-height: 1rem;
+      font-size: 0.75rem;
+      color: #b91c1c;
+    }
+    .option-card {
+      display: block;
+      cursor: pointer;
+      border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+      background: white;
+      padding: 1rem;
+    }
+    .option-card:has(.peer:checked) {
+      border-color: var(--color-brass);
+      background: color-mix(in srgb, var(--color-brass) 12%, white);
+    }
+    .quote-nav-btn {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--color-slate);
+    }
+    .step-pill {
+      opacity: 0.4;
+    }
+    .step-pill.active {
+      opacity: 1;
+      color: var(--color-brass);
+    }
+  </style>
+
+  <script>
+    const form = document.getElementById("quote-form") as HTMLFormElement;
+    const steps = Array.from(document.querySelectorAll<HTMLElement>(".quote-step[data-step]"));
+    const defaultNav = document.querySelector<HTMLElement>("[data-nav-default]")!;
+    const stepPills = Array.from(document.querySelectorAll<HTMLElement>("[data-step-label]"));
+    let current = 1;
+
+    function requiredFieldsFor(step: number): HTMLInputElement[] {
+      const fs = steps.find((s) => s.dataset.step === String(step));
+      if (!fs) return [];
+      return Array.from(fs.querySelectorAll<HTMLInputElement>("[required]")).filter(
+        (el) => el.offsetParent !== null // only currently-visible required fields
+      );
+    }
+
+    function showError(name: string, message: string) {
+      const el = document.querySelector<HTMLElement>(`[data-error-for="${name}"]`);
+      if (el) el.textContent = message;
+    }
+
+    function clearErrors(step: number) {
+      const fs = steps.find((s) => s.dataset.step === String(step));
+      fs?.querySelectorAll("[data-error-for]").forEach((el) => (el.textContent = ""));
+    }
+
+    function validateStep(step: number): boolean {
+      clearErrors(step);
+      let ok = true;
+      if (step === 1) {
+        const picked = form.querySelector<HTMLInputElement>('input[name="product_line"]:checked');
+        if (!picked) {
+          showError("product_line", "Pick one to continue.");
+          ok = false;
+        }
+      }
+      for (const field of requiredFieldsFor(step)) {
+        if (field.type === "checkbox" && !field.checked) {
+          showError(field.name, "Required.");
+          ok = false;
+        } else if (field.type !== "checkbox" && !field.value.trim()) {
+          showError(field.name, "Required.");
+          ok = false;
+        } else if (field.name === "contact_phone" && field.value.replace(/\D/g, "").length < 10) {
+          showError(field.name, "Enter a 10-digit phone number.");
+          ok = false;
+        }
+      }
+      return ok;
+    }
+
+    function syncConditionalFields() {
+      const productLine = form.querySelector<HTMLInputElement>('input[name="product_line"]:checked')?.value;
+      const businessBlock = document.querySelector<HTMLElement>("[data-business-only]")!;
+      const personalBlock = document.querySelector<HTMLElement>("[data-personal-only]")!;
+      businessBlock.classList.toggle("hidden", productLine === "personal");
+      personalBlock.classList.toggle("hidden", productLine !== "personal");
+    }
+
+    function render() {
+      for (const el of steps) {
+        el.classList.toggle("hidden", el.dataset.step !== String(current));
+      }
+      defaultNav.classList.toggle("hidden", current === steps.length);
+      for (const pill of stepPills) {
+        pill.classList.toggle("active", pill.dataset.stepLabel === String(current));
+      }
+      syncConditionalFields();
+    }
+
+    document.querySelectorAll("[data-next]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (!validateStep(current)) return;
+        current = Math.min(current + 1, steps.length);
+        render();
+      })
+    );
+
+    document.querySelectorAll("[data-back]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        current = Math.max(current - 1, 1);
+        render();
+      })
+    );
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!validateStep(current)) return;
+
+      const submitBtn = document.getElementById("submit-btn") as HTMLButtonElement;
+      const statusEl = document.getElementById("form-status")!;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending…";
+
+      const data = new FormData(form);
+      const productLine = String(data.get("product_line") || "");
+      const entityType = String(data.get("entity_type") || "");
+
+      const payload = {
+        schema_version: "1.0",
+        source: "website",
+        product_line: productLine,
+        applicant: {
+          entity_name: { value: data.get("entity_name") || null, source: "website_form" },
+          entity_type: { value: entityType || null, source: "website_form" },
+          contact_name: { value: data.get("entity_name") || null, source: "website_form" },
+          contact_phone: { value: data.get("contact_phone") || null, source: "website_form" },
+          contact_email: { value: data.get("contact_email") || null, source: "website_form" },
+          mailing_address: { value: null, source: "website_form" },
+        },
+        property: {
+          address: { value: data.get("address") || null, source: "website_form" },
+          county: { value: data.get("county") || null, source: "website_form" },
+        },
+        quote_request: {
+          num_vehicles: data.get("num_vehicles") ? Number(data.get("num_vehicles")) : null,
+          industry: data.get("industry") || null,
+          years_in_business: data.get("years_in_business") ? Number(data.get("years_in_business")) : null,
+          num_employees: data.get("num_employees") ? Number(data.get("num_employees")) : null,
+          annual_revenue: data.get("annual_revenue") ? Number(data.get("annual_revenue")) : null,
+          num_drivers: data.get("num_drivers") ? Number(data.get("num_drivers")) : null,
+          home_type: data.get("home_type") || null,
+          notes: data.get("notes") || null,
+        },
+        consent: {
+          tcpa_given: data.get("tcpa_consent") === "on",
+          consent_version: data.get("consent_version"),
+        },
+      };
+
+      try {
+        const res = await fetch("/api/quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          statusEl.className = "border border-evergreen bg-evergreen/10 p-4 text-sm text-ink";
+          statusEl.textContent =
+            "Thanks — your request is with a licensed producer. We'll be in touch shortly. " +
+            (body.id ? `Reference: ${body.id}` : "");
+          statusEl.classList.remove("hidden");
+          form.reset();
+          submitBtn.textContent = "Sent";
+        } else {
+          statusEl.className = "border border-red-700 bg-red-50 p-4 text-sm text-red-800";
+          statusEl.textContent = body.error || "Something went wrong. Please call us instead.";
+          statusEl.classList.remove("hidden");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Send to a producer →";
+        }
+      } catch (err) {
+        statusEl.className = "border border-red-700 bg-red-50 p-4 text-sm text-red-800";
+        statusEl.textContent = "Network error. Please call us instead.";
+        statusEl.classList.remove("hidden");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send to a producer →";
+      }
+    });
+
+    form.querySelectorAll('input[name="product_line"]').forEach((el) =>
+      el.addEventListener("change", syncConditionalFields)
+    );
+
+    render();
+  </script>
+</Layout>
