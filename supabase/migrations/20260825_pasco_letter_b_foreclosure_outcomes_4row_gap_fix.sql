@@ -1,0 +1,84 @@
+-- Pasco Letter B (verified_realized_outcomes) gap fix — 2026-08-25
+--
+-- Context: pencil_dod_evaluate_county('pasco') B was FAIL at verified=58
+-- closed_sold=62 (93.5%, threshold >=95%). Per the evaluator SQL
+-- (supabase/migrations/20260706_cd_litmus_v2_evaluator_surface.sql), B's
+-- numerator (`verified_outcomes`) requires each multi_county_auctions row
+-- with sold_amount IS NOT NULL to have a matching case_number row in
+-- tax_deed_outcomes OR foreclosure_outcomes with data_source NOT ILIKE
+-- '%promote%' (independent-source rule).
+--
+-- Diagnosis (this session, live PostgREST queries):
+--   - closed_sold=62: all 62 pasco multi_county_auctions rows with
+--     sold_amount IS NOT NULL (all pass the propertyonion/tier1_authoritative
+--     filter too).
+--   - tax_deed_outcomes had 58 non-promote pasco rows, all matched by
+--     case_number to 58 of the 62 closed_sold rows.
+--   - foreclosure_outcomes had 0 pasco rows at all — so the 4 remaining
+--     closed_sold rows (all sale_type='foreclosure', all auction_date
+--     2026-08-24, all already carrying data_source='calendar_sweep_mca_v3'
+--     with sold_amount already populated on multi_county_auctions from an
+--     earlier calendar sweep) had no independent outcomes-table match:
+--       51-2025-CA-002518-CAAX-WS  (sold_amount 5600.00)
+--       51-2025-CA-003759-CAAX-WS  (sold_amount 230100.00)
+--       51-2025-CA-004040-CAAX-WS  (sold_amount 151300.00)
+--       51-2026-CA-000763-CAAX-ES  (sold_amount 100100.00)
+--
+-- Fix: authenticated RealAuction Bid History harvest for pasco.realforeclose.com
+-- 2026-08-24 (scripts/realauction_winner_harvest.py, the same script that
+-- delivered issue #19446 / commit b67543ad). Login via
+-- REALFORECLOSE_EMAIL/_PASSWORD -> DAYLIST -> paginated case load -> per-AID
+-- Bid History modal. All 4 target case numbers appeared in the live AID list
+-- for that date and all 4 sold amounts returned by the Bid History modal
+-- footer ("In the total amount of: $X") EXACTLY matched the amounts already
+-- on multi_county_auctions (5600.00 / 230100.00 / 151300.00 / 100100.00) --
+-- an independent cross-verification of the pre-existing sold_amount, not a
+-- new/different number. Winner names + bidder_id + case_id were also newly
+-- captured (previously null) and PATCHed onto multi_county_auctions by the
+-- harvest script itself.
+--
+-- This migration file documents that, in addition to the multi_county_auctions
+-- PATCH already performed by realauction_winner_harvest.py, 4 new rows were
+-- INSERTed into foreclosure_outcomes (via PostgREST POST — direct psql is
+-- unavailable this session, see decision_log ids 169/205/287) with a genuinely
+-- independent data_source label: 'realauction_bidhistory_modal:pasco:2026-08-24'
+-- (contains no 'promote' substring, satisfies the INTEGRITY RULE).
+--
+-- Equivalent SQL (for review/replay against a working direct connection —
+-- the actual write this session went through PostgREST, not psql):
+--
+-- INSERT INTO public.foreclosure_outcomes
+--   (case_number, county, sale_type, auction_date, winning_bid, outcome,
+--    winner_name, winner_type, data_source, source_url)
+-- VALUES
+--   ('51-2025-CA-002518-CAAX-WS', 'pasco', 'foreclosure', '2026-08-24', 5600.00,
+--    'sold',
+--    'Fresh Legal Perspective PL as Trustee only, under the May 4 2025 Land Trust, with full power and authority to protect,conserve,sell,lease,encumber or otherwise manage and dispose of said property pursuant to Florida Statute 689.071 & .073',
+--    'third_party', 'realauction_bidhistory_modal:pasco:2026-08-24',
+--    'https://pasco.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=DAYLIST&AUCTIONDATE=08/24/2026'),
+--   ('51-2025-CA-003759-CAAX-WS', 'pasco', 'foreclosure', '2026-08-24', 230100.00,
+--    'sold', 'Harmony Holdings Group Inc', 'third_party',
+--    'realauction_bidhistory_modal:pasco:2026-08-24',
+--    'https://pasco.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=DAYLIST&AUCTIONDATE=08/24/2026'),
+--   ('51-2025-CA-004040-CAAX-WS', 'pasco', 'foreclosure', '2026-08-24', 151300.00,
+--    'sold', 'Streamline Homes Inc. & DSD Consulting Inc.', 'third_party',
+--    'realauction_bidhistory_modal:pasco:2026-08-24',
+--    'https://pasco.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=DAYLIST&AUCTIONDATE=08/24/2026'),
+--   ('51-2026-CA-000763-CAAX-ES', 'pasco', 'foreclosure', '2026-08-24', 100100.00,
+--    'sold', 'WFK & ASSOCIATES II, LLP,', 'plaintiff',
+--    'realauction_bidhistory_modal:pasco:2026-08-24',
+--    'https://pasco.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=DAYLIST&AUCTIONDATE=08/24/2026');
+--
+-- Result (live pencil_dod_evaluate_county('pasco'), same session):
+--   Before: B pass=false verified=58 closed_sold=62 metric=93.5
+--   After:  B pass=true  verified=62 closed_sold=62 metric=100.0
+--   F unchanged (already PASS): tier1_sold=62 closed_sold=62 metric=100.0
+--     — this fix touched foreclosure_outcomes only, not tier1_sold_amount on
+--     multi_county_auctions, so F's numerator/denominator are untouched.
+--   No other letter (A,C,D,E,G,H,I,J) changed.
+--
+-- No DDL performed — this file is documentation-only per HARD RULE #5
+-- (direct psql unavailable; the actual data write went through PostgREST
+-- POST against foreclosure_outcomes, proof pasted in the session's final
+-- report). tier1-promote-hourly cron will pick these rows up automatically
+-- per its existing schedule; it was not touched by this change.
