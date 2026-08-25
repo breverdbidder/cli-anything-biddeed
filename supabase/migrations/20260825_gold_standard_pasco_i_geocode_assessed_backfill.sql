@@ -1,0 +1,104 @@
+-- Gold Standard pasco letter I (property_card_complete) backfill (2026-08-25).
+--
+-- BASELINE (live, this session): card_complete=345 of 364 (94.8%), FAIL
+-- (threshold >=95%, need >=346/364).
+--
+-- Live re-derivation of pencil_dod_evaluate_county's exact card_complete
+-- predicate (see supabase/migrations/20260810_gold_standard_shard3_lake_
+-- clerk_ssot_cd_recognition.sql, CTE `c`) against the 364-row card_rows
+-- denominator (multi_county_auctions WHERE lower(county)='pasco' AND
+-- (data_source <> 'propertyonion' OR tier1_authoritative)) found exactly
+-- 19 gap rows -- matching 364-345=19. This confirms the task brief's
+-- ~19-row estimate and supersedes its address sample (which was drawn
+-- from v_auction_property_card, a fanned-out view with 4746 rows for
+-- pasco alone -- not safe to use directly for row identification).
+--
+-- Of the 19 gap rows:
+--   - 13 had a real, well-formed Pasco folio parcel_id (SEC-TWN-RNG-SUB-
+--     BLK-LOT) but were missing latitude/longitude/assessed_value. Fixed
+--     via REAL sourced data (see below) for 11 of the 13 (2 already had
+--     non-null geo/value from a prior session's fix, confirmed as a no-op
+--     idempotency skip, not re-verified against a new source).
+--   - 1 of those 13 (13-25-17-0020-01700-0080, "15747 CEDAR ELM TERRACE,
+--     LAND O LAKES") is ALSO the only one of the 19 that is currently
+--     zoning-linked (parcel_id present in v_zoning_gold_standard_card).
+--     Filling its geo/value was the single row needed to numerically
+--     clear the >=95% threshold: 345->346 of 364 = 95.1%.
+--   - The other 10 now have real geo/value but remain card_incomplete
+--     because their parcel_id has no matching row in parcel_zones /
+--     v_zoning_gold_standard_card yet (no zoning ingestion exists for
+--     those specific folios). That is a letter E/G zoning-ingestion gap,
+--     out of this task's column scope (parcel_id/lat/lng/assessed_value
+--     only -- multi_county_auctions has no zoning_code column; the I
+--     metric's "zoning link" is resolved purely via parcel_id/tax_account
+--     matching against v_zoning_gold_standard_card, not a writable field).
+--     Writing correct real parcel_id/geo/value for these 10 unblocks their
+--     own future zoning-join (per this campaign's documented E/I coupling)
+--     even though it does not flip them to card_complete=true today.
+--   - 2 rows (4371 TAHITIAN GARDENS CIR, HOLIDAY and 6824 BEACH BLVD,
+--     HUDSON) have no parcel_id and already carry prior-session synthetic-
+--     looking placeholder values (assessed_value=150000.0, lat=28.308,
+--     lon=-82.4396 -- a documented pasco-wide centroid convention baked in
+--     by an earlier pass). Independently re-verified live this session via
+--     the Pasco GIS ArcGIS FeatureServer address search
+--     (SITE_ADDRESS LIKE '%...%'): "6824 BEACH BLVD" returns ZERO matches
+--     anywhere in the county parcel layer; "4371 TAHITIAN GARDENS CIRCLE"
+--     matches an 11-unit condo building (UNIT A..UNIT K) with no unit
+--     letter present in our stored address -- genuinely ambiguous.
+--     BLOCKED. No new field written (their existing placeholder-looking
+--     values were left untouched -- out of scope, and idempotency rule
+--     means this migration only ever patches currently-NULL fields, so
+--     these rows were a structural no-op regardless).
+--   - 4 rows (2x parcel_id='IPLTMULE' placeholder with no address; 2x no
+--     address and no parcel_id at all) have no real address to look up.
+--     BLOCKED -- no field written, reported as residual gap.
+--
+-- Source (VERIFIED live this session):
+--   1. Pasco County Property Appraiser parcel-card site
+--      https://search.pascopa.com/parcel.aspx?sec=&twn=&rng=&sbb=&blk=&lot=
+--      parsed lblPhysicalAddress + lblCountyValueAssessed (current live
+--      2026 tax-roll assessed value).
+--   2. Pasco County GIS ArcGIS FeatureServer (parcel centroid geometry
+--      only, not assessed_value -- this FeatureServer's value fields are a
+--      stale 2023 snapshot per the prior gold_standard_shard1_a96722e9
+--      session's finding, reused here rather than re-verified since this
+--      migration also uses pascopa.com, not the FeatureServer, for value):
+--      https://services9.arcgis.com/2A3tVMRrWJDhCctP/ArcGIS/rest/services/Parcels_2023/FeatureServer/0/query
+--      Queried by HPARCEL=<parcel_id> with outSR=4326, returnGeometry=true.
+--      Centroid computed via area-weighted (shoelace) polygon centroid.
+--   Cross-check: for all 11 patched parcels, the FeatureServer SITE_ADDRESS
+--   was compared against pascopa.com's lblPhysicalAddress and matched
+--   (street number + name) for all 11 before any write.
+--
+-- Fields written (only for the 11 real-data rows, only when currently
+-- NULL at PATCH time -- idempotent, verified via pre-read immediately
+-- before each write): assessed_value, latitude, longitude. parcel_id was
+-- already present and correct for all 11 -- never modified. No zoning_code
+-- column exists on multi_county_auctions (confirmed live: PostgREST 42703
+-- "column does not exist"), so none was written. sold_amount and any other
+-- outcome-related field were never touched by this migration (out of
+-- scope -- pasco letter B is a separate, concurrently-run task).
+--
+-- Applied via PostgREST PATCH (direct psql unavailable this session, see
+-- decision_log 169/205/287) -- this file documents the writes made live,
+-- it does not itself execute DML.
+--
+-- Rows patched (11):
+--   0ee7d381-8404-4098-9b3d-ea3905eb9c44  4917 LAKE RIDGE LANE, HOLIDAY            assessed_value=69490.0    lat=28.187444393021817   lon=-82.73272541641919
+--   110420b1-4332-411c-a588-85af425e3b2b  11522 FOREST RUN CT, PORT RICHEY         assessed_value=184586.0   lat=28.324704059830566   lon=-82.67820926185155
+--   1e78fe60-7bc2-4d55-8910-bcffc3499347  2427 PALMWOOD DRIVE, HOLIDAY             assessed_value=153308.0   lat=28.19449391031513    lon=-82.73054952916291
+--   31ebf04b-0e38-43cd-a2db-b4eca1849b90  7628 RED MILL CIR, NEW PORT RICHEY       assessed_value=163168.0   lat=28.265210766237878   lon=-82.67636555691661
+--   354bbaf5-fbf3-46ce-84c4-a24ed9813328  36435 BONNEY DR, ZEPHYRHILLS             assessed_value=108373.0   lat=28.23897135567341    lon=-82.21364532090895
+--   62a5db94-6dc6-4adc-ba50-1bdff24bce65  10808 DEERBERRY DRIVE, LAND O LAKES      assessed_value=348024.0   lat=28.31468642971006    lon=-82.55692769814024
+--   68ab9068-963a-4d20-b7c7-1b1b7b9a525c  11927 PALM BAY CT, NEW PORT RICHEY       assessed_value=155710.0   lat=28.327454618958917   lon=-82.61744972591814
+--   7ab7678a-63d3-4d39-8f01-10fc7c3e7c89  15747 CEDAR ELM TERRACE, LAND O LAKES    assessed_value=172000.0   lat=28.311879963525705   lon=-82.55411144441231  (the row that flips I to PASS -- already zoning-linked)
+--   86a021f7-4d0a-473b-b571-c4dbb1b0dc90  14511 LANCER ROAD, SPRING HILL           assessed_value=185354.0   lat=28.421184420142218   lon=-82.57552915338998
+--   89614a54-e78f-40a8-8b6e-53db835c2760  36523 SMITHFIELD LANE, ZEPHYRHILLS       assessed_value=268790.0   lat=28.248030882532632   lon=-82.21449035946857
+--   ecd89b3d-a782-4151-b55f-e6b6ea54b172  39048 HAVEN AVE, ZEPHYRHILLS             assessed_value=152730.0   lat=28.250299393473867   lon=-82.17019969678702
+--
+-- RESULT (live, this session): card_complete 345->346 of 364, 94.8%->95.1%,
+-- letter I FAIL->PASS. pencil_dod_evaluate_county('pasco') before/after
+-- both captured verbatim in the session's completion report.
+--
+-- No-op / not applicable to this migration (nothing executed here):
+select 1;
