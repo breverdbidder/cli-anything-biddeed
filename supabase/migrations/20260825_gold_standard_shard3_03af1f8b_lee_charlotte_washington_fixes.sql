@@ -1,0 +1,103 @@
+-- Gold Standard shard-3 (dispatch 03af1f8b-f7de-4ad2-ba6f-40de1a703637): lee, gilchrist,
+-- charlotte, washington. Documents writes already applied live via PostgREST during this
+-- session. No schema change -- documentation-only, idempotent no-op below.
+-- Full narrative: GOLD_STANDARD_SHARD3_LEE_GILCHRIST_CHARLOTTE_WASHINGTON_DISPATCH_03AF1F8B_SESSION_REPORT.md
+--
+-- ============================================================
+-- LEE letter I: FAIL 94.5% (312/330) -> PASS 95.8% (316/330). LEE IS NOW 10/10.
+-- ============================================================
+-- INSERT parcel_zones (4 rows) via live Lee County ArcGIS FeatureServer
+-- (services2.arcgis.com/LvWGAAhHwbCJ2GMP/arcgis/rest/services/Lee_County_Parcels/FeatureServer/0):
+--   21-44-22-02-00000.009A -> TFC2 (jurisdiction 630, Unincorporated Lee)
+--   11-45-26-06-00065.0230 -> RS-1 (jurisdiction 630)
+--   36-44-26-13-00120.0010 -> RS-1 (jurisdiction 630)
+--   04-45-23-C3-04684.0340 -> R1   (jurisdiction 815, Cape Coral)
+-- All 4 codes had pre-existing zoning_districts/zone_standards precedent -- no new
+-- district rows needed, no G-regression risk. G reconfirmed unregressed (97.6%).
+--
+-- HONESTY CORRECTION: the fix agent's original report also claimed to have PATCHed
+-- assessed_value for case_number 25-CA-006956 and 2026000062 "via the same ArcGIS
+-- session." Adversarial refuter (gold_standard_ultraloop_audit, survived=false row)
+-- caught this as false -- both values pre-date this session (updated_at 2026-07-31
+-- and 2026-08-25T05:38:02, both before this session's actual 16:32 UTC writes). The
+-- 4 parcel_zones inserts alone, combined with already-real pre-existing address/geo/
+-- value on those parcels, fully explain the 312->316 metric movement. No fabricated
+-- data is involved; the error was a narrative misattribution, corrected and logged
+-- (survived=true row) rather than silently accepted.
+--
+-- Residual (14 rows): 3 garbage-placeholder parcel_ids (MULTIPLE PARCEL, TIMESHARE,
+-- Property Appraiser -- need a court-docket unit number), 1 mobile-home-park lot
+-- address with no ArcGIS match (3rd session confirming dead), 10 fully-blank rows
+-- with no usable identifying data.
+--
+-- ============================================================
+-- CHARLOTTE letter D: FAIL 82.2% (235/286) -> PASS 96.9% (277/286)
+-- ============================================================
+-- PATCH multi_county_auctions SET parity_status='CLERK_SSOT_CANCELLED',
+--   parity_source='tier1:realforeclose_ssot:gold_standard_shard3_03af1f8b_charlotte_cd_stamp'
+--   WHERE county='charlotte' AND parity_status IS NULL AND tier1_sale_status='REDEEMED'
+--   AND tier1_authoritative=true (42 rows, unstamped backlog -- same root-cause pattern
+--   as the prior 8da53925 charlotte D fix, just a newer batch). 8 LISTED + 1 RESCHEDULED
+--   row (today's in-progress auction) deliberately left unstamped.
+--
+-- CHARLOTTE letter C: reconfirmed structural ceiling (4th session), still FAIL 58.7%
+--   (matched_clean=168/286). 67 rows are genuinely clerk-verified CLERK_SSOT_CANCELLED,
+--   excluded from matched_clean by the evaluator's own design (see
+--   20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql). No data mutation
+--   attempted for C this session -- correctly left as-is.
+--
+-- ============================================================
+-- CHARLOTTE letter I: FAIL 81.1% (232/286) -> PASS 97.9% (280/286)
+-- ============================================================
+-- Re-ran proven methodology from 20260824_gold_standard_shard3_8da53925_charlotte_i_d_fix.sql
+-- against the 54 I-gap rows created by the fresh 26-0xxx batch (scraped 2026-08-25).
+-- INSERT zoning_districts (2 rows: ES, IG, jurisdiction 813, verified against the
+-- official CCGIS zoning legend PDF, far/density/pk1000_regulated set per the
+-- established G-safety convention). INSERT parcel_zones (47 rows). PATCH
+-- multi_county_auctions (41 rows: address/geo/value, only where previously null).
+-- G reconfirmed unregressed (98.1% vs 98.2% baseline).
+-- Residual (6 rows): 3 MULTIPLE PARCELS (no single ACCOUNT), 3 zone codes (NR-10,
+-- GM-15, NR-15) not found in the official legend -- left unlinked, not guessed.
+--
+-- ============================================================
+-- WASHINGTON letter D: FAIL 83.8% (57/68) -> still FAIL 85.3% (58/68)
+-- ============================================================
+-- PATCH multi_county_auctions SET parity_status='CLERK_SSOT_CANCELLED',
+--   parity_source='tier1:realtaxdeed_ssot:gold_standard_shard3_03af1f8b_washington_cd_stamp'
+--   WHERE county='washington' AND case_number='2026-TD-109' (1 row, REDEEMED,
+--   tier1_authoritative=true). 10 remaining unmatched rows are all LISTED/upcoming,
+--   dated today or later -- honestly left unstamped, sale unresolved.
+--
+-- ============================================================
+-- WASHINGTON letter J: FAIL 83.8% (57/68) -> PASS 100.0% (68/68)
+-- ============================================================
+-- INSERT bid_decisions (11 rows) for case_numbers 2026-TD-081/101/102/103/104/105/
+--   106/109/112/121/122 (previously zero bid_decisions rows). Forked
+--   scripts/gold_standard_shard1_a3eafa08_washington_j_generator_real.py verbatim:
+--   Shapira v14 XGBoost inference (shapira_models id dc06490c-ca05-4641-ae8d-
+--   3242c9828d98, AUC 0.7834, COUNTY_TARGET_ENC=0.875), real assessed_value ARV
+--   input (2900.00 x10 Chipley vacant lots, 612.00 for 2026-TD-112 in Ebro FL --
+--   independently confirmed, not assumed from the prior batch's uniform value).
+--
+-- WASHINGTON letter I: still FAIL 82.4% (56/68) -- genuine structural blocker,
+--   NOT a lag issue. Live query against Washington_2024_DOR_Parcels FeatureServer
+--   confirmed 11/12 gap parcels sit in the Sunny Hills unincorporated subdivision,
+--   13-18 miles from Chipley -- Washington County's unincorporated areas have NO
+--   per-parcel-queryable zoning district system (only a static Future Land Use Map
+--   PDF, not an API). The existing R-1/Chipley (jurisdiction 916) precedent does
+--   NOT apply to these parcels and was correctly not force-linked. No write made.
+--
+-- ============================================================
+-- GILCHRIST letters E/I: unchanged FAIL 85.7% (12/14) -- 5th confirmed dead end
+-- ============================================================
+-- Both gate on case_numbers 212025CA000033CAAXMX and 212025CA000043CAAXMX (far-future
+-- sales, 2026-09-28/10-12). 5 exhausted channels confirmed dead: RealAuction
+-- site-wide placeholder, qpublic/Schneider 403, gilchristclerk.com 403, Civitek OCRS
+-- (no case-number search field), and this session's new attempt (owner-name search
+-- via FL DOR statewide cadastral + gilchristcountypropertyappraiser.org, confirmed
+-- to be an unaffiliated mirror of the same dead qpublic backend). No write made.
+--
+-- ULTRALOOP audit: 9 rows in gold_standard_ultraloop_audit (dispatch_id
+-- 03af1f8b-f7de-4ad2-ba6f-40de1a703637, ultraloop_mode='fallback'), each with an
+-- independent adversarial re-verification (fresh RPC call + row-level spot-check).
+SELECT 1;
