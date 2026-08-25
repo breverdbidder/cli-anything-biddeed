@@ -1,13 +1,19 @@
 name: summitleads-daily
-# Daily automated FF pipeline (BidDeed + ZoneWise + Bright Data + Tracerfy),
-# all 67 FL counties: Signal -> BrightData winner harvest -> Skip-trace ->
-# Appraiser cross-verify -> Quote-Draft -> Route -> Deliver.
+# Daily automated FF pipeline (BidDeed + ZoneWise + Tracerfy), all 67 FL
+# counties: Signal -> authenticated RealAuction winner harvest -> Skip-trace
+# -> Appraiser cross-verify -> Quote-Draft -> Route -> Deliver.
 # See scripts/summitleads_pipeline.py. Degrades (does not fail) when
-# BRIGHTDATA_*/TRACERFY_API_KEY/REALFORECLOSE_* are absent — logs BLOCKED and
-# runs on existing data only. Never fabricates leads. Combined Tracerfy +
-# Bright Data spend is hard-capped at 100 units/UTC day by
-# public.ff_ledger_spend() (scripts/ff_credit_ledger.py) — no borrowing
-# across days.
+# TRACERFY_API_KEY/REALFORECLOSE_* are absent — logs BLOCKED and runs on
+# existing data only. Never fabricates leads.
+#
+# Sprint 1b (scripts/realauction_winner_harvest.py, wired 2026-08-25 per
+# issue #19446) replaced the untested Bright Data Scraping Browser path —
+# direct HTTP from this runner is NOT IP-blocked (confirmed live), so no
+# vendor browser is needed. It authenticates against Ariel's own bidder
+# account, not a paid vendor API, so it does NOT spend the Tracerfy/
+# BrightData ledger. Tracerfy skip-trace spend alone is hard-capped at
+# 100 units/UTC day by public.ff_ledger_spend()
+# (scripts/ff_credit_ledger.py) — no borrowing across days.
 #
 # CRON TIMING (INFERRED 2026-08-24, not vendor-confirmed per county — flagged
 # explicitly, do not treat as verified fact): RealAuction/RealTaxDeed FL
@@ -55,8 +61,6 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
-          BRIGHTDATA_BROWSER_WSS: ${{ secrets.BRIGHTDATA_BROWSER_WSS }}
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
           TRACERFY_API_KEY: ${{ secrets.TRACERFY_API_KEY }}

@@ -4,14 +4,12 @@
 Idempotent (all inserts guarded by NOT EXISTS). Runs against the live
 summitleads schema via the Supabase Management API SQL endpoint (PostgREST
 does not expose the summitleads schema). Degrades gracefully — and says so
-in the run summary — when BRIGHTDATA_* / TRACERFY_API_KEY are absent.
+in the run summary — when REALFORECLOSE_*/TRACERFY_API_KEY are absent.
 
-Sprint 1b (Bright Data winner harvest) and the Tracerfy skip-trace lookup
-are NOT implemented here: they require vendor SDKs / browser automation
-this script does not carry. When those secrets are present this script
-still only does the internal-data sprints (1, 2-degraded, 3, 4, 5); a
-human/agent session should run the actual harvest + skip-trace separately
-and this script will pick up the resulting rows on its next run.
+Sprint 1b (authenticated RealAuction winner harvest, scripts/realauction_
+winner_harvest.py) and the Tracerfy skip-trace lookup are invoked as
+subprocesses from here, not inlined. Sprint 1b degrades gracefully (BLOCKED
+log line, not a failure) when REALFORECLOSE_EMAIL/_PASSWORD are absent.
 """
 import json
 import os
@@ -239,55 +237,56 @@ order by l.lead_id, mca.assessed_value desc nulls last;
 """
 
 
-BRIGHTDATA_PLACEHOLDER_COUNTIES_QUERY = """
-select distinct county from summitleads.signal_events
-where event_type = 'auction_close' and source = 'biddeed'
-  and coalesce((event_payload->>'is_placeholder_identity')::boolean, false) = true
-  and occurred_at >= (current_date - interval '1 day');
+PLACEHOLDER_COUNTY_DATES_QUERY = """
+select distinct county, auction_date::text as auction_date
+from public.multi_county_auctions
+where auction_status = 'sold'
+  and (winning_bidder is null or winning_bidder ilike '3rd party%')
+  and auction_date >= (current_date - interval '3 day')
+  and auction_date <= current_date;
 """
 
 
 def sprint1b_brightdata_harvest():
-    """Bright Data winner harvest for placeholder-identity ('3rd Party
-    Bidder') winners from the last day, across whichever of the 67 counties
-    actually have one -- never a hardcoded 'certified counties' list. One
-    combined-ledger unit spent per county attempt (a scraper run touches many
-    pages within that county); see ff_credit_ledger.py header for why this is
-    call-count-based, not a reconciled Tracerfy/BrightData dollar figure."""
-    if not os.environ.get("BRIGHTDATA_BROWSER_WSS") or not os.environ.get("REALFORECLOSE_EMAIL") or not os.environ.get("REALFORECLOSE_PASSWORD"):
-        print("Sprint 1b BLOCKED: BRIGHTDATA_BROWSER_WSS/REALFORECLOSE_EMAIL/REALFORECLOSE_PASSWORD "
+    """Winner harvest for placeholder-identity ('3rd Party Bidder' / null)
+    sold lots from the last 3 days, across whichever counties actually have
+    one -- never a hardcoded 'certified counties' list.
+
+    Replaced brightdata_auction_harvester.py (2026-08-25, issue #19446):
+    that path required Bright Data's Scraping Browser to route around a
+    documented datacenter-IP block and had returned zero names for three
+    consecutive days (never actually exercised end-to-end). Direct HTTP from
+    this runner was NOT IP-blocked when probed live (confirmed 200 on first
+    request to miamidade.realforeclose.com) -- county_outcome_harvester.py's
+    login POST already proved the same thing for the login step alone. This
+    is authenticated scraping against Ariel's own bidder account, not a paid
+    vendor API call, so it does NOT spend the Tracerfy/BrightData ledger
+    (public.ff_ledger_spend) -- only REALFORECLOSE_EMAIL/_PASSWORD are
+    required; BRIGHTDATA_* are no longer read by this step at all."""
+    if not os.environ.get("REALFORECLOSE_EMAIL") or not os.environ.get("REALFORECLOSE_PASSWORD"):
+        print("Sprint 1b BLOCKED: REALFORECLOSE_EMAIL/REALFORECLOSE_PASSWORD "
               "absent -- skipping winner harvest, running on existing winning_bidder data only.")
         return
 
-    counties = [r["county"] for r in run_sql(BRIGHTDATA_PLACEHOLDER_COUNTIES_QUERY) if r.get("county")]
-    if not counties:
-        print("Sprint 1b: no placeholder-identity winners in the last day across any county -- nothing to harvest.")
+    pairs = [(r["county"], r["auction_date"]) for r in run_sql(PLACEHOLDER_COUNTY_DATES_QUERY)
+             if r.get("county") and r.get("auction_date")]
+    if not pairs:
+        print("Sprint 1b: no placeholder-identity sold lots in the last 3 days across any county -- nothing to harvest.")
         return
 
-    run_counties, skipped_counties = [], []
-    for county in counties:
-        ledger = ff_credit_ledger.spend("brightdata", 1)
-        if not ledger.get("granted"):
-            skipped_counties.append((county, ledger.get("error") or "daily combined credit cap reached"))
-            continue
-        run_counties.append(county)
+    ok_pairs, failed_pairs = [], []
+    for county, auction_date in pairs:
+        result = subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(__file__), "realauction_winner_harvest.py"),
+             county, auction_date],
+            env=os.environ.copy(),
+        )
+        if result.returncode == 0:
+            ok_pairs.append((county, auction_date))
+        else:
+            failed_pairs.append((county, auction_date))
 
-    if skipped_counties:
-        print(f"Sprint 1b: {len(skipped_counties)} county attempt(s) skipped on the daily credit cap: {skipped_counties}")
-    if not run_counties:
-        print("Sprint 1b: all candidate counties skipped (cap already hit before this run started).")
-        return
-
-    result = subprocess.run(
-        [sys.executable, os.path.join(os.path.dirname(__file__), "brightdata_auction_harvester.py"),
-         "--counties", ",".join(run_counties)],
-        env=os.environ.copy(),
-    )
-    if result.returncode != 0:
-        print(f"Sprint 1b: brightdata_auction_harvester.py exited {result.returncode} for counties {run_counties} "
-              "-- see its own FATAL-on-login-failure logging above. Continuing pipeline on existing data.")
-    else:
-        print(f"Sprint 1b done: harvested {run_counties}.")
+    print(f"Sprint 1b done: harvested {ok_pairs}" + (f"; failed/blocked {failed_pairs}" if failed_pairs else ""))
 
 
 class MailingAddressLookupError(Exception):
