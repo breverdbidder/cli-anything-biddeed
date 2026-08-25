@@ -1,0 +1,113 @@
+-- Gold Standard: wakulla letter E (parcel linkage) recheck on grown row set (30 -> 44).
+-- NO DATA WRITTEN THIS SESSION. Per HONESTY PROTOCOL (BLANK > WRONG), this documents a bounded,
+-- honest investigation that again concluded without a verifiable fix for the 6 residual rows.
+--
+-- CONTEXT: prior investigation (20260711_shard13_wakulla_e_parcel_link_investigation_no_write.sql)
+-- covered a 30-row baseline (23/30 linked, 76.7%). auctions_total has since grown to 44 (fresh
+-- backfill of newly-scraped rows). Current baseline, verified live via REST RPC before this
+-- session's work:
+--   pencil_dod_evaluate_county('wakulla') -> E: {"pass": false, "detail": "parcel_linked=38",
+--   "metric": 86.4}, auctions_total: 44. Threshold >=95% (need >=42/44).
+--
+-- GOOD NEWS FIRST: the 6 foreclosure cases that were NULL in the prior 30-row investigation
+-- (23-CA-627, 25-CA-68, 25-CA-106, 24-CA-130, 25-CA-50, 24-CA-105) now ALL have real parcel_id
+-- values populated in multi_county_auctions (verified via live SELECT this session) -- resolved
+-- by a later session/pipeline run between 2026-07-11 and today. No action needed on those 6.
+--
+-- CURRENT 6 NULL-parcel_id ROWS (id, case_number, auction_status, parity_status):
+--   9ca03914-a505-4db3-b896-07f43649d3d3  2026-TXD-097  cancelled  (no parity_status column value)
+--   f7427ba8-03d6-4383-9cf3-87eaad61656a  2026-TXD-117  CANCELLED  CLERK_SSOT_CANCELLED
+--   617c1fb7-61da-43a6-b82d-eb499587bc13  2026-TXD-118  CANCELLED  CLERK_SSOT_CANCELLED
+--   7f63d60f-e4a2-4b29-b7b8-f1d7d126ba9a  2026-TXD-120  CANCELLED  CLERK_SSOT_CANCELLED
+--   449de2f2-f6b2-40ea-9ecc-82c6b164bd19  2026-TXD-122  CANCELLED  CLERK_SSOT_CANCELLED
+--   0d1a7f4b-460b-43b6-a5a6-55ae21182162  25-CA-105     scheduled  PARITY_OK
+--
+-- 2026-TXD-097 -- unchanged from prior session, permanent N/A (redeemed, no deed ever issued,
+-- no parcel ever attaches to a sale record for a redeemed case). Not re-chased this session.
+--
+-- 2026-TXD-117 / 118 / 120 / 122 -- NEW rows since the 30-row baseline, all carry
+-- parity_status='CLERK_SSOT_CANCELLED' (a pipeline-assigned status meaning the clerk, our source
+-- of truth, shows the sale cancelled). Investigated directly this session:
+--   - https://wakullaclerk.org/official_records/tax_deed_sales.php (WebFetch, live fetch this
+--     session): only lists 6 currently-pending Oct 21 2026 sales (123/128/129/130/131/132) with
+--     the site stating "Currently, there are no parcels available on the List of Lands." The page
+--     has no archive/history section for resolved (sold or cancelled) sales -- confirmed via a
+--     second targeted WebFetch asking explicitly for any archived/historical content.
+--   - Direct PDF-notice URL pattern (discovered via WebSearch hit on an unrelated case,
+--     wakullaclerk.org/Documents/Official%20Records/Tax%20Deed%20Sales/<YYYY>%20TXD%20<NNN>.pdf):
+--     tried for all 4 (117, 118, 120, 122) plus 097 -- all 5 returned HTTP 404. Consistent with a
+--     cancelled sale never reaching notice-publication stage, same pattern as the already-verified
+--     097 case.
+--   - No other Wakulla Clerk endpoint exists for cancelled/withdrawn tax deed cases; the
+--     parity_status='CLERK_SSOT_CANCELLED' value on these rows was itself assigned by an earlier
+--     pipeline run's authoritative clerk check, corroborating (not contradicting) this finding.
+--   CONCLUSION: same class of gap as 2026-TXD-097 -- a cancelled tax deed sale genuinely has no
+--   parcel ever tied to it in the clerk's public record. Left NULL, will remain NULL permanently
+--   for these 4 cases pending any future clerk publication (none seen).
+--
+-- 25-CA-105 -- genuine, live, real case (NOT fabricated, NOT cancelled):
+--   - https://wakullaclerk.org/courts/foreclosures.php (WebFetch, live fetch this session)
+--     confirms: Plaintiff "Freedom Mortgage Corp.", Defendant "Ronald E. Reynolds Jr. ET AL",
+--     Sale Date 08/27/2026, Status "To Be Sold", Sale Amount $404,253.57. This page (as in the
+--     prior session) has NO parcel/address columns -- case/plaintiff/defendant/date/amount only.
+--   - Attempted parcel/address resolution via owner-name and case-number lookup, all BLOCKED:
+--     - qpublic.schneidercorp.com/Application.aspx?App=WakullaCountyFL...: HTTP 403 (WAF), same
+--       block documented in the prior session, reconfirmed live this session.
+--     - mywakullapa.com/ (root, property appraiser site): HTTP 403 (WAF) -- NEW finding this
+--       session; the prior investigation only tested the search subdomain, root is also blocked,
+--       consistent with the same Schneider Corp-family WAF as qpublic.
+--     - search.mywakullapa.com: ECONNRESET, reconfirmed live this session, identical to the prior
+--       session's finding.
+--     - wakullaclerk.com/landmarkweb: prior session found an expired TLS certificate; this session
+--       found ECONNREFUSED (connection refused before TLS handshake) -- the host is now unreachable
+--       by a different failure mode, still fully blocked.
+--     - civitekflorida.com/ocrs/county/65 (via canonical redirect to www.civitekflorida.com):
+--       reachable (HTTP 200, unlike the prior session's 404), but confirmed to be a tiered
+--       authentication gateway (Public/Attorney/Registered User/Party Access login screen), not a
+--       queryable search form -- still not drivable via plain GET, matching the prior session's
+--       structural conclusion (JS/session-token-gated app) even though the exact HTTP code differs.
+--     - kbforeclosures.com: searched both by owner name "Reynolds" (statewide, 137 hits, none in
+--       Wakulla matching "Ronald E Reynolds") and by browsing the Wakulla-county-scoped listing
+--       directly (177 records, most recent site update 2026-07-02) -- case 25-CA-105 is absent,
+--       most likely because the case is more recent than KB's last index refresh.
+--   - firecrawl-scrape / firecrawl-browser (the tool this session was specifically asked to retry,
+--     since it was absent in the prior session): FIRECRAWL_API_KEY is present, but every live API
+--     call (POST /v1/scrape and /v1/map, tested against multiple URLs, tested at start and end of
+--     this session) returned HTTP 402 "Insufficient credits to perform this request". Confirmed via
+--     GET /v1/team/credit-usage: {"remaining_credits": -22, "plan_credits": 1000,
+--     "billing_period_start": "2026-07-28T22:28:40Z", "billing_period_end": "2026-08-28T22:28:40Z"}
+--     -- the account is genuinely overdrawn (fleet-wide budget exhaustion, not a per-request or
+--     per-site block) and will not reset until 2026-08-28. This is a DIFFERENT blocker than the
+--     prior session's "no browser-automation tool installed" gap -- the tool is now installed
+--     end-to-end (API key configured, integration wired) but the account itself has no credits
+--     left this billing period. Retrying later in this same session does not help (retested twice,
+--     same 402 both times).
+--   CONCLUSION: 25-CA-105 is a real, unresolved parcel-linkage gap, not fabricatable from any
+--   source reachable this session. Left NULL.
+--
+-- RESULT: 0 of 6 rows updated. E remains FAIL at 86.4% (identical before/after --
+-- pencil_dod_evaluate_county('wakulla') run both before and after this investigation, no drift).
+-- I (property card completeness) was re-checked after this investigation per the task brief's
+-- instruction to recheck newly-linked parcels -- also unchanged at 86.4% (38/44), since 0 new
+-- parcels were linked this session, there is nothing new to become zoning-join-eligible.
+--
+-- RESIDUAL / NEXT SESSION:
+--   - 2026-TXD-097/117/118/120/122 (5 rows): permanent N/A, same class as the already-certified
+--     redeemed/cancelled gap -- these should be treated as a structural ceiling on E, not a fixable
+--     backlog item, unless the Wakulla Clerk ever publishes archived cancelled-sale records (no
+--     evidence they do).
+--   - 25-CA-105 (1 row): the one row in this batch that IS resolvable in principle. Blocked purely
+--     by (a) Firecrawl account credit exhaustion until 2026-08-28, and (b) qpublic/mywakullapa WAF
+--     blocks that a working Firecrawl browser session was expected to get past. A session running
+--     after 2026-08-28 with a refreshed Firecrawl balance, or with a different browser-automation
+--     credential, should retry qpublic.schneidercorp.com (App=WakullaCountyFL) owner-name search
+--     for "Reynolds" via firecrawl-browser (real rendering, not plain GET) to resolve this row.
+--   - Given 5 of the 6 residual gaps are structurally permanent (cancelled sales with no clerk
+--     record), the true achievable ceiling for E on this county may be 43/44 (97.7%), which WOULD
+--     clear the >=95% threshold once 25-CA-105 alone is resolved. Worth flagging: fixing this one
+--     row is sufficient to pass E (and consequently make 25-CA-105 zoning-join-eligible for I).
+--
+-- No SQL was executed against multi_county_auctions or any other table this session -- this file
+-- is pure documentation of a completed, bounded, honest-null-result investigation, matching the
+-- HONESTY PROTOCOL requirement that a documented non-fix is success and a fabricated fix is a
+-- 3x violation.
