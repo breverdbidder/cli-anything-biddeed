@@ -1,0 +1,100 @@
+-- Gold Standard campaign, county=sumter, letter=C (parity_clean) --
+-- Fresh independent re-check finds a NEW divergence, fixes it honestly.
+-- Net effect: C's metric MOVES DOWN (91.7% -> 87.5%), still FAIL. This is
+-- intentional -- BLANK > WRONG. Do not revert to force a pass.
+--
+-- BEFORE (pencil_dod_evaluate_county('sumter'), live, 2026-08-25T16:1xZ):
+--   A pass metric=10 (fc=10 td=14) | B pass metric=100.0 | C FAIL metric=91.7
+--   (matched_clean=22 of 24) | D pass metric=100.0 (matched_any=24) |
+--   E pass metric=100.0 | F pass metric=100.0 | G pass metric=100.0 |
+--   H pass metric=1.0 | I pass metric=100.0 | J pass metric=100.0 |
+--   auctions_total=24
+--
+-- CONTEXT: prior session (20260824_gold_standard_sumter_c_reconfirm_no_write.sql,
+-- same day minus one) independently re-parsed sumter's live tax-deed widget
+-- (scripts/clerk_ssot/parsers/sumter.py's parse_tax_deed(), the canonical
+-- clerk_ssot Family-C parser for this county) and confirmed the 2/24 gap was
+-- cert 104 (parcel C27-268) and cert 1400 (parcel N33-021), both genuinely
+-- "redeemed" -- a terminal state distinct from a clean match, correctly
+-- excluded from C's matched_clean while still counting toward D's
+-- matched_any via parity_status='CLERK_SSOT_CANCELLED'.
+--
+-- THIS SESSION (2026-08-25, fresh independent live re-parse, NOT a re-trust
+-- of yesterday's finding, run against
+-- https://www.sumterclerk.com/public-records/tax-deeds/tax-deed-sales/,
+-- HTTP 200, 175041 bytes, same <tax-deed-sales :taxdeeds="[...]"> embedded
+-- Vue-component JSON widget parse_tax_deed() uses): re-ran the parser
+-- directly (`python3 scripts/clerk_ssot/parsers/sumter.py`-equivalent
+-- parse_tax_deed() call) and cross-checked ALL 7 live tax_deed rows + all
+-- 16 live foreclosure sale-date instances against the 24 DB rows.
+--
+-- Result: certs 104 and 1400 unchanged (still "redeemed", still correctly
+-- CLERK_SSOT_CANCELLED in our DB -- no action). All foreclosure rows
+-- consistent with the live site (scheduled/scheduled, cancelled/cancelled
+-- on matching sale_date instances -- no action).
+--
+-- NEW FINDING: cert 1159 (parcel M06C003, "CROMER, BRENDA", cert holder
+-- AVK REAL ESTATE LLC) now carries live status "redeemed" with the widget's
+-- own "modified" timestamp = "2026-08-25 08:32:23" -- i.e. the clerk's site
+-- was updated THIS MORNING, after this row was last touched in our DB
+-- (created_at 2026-08-10, last_changed_at 2026-08-12, parity_checked_at
+-- previously NULL -- this row had never actually been through a live
+-- clerk_ssot parity pass, only a raw ingest). Our DB still held
+-- auction_status='scheduled', parity_status='PARITY_OK' for this row --
+-- a genuine, now-stale divergence, not a labeling artifact: the clerk's
+-- record changed underneath us since ingest.
+--
+-- This is exactly the `cancelled_mismatch` case scripts/clerk_ssot/
+-- run_parity.py already codifies (ssot_row["cancelled"]=true AND our
+-- auction_status != 'CANCELLED' => UPDATE auction_status='CANCELLED',
+-- parity_status='CLERK_SSOT_CANCELLED'). Forked that exact logic here
+-- rather than inventing a new rule.
+--
+-- DATA WRITE (via PostgREST PATCH -- direct psql unavailable this session,
+-- documented constraint, decision_log ids 169/205/287):
+--
+-- PATCH multi_county_auctions?county=eq.sumter&case_number=eq.1159
+--   auction_status    'scheduled' -> 'CANCELLED'
+--   parity_status     'PARITY_OK' -> 'CLERK_SSOT_CANCELLED'
+--   parity_source     'sumter_clerk_tax_deed' (unchanged)
+--   parity_checked_at  NULL -> '2026-08-25T16:30:00Z'
+--
+-- Equivalent SQL (for the record; direct psql not available this session,
+-- write executed live via PostgREST PATCH, response captured below):
+--
+-- UPDATE public.multi_county_auctions
+-- SET auction_status = 'CANCELLED',
+--     parity_status = 'CLERK_SSOT_CANCELLED',
+--     parity_source = 'sumter_clerk_tax_deed',
+--     parity_checked_at = '2026-08-25T16:30:00Z'
+-- WHERE lower(county) = 'sumter'
+--   AND case_number = '1159';
+--
+-- VERIFICATION (live, this session, 2026-08-25): PATCH RETURNING confirmed
+-- 1 row updated -- id=199aef06-d7ca-480e-93b5-add33645c27a,
+-- auction_status now 'CANCELLED', parity_status now 'CLERK_SSOT_CANCELLED'.
+--
+-- AFTER (pencil_dod_evaluate_county('sumter'), live, immediately after the
+-- write):
+--   A pass metric=10 | B pass metric=100.0 | C FAIL metric=87.5
+--   (matched_clean=21 of 24) | D pass metric=100.0 (matched_any=24,
+--   unchanged -- CLERK_SSOT_CANCELLED still satisfies matched_any) |
+--   E pass metric=100.0 | F pass metric=100.0 | G pass metric=100.0 |
+--   H pass metric=0.0 | I pass metric=100.0 | J pass metric=100.0 |
+--   auctions_total=24
+--
+-- CONCLUSION: C's ceiling for sumter is now 21/24 (87.5%) under current live
+-- data -- WORSE than yesterday's 22/24, not better, because a 3rd
+-- certificate was independently redeemed by the clerk between the two
+-- sessions. This was NOT a fixable gap; it is a correctness fix (removing a
+-- stale PARITY_OK label that no longer matched the live source) that
+-- happens to move the metric further from threshold. Per this repo's
+-- guardrails (BLANK > WRONG, never flip a status to force a match), the
+-- correct action was to record the true current state, not preserve a
+-- flattering-but-stale number. No further write is recommended: certs 104,
+-- 1400, and now 1159 are all genuinely, independently, freshly-confirmed
+-- redemptions (terminal state, not expected to reverse). C stays FAIL at
+-- 21/24 until/unless a currently-uncounted 25th+ row is added to the
+-- county's dataset and independently comes back clean, or one of these
+-- three certificates is re-listed for a new sale (not expected for a
+-- redemption).
