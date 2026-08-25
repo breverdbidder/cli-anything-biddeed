@@ -40,6 +40,12 @@
   .verify-badge.not-verified{background:#c0392b}
   .verify-row{margin-bottom:.6rem}
   .verify-row a{color:var(--terracotta);font-weight:600}
+  .tier{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:.15rem .5rem;border-radius:4px;color:#fff;margin-left:.5rem;vertical-align:middle}
+  .tier.verified-primary{background:#1e7d3c}
+  .tier.verified-cross-checked{background:#1e7d3c}
+  .tier.likely-single-source{background:#b7852e}
+  .tier.unconfirmed-claim{background:#8b5cf6}
+  .tier.not-available{background:#6b6b66}
   form.intake label{display:block;font-size:.85rem;font-weight:600;margin:.5rem 0 .2rem}
   form.intake input,form.intake select{width:100%;padding:.5rem;border:1px solid var(--gray);border-radius:6px;font-size:.92rem}
   form.intake button{margin-top:.8rem;background:var(--ink);color:#fff;border:none;padding:.6rem 1.1rem;border-radius:6px;font-weight:700;cursor:pointer}
@@ -100,6 +106,26 @@
       <dt>Coverage A (computed)</dt><dd>$106,525</dd>
     </dl>
     <p class="note">Coverage A = building value x 1.25. Land value is not insured and is excluded. Coverage A is not the purchase price.</p>
+  </div>
+
+  <div class="block">
+    <h2>Contact</h2>
+    <dl class="kv">
+      <dt>Phone</dt><dd>NOT AVAILABLE <span class="tier not-available">NOT AVAILABLE</span></dd>
+      <dt>Email</dt><dd>NOT AVAILABLE <span class="tier not-available">NOT AVAILABLE</span></dd>
+    </dl>
+  </div>
+
+  <div class="block">
+    <h2>Underwriting Data — Winner Data</h2>
+    <dl class="kv">
+      <dt>Roof Age (Years)</dt><dd>NOT AVAILABLE <span class="tier not-available">NOT AVAILABLE</span></dd>
+      <dt>Roof Permit</dt><dd>NOT AVAILABLE</dd>
+      <dt>Construction Class</dt><dd>fire_resistive <span class="tier likely-single-source">LIKELY·SINGLE SOURCE</span></dd>
+      <dt>Estimated Affordability Tier</dt><dd>unknown <span class="tier not-available">NOT AVAILABLE</span></dd>
+    </dl>
+    <p class="note">Estimated from public financial signals -- not a credit report.</p>
+    <p class="note">Roof age is computed from the most recent full-replacement permit on file for this parcel, not from year built. Construction class is a coarse masonry/frame/fire-resistive/other bucket derived from the county parcel record, not a full ISO Type I-V classification.</p>
   </div>
 
   <div class="block">

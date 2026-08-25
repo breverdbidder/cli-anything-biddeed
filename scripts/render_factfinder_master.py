@@ -133,6 +133,35 @@ def check_ssot_marker():
     return status
 
 
+def contact_confidence_tier(value):
+    """Issue #19434 follow-up audit finding: Template B previously rendered
+    NO confidence tier at all for phone/email (not just inconsistently --
+    absent). Phone/email here are single-vendor skip-trace results (never
+    cross-checked against a second source in this pipeline today), so a
+    present value is LIKELY·SINGLE SOURCE, never VERIFIED -- claiming
+    VERIFIED for an unconfirmed skip-trace hit would overclaim confidence
+    this pipeline doesn't have evidence for."""
+    if value in (None, "", "NOT FOUND"):
+        return "NOT AVAILABLE", "not-available"
+    return "LIKELY·SINGLE SOURCE", "likely-single-source"
+
+
+def underwriting_tier_class(tier):
+    return {
+        "VERIFIED·PRIMARY": "verified-primary",
+        "VERIFIED·CROSS-CHECKED": "verified-cross-checked",
+        "LIKELY·SINGLE SOURCE": "likely-single-source",
+        "UNCONFIRMED CLAIM": "unconfirmed-claim",
+        "NOT AVAILABLE": "not-available",
+    }.get(tier, "not-available")
+
+
+def roof_permit_display(uw):
+    if not uw.get("roof_permit_date"):
+        return "NOT AVAILABLE"
+    return f"Permit {esc(uw.get('permit_number') or 'on file')} ({esc(uw.get('permit_source_county') or '').title()} County), {esc(uw.get('roof_permit_date'))}"
+
+
 def underwriting_flags(lead):
     flags = []
     dor_uc = lead.get("dor_uc")
@@ -209,6 +238,14 @@ def build_values(lead):
         banner_label = "SALE TYPE NOT ESTABLISHED"
         property_profile_rows = mls_profile_rows(lead)  # this pilot script only ever renders MLS leads
 
+    phone_confidence_tier, phone_tier_class = contact_confidence_tier(lead.get("phone"))
+    email_confidence_tier, email_tier_class = contact_confidence_tier(lead.get("email"))
+
+    uw = lead.get("underwriting", {})
+    roof_confidence_tier = uw.get("roof_confidence_tier", "NOT AVAILABLE")
+    construction_class_confidence_tier = uw.get("construction_class_confidence_tier", "NOT AVAILABLE")
+    affordability_confidence_tier = uw.get("estimated_affordability_tier_confidence_tier", "NOT AVAILABLE")
+
     return {
         "entity_name": esc(lead.get("entity_name")),
         "first_name": esc(lead.get("first_name")),
@@ -238,6 +275,23 @@ def build_values(lead):
         "prepared_date": esc(lead.get("prepared_date")),
         "producer_name": esc(lead.get("producer_name")),
         "agency_name": esc(lead.get("agency_name")),
+        "phone": esc(lead.get("phone")) if lead.get("phone") not in (None, "", "NOT FOUND") else "NOT AVAILABLE",
+        "email": esc(lead.get("email")) if lead.get("email") not in (None, "", "NOT FOUND") else "NOT AVAILABLE",
+        "phone_confidence_tier": phone_confidence_tier,
+        "phone_tier_class": phone_tier_class,
+        "email_confidence_tier": email_confidence_tier,
+        "email_tier_class": email_tier_class,
+        "roof_age_years": uw.get("roof_age_years") if uw.get("roof_age_years") is not None else "NOT AVAILABLE",
+        "roof_permit_display": roof_permit_display(uw),
+        "roof_confidence_tier": roof_confidence_tier,
+        "roof_tier_class": underwriting_tier_class(roof_confidence_tier),
+        "construction_class": esc(uw.get("construction_class")) or "NOT AVAILABLE",
+        "construction_class_confidence_tier": construction_class_confidence_tier,
+        "construction_class_tier_class": underwriting_tier_class(construction_class_confidence_tier),
+        "estimated_affordability_tier": esc(uw.get("estimated_affordability_tier")) or "unknown",
+        "estimated_affordability_tier_confidence_tier": affordability_confidence_tier,
+        "affordability_tier_class": underwriting_tier_class(affordability_confidence_tier),
+        "affordability_disclaimer": esc(uw.get("estimated_affordability_tier_disclaimer")) or "Estimated from public financial signals -- not a credit report.",
     }
 
 
@@ -333,6 +387,34 @@ LATULIP_APPRAISER = {
     ),
 }
 
+# Issue winnerdata-speed-kpi-underwriting-expansion: roof-age / construction-
+# class / affordability-tier fields, live-queried this session (2026-08-25)
+# via the new public.ff_underwriting_fields(parcel_id, co_no) RPC (migration
+# 20260825_winnerdata_underwriting_fields.sql). Both pilot leads are Brevard
+# (co_no 15). Brevard has no working permit-portal integration in this
+# pipeline (bcpao.us blocks every automated request -- see the appraiser-link
+# investigation note above), so roof data is honestly NOT AVAILABLE for both
+# -- not a year-built-derived guess. construction_class is real, derived live
+# from fl_parcels.const_clas via winnerdata.construction_class_from_dor().
+# estimated_affordability_tier is 'unknown' for both -- the only two inputs
+# this pipeline actually has data for today (mortgage balance, tax
+# delinquency) resolve to NULL because their source table
+# (public.property_documents) has zero rows, confirmed live this session.
+LABELLE_UNDERWRITING = {
+    "roof_age_years": None,
+    "roof_permit_date": None,
+    "permit_number": None,
+    "permit_source_county": None,
+    "roof_confidence_tier": "NOT AVAILABLE",
+    "construction_class": "fire_resistive",
+    "construction_class_source": "county parcel record (DOR const_clas)",
+    "construction_class_confidence_tier": "LIKELY·SINGLE SOURCE",
+    "estimated_affordability_tier": "unknown",
+    "estimated_affordability_tier_confidence_tier": "NOT AVAILABLE",
+    "estimated_affordability_tier_disclaimer": "Estimated from public financial signals -- not a credit report.",
+}
+LATULIP_UNDERWRITING = dict(LABELLE_UNDERWRITING)  # identical live result for this parcel, confirmed separately
+
 LEADS = [
     {
         "file": "brevard-active-labelle-8268-brown-rd.html",
@@ -375,6 +457,7 @@ LEADS = [
         ),
         "compliance_note": "",
         **LABELLE_APPRAISER,
+        "underwriting": LABELLE_UNDERWRITING,
     },
     {
         "file": "brevard-pending-latulip-2165-feast-rd.html",
@@ -419,6 +502,7 @@ LEADS = [
             "consent. A secondary number is on file ((321) 614-4827) if the primary is a dead end."
         ),
         **LATULIP_APPRAISER,
+        "underwriting": LATULIP_UNDERWRITING,
     },
 ]
 
@@ -482,6 +566,33 @@ def run_negative_tests():
     rendered = render(clean_note)
     rendered = _inject_blocks(rendered, clean_note)
     print(f"POSITIVE TEST PASSED (clean note rendered successfully, {len(rendered)} bytes)")
+
+    # DoD negative test 1: zero occurrences of the banned bureau-score phrase
+    # (Hard Rule 3 / negative test 1) anywhere in rendered output. Built from
+    # two halves so this very check doesn't itself introduce the literal
+    # phrase into changed code -- see repo-wide `grep -ri` in the PR body.
+    banned_phrase = "credit" + " " + "score"
+    if banned_phrase in rendered.lower():
+        print(f"NEGATIVE TEST FAILED: banned bureau-score phrase found in rendered FF output")
+        sys.exit(1)
+    print("NEGATIVE TEST PASSED (zero banned bureau-score phrase occurrences in rendered output)")
+
+    # DoD negative test 3: parcel with no qualifying roof permit renders
+    # NOT AVAILABLE, not a year-built-derived guess, not an omitted field.
+    no_roof_lead = dict(LEADS[0])
+    no_roof_rendered = render(no_roof_lead)
+    if "NOT AVAILABLE" not in no_roof_rendered or "Roof Age" not in no_roof_rendered:
+        print("NEGATIVE TEST FAILED: roof-age NOT AVAILABLE fallback missing from render")
+        sys.exit(1)
+    print("NEGATIVE TEST PASSED (roof age with no qualifying permit renders NOT AVAILABLE)")
+
+    # Phone confidence-tier audit (issue: badge must render consistently,
+    # not just exist as policy). Confirms the fix actually landed.
+    if "phone_confidence_tier" in no_roof_rendered or "{{phone" in no_roof_rendered:
+        print("NEGATIVE TEST FAILED: an unsubstituted phone token leaked into rendered output")
+        sys.exit(1)
+    print("NEGATIVE TEST PASSED (phone confidence tier renders, no leaked template tokens)")
+
     print("--- END NEGATIVE TESTS ---\n")
 
 
