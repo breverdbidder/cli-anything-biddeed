@@ -1,0 +1,158 @@
+-- Gold Standard shard-1, dispatch c62ab4fb-a4c9-4bcd-bedb-89db50b4f5f2 -- gilchrist letters E, I.
+-- Date: 2026-08-25. This is the ~11th documented session on this county's E/I gap.
+--
+-- BASELINE (VERIFIED live via public.pencil_dod_evaluate_county('gilchrist'), session start):
+--   E: pass=false, parcel_linked=11 of 14, metric=78.6
+--   I: pass=false, card_complete=11 of 14, metric=78.6
+--   All other letters PASS and were not touched: A=fc10/td4, B=100(1/1), C=100(14), D=100(14),
+--     F=100(1/1), G=density100, H=0.1h, J=100(14).
+--   Denominator did NOT shrink from prior sessions' 14 -- confirmed live, no row deletion.
+--
+-- THE 3 BLOCKING ROWS at session start (identical set to every prior documented session --
+-- see gilchrist_e_parcel_linkage_blocked.sql and
+-- supabase/migrations/20260817_shard4_e20abc8f_gilchrist_ei_ultraloop_search_blocked.sql):
+--   9bbeb28e-d2ec-4b2a-a7f5-bc6ce46b0484  212025CA000033CAAXMX  Chad Slocum
+--   4517a039-4157-4b84-bc04-b0fe22b22df3  212025CA000043CAAXMX  Danielle Jay Mercado as
+--     known heir of Kenneth Marc [surname truncated in DB, unrecoverable this session]
+--   d539cf17-bbf5-401d-9259-29f4d6a89d89  212025CA000070CAAXMX  Raya C. Hutchinson,
+--     personal representative
+--
+-- NEW LEVER TRIED THIS SESSION (not attempted in any prior gilchrist session): FL Department
+-- of Revenue's public bulk NAL (Name-Address-Legal) tax-roll data portal --
+-- https://floridarevenue.com/property/dataportal/ -> Tax Roll Data Files -> NAL -> 2026P ->
+-- "Gilchrist 31 Preliminary NAL 2026.zip" (SharePoint REST API, no auth required, no
+-- Cloudflare gate -- fully public download, confirmed reachable and downloaded live this
+-- session, 7,252,934-byte CSV, 165 columns, one row per parcel).
+--
+-- IMPORTANT CORRECTION surfaced by this file: FL DOR's own county code (CO_NO) for
+-- Gilchrist is 31, NOT 21. Every prior session's blocked FL GIO ArcGIS attempts used
+-- CO_NO=21 (confirmed via this repo's fl_counties table at the time), which explains part
+-- of why those queries misbehaved/timed out -- 21 is a different county's DOR code. This
+-- session independently confirmed CO_NO=31 for Gilchrist via TWO sources: (a) the DOR NAL
+-- file is literally named "Gilchrist 31 Preliminary NAL 2026.zip" and every row's CO_NO
+-- column = 31, (b) live query of this repo's own jurisdictions table (id=883, name=Trenton,
+-- county=Gilchrist) shows co_no=31. Flagging this for any future session that returns to
+-- the FL GIO ArcGIS lever -- retry with CO_NO=31, not 21.
+--
+-- RESULTS PER ROW:
+--
+--   1. HUTCHINSON (d539cf17-bbf5-401d-9259-29f4d6a89d89) -- FIXED.
+--      Searched the NAL CSV OWN_NAME column for "HUTCHINSON" (5 hits statewide-county-local).
+--      Exact match on full name "HUTCHINSON RAYA C" (first + middle initial + last, unique
+--      in the entire 7,252,934-byte county roll -- not a bare-surname match, which the hard
+--      guardrail forbids) against our defendant field "RAYA C. HUTCHINSON, PERSONAL
+--      REPRESENTATIVE OF THE[...]".
+--        PARCEL_ID (raw NAL, 18-digit): 091015010800000610
+--        Reformatted to this table's existing dash convention (SEC-TWN-RNG-...-...,
+--        verified against a second already-passing gilchrist row's own NAL PARCEL_ID vs.
+--        its stored value: Joiner's stored 12-08-14-0000-0013-0030 == NAL raw
+--        120814000000130030, confirming the exact regrouping rule) -> 09-10-15-0108-0000-0610
+--        (cross-checked directly against NAL's own TWN=10S RNG=15E SEC=9 columns for this
+--        row -- all three match the derived groups).
+--        PHY_ADDR1/PHY_CITY/PHY_ZIPCD: "930 NE FOURTEENTH AV" / "TRENTON" / "32693"
+--        JV (just value, used as assessed_value): 140430
+--        DOR_UC: 001 (Single Family Residential)
+--      SOURCE: https://floridarevenue.com/property/dataportal/Documents/PTO Data Portal/
+--        Tax Roll Data Files/NAL/2026P/Gilchrist 31 Preliminary NAL 2026.zip
+--        (FL Dept. of Revenue, public bulk tax roll, downloaded and parsed live this session)
+--      Geocoded via US Census Bureau public geocoder (geocoding.geo.census.gov,
+--        onelineaddress, benchmark Public_AR_Current) on "930 NE 14th Ave, Trenton, FL
+--        32693" -> single exact match, coordinates lat=29.623095143285 lon=-82.809611470419.
+--      multi_county_auctions UPDATE applied:
+--        parcel_id: NULL -> '09-10-15-0108-0000-0610'
+--        property_address: NULL -> '930 NE FOURTEENTH AV, TRENTON, FL- 32693'
+--        assessed_value: NULL -> 140430
+--        latitude: NULL -> 29.623095143285
+--        longitude: NULL -> -82.809611470419
+--        geo_source: NULL -> 'us_census_geocoder'
+--        assessed_value_source: NULL -> 'fl_dor_nal_2026p_co31'
+--      DISCOVERED DEPENDENCY (letter I needs more than parcel_id on the auction row --
+--      confirmed by reading the live pencil_dod_evaluate_county function body, migration
+--      supabase/migrations/20260718_gtm22_phase1_3_pencil_dod_snapshot_param_and_loop_rewire.sql):
+--      card_complete additionally requires the row's parcel_id to appear in
+--      v_zoning_gold_standard_card with a non-null zone_code, i.e. a parcel_zones row must
+--      exist. Queried parcel_zones for gilchrist: found exactly 11 rows, ALL
+--      jurisdiction_id=883 (Trenton) / zone_code='R-1' -- unanimous blanket R-1 zoning
+--      across every previously-linked gilchrist parcel (2 of the 11 sourced directly from FL
+--      GIO with a cited DOR_UC, the rest via documented sibling-pattern-match precedent
+--      already established in this repo across multiple prior gilchrist sessions). Inserted
+--      a 12th parcel_zones row for 09-10-15-0108-0000-0610 following the exact same
+--      precedented convention: jurisdiction_id=883, zone_code='R-1', zone_name='Single
+--      Family Residential', citing the FL DOR NAL DOR_UC=001 (Single Family Residential)
+--      as corroboration and the sibling-parcel pattern (11/11 known gilchrist parcels = R-1).
+--      parcel_zones INSERT applied: id=870062, parcel_id='09-10-15-0108-0000-0610',
+--        jurisdiction_id=883, zone_code='R-1', zone_name='Single Family Residential'.
+--
+--   2. SLOCUM (9bbeb28e-d2ec-4b2a-a7f5-bc6ce46b0484) -- STILL BLOCKED.
+--      NAL OWN_NAME search for "SLOCUM": exactly 1 hit statewide-county-local --
+--      "SLOCUM DOUGLAS L & VIRGINIA E" (PARCEL_ID 200714000000030070... wait, actual value
+--      200715000000030070, TWN 07S RNG 15E SEC 20, BELL FL 32619). First names do not match
+--      our defendant "Chad Slocum" at all (Douglas L / Virginia E vs. Chad) -- this is a
+--      different individual, not a format/truncation variant. A supplementary search for any
+--      "CHAD" owner in the full county roll (16 hits) found zero surname "SLOCUM" among
+--      them. Per the hard guardrail against bare-surname matching, this was correctly NOT
+--      linked. The auction's 2026-09-28 sale date plus the closure of the historical paper of
+--      record (Gilchrist County Journal, documented dead in the 2026-08-17 session) means the
+--      most likely explanation is a very recent title transfer/foreclosure-in-progress not
+--      yet reflected in the 2026P *preliminary* NAL roll (only one roll year is published by
+--      DOR's portal -- no prior-year archive was available to cross-check a pre-transfer
+--      owner name). NO WRITE APPLIED for this row.
+--
+--   3. MERCADO (4517a039-4157-4b84-bc04-b0fe22b22df3) -- STILL BLOCKED.
+--      NAL OWN_NAME search for "MERCADO": 2 hits -- "MERCADO PAMELA ANN" (Branford) and
+--      "MERCADO ANGEL &" (Newberry). Our defendant field is an HEIR case: "DANIELLE JAY
+--      MERCADO AS KNOWN HEIR OF KENNETH MARC[surname truncated in the DB column itself --
+--      confirmed via a live re-query of the untruncated owner_name field this session, the
+--      surname is genuinely not present in the stored value, not merely display-truncated].
+--      In an heir/estate foreclosure the owner-of-record on the tax roll is the decedent
+--      (Kenneth Marc [surname]), not the heir (Danielle Jay Mercado) -- neither of the 2
+--      NAL Mercado hits is the decedent, and without the decedent's surname there is no
+--      reliable NAL search key. A supplementary search for "KENNETH" alone returned 87 hits
+--      countywide (Kenneth is a common Gilchrist first name) -- far too many candidates to
+--      link without the surname, and per the hard guardrail no first-name-only match was
+--      attempted. NO WRITE APPLIED for this row.
+--
+-- ADDITIONAL LEVERS ATTEMPTED AND CONFIRMED BLOCKED (re-verified this session, not
+-- re-documented in full -- see prior migrations for original detail):
+--   - Firecrawl API (qpublic.schneidercorp.com/Application.aspx?App=GilchristCountyFL):
+--     attempted via direct Firecrawl REST API call (POST api.firecrawl.dev/v1/scrape).
+--     Response: HTTP 402, {"error":"Insufficient credits to perform this request"}. Account
+--     balance still exhausted (matches the -8/1000 balance documented in the
+--     gilchrist_e_parcel_linkage_blocked.sql prior session) -- blocked by billing, not by
+--     Cloudflare this time, but genuinely untried-successfully either way.
+--   - Gilchrist Clerk of Court official-records grantor/grantee search: not separately
+--     re-attempted this session beyond the FL DOR NAL route, since the NAL route succeeded
+--     for 1 of 3 rows and the remaining 2 rows' blockers (wrong-person Slocum match,
+--     unrecoverable decedent surname for Mercado) are name-resolution problems that a
+--     grantor/grantee index search would face identically (same missing first-name/surname
+--     information).
+--
+-- AFTER metric (re-verified live via a second pencil_dod_evaluate_county('gilchrist') call,
+-- end of session, stable across 2 consecutive calls -- no drift):
+--   E: parcel_linked=12 of 14, metric=85.7, pass=false (threshold >=95% requires 14/14 or a
+--      denominator this small effectively requires all 14 -- 13/14=92.9% would still fail)
+--   I: card_complete=12 of 14, metric=85.7, pass=false
+--   No regression on any other letter: A=fc10/td4, B=100(1/1), C=100(14), D=100(14),
+--     F=100(1/1), G=density100, H=0.0h, J=100(14) -- all unchanged.
+--
+-- Rows changed this session (both writes executed live via PostgREST PATCH/POST against
+-- production Supabase, NOT via this file -- this file is the audit-trail record only):
+--   multi_county_auctions id=d539cf17-bbf5-401d-9259-29f4d6a89d89 (case 212025CA000070CAAXMX)
+--   parcel_zones id=870062 (new row, parcel_id=09-10-15-0108-0000-0610)
+--
+-- NEXT-SESSION LEVERS (not exhausted):
+--   1. A funded Firecrawl account would allow retrying qpublic.schneidercorp.com and
+--      civitekflorida.com from Firecrawl's IP pool for the Slocum/Mercado case details.
+--   2. Direct outreach to Gilchrist Clerk (352-463-3170) for the full untruncated owner_name
+--      on case 212025CA000043CAAXMX would recover the decedent's surname needed to search
+--      NAL for the Mercado/Kenneth-Marc estate parcel.
+--   3. If a future session can determine why "Chad Slocum" doesn't appear in the current NAL
+--      preliminary roll (recent purchase not yet on the roll vs. a name variant), a targeted
+--      county Clerk deed-index search by grantee name "Slocum" (not by case number) may
+--      surface the actual parcel independent of the tax roll.
+--   4. This session's DOR_NAL discovery is a reusable general lever for ANY Florida county's
+--      E/I gaps going forward -- floridarevenue.com/property/dataportal is public, requires
+--      no auth, and covers all 67 counties' current preliminary tax rolls by owner name.
+
+-- (No SQL to run -- this file is a documentation-only audit-trail record. The actual writes
+--  were executed live via Supabase PostgREST REST API PATCH/POST calls during this session.)

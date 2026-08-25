@@ -1,0 +1,107 @@
+-- Gold Standard shard-1 (dispatch c62ab4fb-a4c9-4bcd-bedb-89db50b4f5f2), 2026-08-25
+-- brevard, letter I (property card completeness)
+--
+-- NO WRITES THIS SESSION. This file documents the investigation and the
+-- attempted new lever, per the repo's fail-loud / no-silent-no-op rule.
+--
+-- BEFORE (live RPC public.pencil_dod_evaluate_county('brevard'), 2026-08-25):
+--   I: card_complete=6265 of 7299, metric=85.8, pass=false (need >=95%)
+-- AFTER (same RPC, end of session):
+--   I: card_complete=6265 of 7299, metric=85.8, pass=false  -- UNCHANGED, zero writes
+--
+-- ── Recap of prior sessions (read before this one) ──
+-- 2026-08-09 (architect-triage-18374): denominator 7244, card_complete=6093->6095
+--   (+2, mechanical geo/value backfill from sample_properties). Root cause: 989 rows
+--   with property_address='UNKNOWN' at the FL GIO/DOR source; ~120 rows with a
+--   parcel_id that does not resolve in any zoning substrate table under any key.
+-- 2026-08-16 (dispatch 3eefe79f): denominator 7252, card_complete=6198->6202 (+4).
+--   Tried Palm Bay + Titusville municipal ArcGIS address-point layers by exact
+--   tax-account match against the then-146 address-missing rows WITH coordinates.
+--   2 hits (Palm Bay), 0 hits (Titusville). Lever declared EXHAUSTED for those two
+--   municipalities. bcpao.us confirmed Cloudflare-gated; Firecrawl not attempted
+--   that session (budget/attempt not logged).
+--
+-- ── This session (dispatch c62ab4fb): NEW LEVER = Firecrawl for bcpao.us ──
+--
+-- Step 1: Recomputed the live gap. auctions_total grew 7252->7299. Of the
+--   card_rows-eligible universe (property_address IS NULL, excluding PropertyOnion
+--   litmus rows per the hard guardrail: data_source='propertyonion' AND
+--   tier1_authoritative != true), there are 992 rows with property_address NULL.
+--   977 of those have a parcel_id (Brevard tax-account number); 15 are
+--   brevard_clerk/brevard_clerk_scraper stub rows with case_number only, no
+--   parcel_id, no coords, no value (unchanged bucket from prior sessions).
+--   Of the 977 parcel_id rows, 928 already have BOTH valid lat/lon AND an
+--   assessed/market value -- property_address is the ONLY missing field blocking
+--   letter I for that sub-bucket. A 50-row spot check confirmed 31/50 (62%) of
+--   these parcel_ids DO resolve a zone_code in v_zoning_gold_standard_card, i.e.
+--   the address is genuinely the sole blocker for a majority of this bucket --
+--   confirming a real, reachable address would in fact flip these rows to
+--   card_complete=true, not just move the failure elsewhere.
+--
+-- Step 2: Tried the BCPAO ArcGIS FeatureServer / REST API directly (as instructed,
+--   before Firecrawl). All of the following returned Cloudflare's interstitial
+--   challenge page ("Just a moment...", HTTP 403), confirming the endpoint is
+--   still gated exactly as the 2026-08-16 session found:
+--     https://www.bcpao.us/api/v1/parcel/<parcel_id>?f=json  -> 403 (Cloudflare)
+--     https://www.bcpao.us/arcgis/rest/services?f=json        -> 403 (Cloudflare)
+--     https://bcpao.us/arcgis/rest/services?f=json            -> 403 (Cloudflare)
+--   No un-gated ArcGIS host for BCPAO was discoverable this session.
+--
+-- Step 3: Tried Firecrawl (FIRECRAWL_API_KEY present in env) against
+--   https://www.bcpao.us/PropertySearch/#/parcel/2003885 . Result: HTTP 402
+--   "Insufficient credits to perform this request." Re-verified this was a real
+--   account-exhaustion condition and not a fluke or a bcpao.us-specific block by
+--   calling the identical Firecrawl /v1/scrape endpoint against a trivial control
+--   URL (https://example.com): SAME 402 "Insufficient credits" response. This
+--   confirms the Firecrawl account itself is out of credits fleet-wide right now --
+--   not a bcpao.us-specific Cloudflare bypass failure. This is a genuinely new,
+--   documented, and DIFFERENT blocker than the 2026-08-16 session's "not attempted"
+--   status: the lever was attempted this session and is confirmed unusable for a
+--   verifiable, non-cost reason (no credits), not skipped.
+--
+-- Step 4: Before concluding, tried two additional non-Firecrawl levers not
+--   attempted in any prior session, both starting from the 928 rows' EXISTING
+--   trusted lat/lon (not fabricated -- these coordinates are already in the DB):
+--     (a) Other Brevard municipal ArcGIS hosts beyond Palm Bay/Titusville
+--         (Melbourne, Cocoa Beach, Rockledge, Satellite Beach): all either
+--         connection-timed-out (firewalled, e.g. gis.melbourneflorida.org) or
+--         DNS-failed (no such host) or returned Cloudflare's challenge page.
+--         No new usable municipal address-point layer found.
+--     (b) Reverse geocoding of the 928 rows' existing lat/lon via two independent
+--         public services:
+--           - US Census Bureau geocoder (geocoding.geo.census.gov): only exposes
+--             a /geographies/coordinates endpoint (tract/block/county-subdivision
+--             geography), NOT a street-address reverse-geocode. No usable
+--             house-number/street output exists in this API for arbitrary points.
+--           - OpenStreetMap Nominatim (nominatim.openstreetmap.org/reverse):
+--             returned only a village-level place name (e.g. "Scottsmoor, Brevard
+--             County, Florida, 32775") with no house number or street -- confirms
+--             these coordinates fall in areas with no OSM-mapped address point,
+--             consistent with the 2026-08-16 session's independent finding that
+--             gis.brevardfl.gov's own STREET_NAME field is UNKNOWN for the same
+--             rural/unincorporated parcels. Not written -- a village name is not a
+--             property_address and would be a fabricated-precision violation.
+--
+-- Step 5: The 15 no-parcel_id brevard_clerk/brevard_clerk_scraper stub rows were
+--   checked against Brevard Clerk's AcclaimWeb public-records search
+--   (vaclmweb1.brevardclerk.us/AcclaimWeb). It returns HTTP 302 to a
+--   disclaimer/session-cookie flow, i.e. it requires interactive browser
+--   automation (not a bare curl call) to actually search 15 individual case
+--   numbers. This matches the 2026-08-09 session's stated next-step ("AcclaimWeb
+--   case-number-to-parcel_id linkage") -- it is a genuinely different technique
+--   from this session's assigned Firecrawl-for-BCPAO lever and was not attempted
+--   in depth here to stay in scope; flagging as the next differentiated lever for
+--   a future session with browser-automation budget.
+--
+-- CONCLUSION: Letter I remains a confirmed STRUCTURAL ceiling this session.
+-- The new lever (Firecrawl for bcpao.us) was genuinely attempted and is blocked
+-- by Firecrawl account credit exhaustion (verified against a control URL, not
+-- speculative). Direct BCPAO ArcGIS/API access remains Cloudflare-gated. No other
+-- municipal or public reverse-geocoding source produced a real, citable
+-- property_address for the 928-row address-missing/geo-complete bucket. Per the
+-- hard guardrail (BLANK > WRONG, no forced pass, no denominator manipulation),
+-- ZERO rows were written this session. All 992 address-null card_rows and the
+-- residual ~120-row unzoned-parcel_id bucket (not re-audited this session, no new
+-- lever applied to it) remain genuinely blocked, not silently abandoned.
+--
+-- No UPDATE statements in this file -- there is nothing verified to write.
