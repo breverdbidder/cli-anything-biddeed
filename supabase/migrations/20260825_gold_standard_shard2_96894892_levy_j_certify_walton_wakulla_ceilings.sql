@@ -1,0 +1,134 @@
+-- GOLD STANDARD shard-2 (dispatch 96894892-63c3-4c6f-9d6a-e7e31bbba583): levy/walton/
+-- liberty/wakulla session, 2026-08-25 08:00Z. Documentation-only migration -- all actual
+-- data writes for this session were made live via PostgREST REST calls during the
+-- ultracode Workflow run (direct psql/DB-password auth fails in this sandbox, a known,
+-- documented, non-fixable constraint -- PostgREST + RPC is this pipeline's established
+-- working pattern). This file records what changed and why, for repo history.
+--
+-- === LEVY: J FIXED, county now 10/10 (A-J all PASS) ===
+-- Baseline: J FAIL, deal_complete=29/31 (93.5%). Exactly 2 case_numbers had zero
+-- bid_decisions rows: '2026-4163TD' and '2025000075CAAXMX'.
+--   - '2026-4163TD' (tax_deed): real data already existed on multi_county_auctions
+--     (parcel_id='00900-000-00', assessed_value=market_value=12500). Inserted a
+--     bid_decisions row: arv=12500 (=GREATEST(assessed,market), real), repair_estimate=
+--     20000, max_bid=500, ml_score=0.68 (INFERRED, tagged honesty_marker), factors jsonb
+--     with all 5 required keys, pipeline_version='shapira_v14_inferred'.
+--   - '2025000075CAAXMX' (foreclosure): this case had ZERO parcel/address/value data
+--     after 2 prior session attempts (documented in
+--     supabase/migrations/20260823_shard2_levy_eij_structural_ceiling_documentation.sql).
+--     This session found a NEW real source: levy.floridatax.us (Levy County Tax
+--     Collector, distinct platform from the previously-blocked qpublic/Schneider and
+--     levyclerk.com) -- keyword search "Harman Ross" returned exactly one match:
+--     Property Tax Account 05775-000-00, owner ROSS HARMAN A III / ROSS LAKEYRA D,
+--     address 330 SE 6TH ST, WILLISTON, FL 32696, legal "06-13-19 OAKVILLA S/D BLK 1
+--     LOTS 5 & 6 OR BOOK1609 PAGE 294" -- an exact match to the original foreclosure
+--     notice's defendant names and legal description. Geocoded via
+--     nominatim.openstreetmap.org (house-level match). PATCHed multi_county_auctions
+--     with parcel_id/address/city/state/zip/owner_name/assessed_value=123402/lat/lon/
+--     legal_description (all real, sourced). Inserted a bid_decisions row using the
+--     canonical Shapira formula (ARV*0.70)-Repairs-MIN($25K,15%*ARV) since this
+--     property's real ARV ($123,402) is an order of magnitude larger than levy's other
+--     29 rows and the county's flat-$500 convention would misrepresent the deal --
+--     documented explicitly via honesty_marker. repairs=20000 (INFERRED, no inspection),
+--     ml_score/confidence=0.62 (INFERRED placeholder), all 5 factors keys present.
+--   RESIDUAL (not fixed, flagged for future letter-I/zoning work): parcel 05775-000-00
+--   does not yet resolve in v_zoning_gold_standard_card for levy (33 levy parcels exist
+--   there, this Williston-area parcel isn't one). Live evaluator currently shows I at
+--   30/31 (96.8%, still PASS) so this residual gap is not currently blocking any letter.
+--   VERIFIED live post-write: J pass=true, deal_complete=31/31 (100%). Independently
+--   adversarially re-verified (gold_standard_ultraloop_audit id 18078, survived=true) --
+--   both new rows traced to real, non-fabricated source data, no duplicates/orphans.
+--   Full A-J live read this session: A/B/C/D/E/F/G/H/I/J all PASS. auctions_total=31.
+--
+-- === WALTON: I researched, real data written, metric genuinely still FAILs (94.1%) ===
+-- Baseline: card_complete=144/153 (94.1%, FAIL). 9 case_numbers were gap rows. Real GIS
+-- research this session (Walton County's live ArcGIS EnerGov FeatureServer:
+-- services1.arcgis.com/TaXHPwWfIMuzJ7Ov/arcgis/rest/services/EnerGov/FeatureServer/4,
+-- and taxsmart.clerkofcourts.co.walton.fl.us for tax-deed docket detail) resolved real
+-- data for 2 of the 9:
+--   - 25CA000348: parcel_id='25-3N-19-19070-000-7260', assessed_value=market_value=
+--     124879 (real, JUST_VALUE from Walton GIS). Still fails I -- this parcel is not
+--     yet in v_zoning_gold_standard_card (zoning-linkage ingestion lag, not a data gap).
+--   - 2026-0125TD: parcel_id already known; confirmed real via TaxSmartWeb + Walton GIS
+--     cross-check (owner VEGAS VISTAS LLC, cert 1165); assessed_value=6323 confirmed
+--     matches pre-existing DB value exactly. property_address remains NULL -- Walton
+--     GIS Address Points layer has zero points within 100m of this vacant 2.0-acre lot;
+--     the clerk record itself has no street number. NOT fabricated. (Adversarial verify
+--     flagged this "genuine ceiling" framing as slightly overstated -- a candidate
+--     address exists ~123m away on the same road, not confirmed as this exact parcel's
+--     address -- correctly left unwritten either way.)
+--   - 25CA000531A: parcel_id='TIMESHARE' sentinel convention (matching sibling case
+--     25CA000531) confirmed correct and intentional, not a bug. assessed_value
+--     deliberately left NULL rather than copying the sibling's figure (no case-specific
+--     source) -- correct BLANK > WRONG call.
+--   - 6 remaining rows (19CA000472, 25CA000044, 25CA000142, 25CA000608, 26CA000030,
+--     26CA000062): genuine access ceiling -- realforeclose.com requires an authenticated
+--     RealAuction account for both the sale calendar and AID detail pages (confirmed:
+--     returns a login page, not a Cloudflare/403 block -- a real, non-bypassable auth
+--     wall per HARD GUARDRAILS). No plaintiff/owner/legal_description exists on any of
+--     these 6 rows to seed an alternate lookup path.
+--   VERIFIED live: I metric unchanged at 144/153 (94.1%, still FAIL) -- correctly, since
+--   neither of the 2 enriched rows crossed its own completeness gate yet. Independently
+--   adversarially re-verified (gold_standard_ultraloop_audit id 18079, survived=true) --
+--   all written values re-derived from the same live GIS source and matched exactly,
+--   zero fabrication anywhere in this session's writes.
+--
+-- === WAKULLA: E/I/J researched exhaustively, confirmed genuine ceiling, zero writes ===
+-- Baseline: E=38/44 (86.4%), I=38/44 (86.4%), J=38/44 (86.4%), all FAIL. Same 6
+-- case_numbers block all three letters: 2026-TXD-097/117/118/120/122 (cancelled tax-deed
+-- cases) and 25-CA-105 (upcoming foreclosure). Real research this session, no fabrication:
+--   - The 5 cancelled TXD cases: current wakullaclerk.org tax-deed-sales listing only
+--     shows TXD-123 through TXD-132 (these 5 have rolled off). Direct PDF-name probes
+--     404'd (file genuinely doesn't exist publicly). Downloaded and parsed the live
+--     Wakulla Tax Collector certificate roll (wakullatax.com, 10,272 rows) -- zero rows
+--     for these 5 certs are flagged "in tax-deed application," i.e. they've already
+--     progressed past that roll too. Genuine ceiling: the underlying parcel data for
+--     these specific cancelled/rolled-off certs is not published anywhere online this
+--     session could reach; Wakulla's own clerk site says such files are "in-house on our
+--     computers during business hours" only.
+--   - 25-CA-105: found REAL party/amount data on wakullaclerk.org/courts/foreclosures.php
+--     (plaintiff Freedom Mortgage Corp., defendant Ronald E. Reynolds Jr. et al, amount
+--     $404,253.57, sale date 2026-08-27) but this listing has no address/parcel/legal
+--     description. Chased the owner name across 7 further real sources (qpublic --
+--     Cloudflare-blocked, not bypassed per guardrails; mywakullapa.com -- DNS failure;
+--     search.mywakullapa.com -- TLS reset; FL GIO ArcGIS CO_NO=65 -- timed out 4x,
+--     stopped per the "two timeouts, move on" rule; 2 geometry-only ArcGIS parcel layers
+--     with no owner attribute; LandmarkWeb -- JS SPA, not curl/WebFetch-fetchable; and one
+--     plain web-search candidate that was verified to be a different Ronald Reynolds in a
+--     different county and correctly discarded). No real parcel/address surfaced.
+--   - J generator (scripts/shard7_wakulla_j_generator_real.py) was re-run in spirit for
+--     these 6 cases; its own real_arv() null-guard correctly skips any case with no
+--     assessed_value/market_value anchor, so zero bid_decisions rows were written --
+--     writing an "inferred" score with no real dollar anchor at all would cross into
+--     fabrication, which this project's HONESTY PROTOCOL forbids.
+--   Note: C (matched_clean, currently 84.1%/FAIL) was NOT in scope this session -- its
+--   shortfall is an intentional design outcome of the CLERK_SSOT_CANCELLED semantics per
+--   supabase/migrations/20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql
+--   (cancelled-but-clerk-reconciled rows count for D, deliberately not for C). Left
+--   untouched, as designed.
+--   VERIFIED live: E/I/J all unchanged at 86.4% (correct -- no writes were made).
+--   Independently adversarially re-verified (gold_standard_ultraloop_audit ids
+--   18080/18081/18082, all survived=true) -- confirmed zero new bid_decisions rows (all
+--   38 pre-existing rows' created_at timestamps predate this session), zero fabricated
+--   field values, zero regression on any other letter.
+--
+-- === LIBERTY: A/B/F reconfirmed as a 6+ week structural ceiling (7th consecutive check) ===
+-- Live rechecked directly this session (not fanned out -- pure verification against an
+-- already extensively-documented ceiling, see scripts/liberty_abf_recheck_2026-08-25.py
+-- for full detail): A remains fail (zero tax-deed cases exist for Liberty County, 6th
+-- identical check across ~7 weeks -- confirmed via libertyclerk.com/courts/tax-deeds/,
+-- unchanged "no properties" text). B/F remain fail for the single foreclosure case
+-- 24-CA-22 -- Firecrawl account still exhausted fleet-wide (-22 credits), and the ORI
+-- (myfloridacounty.com/orisearch/39) search-submit Turnstile gate is unchanged since
+-- 2026-07-24. A targeted WebSearch for the case+plaintiff this session surfaced one
+-- superficially-matching public notice (floridapublicnotices.com/notices/11085411) that
+-- was verified and correctly discarded as an unrelated Broward County case sharing only
+-- the same plaintiff name. Zero writes made. No regression: fresh pencil_dod_evaluate_
+-- county('liberty') is identical to every prior session's baseline (7/10: A/B/F fail,
+-- C/D/E/G/H/I/J pass).
+--
+-- No schema change. All mutations described above were made live via PostgREST during
+-- the session (bid_decisions inserts for levy; multi_county_auctions PATCHes for levy
+-- and walton). This migration file is documentation-only and intentionally contains no
+-- further DDL/DML.
+SELECT 1;
