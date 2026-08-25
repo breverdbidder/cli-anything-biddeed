@@ -1,0 +1,72 @@
+session:
+  county: wakulla
+  letter: C (parity_clean)
+  date: 2026-08-25
+  mode: live PostgREST access, no direct psql (documented constraint)
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county('wakulla') live before any investigation."
+    result: "C FAIL, matched_clean=37/44 (84.1%), auctions_total=44 (grown from 30 at the 2026-07-31 dispatch 5cd42fe0 baseline)."
+    reason: "Evidence-Before-Claims — confirm the task brief's numbers live before acting."
+    tag: VERIFIED
+
+  - step: 2
+    action: "Read the exact prior-session methodology (git show 8ea82069, the dispatch 5cd42fe0 wakulla C fix) and the current pencil_dod_evaluate_county SQL definition of matched_clean."
+    result: "C counts (parity_status='matched_clean' AND parity_source LIKE 'tier1%%') OR parity_status IN ('PARITY_OK','CLERK_VERIFIED'). CLERK_SSOT_CANCELLED is deliberately excluded (counts toward D only), per 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql."
+    reason: "Fork the exact proven pattern, not a new methodology."
+    tag: VERIFIED
+
+  - step: 3
+    action: "Identified the 7 gap rows (44-37): all CLERK_SSOT_CANCELLED tax_deed cases (TXD-113/116/117/118/120/121/122). Cross-checked each against the independent tax_deed_outcomes and foreclosure_outcomes tables live."
+    result: "0 of 7 have any row in either independent table. The 20 wakulla tax_deed_outcomes rows that DO exist are exactly the already-counted matched_clean/PARITY_OK rows."
+    reason: "Same cross-check mechanism as the 17/30 rows resolved on 2026-07-31."
+    tag: VERIFIED
+
+  - step: 4
+    action: "Re-ran scripts/clerk_ssot/parsers/wakulla.py::parse_tax_deed() live against the current wakullaclerk.org listing this session."
+    result: "Live listing now shows only TXD-123/128/129/130/131/132 (6 upcoming cases, sale date 2026-10-21). None of the 7 gap cases appear -- confirmed rolled off the public docket, independently, via the real ingestion parser."
+    reason: "Second independent-source confirmation beyond the DB cross-check, using the authoritative ingestion path."
+    tag: VERIFIED
+
+  - step: 5
+    action: "Checked sold_amount for the 2 genuinely-new gap rows (TXD-116, TXD-121, added since the 30-row baseline)."
+    result: "Both NULL (auction_status=CANCELLED) -- no closed-sale event exists, so no independent outcome record can exist to cross-check against, structurally identical to the 5 already-known ceiling rows."
+    reason: "Confirms the ceiling genuinely extends to the new rows rather than being a stale finding."
+    tag: VERIFIED
+
+  - step: 6
+    action: "Attempted Firecrawl scrape of wakullaclerk.org as a second corroborating source."
+    result: "HTTP 402 Insufficient credits (fleet-wide exhaustion) -- matches the already-documented -22 credit state from the 2026-08-25 08:00Z liberty/wakulla session earlier today. Not a new blocker. Fell back to the plain-curl + real parser (step 4), which is the authoritative path anyway."
+    reason: "Environment facts said Firecrawl was available this session; verified live it is not (out of credits), consistent with prior same-day documentation."
+    tag: VERIFIED
+
+  - step: 7
+    action: "Re-ran pencil_dod_evaluate_county('wakulla') live after the investigation."
+    result: "Byte-identical to the before snapshot (diff empty). No writes made anywhere."
+    reason: "Confirm no regression, and confirm this session made zero database changes -- a documented non-fix, not a fabricated pass."
+    tag: VERIFIED
+
+artifacts:
+  - supabase/migrations/20260825b_gold_standard_wakulla_c_44row_ceiling_reconfirm.sql
+  - .claude/session-logs/2026-08-25-wakulla-c-44row-ceiling-reconfirm.yml
+
+verification:
+  - check: "pencil_dod_evaluate_county('wakulla') live, before and after"
+    proof: "C FAIL 84.1%% (37/44) both times, JSON byte-identical"
+    status: VERIFIED
+  - check: "tax_deed_outcomes / foreclosure_outcomes cross-check for the 7 gap case_numbers"
+    proof: "0/7 present in either independent table (live REST query)"
+    status: VERIFIED
+  - check: "Live re-parse of wakullaclerk.org tax-deed listing via the real ingestion parser"
+    proof: "6 current rows (TXD-123/128/129/130/131/132), none of the 7 gap cases present"
+    status: VERIFIED
+
+plan_vs_actual:
+  - task: "wakulla C"
+    planned: "Fork the 5cd42fe0 tier1/independent-source cross-check pattern against the 14 new rows since the 30-row baseline"
+    actual: "Extended the pattern; found 0 of the 7 currently-failing rows (2 of which are new since 30-row baseline) have any independent-source record, and confirmed live via the real ingestion parser that all 7 have rolled off the public docket -- genuine, unchanged structural ceiling"
+    deviation: "None -- result matches the documented ceiling from 3 prior sessions (2026-07-31, 2026-08-13, 2026-08-25 08:00Z), now reconfirmed fresh and extended to the grown row count"
+
+deviation_log:
+  - "Task environment facts stated Firecrawl was available this session; live test returned HTTP 402 (insufficient credits), consistent with same-day prior documentation of fleet-wide Firecrawl exhaustion. Did not block progress since the authoritative live-parser path (curl + BeautifulSoup) does not depend on Firecrawl."

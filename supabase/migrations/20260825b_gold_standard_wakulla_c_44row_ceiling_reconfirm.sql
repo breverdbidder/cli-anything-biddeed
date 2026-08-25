@@ -1,0 +1,90 @@
+-- GOLD STANDARD wakulla letter C (parity_clean) — 44-row re-check session, 2026-08-25.
+-- Documentation-only migration. NO DATA WRITES were made this session — the live,
+-- independent-source cross-check (same methodology proven in dispatch 5cd42fe0,
+-- 2026-07-31, commit 8ea82069) was extended to the newly-added rows and found NO new
+-- rows that qualify. This file records that negative result for repo history, per
+-- HARD RULE 5 (real data changes get a migration; this is the documented non-fix
+-- variant — "a documented non-fix is success; a fabricated fix is a 3x Honesty
+-- Protocol violation").
+--
+-- BASELINE (live, this session, before any investigation):
+--   pencil_dod_evaluate_county('wakulla').C = {"pass":false,"metric":84.1,
+--     "detail":"matched_clean=37"}   auctions_total=44 (grown from 30 at the
+--   2026-07-31 dispatch-5cd42fe0 baseline, +14 new rows since then).
+--
+-- C's passing definition (public.pencil_dod_evaluate_county, unchanged since
+-- 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql):
+--   matched_clean := count(*) FILTER (
+--     WHERE (parity_status='matched_clean' AND parity_source LIKE 'tier1%')
+--        OR parity_status IN ('PARITY_OK','CLERK_VERIFIED'))
+--   CLERK_SSOT_CANCELLED is DELIBERATELY excluded from C (it counts toward D
+--   matched_any only) — this is canon, established independently in
+--   calhoun_c_546of2024_phantom_ssot_cancel_reconcile.sql and re-confirmed for
+--   wakulla itself in scripts/gold_standard_shard2_wakulla_ceij_dispatch72cb38f7.py
+--   (2026-08-13 session).
+--
+-- THE 7 GAP ROWS (44-37=7, exact), all parity_status='CLERK_SSOT_CANCELLED',
+-- auction_status='CANCELLED', sold_amount IS NULL, sale_type='tax_deed':
+--   2026-TXD-113, 2026-TXD-116, 2026-TXD-117, 2026-TXD-118, 2026-TXD-120,
+--   2026-TXD-121, 2026-TXD-122
+-- Of these, 5 (113/117/118/120/122) were already-known, exhaustively-researched
+-- ceiling rows from prior sessions (2026-07-31 dispatch 5cd42fe0, 2026-08-13
+-- dispatch 72cb38f7, 2026-08-25 08:00Z dispatch 96894892). TWO are genuinely new
+-- since the last full pass: 2026-TXD-116 and 2026-TXD-121 (both now have real
+-- parcel_id/address/legal_description on multi_county_auctions from a prior
+-- enrichment pass, but that does not change their C-eligibility — they were
+-- never sold, so there is nothing to cross-verify against an independent source,
+-- and CLERK_SSOT_CANCELLED excludes them from C by design regardless).
+--
+-- THIS SESSION'S CROSS-CHECK (forking the exact 5cd42fe0 per-row tier1/
+-- independent-source pattern, extended to the 44-row set):
+--
+-- 1. tax_deed_outcomes (independent table, distinct harvest runs
+--    'wakulla_landmarkweb:shard3_run6253' 2026-07-24 and
+--    'wakulla_landmarkweb:auto_harvest' later) — queried live this session for
+--    all 7 gap case_numbers. RESULT: 0 of 7 have any row in tax_deed_outcomes.
+--    (The 20 wakulla rows that DO exist there are exactly the 17 already-
+--    tier1_verified matched_clean rows plus 3 auto_harvest sold rows already
+--    counted under PARITY_OK — none are among the 7 gap cases.)
+-- 2. foreclosure_outcomes — queried live for all 7 gap case_numbers (they are
+--    tax_deed, not foreclosure, so this was a completeness check, not expected
+--    to hit). RESULT: 0 of 7.
+-- 3. Re-ran scripts/clerk_ssot/parsers/wakulla.py::parse_tax_deed() LIVE against
+--    the current wakullaclerk.org/official_records/tax_deed_sales.php this
+--    session (2026-08-25). RESULT: current live listing contains exactly 6
+--    upcoming tax-deed cases (2026-TXD-123, 128, 129, 130, 131, 132, sale date
+--    2026-10-21) — NONE of the 7 gap case numbers appear. This independently
+--    reconfirms, via the SAME real parser used to originally ingest wakulla
+--    (not a promoted/derived read), that all 7 have rolled off the public
+--    docket with no replacement record.
+-- 4. sold_amount IS NULL for all 7 (auction_status='CANCELLED') — there is no
+--    closed-sale event for any of them, so the exact mechanism that resolved
+--    the other 17 rows (sold_amount = tax_deed_outcomes.winning_bid exact
+--    match) structurally cannot apply; there is nothing to match against.
+-- 5. Firecrawl (this session's FIRECRAWL_API_KEY) attempted as a second-source
+--    corroboration on wakullaclerk.org — returned HTTP 402 "Insufficient
+--    credits" (fleet-wide exhaustion, consistent with the -22 credit state
+--    already documented in the 2026-08-25 08:00Z liberty/wakulla session
+--    earlier today). Not a new blocker; matches the already-recorded fleet
+--    state. Fell back to the plain-curl + real parser method (source 3 above),
+--    which is the authoritative ingestion path anyway and does not require
+--    Firecrawl.
+--
+-- CONCLUSION: genuine structural ceiling, unchanged and correctly extended to
+-- the two new rows. No independent-source record exists anywhere reachable for
+-- 2026-TXD-113/116/117/118/120/121/122, and even if one did, CLERK_SSOT_CANCELLED
+-- is by-design excluded from matched_clean (C only recognizes matched_clean+
+-- tier1, PARITY_OK, CLERK_VERIFIED — never CLERK_SSOT_CANCELLED). Writing any
+-- tier1_verified_at/parity_confidence/parity_status change to force these 7
+-- rows into C would be fabrication (no real independent verification exists)
+-- and would also contradict the evaluator's own documented intent for this
+-- exact status value. Per HARD RULE 1 (BLANK > WRONG): documented, zero writes.
+--
+-- ZERO writes made to multi_county_auctions, tax_deed_outcomes, or any other
+-- table this session for letter C. Live pencil_dod_evaluate_county('wakulla')
+-- before and after this investigation are byte-identical (see session report /
+-- StructuredOutput before_json / after_json for the pasted JSON).
+--
+-- No SQL executed by this migration (documentation-only, matching the
+-- "no writes performed" nature of the finding).
+SELECT 1;
