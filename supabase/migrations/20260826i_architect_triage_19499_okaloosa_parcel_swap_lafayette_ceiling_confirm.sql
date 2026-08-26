@@ -1,0 +1,156 @@
+-- ARCHITECT TRIAGE (issue #19499, dispatch_id=00c40dcc-45ea-49d6-b838-2b3045cfab89)
+--
+-- DoD: SELECT EXISTS (SELECT 1 FROM public.gold_standard_certifications
+--                      WHERE county_slug = ANY('{lafayette,seminole,st_lucie,okaloosa,jefferson}'::text[])
+--                      AND certified)
+-- Prior state: FALSE. This dispatch_id (8d979d33, same shard) was already worked
+-- today by a full 6h engineer session (commits 65b25466, f2f01ffa) which raised
+-- st_lucie B 50->100 and jefferson E/I/J 75->100, and independently reconfirmed
+-- lafayette C, seminole I, and jefferson B/C/D/F as structural ceilings. Live
+-- re-check this session (pencil_dod_evaluate_county, all 5 counties):
+--   lafayette 9/10 (C 75.0), seminole 9/10 (I 93.6), st_lucie 9/10 (C 77.3),
+--   okaloosa 6/10 (C/D/E 92.8, I 91.6), jefferson 6/10 (B/C/D/F fail).
+-- None at 10/10 -> certify() cannot fire for any of the 5 regardless of the
+-- precert-guard/adversarial-audit layer (also checked live: lafayette guards
+-- fresh, seminole/okaloosa guards stale >7d, st_lucie stale 16d, jefferson has
+-- ZERO guard rows ever -- all moot while ten_pass=false, and self-healing via
+-- .github/workflows/gold-standard-precert-guard-refresh.yml once any county
+-- genuinely reaches 10/10, since that script only stamps guards for counties
+-- passing 10/10 on the day it runs).
+--
+-- LAFAYETTE C -- CONFIRMED genuine structural ceiling, re-verified independently
+-- this session (not re-litigated at length -- same shape as the wakulla/calhoun/
+-- lake precedents in 20260825b_gold_standard_wakulla_c_44row_ceiling_reconfirm.sql
+-- and 20260812_shard1_calhoun_c_diagnose_d_ssot_cancelled_fix.sql). Lafayette has
+-- only 4 total auctions; case 25000056CAAXMX (185 SW Alachua Ave, Mayo FL) is
+-- parity_status=CLERK_SSOT_CANCELLED, re-confirmed live against
+-- lafayetteclerk.com today (scraped_at 2026-08-26T05:59Z, still CANCELLED).
+-- CLERK_SSOT_CANCELLED is deliberately excluded from matched_clean by design
+-- (a cancelled sale has no closed transaction to cross-verify against any
+-- independent source) -- with a 4-row denominator this caps C at 75% forever
+-- unless lafayette's total auction count grows enough to dilute one permanently
+-- cancelled case below the 5% tolerance (needs >=20 total auctions). No write.
+--
+-- SEMINOLE I -- 10 gap rows identified live (population-matched against the
+-- evaluator's own PropertyOnion-exclusion filter, NOT a raw table scan -- an
+-- earlier raw scan this session wrongly surfaced 200 PO- rows that are outside
+-- the evaluator's population entirely). Of the 10: 3 have real, well-formed
+-- Seminole PCN parcel ids (2025CA001957 / 34-19-31-501-0000-2040 Sanford,
+-- 20260069/2024-000064 / 01-20-30-506-0000-2660 Sanford,
+-- 20260071 / 08-21-29-515-0C00-0020 Altamonte Springs) that are genuinely not
+-- zone-linked -- parcel_zones coverage for seminole is partial per jurisdiction
+-- (Sanford 25/?, Altamonte Springs 16/? -- not a full-jurisdiction zero like
+-- Okaloosa's Mary Esther gap). Seminole County's own property-appraiser map
+-- (map.scpafl.org) is a JS SPA with no discoverable direct ArcGIS REST endpoint
+-- reachable this session; a real fix requires locating Sanford's and Altamonte
+-- Springs' own zoning-district GIS layers (both cities plausibly run separate
+-- MapServer instances, per the Casselberry precedent found at
+-- publicrecords.casselberry.org/arcgis/rest/services/CommunityDevelopment/
+-- FLU_Zoning_AGOL/MapServer) -- not completed this session, flagged for a
+-- dedicated follow-up with more search budget. One of the 10 gap rows
+-- (2025CA000629, parcel_id='SYN-SEM-2025CA000629') carries an obviously
+-- synthetic placeholder parcel_id -- flagged as a real data-integrity concern
+-- for a future E-letter audit (E currently reads this as "linked" since it only
+-- checks parcel_id IS NOT NULL; it is not a real parcel) but NOT touched this
+-- session -- fixing it would need to null it back out, which is out of this
+-- triage's narrow scope and not necessary for the I-letter gap analyzed here.
+-- No write for seminole this session.
+--
+-- OKALOOSA -- ONE real fix applied live this session (ghost-success
+-- correction, not a net gain -- see below), plus 5 rows confirmed genuinely
+-- unfixable with real evidence:
+--
+--   BUG FOUND: dispatch_7be9b60b (a prior session) had matched case
+--   2025-CA-002286-F ("Lot 50 Delaware PLANTATIONS SUBDIVISION") to parcel
+--   07-1S-22-1080-0003-0120 via an owner-name-match method
+--   (tier1:okaloosa_gis_arcgis_owner_name_match). Independently re-queried
+--   Okaloosa's live ArcGIS parcel layer this session
+--   (gis.myokaloosa.com/arcgis/rest/services/BaseMap_Layers/MapServer/111,
+--   PATPCL_LEGL1/2 fields) and confirmed that PIN/STRAP belongs to
+--   "GREY MOSS POINT S/D LOT 12 BLK 3", 144 Red Maple Way, Niceville FL 32578
+--   (assessed $141,676, just $147,788, owner AYERS RHONDA L) -- an EXACT legal-
+--   description match for the case's OWN sibling sub-listing,
+--   2025-CA-002286-F2 ("Lot 12, Block 3, GREY MOSS POINT"), which had NULL
+--   parcel data. Separately confirmed live that NO subdivision named "Delaware"
+--   exists anywhere in Okaloosa's parcel legal-description index (0 hits) --
+--   row F's own stated legal description does not correspond to any real
+--   Okaloosa parcel. This means row F was a false-positive matched_clean
+--   (ghost success) inflating the C/D/E/I numerators with the WRONG row's data.
+--
+--   FIX APPLIED LIVE (PostgREST PATCH, this session):
+--     1. Cleared the mismatched parcel_id/lat/long/assessed_value/market_value/
+--        parity_status/parity_source/city/zip from row F
+--        (7613dcbe-c0b7-4292-b254-d511142f2912) -- reverted to NULL, honestly
+--        reflecting that its true parcel does not exist in Okaloosa's records.
+--     2. Assigned the verified Grey Moss Point parcel data to its true owner,
+--        row F2 (02a787c6-8606-49c5-b9dc-c18d1590a40d): parcel_id, lat/long
+--        (independently re-derived from the ArcGIS polygon centroid, outSR=4326,
+--        matches the previously-stored F row's lat/long to 11 decimal places --
+--        same physical parcel), assessed_value, market_value, city/zip/state,
+--        parity_status='matched_clean', parity_source='tier1:
+--        okaloosa_gis_arcgis_legal_description_match:gis.myokaloosa.com:
+--        BaseMap_Layers:111:architect_triage_19499'. Also confirmed this exact
+--        parcel_id is already present in parcel_zones for jurisdiction_id=948
+--        (Niceville, zone_code=R-1) -- I-letter zone-link requirement satisfied
+--        too, not just E.
+--   NET METRIC EFFECT: zero (77/77/77/76 unchanged pre/post -- verified via
+--   pencil_dod_evaluate_county('okaloosa') before and after). One false-pass
+--   (F) was traded for one true-pass (F2, its rightful owner). This was still
+--   the correct action: a known-fabricated match sitting in production data
+--   inflating an evaluator numerator is a live Honesty Protocol violation
+--   regardless of whether correcting it happens to move the score.
+--
+--   3 ROWS CONFIRMED GENUINELY UNFIXABLE (live evidence, no write):
+--     - 2025-CA-002286-F3 ("Condominium Unit D-311, SUMMER BREEZE"): zero
+--       "SUMMER BREEZE" match anywhere in Okaloosa's ArcGIS parcel legal-
+--       description index (checked "%SUMMER%", 340 hits, none named Summer
+--       Breeze -- closest are Summerwood/Summer Hills/Summer Place, all
+--       different developments). Web corroboration: Summer Breeze Condominiums
+--       is a real property in Miramar Beach, WALTON County, not Okaloosa.
+--     - 2025-CA-002286-F5 ("SECTION 8, TOWNSHIP 3 NORTH, RANGE 21 WEST, WALTON
+--       COUNTY, FLORIDA"): the legal description names Walton County outright;
+--       Okaloosa's own real parcels in this dataset all use Township 1S/2S with
+--       Range 22-25W (confirmed from every PIN sampled this session), never
+--       Range 21W or Township-North -- this land is not in Okaloosa's cadastral
+--       system at all.
+--     - 2025-CA-002286-F4 ("Lot 24 of UNRECORDED DELAWARE PLANTATION
+--       SUBDIVISION PHASE TWO"): same negative result as row F's legal
+--       description above -- zero "DELAWARE" hits in Okaloosa's parcel index.
+--   These 3 are NOT county-mismatch data this triage's scope authorizes fixing
+--   (reassigning their `county` column to walton would touch another shard's
+--   rows/metrics per the PARALLEL-FLEET rule and was not done) -- flagged only.
+--
+--   2 REMAINING GAP ROWS NOT RESOLVED (source access, not a data ceiling):
+--     2024-CA-000470 (foreclosure) and 2024-TDD-000089 (tax deed), both
+--     auction_date 2026-08-19 (already past) but still status='upcoming' in our
+--     data -- likely postponed/rescheduled. okaloosa.realforeclose.com and
+--     bid4assets.com/OkaloosaFL(Tax) both returned HTTP 403 to automated fetch
+--     this session (JS-rendered, bot-protected) -- matches the dispatch brief's
+--     own documented limitation ("Anonymous preview caps ~20 items -- use
+--     authenticated sessions"). Needs an authenticated scrape session, not a
+--     research gap -- flagged for the next scraper-credentialed session.
+--
+-- CONCLUSION: none of the 5 shard counties reach 10/10 today. This is a
+-- genuine, evidence-backed data ceiling for 3 of 5 (lafayette structural,
+-- st_lucie gap too large for one session, jefferson already re-confirmed
+-- hours earlier by the same-day engineer session on this dispatch) plus one
+-- real fix with no net score movement (okaloosa) and one identified-but-
+-- unexecuted lever (seminole zoning GIS access). DoD SQL re-run after the
+-- okaloosa fix: still FALSE (expected -- the fix did not change any letter's
+-- pass/fail state). No further write authority exists this session without
+-- either (a) more real external data becoming available (more Seminole/
+-- Sanford/Altamonte zoning GIS access, an authenticated Okaloosa realforeclose
+-- session) or (b) natural accrual (more lafayette auctions diluting its one
+-- permanently-cancelled case below 5%).
+--
+-- VERIFICATION QUERY (re-run to confirm current state):
+-- SELECT EXISTS (SELECT 1 FROM public.gold_standard_certifications
+--                WHERE county_slug = ANY('{lafayette,seminole,st_lucie,okaloosa,jefferson}'::text[])
+--                AND certified);
+-- Expected: FALSE.
+--
+-- This migration is a documentation record of live PostgREST writes already
+-- applied (SHIP GATE mandate) -- no SQL to (re-)run; the swap is idempotent to
+-- describe but not idempotent to replay verbatim (running it again would be a
+-- no-op since the target state already matches).
+SELECT 1;
