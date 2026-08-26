@@ -227,6 +227,11 @@ def resolve_via_brightdata(entity_name: str) -> dict | None:
     except ImportError:
         log("  Bright Data leg skipped: playwright not importable")
         return None
+    import ff_credit_ledger
+    ledger = ff_credit_ledger.spend("brightdata", 1)
+    if not ledger.get("granted"):
+        log(f"  Bright Data leg skipped: daily ff_daily_credit_ledger cap reached ({ledger})")
+        return None
     url = f"https://search.sunbiz.org/Inquiry/corporationsearch/ByName"
     try:
         with sync_playwright() as p:
