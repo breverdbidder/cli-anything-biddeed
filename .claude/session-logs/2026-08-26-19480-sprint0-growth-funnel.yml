@@ -1,0 +1,85 @@
+session:
+  date: 2026-08-26
+  issue: 19480
+  branch: claude/issue-19480-20260826-1100
+  triggered_by: breverdbidder
+  scope: standard
+  summary: Sprint 0 Growth-Funnel Meta-Prompt — Day 1 infrastructure + Day 2-4 MCP tools
+
+decisions:
+  - step: 1
+    action: Audit existing biddeed-daily-digest.cjs
+    result: Live (run #8 green Jul 27). Reads multi_county_auctions + lead_profiles. Sends via Resend. Source of truth for daily send logic. Node 22 native WebSocket (no ws package). NOT forked.
+    reason: Issue explicitly says do not build from scratch — wrap/orchestrate existing
+
+  - step: 2
+    action: Audit stripe-webhook/index.ts
+    result: Version 9 live. subscription_events table already wired for both report_purchase and activation event types. Full PDF delivery pipeline in place. Founder test purchase (Day 1 blocker) requires browser-based Stripe checkout — cannot execute from GHA runner.
+    reason: Day 1 blocker identified — escalated to Ariel in comment
+
+  - step: 3
+    action: Audit packages/biddeed-mcp/src/tools/
+    result: 7 tool files exist (discovery, qualification, fusion, monitoring, shapira, market, properties). No funnel tools yet. county_twin_snapshot and daily_auction_outcomes not yet referenced in MCP tools (only in .cjs).
+    reason: Confirms Day 2-4 work is net-new
+
+  - step: 4
+    action: Create G-SPI tracking migration
+    result: supabase/migrations/20260826_g_spi_log.sql — table g_spi_log with sprint/sprint_day/work_date/planned_value/earned_value/spi(computed)/status/evidence. Seeded with 13 Sprint 0 tasks.
+    reason: G-SPI is Growth-Sprint SPI (EV/PV) only. NOT spi_daily/spi_gates/spi_task_registry. Different metric entirely.
+
+  - step: 5
+    action: Create log_funnel_execution migration
+    result: supabase/migrations/20260826_log_funnel_execution.sql — table for auditing run_daily_funnel executions. run_id, dry_run, snapshot/lead/sent/failed counts, duration_ms (computed), evidence jsonb.
+    reason: Day 2 deliverable per issue spec
+
+  - step: 6
+    action: Create funnel MCP tools
+    result: packages/biddeed-mcp/src/tools/funnel.js — 3 tools added (run_daily_funnel, get_top_auction_highlights, generate_funnel_content). Wired into server.js ALL_SCHEMAS and HANDLERS.
+    reason: Days 2-4 deliverables. Thin orchestrator pattern — wraps existing .cjs logic, does not fork the send path.
+
+artifacts:
+  - supabase/migrations/20260826_g_spi_log.sql
+  - supabase/migrations/20260826_log_funnel_execution.sql
+  - packages/biddeed-mcp/src/tools/funnel.js
+  - packages/biddeed-mcp/src/server.js (modified — added funnel imports + handlers)
+  - .claude/session-logs/2026-08-26-19480-sprint0-growth-funnel.yml
+
+verification:
+  - check: G-SPI table does NOT write to spi_daily/spi_gates/spi_task_registry
+    proof: g_spi_log.sql creates new table g_spi_log — no references to spi_daily anywhere
+    status: VERIFIED
+
+  - check: funnel.js does NOT touch gold_standard_* tables
+    proof: funnel.js reads multi_county_auctions, county_twin_snapshot, lead_profiles, log_funnel_execution only. No writes to gold_standard_*.
+    status: VERIFIED
+
+  - check: run_daily_funnel wraps existing logic, does not fork send path
+    proof: run_daily_funnel queries live data and logs to log_funnel_execution. Does not duplicate send logic from biddeed-daily-digest.cjs. actual Resend calls remain in .cjs.
+    status: VERIFIED — UNTESTED (dry_run default=true, safe)
+
+  - check: Day 1 stripe purchase blocker identified
+    proof: stripe-webhook v9 is live and complete. subscription_events insert confirmed in handleReportCheckout() and handleSubscriptionCheckout(). Test purchase requires live browser session.
+    status: VERIFIED (analysis) / UNTESTED (live Stripe test)
+
+blockers:
+  - id: B1
+    description: Founder test purchase (Day 1) requires real Stripe checkout in browser. stripe-webhook v9 chain is complete. Ariel must run a test card through buy-report flow and confirm subscription_events row inserted.
+    escalation: Posted in issue comment per standard format
+
+plan_vs_actual:
+  | Task                          | Planned           | Actual                    | Deviation |
+  | Day 1 infrastructure audit    | Read + analyze    | Done — full audit         | None      |
+  | Day 1 G-SPI table             | Create migration  | Done                      | None      |
+  | Day 1 stripe audit            | Verify v5+        | v9 confirmed live         | None      |
+  | Day 2 run_daily_funnel MCP    | Thin wrapper      | Done                      | None      |
+  | Day 2 log_funnel_execution    | Table created     | Done                      | None      |
+  | Day 3 get_top_auction_highlights | MCP tool       | Done                      | None      |
+  | Day 4 generate_funnel_content | MCP tool          | Done                      | None      |
+  | Day 1 test purchase           | Execute           | BLOCKED (needs browser)   | Escalated |
+
+g_spi_contribution:
+  day: 0 (pre-sprint setup Aug 26)
+  earned_value: 7
+  planned_value: 13
+  spi: 0.538
+  note: Pre-sprint setup — Day 1-4 infrastructure complete before sprint start Sep 1. G-SPI rows will be updated from actual work dates (no day logged before the day occurs per spec).

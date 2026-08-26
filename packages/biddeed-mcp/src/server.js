@@ -21,6 +21,7 @@ import { schemas as monitoringSchemas } from './tools/monitoring.js';
 import { schemas as shapiraSchemas } from './tools/shapira.js';
 import { schemas as marketSchemas } from './tools/market.js';
 import { schemas as propertySchemas } from './tools/properties.js';
+import { schemas as funnelSchemas } from './tools/funnel.js';
 
 // Tool handlers
 import * as discovery from './tools/discovery.js';
@@ -30,6 +31,7 @@ import * as monitoring from './tools/monitoring.js';
 import * as shapira from './tools/shapira.js';
 import * as market from './tools/market.js';
 import * as properties from './tools/properties.js';
+import * as funnel from './tools/funnel.js';
 
 const ALL_SCHEMAS = [
   ...discoverySchemas,
@@ -39,6 +41,7 @@ const ALL_SCHEMAS = [
   ...shapiraSchemas,
   ...marketSchemas,
   ...propertySchemas,
+  ...funnelSchemas,
 ];
 
 const HANDLERS = {
@@ -74,6 +77,10 @@ const HANDLERS = {
   // Properties
   search_properties:        properties.search_properties,
   get_property_detail:      properties.get_property_detail,
+  // Growth Funnel (Sprint 0 — issue #19480)
+  run_daily_funnel:             funnel.run_daily_funnel,
+  get_top_auction_highlights:   funnel.get_top_auction_highlights,
+  generate_funnel_content:      funnel.generate_funnel_content,
 };
 
 // GTM-22H — Gold Standard certification gate config, revised down from the
