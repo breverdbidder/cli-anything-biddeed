@@ -69,10 +69,16 @@
   form.intake label{display:block;font-size:.85rem;font-weight:600;margin:.5rem 0 .2rem}
   form.intake input,form.intake select{width:100%;padding:.5rem;border:1px solid var(--gray);border-radius:6px;font-size:.92rem}
   form.intake button{margin-top:.8rem;background:var(--ink);color:#fff;border:none;padding:.6rem 1.1rem;border-radius:6px;font-weight:700;cursor:pointer}
+  .btn-toolbar{background:var(--terracotta);color:#fff;border:none;border-radius:6px;padding:.5rem 1rem;font-size:.8rem;font-weight:700;cursor:pointer}
+  .cross{border-color:var(--terracotta)}
+  .cross h2{color:var(--terracotta)}
+  .cross ul{list-style:none;margin:0;padding:0}
+  .cross li{padding:.3rem 0;border-bottom:1px dashed var(--gray)}
+  .cross li:last-child{border-bottom:none}
   @media (max-width:700px){ .kv{grid-template-columns:1fr} }
   @media print{
     body{background:#fff}
-    .masthead,.askfetch,form.intake{display:none}
+    .masthead,.askfetch,form.intake,[data-noprint]{display:none}
     .block{border:1px solid #999;print-color-adjust:exact;-webkit-print-color-adjust:exact;page-break-inside:avoid}
     .banner{print-color-adjust:exact;-webkit-print-color-adjust:exact}
   }
@@ -85,6 +91,8 @@
     <span class="wordmark">Winner Data AI</span>
     <span class="domain">winnerdataai.com</span>
   </a>
+  <span style="flex:1"></span>
+  <button class="btn-toolbar" id="dl-pdf" type="button" data-noprint>&darr; Download PDF</button>
 </div>
 
 <div class="banner {{banner_class}}">{{banner_label}}</div>
@@ -95,6 +103,8 @@
     <h2>Producer Call Script</h2>
     <div class="call-script">{{call_script}}</div>
   </div>
+
+  {{cross_sell_section}}
 
   <div class="block">
     <h2>Property Profile — Owner-Occupied (HO3)</h2>
@@ -170,5 +180,10 @@
   </div>
 
 </main>
+<script>
+document.getElementById('dl-pdf').addEventListener('click', function () {
+  window.print();
+});
+</script>
 </body>
 </html>

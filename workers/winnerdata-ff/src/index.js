@@ -68,6 +68,19 @@ const MLS_BANNER = {
   mls_pending: { cls: 'mls_pending', label: 'PENDING LISTING' },
 };
 
+// DOR_UC labels + commercial-prefix rule, ported from
+// scripts/portfolio_fact_finder_render.py's DOR_UC_MAP / COMMERCIAL_DOR_PREFIXES
+// so the chat-built portfolio FFs and this Worker apply identical labels.
+const DOR_UC_LABELS = {
+  '000': 'Vacant Residential', '001': 'Single Family', '002': 'Mobile Home',
+  '003': 'Multi-Family <10', '004': 'Condo', '005': 'Co-op', '006': 'Retirement',
+  '007': 'Misc Residential', '008': 'Multi-Family 10+', '009': 'Residential Common',
+  '010': 'Vacant Commercial', '011': 'Retail', '012': 'Mixed Use', '017': 'Office',
+  '018': 'Professional Service', '019': 'Hotel/Motel', '021': 'Light Industrial',
+  '022': 'Heavy Industrial', '027': 'Auto Service', '028': 'Parking',
+};
+const COMMERCIAL_DOR_PREFIXES = ['01', '02'];
+
 async function rpc(fn, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
@@ -171,6 +184,144 @@ function callScript(lead, auction) {
   ].filter(Boolean).join(' ');
 }
 
+// issue P0 (2026-08-26) Gap 2: "one lead = one buyer NAME regardless of
+// property count" (Ariel, Aug 23 2026, #19392 comment 5390376020).
+// ff_get_lead's `portfolio` array (winnerdata.owner_portfolio, keyed by
+// normalized entity_name) carries every property this buyer holds, not just
+// the one they won at auction. When that array has 2+ rows it IS the
+// property list; otherwise fall back to the single parcel/auction object
+// ff_get_lead already returned -- either way callers get one unified
+// `properties` array so table-building and cross-sell logic never branch
+// on portfolio-vs-single.
+function buildProperties(data) {
+  const portfolio = Array.isArray(data.portfolio) ? data.portfolio : [];
+  if (portfolio.length >= 2) {
+    return portfolio.map((p) => ({
+      address: p.address,
+      county: p.county,
+      dor_uc: p.dor_uc,
+      no_buldng: p.no_buldng,
+      jv: p.jv,
+      av_sd: p.av_sd,
+      lnd_val: p.lnd_val,
+      acquisition_source: p.acquisition_source,
+      case_number: p.case_number,
+    }));
+  }
+  const parcel = data.parcel || {};
+  const auction = data.auction || {};
+  return [{
+    address: auction.property_address || parcel.phy_addr1,
+    county: auction.county,
+    dor_uc: parcel.dor_uc,
+    no_buldng: null,
+    jv: parcel.jv,
+    av_sd: parcel.av_sd,
+    lnd_val: parcel.lnd_val,
+    acquisition_source: 'auction_win',
+    case_number: auction.case_number,
+  }];
+}
+
+// issue P0 Gap 3: cross-sell doctrine, ported from
+// scripts/portfolio_fact_finder_render.py's bundle_doctrine() so this
+// Worker and the chat-built portfolio FFs apply the identical rule.
+// SCOPE BOUNDARY (Aug 25 2026): property insurance only -- no auto/vehicle
+// cross-sell, ever. Coastal/flood is deliberately NOT included here: unlike
+// the Python script's batch run, this Worker has no per-request access to
+// flood_zones (real polygon coverage only exists for Brevard as of
+// 2026-08-25) -- omitting it is honest; a fabricated flood flag would not be.
+function crossSellNotes(properties) {
+  const notes = [];
+  const count = properties.length;
+  if (count >= 2) {
+    notes.push(`${count} properties on file for this buyer — umbrella liability conversation warranted (2+ property trigger).`);
+  }
+  if (count >= 5) {
+    notes.push(`${count} properties — master policy / scheduled-property conversation warranted (5+ property trigger).`);
+  }
+  const commercial = properties.filter((p) => {
+    const prefix = (p.dor_uc || '').slice(0, 2);
+    return COMMERCIAL_DOR_PREFIXES.includes(prefix) || (p.no_buldng || 0) >= 3;
+  });
+  if (commercial.length) {
+    notes.push(`${commercial.length} propert${commercial.length === 1 ? 'y is' : 'ies are'} commercial-use or 3+ buildings — commercial BOP conversation warranted.`);
+  }
+  return notes;
+}
+
+function crossSellSectionHtml(properties, isTemplateA) {
+  const notes = crossSellNotes(properties);
+  if (!notes.length) return '';
+  const items = notes.map((n) => `<li>${esc(n)}</li>`).join('');
+  const tag = isTemplateA ? 'section' : 'div';
+  const cls = isTemplateA ? 'cross' : 'block cross';
+  return `<${tag} class="${cls}">\n    <h2>Cross-Sell Notes</h2>\n    <ul>${items}</ul>\n  </${tag}>`;
+}
+
+function propertyTableRows(properties) {
+  return properties.map((p) => {
+    const useLabel = DOR_UC_LABELS[p.dor_uc] || (p.dor_uc ? `DOR-${esc(p.dor_uc)}` : 'Not established');
+    const tag = p.acquisition_source === 'auction_win' ? 'Auction Win' : 'Prior Holding';
+    const countyLabel = p.county ? esc(String(p.county).replace(/_/g, ' ')) : 'Unknown county';
+    return `<tr>
+        <td>${esc(p.address) || 'Address unknown'}<div class="ptable-sub">${countyLabel} County &middot; ${esc(tag)}</div></td>
+        <td>${esc(useLabel)}</td>
+        <td>${money(p.jv)}</td>
+        <td>${money(p.av_sd)}</td>
+        <td>${esc(p.case_number) || '&mdash;'}</td>
+      </tr>`;
+  }).join('\n      ');
+}
+
+function propertySectionHeading(properties, auctionDateLabel) {
+  if (properties.length > 1) {
+    return `Property Portfolio &mdash; ${properties.length} Properties on File`;
+  }
+  return `Subject Property &mdash; Auction Win ${auctionDateLabel}`;
+}
+
+function propertyTotalsLine(properties) {
+  const totalJv = properties.reduce((sum, p) => sum + (typeof p.jv === 'number' ? p.jv : 0), 0);
+  const counties = Array.from(new Set(properties.map((p) => p.county).filter(Boolean)));
+  const propertyWord = properties.length === 1 ? 'property' : 'properties';
+  const countyWord = (counties.length || 1) === 1 ? 'county' : 'counties';
+  return `${properties.length} ${propertyWord} across ${counties.length || 1} ${countyWord} &middot; total Just Value ${money(totalJv)}`;
+}
+
+function buyerOfRecordRows(lead, properties) {
+  const totalJv = properties.reduce((sum, p) => sum + (typeof p.jv === 'number' ? p.jv : 0), 0);
+  const rows = [
+    ['Buyer of Record', lead.entity_name],
+    ['Contact Name', lead.contact_name],
+    ['Product Line', lead.product_line],
+    ['Properties on File', String(properties.length)],
+    ['Total Just Value', money(totalJv)],
+  ];
+  return rows.map(([label, val]) => `<tr><td class="label">${esc(label)}</td><td class="val">${esc(val) || 'Not established'}</td></tr>`).join('\n      ');
+}
+
+function contactRows(lead) {
+  const phone = lead.contact_phone ? `<a href="tel:${esc(lead.contact_phone)}">${esc(lead.contact_phone)}</a>` : 'Not on file';
+  const email = lead.contact_email ? `<a href="mailto:${esc(lead.contact_email)}">${esc(lead.contact_email)}</a>` : 'Not on file';
+  const rows = [
+    ['Phone', phone],
+    ['Email', email],
+    ['Consent Status', esc(lead.consent_status) || 'none'],
+  ];
+  return rows.map(([label, val]) => `<div class="contact-row"><span class="contact-label">${esc(label)}</span><span class="contact-value">${val}</span></div>`).join('\n      ');
+}
+
+function contactStatusLabel(consentStatus) {
+  return consentStatus && consentStatus !== 'none' ? esc(consentStatus).toUpperCase() : 'PROSPECT — NO CONSENT ON FILE';
+}
+
+function contactComplianceNote(consentStatus) {
+  return consentStatus && consentStatus !== 'none'
+    ? 'Consent on file for this contact -- see responses log for detail.'
+    : 'No outbound-contact consent on file. Producer contact only; do not use this data for direct-to-consumer solicitation.';
+}
+
 function renderFF(data) {
   const lead = data;
   const auction = data.auction || {};
@@ -241,8 +392,13 @@ function renderFF(data) {
     agency_name: agencyName,
     case_number: esc(auction.case_number),
     parcel_id: esc(lead.parcel_id),
+    // issue P0 Gap 4 (2026-08-26): county_just_value and assessed_value used
+    // to both read fp.jv -- fl_parcels carries a distinct av_sd (assessed
+    // value) column that was simply never wired here. No fallback to jv when
+    // av_sd is null (that would silently reintroduce the same conflation) --
+    // "Not established" is the honest value per money()'s existing contract.
     county_just_value: money(parcel.jv),
-    assessed_value: money(parcel.jv),
+    assessed_value: money(parcel.av_sd),
     land_value: money(parcel.lnd_val),
     building_value: money(bldgVal),
     coverage_a: money(coverageA),
@@ -269,6 +425,23 @@ function renderFF(data) {
     appraiser_link: appraiserLink,
     property_profile_rows: propertyProfileRows,
   };
+
+  // issue P0 Gap 2/3 (2026-08-26): unified properties array drives both the
+  // portfolio table (Template A) and cross-sell doctrine (both templates).
+  // properties.length === 1 for the ~all-leads-today case where
+  // ff_get_lead's `portfolio` has fewer than 2 rows -- crossSellNotes()
+  // naturally emits nothing for a single non-commercial property, so this
+  // doesn't change existing single-property output except adding the (empty)
+  // {{cross_sell_section}} placeholder.
+  const properties = buildProperties(data);
+  values.property_section_heading = propertySectionHeading(properties, values.auction_date);
+  values.property_rows = propertyTableRows(properties);
+  values.property_totals_line = propertyTotalsLine(properties);
+  values.buyer_of_record_rows = buyerOfRecordRows(lead, properties);
+  values.contact_rows = contactRows(lead);
+  values.contact_status_label = contactStatusLabel(lead.consent_status);
+  values.contact_compliance_note = contactComplianceNote(lead.consent_status);
+  values.cross_sell_section = crossSellSectionHtml(properties, template === TEMPLATE_A);
 
   return template.replace(/{{(\w+)}}/g, (_, key) => (values[key] !== undefined ? values[key] : ''));
 }
