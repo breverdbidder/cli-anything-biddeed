@@ -324,6 +324,35 @@ def rpc(fn, payload):
         return r.status, r.read().decode()
 
 
+def record_verified_outcome(sale_type, county, case_num, source_tag, winning_bid,
+                             property_address, parcel_id, auction_date):
+    """Mirror a sold lot into tax_deed_outcomes/foreclosure_outcomes.
+
+    pencil_dod_evaluate_county's letter-B independence check only counts a
+    closed_sold row as "verified" if a matching case_number row exists in
+    these outcomes tables with a non-promote data_source (see gold standard
+    canon B). This script previously wrote sold_amount straight onto
+    multi_county_auctions and nothing else, so every county it ran against
+    silently failed to accrue B credit for its own (authoritative,
+    independently-scraped) winner data — root-caused live 2026-08-26 via
+    washington B regressing 100%->55.9% (issue #19478 architect triage).
+    """
+    if winning_bid is None:
+        return
+    table = "tax_deed_outcomes" if sale_type == "tax_deed" else "foreclosure_outcomes"
+    existing = rest_get(table, f"?case_number=eq.{urllib.parse.quote(case_num)}&county=eq.{county}&select=case_number")
+    if existing:
+        return
+    payload = {
+        "case_number": case_num, "county": county, "auction_date": auction_date,
+        "winning_bid": winning_bid, "outcome": "SOLD",
+        "property_address": property_address, "parcel_id": parcel_id,
+        "data_source": source_tag,
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+    rest_post(table, payload)
+
+
 PLATFORM_SALE_TYPE = {"realforeclose": "foreclosure", "realtaxdeed": "tax_deed"}
 
 
@@ -477,6 +506,12 @@ def main():
                 mca_id = created[0]["id"]
             if row.get("sold"):
                 rpc("upsert_auction_buyer_profile", {"p_mca_id": mca_id})
+                record_verified_outcome(
+                    sale_type, county, case_num, source_tag,
+                    patch.get("sold_amount"),
+                    (mca or {}).get("property_address") or cd.get("address"),
+                    (mca or {}).get("parcel_id") or cd.get("parcel_id"),
+                    date_iso)
         except Exception as e:
             row["persist_error"] = str(e)[:300]
 
