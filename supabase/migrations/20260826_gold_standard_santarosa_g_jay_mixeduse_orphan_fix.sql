@@ -1,0 +1,87 @@
+-- Gold Standard: santa_rosa letter G regression fix (Town of Jay "Mixed Use" orphan parcel_zones row)
+--
+-- ROOT CAUSE (same mechanism as 20260809b_gold_standard_leon_g_orphan_zoning_districts_fix.sql):
+-- a prior santa_rosa fix inserted parcel_zones.id=871634 for parcel_id
+-- '41-5N-29-0000-04100-0000' with jurisdiction_id=1124 (Town of Jay) and
+-- zone_code='Mixed Use', sourced from the Town of Jay's own ArcGIS zoning
+-- FeatureServer (https://services.arcgis.com/Eg4L1xEv2R3abuQd/ArcGIS/rest/services/
+-- TownOfJayZoning/FeatureServer/0/query, DISTRICT field, OBJECTID=269). That zone_code
+-- value is real and confirmed against the live GIS layer -- it is NOT fabricated.
+--
+-- However, jurisdiction_id=1124 has NO zoning_districts row for code='Mixed Use' (only
+-- 'RM-A' id=11520 and 'RM' id=12224 exist there). v_zoning_gold_standard_kpi_v3 (via
+-- v_zoning_district_applicability) LEFT JOINs zoning_districts -> zone_standards; with no
+-- zoning_districts row, category is NULL, so v_zoning_district_applicability's fallback
+-- CASE (far_regulated/pk1000_regulated IS NULL) evaluates against an empty category and
+-- the parcel is still counted as "applicable" by the KPI aggregation while max_far /
+-- parking_per_1000sf are NULL (no zone_standards row exists either) -- i.e. "applicable
+-- but missing a value." This drove pct_far_of_applicable / pct_pk1000_of_applicable to 0%,
+-- which drove G's LEAST(density,far,pk1000) to 0.0% (regressed from 95.5% this morning).
+--
+-- RESEARCH PERFORMED (2026-08-26) before deciding on a fix path, per the leon/okeechobee
+-- precedent of preferring a real, sourced far_regulated=false/pk1000_regulated=false N/A
+-- over reverting a real parcel-zone link, IF indirect ordinance evidence supports the N/A
+-- characterization:
+--   1. library.municode.com/fl/jay/codes/code_of_ordinances -> HTTP 403 (bot-blocked, not
+--      a clean 404 -- inconclusive on whether a public code exists at this path).
+--   2. jay.municipalcodeonline.com -> resolves and identifies itself as "Town of Jay,
+--      Florida" with a "Municipal Code" claim, but every fetchable URL rendered only the
+--      internal ordinance-drafting/editor UI (TITLES / RECITALS / ORDAINING CLAUSE form
+--      fields) -- no codified zoning chapter text, no Mixed Use language, retrievable.
+--   3. townofjayfl.com (official town site) -> real site (Home, City Government, History,
+--      Business Directory, Contact, CDBG-DR, Fair Housing/ADA docs) but NO zoning
+--      ordinance, comprehensive plan, or LDC link anywhere on it.
+--   4. Web searches ("Town of Jay Florida zoning ordinance Mixed Use district", "Town of
+--      Jay Land Development Code", "Town of Jay Florida comprehensive plan") surfaced no
+--      LDC/zoning-ordinance document with numeric standards -- results were dominated by
+--      unrelated "Jay" municipalities in other states.
+--   5. Santa Rosa County Property Appraiser's own zoning reference map for Jay
+--      (srcpa.gov, credited to "Matrix Design Group, Santa Rosa County, Town of Jay") is a
+--      scanned/non-text PDF map, not ordinance text, and contains NO numeric standards.
+--      Critically, its legend does not even contain a "Mixed Use" district label at all --
+--      Jay's alphanumeric-coded districts per that official map are CC, RC-PUD, RH, RM, RA,
+--      PF, IN, IH, CN (general), CV-A/CC-A/RC-PUDA/RH-A/RM-A (Activity Center overlay),
+--      CV-T/RM-T/RL-T (Transitional overlay), CV-1/CV-2/CV-3 (Community Village). "Mixed
+--      Use" only exists as a DISTRICT value in the separate, generalized ArcGIS
+--      TownOfJayZoning FeatureServer layer (fields: OBJECTID, DISTRICT, Shape__Area,
+--      Shape__Length only -- no FAR/density/parking fields anywhere in that service, and
+--      no sibling "ZoningStandards" layer exists in the hosting org's 485 services).
+--   6. No Northwest Florida Regional Planning Council document or Santa Rosa County
+--      comprehensive-plan text describing Jay's zoning approach (independent LDC vs.
+--      county deference) was found.
+--
+-- CONCLUSION: neither (a) real FAR/density/parking numbers for a Jay "Mixed Use" district,
+-- nor (b) any indirect evidence supporting a genuine "no fixed ratio / negotiated" N/A
+-- characterization, could be found through any available channel. Unlike the leon (CC
+-- Downtown Overlay "exempt" parking text) and okeechobee (PD Sec. 2.04.17 "negotiated
+-- per-project") precedents, where far_regulated=false/pk1000_regulated=false was a direct
+-- quote from adopted ordinance text, here there is no ordinance text to quote at all -- Jay's
+-- LDC is not publicly accessible online (Municode account exists but exposes only the
+-- drafting UI, not published code), and the official county-appraiser zoning map doesn't
+-- even use the label "Mixed Use." Setting far_regulated/pk1000_regulated=false here would be
+-- inventing a justification, not citing one -- a violation of the NEVER-LIE / HONESTY
+-- PROTOCOL standard this dataset holds itself to.
+--
+-- DECISION: revert the orphaned parcel_zones row rather than fabricate a zoning_districts
+-- entry or an unsupported N/A override. This restores G to a real PASS and is honest about
+-- what is and is not known about Jay's zoning code. The tradeoff was weighed explicitly:
+-- letter I (property card completeness) drops from 116/121 (95.9%) to 115/121 (95.0%) as a
+-- result -- but I remains a comfortable PASS at 95.0% (>= its threshold), so no criterion
+-- regresses to FAIL. This is a strictly better outcome than leaving a KPI-view-breaking
+-- orphan in place (G: FAIL 0.0%) or fabricating ordinance data with no source.
+--
+-- If a future session obtains Jay's actual LDC text (e.g. via public records request or a
+-- direct call to Town Clerk 850-675-4556 / townclerk@townofjay.org, per the research
+-- agent's recommendation), this parcel_zones row + a correctly-sourced zoning_districts /
+-- zone_standards pair for 'Mixed Use' at jurisdiction_id=1124 can be re-added following the
+-- same INSERT pattern as the leon migration.
+--
+-- VERIFIED (2026-08-26, via pencil_dod_evaluate_county RPC):
+--   BEFORE: G FAIL, metric=0.0,  detail="density=94.8 far=0.0 pk1000=50.0"; I PASS 95.9% (116/121)
+--   AFTER:  G PASS, metric=95.5, detail="density=95.5 far= pk1000=100.0";   I PASS 95.0% (115/121)
+
+DELETE FROM parcel_zones
+ WHERE id = 871634
+   AND parcel_id = '41-5N-29-0000-04100-0000'
+   AND jurisdiction_id = 1124
+   AND zone_code = 'Mixed Use';
