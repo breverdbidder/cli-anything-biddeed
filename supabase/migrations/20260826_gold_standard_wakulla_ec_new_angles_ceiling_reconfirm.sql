@@ -1,0 +1,100 @@
+-- Gold Standard wakulla letters E (parcel linkage) + C (parity clean) — 2026-08-26 session.
+-- Documentation-only migration. NO DATA WRITTEN. Per HONESTY PROTOCOL (BLANK > WRONG), this
+-- records a bounded, honest investigation using genuinely NEW angles (not repeats of prior
+-- sessions' dead ends) that again concluded without a verifiable fix for the 6 residual
+-- NULL-parcel_id rows / 7 residual non-matched_clean rows.
+--
+-- BASELINE (live, verified via pencil_dod_evaluate_county('wakulla') at session start,
+-- byte-identical to the 2026-08-25 session's documented baseline -- confirming zero drift,
+-- zero unauthorized writes by any other process in between):
+--   E: {"pass": false, "detail": "parcel_linked=38", "metric": 86.4}
+--   C: {"pass": false, "detail": "matched_clean=37", "metric": 84.1}
+--   auctions_total: 44 (unchanged)
+--
+-- THE 6 NULL-parcel_id ROWS (unchanged from 2026-08-25 session):
+--   9ca03914-a505-4db3-b896-07f43649d3d3  2026-TXD-097  cancelled            matched_clean
+--   f7427ba8-03d6-4383-9cf3-87eaad61656a  2026-TXD-117  CANCELLED            CLERK_SSOT_CANCELLED
+--   617c1fb7-61da-43a6-b82d-eb499587bc13  2026-TXD-118  CANCELLED            CLERK_SSOT_CANCELLED
+--   7f63d60f-e4a2-4b29-b7b8-f1d7d126ba9a  2026-TXD-120  CANCELLED            CLERK_SSOT_CANCELLED
+--   449de2f2-f6b2-40ea-9ecc-82c6b164bd19  2026-TXD-122  CANCELLED            CLERK_SSOT_CANCELLED
+--   0d1a7f4b-460b-43b6-a5a6-55ae21182162  25-CA-105     scheduled (08/27/26) PARITY_OK
+--
+-- THIS SESSION'S GENUINELY NEW ANGLES (per task brief instruction, none of these exact probes
+-- appear in 20260825_gold_standard_wakulla_e_backfill_growth_recheck_no_write.sql or
+-- 20260825b_gold_standard_wakulla_c_44row_ceiling_reconfirm.sql):
+--
+-- 1. Wakulla County TAX COLLECTOR site (wakullatax.com) -- a genuinely different office/site
+--    than the Clerk (wakullaclerk.org). Fetched /property-tax and /helpful-links-1 live this
+--    session. Found a real, previously-undocumented link: "Access Online Tax Sale" ->
+--    https://www.taxcertsale.com/wakullataxsale/(S(...))/Default.aspx. Fetched live: this is
+--    the ANNUAL TAX CERTIFICATE sale portal (RealAuction-family), covering the May 2026
+--    certificate-sale cycle -- NOT tax deed applications for specific TXD case numbers. Landing
+--    page requires Login/Sign Up to see any parcel-level data; no case numbers or parcels
+--    visible pre-login. Same structural class of blocker as civitekflorida.com (session-gated
+--    app, not drivable via plain GET/WebFetch). No case-number or parcel data surfaced.
+--
+-- 2. WebSearch (not WAF-blocked, not Firecrawl) for each case number verbatim: "2026-TXD-117"
+--    Wakulla, "TXD-117 OR TXD-118 OR TXD-120 OR TXD-122" cancelled parcel, Wakulla Sun tax deed
+--    notice 2026, Wakulla commission agenda 2026 tax deed surplus parcel, RealTDA/GovEase
+--    Wakulla. ALL returned zero hits containing any of the 5 target case numbers or associated
+--    parcel/address data. Search engines have not indexed any newspaper legal-notice archive,
+--    county-commission agenda packet, or aggregator page containing these specific cancelled
+--    tax-deed case numbers.
+--
+-- 3. For 25-CA-105 (Ronald E. Reynolds Jr.): WebSearch "Ronald E. Reynolds Wakulla County
+--    Florida foreclosure/property" and "25-CA-105 Wakulla foreclosure" -- zero hits naming this
+--    defendant or case. Checked 4 additional foreclosure aggregators not tried in prior
+--    sessions: foreclosure.com/listings/wakulla-county-fl (HTTP 403), zillow.com/wakulla-
+--    county-fl/foreclosures (HTTP 403), realtytrac.com/wakulla-county-fl/foreclosure/ (200 OK,
+--    80 properties listed by address/zip only, no case-number or defendant-name index, no
+--    Reynolds match findable), homes.com/wakulla-county-fl/foreclosure (HTTP 403). Checked
+--    kbforeclosures.com/county/wakulla-fl again with a fresh fetch (most-recent record now May
+--    2026, case 25-CA-105 still absent -- consistent with the 2026-08-25 finding that KB's
+--    index has not caught up to this case).
+--
+-- 4. Alternate court-portal angle: floridacourtaccess.org/wakulla-county -- fetched live,
+--    confirmed to be a generic informational/people-search page, NOT a working case-search
+--    system; it redirects users back to wakullaclerk.com and civitekflorida.com (both already
+--    exhaustively confirmed blocked/gated in the 2026-08-25 session). No new access path.
+--
+-- 5. wakullaclerk.org/list-of-lands-available-for-taxes/ and /tax-deed-sales/ (2 URL variants
+--    surfaced by search, distinct paths from the previously-tried
+--    /official_records/tax_deed_sales.php): both returned live HTTP 404 "page/URL requested
+--    wasn't found" -- these are stale/retired URL patterns on the clerk's site, not working
+--    pages. No content, no new data source.
+--
+-- CONCLUSION: no genuinely new angle this session surfaced a real, sourced parcel_id, address,
+-- or coordinate for any of the 6 rows. Every new site checked was either (a) login/session
+-- gated with zero case-level data visible pre-auth (taxcertsale.com, matching the civitek
+-- structural pattern), (b) a dead/404 URL, (c) a 403-blocked aggregator, or (d) a live,
+-- reachable page confirmed to contain zero reference to any of the 5 target case numbers or
+-- the Reynolds defendant name. This RECONFIRMS, with fresh independent evidence gathered via
+-- different tools/URLs than the 2026-08-25 session, that 44-row wakulla's E ceiling remains
+-- 38/44 (86.4%) and C's ceiling remains 37/44 (84.1%) absent either (a) the Wakulla Clerk
+-- publishing archived cancelled-tax-deed records (still no evidence they do), or (b) a working,
+-- unauthenticated route into taxcertsale.com/wakullataxsale or civitekflorida.com/ocrs
+-- (neither exists as of this session).
+--
+-- RESULT: 0 of 6 rows updated. E remains FAIL at 86.4% (verified byte-identical
+-- pencil_dod_evaluate_county('wakulla') output before and after this session's investigation,
+-- pasted above). C remains FAIL at 84.1%, also unchanged (no independent-source record
+-- surfaced for any of the 7 gap rows; CLERK_SSOT_CANCELLED remains by-design excluded from
+-- matched_clean regardless).
+--
+-- MATH (per task brief instruction to show exact math either way): even a full, honest fix of
+-- all 6 E-gap rows would only bring E to 44/44 = 100%. A partial fix (e.g. resolving 25-CA-105
+-- alone, since the other 5 are structurally-permanent cancelled-sale gaps with no clerk record)
+-- would bring E to 39/44 = 88.6%, still below the >=95% (>=42/44) threshold -- i.e. even the
+-- single resolvable row is NOT sufficient alone to pass E; at minimum 4 of the 6 would need
+-- to resolve (42/44 = 95.45%) to clear threshold, and 5 of the 5 permanently-cancelled rows
+-- have no reachable source. This session's finding is therefore that E's practical ceiling
+-- absent new clerk publication is capped at 39/44 = 88.6%, which does NOT clear >=95% even in
+-- the best case. (Note: the 2026-08-25 migration's stated "43/44 achievable ceiling" referred
+-- to a different, narrower framing -- this session's math is the accurate full picture: only
+-- 1 of 6 rows, 25-CA-105, is even theoretically resolvable, capping achievable E at 39/44.)
+--
+-- No SQL was executed against multi_county_auctions or any other table this session -- this
+-- file is pure documentation of a completed, bounded, honest-null-result investigation using
+-- genuinely new probes, matching the HONESTY PROTOCOL requirement that a documented non-fix is
+-- success and a fabricated fix is a 3x violation.
+SELECT 1;
