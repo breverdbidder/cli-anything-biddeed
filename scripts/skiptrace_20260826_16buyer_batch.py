@@ -7,11 +7,11 @@ for LLC/corp buyers), scripts/tracerfy_client.py (enhanced trace + DNC scrub).
 No new resolution logic is introduced here -- only the BUYERS map is new.
 
 signal_events/leads rows for these 18 auctions were created by running
-scripts/summitleads_pipeline.py's SPRINT1 (signal sync) + SPRINT2 (lead
+scripts/winnerdata_pipeline.py's SPRINT1 (signal sync) + SPRINT2 (lead
 creation) SQL directly (idempotent, NOT EXISTS-guarded) ahead of this script --
 same mechanism the daily GHA batch uses, not a bespoke insert.
 
-Writes: summitleads.leads.contact_phone / contact_email / consent_certificate
+Writes: winnerdata.leads.contact_phone / contact_email / consent_certificate
 (merges a "contact_resolution_20260826" key into the existing jsonb).
 DNC: every resolved phone is scrubbed via tracerfy_client.dnc_scrub() before
 being treated as deliverable-by-automation (same rule as #19454).
@@ -154,7 +154,7 @@ def signal_ids_for_batch() -> dict:
     conds = " or ".join(f"(se.event_payload->>'case_number') = {s(c)}" for c in all_cases)
     rows = run_sql(f"""
         select se.signal_id, se.event_payload->>'case_number' as case_number
-        from summitleads.signal_events se
+        from winnerdata.signal_events se
         where se.source='biddeed' and se.event_type='auction_close'
           and ({conds});
     """)
@@ -387,7 +387,7 @@ def main():
                 set_clauses.append("outbound_lane = 'compliant_outbound'")
             if row["email"]:
                 set_clauses.append(f"contact_email = {s(row['email'])}")
-            run_sql(f"update summitleads.leads set {', '.join(set_clauses)} where signal_id = {s(sig_id)};")
+            run_sql(f"update winnerdata.leads set {', '.join(set_clauses)} where signal_id = {s(sig_id)};")
             print(f"  DB updated (case={case_no}, signal_id={sig_id})")
 
         report.append(row)
