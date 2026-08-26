@@ -137,3 +137,86 @@
 --      hitting the live ArcGIS service's CO_NO filter entirely.
 
 -- (No SQL to run -- this file is a documentation-only record of an honest exhaustion.)
+
+-- ============================================================================
+-- SESSION UPDATE 2026-08-26 -- 3 NEW LEVERS TRIED, ALL DEAD. NO WRITE APPLIED.
+-- ============================================================================
+-- Starting state (confirmed live via PostgREST): only 2 gilchrist rows remain
+-- unlinked (down from 3 after the 2026-08-25 session fixed the Hutchinson row):
+--   9bbeb28e-d2ec-4b2a-a7f5-bc6ce46b0484  212025CA000033CAAXMX  Chad Slocum
+--   4517a039-4157-4b84-bc04-b0fe22b22df3  212025CA000043CAAXMX  Danielle Jay
+--     Mercado as known heir of Kenneth Marc [surname truncated in DB, unrecoverable]
+--
+-- LEVER 1 -- MyFloridaCounty.com Official Records Index (ORI) grantor/grantee
+-- search, separate system from Civitek OCRS court-case records. Found the real
+-- per-county URL: https://www.myfloridacounty.com/orisearch/21 (myfloridacounty's
+-- own internal county id=21 -- unrelated to either FL DOR CO_NO=31 or the old
+-- wrong ArcGIS CO_NO=21 confusion from earlier sessions; three different "21/31"
+-- numbers across three different systems, do not conflate them).
+--   - Initial GET of the search form: HTTP 200, no Cloudflare/login gate, page
+--     shows "Instruments verified through 8/20/2026" -- genuinely live and current.
+--   - POST'd party-name search (name=Slocum, partyType=Both) with session cookie
+--     preserved: HTTP 200 but response body (1953 bytes) is NOT results -- it's a
+--     Cloudflare Turnstile challenge page ("Please verify you are human",
+--     data-sitekey="0x4AAAAAAA64PTBePmuGbrkR"). The search FORM is reachable
+--     without a gate; the search ACTION is gated, same family of block as the
+--     already-exhausted Civitek OCRS. CONFIRMED DEAD -- do not re-attempt without
+--     a Turnstile-solving capability this environment does not have.
+--
+-- LEVER 2 -- FL DOR Sales Data File (SDF), companion to the already-used NAL
+-- file, same dataportal, same URL pattern:
+--   https://floridarevenue.com/property/dataportal/Documents/PTO Data Portal/
+--     Tax Roll Data Files/SDF/2026P/Gilchrist 31 Preliminary SDF 2026.zip
+--   - HTTP 200, genuine ZIP (42,098 bytes), extracts to SDF31P202601.csv
+--     (2,064 rows, no email-request gate needed -- direct HTTP download worked,
+--     contrary to the concern raised in this session's briefing).
+--   - Header row: CO_NO, PARCEL_ID, ASMNT_YR, ATV_STRT, GRP_NO, DOR_UC, NBRHD_CD,
+--     MKT_AR, CENSUS_BK, SALE_ID_CD, SAL_CHG_CD, VI_CD, OR_BOOK, OR_PAGE,
+--     CLERK_NO, QUAL_CD, SALE_YR, SALE_MO, SALE_PRC, MULTI_PAR_SAL, RS_ID, MP_ID,
+--     STATE_PARCEL_ID.
+--   - STRUCTURALLY DEAD, not blocked: the SDF file type has NO owner/grantor/
+--     grantee name column at all (verified against full header + 5 sample rows).
+--     It links a parcel to an OR_BOOK/OR_PAGE/CLERK_NO deed reference and a sale
+--     price/date, not to a party name. There is no name-indexed field in this
+--     file to search "Slocum" or "Mercado" against. A 404 check for a companion
+--     "NAP" (tangible personal property, sometimes carries a name field) also
+--     returned 404 -- not published for Gilchrist. CONFIRMED DEAD for this
+--     specific use case (name -> parcel linkage); the file format itself cannot
+--     answer the question, independent of any access/auth issue.
+--
+-- LEVER 3 -- Targeted WebSearch for "Chad Slocum" Gilchrist property, "Kenneth
+-- Marc Mercado" obituary Florida, "Danielle Jay Mercado" Florida, and
+-- "Carrington Mortgage Services Slocum foreclosure Gilchrist Florida":
+--   - Zero genuine hits on any query. Every result was either an unrelated
+--     person with a similar name (different state, different context) or a
+--     generic Carrington Mortgage corporate page with no case-specific content.
+--   - Followed up on 3 aggregator/directory sites surfaced by search
+--     (floridaparcels.com, floridapropertyrecords.us, publicrecords.netronline.com)
+--     to check for an independent name-search index not yet tried. WebFetch on
+--     netronline confirmed it is a pure link directory with no owner-name search
+--     of its own -- it only points to qPublic (blocked) and myfloridacounty.com/
+--     orisearch/21 (now confirmed also Turnstile-blocked, this session, lever 1).
+--   - Also tried gilchristtax.com (county Tax Collector site, a genuinely
+--     different system from the Property Appraiser / Clerk sites already
+--     exhausted) on the theory a tax-bill lookup might not share the same block:
+--     HTTP 403 Forbidden. Same block pattern as gilchristclerk.com. CONFIRMED DEAD.
+--
+-- Firecrawl re-check (per task instructions): still HTTP 402 "Insufficient
+-- credits", identical to 2026-08-25 status. Not topped up. CONFIRMED STILL DEAD.
+--
+-- RESULT: No genuine, unambiguous match found for either row. Per BLANK > WRONG,
+-- NO WRITE APPLIED to either multi_county_auctions row this session. Live
+-- PostgREST re-check at session end confirms both rows still have parcel_id=NULL,
+-- property_address=NULL -- no drift, no regression, no silent change.
+--
+-- REMAINING NEXT-SESSION LEVERS (genuinely untried after this session):
+--   1. A Turnstile-solving service/capability (2Captcha, Turnstile-specific
+--      solver) would unblock BOTH the Civitek OCRS lever and the newly-found
+--      myfloridacounty.com/orisearch/21 lever in one capability addition --
+--      these are now confirmed to be the same class of blocker across two
+--      independent systems.
+--   2. Direct phone/manual contact with Gilchrist Clerk (352-463-3170) remains
+--      outside autonomous scope but is the most likely path to the decedent's
+--      full surname for the Mercado estate case, since no automated data source
+--      this session or prior sessions have tried carries that information.
+-- ============================================================================

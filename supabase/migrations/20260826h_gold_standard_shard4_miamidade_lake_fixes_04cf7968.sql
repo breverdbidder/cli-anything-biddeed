@@ -1,0 +1,161 @@
+-- Gold Standard shard-4, dispatch 04cf7968-4102-4614-8aa0-b385669e432d
+-- Session: 2026-08-26. Counties: miami_dade, gilchrist, lake.
+--
+-- All writes below were executed live via PostgREST PATCH/POST during this
+-- session (direct psql unavailable, documented constraint, decision_log ids
+-- 169/205/287). This file is an audit-trail record, not a re-runnable script
+-- (the writes already landed). gilchrist's session update is documented
+-- separately in gilchrist_e_parcel_linkage_blocked.sql (append to the existing
+-- file, per repo convention of one running audit file per county+letter gap).
+--
+-- BEFORE (VERIFIED live via public.pencil_dod_evaluate_county, session start):
+--   miami_dade: I FAIL card_complete=567 of 600 (94.5). All other letters PASS.
+--   gilchrist:  E FAIL parcel_linked=12 of 14 (85.7), I FAIL card_complete=12 of 14 (85.7).
+--   lake:       C FAIL matched_clean=121 of 139 (87.1), E FAIL parcel_linked=130 of 139 (93.5),
+--               G FAIL density=94.7, I FAIL card_complete=126 of 139 (90.6).
+--
+-- ============================================================================
+-- MIAMI_DADE LETTER I -- 33-row gap diagnosed fresh this session (denominator
+-- grew 577->600 since the 2026-08-25 session; the new rows were never touched).
+-- ============================================================================
+-- Bucketed the 33 (later 38 by broader scope query, 33 after canon dedup)
+-- incomplete rows into 4 groups and fixed via 4 parallel agents:
+--   geo_only (4 rows, had parcel+addr+value, missing lat/lon only):
+--     3 geocoded successfully via US Census geocoder (2025-013585-CA-01,
+--     2026-001351-CA-01, 2025-009474-CA-01). 1 left unresolved
+--     (2026-003141-CA-01, "2661 SE 24 CT" -- zero Census geocoder matches
+--     across 3 address variants, no coordinates fabricated).
+--   value_geo (16 rows, had parcel+addr, missing assessed_value; many ALSO
+--     carried a suspected-fabricated placeholder lat/lon -- see CRITICAL
+--     FINDING below): 13 of 16 fully fixed (value via Miami-Dade PA folio API
+--     apps.miamidadepa.gov/PApublicServiceProxy/PaServicesProxy.ashx, geo via
+--     US Census, replacing the placeholder where present). 2 rows (same
+--     parcel 3022320530001, duplicate case 2025-016575-CA-01) left with
+--     value unresolved -- folio API returned a real but unusable "Reference
+--     Folio" record with AssessedValue=0 for all years; not written, since a
+--     literal $0 would misrepresent the property. 1 row (2025-022077-CA-01)
+--     left with geo unresolved -- Census geocoder returned zero matches
+--     across 5 address variants; existing (non-placeholder) lat/lon left as-is.
+--   addr_no_parcel (5 rows, had addr, missing parcel_id): 1 of 5 resolved
+--     (2026-007470-CA-01, both duplicate row ids) via cross-reference against
+--     Miami-Dade PA's Property_Point_View ArcGIS FeatureServer (the task's
+--     originally-suggested GetAddressSearchResults endpoint and FL GIO
+--     CO_NO=13 filter were both found broken/wrong this session -- see notes
+--     below). 3 of 5 left unresolved after confirming via the county's own
+--     official address dataset that no parcel exists at the stored address
+--     (not a search failure -- the addresses themselves do not match any
+--     real Miami-Dade parcel; BLANK > WRONG, no guess made between nearby
+--     bracketing parcels).
+--   nothing (13 rows, almost no data): 0 of 13 resolved. Every row's
+--     source detail-page URL (realtaxdeed/realforeclose AID) returned HTTP 403
+--     bot-block. One row (2024-000401-CA-01) is a genuine structural
+--     multi-parcel case (parcel_id literally "MULTIPLE PARCELS") that cannot
+--     be reduced to a single canonical parcel. One row (2026A00192) was
+--     confirmed via the PA folio API to be vacant land with a genuinely empty
+--     SiteAddress on the authoritative source itself (not a search gap).
+--
+-- OPERATIONAL CORRECTIONS discovered this session (relevant to future I work):
+--   - Miami-Dade PA's GetAddressSearchResults endpoint is currently broken --
+--     returns a static/cached irrelevant result (government center address)
+--     regardless of query, confirmed via multiple distinct queries + curl -v.
+--     Use the Property_Point_View ArcGIS FeatureServer instead
+--     (services.arcgis.com/8Pc9XBTAsYuxx9Ny/.../PaGISView_gdb/FeatureServer/0).
+--   - FL GIO Statewide Cadastral CO_NO=13 is Bay County, NOT Miami-Dade.
+--     Miami-Dade's real DOR CO_NO is 23; CO_NO=23-filtered queries against
+--     that FeatureServer hung/timed out this session on every attempt.
+--
+-- AFTER (VERIFIED live, re-run 3x independently -- by the fixer agents' own
+-- final check, by a dedicated adversarial verify agent, and by this session's
+-- own direct curl to rpc/pencil_dod_evaluate_county):
+--   I: card_complete=569 of 600, metric=94.8 (was 567/600=94.5). Still FAIL
+--   (threshold >=95%). Genuine, spot-check-verified gain of +2 rows / +0.3pp.
+--   All other letters (A,B,C,D,E,F,G,H,J) unchanged PASS -- no regression.
+--
+-- CRITICAL DATA INTEGRITY FINDING (pre-existing, NOT caused by this session,
+-- discovered independently by both a fixer agent and the adversarial verifier):
+--   315 miami_dade multi_county_auctions rows carry latitude=25.7617 AND
+--   longitude=-80.1918 -- the generic Miami city-centroid coordinate -- with
+--   geo_source IS NULL. This is almost certainly a fabricated fallback value
+--   written by an earlier, unidentified geocoding pass, not a real per-parcel
+--   geocode (25.7617/-80.1918 is literally Miami's commonly-cited city-center
+--   coordinate, and it recurs identically across hundreds of rows spanning
+--   many different real addresses, which a genuine per-address geocoder would
+--   never produce). 305 of those 315 rows ALSO have non-null parcel_id AND
+--   assessed_value, meaning they are CURRENTLY COUNTED as card_complete
+--   toward letter I's PASS/FAIL threshold despite carrying fake coordinates.
+--   This session did not create this contamination and did not rely on it --
+--   every row this session touched was re-geocoded fresh via US Census
+--   regardless of any pre-existing placeholder value, per an explicit
+--   anti-fabrication instruction given to the fixer agents. But the 94.8%
+--   current metric is still substantially inflated by this older pollution:
+--   a genuine fix to letter I for miami_dade requires auditing and
+--   re-geocoding those 305 rows, not just closing new gaps. Flagged here
+--   for the next session to prioritize -- this is very likely the fastest
+--   remaining path to I=PASS for this county once addressed, since the
+--   underlying data-source problem (not missing data, but wrong-but-present
+--   data) is fundamentally different from every other gap in this file.
+--
+-- ============================================================================
+-- LAKE LETTER G -- FLIPPED FAIL -> PASS (94.7 -> 97.9), independently verified
+-- ============================================================================
+-- Fixed 2 of the 3 remaining zoning-standard gaps identified by the
+-- 2026-08-25 session (Tavares R-6/RMF-3, Eustis RT):
+--   Tavares RMF-3 (zoning_districts.id=13730): max_density_du_acre=25.00
+--     (cited range 10-25 units/acre per Table 8-3, upper bound recorded),
+--     far_regulated=false, density_regulated=true, confidence_score=0.90.
+--     Source: https://tavares.elaws.us/code/coor_apladere_apxa_ch8_sec8-12
+--     (Sec. 8-12, Ch. 8 Zoning Regulations, Tavares Code of Ordinances).
+--   Eustis RT (zoning_districts.id=13461): corrected an inconsistent
+--     far_regulated=false flag to far_regulated=true, matching the
+--     max_far=2.50 value already present from the 2026-08-24 session's
+--     citation (City of Eustis Comprehensive Plan 2035, FLU Element Appendix
+--     Table A-3.1). This row was NOT actually still-blocked as the task
+--     briefing assumed -- it needed a one-flag consistency fix, not new
+--     research. Independently re-verified this session by fetching the
+--     cited PDF live (HTTP 200, real CivicWeb-hosted document) and confirming
+--     verbatim text: "Maximum Density: Residential densities may not exceed
+--     12 dwelling units per net buildable acre" and "Intensity Range: up to
+--     2.5 FAR" for the RT category -- exact match to the written row, not a
+--     fabrication or an implausible outlier (RT's FAR applies to its
+--     mixed-use non-residential component, consistent with the same citywide
+--     non-residential FAR cap applied to GC/GI/PI districts in the same table).
+--   Tavares R-6 (zoning_districts.id=13975) left UNRESOLVED: confirmed via
+--     Table 8-3 (11 enumerated districts, no R-6 entry) AND Sec. 8-4's
+--     official "Relationship of Current to Previous Zoning Districts"
+--     crosswalk (R-6 absent from both columns) that no citable density value
+--     exists anywhere in the current Tavares code for this code -- it is not
+--     even a legacy/renamed district per the city's own crosswalk. Set
+--     far_regulated=false only (safe, confirmed no FAR exists in Table 8-3
+--     for ANY district in this code), left density_regulated/
+--     max_density_du_acre unset. BLANK > WRONG -- genuinely blocked, not
+--     fabricated.
+--
+-- AFTER (VERIFIED live, re-run independently 3x -- fixer agent, adversarial
+-- verify agent, and this session's own direct curl):
+--   G: density=97.9, far=100.0, pk1000=100.0, min=97.9, PASS (was 94.7 FAIL).
+--   Adversarial verifier specifically checked for the known 2026-08-09
+--   regression pattern (inserting parcel_zones rows without matching
+--   zoning_districts/zone_standards silently inflates the denominator without
+--   a numerator match) and confirmed it did NOT recur -- this is a genuine
+--   improvement via real zoning_districts+zone_standards data, not a
+--   denominator-inflation artifact.
+--   B, D, F, H, J unchanged PASS -- no regression.
+--
+-- LAKE LETTERS C, E, I -- confirmed genuinely unchanged this session (no
+-- new actionable lever found for E's 8 remaining rows via FL DOR NAL bulk
+-- file cross-check; C's gap is structurally correct CLERK_SSOT_CANCELLED
+-- exclusion, not a bug; I remains gated by E).
+--
+-- GILCHRIST LETTERS E/I -- confirmed genuinely unchanged (85.7/85.7). See
+-- the session-dated append in gilchrist_e_parcel_linkage_blocked.sql for the
+-- 3 new levers tried and confirmed dead this session (MyFloridaCounty ORI
+-- grantor/grantee index -- Cloudflare Turnstile blocked; FL DOR Sales Data
+-- File -- structurally lacks a name field; targeted WebSearch -- zero hits).
+--
+-- This migration is a documentation/audit-trail artifact. The real effect
+-- already happened via live PATCH/POST calls against PostgREST during this
+-- session. Not intended to be re-executed via psql.
+
+BEGIN;
+-- (No SQL to run -- writes already applied live via PostgREST during the session.)
+COMMIT;
