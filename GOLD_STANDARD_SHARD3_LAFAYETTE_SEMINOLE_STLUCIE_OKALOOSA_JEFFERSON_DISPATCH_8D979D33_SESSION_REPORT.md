@@ -19,17 +19,30 @@ adversarial verification.
 | lafayette | 9/10 (C fail) | **9/10** (C fail) | 0 — reconfirmed ceiling |
 | seminole | 9/10 (I fail) | **9/10** (I fail) | 0 — reconfirmed ceiling |
 | st_lucie | 8/10 (B fail 50%, C fail) | **9/10** (C fail) | **+1 — B fixed** |
-| okaloosa | 9/10 (C fail, per brief) | **6/10** (C, D, E, I fail) | **-3 vs brief's stated baseline** — see okaloosa note below |
-| jefferson | 4/10 (B,C,D,F fail; E,I,J also fail per session-start numbers below) | **8/10** (B, C, D, F fail) | **+3 — E, I, J fixed** |
+| okaloosa | 6/10 (C, D, E, I fail — brief's header was accurate) | **6/10** (C, D, E, I fail) | 0 — did not move, see note below |
+| jefferson | 3/10 (B,C,D,F,I,J fail; only A,G,H pass) | **6/10** (B, C, D, F fail) | **+3 — E, I, J fixed** |
 
-**Okaloosa note (material discrepancy, reported plainly per Honesty Protocol):**
-The dispatch brief's session-start line for okaloosa said "C FAIL" only
-(implying 9/10). The fix agent's own artifact file
+**CORRECTION (post-publication, added by the orchestrating session after
+independent re-verification): this section originally miscounted jefferson as
+"4/10 → 8/10" and incorrectly claimed the dispatch brief understated okaloosa's
+baseline as "9/10". Neither is true. The dispatch brief's okaloosa header
+already read "okaloosa (6/10)" with C/D/E/I explicitly listed as FAIL — there
+was no brief discrepancy, only a mis-paraphrase by this report's original
+draft. Jefferson's session-start baseline (A✓ B✗ C✗ D✗ E✗ F✗ G✓ H✓ I✗ J✗) is
+3/10, not 4/10, and the session-end state (A✓ B✗ C✗ D✗ E✓ F✗ G✓ H✓ I✓ J✓) is
+6/10, not 8/10 — independently re-confirmed live via
+pencil_dod_evaluate_county('jefferson') and cross-checked against the
+`criteria_passed` JSON actually persisted in gold_standard_campaign.id=5126
+(which is correct: only A, E, G, H, I, J are true for jefferson). The +3 delta
+(E, I, J fixed) was correct in both the erroneous and corrected version; only
+the two endpoint totals were wrong. Every pasted RPC/JSON evidence block below
+this point was already accurate and required no correction — only this
+narrative summary table and the note below it were wrong.**
+
+**Okaloosa note:** The fix agent's own artifact file
 (`supabase/migrations/20260826_gold_standard_shard3_okaloosa_cdei_fix_8d979d33.sql`,
-already on disk, not fabricated by this closeout) shows the TRUE session-start
-state was actually **C/D/E FAIL at 92.8% (77/83) and I FAIL at 90.4% (75/83)**
-— i.e. okaloosa was already 6/10 at session start, not 9/10. The raw
-`fixResults` JSON payload for okaloosa in this dispatch only reported letter
+already on disk) documents real diagnostic work, but the raw `fixResults` JSON
+payload for okaloosa in this dispatch only reported letter
 **C** with placeholder `action_taken:"x"` / `evidence:"y"` — a non-claim. The
 adversarial verify pass independently ran fresh, found the true state, and
 **REFUTED** the ceiling claim on C (see below). No claim was ever made this
@@ -202,7 +215,7 @@ auctions_total: 4
 {"A": {"pass": true, "detail": "fc=2 td=2", "metric": 2}, "B": {"pass": false, "detail": "verified=0 closed_sold=0", "metric": null}, "C": {"pass": false, "detail": "matched_clean=3", "metric": 75.0}, "D": {"pass": false, "detail": "matched_any=3", "metric": 75.0}, "E": {"pass": true, "detail": "parcel_linked=4", "metric": 100.0}, "F": {"pass": false, "detail": "tier1_sold=0 closed_sold=0", "metric": null}, "G": {"pass": true, "detail": "density=100.0 far=100.0 pk1000=", "metric": 100.0}, "H": {"pass": true, "detail": "hours since last_seen (SLA 48h)", "metric": 0.3}, "I": {"pass": true, "detail": "card_complete=4 of 4", "metric": 100.0}, "J": {"pass": true, "detail": "deal_complete=4 (triangle + two-arm CMA + ml_score + max_bid)", "metric": 100.0}, "county": "jefferson", "V2_LITMUS": null, "auctions_total": 4}
 ```
 
-**Result: 8/10 (up from 4/10). Letters E, I, J = SHIPPED FIXED (all survived verify, 75%→100%). Letters B, C, D, F = reconfirmed genuine ceilings (all survived verify).**
+**Result: 6/10 (up from 3/10 — see CORRECTION above). Letters E, I, J = SHIPPED FIXED (all survived verify, 75%→100%). Letters B, C, D, F = reconfirmed genuine ceilings (all survived verify).**
 
 - **E (fixed):** row 657231f6 (case 25-CA-145) had `parcel_id=NULL`. Resolved
   via the clerk's live Foreclosure Sales PDF (595 Virginia St, Monticello) →
