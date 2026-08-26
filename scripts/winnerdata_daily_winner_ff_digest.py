@@ -9,20 +9,20 @@ send a short "no qualifying leads today" email so Mariam never has to wonder
 if the job ran.
 
 BLOCKING (confirmed live 2026-08-26, see issue #19490): Mariam's real email
-is not in summitleads.organizations (no email column exists) or
-summitleads.producers (both her producer rows have email=null). This script
+is not in winnerdata.organizations (no email column exists) or
+winnerdata.producers (both her producer rows have email=null). This script
 NEVER fabricates a recipient -- if no producer email is on file, it logs a
-'blocked_no_email' row to summitleads.ff_digest_log and exits 0 (this is an
+'blocked_no_email' row to winnerdata.ff_digest_log and exits 0 (this is an
 expected, documented condition, not a script failure). Real delivery to
 Mariam ships the moment Ariel supplies her email and it is written to
-summitleads.producers.email.
+winnerdata.producers.email.
 
-Uses the Supabase Management API (summitleads schema is not exposed via
-PostgREST -- see scripts/summitleads_pipeline.py's own docstring for the
+Uses the Supabase Management API (winnerdata schema is not exposed via
+PostgREST -- see scripts/winnerdata_pipeline.py's own docstring for the
 same, already-diagnosed platform limitation).
 
 Run:
-  python scripts/summitleads_daily_winner_ff_digest.py [--dry-run]
+  python scripts/winnerdata_daily_winner_ff_digest.py [--dry-run]
     [--batch-date YYYY-MM-DD] [--test-send-to EMAIL]
 
 --test-send-to overrides the recipient with a known-safe test address
@@ -56,7 +56,7 @@ def run_sql(query):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "summitleads-ff-digest/1.0",
+            "User-Agent": "winnerdata-ff-digest/1.0",
         },
         method="POST",
     )
@@ -84,7 +84,7 @@ def sql_str(v):
 def get_producer_email():
     rows = run_sql(f"""
         select p.producer_id, p.full_name, p.email
-        from summitleads.producers p
+        from winnerdata.producers p
         where p.org_id = '{PROTECTION_PARTNERS_ORG_ID}' and p.full_name = 'Mariam Shapira' and p.active = true
         order by p.created_at asc;
     """)
@@ -106,9 +106,9 @@ def get_batch_leads(batch_date):
           l.consent_certificate #>> '{{contact_resolution_v2,email_tier}}' as email_tier,
           l.consent_certificate #>> '{{contact_resolution_v2,phone_tier}}' as phone_tier,
           rd.routed_at
-        from summitleads.leads l
-        join summitleads.signal_events se on se.signal_id = l.signal_id
-        join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
+        from winnerdata.leads l
+        join winnerdata.signal_events se on se.signal_id = l.signal_id
+        join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
         where l.org_id = '{PROTECTION_PARTNERS_ORG_ID}'
           and rd.routed_at::date = {sql_str(batch_date)}
           and (l.is_lender_or_plaintiff = false or l.manual_buyer_override = true)
@@ -199,7 +199,7 @@ def send_resend(to_email, subject, text, html, dry_run):
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "SummitLeads-FF-Digest/1.0",
+            "User-Agent": "Winner Data-FF-Digest/1.0",
         },
         method="POST",
     )
@@ -223,7 +223,7 @@ def log_digest(batch_date, recipient, lead_count, message_id, status, error=None
         row["error"] = error[:500]
     cols = ", ".join(row.keys())
     vals = ", ".join(sql_str(v) if k != "lead_count" and k != "org_id" else (str(v) if k == "lead_count" else f"'{v}'::uuid") for k, v in row.items())
-    run_sql(f"insert into summitleads.ff_digest_log ({cols}) values ({vals});")
+    run_sql(f"insert into winnerdata.ff_digest_log ({cols}) values ({vals});")
 
 
 def main():
@@ -243,7 +243,7 @@ def main():
     recipient = args.test_send_to or get_producer_email()
 
     if not recipient:
-        print("BLOCKED: no email on file for Mariam Shapira (summitleads.producers.email is null). "
+        print("BLOCKED: no email on file for Mariam Shapira (winnerdata.producers.email is null). "
               "Not sending -- never fabricating a recipient. Logging blocked_no_email.")
         if not args.dry_run:
             log_digest(batch_date, None, 0, None, "blocked_no_email")

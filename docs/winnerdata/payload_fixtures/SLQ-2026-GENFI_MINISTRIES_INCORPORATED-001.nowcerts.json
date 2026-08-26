@@ -6,7 +6,7 @@
   "custom_fields": [
     {
       "insuredDatabaseId": null,
-      "text": "SummitLeads Lead ID",
+      "text": "Winner Data Lead ID",
       "value": "d34ee85d-5981-43b8-ba21-1588a74ad3bc"
     },
     {
@@ -167,7 +167,7 @@
     "insuredType": 1,
     "last_name": "INCORPORATED",
     "phone_number": "",
-    "referral_source": "SummitLeads: commercial_bop",
+    "referral_source": "Winner Data: commercial_bop",
     "state": "FL",
     "type": 1,
     "zip_code": "32601"

@@ -1,8 +1,8 @@
-name: summitleads-daily
+name: winnerdata-daily
 # Daily automated FF pipeline (BidDeed + ZoneWise + Tracerfy), all 67 FL
 # counties: Signal -> authenticated RealAuction winner harvest -> Skip-trace
 # -> Appraiser cross-verify -> Quote-Draft -> Route -> Deliver.
-# See scripts/summitleads_pipeline.py. Degrades (does not fail) when
+# See scripts/winnerdata_pipeline.py. Degrades (does not fail) when
 # TRACERFY_API_KEY/REALFORECLOSE_* are absent — logs BLOCKED and runs on
 # existing data only. Never fabricates leads.
 #
@@ -44,7 +44,7 @@ on:
   schedule:
     - cron: "0 0 * * *"    # 8:00 PM EDT / 7:00 PM EST (00:00 UTC) — daily FF pipeline, primary pass
     - cron: "0 4 * * *"    # 12:00 AM EDT / 11:00 PM EST (04:00 UTC) — midnight-ET catch-up pass for late-posting counties
-concurrency: {group: summitleads-daily, cancel-in-progress: false}
+concurrency: {group: winnerdata-daily, cancel-in-progress: false}
 permissions:
   contents: write
 jobs:
@@ -64,11 +64,11 @@ jobs:
           REALFORECLOSE_EMAIL: ${{ secrets.REALFORECLOSE_EMAIL }}
           REALFORECLOSE_PASSWORD: ${{ secrets.REALFORECLOSE_PASSWORD }}
           TRACERFY_API_KEY: ${{ secrets.TRACERFY_API_KEY }}
-        run: python scripts/summitleads_pipeline.py
+        run: python scripts/winnerdata_pipeline.py
       - name: Commit batch files
         run: |
-          git config user.name "summitleads-bot"
+          git config user.name "winnerdata-bot"
           git config user.email "actions@github.com"
-          git add summitleads/batches/
-          git diff --cached --quiet || git commit -m "SummitLeads daily batch $(date -u +%Y-%m-%d)"
+          git add winnerdata/batches/
+          git diff --cached --quiet || git commit -m "Winner Data daily batch $(date -u +%Y-%m-%d)"
           git push

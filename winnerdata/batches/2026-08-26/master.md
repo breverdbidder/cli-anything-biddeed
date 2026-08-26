@@ -1,4 +1,4 @@
-# SummitLeads — Auction Flash Batch 2026-08-26
+# Winner Data — Auction Flash Batch 2026-08-26
 
 Generated: 2026-08-26T11:33:39.400860+00:00Z (live-queried, org=Protection Partners)
 

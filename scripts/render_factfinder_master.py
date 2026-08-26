@@ -14,9 +14,9 @@ dict -- this script does the template substitution only. Appraiser-link
 resolution is computed from the same live tables ff_get_lead's verification
 subquery reads (fl_parcels, fl_counties, fl_property_appraiser_configs,
 multi_county_auctions, parity_audit), queried directly since neither pilot
-lead exists in summitleads.leads (confirmed empty query, 2026-08-24) and so
+lead exists in winnerdata.leads (confirmed empty query, 2026-08-24) and so
 cannot be looked up through the RPC itself. A future DB-driven version that
-reads real summitleads.leads rows is out of scope here, same as before.
+reads real winnerdata.leads rows is out of scope here, same as before.
 
 Usage: python3 scripts/render_factfinder_master.py
 """
@@ -262,7 +262,7 @@ def render(lead):
 # fl_parcels / fl_counties / fl_property_appraiser_configs / multi_county_auctions
 # queried directly via the Supabase Management API for these two parcels --
 # same source tables ff_get_lead's verification subquery reads, since neither
-# pilot lead exists in summitleads.leads to look up through the RPC itself
+# pilot lead exists in winnerdata.leads to look up through the RPC itself
 # (confirmed still true 2026-08-24, re-checked this session). Brevard has no
 # fl_property_appraiser_configs row (no live cross-verification scraper
 # configured) -- appraiser_url falls back to fl_counties.appraiser_url

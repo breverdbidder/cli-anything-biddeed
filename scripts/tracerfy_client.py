@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SummitLeads Sprint 2 — Tracerfy skip-trace client.
+"""Winner Data Sprint 2 — Tracerfy skip-trace client.
 
 STATUS: VERIFIED live 2026-08-24. Endpoint paths and response schema below
 are confirmed against https://www.tracerfy.com/skip-tracing-api-documentation/
@@ -94,8 +94,8 @@ def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = 
             # Cloudflare (error 1010) blocks the default urllib UA on tracerfy.com —
             # confirmed live 2026-08-24: identical requests succeed once a
             # non-default User-Agent is set. Same root cause class as the
-            # Supabase Management API UA requirement in summitleads_pipeline.py.
-            "User-Agent": "summitleads-pipeline/1.0",
+            # Supabase Management API UA requirement in winnerdata_pipeline.py.
+            "User-Agent": "winnerdata-pipeline/1.0",
         },
         method=method,
     )

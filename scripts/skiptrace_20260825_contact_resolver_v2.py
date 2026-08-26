@@ -12,7 +12,7 @@ scripts/skiptrace_20260825_portfolio_batch.py rather than re-typing it --
 that dict is this batch's single source of truth for which case maps to
 which buyer entity.
 
-Writes: summitleads.leads.contact_phone / contact_email / consent_certificate
+Writes: winnerdata.leads.contact_phone / contact_email / consent_certificate
 (merges a "contact_resolution_v2" key into the existing jsonb, never
 overwrites the improved_gate/skip_trace_status keys phase2 already set).
 Join key is signal_events.event_payload->>'case_number' for this batch
@@ -108,7 +108,7 @@ def own_name_lookup(entity_name: str) -> dict | None:
 def signal_ids_for_batch() -> dict:
     rows = run_sql(f"""
         select se.signal_id, se.event_payload->>'case_number' as case_number
-        from summitleads.signal_events se
+        from winnerdata.signal_events se
         where se.source='biddeed' and se.event_type='auction_close'
           and (se.event_payload->>'batch') = '{BATCH}';
     """)
@@ -267,10 +267,10 @@ def main():
                 set_clauses.append(f"contact_email = {s(row['email'])}")
             if row["phone"]:
                 set_clauses.append("dnc_scrubbed_at = now()")
-            run_sql(f"update summitleads.leads set {', '.join(set_clauses)} where signal_id = {s(sig_id)};")
+            run_sql(f"update winnerdata.leads set {', '.join(set_clauses)} where signal_id = {s(sig_id)};")
             print(f"  DB updated (signal_id={sig_id}, manual_dial_only={manual_dial_only})")
         else:
-            row["tiers_failed"].append("NO_SIGNAL_EVENT_MATCH -- could not write to summitleads.leads")
+            row["tiers_failed"].append("NO_SIGNAL_EVENT_MATCH -- could not write to winnerdata.leads")
             print("  WARNING: no matching signal_event for this case_number, DB not updated")
 
         report.append(row)

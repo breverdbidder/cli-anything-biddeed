@@ -88,19 +88,19 @@ Verified live post-deploy: /county/alachua and /county/brevard render the full
 interactive table (equity totals, Shapira Triangle filters) with zero console
 errors, first verified fully-working production render of these pages.
 
-### 1.3 SUMMITLEADS `mls_sale_close` SIGNAL WIRING (2026-08-24)
+### 1.3 WINNERDATA `mls_sale_close` SIGNAL WIRING (2026-08-24)
 
 `public.sale_listings` (HomeHarvest, `source='homeharvest_realtor_com'`, see §1's
-HomeHarvest row) is now a second signal source into `summitleads.signal_events`,
+HomeHarvest row) is now a second signal source into `winnerdata.signal_events`,
 alongside the pre-existing `event_type='auction_close'` rows from BidDeed
-(`scripts/summitleads_pipeline.py` SPRINT1). Issue #19429.
-`supabase/migrations/20260824_summitleads_mls_sale_close_wiring.sql`:
-- **Scheduler: pg_cron**, not GHA — `cron.job` `summitleads-mls-sale-close-daily`
+(`scripts/winnerdata_pipeline.py` SPRINT1). Issue #19429.
+`supabase/migrations/20260824_winnerdata_mls_sale_close_wiring.sql`:
+- **Scheduler: pg_cron**, not GHA — `cron.job` `winnerdata-mls-sale-close-daily`
   (`40 10 * * *` UTC), calling `public.sync_mls_sale_close_events()`. Pure-SQL job
   (select → match → insert → backfill), no external HTTP/scrape call needed, so it
   follows the same in-DB pg_cron pattern as `dispatch_homeharvest_rental_ingest()`
   and the b2c/trial-expiry jobs rather than round-tripping through GHA.
-- **Watermark**: `summitleads.mls_sync_state` (one row, `job_name='mls_sale_close_sync'`)
+- **Watermark**: `winnerdata.mls_sync_state` (one row, `job_name='mls_sale_close_sync'`)
   tracks `last_watermark` against `sale_listings.fetched_at`; each run is capped at
   20,000 candidate rows (current backlog 6,201 — cap never binds today, kept for
   future growth) and only advances the watermark to the max `fetched_at` actually
@@ -131,7 +131,7 @@ alongside the pre-existing `event_type='auction_close'` rows from BidDeed
   duplicate `INSERT` throws `23505 duplicate key value` on this index by name.
 - **Non-goals honored**: `po_listings`/`propertyonion_listings` untouched;
   existing 49 `auction_close` rows untouched; no skip-trace/Tracerfy call added;
-  `summitleads.leads` not modified by this migration.
+  `winnerdata.leads` not modified by this migration.
 
 ### 1.4 FL APPELLATE WATCH + CITATION AUDIT (2026-08-24)
 

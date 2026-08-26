@@ -13,29 +13,32 @@
  * `winnerdata` schema, gated by RLS, using an embedded anon key (same as
  * SUPABASE_KEY at src/worker.js:37). Two things about that turned out not to
  * hold, both live-verified before writing this file:
- *   1. The schema rename to `winnerdata` never landed — the real schema is
- *      still `summitleads` (scripts/summitleads_pipeline.py, pipelines/
- *      winnerdata/momentum_delivery.py both hardcode summitleads.*).
- *   2. `summitleads` cannot be exposed via PostgREST for this project — a
- *      Management API db_schema PATCH is accepted and reads back correctly,
- *      but the live gateway never reflects it (tried: plain wait, explicit
- *      project restart, NOTIFY pgrst reload; each retried, none took). This
- *      matches summitleads_pipeline.py's own docstring: "PostgREST does not
- *      expose the summitleads schema" — a pre-existing, already-documented
- *      limitation, not something broken by this change.
+ *   1. At the time this file was written (2026-08-24) the schema rename to
+ *      `winnerdata` had not landed yet — the real schema was still
+ *      `summitleads`. Issue #19486 (2026-08-26) finished that rename live
+ *      (`ALTER SCHEMA summitleads RENAME TO winnerdata`); scripts/
+ *      winnerdata_pipeline.py and pipelines/winnerdata/momentum_delivery.py
+ *      now correctly hardcode winnerdata.* too.
+ *   2. `winnerdata` (formerly `summitleads`) cannot be exposed via
+ *      PostgREST for this project — a Management API db_schema PATCH is
+ *      accepted and reads back correctly, but the live gateway never
+ *      reflects it (tried: plain wait, explicit project restart, NOTIFY
+ *      pgrst reload; each retried, none took). This is a pre-existing,
+ *      already-documented limitation independent of the schema's name, not
+ *      something the 2026-08-26 rename changed either way.
  * Fix: public schema SECURITY DEFINER RPC functions (ff_healthz,
  * ff_portal_leads, ff_get_lead, ff_upsert_response, ff_record_bind — see
  * supabase/migrations/20260824_winnerdata_ff_worker_rpc.sql), called via
  * /rest/v1/rpc/<fn> with the same embedded anon key pattern. The function
  * body is the access boundary: org_id is validated inside every function
- * against the one live tenant before touching summitleads.* — a mismatched
+ * against the one live tenant before touching winnerdata.* — a mismatched
  * org_id returns zero rows, proven live via curl before this Worker was
  * written (pasted in the issue completion comment). RLS policies also exist
  * on the underlying tables as defense-in-depth for if/when direct exposure
  * is ever fixed, but are not the active boundary today.
  *
  * lead_properties does not exist as a table — spec's other wrong assumption.
- * The real per-lead property/auction join is summitleads.v_producer_intake
+ * The real per-lead property/auction join is winnerdata.v_producer_intake
  * (added 2026-08-23), which ff_get_lead / ff_portal_leads read from.
  */
 
@@ -46,7 +49,7 @@ const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
 // Anon key — safe to embed in source, same as src/worker.js:37. RLS/RPC
 // validation (not secrecy of this key) is the actual access boundary.
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw';
-// Single live tenant (summitleads.organizations, verified 2026-08-24). v1 is
+// Single live tenant (winnerdata.organizations, verified 2026-08-24). v1 is
 // explicitly single-tenant scope — the Worker never accepts org_id from the
 // client; every RPC call uses this constant.
 const ORG_ID = '032f4717-545f-4a18-b48b-28ea4257699d';

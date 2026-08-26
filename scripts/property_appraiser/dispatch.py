@@ -3,9 +3,9 @@
 
 The 5 county scrapers in this directory (manatee/lee/broward/palm_beach/
 marion) were built and live-verified against a one-off local JSON fixture
-batch (common.load_batch_parcels() reads summitleads/intake/*.json). This
+batch (common.load_batch_parcels() reads winnerdata/intake/*.json). This
 module is the missing piece to run them against real, live
-summitleads.leads rows every day instead of a fixture file: verify_leads()
+winnerdata.leads rows every day instead of a fixture file: verify_leads()
 takes lead records already pulled from the DB by the caller and drives the
 same scrape_parcel()/extract_fields() functions those files define, writing
 identical parity_audit rows via common.write_parity_row.
@@ -208,6 +208,6 @@ def verify_leads(leads: list[dict]) -> dict:
 
 
 if __name__ == "__main__":
-    log("This module is a library for scripts/summitleads_pipeline.py — "
+    log("This module is a library for scripts/winnerdata_pipeline.py — "
         "no standalone CLI entrypoint. Run the daily pipeline instead.", "ERROR")
     sys.exit(2)

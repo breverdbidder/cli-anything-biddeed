@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Winner Data FF -> Momentum AMS (NowCerts) delivery bridge.
 
-Takes a filled Winner Data FF (SUMMITLEADS_QUOTE_REQUEST_TEMPLATE.json,
+Takes a filled Winner Data FF (WINNERDATA_QUOTE_REQUEST_TEMPLATE.json,
 auction-investor edition) and transforms it into a NowCerts Zapier-API
 payload (InsertProspect + SimpleCustomField/Insert + InsertTask), then
 delivers it -- idempotently, search-first -- so Momentum Rate/Quotelinq
@@ -12,9 +12,9 @@ Postman collection (ReduceMyIns/Nowcerts-API, api version 2.1.5) and cross-
 checked against the MIT-licensed ReduceMyIns/n8n-nodes-momentum node --
 see docs/winnerdata/NOWCERTS_MCP_AUDIT.md for the sourcing detail.
 
-Runs against the live `summitleads` schema via the Supabase Management API
-SQL endpoint (PostgREST does not expose the summitleads schema), matching
-the pattern established by scripts/summitleads_pipeline.py.
+Runs against the live `winnerdata` schema via the Supabase Management API
+SQL endpoint (PostgREST does not expose the winnerdata schema), matching
+the pattern established by scripts/winnerdata_pipeline.py.
 
 Two modes:
   fixtures  - pure transform, no network, no DB writes. Reads FF JSON files,
@@ -23,7 +23,7 @@ Two modes:
   deliver   - full pipeline: validate -> gate -> search NowCerts -> insert
               or update prospect -> custom fields -> producer task -> log
               every attempt (delivered/skipped/validation_failed/gate_blocked/
-              failed) to summitleads.lead_activity. Requires
+              failed) to winnerdata.lead_activity. Requires
               NOWCERTS_API_USERNAME / NOWCERTS_API_PASSWORD and
               SUPABASE_ACCESS_TOKEN.
 """
@@ -42,7 +42,7 @@ NOWCERTS_BASE_URL = "https://api.nowcerts.com/api"
 
 
 # ---------------------------------------------------------------------------
-# Supabase (summitleads schema) access
+# Supabase (winnerdata schema) access
 # ---------------------------------------------------------------------------
 
 def run_sql(query):
@@ -79,7 +79,7 @@ def sql_literal(value):
 
 def log_lead_activity(lead_id, org_id, producer_id, activity_type, payload):
     run_sql(f"""
-        insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
+        insert into winnerdata.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
         values ({sql_literal(lead_id)}, {sql_literal(org_id)}, {sql_literal(producer_id)},
                 {sql_literal(activity_type)}, 'momentum_ams', {sql_literal(payload)}, now());
     """)
@@ -87,8 +87,8 @@ def log_lead_activity(lead_id, org_id, producer_id, activity_type, payload):
 
 def get_producer_id(org_id):
     rows = run_sql(f"""
-        select rd.producer_id from summitleads.routing_decisions rd
-        join summitleads.leads l on l.lead_id = rd.lead_id
+        select rd.producer_id from winnerdata.routing_decisions rd
+        join winnerdata.leads l on l.lead_id = rd.lead_id
         where l.org_id = {sql_literal(org_id)}
         order by rd.routed_at desc limit 1;
     """)
@@ -129,7 +129,7 @@ def check_delivery_gate(ff):
     -- an unknown, not a confirmed vacancy, and is NOT gated).
 
     contact_phone is sourced exclusively as "SL" in this template (see
-    sources_legend: summitleads.leads / Tracerfy skip-trace data already
+    sources_legend: winnerdata.leads / Tracerfy skip-trace data already
     purchased). A non-null value is the only signal available in this
     schema that Tracerfy skip-trace resolved a real number for this lead --
     there is no separate verified-boolean column. See
@@ -149,7 +149,7 @@ def check_delivery_gate(ff):
 # Transform: FF -> NowCerts payload
 # ---------------------------------------------------------------------------
 
-# Same heuristic as scripts/summitleads_render_batch.py's `card()` -- reused
+# Same heuristic as scripts/winnerdata_render_batch.py's `card()` -- reused
 # verbatim so business/person classification agrees with what the producer
 # call sheet already shows for the same lead. Known limitation inherited
 # from that heuristic: word-boundary matching means e.g. "INCORPORATED"
@@ -241,7 +241,7 @@ def build_custom_fields(ff, insured_database_id):
     compliance = ff.get("compliance") or {}
 
     fields = {
-        "SummitLeads Lead ID": ff.get("lead_id"),
+        "Winner Data Lead ID": ff.get("lead_id"),
         "Winner Data FF ID": ff.get("id"),
         "Property County": _val(prop, "county"),
         "Parcel ID": _val(prop, "parcel_id"),
@@ -322,7 +322,7 @@ def build_payload(ff):
         "email": _val(ff.get("applicant"), "contact_email") or "",
         "phone_number": _val(ff.get("applicant"), "contact_phone") or "",
         "active": True,
-        "referral_source": f"SummitLeads: {ff.get('product_line') or 'unclassified'}",
+        "referral_source": f"Winner Data: {ff.get('product_line') or 'unclassified'}",
         "type": 2 if is_business else 1,
         "insuredType": 2 if is_business else 1,
     }
@@ -558,12 +558,12 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_fixtures = sub.add_parser("fixtures", help="dry-run transform, no network/DB")
-    p_fixtures.add_argument("--intake", default="summitleads/intake/*.json")
+    p_fixtures.add_argument("--intake", default="winnerdata/intake/*.json")
     p_fixtures.add_argument("--out", default="docs/winnerdata/payload_fixtures")
     p_fixtures.set_defaults(func=cmd_fixtures)
 
     p_deliver = sub.add_parser("deliver", help="live delivery to Momentum AMS")
-    p_deliver.add_argument("--intake", default="summitleads/intake/*.json")
+    p_deliver.add_argument("--intake", default="winnerdata/intake/*.json")
     p_deliver.set_defaults(func=cmd_deliver)
 
     args = parser.parse_args()

@@ -1,20 +1,20 @@
 # Winner Data FF -> Momentum AMS (NowCerts) field mapping
 
-**Status:** VERIFIED against the live `summitleads` schema and the public NowCerts API
+**Status:** VERIFIED against the live `winnerdata` schema and the public NowCerts API
 Postman collection. **Not** verified against a live NowCerts trial account — see
 `NOWCERTS_MCP_AUDIT.md` and the LIVE VALIDATION section of the delivery issue for the
 credential-gated end-to-end check.
 
-## Schema note (live-verified 2026-08-24)
+## Schema note (rename completed 2026-08-26)
 
 The parent issue (#19392) brief referenced a pending rename of the `summitleads` schema
-to `winnerdata`. **Live query against `information_schema.schemata` on 2026-08-24 shows
-`summitleads` exists and `winnerdata` does not.** This document and the delivery module
-(`pipelines/winnerdata/momentum_delivery.py`) use `summitleads` throughout — the code
-directory is named `winnerdata` per this issue's own path instructions, but the DB schema
-it reads/writes is `summitleads`. If a rename lands later, only the schema-qualifier
-constants in `momentum_delivery.py` (`summitleads.leads`, `summitleads.lead_activity`,
-`summitleads.routing_decisions`) need updating.
+to `winnerdata`. As of 2026-08-24 that rename had not landed (`summitleads` held all the
+real tables; `winnerdata` existed but was empty). Issue #19486 (2026-08-26) finished it:
+`ALTER SCHEMA summitleads RENAME TO winnerdata` ran live, preserving all rows/triggers/
+views, and every function/pg_cron job that hardcoded `summitleads.*` was updated to
+`winnerdata.*` in the same session. This document and the delivery module
+(`pipelines/winnerdata/momentum_delivery.py`) now match the live schema exactly — no
+outstanding schema-qualifier drift.
 
 ## Endpoint contract sourcing
 
@@ -40,12 +40,12 @@ Every subsequent call sends `Authorization: Bearer <access_token>`.
 
 | FF key | SSOT | NowCerts field | Transform |
 |---|---|---|---|
-| `applicant.entity_name.value` | SL | `commercial_name` (business) or `first_name`+`last_name` (person) | Classified business/person by reusing the exact heuristic already in `scripts/summitleads_render_batch.py`: `\bllc\b\|\binc\b\|\btrust\b\|\bcorp\b\|properties\|construction` (case-insensitive). Person names are split on `, ` (court-record `LAST, FIRST` convention) when both sides are ≤3 words; otherwise the FF's punctuation is stripped and the whole string goes into `first_name` with `last_name` blank (documented lossy fallback — see Residuals). |
+| `applicant.entity_name.value` | SL | `commercial_name` (business) or `first_name`+`last_name` (person) | Classified business/person by reusing the exact heuristic already in `scripts/winnerdata_render_batch.py`: `\bllc\b\|\binc\b\|\btrust\b\|\bcorp\b\|properties\|construction` (case-insensitive). Person names are split on `, ` (court-record `LAST, FIRST` convention) when both sides are ≤3 words; otherwise the FF's punctuation is stripped and the whole string goes into `first_name` with `last_name` blank (documented lossy fallback — see Residuals). |
 | `property.address.value` | MCA | `address_line_1`, `city`, `state`, `zip_code` | Free-text `"STREET, CITY, STATE ZIP"` or `"CITY, STATE ZIP"` (vacant-land shape, no street) is split on commas; state/zip parsed from the trailing segment. This is the **auction-won property**, not a separate mailing address — see Design Decision below. |
 | `applicant.contact_email.value` | SL | `email` | Direct. Empty string when null (NowCerts field, not nullable in the sample body). |
 | `applicant.contact_phone.value` | SL | `phone_number` | Direct. Also the **delivery-gate signal** — see Gates below. |
 | *(constant)* | — | `active` | Always `true`. |
-| `product_line` | — | `referral_source` | `f"SummitLeads: {product_line}"` — free-text field, no enum in the public contract. |
+| `product_line` | — | `referral_source` | `f"Winner Data: {product_line}"` — free-text field, no enum in the public contract. |
 | *(derived)* | — | `type`, `insuredType` | `2` for business, `1` for person. **INFERRED** — the public Postman sample hardcodes `1` with no enum documentation; `2` for business is an assumption, not verified against a live account. Flagged for confirmation in Phase 5 live validation. |
 
 ### Design decision: property address vs. mailing address
@@ -81,7 +81,7 @@ below carries its FF SSOT tag straight through into the custom field's `text` la
 
 | FF path | SSOT | Custom field label |
 |---|---|---|
-| `lead_id` | — | `SummitLeads Lead ID` (traceability key back to `summitleads.leads`) |
+| `lead_id` | — | `Winner Data Lead ID` (traceability key back to `winnerdata.leads`) |
 | `id` | — | `Winner Data FF ID` (traceability key back to the FF artifact) |
 | `property.county.value` | MCA | `Property County` |
 | `property.parcel_id.value` | SL | `Parcel ID` |
@@ -150,14 +150,14 @@ calls NowCerts:
    "vacant_land"`. Note this is distinct from `num_buildings` being `null` (FLP has no row
    for the parcel at all, an unknown, not a confirmed vacancy) — nulls are **not** gated.
 2. **`applicant.contact_phone.value` is null** — `reason: "non_tracerfy_verified_phone"`.
-   **INFERRED**: the `summitleads` schema has no dedicated "Tracerfy-verified" boolean
+   **INFERRED**: the `winnerdata` schema has no dedicated "Tracerfy-verified" boolean
    column. `contact_phone` in this template is sourced exclusively as `"SL"` (per
-   `sources_legend`: "summitleads.leads / Tracerfy skip-trace data already purchased"), so
+   `sources_legend`: "winnerdata.leads / Tracerfy skip-trace data already purchased"), so
    a non-null value is the only signal this schema exposes that Tracerfy resolved a real
    number for the lead. If a future schema change adds an explicit verification column or
    timestamp, gate on that directly instead of phone-presence.
 
-Live distribution across the 20 currently-filled FFs (`summitleads/intake/*.json`,
+Live distribution across the 20 currently-filled FFs (`winnerdata/intake/*.json`,
 2026-08-24): **4 eligible** (PAFFORD_PROPERTIES_CONSTRUCTION ×2, RANDY_COUNTS, ROJOPA_LLC),
 **2 vacant_land** (DAVID_RABEN_ANABEL_LEWIS, HAMMOCK_REAL_ESTATE_DEVELOPMENT_LLC), **14
 non_tracerfy_verified_phone**. See `docs/winnerdata/payload_fixtures/*.nowcerts.json` for
@@ -181,7 +181,7 @@ the parent issue's negative test requires.
 - Entity-type classification inherits the existing house heuristic's blind spots (e.g.
   `"GENFI MINISTRIES INCORPORATED"` doesn't match `\binc\b` as a whole word and is
   classified `person`; `"...TRUSTEE OF ZIVKO PSP"` doesn't match `\btrust\b` for the same
-  reason). Reused verbatim for consistency with `scripts/summitleads_render_batch.py`
+  reason). Reused verbatim for consistency with `scripts/winnerdata_render_batch.py`
   rather than diverging with a second, different classifier — flagged here rather than
   silently fixed, since improving it is a cross-cutting change outside this issue's scope.
 - Multi-party leads (`"RILEY CHRISTOPHER D / KELLEY MATTHEW W"`) are delivered as a single

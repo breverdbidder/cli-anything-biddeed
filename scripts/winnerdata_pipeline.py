@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""SummitLeads Signal -> Skip-trace -> Quote-Draft -> Route -> Deliver spine.
+"""Winner Data Signal -> Skip-trace -> Quote-Draft -> Route -> Deliver spine.
 
 Idempotent (all inserts guarded by NOT EXISTS). Runs against the live
-summitleads schema via the Supabase Management API SQL endpoint (PostgREST
-does not expose the summitleads schema). Degrades gracefully — and says so
+winnerdata schema via the Supabase Management API SQL endpoint (PostgREST
+does not expose the winnerdata schema). Degrades gracefully — and says so
 in the run summary — when REALFORECLOSE_*/TRACERFY_API_KEY are absent.
 
 Sprint 1b (authenticated RealAuction winner harvest, scripts/realauction_
@@ -67,7 +67,7 @@ def run_sql(query):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "summitleads-pipeline/1.0",
+            "User-Agent": "winnerdata-pipeline/1.0",
         },
         method="POST",
     )
@@ -88,7 +88,7 @@ def run_sql(query):
 
 
 SPRINT1 = """
-insert into summitleads.signal_events (event_type, source, county, parcel_id, entity_name, event_payload, occurred_at)
+insert into winnerdata.signal_events (event_type, source, county, parcel_id, entity_name, event_payload, occurred_at)
 select 'auction_close', 'biddeed', county, parcel_id, winning_bidder,
   jsonb_build_object(
     'case_number', case_number, 'sale_type', sale_type, 'sold_amount', sold_amount,
@@ -100,7 +100,7 @@ from public.multi_county_auctions
 where auction_date >= (current_date - interval '7 days') and auction_date <= current_date
   and sold_amount is not null
   and not exists (
-    select 1 from summitleads.signal_events se
+    select 1 from winnerdata.signal_events se
     where se.source='biddeed' and se.event_type='auction_close'
       and (se.event_payload->>'auction_id') = multi_county_auctions.id::text
   );
@@ -108,14 +108,14 @@ where auction_date >= (current_date - interval '7 days') and auction_date <= cur
 
 # Sprint 2 (degraded): only signals with a real (non-placeholder) winning_bidder
 # become leads. No Tracerfy/Sunbiz lookup is attempted here — contact info is
-# left null and flagged, per SummitLeads compliance rails.
+# left null and flagged, per Winner Data compliance rails.
 SPRINT2 = """
 with se as (
   select signal_id, county, parcel_id, entity_name, event_payload, occurred_at
-  from summitleads.signal_events
+  from winnerdata.signal_events
   where coalesce((event_payload->>'is_placeholder_identity')::boolean, true) = false
 ), org as (
-  select org_id from summitleads.organizations where name = 'Protection Partners'
+  select org_id from winnerdata.organizations where name = 'Protection Partners'
 ), classified as (
   select se.*, org.org_id,
     case when se.entity_name ilike '%properties%' or se.entity_name ilike '%construction%'
@@ -123,16 +123,16 @@ with se as (
          then 'business' else 'person' end as entity_type
   from se cross join org
 )
-insert into summitleads.leads (
+insert into winnerdata.leads (
   org_id, signal_id, product_line, temperature, outbound_lane,
   contact_name, contact_phone, contact_email, entity_name, parcel_id,
   closing_date, consent_status, consent_certificate, dnc_scrubbed_at,
   acquisition_cost_cents, ops_cost_cents
 )
 select
-  org_id, signal_id, 'dwelling_landlord'::summitleads.product_line, 'hot'::summitleads.temperature,
-  'compliant_outbound'::summitleads.outbound_lane, entity_name, null, null, entity_name, parcel_id,
-  occurred_at::date, 'none'::summitleads.consent_status,
+  org_id, signal_id, 'dwelling_landlord'::winnerdata.product_line, 'hot'::winnerdata.temperature,
+  'compliant_outbound'::winnerdata.outbound_lane, entity_name, null, null, entity_name, parcel_id,
+  occurred_at::date, 'none'::winnerdata.consent_status,
   jsonb_build_object(
     'entity_type', entity_type,
     'compliance_flag', case when entity_type = 'business' then 'NO_CONTACT_INFO_SUNBIZ_LOOKUP_PENDING' else 'DNC_UNSCRUBBED' end,
@@ -141,15 +141,15 @@ select
   ),
   null, 0, 0
 from classified
-where not exists (select 1 from summitleads.leads l where l.signal_id = classified.signal_id);
+where not exists (select 1 from winnerdata.leads l where l.signal_id = classified.signal_id);
 """
 
 SPRINT3 = """
 with lead_src as (
   select l.lead_id, l.org_id, l.product_line, l.parcel_id, l.entity_name, se.occurred_at, se.county
-  from summitleads.leads l
-  join summitleads.signal_events se on se.signal_id = l.signal_id
-  where not exists (select 1 from summitleads.quote_drafts qd where qd.lead_id = l.lead_id)
+  from winnerdata.leads l
+  join winnerdata.signal_events se on se.signal_id = l.signal_id
+  where not exists (select 1 from winnerdata.quote_drafts qd where qd.lead_id = l.lead_id)
 ), enriched as (
   select ls.*, a.property_address, a.city, a.zip, a.assessed_value, a.market_value, a.lot_size,
          a.year_built, a.beds, a.baths, a.sqft, a.sale_type
@@ -165,7 +165,7 @@ with lead_src as (
     )::numeric / 10 * 100 as completeness_pct
   from enriched
 )
-insert into summitleads.quote_drafts (lead_id, org_id, product_line, payload, completeness_pct, open_gaps, assembled_at)
+insert into winnerdata.quote_drafts (lead_id, org_id, product_line, payload, completeness_pct, open_gaps, assembled_at)
 select
   lead_id, org_id, product_line,
   jsonb_build_object(
@@ -193,21 +193,21 @@ from scored;
 """
 
 SPRINT4 = """
-insert into summitleads.producers (org_id, full_name, email, active_lines, license_states, active)
-select org_id, 'Mariam Shapira', null, array['dwelling_landlord','builders_risk','commercial_bop']::summitleads.product_line[], array['FL'], true
-from summitleads.organizations where name = 'Protection Partners'
-and not exists (select 1 from summitleads.producers p join summitleads.organizations o on o.org_id=p.org_id where o.name='Protection Partners' and p.full_name='Mariam Shapira');
+insert into winnerdata.producers (org_id, full_name, email, active_lines, license_states, active)
+select org_id, 'Mariam Shapira', null, array['dwelling_landlord','builders_risk','commercial_bop']::winnerdata.product_line[], array['FL'], true
+from winnerdata.organizations where name = 'Protection Partners'
+and not exists (select 1 from winnerdata.producers p join winnerdata.organizations o on o.org_id=p.org_id where o.name='Protection Partners' and p.full_name='Mariam Shapira');
 
 -- is_lender_or_plaintiff leads are excluded here (not just relying on the
 -- routing_decisions trigger backstop) so one flagged row in a batch can't
 -- abort the whole INSERT...SELECT and block routing for every legitimate
--- lead in the same run. See supabase/migrations/20260826_summitleads_lender_plaintiff_guard.sql.
-insert into summitleads.routing_decisions (lead_id, org_id, producer_id, product_line, routing_reason, routed_at)
+-- lead in the same run. See supabase/migrations/20260826_winnerdata_lender_plaintiff_guard.sql.
+insert into winnerdata.routing_decisions (lead_id, org_id, producer_id, product_line, routing_reason, routed_at)
 select distinct on (l.lead_id) l.lead_id, l.org_id, p.producer_id, l.product_line, 'calibration', now()
-from summitleads.leads l
-join summitleads.producers p on p.org_id = l.org_id and p.full_name = 'Mariam Shapira'
-where exists (select 1 from summitleads.quote_drafts qd where qd.lead_id = l.lead_id)
-  and not exists (select 1 from summitleads.routing_decisions rd where rd.lead_id = l.lead_id)
+from winnerdata.leads l
+join winnerdata.producers p on p.org_id = l.org_id and p.full_name = 'Mariam Shapira'
+where exists (select 1 from winnerdata.quote_drafts qd where qd.lead_id = l.lead_id)
+  and not exists (select 1 from winnerdata.routing_decisions rd where rd.lead_id = l.lead_id)
   and (l.is_lender_or_plaintiff = false or l.manual_buyer_override = true)
 order by l.lead_id, p.created_at;
 """
@@ -224,14 +224,14 @@ select distinct on (l.lead_id)
        se.event_payload->>'property_address' as property_address,
        mca.assessed_value, mca.market_value,
        p.full_name as producer_name
-from summitleads.leads l
-join summitleads.quote_drafts qd on qd.lead_id = l.lead_id
-join summitleads.signal_events se on se.signal_id = l.signal_id
-join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
-join summitleads.producers p on p.producer_id = rd.producer_id
+from winnerdata.leads l
+join winnerdata.quote_drafts qd on qd.lead_id = l.lead_id
+join winnerdata.signal_events se on se.signal_id = l.signal_id
+join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
+join winnerdata.producers p on p.producer_id = rd.producer_id
 left join public.multi_county_auctions mca on mca.parcel_id = l.parcel_id and mca.county = se.county
 where not exists (
-  select 1 from summitleads.lead_activity la where la.lead_id = l.lead_id and la.activity_type = 'delivered'
+  select 1 from winnerdata.lead_activity la where la.lead_id = l.lead_id and la.activity_type = 'delivered'
 )
 order by l.lead_id, mca.assessed_value desc nulls last;
 """
@@ -252,14 +252,14 @@ select distinct on (l.lead_id)
        se.event_payload->>'property_address' as property_address,
        mca.assessed_value, mca.market_value,
        p.full_name as producer_name
-from summitleads.leads l
-join summitleads.quote_drafts qd on qd.lead_id = l.lead_id
-join summitleads.signal_events se on se.signal_id = l.signal_id
-join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
-join summitleads.producers p on p.producer_id = rd.producer_id
+from winnerdata.leads l
+join winnerdata.quote_drafts qd on qd.lead_id = l.lead_id
+join winnerdata.signal_events se on se.signal_id = l.signal_id
+join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
+join winnerdata.producers p on p.producer_id = rd.producer_id
 left join public.multi_county_auctions mca on mca.parcel_id = l.parcel_id and mca.county = se.county
 where exists (
-  select 1 from summitleads.lead_activity la
+  select 1 from winnerdata.lead_activity la
   where la.lead_id = l.lead_id and la.activity_type = 'delivered' and (la.payload->>'batch_date') = '{batch_date}'
 )
 order by l.lead_id, mca.assessed_value desc nulls last;
@@ -351,7 +351,7 @@ def lookup_mailing_address(entity_name):
 
 TRACERFY_CANDIDATES_QUERY = f"""
 select l.lead_id, l.entity_name
-from summitleads.leads l
+from winnerdata.leads l
 where l.contact_phone is null and l.contact_email is null
   and coalesce(l.consent_certificate->>'skip_trace_status', '') in (
     {", ".join(_sql_str(s) for s in TRACERFY_RETRYABLE_STATUSES)}
@@ -387,7 +387,7 @@ def sprint2b_tracerfy_skiptrace():
             continue
         if not addr:
             run_sql(f"""
-                update summitleads.leads set consent_certificate = consent_certificate ||
+                update winnerdata.leads set consent_certificate = consent_certificate ||
                   jsonb_build_object('skip_trace_status', 'TRACED_NO_MAILING_ADDRESS')
                 where lead_id = {_sql_str(lead['lead_id'])};
             """)
@@ -397,7 +397,7 @@ def sprint2b_tracerfy_skiptrace():
         ledger = ff_credit_ledger.spend("tracerfy", 1)
         if not ledger.get("granted"):
             run_sql(f"""
-                update summitleads.leads set consent_certificate = consent_certificate ||
+                update winnerdata.leads set consent_certificate = consent_certificate ||
                   jsonb_build_object('skip_trace_status', 'SKIP_TRACE_SKIPPED_DAILY_CAP')
                 where lead_id = {_sql_str(lead['lead_id'])};
             """)
@@ -409,7 +409,7 @@ def sprint2b_tracerfy_skiptrace():
         )
         if result.get("phone") or result.get("email"):
             run_sql(f"""
-                update summitleads.leads set
+                update winnerdata.leads set
                   contact_phone = {_sql_str(result.get('phone'))},
                   contact_email = {_sql_str(result.get('email'))},
                   contact_name = {_sql_str(result.get('full_name') or lead['entity_name'])},
@@ -420,7 +420,7 @@ def sprint2b_tracerfy_skiptrace():
             hits += 1
         else:
             run_sql(f"""
-                update summitleads.leads set consent_certificate = consent_certificate ||
+                update winnerdata.leads set consent_certificate = consent_certificate ||
                   jsonb_build_object('skip_trace_status', 'TRACED_NO_HIT', 'skip_trace_parse_status', {_sql_str(result.get('parse_status'))})
                 where lead_id = {_sql_str(lead['lead_id'])};
             """)
@@ -434,8 +434,8 @@ def sprint2b_tracerfy_skiptrace():
 APPRAISER_VERIFY_CANDIDATES_QUERY = """
 select l.lead_id, se.event_payload->>'case_number' as case_number, se.county,
        l.parcel_id, se.event_payload->>'property_address' as address, fp.own_name as owner
-from summitleads.leads l
-join summitleads.signal_events se on se.signal_id = l.signal_id
+from winnerdata.leads l
+join winnerdata.signal_events se on se.signal_id = l.signal_id
 left join public.fl_parcels fp on fp.parcel_id = l.parcel_id
 where l.parcel_id is not null
   and se.county in ('manatee', 'lee', 'broward', 'palm_beach', 'marion');
@@ -463,13 +463,13 @@ def sprint5_deliver(batch_date):
     else:
         lead_ids = ",".join(f"'{r['lead_id']}'" for r in new_rows)
         run_sql(f"""
-            insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
+            insert into winnerdata.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
             select l.lead_id, l.org_id, rd.producer_id, 'delivered', 'call_sheet',
               jsonb_build_object('batch_date', '{batch_date}'), now()
-            from summitleads.leads l
-            join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
+            from winnerdata.leads l
+            join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
             where l.lead_id in ({lead_ids})
-              and not exists (select 1 from summitleads.lead_activity la where la.lead_id = l.lead_id and la.activity_type='delivered');
+              and not exists (select 1 from winnerdata.lead_activity la where la.lead_id = l.lead_id and la.activity_type='delivered');
         """)
         print(f"Sprint 5: marked {len(new_rows)} newly-delivered lead(s) for batch_date={batch_date}.")
 
@@ -479,14 +479,14 @@ def sprint5_deliver(batch_date):
     if not rows:
         print(f"Sprint 5: nothing delivered for batch_date={batch_date} — no file written.")
         return
-    out_dir = f"summitleads/batches/{batch_date}"
+    out_dir = f"winnerdata/batches/{batch_date}"
     os.makedirs(out_dir, exist_ok=True)
-    # markdown rendering intentionally kept inline (mirrors scripts/summitleads_render_batch.py)
+    # markdown rendering intentionally kept inline (mirrors scripts/winnerdata_render_batch.py)
     import subprocess
     with open("/tmp/batch_data.json", "w") as f:
         json.dump(rows, f)
     subprocess.run(
-        [sys.executable, "scripts/summitleads_render_batch.py"],
+        [sys.executable, "scripts/winnerdata_render_batch.py"],
         check=True,
         env={**os.environ, "BATCH_DATE_OVERRIDE": batch_date},
     )
@@ -494,7 +494,7 @@ def sprint5_deliver(batch_date):
 
 
 def main():
-    batch_date = os.environ.get("SUMMITLEADS_BATCH_DATE", date.today().isoformat())
+    batch_date = os.environ.get("WINNERDATA_BATCH_DATE", date.today().isoformat())
 
     run_sql(SPRINT1)
     print("Sprint 1 done: signal_events synced from last-7-day completed FL auctions, all 67 counties.")
@@ -511,11 +511,11 @@ def main():
 
     counts = run_sql("""
         select
-          (select count(*) from summitleads.signal_events) as signal_events,
-          (select count(*) from summitleads.leads) as leads,
-          (select count(*) from summitleads.leads where contact_phone is not null or contact_email is not null) as leads_with_contact,
-          (select count(*) from summitleads.quote_drafts) as quote_drafts,
-          (select count(*) from summitleads.lead_activity where activity_type='delivered') as delivered,
+          (select count(*) from winnerdata.signal_events) as signal_events,
+          (select count(*) from winnerdata.leads) as leads,
+          (select count(*) from winnerdata.leads where contact_phone is not null or contact_email is not null) as leads_with_contact,
+          (select count(*) from winnerdata.quote_drafts) as quote_drafts,
+          (select count(*) from winnerdata.lead_activity where activity_type='delivered') as delivered,
           (select count(*) from public.parity_audit where verdict='pass' and field_name='parcel_id') as appraiser_verified_parcels,
           (select total_calls from public.ff_daily_credit_ledger where usage_date = current_date) as credit_units_spent_today;
     """)

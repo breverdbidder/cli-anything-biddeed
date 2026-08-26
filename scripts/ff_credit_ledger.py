@@ -6,7 +6,7 @@ supabase/migrations/20260824_ff_daily_credit_ledger.sql for the credit-unit
 definition and why it's call-count-based, not a reconciled dollar figure).
 Called over PostgREST/rpc, not direct psql, per this repo's documented
 psql-unavailable-in-sandbox fallback pattern (see decision_log ids
-169/205/287 and scripts/summitleads_pipeline.py's own docstring).
+169/205/287 and scripts/winnerdata_pipeline.py's own docstring).
 
 Usage: call spend(source, n) BEFORE making the vendor API call it accounts
 for. If granted is False, do not call the vendor -- log the skip with a

@@ -118,7 +118,7 @@ def load_batch_parcels(county):
     import json
     import glob
     out = []
-    for path in glob.glob("summitleads/intake/*.json"):
+    for path in glob.glob("winnerdata/intake/*.json"):
         d = json.load(open(path))
         prop = d.get("property", {})
         if (prop.get("county", {}).get("value") or "").lower() != county:

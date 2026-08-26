@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SummitLeads Sprint 1b — Bright Data Scraping Browser winner harvester.
+"""Winner Data Sprint 1b — Bright Data Scraping Browser winner harvester.
 
 STATUS: UNTESTED this session. BRIGHTDATA_API_KEY / BRIGHTDATA_BROWSER_WSS
 were not present in this session's environment (confirmed: `env | grep -i

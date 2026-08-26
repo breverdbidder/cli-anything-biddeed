@@ -104,10 +104,10 @@ Migration: `supabase/migrations/20260824_protection_partners_intake.sql`
 (applied live via the Supabase Management API on 2026-08-24 — see issue
 #19405 comment for the verification query/output).
 
-Table lives in **`public`**, not `summitleads`/`winnerdata` — PostgREST does
-not expose the `summitleads` schema (see
+Table lives in **`public`**, not `winnerdata` — PostgREST does
+not expose the `winnerdata` schema (see
 `docs/winnerdata/FF_TO_MOMENTUM_MAPPING.md`), and this is a distinct
-website-intake source rather than part of the SummitLeads/Winner Data
+website-intake source rather than part of the Winner Data
 auction pipeline. RLS is enabled with **zero policies**: anon/authenticated
 clients can neither read nor write. `functions/api/quote.ts` is the only
 write path, using `SUPABASE_SERVICE_ROLE`, which bypasses RLS.
@@ -126,7 +126,7 @@ create table public.protection_partners_intake (
 ## FF payload shape
 
 `payload` reuses the `applicant.*` and `property.address` field keys from
-`summitleads/SUMMITLEADS_QUOTE_REQUEST_TEMPLATE.json` (the auction-investor
+`winnerdata/WINNERDATA_QUOTE_REQUEST_TEMPLATE.json` (the auction-investor
 edition) so the same keys line up with the mappings already documented in
 `docs/winnerdata/FF_TO_MOMENTUM_MAPPING.md` (e.g. `applicant.entity_name.value`
 → NowCerts `commercial_name`/`first_name`+`last_name`). Fields that only make

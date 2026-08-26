@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""SummitLeads Sprint 7 — SLQ intake JSON generator.
+"""Winner Data Sprint 7 — SLQ intake JSON generator.
 
-SSOT ONLY, NO RE-PURCHASE: reads summitleads.leads / v_producer_intake /
+SSOT ONLY, NO RE-PURCHASE: reads winnerdata.leads / v_producer_intake /
 auction_buyer_profiles (data already paid for), never calls Tracerfy or any
 paid vendor. One SLQ-<year>-<entity>-<seq>.json per delivered lead, written
-to summitleads/intake/, per SUMMITLEADS_QUOTE_REQUEST_TEMPLATE.json. Links
-each file via a summitleads.lead_activity row (activity_type=slq_generated)
+to winnerdata/intake/, per WINNERDATA_QUOTE_REQUEST_TEMPLATE.json. Links
+each file via a winnerdata.lead_activity row (activity_type=slq_generated)
 so re-runs are idempotent (skip leads that already have one).
 
 Missing SSOT fields are left null + listed in missing_required_fields —
@@ -20,7 +20,7 @@ from datetime import date, timezone, datetime
 
 PROJECT_REF = "mocerqjnksmhcjzxrewo"
 MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
-INTAKE_DIR = "summitleads/intake"
+INTAKE_DIR = "winnerdata/intake"
 
 # INFERRED, not a verified FEMA flood-zone lookup -- zone_code is unpopulated
 # in fl_parcels for these parcels. Florida counties touching the Atlantic or
@@ -49,7 +49,7 @@ def run_sql(query):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "summitleads-slq-generator/1.0",
+            "User-Agent": "winnerdata-slq-generator/1.0",
         },
         method="POST",
     )
@@ -68,14 +68,14 @@ select
   vpi.act_yr_blt, vpi.tot_lvg_ar, vpi.no_buldng, vpi.const_clas, vpi.dor_uc, vpi.zone_code,
   vpi.just_value, vpi.buyer_mailing_addr,
   bp.total_wins, bp.total_deployed, bp.counties_active
-from summitleads.leads l
-join summitleads.lead_activity la on la.lead_id = l.lead_id and la.activity_type = 'delivered'
-left join summitleads.v_producer_intake vpi on vpi.lead_id = l.lead_id
+from winnerdata.leads l
+join winnerdata.lead_activity la on la.lead_id = l.lead_id and la.activity_type = 'delivered'
+left join winnerdata.v_producer_intake vpi on vpi.lead_id = l.lead_id
 left join auction_buyer_profiles bp
   on regexp_replace(lower(bp.buyer_name_normalized), '[^a-z0-9 ]', '', 'g')
    = regexp_replace(lower(l.entity_name), '[^a-z0-9 ]', '', 'g')
 where not exists (
-  select 1 from summitleads.lead_activity done
+  select 1 from winnerdata.lead_activity done
   where done.lead_id = l.lead_id and done.activity_type = 'slq_generated'
 )
 order by l.entity_name;
@@ -256,15 +256,15 @@ def main():
 
     lead_ids = ",".join(f"'{lid}'" for lid, _ in written)
     run_sql(f"""
-        insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
+        insert into winnerdata.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
         select l.lead_id, l.org_id, rd.producer_id, 'slq_generated', 'intake_json',
           jsonb_build_object('slq_id', v.slq_id), now()
-        from summitleads.leads l
-        join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
+        from winnerdata.leads l
+        join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
         join (values {",".join(f"('{lid}','{sid}')" for lid, sid in written)}) as v(lead_id, slq_id)
           on v.lead_id::uuid = l.lead_id
         where not exists (
-          select 1 from summitleads.lead_activity done
+          select 1 from winnerdata.lead_activity done
           where done.lead_id = l.lead_id and done.activity_type = 'slq_generated'
         );
     """)

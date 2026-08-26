@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 2: create summitleads.leads for the 24-row 2026-08-24 third_party
+"""Phase 2: create winnerdata.leads for the 24-row 2026-08-24 third_party
 batch, keyed by case_number (unambiguous within this batch -- winning_bidder
 names are not unique-safe as a join key across counties).
 
@@ -47,7 +47,7 @@ def s(v):
 
 
 # case_number -> classification. entity_type is a simple business/person
-# heuristic (matches scripts/summitleads_render_batch.py's existing pattern)
+# heuristic (matches scripts/winnerdata_render_batch.py's existing pattern)
 # used only for the render banner, not for gating.
 CLASS = {
     # --- confirmed VACANT (no_buldng=0) -- gate-blocked, pipeline-only ---
@@ -111,12 +111,12 @@ CLASS = {
 
 
 def main():
-    org = run_sql("select org_id from summitleads.organizations where name='Protection Partners';")[0]["org_id"]
+    org = run_sql("select org_id from winnerdata.organizations where name='Protection Partners';")[0]["org_id"]
 
     rows = run_sql(f"""
         select se.signal_id, se.county, se.parcel_id, se.entity_name, se.occurred_at,
                se.event_payload->>'case_number' as case_number
-        from summitleads.signal_events se
+        from winnerdata.signal_events se
         where se.source='biddeed' and se.event_type='auction_close'
           and (se.event_payload->>'batch') = '20260824_third_party';
     """)
@@ -139,13 +139,13 @@ def main():
             cert["skip_trace_status"] = "NOT_ATTEMPTED_GATE_BLOCKED"
             cert["compliance_flag"] = "GATE_BLOCKED_" + gate.upper()
 
-        existing = run_sql(f"select lead_id from summitleads.leads where signal_id = {s(r['signal_id'])};")
+        existing = run_sql(f"select lead_id from winnerdata.leads where signal_id = {s(r['signal_id'])};")
         if existing:
             skipped_dup += 1
             continue
 
         run_sql(f"""
-            insert into summitleads.leads (
+            insert into winnerdata.leads (
               org_id, signal_id, product_line, temperature, outbound_lane,
               contact_name, contact_phone, contact_email, entity_name, parcel_id,
               closing_date, consent_status, consent_certificate, dnc_scrubbed_at,

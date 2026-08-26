@@ -20,7 +20,7 @@ decision_log ids 169/205/287 and scripts/skiptrace_20260824_phase2_leads.py):
   explicitly not sufficient, since Dade Tax Consulting is RA for 51 entities).
 
 Writes: winnerdata.owner_portfolio (one row per owner_key x parcel),
-summitleads.leads (phone/email when Tracerfy resolves a name+address).
+winnerdata.leads (phone/email when Tracerfy resolves a name+address).
 """
 from __future__ import annotations
 

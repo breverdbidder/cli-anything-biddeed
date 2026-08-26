@@ -37,8 +37,8 @@ def main():
     leads = run_sql("""
         select l.lead_id, l.org_id, l.entity_name, l.parcel_id, l.consent_certificate->>'improved_gate' as gate,
                l.consent_certificate->>'gate_note' as gate_note
-        from summitleads.leads l
-        join summitleads.signal_events se on se.signal_id = l.signal_id
+        from winnerdata.leads l
+        join winnerdata.signal_events se on se.signal_id = l.signal_id
         where (se.event_payload->>'batch') = '20260824_third_party';
     """)
     print(f"{len(leads)} leads in this batch.")
@@ -48,26 +48,26 @@ def main():
 
     for r in blocked:
         run_sql(f"""
-            insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
+            insert into winnerdata.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
             select {s(r['lead_id'])}, {s(r['org_id'])}, null, 'gate_blocked', 'call_sheet',
               jsonb_build_object('reason', 'improved_property_gate_' || {s(r['gate'])}, 'detail', {s(r['gate_note'])}),
               now()
             where not exists (
-              select 1 from summitleads.lead_activity la
+              select 1 from winnerdata.lead_activity la
               where la.lead_id = {s(r['lead_id'])} and la.activity_type = 'gate_blocked'
             );
         """)
     print(f"Logged gate_blocked for {len(blocked)} leads (not delivered, no live link).")
 
-    # quote_drafts for the 19 gate-passed leads (same completeness scoring shape as summitleads_pipeline.py SPRINT3)
+    # quote_drafts for the 19 gate-passed leads (same completeness scoring shape as winnerdata_pipeline.py SPRINT3)
     run_sql("""
         with lead_src as (
           select l.lead_id, l.org_id, l.product_line, l.parcel_id, l.entity_name, se.occurred_at, se.county
-          from summitleads.leads l
-          join summitleads.signal_events se on se.signal_id = l.signal_id
+          from winnerdata.leads l
+          join winnerdata.signal_events se on se.signal_id = l.signal_id
           where (se.event_payload->>'batch') = '20260824_third_party'
             and (l.consent_certificate->>'improved_gate') = 'pass'
-            and not exists (select 1 from summitleads.quote_drafts qd where qd.lead_id = l.lead_id)
+            and not exists (select 1 from winnerdata.quote_drafts qd where qd.lead_id = l.lead_id)
         ), enriched as (
           select ls.*, a.property_address, a.city, a.zip, a.assessed_value, a.market_value, a.lot_size,
                  a.year_built, a.beds, a.baths, a.sqft, a.sale_type
@@ -83,7 +83,7 @@ def main():
             )::numeric / 9 * 100 as completeness_pct
           from enriched
         )
-        insert into summitleads.quote_drafts (lead_id, org_id, product_line, payload, completeness_pct, open_gaps, assembled_at)
+        insert into winnerdata.quote_drafts (lead_id, org_id, product_line, payload, completeness_pct, open_gaps, assembled_at)
         select
           lead_id, org_id, product_line,
           jsonb_build_object(
@@ -106,44 +106,44 @@ def main():
     print("quote_drafts assembled for gate-passed leads.")
 
     run_sql("""
-        insert into summitleads.producers (org_id, full_name, email, active_lines, license_states, active)
-        select org_id, 'Mariam Shapira', null, array['dwelling_landlord','builders_risk','commercial_bop']::summitleads.product_line[], array['FL'], true
-        from summitleads.organizations where name = 'Protection Partners'
-        and not exists (select 1 from summitleads.producers p join summitleads.organizations o on o.org_id=p.org_id where o.name='Protection Partners' and p.full_name='Mariam Shapira');
+        insert into winnerdata.producers (org_id, full_name, email, active_lines, license_states, active)
+        select org_id, 'Mariam Shapira', null, array['dwelling_landlord','builders_risk','commercial_bop']::winnerdata.product_line[], array['FL'], true
+        from winnerdata.organizations where name = 'Protection Partners'
+        and not exists (select 1 from winnerdata.producers p join winnerdata.organizations o on o.org_id=p.org_id where o.name='Protection Partners' and p.full_name='Mariam Shapira');
     """)
     run_sql("""
-        insert into summitleads.routing_decisions (lead_id, org_id, producer_id, product_line, routing_reason, routed_at)
+        insert into winnerdata.routing_decisions (lead_id, org_id, producer_id, product_line, routing_reason, routed_at)
         select distinct on (l.lead_id) l.lead_id, l.org_id, p.producer_id, l.product_line, 'calibration', now()
-        from summitleads.leads l
-        join summitleads.signal_events se on se.signal_id = l.signal_id
-        join summitleads.producers p on p.org_id = l.org_id and p.full_name = 'Mariam Shapira'
+        from winnerdata.leads l
+        join winnerdata.signal_events se on se.signal_id = l.signal_id
+        join winnerdata.producers p on p.org_id = l.org_id and p.full_name = 'Mariam Shapira'
         where (se.event_payload->>'batch') = '20260824_third_party'
           and (l.consent_certificate->>'improved_gate') = 'pass'
-          and exists (select 1 from summitleads.quote_drafts qd where qd.lead_id = l.lead_id)
-          and not exists (select 1 from summitleads.routing_decisions rd where rd.lead_id = l.lead_id)
+          and exists (select 1 from winnerdata.quote_drafts qd where qd.lead_id = l.lead_id)
+          and not exists (select 1 from winnerdata.routing_decisions rd where rd.lead_id = l.lead_id)
         order by l.lead_id, p.created_at;
     """)
     print("Routed to Mariam Shapira (Protection Partners producer).")
 
     run_sql(f"""
-        insert into summitleads.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
+        insert into winnerdata.lead_activity (lead_id, org_id, producer_id, activity_type, channel, payload, occurred_at)
         select l.lead_id, l.org_id, rd.producer_id, 'delivered', 'call_sheet',
           jsonb_build_object('batch_date', '2026-08-24', 'batch', '20260824_third_party'), now()
-        from summitleads.leads l
-        join summitleads.signal_events se on se.signal_id = l.signal_id
-        join summitleads.routing_decisions rd on rd.lead_id = l.lead_id
+        from winnerdata.leads l
+        join winnerdata.signal_events se on se.signal_id = l.signal_id
+        join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
         where (se.event_payload->>'batch') = '20260824_third_party'
           and (l.consent_certificate->>'improved_gate') = 'pass'
-          and not exists (select 1 from summitleads.lead_activity la where la.lead_id = l.lead_id and la.activity_type='delivered');
+          and not exists (select 1 from winnerdata.lead_activity la where la.lead_id = l.lead_id and la.activity_type='delivered');
     """)
     print("Marked delivered.")
 
     final = run_sql("""
         select l.lead_id, l.entity_name, l.contact_phone, l.consent_certificate->>'improved_gate' as gate,
                l.consent_certificate->>'skip_trace_status' as skip_trace_status,
-               (exists(select 1 from summitleads.lead_activity la where la.lead_id=l.lead_id and la.activity_type='delivered')) as delivered
-        from summitleads.leads l
-        join summitleads.signal_events se on se.signal_id = l.signal_id
+               (exists(select 1 from winnerdata.lead_activity la where la.lead_id=l.lead_id and la.activity_type='delivered')) as delivered
+        from winnerdata.leads l
+        join winnerdata.signal_events se on se.signal_id = l.signal_id
         where (se.event_payload->>'batch') = '20260824_third_party'
         order by l.entity_name;
     """)

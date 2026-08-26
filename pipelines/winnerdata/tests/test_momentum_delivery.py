@@ -317,7 +317,7 @@ FIXTURES_DIR = os.path.join(_REPO_ROOT, "docs", "winnerdata", "payload_fixtures"
 
 def test_committed_fixtures_exist_and_cover_all_intake_ffs():
     import glob
-    intake_count = len(glob.glob(os.path.join(_REPO_ROOT, "summitleads", "intake", "*.json")))
+    intake_count = len(glob.glob(os.path.join(_REPO_ROOT, "winnerdata", "intake", "*.json")))
     fixture_count = len(glob.glob(os.path.join(FIXTURES_DIR, "*.nowcerts.json")))
     assert intake_count > 0, "no intake FFs found -- check working directory"
     assert fixture_count == intake_count

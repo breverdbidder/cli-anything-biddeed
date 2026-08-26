@@ -3,7 +3,7 @@
 listing their FULL held book (winnerdata.owner_portfolio), not just the
 parcel won at auction. Part 2 of the identity-cascade + portfolio issue
 (2026-08-25), supersedes the single-property call sheets from
-scripts/summitleads_render_batch.py for any buyer with 2+ properties.
+scripts/winnerdata_render_batch.py for any buyer with 2+ properties.
 
 Billing note (per the issue): POC rate stays $9/Fact-Finder delivered
 regardless of property_count -- this script emits property_count and a
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from skiptrace_20260825_portfolio_batch import run_sql, BATCH_ID  # noqa: E402
 
 BATCH_DATE = os.environ.get("BATCH_DATE_OVERRIDE") or date.today().isoformat()
-OUT_DIR = f"summitleads/batches/{BATCH_DATE}/portfolio"
+OUT_DIR = f"winnerdata/batches/{BATCH_DATE}/portfolio"
 RATE_PER_FF_CENTS = 900  # $9.00, flat per Fact Finder delivered -- NOT per property (issue directive, do not invent per-property pricing)
 
 DOR_UC_MAP = {

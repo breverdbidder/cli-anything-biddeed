@@ -1,8 +1,8 @@
-name: summitleads-daily-winner-ff-digest
+name: winnerdata-daily-winner-ff-digest
 # "The Daily Winner FFs" -- issue #19490. Sends the branded digest email of
 # that day's guard-passed (#19481), routed leads to Mariam Shapira.
 #
-# Runs AFTER both summitleads-daily.yml passes (00:00 UTC primary, 04:00 UTC
+# Runs AFTER both winnerdata-daily.yml passes (00:00 UTC primary, 04:00 UTC
 # midnight-ET catch-up -- see that workflow's own header for the timing
 # analysis) so the day's batch is fully routed before this queries it.
 #
@@ -10,12 +10,12 @@ name: summitleads-daily-winner-ff-digest
 # 8:00 AM ET (12:00 UTC in EDT); issue's own internal target is 7:30 AM ET
 # (11:30 UTC) for a 30-min buffer. This schedule leaves ~1h30m to the 7:30
 # target and ~2h to the hard 8:00 AM deadline -- both comfortably clear of
-# summitleads-daily.yml's own 30-minute timeout window. Same DST caveat as
-# summitleads-daily.yml: fixed UTC cron, so the ET label drifts an hour
+# winnerdata-daily.yml's own 30-minute timeout window. Same DST caveat as
+# winnerdata-daily.yml: fixed UTC cron, so the ET label drifts an hour
 # across the DST boundary -- flagged, not silently assumed.
 #
-# The separate summitleads-daily-ff-digest-sla-alert pg_cron job (see
-# supabase/migrations/20260826b_summitleads_daily_winner_ff_digest.sql)
+# The separate winnerdata-daily-ff-digest-sla-alert pg_cron job (see
+# supabase/migrations/20260826b_winnerdata_daily_winner_ff_digest.sql)
 # fires a Telegram alert to Ariel at 11:15 UTC (7:15 AM ET) if no digest has
 # been logged sent/no_leads_sent for today by then.
 on:
@@ -31,7 +31,7 @@ on:
         default: 'false'
   schedule:
     - cron: "0 10 * * *"    # 6:00 AM EDT / 5:00 AM EST (10:00 UTC)
-concurrency: {group: summitleads-daily-winner-ff-digest, cancel-in-progress: false}
+concurrency: {group: winnerdata-daily-winner-ff-digest, cancel-in-progress: false}
 jobs:
   digest:
     runs-on: ubuntu-latest
@@ -52,4 +52,4 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          python scripts/summitleads_daily_winner_ff_digest.py $ARGS
+          python scripts/winnerdata_daily_winner_ff_digest.py $ARGS

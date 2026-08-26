@@ -3,7 +3,7 @@
   "id": "SLQ-<YEAR>-<ENTITY_SLUG>-<seq>",
   "generated_at": null,
   "sources_legend": {
-    "SL": "summitleads.leads / Tracerfy skip-trace data already purchased -- do not re-purchase",
+    "SL": "winnerdata.leads / Tracerfy skip-trace data already purchased -- do not re-purchase",
     "ABP": "auction_buyer_profiles / auction_buyer_sightings (buyer aggregate history)",
     "MCA": "public.multi_county_auctions (the auction that created this lead)",
     "FLP": "public.fl_parcels (county appraiser parcel data)",

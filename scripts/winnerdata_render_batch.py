@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render SummitLeads delivery batch markdown from /tmp/batch_data.json (live-queried rows)."""
+"""Render Winner Data delivery batch markdown from /tmp/batch_data.json (live-queried rows)."""
 import json
 import os
 import re
@@ -9,7 +9,7 @@ with open('/tmp/batch_data.json') as f:
     rows = json.load(f)
 
 BATCH_DATE = os.environ.get("BATCH_DATE_OVERRIDE") or date.today().isoformat()
-OUT_DIR = f"summitleads/batches/{BATCH_DATE}"
+OUT_DIR = f"winnerdata/batches/{BATCH_DATE}"
 
 def fmt_money(v):
     return f"${float(v):,.0f}" if v is not None else "unknown"
@@ -94,7 +94,7 @@ def main():
             "harvesters — many completed auctions are excluded until harvest lands. Honest volume "
             "for today, not the full pipeline ceiling."
         )
-    master_lines = [f"# SummitLeads — Auction Flash Batch {BATCH_DATE}\n",
+    master_lines = [f"# Winner Data — Auction Flash Batch {BATCH_DATE}\n",
                      f"Generated: {datetime.now(timezone.utc).isoformat()}Z (live-queried, org=Protection Partners)\n",
                      f"Total leads: {len(rows)} | Producers: {len(by_producer)}\n",
                      scope_note + "\n"]
