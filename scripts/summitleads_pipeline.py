@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date
@@ -44,6 +46,19 @@ def _sql_str(v):
     return "'" + str(v).replace("'", "''") + "'"
 
 
+# 2026-08-26: both scheduled runs (32914286666, 32929608761) died on the
+# first transient error hit anywhere in the pipeline -- a Management API
+# call failed with a plain "HTTP Error 400: Bad Request" inside a ~3min
+# window where 19 separate fl_parcels PostgREST calls in the same run also
+# failed with 521/522/timeout. Re-running the identical query moments later
+# (live, this session) succeeded instantly -- this is a transient Supabase/
+# Cloudflare edge blip, not a malformed query, and it was killing SPRINT3/4/5
+# (quote_drafts, routing, delivery) outright rather than just the one call
+# that hit it. Retry with backoff so one blip doesn't abort the whole run.
+MGMT_API_RETRIES = 3
+MGMT_API_BACKOFF_SECONDS = 3
+
+
 def run_sql(query):
     token = os.environ["SUPABASE_ACCESS_TOKEN"]
     req = urllib.request.Request(
@@ -56,11 +71,20 @@ def run_sql(query):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req) as resp:
-        body = json.loads(resp.read())
-    if isinstance(body, dict) and "message" in body:
-        raise RuntimeError(body["message"])
-    return body
+    last_err = None
+    for attempt in range(1, MGMT_API_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req) as resp:
+                body = json.loads(resp.read())
+            if isinstance(body, dict) and "message" in body:
+                raise RuntimeError(body["message"])
+            return body
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+            if attempt < MGMT_API_RETRIES:
+                print(f"  run_sql attempt {attempt}/{MGMT_API_RETRIES} failed ({e}), retrying in {MGMT_API_BACKOFF_SECONDS * attempt}s...")
+                time.sleep(MGMT_API_BACKOFF_SECONDS * attempt)
+    raise last_err
 
 
 SPRINT1 = """
@@ -174,12 +198,17 @@ select org_id, 'Mariam Shapira', null, array['dwelling_landlord','builders_risk'
 from summitleads.organizations where name = 'Protection Partners'
 and not exists (select 1 from summitleads.producers p join summitleads.organizations o on o.org_id=p.org_id where o.name='Protection Partners' and p.full_name='Mariam Shapira');
 
+-- is_lender_or_plaintiff leads are excluded here (not just relying on the
+-- routing_decisions trigger backstop) so one flagged row in a batch can't
+-- abort the whole INSERT...SELECT and block routing for every legitimate
+-- lead in the same run. See supabase/migrations/20260826_summitleads_lender_plaintiff_guard.sql.
 insert into summitleads.routing_decisions (lead_id, org_id, producer_id, product_line, routing_reason, routed_at)
 select distinct on (l.lead_id) l.lead_id, l.org_id, p.producer_id, l.product_line, 'calibration', now()
 from summitleads.leads l
 join summitleads.producers p on p.org_id = l.org_id and p.full_name = 'Mariam Shapira'
 where exists (select 1 from summitleads.quote_drafts qd where qd.lead_id = l.lead_id)
   and not exists (select 1 from summitleads.routing_decisions rd where rd.lead_id = l.lead_id)
+  and (l.is_lender_or_plaintiff = false or l.manual_buyer_override = true)
 order by l.lead_id, p.created_at;
 """
 
