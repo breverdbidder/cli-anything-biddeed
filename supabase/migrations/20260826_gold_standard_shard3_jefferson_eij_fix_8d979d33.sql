@@ -1,0 +1,145 @@
+-- Gold Standard shard-3, dispatch 8d979d33-c6a4-4c6f-adfe-cd9f700cd117 -- county: jefferson
+--
+-- DOCUMENTATION-ONLY RECORD. Direct psql/db push is unavailable in this environment
+-- (pooler auth fails, no working exec_sql RPC). All statements below were executed live
+-- against production via PostgREST (PATCH/POST to REST table endpoints), NOT via this file.
+-- This file exists purely as an audit trail per repo convention.
+--
+-- BEFORE (pencil_dod_evaluate_county('jefferson')):
+--   B: fail (verified=0 closed_sold=0)
+--   C: fail 75.0 (matched_clean=3 of 4)
+--   D: fail 75.0 (matched_any=3 of 4)
+--   E: fail 75.0 (parcel_linked=3 of 4)
+--   F: fail (tier1_sold=0 closed_sold=0)
+--   I: fail 75.0 (card_complete=3 of 4)
+--   J: fail 75.0 (deal_complete=3 of 4)
+--   auctions_total: 4
+--
+-- AFTER:
+--   B: fail (verified=0 closed_sold=0)          -- UNCHANGED, genuine ceiling (see below)
+--   C: fail 75.0 (matched_clean=3 of 4)          -- UNCHANGED, genuine ceiling (see below)
+--   D: fail 75.0 (matched_any=3 of 4)            -- UNCHANGED, genuine ceiling (see below)
+--   E: PASS 100.0 (parcel_linked=4 of 4)         -- FIXED
+--   F: fail (tier1_sold=0 closed_sold=0)         -- UNCHANGED, genuine ceiling (see below)
+--   I: PASS 100.0 (card_complete=4 of 4)         -- FIXED
+--   J: PASS 100.0 (deal_complete=4 of 4)         -- FIXED
+--
+-- ============================================================================
+-- FIX 1: row 657231f6-9b46-400c-a954-8bf288f2ba9c, case 25-CA-145 (foreclosure,
+-- auction_date 2026-08-27, still upcoming). This row had parcel_id=NULL and
+-- property_address=NULL -- the sole cause of the E and I gaps (3 of 4 -> 4 of 4).
+--
+-- SOURCES (all independently verified live this session):
+--  1. Jefferson Clerk's live "Foreclosure Sales" PDF (updated 08/03/2026), fetched via
+--     the WordPress ACF button link on
+--     https://www.jeffersonclerk.com/clerk-services/property-sales/foreclosures/
+--     (the page's wp-json ACF payload resolves the button to:
+--     https://jeffersonclerk.s3.amazonaws.com/uploads/2026/08/03075239/FORECLOSURE-SALES.pdf)
+--     -> Case #: 25-CA-145, Plaintiff: U.S. Bank National Association,
+--        Defendant: Kathleen Johnson et al., Final Judgment amount: $183,049.87,
+--        Property Address: 595 Virginia St. Monticello, FL. 32344
+--  2. FloridaParcels.com (Jefferson County, co_no=43) address search
+--     (https://floridaparcels.com/search/address/?s_addr_co_no=43&s_addr=595+Virginia+St)
+--     -> resolved to parcel 00-00-00-0340-0000-065A, Owner "KATHLEEN JOHNSON REV TRUST"
+--        -- owner name is an EXACT match to the clerk PDF's defendant name, cross-
+--        corroborating the parcel identity independently of the appraiser dataset alone.
+--  3. FL GIO Florida_Statewide_Cadastral FeatureServer
+--     (services9.arcgis.com/Gh9awoU677aKree0), queried by exact PARCEL_ID:
+--     PHY_ADDR1='595  VIRGINIA ST' (confirms address match), JV=170034, LND_VAL=35000.
+--  4. Nominatim geocode of "595 Virginia St, Monticello, FL 32344" (exact address match)
+--     -> lat=30.5543441, lon=-83.8652790.
+--  5. Jefferson County Property Appraiser's own hosted ArcGIS zoning layer
+--     (services5.arcgis.com/vFMp1Ly1q6rKKp0o/arcgis/rest/services/JC_CITY_ZONING_view),
+--     point-in-polygon query at the geocoded centroid -> ZONES='R-1',
+--     ZONENAME='RESIDENTIAL\SINGLE-FAMILY'. This is the SAME layer a prior Jefferson
+--     session (20260711l_shard5_run3786) used successfully for case 25-CA-164 (jurisdiction
+--     817 = Monticello), confirming this parcel also sits inside Monticello city limits.
+--
+-- Executed via PostgREST:
+--   PATCH multi_county_auctions?id=eq.657231f6-9b46-400c-a954-8bf288f2ba9c
+--   { parcel_id: '00-00-00-0340-0000-065A',
+--     property_address: '595 VIRGINIA ST MONTICELLO, FL. 32344',
+--     latitude: 30.5543441, longitude: -83.865279,
+--     assessed_value: 170034, market_value: 170034,
+--     data_source: 'jefferson_clerk_official:jeffersonclerk.com+floridaparcels_owner_match+fl_gio_cadastral+nominatim_geocode_real_address' }
+--
+--   POST parcel_zones
+--   { parcel_id: '00-00-00-0340-0000-065A', jurisdiction_id: 817, zone_code: 'R-1',
+--     zone_name: 'RESIDENTIAL\SINGLE-FAMILY', source: 'jcpa_gis_zoning_layer_verified_20260826' }
+--
+-- (parity_status was already 'PARITY_OK' pre-fix -- untouched, no C/D movement expected
+-- or observed from this fix; C/D's gap is entirely attributable to a DIFFERENT row, see below).
+--
+-- ============================================================================
+-- FIX 2 (script, not raw SQL): ran the existing
+-- scripts/shard5_run3786_jefferson_j_generator.py against the now-4-fully-valued
+-- jefferson rows. It inserted exactly one new bid_decisions row for case 25-CA-145
+-- (the 3 other cases already had bid_decisions rows from the prior 20260711 session).
+-- This closed J from 3/4 -> 4/4 with zero code changes -- the generator already handled
+-- "fetch all MCA rows for county, skip existing bid_decisions, insert missing" idempotently.
+--
+-- ============================================================================
+-- GENUINE CEILINGS THIS SESSION (B, C, D, F) -- NOT force-passed, HARD GUARDRAILS honored:
+--
+-- Row dffd5f05-8837-4fdb-a72a-994b763639df, case 26-TD-04 (tax_deed, parcel
+-- 05-2S-3E-0000-0012-0000, 1676 Brooks Rd, Monticello), parity_status=PHANTOM_NOT_ON_CLERK.
+-- This is the SOLE cause of the C/D gap (matched_clean=3, matched_any=3 -- both other
+-- tax_deed/foreclosure rows besides this one already count).
+--   Evidence gathered (2026-08-26, live):
+--     - Jefferson Clerk's "Pending Tax Deed Sales" PDF exists in TWO S3 snapshots:
+--       .../2026/07/15140215/Pending-Tax-Deed-Sales.pdf (dated 07/15, lists BOTH 26-TD-04
+--       and 26-TD-05 as pending with opening bids) and
+--       .../2026/07/21091631/Pending-Tax-Deed-Sales-2.pdf (dated 07/21, lists ONLY 26-TD-05
+--       -- 26-TD-04 was removed). This removal happened ~4 weeks BEFORE the 8/19/2026 sale
+--       date, i.e. pre-sale, not a post-sale result.
+--     - Re-fetched the live S3 object today (2026-08-26, 7 days after the sale date):
+--       Last-Modified header is still "Tue, 21 Jul 2026" -- the site has NOT re-published a
+--       fresher pending list since 07/21, so no fresher pending-list signal exists at all.
+--     - Custom WP post types (wp-json/wp/v2/taxdeeds, kma/v1/taxdeeds) contain exactly ONE
+--       taxdeed post total (26-TD-01, unrelated case) -- 26-TD-04 was never tracked in this
+--       CPT, so it offers no corroborating signal either way.
+--     - FL GIO Florida_Statewide_Cadastral for parcel 05-2S-3E-0000-0012-0000 still shows
+--       OWN_NAME='CONNELL PAUL' (matches the PDF's "Paul Connell") with SALE_YR1=0,
+--       SALE_PRC1=0 -- no recorded ownership transfer. This is the DOR annual roll and may
+--       simply not yet reflect a very recent 2026 sale, so it is suggestive but NOT
+--       conclusive of "did not sell."
+--     - jeffersontc.com (Tax Collector, independent from the Clerk) requires a JS-driven
+--       SPA search (jeffersoncountytaxcollector.com/Property/SearchSelect) with no static
+--       GET-accessible endpoint found this session.
+--     - Jefferson County OCRS (civitekflorida.com/ocrs/county/33/) requires account
+--       registration/login -- not accessible without credentials this session.
+--   VERDICT: ceiling. The evidence (early pre-sale removal from the pending list, unchanged
+--   owner-of-record) is MORE consistent with the tax deed application having been withdrawn/
+--   redeemed before the sale ever occurred than with an unreported completed sale -- but it
+--   is not a live, positive confirmation of either outcome. Per HARD GUARDRAIL #2 ("if you
+--   cannot find a real source, do NOT write a placeholder"), parity_status was left
+--   UNTOUCHED at PHANTOM_NOT_ON_CLERK rather than force-reclassifying to
+--   CLERK_SSOT_CANCELLED without a positive confirming source (contrast with the st_johns
+--   precedent, commit 83249b67, which had a live TaxSmart page explicitly showing
+--   REDEEMED/CANCELLED status -- no equivalent live confirmation exists for Jefferson).
+--
+-- Rows dffd5f05 (26-TD-04), e18f80f6 (26-TD-05, case 26-TD-05), and 64081291 (25-CA-164)
+-- are the only candidates for B/F (closed_sold requires sold_amount IS NOT NULL). All three
+-- auction dates have passed (08/19/2026 x2, 06/25/2026 x1) but NO accessible source this
+-- session shows a completed-sale amount for any of them:
+--   - Jefferson Clerk site: no "sale results" page distinct from the pending-sale PDFs;
+--     the pending PDFs only ever show opening bids, never post-sale high-bid amounts.
+--   - FL GIO cadastral SALE_YR1/SALE_PRC1 fields are blank/zero for both
+--     05-2S-3E-0000-0012-0000 and 00-00-00-0220-0000-0310 (owners unchanged from
+--     pre-foreclosure/pre-sale: "CONNELL PAUL" and "THOMPSON JAMES W" respectively).
+--   - FloridaParcels.com mirrors the same DOR data -- no sale history shown for
+--     00-00-00-0220-0000-0310 either.
+--   - qpublic.schneidercorp.com and jeffersonpa.net both return HTTP 403 to automated
+--     fetches (bot-blocked) -- could not be used to check for a more current appraiser
+--     record than the DOR annual roll.
+--   - No FL surplus-funds aggregator (surplusclaimadvocates.com returned 403) or Monticello
+--     News legal-notice archive was accessible.
+--   VERDICT: ceiling. Per HARD GUARDRAIL #2, no sold_amount was fabricated for any of the
+--   3 candidate rows. B and F remain genuinely blocked pending either (a) direct phone/in-
+--   person contact with the Jefferson Clerk's Office (850-342-0218) for actual sale results,
+--   which is out of scope for an automated data-fix session, or (b) a future session with
+--   OCRS credentials or non-bot-blocked appraiser access.
+--
+-- No writes were made for B, C, D, or F this session -- all 4 rows' parity_status,
+-- sold_amount, tier1_sold_amount, and tier1_authoritative columns are exactly as they
+-- were in the confirmed live baseline.

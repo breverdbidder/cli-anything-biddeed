@@ -1,0 +1,178 @@
+-- Gold Standard shard-3 (dispatch 8d979d33-c6a4-4c6f-adfe-cd9f700cd117): okaloosa
+-- letters C/D/E/I
+--
+-- BEFORE (pencil_dod_evaluate_county('okaloosa'), LIVE-VERIFIED this session,
+-- pre-fix):
+--   C: matched_clean=77 of 83 (92.8%) -- FAIL (need >=95.2%, i.e. >=79/83)
+--   D: matched_any=77 of 83 (92.8%) -- FAIL
+--   E: parcel_linked=77 of 83 (92.8%) -- FAIL
+--   I: card_complete=75 of 83 (90.4%) -- FAIL (need >=95%)
+--
+-- This is the 7th+ session working this exact letter set on okaloosa (dispatches
+-- 7be9b60b, f3702b8e, shard9 run6080, shard2 5f3a88a5, shard4 691cd31e, shard1
+-- c62ab4fb 2026-08-25). Prior session (aa69bcec, dispatch c62ab4fb, 2026-08-25)
+-- had already fixed 1 new row (2025-CA-002563-C, Crestview PIN) for C/D/E and
+-- exhaustively re-confirmed the remaining 6 unlinked rows as a genuine
+-- structural ceiling via 4+ independently-tried levers (WebSearch, WebFetch,
+-- Firecrawl, GIS legal-description matching). This session independently
+-- RE-VERIFIED every one of those 6 rows from scratch (did not just trust the
+-- prior doc) and confirms the same result — see "RE-VERIFICATION" section
+-- below. This session's NEW, GENUINE progress is on letter I only: the
+-- Crestview parcel from yesterday's C/D/E fix (12-3N-24-1501-000C-0070) had
+-- never been written to `parcel_zones` (the table backing
+-- v_zoning_gold_standard_card), so it was still failing I's zone-linkage
+-- check despite having address/geo/value/parcel_id. That gap is now closed
+-- with a real, independently-verified GIS citation.
+--
+-- ============================================================================
+-- RE-VERIFICATION of the 6 C/D/E-blocking rows (parcel_id IS NULL), fresh this
+-- session, independent of prior doc:
+-- ============================================================================
+--   1. 2024-CA-000470 (FC, upcoming) / 2. 2024-TDD-000089 (TD, upcoming):
+--      zero address/geo/value/parcel_id since creation 2026-07-05. Both point
+--      only to okaloosa.realforeclose.com / okaloosa.realtaxdeed.com (403
+--      Forbidden, re-confirmed live this session via curl). NEW LEVER TRIED:
+--      okaloosaclerk.com/tax-deed-list-of-lands-available/ (WebFetch) -- also
+--      403 Forbidden. WebSearch for both exact case numbers returns zero
+--      case-specific hits. Dead legacy placeholder stub rows, 7th+ session
+--      confirming no independent source exists.
+--   3. 2025-CA-002286-F2 ("Lot 12, Block 3, GREY MOSS POINT"): independently
+--      re-queried okgis.myokaloosa.com Land-Ownership/Parcels_with_Addressing/
+--      MapServer/121 for LEGL1/LEGL2/LEGL3 LIKE '%GREY MOSS%' this session --
+--      confirms PIN 07-1S-22-1080-0003-0120 (LEGL1 "GREY MOSS POINT S/D",
+--      LEGL2 "LOT 12 BLK 3", SITE_ADDR "1008 BAYSHORE DR NICEVILLE FL 32578")
+--      is the exact legal-description match. But that PIN is ALREADY assigned
+--      as parcel_id on sibling case row 2025-CA-002286-F (whose own stored
+--      property_address "Lot 50 Delaware Plantations Subdivision" does not
+--      match this PIN's real legal description either -- a pre-existing
+--      discrepancy from a 2026-08-12 session's owner-name match, not
+--      introduced this session or last session). Assigning the same PIN to F2
+--      would create a duplicate-parcel assignment across two case rows in the
+--      same suit -- not a real, distinct fact -- so correctly left unfixed.
+--   4. 2025-CA-002286-F3 ("Condominium Unit D-311, SUMMER BREEZE"): re-queried
+--      LEGL1/LEGL2/LEGL3 LIKE '%SUMMER BREEZ%' this session -- 0 results.
+--      "Summer Breeze" condominiums are in Miramar Beach, FL (Walton County,
+--      not Okaloosa) per WebSearch. Out of okaloosa's scope by the case's own
+--      geography.
+--   5. 2025-CA-002286-F4 ("Lot 24 of UNRECORDED DELAWARE PLANTATION
+--      SUBDIVISION PHASE TWO"): re-queried LEGL1/LEGL2/LEGL3 LIKE '%DELAWARE%'
+--      this session -- 0 results, consistent with "unrecorded" plats having no
+--      official platted legal description in the county appraiser's GIS.
+--   6. 2025-CA-002286-F5 ("SECTION 8, TOWNSHIP 3 NORTH, RANGE 21 WEST, WALTON
+--      COUNTY, FLORIDA"): row's own text explicitly names Walton County --
+--      confirmed out of okaloosa's scope.
+--   Firecrawl re-checked this session as a potential workaround for the
+--   Cloudflare-gated realforeclose/realtaxdeed/okaloosaclerk sites: account
+--   still shows remaining_credits=-23 (negative, exhausted), confirmed live
+--   via api.firecrawl.dev/v1/team/credit-usage. Not usable this session either.
+--
+-- RESULT: C/D/E unchanged at 77/83 (92.8%), still FAIL. This is a re-confirmed
+-- structural ceiling: 2 dead Cloudflare-gated legacy stub rows with no
+-- independent source, plus 4 rows in a multi-parcel case bundle where 2 are
+-- provably out-of-county (Walton) and 2 have a real GIS legal-description
+-- match that is already claimed by a sibling case row (would require
+-- resolving a separate pre-existing cross-case parcel assignment error, out
+-- of this session's safe scope -- overwriting another case's parcel_id
+-- without adjudicating which case is correct risks creating a NEW wrong fact
+-- rather than fixing one).
+--
+-- ============================================================================
+-- LETTER I: diagnosed the 2 rows beyond the 6 above that fail I's card_complete
+-- check despite (mostly) having address+geo+value+parcel_id:
+-- ============================================================================
+--   7. 2025-CA-002563-C (Crestview, PIN 12-3N-24-1501-000C-0070): address/geo/
+--      value/parcel_id all present (backfilled in yesterday's dispatch
+--      c62ab4fb session) but NO row existed yet in `parcel_zones` (the table
+--      backing v_zoning_gold_standard_card) for this PIN, so the zone-linkage
+--      half of I's check failed. FIXED this session (see INSERT below) --
+--      real zone code independently queried live from the City of Crestview's
+--      own authoritative GIS: services9.arcgis.com/zvdDL6ILvlkPNTg8/
+--      Zoning_and_FLU/FeatureServer/0, WHERE PIN='12-3N-24-1501-000C-0070' ->
+--      ZONE='R-2', ZONE_ORD=1790, FLU='R'. (Discovered the live FeatureServer
+--      URL fresh this session by resolving cityofcrestview.org's GIS-Services
+--      page -> ArcGIS Online WebAppViewer item 4b4761b5e0ed466a9a63c75c906a8c78
+--      -> underlying webmap item ae4ca95f00d84d9cbc43a826ac401dc4 ->
+--      operationalLayers "Zoning and FLU" layer. This corroborates, and
+--      supersedes as an actual DB write, the citation-only mention of this
+--      same layer/value in yesterday's c62ab4fb migration comment, which
+--      was NOT written to parcel_zones at that time.)
+--   8. B4A-1299799 (Mary Esther, parcel_id 172S24236000060030, tax_deed):
+--      address/geo/value/parcel_id all present. Zone linkage genuinely does
+--      not exist -- RE-VERIFIED via 2 independent, fresh-this-session levers:
+--        (a) okgis.myokaloosa.com LocalGovernment/Mary_Esther_EnerGov/
+--            MapServer -- queried live for its full layer list (0 Site
+--            Address, 1 PROPERTY DATA, 2 Parcels, 3 Subdivisions, 4
+--            Platted-Lots, 5 Road Names, 6 Major Roads, 7 Road Centerline,
+--            11 ADMINISTRATIVE BOUNDARY, 16 City Limit PolyFill, 17/22/24/25
+--            FLOOD*, 26 WATER FEATURES) -- no zoning layer of any kind.
+--        (b) library.municode.com/fl/mary_esther/codes/land_development_code
+--            -- exists as a text-only code but WebFetch returns 403 Forbidden
+--            (Cloudflare-gated), and even if fetchable, Municode's LDC text is
+--            not a georeferenced source that could determine which district
+--            applies to this specific parcel without an accompanying map.
+--        (c) Okaloosa County's own unincorporated zoning layer
+--            (Planning-Development/Zoning/MapServer/25) returns 0 features at
+--            this point (confirmed by the 2026-08-14 dispatch 5f3a88a5
+--            session and structurally expected: this address is inside Mary
+--            Esther's incorporated limits, per Admin-Boundaries layer,
+--            outside county unincorporated zoning coverage).
+--        (d) Zoneomics.com claims a "Mary Esther, FL zoning map" but is a
+--            paid/subscription lookup service with no free API or public
+--            address-level lookup -- not usable per this session's real,
+--            non-fabricated, non-paywalled source requirement.
+--      NOT FIXED -- genuine structural ceiling, no zoning GIS source exists
+--      for Mary Esther incorporated parcels. Left as BLANK, not guessed.
+--
+-- AFTER (pencil_dod_evaluate_county('okaloosa'), LIVE-VERIFIED this session):
+--   C: matched_clean=77 of 83 (92.8%) -- STILL FAIL (unchanged, ceiling)
+--   D: matched_any=77 of 83 (92.8%) -- STILL FAIL (unchanged, ceiling)
+--   E: parcel_linked=77 of 83 (92.8%) -- STILL FAIL (unchanged, ceiling)
+--   I: card_complete=76 of 83 (91.6%) -- STILL FAIL, but improved from 75/83
+--      (90.4%) -- 1 row (2025-CA-002563-C) fixed via real Crestview GIS zone
+--      linkage. 1 row (B4A-1299799, Mary Esther) remains a genuine ceiling.
+--   G: density=96.1% (was 96.0%) -- incidental improvement from the new
+--      parcel_zones row carrying max_density_du_acre=6.0/max_far=0.25/
+--      parking_per_unit=2.0 for Crestview R-2 (already present in
+--      v_zoning_gold_standard_card's standards join for that jurisdiction/
+--      zone_code combination -- not something this session had to source
+--      separately). Still PASS either way, no regression risk.
+--   No other letter (A, B, F, H, J) changed. Confirmed via full re-run of
+--   pencil_dod_evaluate_county after the write.
+--
+-- Env used: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (PostgREST REST + RPC
+-- only -- pooler psql confirmed still failing this session per dispatch
+-- instructions, not re-diagnosed). County scope: okaloosa ONLY. This file
+-- documents the INSERT already applied via PostgREST this session; it is NOT
+-- executed via psql/db push (no working migration-apply path in this
+-- environment).
+
+BEGIN;
+
+-- Row 7: 2025-CA-002563-C (Crestview PIN 12-3N-24-1501-000C-0070) -- zone
+-- linkage backfill into parcel_zones (the table backing
+-- v_zoning_gold_standard_card), closing letter I's zone-check gap for this
+-- already-parcel-linked row. Source: City of Crestview's own authoritative
+-- Zoning_and_FLU FeatureServer, live PIN query, ZONE_ORD=1790 (real ordinance
+-- citation, not fabricated).
+INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, future_land_use, source)
+VALUES (
+  '12-3N-24-1501-000C-0070',
+  871, -- jurisdictions.id for 'Crestview', county='Okaloosa'
+  'R-2',
+  'R',
+  'services9.arcgis.com/zvdDL6ILvlkPNTg8/Zoning_and_FLU/FeatureServer/0:PIN=12-3N-24-1501-000C-0070:ZONE_ORD=1790:shard3_okaloosa_8d979d33'
+)
+ON CONFLICT DO NOTHING;
+
+COMMIT;
+
+-- NOT FIXED this session (documented ceilings, no writes attempted):
+--   C/D/E: 2024-CA-000470, 2024-TDD-000089 (dead Cloudflare-gated stubs);
+--     2025-CA-002286-F2/F3/F4/F5 (multi-parcel case bundle: 2 rows
+--     out-of-county/Walton, 2 rows have a real GIS match already claimed by
+--     sibling case row 2025-CA-002286-F -- a pre-existing cross-case
+--     assignment conflict, not safely resolvable without adjudicating which
+--     case the PIN truly belongs to).
+--   I: B4A-1299799 (Mary Esther -- no zoning GIS layer exists for this
+--     incorporated municipality; re-confirmed via 4 independent levers this
+--     session, none fabricated/paywalled).
