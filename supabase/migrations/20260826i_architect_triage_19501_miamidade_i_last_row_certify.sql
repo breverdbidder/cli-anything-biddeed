@@ -1,0 +1,84 @@
+-- ARCHITECT TRIAGE for blocked issue #19501 (dispatch dbef429b-72a1-4da9-89df-6bd83a832cc0)
+-- Session: 2026-08-26 (chat_session architect-20260826T160000 continuation).
+-- Blocked DoD: SELECT EXISTS(SELECT 1 FROM gold_standard_certifications
+--   WHERE county_slug = ANY('{miami_dade,gilchrist,lake}') AND certified)
+--
+-- DIAGNOSIS (VERIFIED, all queries re-run live via PostgREST rpc + Supabase
+-- Management API SQL, direct psql unavailable per decision_log ids 169/205/287):
+--   The prior shard-4 session (commit c6d739f7, run finished 2026-08-26T17:02Z)
+--   already made real, honest progress and correctly flagged its own
+--   remaining gap: miami_dade letter I was FAILING at exactly 569/600 =
+--   94.8%% (threshold >=95%% = 570/600). It was ONE row away from PASS.
+--   gilchrist (E/I) and lake (C/E/I) remain genuinely blocked by larger,
+--   previously-exhausted gaps (documented in gilchrist_e_parcel_linkage_blocked.sql
+--   and this session's re-confirmation below) -- not a bug, a real data ceiling.
+--
+-- ROOT CAUSE OF THE 1-ROW GAP: 10 miami_dade auction rows had complete
+-- address+geo+value but no zoning-card link (parcel_id not present in
+-- v_zoning_gold_standard_card with zone_code IS NOT NULL). Point-in-polygon
+-- queried Miami-Dade's live MunicipalZone_gdb ArcGIS FeatureServer
+-- (services.arcgis.com/8Pc9XBTAsYuxx9Ny/.../MunicipalZone_gdb/FeatureServer/0)
+-- at each row's own lat/lng. 2 of 10 returned a real municipal zone; the rest
+-- were UNINCORPORATED/ZONE=NONE (needs the county-layer, not the municipal
+-- layer -- out of scope for a 1-row fix, left unresolved, not fabricated):
+--   - parcel 34-1133-004-0390 (case 2024-008113-CA-01): MIAMI GARDENS, ZONE=R-1.
+--     R-1 ALREADY EXISTS in zoning_districts for Miami Gardens
+--     (jurisdiction_id=1056, district_id=3844) with a real zone_standards row
+--     (max_density_du_acre=6.00, confidence_score=0.70, written 2026-08-01
+--     from this same ArcGIS layer) -- the "existing_code" safe case documented
+--     in scripts/gold_standard_miami_dade_i_zoning_spatial_research_20260801.py's
+--     explicit G-regression guard rail (inserting a zone_code with NO matching
+--     zoning_districts row inflates G's denominator with NULL standards).
+--   - parcel 17-2232-023-0690 (Biscayne Park, ZONE=R-2): Biscayne Park has
+--     ZERO existing zoning_districts rows -- this is the unsafe "new_code"
+--     case. NOT applied this session (would need a real ordinance-sourced
+--     zone_standards row first to avoid a G regression). Left as a documented
+--     lever for a future session with time to do that research properly.
+--
+-- FIX APPLIED (single row, live write via Supabase Management API SQL,
+-- documented here as an audit-trail record per repo convention -- the write
+-- already landed, this file is not re-runnable):
+--   INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source, effective_date)
+--   VALUES ('34-1133-004-0390', 1056, 'R-1', 'SINGLE FAMILY DWELLING RESIDENTIAL DISTRICT',
+--           'miami_dade_arcgis_municipalzone_gdb:architect_triage_19501', now());
+--   -- parcel_zones.id = 871734
+--
+-- VERIFICATION (re-run independently via a separate call path -- PostgREST
+-- rpc, not the Management API connection used to write):
+--   BEFORE: I FAIL card_complete=569 of 600 (94.8). G PASS density=98.8 far=100.0 pk1000=100.0.
+--   AFTER:  I PASS card_complete=570 of 600 (95.0). G PASS density=98.8 far=100.0 pk1000=100.0 (UNCHANGED, no regression).
+--   All other letters (A,B,C,D,E,F,H,J) unchanged PASS.
+--   miami_dade is now genuinely 10/10 live on public.pencil_dod_evaluate_county('miami_dade').
+--
+-- ADVERSARIAL AUDIT: logged to gold_standard_ultraloop_audit (id=18579,
+-- county_slug=miami_dade, letter=I, survived=true) with refuter_evidence
+-- covering: independent re-query, fabrication check (zone code pre-existed,
+-- sourced live, not guessed), G-regression check (far/pk1000 not applicable
+-- for this residential district, density already non-null pre-insert), and
+-- parallel-fleet scope check (zero summit_chat_dispatch rows in
+-- state=processing at write time).
+--
+-- CLOSE-OUT (sanctioned per PARALLEL-FLEET RULES: "run the full loop +
+-- certify ONLY in your close-out if no other session is mid-flight" --
+-- verified zero processing dispatches before running):
+--   SELECT public.gold_standard_loop();   -- loop_run_id=14630, 670 rows/67 counties, 104s
+--   SELECT public.gold_standard_certify(); -- certified_now=20 (fleet-wide, includes miami_dade)
+--
+-- RESULT (VERIFIED, exact DoD SQL re-executed live 2026-08-26T22:4x UTC):
+--   miami_dade: certified=true, consecutive_gold=2, revoked_at=NULL.
+--   gilchrist:  certified=false (unchanged -- E/I genuinely blocked, all new
+--               levers this session and the prior session confirmed dead).
+--   lake:       certified=false (unchanged -- C/E/I gaps are larger than a
+--               1-2 row fix: C needs +11 rows, E needs +3, I needs +6 vs the
+--               95%% gate; no equivalent single safe lever found in the time
+--               available this session).
+--   SELECT EXISTS(SELECT 1 FROM gold_standard_certifications
+--     WHERE county_slug = ANY('{miami_dade,gilchrist,lake}') AND certified)
+--     -- BEFORE this session: false. AFTER: true.
+--
+-- Not intended to be re-executed via psql -- the writes already happened
+-- live via PostgREST / Supabase Management API during this session.
+
+BEGIN;
+-- (No SQL to run -- writes already applied live via PostgREST/Management API during the session.)
+COMMIT;
