@@ -437,20 +437,21 @@ select l.lead_id, se.event_payload->>'case_number' as case_number, se.county,
 from winnerdata.leads l
 join winnerdata.signal_events se on se.signal_id = l.signal_id
 left join public.fl_parcels fp on fp.parcel_id = l.parcel_id
-where l.parcel_id is not null
-  and se.county in ('manatee', 'lee', 'broward', 'palm_beach', 'marion');
+where l.parcel_id is not null;
 """
 
 
 def sprint3b_appraiser_verify():
-    """Property appraiser cross-verification for the 5 counties with a live
-    scraper (see scripts/property_appraiser/dispatch.py). Every other county
-    gets its NOT VERIFIED badge + reason straight from public.ff_get_lead's
-    fl_property_appraiser_configs/fl_counties fallback -- no placeholder row
-    needed here."""
+    """Property appraiser cross-verification. Primary path (2026-08-26): the
+    FL DOH statewide parcels layer (scripts/property_appraiser/doh_statewide.py),
+    all 67 counties, no WAF. Fallback/cross-check: the 5 counties with a live
+    scraper (see scripts/property_appraiser/dispatch.py), only when the
+    statewide layer doesn't resolve a parcel there. No county is excluded
+    from the candidate query any more -- dispatch.verify_leads() decides per
+    lead whether the statewide layer or a scraper (or neither) applies."""
     leads = run_sql(APPRAISER_VERIFY_CANDIDATES_QUERY)
     if not leads:
-        print("Sprint 3b: no leads in a property-appraiser-scraper-supported county.")
+        print("Sprint 3b: no leads with a parcel_id to verify.")
         return
     stats = appraiser_dispatch.verify_leads(leads)
     print(f"Sprint 3b done: {stats}")

@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """Daily FF pipeline — appraiser cross-verification dispatcher.
 
-The 5 county scrapers in this directory (manatee/lee/broward/palm_beach/
-marion) were built and live-verified against a one-off local JSON fixture
-batch (common.load_batch_parcels() reads winnerdata/intake/*.json). This
-module is the missing piece to run them against real, live
-winnerdata.leads rows every day instead of a fixture file: verify_leads()
-takes lead records already pulled from the DB by the caller and drives the
-same scrape_parcel()/extract_fields() functions those files define, writing
-identical parity_audit rows via common.write_parity_row.
+Primary path (2026-08-26): the FL DOH statewide parcels ArcGIS layer
+(doh_statewide.py) covers all 67 counties, no auth, no WAF -- this closes
+the appraiser-verification gap for alachua/flagler/wakulla (documented
+WAF/TLS ceilings on their own sites, confirmed live to resolve through this
+statewide layer instead) and every other county that never had a scraper.
+Every lead with a parcel_id is tried against it first.
 
-Scope: ONLY the 5 counties with a live scraper. For any other county
-(including the 3 documented WAF/TLS ceilings -- alachua, flagler, wakulla --
-and the 59 counties with no scraper at all), this module does nothing and
-writes no parity_audit row. That is intentional, not a gap: public.ff_get_lead
-(see supabase/migrations/20260824_ff_verification_badge_rpc.sql) already
-derives a correct NOT VERIFIED badge + reason for those counties straight
-from fl_property_appraiser_configs.known_issues / fl_counties.appraiser_url
-without needing a placeholder audit row.
+Fallback / cross-check: the 5 county scrapers in this directory
+(manatee/lee/broward/palm_beach/marion) were built and live-verified
+against a one-off local JSON fixture batch (common.load_batch_parcels()
+reads winnerdata/intake/*.json). They only run now when the DOH statewide
+lookup does NOT resolve a parcel in one of those 5 counties -- previously
+they were the only path; the statewide layer is faster (no browser) and
+covers more ground, so it goes first and these are the fallback for the
+cases where an exact PARCEL_ID match fails there (disambiguation the
+county's own site can do that a strict equality match cannot, e.g. STRAP
+formatting quirks specific to lee/broward's own numbering).
+
+For a county with no DOH layer match AND no scraper fallback, this module
+writes an honest 'unverified' parity_audit row explaining the DOH lookup
+came up empty, rather than silently skipping -- per the daily pipeline's
+non-goal "leads that fail verification must say so, not be silently
+skipped." public.ff_get_lead (see
+supabase/migrations/20260824_ff_verification_badge_rpc.sql) already reads
+parity_audit generically by case_number, so it surfaces this real reason
+without any RPC change.
 
 Idempotent: already_verified() skips any case_number that already has a
 'pass' verdict on its blocking fields (parcel_id/address) from a prior run,
@@ -33,11 +42,12 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import write_parity_row  # noqa: E402
+import doh_statewide  # noqa: E402
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://mocerqjnksmhcjzxrewo.supabase.co").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
-SUPPORTED_COUNTIES = {"manatee", "lee", "broward", "palm_beach", "marion"}
+SUPPORTED_COUNTIES = {"manatee", "lee", "broward", "palm_beach", "marion"}  # fallback-scraper counties only, not a gate on who gets tried at all -- see doh_statewide.LAYER_MAP for the 67-county primary path
 PLAYWRIGHT_COUNTIES = {"manatee", "lee", "broward"}  # palm_beach/marion are plain httpx
 
 
@@ -63,6 +73,33 @@ def already_verified(case_number: str) -> bool:
     except Exception as e:
         log(f"already_verified() lookup failed for {case_number}, treating as not-yet-verified: {e}", "WARN")
         return False
+
+
+def _verify_via_doh(rec) -> bool:
+    """True if the FL DOH statewide layer resolved this parcel and wrote
+    parity_audit rows for it -- False means try the county's own scraper
+    (if any) instead, this is not itself a failure worth logging."""
+    result = doh_statewide.query_parcel(rec["county"], rec["parcel_id"])
+    if result is None:
+        return False
+    write_parity_row(rec["case_number"], rec["county"], "parcel_id",
+                      ff_value=rec["parcel_id"], appraiser_value=result["PARCEL_ID"],
+                      verdict="pass",
+                      note=f"matched FL DOH statewide parcels layer (format={result['matched_format']!r}, layer_id={result['layer_id']})",
+                      competitor_name="fl_doh_statewide")
+    write_parity_row(rec["case_number"], rec["county"], "address",
+                      ff_value=rec["address"], appraiser_value=result.get("PHY_ADDR1"),
+                      competitor_name="fl_doh_statewide")
+    if rec.get("owner"):
+        write_parity_row(rec["case_number"], rec["county"], "owner_of_record",
+                          ff_value=rec["owner"], appraiser_value=result.get("OWN_NAME"),
+                          competitor_name="fl_doh_statewide")
+    if rec.get("just_value") is not None and result.get("JV") is not None:
+        write_parity_row(rec["case_number"], rec["county"], "just_value",
+                          ff_value=rec["just_value"], appraiser_value=result["JV"],
+                          biddeed_value=float(rec["just_value"]), competitor_value=result["JV"],
+                          competitor_name="fl_doh_statewide")
+    return True
 
 
 def _verify_manatee(page, rec):
@@ -148,22 +185,43 @@ def verify_leads(leads: list[dict]) -> dict:
     Returns {verified: int, failed: int, skipped_already_verified: int, skipped_unsupported_county: int}.
     """
     stats = {"verified": 0, "failed": 0, "skipped_already_verified": 0, "skipped_unsupported_county": 0}
-    supported = []
+    candidates = []
     for rec in leads:
         county = (rec.get("county") or "").lower()
-        if county not in SUPPORTED_COUNTIES:
-            stats["skipped_unsupported_county"] += 1
-            continue
         if not rec.get("parcel_id"):
             stats["skipped_unsupported_county"] += 1
             continue
         if already_verified(rec["case_number"]):
             stats["skipped_already_verified"] += 1
             continue
-        supported.append(rec)
+        candidates.append({**rec, "county": county})
+
+    if not candidates:
+        log("no leads to verify (none with a parcel_id, or all already verified)")
+        return stats
+
+    # Primary path: FL DOH statewide layer, all 67 counties, no browser needed.
+    supported = []
+    for rec in candidates:
+        try:
+            resolved = _verify_via_doh(rec)
+        except Exception as e:
+            log(f"  DOH statewide lookup errored for {rec['case_number']} / {rec['county']}: {e}", "WARN")
+            resolved = False
+        if resolved:
+            log(f"verified via DOH statewide: {rec['case_number']} / {rec['county']} / parcel {rec['parcel_id']}")
+            stats["verified"] += 1
+        elif rec["county"] in SUPPORTED_COUNTIES:
+            supported.append(rec)  # fall back to this county's own scraper
+        else:
+            write_parity_row(rec["case_number"], rec["county"], "parcel_id",
+                              ff_value=rec["parcel_id"], appraiser_value=None,
+                              verdict="unverified",
+                              note="FL DOH statewide parcels layer returned no match for this parcel ID in this county, and no county-specific scraper is configured as a fallback")
+            stats["failed"] += 1
 
     if not supported:
-        log("no leads to verify (none in a supported county, or all already verified)")
+        log(f"done: {stats}")
         return stats
 
     needs_playwright = any((r["county"] or "").lower() in PLAYWRIGHT_COUNTIES for r in supported)
