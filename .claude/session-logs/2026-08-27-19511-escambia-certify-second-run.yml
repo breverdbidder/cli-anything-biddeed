@@ -1,0 +1,78 @@
+session:
+  date: "2026-08-27"
+  issue: "#19511 - ARCHITECT TRIAGE (SHARD-3: escambia/st_lucie/lake/wakulla) - 2nd firing"
+  agent: claude-code
+  dispatch_id: "bf5bc71d-af02-4e59-932c-63e3953c44be"
+  note: >
+    Redispatched after cc_redispatch_guard fell back to status=blocked (attempts=2/2)
+    following a prior architect-triage's redispatch (dispatch 5f45a239, run
+    33082642278) that shipped real work (lake E, wakulla E -> PASS, commit 9006500b)
+    but exhausted its attempt with the literal DoD still FALSE.
+
+decisions:
+  - step: "Verify DoD live before assuming the prior 'success' run finished the job"
+    action: >
+      REST query on public.gold_standard_certifications for
+      county_slug IN (escambia,st_lucie,lake,wakulla)
+    result: "All 4 certified=false. DoD FALSE, confirmed live, not assumed from the issue thread."
+    reason: "HONESTY PROTOCOL: never trust a GHA 'success' conclusion as proof of DoD satisfaction"
+
+  - step: "Diagnose why escambia (already 10/10 raw) was still uncertified"
+    action: >
+      Cross-referenced gold_standard_county_status (loop_run_id=14803, all 10 letters
+      PASS), gold_standard_ultraloop_audit (fresh survived=true rows for all 10 letters,
+      several same-day), and gold_standard_precert_guards (calendar_parity +
+      denominator_integrity both passed, fresh 16:15Z) against
+      gold_standard_certifications (consecutive_gold=1, certified=false)
+    result: >
+      Matched the documented lee/gilchrist/charlotte/washington precedent
+      (20260825b_architect_triage_19463): certify() requires 2 consecutive DISTINCT
+      gold evaluation runs; the engineer session that hit 10/10 had already consumed
+      that run as gold #1 under the function's own idempotency guard
+      (last_verified_run IS DISTINCT FROM v_run). Close-out-timing artifact, not a bug.
+    reason: "Diagnose across systems before writing/running any fix, per ARCHITECT TRIAGE MANDATE step 3"
+
+  - step: "Check for in-flight fleet-wide scoring conflicts before calling shared RPCs"
+    action: "gh run list --status in_progress / --status queued"
+    result: >
+      Only this session's own CC Runner run (33116206990) was in_progress among
+      CC Runner jobs; other in-flight runs were RealAuction scrapers / unrelated
+      Summit workflow, none call gold_standard_loop()/certify(). Safe to proceed.
+    reason: "PARALLEL-FLEET rule: avoid side effects on other shards' consecutive-gold counters"
+
+  - step: "Run a second distinct gold evaluation + certify pass"
+    action: "POST rpc/gold_standard_loop then rpc/gold_standard_certify via PostgREST"
+    result: >
+      loop_run_id=14869 (670 rows/67 counties, 95.0s). escambia re-verified still
+      10/10 PASS at the new run. certify() returned certified_now=36 fleet-wide
+      (escambia among them, alongside 35 unrelated counties whose own gates closed
+      on the same run -- not something this session induced or claims sole credit for).
+    reason: "Autonomous authority: idempotent, read-mostly fleet-wide scoring RPCs, not a schema/credential/protected-table action"
+
+  - step: "Re-execute the literal DoD SQL and reconcile the guard"
+    action: >
+      REST count query: county_slug IN (...) AND certified=eq.true ->
+      content-range 0-0/1 (escambia). PATCH cc_redispatch_guard status=resolved.
+    result: "DoD TRUE. Guard reconciled. Logged to decision_log id 2462."
+    reason: "SHIP GATE: verify by re-executing the DoD SQL and reading it back true before claiming done"
+
+artifacts:
+  - "decision_log id 2462 (decision_type=triage)"
+  - "cc_redispatch_guard issue_number=19511 status=resolved"
+  - "gold_standard county evaluation loop_run_id=14869"
+  - "issue #19511 closing comment (Honesty V3)"
+
+verification:
+  - check: "DoD SQL: EXISTS(gold_standard_certifications WHERE county_slug=ANY(4 counties) AND certified)"
+    proof: >
+      REST: gold_standard_certifications?county_slug=in.(escambia,st_lucie,lake,wakulla)&certified=eq.true
+      -> content-range: 0-0/1 (escambia row returned)
+    status: PASS
+  - check: "escambia certification row post-certify()"
+    proof: "certified=true, consecutive_gold=2, revoked_at=null, last_verified_run=14869"
+    status: PASS
+  - check: "No fabricated progress on st_lucie/lake/wakulla"
+    proof: >
+      Left untouched at 8/10, 6/10, 6/10 respectively -- genuine data ceilings
+      (C/G/I/J gaps), explicitly documented as not triage-fixable this pass
+    status: HONEST_RESIDUAL
