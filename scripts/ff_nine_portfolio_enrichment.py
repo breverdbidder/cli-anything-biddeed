@@ -138,6 +138,21 @@ def main():
         out = []
         for a in auctions:
             auction_id = a["id"]
+
+            # Idempotency guard: winnerdata.ff_batch_leads rows created by
+            # build_ff_portfolio_batch() default qa_status to
+            # 'PARTIAL_ENRICHMENT' and stay there until an enrichment pass
+            # actually touches them. Any other value means a prior run
+            # (this script or a parallel session's manual research) already
+            # produced a real result -- re-running the fl_parcels-anchor
+            # cascade below would blindly overwrite a resolved phone/email
+            # with a null on a re-dispatch, destroying already-verified
+            # work. FORCE_REFRESH=1 opts back in explicitly.
+            existing = sql(f"select qa_status from winnerdata.ff_batch_leads where batch_date = date '{esc(BATCH_DATE)}' and auction_id = '{esc(auction_id)}' limit 1")
+            if existing and existing[0].get("qa_status") not in (None, "PARTIAL_ENRICHMENT") and os.environ.get("FORCE_REFRESH") != "1":
+                out.append({"auction": a, "qa_status": existing[0]["qa_status"], "skipped_already_enriched": True})
+                continue
+
             x = sql(f"select auction_id, auction_parcel_id, pin_clean, match_method, verified_at, verified_by from winnerdata.ff_parcel_crosswalk where auction_id = '{esc(auction_id)}' limit 1")
             if not x:
                 out.append({"auction": a, "qa_status": "BLOCKED_NO_VALIDATED_CROSSWALK"})
@@ -146,9 +161,31 @@ def main():
             pin = x[0]["pin_clean"]
             p = sql(f"select county, pin_clean, owner_name, owner_name2, owner_addr1, owner_addr2, owner_city, owner_state, owner_zip, site_addr, site_city, site_zip, luse_code, luse_desc, num_buildings, sqft_heated, year_built, val_market, val_assessed, pa_link, data_source, updated_at from public.zw_parcels where pin_clean = '{esc(pin)}' limit 2")
             parcel = p[0] if p else None
-            prior = sql(f"select parcel_id, own_name, own_addr1, own_city, own_state, own_zip from public.fl_parcels where upper(regexp_replace(coalesce(own_name,''),'[^A-Z0-9]','','g')) = upper(regexp_replace('{esc(a['winning_bidder'])}','[^A-Z0-9]','','g')) limit 5")
-            anchor = prior[0] if prior else None
-            tf = tracerfy(a["winning_bidder"], anchor.get("own_addr1") if anchor else None, anchor.get("own_city") if anchor else None, anchor.get("own_state") if anchor else None, anchor.get("own_zip") if anchor else None)
+            # zw_parcels (10M rows) via idx_zw_fts, NOT fl_parcels: fl_parcels
+            # is the older/superseded table (see
+            # scripts/skiptrace_20260827_9buyer_ff_batch.py's own docstring),
+            # and a normalized-regexp equality/ILIKE scan against zw_parcels
+            # without the FTS index times out empirically on a table this
+            # size. Excludes the just-purchased parcel; never anchors on it.
+            anchor = None
+            target_toks = {t for t in re.sub(r"[^A-Za-z ]", " ", a["winning_bidder"] or "").upper().split() if len(t) >= 2}
+            if target_toks:
+                fts_rows = sql(f"""
+                    select owner_addr1, owner_city, owner_state, owner_zip, pin_clean, owner_name
+                    from public.zw_parcels
+                    where to_tsvector('english', ((((((coalesce(owner_name, '') || ' ') || coalesce(site_addr, '')) || ' ') || coalesce(site_city, '')) || ' ') || coalesce(subdivision, '')))
+                          @@ plainto_tsquery('english', '{esc(a["winning_bidder"])}')
+                    limit 30
+                """)
+                candidates = [r for r in fts_rows if r.get("pin_clean") != pin and r.get("owner_addr1")
+                              and target_toks <= {t for t in re.sub(r"[^A-Za-z ]", " ", r.get("owner_name") or "").upper().split() if len(t) >= 2}]
+                if candidates:
+                    from collections import Counter as _Counter
+                    key = lambda r: (norm(r.get("owner_addr1")), norm(r.get("owner_city")), (r.get("owner_state") or "").upper(), norm(r.get("owner_zip")))
+                    best_key, _ = _Counter(key(r) for r in candidates).most_common(1)[0]
+                    anchor = next(r for r in candidates if key(r) == best_key)
+            prior = [anchor] if anchor else []
+            tf = tracerfy(a["winning_bidder"], anchor.get("owner_addr1") if anchor else None, anchor.get("owner_city") if anchor else None, anchor.get("owner_state") if anchor else None, anchor.get("owner_zip") if anchor else None)
             qa = "SSOT_MATCHED" if parcel and parcel.get("owner_name") else "BLOCKED_NO_PARCEL_SSOT"
             if tf.get("status") == "OK":
                 qa = "ENRICHED_CONTACT_FOUND"
