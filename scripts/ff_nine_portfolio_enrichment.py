@@ -6,10 +6,22 @@ validated parcel crosswalk, enriches property/portfolio fields from ZoneWise,
 and optionally calls Tracerfy only when a prior buyer-owned mailing address is
 available. No find_owner call is made and no purchased-property address is
 used as a buyer contact anchor.
+
+Writes results back to winnerdata.ff_batch_leads (phone/email/qa_status) and
+flips winnerdata.ff_batches.enrichment_status to complete/failed. Only
+invoked by winnerdata-nine-ff-enrichment.yml, itself only dispatched by the
+winnerdata.notify_ff_batch_approved() trigger after Ariel approves via
+public.ff_approve_batch() -- see
+supabase/migrations/20260827_approval_tracerfy_enrichment_gate.sql. Do not
+run this ahead of approval: gating paid Tracerfy lookups behind approval is
+the explicit point of that migration, not an incidental side effect.
 """
 from __future__ import annotations
 import json, os, re, sys, time, urllib.error, urllib.request
 from datetime import date, datetime, timezone
+
+sys.path.insert(0, os.path.dirname(__file__))
+import ff_credit_ledger  # noqa: E402
 
 PROJECT_REF = "mocerqjnksmhcjzxrewo"
 MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
@@ -41,6 +53,9 @@ def norm(v):
 def tracerfy(name, address, city, state, zipcode):
     if not TRACERFY_KEY or not address:
         return {"status": "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS"}
+    ledger = ff_credit_ledger.spend("tracerfy", 1)
+    if not ledger.get("granted"):
+        return {"status": "SKIPPED_DAILY_CAP", "ledger": ledger}
     parts = (name or "").strip().split(",", 1)
     if len(parts) == 2:
         first, last = parts[1].strip().split(" ", 1)[0], parts[0].strip()
@@ -62,28 +77,82 @@ def tracerfy(name, address, city, state, zipcode):
         return {"status": "REQUEST_FAILED", "error": str(e)[:240]}
 
 
+def set_enrichment_status(status: str, error: str | None = None):
+    fields = [f"enrichment_status = '{esc(status)}'", "updated_at = now()"]
+    if status == "running":
+        fields.append("enrichment_started_at = now()")
+        fields.append("enrichment_error = null")
+    if status in ("complete", "failed"):
+        fields.append("enrichment_completed_at = now()")
+    if status == "failed":
+        error_lit = "'" + esc(error) + "'" if error else "null"
+        fields.append(f"enrichment_error = {error_lit}")
+    set_clause = ", ".join(fields)
+    sql(f"update winnerdata.ff_batches set {set_clause} where batch_date = date '{esc(BATCH_DATE)}'")
+
+
+def persist_lead(auction_id: str, tf: dict, qa_status: str):
+    phone = tf.get("phone") if tf.get("status") == "OK" else None
+    email = tf.get("email") if tf.get("status") == "OK" else None
+    provider = "tracerfy" if tf.get("status") == "OK" else None
+    phone_lit = f"'{esc(phone)}'" if phone else "null"
+    email_lit = f"'{esc(email)}'" if email else "null"
+    provider_lit = f"'{provider}'" if provider else "null"
+    verified_lit = "now()" if provider else "null"
+    ev = json.dumps({"tracerfy_enrichment": tf, "ran_at": datetime.now(timezone.utc).isoformat()})
+    sql(f"""
+        update winnerdata.ff_batch_leads
+        set phone = {phone_lit},
+            email = {email_lit},
+            contact_provider = {provider_lit},
+            contact_verified_at = {verified_lit},
+            qa_status = '{esc(qa_status)}',
+            unresolved_field_count =
+              (case when owner_name is null then 1 else 0 end)
+              + (case when resolved_principal_name is null then 1 else 0 end)
+              + (case when {phone_lit} is null then 1 else 0 end)
+              + (case when {email_lit} is null then 1 else 0 end)
+              + (case when business_website is null then 1 else 0 end),
+            evidence_ledger = evidence_ledger || '{esc(ev)}'::jsonb
+        where batch_date = date '{esc(BATCH_DATE)}' and auction_id = '{esc(auction_id)}'
+    """)
+
+
 def main():
-    auctions = sql(f"""select id, county, auction_date, property_address, case_number, sale_type, tier1_buyer_type, winning_bidder, tier1_sold_amount, market_value, assessed_value, parcel_id, auction_url, source_url from public.multi_county_auctions where auction_date = date '{esc(BATCH_DATE)}' and tier1_buyer_type = 'third_party' and nullif(btrim(winning_bidder), '') is not null order by county, case_number limit 20""")
-    if len(auctions) != 9:
-        raise RuntimeError(f"Expected 9 third-party auctions for {BATCH_DATE}; got {len(auctions)}")
-    out = []
-    for a in auctions:
-        auction_id = a["id"]
-        x = sql(f"select auction_id, auction_parcel_id, pin_clean, match_method, verified_at, verified_by from winnerdata.ff_parcel_crosswalk where auction_id = '{esc(auction_id)}' limit 1")
-        if not x:
-            out.append({"auction": a, "qa_status": "BLOCKED_NO_VALIDATED_CROSSWALK"})
-            continue
-        pin = x[0]["pin_clean"]
-        p = sql(f"select county, pin_clean, owner_name, owner_name2, owner_addr1, owner_addr2, owner_city, owner_state, owner_zip, site_addr, site_city, site_zip, luse_code, luse_desc, num_buildings, sqft_heated, year_built, val_market, val_assessed, pa_link, data_source, updated_at from public.zw_parcels where pin_clean = '{esc(pin)}' limit 2")
-        parcel = p[0] if p else None
-        prior = sql(f"select parcel_id, own_name, own_addr1, own_city, own_state, own_zip from public.fl_parcels where upper(regexp_replace(coalesce(own_name,''),'[^A-Z0-9]','','g')) = upper(regexp_replace('{esc(a['winning_bidder'])}','[^A-Z0-9]','','g')) limit 5")
-        anchor = prior[0] if prior else None
-        tf = tracerfy(a["winning_bidder"], anchor.get("own_addr1") if anchor else None, anchor.get("own_city") if anchor else None, anchor.get("own_state") if anchor else None, anchor.get("own_zip") if anchor else None)
-        out.append({"auction": a, "crosswalk": x[0], "parcel": parcel, "prior_buyer_owned_addresses": prior, "tracerfy": tf, "qa_status": "SSOT_MATCHED" if parcel and parcel.get("owner_name") else "BLOCKED_NO_PARCEL_SSOT"})
-    payload = {"generated_at": datetime.now(timezone.utc).isoformat(), "batch_date": BATCH_DATE, "candidate_count": len(auctions), "records": out, "bright_data": "NOT_RUN_NO_KEY", "policy": "BLANK_OVER_WRONG; no purchased-property address used for buyer contact"}
-    with open(OUT, "w") as f:
-        json.dump(payload, f, indent=2, default=str)
-    print(json.dumps({"output": OUT, "candidate_count": len(auctions), "ssot_matched": sum(r.get("qa_status") == "SSOT_MATCHED" for r in out), "tracerfy_ok": sum(r.get("tracerfy", {}).get("status") == "OK" for r in out)}, indent=2))
+    set_enrichment_status("running")
+    try:
+        auctions = sql(f"""select id, county, auction_date, property_address, case_number, sale_type, tier1_buyer_type, winning_bidder, tier1_sold_amount, market_value, assessed_value, parcel_id, auction_url, source_url from public.multi_county_auctions where auction_date = date '{esc(BATCH_DATE)}' and tier1_buyer_type = 'third_party' and nullif(btrim(winning_bidder), '') is not null order by county, case_number limit 20""")
+        if len(auctions) != 9:
+            raise RuntimeError(f"Expected 9 third-party auctions for {BATCH_DATE}; got {len(auctions)}")
+        out = []
+        for a in auctions:
+            auction_id = a["id"]
+            x = sql(f"select auction_id, auction_parcel_id, pin_clean, match_method, verified_at, verified_by from winnerdata.ff_parcel_crosswalk where auction_id = '{esc(auction_id)}' limit 1")
+            if not x:
+                out.append({"auction": a, "qa_status": "BLOCKED_NO_VALIDATED_CROSSWALK"})
+                persist_lead(auction_id, {"status": "SKIPPED_NO_CROSSWALK"}, "BLOCKED_NO_VALIDATED_CROSSWALK")
+                continue
+            pin = x[0]["pin_clean"]
+            p = sql(f"select county, pin_clean, owner_name, owner_name2, owner_addr1, owner_addr2, owner_city, owner_state, owner_zip, site_addr, site_city, site_zip, luse_code, luse_desc, num_buildings, sqft_heated, year_built, val_market, val_assessed, pa_link, data_source, updated_at from public.zw_parcels where pin_clean = '{esc(pin)}' limit 2")
+            parcel = p[0] if p else None
+            prior = sql(f"select parcel_id, own_name, own_addr1, own_city, own_state, own_zip from public.fl_parcels where upper(regexp_replace(coalesce(own_name,''),'[^A-Z0-9]','','g')) = upper(regexp_replace('{esc(a['winning_bidder'])}','[^A-Z0-9]','','g')) limit 5")
+            anchor = prior[0] if prior else None
+            tf = tracerfy(a["winning_bidder"], anchor.get("own_addr1") if anchor else None, anchor.get("own_city") if anchor else None, anchor.get("own_state") if anchor else None, anchor.get("own_zip") if anchor else None)
+            qa = "SSOT_MATCHED" if parcel and parcel.get("owner_name") else "BLOCKED_NO_PARCEL_SSOT"
+            if tf.get("status") == "OK":
+                qa = "ENRICHED_CONTACT_FOUND"
+            elif qa == "SSOT_MATCHED":
+                qa = {"NO_MATCH": "ENRICHED_NO_CONTACT_MATCH", "SKIPPED_DAILY_CAP": "ENRICHMENT_SKIPPED_DAILY_CAP", "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS": "ENRICHMENT_SKIPPED_NO_PRIOR_ADDRESS", "REQUEST_FAILED": "ENRICHMENT_REQUEST_FAILED"}.get(tf.get("status"), "SSOT_MATCHED_NO_CONTACT")
+            out.append({"auction": a, "crosswalk": x[0], "parcel": parcel, "prior_buyer_owned_addresses": prior, "tracerfy": tf, "qa_status": qa})
+            persist_lead(auction_id, tf, qa)
+        payload = {"generated_at": datetime.now(timezone.utc).isoformat(), "batch_date": BATCH_DATE, "candidate_count": len(auctions), "records": out, "bright_data": "NOT_RUN_NO_KEY", "policy": "BLANK_OVER_WRONG; no purchased-property address used for buyer contact"}
+        with open(OUT, "w") as f:
+            json.dump(payload, f, indent=2, default=str)
+        print(json.dumps({"output": OUT, "candidate_count": len(auctions), "contact_found": sum(r.get("qa_status") == "ENRICHED_CONTACT_FOUND" for r in out)}, indent=2))
+        set_enrichment_status("complete")
+    except Exception as e:
+        set_enrichment_status("failed", str(e)[:500])
+        raise
 
 if __name__ == "__main__":
     main()
