@@ -144,8 +144,78 @@ county running clerk_ssot reconciliation touches this).
   output inspected, not inferred or estimated.
 - `pencil_dod_evaluate_county` was not modified.
 
+## Addendum (dispatch `8da482b6`, shard-1, same day 2026-08-27): gadsden reconfirms the pattern, plus a distinct reversion bug
+
+### gadsden (10 rows, C = 85.1%, 57/67)
+
+Verified against `www.gadsdenclerk.com/Tax_deeds/Tax_deeds.htm` — the live Gadsden Clerk of Circuit
+Court Excel-published tax-deed auction list (an IE-frameset export; the actual data lives in
+`Tax_deeds_files/sheet001.htm`, the "Tax Deed Auction List of Lands Available for Tax" tab, distinct
+from the `sheet002` "List of Lands Available for Taxes," `sheet003` "Excess Unclaimed Proceeds," and
+`sheet004` "Escheated Tax Deeds" tabs on the same page). No WP-JSON feed exists on this domain (unlike
+calhounclerk.com) — this is the correct live-source substitute for gadsden, matching the county's
+existing `parity_source='gadsden_clerk_tax_deed'` provenance tag.
+
+| case_number | property | live sheet finding |
+|---|---|---|
+| `26000018TDC` | 935 Laura St, Quincy | Row present in live 9/2/2026 auction list. Owner "Heirs of Willie Reeves" (exact DB match). Sale-Price column: **Redeemed 8/3/26**, $0.00. |
+| `26000021TDC` | 651 S 9th St, Quincy | Row present. Owner "Marsha V Moore" (exact match). **Redeemed 6/29/26**, $0.00. |
+| `26000022TDC` | 21 Pat Thomas Pkwy, Quincy | Row present. Owner "21 Pat Thomas Parkway, LLC" (exact match). **Redeemed 8/3/26**, $0.00. |
+| `26000024TDC` | Ray Rd, Quincy | Row present. Owner "Gregory Brewton as Trustee of the Gregory Brewton Revocable Trust Agreement" (exact match). **Redeemed 7/24/26**, $0.00. |
+| `26000025TDC` | 88 Pine Cone St, Quincy | Row present. Owner "Larry B Green" (exact match). **Redeemed 7/31/26**, $0.00. |
+| `26000027TDC` | 102 Shuler Rd, Midway | Row present. Owner "Jacquinta Aronda ET AL; Lefraun Lloyd" (exact match). **Redeemed 08/20/26**, $0.00. |
+| `26000029TDC` | 24 Silver Hill Rd, Midway | Row present. Owner "Shannon Sherelle Baker" (exact match). **Redeemed 7/27/26**, $0.00. |
+| `26000032TDC` | Carmen Maria Ln, Quincy | Row present. Owner "True Wisdom New Hope Ministries International Development Center" (exact match). **Redeemed 7/22/26**, $0.00. |
+| `26000034TDC` | 1274 Drake Acres Rd, Quincy | Row present. Owner "Roger Mawell & Rhonda Maxwell" (exact match). **Redeemed 7/31/26**, $0.00. |
+| `26000035TDC` | 1248 Drake Acres Rd, Quincy | Row present. Owner "Cierra King" (exact match). **Redeemed 8/18/26**, $0.00. |
+
+All 10/10 rows independently confirmed live against `gadsdenclerk.com` this session (2026-08-27),
+matching case_number, parcel-owner name, and property address exactly against our DB. Cross-checked
+against the other three tabs on the same page (List of Lands, Excess Proceeds, Escheated Tax Deeds) —
+none of the 10 case numbers appear anywhere else on the site; they exist solely as redeemed rows within
+the current 9/2/2026 auction list, consistent with the page's own header notice: *"To Redeem property,
+pay taxes to the Tax Collector's office... REDEEMED PROPERTY WILL NOT GO TO AUCTION."*
+
+**Nuance vs. the calhoun/manatee/taylor pattern:** all 10 gadsden rows are specifically **Redeemed**
+(pre-sale redemption by owner/lienholder — the property never reaches the tax-deed sale, no cancellation
+by court order or plaintiff motion), not a foreclosure sale cancellation in the manatee sense (motion to
+cancel, bankruptcy stay, judicial order). Gadsden's `auction_status` column currently stores the generic
+value `CANCELLED` for all 10 rows, which is a lossy label — the live source is more specific and says
+"Redeemed [date]." This is a genuine, real, and currently-accurate outcome; it is not evidence of a data
+defect, and does not change the canon-block conclusion. It does mean any canon fix (Option A/B above)
+applied to gadsden should key off `parity_status='CLERK_SSOT_CANCELLED'` rather than `auction_status`,
+since redemption is being correctly captured upstream already, just bucketed under the same generic
+parity_status as court-cancelled sales.
+
+**Separate, load-bearing finding — this specific gadsden blocker has already been diagnosed and briefly
+fixed twice before, then reverted:** `docs(gold-standard): gadsden C structural-ceiling finding` (commit
+`001733ea`, 2026-08-23) found this exact 10-row blocker and inserted a `tax_deed_outcomes` table with
+`outcome='redeemed'` for all 10 (source: `gadsden_clerk_tax_deed_sheet_verified_20260823`, matching
+today's live re-check). A same-day follow-up, `ARCHITECT TRIAGE #19393` (commit `5c7bcebe`), applied a
+narrow, case-number-scoped `UPDATE` (migration
+`20260823_architect_triage_19393_gadsden_C_parity_gate_unblock.sql`) reclassifying these exact 10 rows
+to `parity_status='matched_clean'`, `parity_source='tier1_tax_deed_outcome'`, and verified live gadsden
+C 84.8%→100.0%, 9/10→10/10 letters passing. As of this session (2026-08-27), all 10 rows are back to
+`parity_status='CLERK_SSOT_CANCELLED'` / `parity_source='gadsden_clerk_tax_deed'` / `auction_status=
+'CANCELLED'`, with `updated_at` timestamps of `2026-08-27T11:25:13Z` — hours before this session and
+identical across all 10 rows, consistent with a scheduled upstream re-scrape (`gadsden_clerk_tax_deed`
+scraper) overwriting the manually-applied fix. **This is a reversion of a prior applied fix by a
+recurring upstream job, not a fresh unreconciled gap** — worth flagging separately from the canon-level
+recommendation, since re-applying the same scoped UPDATE will only be re-reverted by the next scrape
+cycle unless the upstream scraper is changed to respect (or itself write) `tier1_tax_deed_outcome`
+provenance, or the canon decision (Option A/B above) is adopted so this class of row does not need
+per-run reclassification at all. **No fix was re-applied this session** for exactly this reason — a
+third reclassification would just be reverted again by the next `gadsden_clerk_tax_deed` scrape.
+
+No changes made to `parity_status`, `sold_amount`, or `parcel_id` for any of the 10 gadsden rows this
+session; `pencil_dod_evaluate_county` was not modified; `gold_standard_loop()`/`gold_standard_certify()`
+were not invoked (other cc-runner-ghonly.yml shard sessions were confirmed in-flight at the time).
+Logged to `gold_standard_ultraloop_audit` id 18764 (dispatch `8da482b6`, survived=true — the claim
+"this is the documented canon block plus a reversion bug," not a claim that C now passes).
+
 ## Files
 
 - This document: `GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md`
 - Precedent: `calhoun_c_546of2024_phantom_ssot_cancel_reconcile.sql`
-- No new SQL fix file — no live DB write was made in this session (all 15 rows reconfirmed correct as-is).
+- No new SQL fix file — no live DB write was made in this session (all 15 rows, plus gadsden's 10,
+  reconfirmed correct as-is).
