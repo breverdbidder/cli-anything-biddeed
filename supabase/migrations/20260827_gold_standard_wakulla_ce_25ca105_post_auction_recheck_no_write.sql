@@ -1,0 +1,60 @@
+-- Gold Standard wakulla letters C and E — 2026-08-27 session (3rd firing on this ceiling).
+-- Documentation-only migration. NO DATA WRITTEN. Per HONESTY PROTOCOL (BLANK > WRONG), this
+-- records a fast, honest confirm-only check per the task brief instruction NOT to re-run the
+-- prior sessions' exhausted searches (civitekflorida.com, taxcertsale.com/wakullataxsale,
+-- WebSearch on the 5 cancelled TXD case numbers, 4 foreclosure aggregators, clerk 404 URLs —
+-- all already confirmed dead ends in 20260825_gold_standard_wakulla_e_backfill_growth_recheck_no_write.sql,
+-- 20260825b_gold_standard_wakulla_c_44row_ceiling_reconfirm.sql, and
+-- 20260826_gold_standard_wakulla_ec_new_angles_ceiling_reconfirm.sql).
+--
+-- BASELINE (live, verified via pencil_dod_evaluate_county('wakulla') at session start,
+-- byte-identical to the 2026-08-25 and 2026-08-26 sessions' documented baselines -- confirming
+-- zero drift, zero unauthorized writes by any other process in between):
+--   C: {"pass": false, "detail": "matched_clean=37", "metric": 84.1}
+--   E: {"pass": false, "detail": "parcel_linked=38", "metric": 86.4}
+--   auctions_total: 44 (unchanged)
+--
+-- THE ONE GENUINELY NEW ANGLE AVAILABLE TODAY (per task brief): case 25-CA-105's foreclosure
+-- auction date (2026-08-27) has arrived. Checked the Wakulla County Clerk's official
+-- foreclosure sales page ONE time this session for a post-auction outcome or parcel reference:
+--
+--   URL: https://wakullaclerk.org/courts/foreclosures.php  (HTTP 200, fetched live this session,
+--   raw curl -- not the summarizer -- grep-verified against the row)
+--
+--   Live table row for case 25-CA-105 (verbatim, columns: Month/Plaintiff | Defendant | Case# |
+--   Sale Date | Sale Status | Sale Amount | Notes):
+--     Freedom Mortgage Corp. | Ronald E. Reynolds Jr. ET AL | 25-CA-105 | 08/27/2026 |
+--     "To Be Sold" | $404,253.57 | (blank)
+--
+-- FINDING: Sale Status is still "To Be Sold", NOT sold/cancelled/results-posted. This is the
+-- clerk's standard pre-auction "Sale Amount" (i.e. the judgment/opening-bid figure listed in
+-- advance on the upcoming-sales table -- confirmed by the identically-structured neighboring row
+-- for unrelated case 26-CA-37, also "To Be Sold" with its own pre-listed "Sale Amount"), NOT a
+-- winning-bid outcome. This is NOT new sold-amount data -- it is the same pre-sale listing
+-- format the clerk always publishes, just now for a case whose date has arrived.
+--
+-- Session start time check: fetched at 2026-08-27 13:25:59 UTC = 09:25 AM US/Eastern. Per the
+-- same clerk page's own disclosure text, "All Wakulla County foreclosure sales occur on the
+-- first floor in the Courthouse lobby ... and begin at 11:00 A.M." -- i.e. the in-person auction
+-- for 25-CA-105 had NOT YET OCCURRED at the time of this check (1h35m before sale start). There
+-- is no separate "sold"/"results" section on this page distinct from the live upcoming-sales
+-- table (grep-confirmed: no other "sold"/"result" occurrences on the page besides boilerplate
+-- payment-deadline text). No post-auction outcome exists yet to record, honestly, at check time.
+--
+-- CONCLUSION: exactly as the task brief predicted as the most likely outcome -- nothing new.
+-- The auction for 25-CA-105 has not yet run as of this check (pre-11:00-AM-ET). No real
+-- sold_amount, winning_bidder, or parcel_id was found or written. multi_county_auctions row
+-- 0d1a7f4b-460b-43b6-a5a6-55ae21182162 (25-CA-105) is UNCHANGED. Per task brief instruction,
+-- the other 5 cancelled-TXD rows were NOT re-searched this session (already exhaustively
+-- confirmed dead across 2 prior sessions; re-running those exact searches would be wasted
+-- effort against an already-confirmed ceiling).
+--
+-- RESULT: 0 of 6 rows updated. C remains FAIL at 84.1% (37/44), E remains FAIL at 86.4%
+-- (38/44) -- verified byte-identical pencil_dod_evaluate_county('wakulla') output before and
+-- after this session's check, pasted above. STATUS: CEILING_RECONFIRMED.
+--
+-- No SQL was executed against multi_county_auctions or any other table this session -- this
+-- file is pure documentation of a bounded, honest, confirm-only check per task brief, matching
+-- the HONESTY PROTOCOL requirement that a documented non-fix is success and a fabricated fix is
+-- a 3x violation.
+SELECT 1;
