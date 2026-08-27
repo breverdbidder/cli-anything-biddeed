@@ -1,0 +1,128 @@
+-- Gold Standard wakulla letters E (parcel linkage), I (property card), J (deal-thesis) --
+-- 2026-08-27 session. BREAKS the 6-session structural ceiling documented since
+-- 3eefe79f/72cb38f7/84b6c4bb/0c4d6721/20260825/20260825b/20260826/20260827(3rd firing) --
+-- all of which correctly found the same 6 stub rows dead-ended via clerk-PDF-URL-guessing
+-- and Cloudflare-blocked qpublic/civitekflorida/taxcertsale.
+--
+-- THE NEW LEVER (untried by prior sessions): LandmarkWeb (www.wakullaclerk.com/LandmarkWeb),
+-- the Wakulla Clerk's own recorded-document search engine, driven via its real POST-based
+-- Search/NameSearch + Search/GetSearchResults + Document/GetDocumentInformation +
+-- Document/GetDocumentImage API (session-cookie + disclaimer-accept flow, reverse-engineered
+-- live this session from the page's own JS). This is the "real browser-based fetch against
+-- the clerk's own case detail page reached by searching FOR the case number through the
+-- site's actual search UI" the task brief predicted would be the genuinely untried lever.
+--
+-- BASELINE (live, verified via pencil_dod_evaluate_county('wakulla') at session start,
+-- byte-identical to the 6 prior sessions' documented baselines):
+--   E: {"pass": false, "detail": "parcel_linked=38", "metric": 86.4}
+--   I: {"pass": false, "detail": "card_complete=38 of 44", "metric": 86.4}
+--   J: {"pass": false, "detail": "deal_complete=38", "metric": 86.4}
+--   auctions_total: 44 (unchanged)
+--
+-- WHAT WAS FOUND AND WRITTEN (all 6 target rows, multi_county_auctions, county=wakulla):
+--
+-- 1. 25-CA-105 (foreclosure, auction today 2026-08-27): NameSearch by defendant
+--    "REYNOLDS RONALD" surfaced the case's own Lis Pendens (OR1424/875, docid 1051525) and
+--    Final Judgment (OR1471/85-87, docid 1075134). Final Judgment page 2 gives, verbatim:
+--    "LOT 34, SUMMERFIELD PHASE 2 ... PLAT BOOK 6, PAGE 43 ... TAX ID R 00-00-055-429-19932-034"
+--    and defendants' address "205 Stillmont Drive, Crawfordville, FL 32327" (page 3, service
+--    list). Independently cross-confirmed via a SECOND live source, the Wakulla County Tax
+--    Collector's own parcel search (wakullacountytaxcollector.com/Property/search, POST
+--    propertynumber=00-00-055-429-19932-034): returns ADDR1="205 STILLMONT DR",
+--    ADDR2="CRAWFORDVILLE 32327", legal "LOT 34 SUMMERFIELD PH II" (exact match), 2025 tax
+--    bill 2693700, Fair Mkt Value=Assessed Value=$287,905.00. Lat/lon from US Census
+--    Bureau geocoder (exact TIGER address-range match, not interpolated): 30.199151642067,
+--    -84.335199912882.
+--
+-- 2. TXD-097/117/118/120/122 (the 5 "cancelled" tax-deed rows): NameSearch by the case
+--    number itself (e.g. "2026 TXD 117") as free text surfaced a genuinely new document
+--    pair per case NOT found by prior sessions' doctype=20/DEED-only LandmarkWeb sweep:
+--    a "NOTICE" (Notice of Application for Tax Deed, FS 197.502(5)[c]) followed by a
+--    "RELEASE" a few weeks later -- i.e. definitive, official-record proof the certificate
+--    holder applied, the county recorded notice, and the property owner REDEEMED before
+--    the sale (paid off delinquent taxes) -- which is exactly why these 5 sales show
+--    "cancelled" and why no DEED document exists (confirmed independently this session via
+--    the existing wakulla_landmarkweb_outcomes_harvest.py doctype=DEED sweep for full-year
+--    2026: zero hits for any of the 5 case numbers). Each NOTICE document image (fetched via
+--    Document/GetDocumentImage, read directly as a scanned page) gives the parcel #, full
+--    legal description, and the certificate-holder/assessed-owner names:
+--      TXD-097: Parcel 23-5S-02W-128-02816-078, Twin Lakes Estate Unit 1 Blk B Lot 32,
+--               assessed Leokate LLC/Baskets Unlimited Brand LLC (OR1461/810 NOTICE,
+--               OR1465/118 RELEASE)
+--      TXD-117: Parcel 00-00-092-000-11669-002, Lot 92 P-12-2-M-28 SE1/4, assessed
+--               Robert Benson Hanway (OR1469/837 NOTICE, OR1474/661 RELEASE)
+--      TXD-118: Parcel 00-00-086-188-11586-05B, Wildwood Acres Phase II Blk B Lot 5,
+--               assessed Jose M Tzintzon (OR1469/844 NOTICE, OR1472/101 RELEASE)
+--      TXD-120: Parcel 00-00-036-076-09686-001, Crestwood Acres Unit 1 Tract 3 Lot 36 HS,
+--               assessed August Garner (OR1469/843 NOTICE, OR1474/144 RELEASE)
+--      TXD-122: Parcel 30-2S-01W-000-04171-004, Corbett Subdivision Lot "A" PB6/P58,
+--               assessed The Deborah Hogan Trust/Deborah Hogan Trustee (OR1470/28 NOTICE,
+--               OR1474/170 RELEASE)
+--    All 5 auction dates on the NOTICE documents (July 8 2026 for TXD-097; Aug 19 2026 for
+--    TXD-117/118/120/122) match multi_county_auctions.auction_date exactly -- confirms
+--    correct case-to-row matching, not a coincidental parcel guess.
+--    Street addresses + Fair Mkt/Assessed values independently cross-confirmed via the same
+--    Wakulla County Tax Collector propertynumber search + most-recent (2025) tax bill for
+--    each parcel (TAXBILLNO 558800/2553600/2523600/1821300/856900 respectively). Lat/lon for
+--    TXD-117/118/120 via US Census geocoder exact address match. TXD-097 has no street
+--    number (vacant lot on Jer-Be-Lou Cir) and TXD-122's tax-collector address ("241
+--    Crestwood") lacks a resolvable street-type suffix -- lat/lon deliberately left NULL by
+--    this migration for both per BLANK > WRONG (no coordinate guessed). NOTE: a separate,
+--    pre-existing fleet-wide background enrichment job (geo_source='parcel_centroid') ran
+--    after this session's parcel_id writes landed and independently backfilled lat/lon for
+--    both TXD-097 (30.035446,-84.400871) and TXD-122 (30.28437,-84.369386) from its own
+--    parcel-centroid dataset -- not something this session ran or fabricated, but confirming
+--    the parcel_ids supplied here were real and resolvable.
+--
+-- WRITES (all via PostgREST PATCH, county=wakulla, matched by case_number; full
+-- before/after diff and fresh post-write GET pasted in this session's structured report):
+--   2026-TXD-097: property_address, city, zip, parcel_id, market_value, assessed_value,
+--                 legal_description, owner_name, data_source, source_url
+--   2026-TXD-117: same fields + latitude/longitude
+--   2026-TXD-118: same fields + latitude/longitude
+--   2026-TXD-120: same fields + latitude/longitude
+--   2026-TXD-122: same fields (no latitude/longitude written by this session)
+--   25-CA-105:    property_address, latitude, longitude, market_value, assessed_value,
+--                 judgment_amount, plaintiff, city, zip, legal_description, owner_name,
+--                 parcel_id, data_source, source_url
+--
+-- ZONING (I-letter partial progress, NOT sufficient to flip I): confirmed via exact PIN_DSP
+-- match against the same ArcGIS FeatureServer used for 1000 other wakulla zoning_assignments
+-- rows (https://services1.arcgis.com/lDFzr3JyGEn5Eymu/arcgis/rest/services/ZoningWakulla/
+-- FeatureServer/0, zone_source='county_gis_wakulla_arcgis') that TXD-117=AG, TXD-118=RR1,
+-- TXD-120=R1 already have real, correctly-sourced zoning_assignments rows (ids 4132690,
+-- 4122653, 4130588, all zone_updated_at 2026-08-16 -- pre-existing from a prior bulk
+-- ingestion, confirmed by this session's attempted INSERT which hit a duplicate-key 23505 on
+-- parcel_id, not a genuine gap). TXD-097, TXD-122, and 25-CA-105 have NO ZoningWakulla PIN
+-- match (0 features) -- that dataset (14,785 parcels total) does not cover their
+-- subdivision-plat parcels; a spatial intersect at 25-CA-105's geocoded point DID return a
+-- hit (PIN 00-00-055-000-09932-004, CUR_ZONING=AG) but for the pre-subdivision 33.23-acre
+-- parent parcel, not the current platted lot -- not written, to avoid asserting a
+-- potentially-superseded zoning code with false confidence.
+--
+-- WHY I AND J DID NOT ALSO FLIP: v_auction_property_card.zoning_code stays NULL
+-- (zoning_match_method='none') for all 6 rows even where zoning_assignments already has the
+-- correct real row (TXD-117/118/120) -- i.e. the gap is in a separate "gold_standard_card"
+-- materialization/generator step (zoning_match_method='gold_standard_card' on the passing
+-- comparison rows checked this session), not a missing-data problem. Per this dispatch's
+-- explicit scope boundary ("building the deal-triangle generator itself is out of scope"),
+-- this session did not attempt to reverse-engineer or repair that generator. bid_decisions
+-- has ZERO rows for all 6 case numbers (confirmed live query) -- J is correctly blocked on
+-- the same generator gap plus the missing bid_decisions rows themselves.
+--
+-- RESULT (live, verified via pencil_dod_evaluate_county('wakulla') immediately after all
+-- writes, UTC 2026-08-27T15:14Z):
+--   E: {"pass": true,  "detail": "parcel_linked=44", "metric": 100.0}   <- FAIL -> PASS
+--   I: {"pass": false, "detail": "card_complete=38 of 44", "metric": 86.4}   <- unchanged
+--   J: {"pass": false, "detail": "deal_complete=38", "metric": 86.4}        <- unchanged
+--   No regression on A/B/D/F/G/H (all unchanged); C unchanged (structural
+--   CLERK_SSOT_CANCELLED exclusion, out of this dispatch's scope).
+--
+-- FOLLOW-UP (logged, not fixed this session): (1) I/J need the gold_standard_card
+-- generator step run/repaired for these 6 parcel_ids specifically (or fleet-wide) now that
+-- real zoning_assignments rows exist for 3 of them; (2) bid_decisions rows need generating
+-- for all 6 case numbers now that real market_value/assessed_value exist as an ARV basis
+-- (Shapira formula ARV*0.70-Repairs-$10K-MIN($25K,15%*ARV), consistent with the
+-- hernando_j_generator_19_fl_gio.py pattern) -- explicitly out of scope for this agent per
+-- task brief, reported as a J follow-up gap only.
+SELECT 1;
