@@ -134,12 +134,12 @@ insert into winnerdata.ff_parcel_crosswalk (auction_id, auction_parcel_id, pin_c
 ('6a048e5f-f933-4141-ac22-b3c5dc0a9594','36582-124-000','36582124000','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
 ('e506e2f4-0002-4f75-bf30-2fd767901124','16-05-24-005955-119-00','16052400595511900','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
 ('7528bd9a-6c00-43ff-957d-049747bf272c','252S312400070001','252S312400070001','validated_normalization','winnerdata-ai','Exact pin_clean match'),
-('497c3248-5448-48cc-ae69-5dadee7d3c84','C-04-34-28-100-1660-0310','C04342810016600310','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
+('497c3248-5448-48cc-ae69-5dadee7d3c84','C-04-34-28-110-2070-0320','C04342811020700320','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
 ('3e0fb036-5159-45b7-af75-566640f152a2','C-04-34-28-110-1900-0240','C04342811019000240','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
-('5a66b5b5-4f1a-47ee-9dde-9312a3a709ea','C-04-34-28-110-2070-0320','C04342811020700320','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
-('d1f58dab-bc56-4a3e-9e22-9f68bfff5096','C-22-37-30-080-0690-0160','C22373008006900160','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
-('1c821f29-4e4c-4cc8-8ba6-545dffa6b7ec','C-22-37-30-191-1830-0150','C22373019118300150','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
-('68dabeec-2930-414c-9d3f-0bbfa6f798be','C-22-37-30-191-1960-0200','C22373019119600200','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match')
+('5a66b5b5-4f1a-47ee-9dde-9312a3a709ea','C-04-34-28-100-1660-0310','C04342810016600310','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
+('d1f58dab-bc56-4a3e-9e22-9f68bfff5096','C-22-37-30-191-1830-0150','C22373019118300150','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
+('1c821f29-4e4c-4cc8-8ba6-545dffa6b7ec','C-22-37-30-191-1960-0200','C22373019119600200','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match'),
+('68dabeec-2930-414c-9d3f-0bbfa6f798be','C-22-37-30-080-0690-0160','C22373008006900160','validated_normalization','winnerdata-ai','Removed parcel separators; exact pin_clean match')
 on conflict (auction_id) do update set auction_parcel_id=excluded.auction_parcel_id, pin_clean=excluded.pin_clean, match_method=excluded.match_method, verified_at=now(), verified_by=excluded.verified_by, notes=excluded.notes;
 
 create or replace function winnerdata.build_ff_portfolio_batch(p_batch_date date default (current_date - 1))
