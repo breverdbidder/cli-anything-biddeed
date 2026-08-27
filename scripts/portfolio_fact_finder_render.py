@@ -137,5 +137,307 @@ def main():
     print(f"\n{rendered} Portfolio Fact Finders rendered to {OUT_DIR}/")
 
 
+# ---------------------------------------------------------------------------
+# Nine-case Elementix-parity portfolio PDF renderer (issue #19531).
+#
+# Separate code path, gated behind --nine-case, reading directly from
+# winnerdata.ff_batch_leads (the enrichment SSOT) rather than the legacy
+# owner_portfolio/cascade-cache Markdown path above -- that path stays
+# unmodified for whatever still calls it. Reuses the same brand/CSS system as
+# templates/FF_TEMPLATE_A_AUCTION_SALES.html and the same content-safety gate
+# as scripts/render_ff_9buyer_20260827.py (imported, not duplicated) so a
+# client PDF can never leak an internal vendor name, file path, or issue
+# number.
+# ---------------------------------------------------------------------------
+import html as _html
+import subprocess as _subprocess
+import urllib.error as _urlerr
+import urllib.request as _urlreq
+
+_MGMT_URL = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
+
+
+def mgmt_sql(query: str, timeout: int = 90):
+    token = os.environ["SUPABASE_ACCESS_TOKEN"]
+    req = _urlreq.Request(
+        _MGMT_URL, data=json.dumps({"query": query}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                 "User-Agent": "portfolio-ff-render-nine-case/1.0"},
+        method="POST",
+    )
+    with _urlreq.urlopen(req, timeout=timeout) as r:
+        body = json.loads(r.read())
+    if isinstance(body, dict) and body.get("message"):
+        raise RuntimeError(body["message"])
+    return body
+
+
+def _esc(v):
+    return _html.escape(str(v)) if v not in (None, "") else ""
+
+
+def _money(v):
+    try:
+        return f"${float(v):,.0f}"
+    except (TypeError, ValueError):
+        return "Not established"
+
+
+def _badge(label, cls="amber"):
+    return f'<span class="badge {cls}">{_esc(label)}</span>'
+
+
+def _confidence_badge(value):
+    m = {"verified": "green", "probable": "blue", "unresolved": "amber", "conflict": "red", "not_run_no_key": "amber"}
+    return _badge((value or "unresolved").upper(), m.get(value, "amber"))
+
+
+NINE_CASE_CSS = """
+:root{ --paper:#faf9f5; --ink:#141413; --terra:#d97757; --line:#e9e5d8; --muted:#6b665c; --green:#2f6b3a; --amber:#9a5b1e; --red:#b0413e; --blue:#28588f; }
+body{margin:0;background:var(--paper);color:var(--ink);font-family:Georgia,'Times New Roman',serif;}
+.wrap{max-width:820px;margin:0 auto;padding:24px 28px 30px;}
+header{border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:12px;}
+.brandline{font-family:Arial,sans-serif;}
+.brandline .name{font-size:22px;font-weight:800;}
+.brandline .name span{color:var(--terra);}
+.brandline .tagline{font-size:12px;color:var(--muted);font-style:italic;font-weight:700;margin-top:4px;}
+h1{font-size:19px;margin:8px 0 2px;font-family:Arial,sans-serif;}
+.meta{font-family:Arial,sans-serif;font-size:11px;color:var(--muted);margin-bottom:14px;}
+.badge{display:inline-block;font-family:Arial,sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.03em;margin-right:6px;}
+.badge.blue{background:#e2ecf7;color:var(--blue);} .badge.green{background:#e4f0e6;color:var(--green);}
+.badge.amber{background:#fdf0d8;color:var(--amber);} .badge.red{background:#fbe2e1;color:var(--red);}
+section{margin-bottom:14px;page-break-inside:avoid;}
+h2{font-family:Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:10px;}
+table{width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:12.5px;}
+td{padding:3px 0;vertical-align:top;}
+td.label{width:210px;color:var(--muted);}
+td.val{font-weight:600;}
+table.ptable thead th{font-family:Arial,sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;border-bottom:1px solid var(--ink);padding:4px 6px 6px 0;}
+table.ptable tbody td{padding:5px 6px 5px 0;border-bottom:1px solid var(--line);font-size:12px;}
+.note{font-family:Arial,sans-serif;font-size:11px;color:var(--muted);margin-top:6px;}
+.ledger{font-family:Arial,sans-serif;font-size:10.5px;color:var(--muted);}
+.ledger li{margin-bottom:3px;}
+section.cross{background:#fbeee0;border:1px solid #f0d2b0;border-radius:8px;padding:12px 16px;}
+section.cross h2{border-bottom:none;color:var(--amber);margin-bottom:8px;}
+section.cross ul{margin:0;padding-left:18px;font-family:Arial,sans-serif;font-size:12px;}
+footer{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);font-family:Arial,sans-serif;font-size:9.5px;color:var(--muted);line-height:1.5;}
+@media print{ body{background:#fff;} }
+"""
+
+
+def _row(label, value):
+    return f'<tr><td class="label">{_esc(label)}</td><td class="val">{value}</td></tr>'
+
+
+def render_nine_case_html(r: dict) -> str:
+    entity_type = "Individual(s)" if r.get("identity_type") == "individual" else "Business Entity"
+    property_row = (
+        f'<tr><td>{_esc(r.get("property_address") or "Address not established")}'
+        f'<div class="note">{_esc(r.get("site_addr"))}, {_esc(r.get("site_city"))} {_esc(r.get("site_zip"))}</div></td>'
+        f'<td>{_esc(r.get("dor_luse_desc") or "unknown use")}</td><td>{_money(r.get("val_market"))}</td>'
+        f'<td>{_money(r.get("val_assessed"))}</td><td>{_esc(r.get("case_number"))}</td></tr>'
+    )
+
+    portfolio_rows = ""
+    for p in (r.get("portfolio_properties_json") or [])[:25]:
+        portfolio_rows += (
+            f'<tr><td>{_esc(p.get("address") or "address unknown")}, {_esc((p.get("county") or "").title())}</td>'
+            f'<td>{_esc(p.get("dor_uc"))}</td><td>{_money(p.get("jv"))}</td>'
+            f'<td>{_esc((p.get("acquisition_source") or "unknown").replace("_", " ").title())}</td></tr>'
+        )
+    portfolio_section = ""
+    if r.get("portfolio_property_count") is not None:
+        portfolio_section = f"""
+    <section>
+      <h2>Held Portfolio Summary</h2>
+      <table>
+        {_row("Total properties held", r.get("portfolio_property_count"))}
+        {_row("Counties", ", ".join((r.get("portfolio_counties") or [])) or "n/a")}
+        {_row("Total JV/market value", _money(r.get("portfolio_total_jv")))}
+        {_row("Total buildings", r.get("portfolio_total_buildings"))}
+      </table>
+      {'<table class="ptable"><thead><tr><th>Property</th><th>DOR use</th><th>JV</th><th>Acquisition</th></tr></thead><tbody>' + portfolio_rows + '</tbody></table>' if portfolio_rows else ''}
+    </section>"""
+    else:
+        portfolio_section = """
+    <section>
+      <h2>Held Portfolio Summary</h2>
+      <div class="note">UNRESOLVED -- no owner_portfolio coverage on file for this entity yet (batch-scoped table, not a live statewide scan). Not reported as zero holdings.</div>
+    </section>"""
+
+    related = r.get("related_entities") or []
+    related_rows = "".join(_row(o.get("position") or "officer", _esc(o.get("name"))) for o in related[:10]) or _row("Related entities", "none on file")
+
+    qa_errors = r.get("qa_errors_json") or []
+    ledger_items = "".join(f"<li>{_esc(e.get('field'))}: {_esc(e.get('reason'))}</li>" for e in qa_errors) or "<li>No unresolved fields logged.</li>"
+
+    flags = []
+    if r.get("umbrella_opportunity"):
+        flags.append("UMBRELLA -- 2+ properties held, umbrella conversation warranted")
+    if r.get("master_policy_opportunity"):
+        flags.append("MASTER POLICY -- 5+ properties held")
+    if r.get("commercial_bop_opportunity"):
+        flags.append("COMMERCIAL BOP -- commercial-use or multi-building property in portfolio")
+    if r.get("flood_opportunity") == "flagged":
+        flags.append("FLOOD -- coastal/flood-zone property flagged")
+    next_action_section = ""
+    if flags:
+        next_action_section = (
+            '<section class="cross"><h2>Bundle Opportunity + Next Action</h2><ul>'
+            + "".join(f"<li>{_esc(f)}</li>" for f in flags)
+            + "</ul></section>"
+        )
+
+    dnc_note = "Flagged on the Do Not Call registry -- manual dial only, no automated dialing/texting/email without documented consent." if r.get("is_dnc") else (
+        "Not flagged on the Do Not Call registry as of the date prepared -- manual outreach by a licensed producer still required." if r.get("is_dnc") is False else
+        "Do Not Call status not independently verified this cycle -- confirm before any automated contact.")
+
+    out = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Winner Data AI &mdash; Portfolio Fact Finder &mdash; {_esc(r.get('resolved_entity_name'))}</title>
+<style>{NINE_CASE_CSS}</style></head>
+<body><div class="wrap">
+  <header><div class="brandline"><div class="name">Winner Data <span>AI</span></div>
+    <div class="tagline">Every Deal Creates a Customer. Our Winner Data AI Finds Them First.</div></div></header>
+
+  {_badge(r.get('qa_status') or 'PARTIAL_ENRICHMENT', 'green' if r.get('qa_status') == 'FULLY_ENRICHED' else 'amber')}
+  <h1>Portfolio Fact Finder &mdash; {_esc(r.get('resolved_entity_name'))}</h1>
+  <div class="meta">Auction date {_esc(r.get('auction_date'))} &middot; {_esc((r.get('county') or '').title())} County &middot; Case {_esc(r.get('case_number'))}</div>
+
+  <section>
+    <h2>Auction Trigger + Buyer Classification</h2>
+    <table>
+      {_row("Buyer / Entity Name", _esc(r.get('winning_bidder')))}
+      {_row("Buyer Type", entity_type)}
+      {_row("Sale Type", _esc(r.get('sale_type')))}
+      {_row("Sold Amount", _money(r.get('tier1_sold_amount')))}
+    </table>
+    <table class="ptable"><thead><tr><th>Property Won at Auction</th><th>Use</th><th>Just Value</th><th>Assessed Value</th><th>Case #</th></tr></thead>
+      <tbody>{property_row}</tbody></table>
+  </section>
+
+  <section>
+    <h2>Parcel / DOR SSOT Summary</h2>
+    <table>
+      {_row("Owner of record on file", _esc(r.get('owner_name')))}
+      {_row("Parcel match method", _esc(r.get('parcel_match_method')))}
+      {_row("Parcel match confidence", _confidence_badge(r.get('parcel_match_confidence')))}
+      {_row("Property appraiser link", f'<a href="{_esc(r.get("pa_link"))}">County Appraiser &rarr;</a>' if r.get('pa_link') else 'Not on file')}
+    </table>
+  </section>
+
+  <section>
+    <h2>Resolved Investor Identity + Confidence Rationale</h2>
+    <table>
+      {_row("Resolved principal", _esc(r.get('resolved_principal_name')) or 'UNRESOLVED')}
+      {_row("Identity match method", _esc(r.get('identity_match_method')))}
+      {_row("Identity confidence", _confidence_badge(r.get('identity_match_confidence')))}
+      {_row("Rationale", _esc(r.get('identity_match_rationale')))}
+    </table>
+  </section>
+
+  {portfolio_section}
+
+  <section>
+    <h2>Registered Agent / Principal / Related-Entity Graph</h2>
+    <table>
+      {_row("Registered agent", _esc(r.get('registered_agent_name')) or 'Not on file')}
+      {_row("Registered agent address", _esc(r.get('registered_agent_address')) or 'Not on file')}
+      {_row("Registered agent confidence", _confidence_badge(r.get('registered_agent_confidence')))}
+      {_row("Principal address", _esc(r.get('principal_address')) or 'UNRESOLVED')}
+      {related_rows}
+    </table>
+  </section>
+
+  <section>
+    <h2>Business + Individual Contact Verification</h2>
+    <table>
+      {_row("Business phone", _esc(r.get('business_phone')) or 'Not available')}
+      {_row("Business email", _esc(r.get('business_email')) or 'Not available')}
+      {_row("Individual phone", _esc(r.get('individual_phone')) or 'Not available')}
+      {_row("Individual email", _esc(r.get('individual_email')) or 'Not available')}
+      {_row("Contact match status", _confidence_badge(r.get('contact_confidence')))}
+    </table>
+    <div class="note">{_esc(dnc_note)}</div>
+  </section>
+
+  <section>
+    <h2>Source and Conflict Ledger</h2>
+    <ul class="ledger">{ledger_items}</ul>
+    <div class="note">Relationship conflict status: {_esc(r.get('relationship_conflict_status') or 'no_conflict')} &middot; Unresolved required fields: {r.get('unresolved_field_count')}</div>
+  </section>
+
+  {next_action_section}
+
+  <footer>
+    Winner Data AI supplies property and ownership data to licensed insurance agencies. It does not
+    contact property owners and does not market foreclosure relief. Fields marked UNRESOLVED or NOT
+    AVAILABLE must not be used for outreach until independently verified. County Just Value is a
+    tax-assessment figure, not replacement cost or market value.
+  </footer>
+</div></body></html>"""
+    return out
+
+
+def slugify_nine_case(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (name or "unknown").lower()).strip("-") or "unknown"
+
+
+def render_nine_case_pdfs(batch_date: str):
+    sys.path.insert(0, os.path.dirname(__file__))
+    from render_ff_9buyer_20260827 import assert_content_safe  # noqa: E402 -- reuse, do not duplicate the banned-term gate
+
+    out_dir = f"winnerdata/batches/{batch_date}/nine_case_portfolio"
+    os.makedirs(out_dir, exist_ok=True)
+
+    rows = mgmt_sql(f"select * from winnerdata.ff_batch_leads where batch_date = date '{batch_date}' order by county, case_number;")
+    manifest = []
+    for r in rows:
+        out_html = render_nine_case_html(r)
+        label = r.get("winning_bidder") or r.get("auction_id")
+        try:
+            assert_content_safe(out_html, label)
+        except ValueError as e:
+            print(f"CONTENT-SAFETY GATE FAILED for {label}: {e}", file=sys.stderr)
+            raise
+        slug = slugify_nine_case(r.get("winning_bidder"))
+        html_path = os.path.join(out_dir, f"{slug}.html")
+        pdf_path = os.path.join(out_dir, f"{slug}.pdf")
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(out_html)
+        pdf_ok = False
+        try:
+            _subprocess.run(
+                ["chromium", "--headless", "--disable-gpu", "--no-sandbox",
+                 f"--print-to-pdf={pdf_path}", "--print-to-pdf-no-header",
+                 f"file://{os.path.abspath(html_path)}"],
+                check=True, capture_output=True, timeout=30,
+            )
+            pdf_ok = os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0
+        except Exception as e:
+            print(f"  PDF render FAILED for {slug}: {e}")
+        print(f"wrote {html_path} pdf={'OK' if pdf_ok else 'FAILED'}")
+        manifest.append({
+            "auction_id": r.get("auction_id"), "case_number": r.get("case_number"),
+            "report_html": html_path, "report_pdf": pdf_path if pdf_ok else None,
+            "qa_status": r.get("qa_status"), "unresolved_field_count": r.get("unresolved_field_count"),
+            "source_snapshot_hash": r.get("source_snapshot_hash"),
+        })
+
+    manifest_path = os.path.join(out_dir, "manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2, default=str)
+    print(f"\n{len(manifest)} nine-case Portfolio Fact Finder(s) rendered to {out_dir}/ (manifest: {manifest_path})")
+    return manifest
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--nine-case", action="store_true", help="Render the issue #19531 nine-case portfolio PDFs from winnerdata.ff_batch_leads instead of the legacy owner_portfolio Markdown path")
+    ap.add_argument("--batch-date", default=BATCH_DATE)
+    args = ap.parse_args()
+    if args.nine_case:
+        render_nine_case_pdfs(args.batch_date)
+    else:
+        main()
