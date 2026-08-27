@@ -8,7 +8,12 @@ name: Watchdog — Stuck CC Runner runs
 on:
   schedule:
     - cron: '*/15 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_threshold_min:
+        description: 'TEST ONLY: override THRESHOLD_MIN to force the cancel+alert path against a run you control. Leave blank for normal operation.'
+        required: false
+        type: string
 
 jobs:
   check:
@@ -26,7 +31,8 @@ jobs:
           # 335min = cc-runner-ghonly.yml's own 330min job timeout + 5min grace —
           # this workflow only acts on runs the in-workflow timeout should already
           # have caught. Do not lower without also lowering the job timeout there.
-          THRESHOLD_MIN=335
+          THRESHOLD_MIN="${{ inputs.test_threshold_min }}"
+          THRESHOLD_MIN="${THRESHOLD_MIN:-335}"
           NOW_EPOCH=$(date -u +%s)
 
           RUNS="$(gh api "repos/${REPO}/actions/workflows/cc-runner-ghonly.yml/runs?status=in_progress&per_page=50" \
