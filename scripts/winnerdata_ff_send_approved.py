@@ -46,10 +46,18 @@ from winnerdata_ff_digest_lib import (
 
 
 def get_approved_batches(batch_date):
+    # batch_kind='seller_digest' is required: winnerdata.ff_batches is shared
+    # with the nine-case third-party-auction portfolio batches (issue #19531),
+    # whose leads live in winnerdata.ff_batch_leads and whose send step is a
+    # separate, explicit, enrichment-gated action -- never this generic
+    # digest sender. Without this filter the */15 backstop poll below would
+    # pick up a portfolio batch the instant it's approved (before enrichment
+    # even starts), query the wrong lead source (winnerdata.leads), get zero
+    # rows, and still call mark_sent() -- burning the 'sent' terminal state
+    # on a batch that was never actually delivered.
+    where = "where status = 'approved' and batch_kind = 'seller_digest'"
     if batch_date:
-        where = f"where status = 'approved' and batch_date = {sql_str(batch_date)}"
-    else:
-        where = "where status = 'approved'"
+        where += f" and batch_date = {sql_str(batch_date)}"
     return run_sql(f"select batch_date, lead_count from winnerdata.ff_batches {where} order by batch_date;")
 
 

@@ -34,8 +34,8 @@ def upsert_pending_batch(batch_date, lead_count, dry_run):
         return "dry_run_pending_approval"
 
     run_sql(f"""
-        insert into winnerdata.ff_batches (batch_date, status, lead_count)
-        values ({sql_str(batch_date)}, 'pending_approval', {lead_count})
+        insert into winnerdata.ff_batches (batch_date, status, lead_count, batch_kind)
+        values ({sql_str(batch_date)}, 'pending_approval', {lead_count}, 'seller_digest')
         on conflict (batch_date) do nothing;
     """)
     rows = run_sql(f"select status, lead_count from winnerdata.ff_batches where batch_date = {sql_str(batch_date)};")
