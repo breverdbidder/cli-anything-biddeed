@@ -492,3 +492,7 @@ narrative/topology layer. For component lists, counts, and facts, query — do n
 Precedence: for INVENTORY AND COUNTS, Supabase wins over this file. For TOPOLOGY AND
 SERVING MODEL (§1–2), this file wins. A conflict between the two is a finding to report,
 not a thing to silently resolve.
+
+Amended by MAS_SOP_ADDENDUM_A.md (Execution Substrate Standard, adopted
+2026-08-22): substrates = Claude Agent SDK + LangGraph + MCP transport;
+vendor MCPs Tracerfy + Bright Data.
