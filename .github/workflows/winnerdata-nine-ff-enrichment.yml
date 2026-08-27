@@ -1,0 +1,77 @@
+name: winnerdata-nine-ff-enrichment
+# Nine-case FF portfolio enrichment (issue #19531). Dispatched exclusively by
+# winnerdata.notify_ff_batch_approved() via public.fire_workflow_dispatch()
+# the instant Ariel approves a batch_kind='nine_case_portfolio' row through
+# public.ff_approve_batch() -- see
+# supabase/migrations/20260827h_winnerdata_ff_nine_case_kpi_and_batch_kind.sql.
+# The trigger is fail-closed: if this workflow is not dispatchable (missing,
+# wrong permissions, GitHub API error), the approval itself is rejected.
+#
+# Runs scripts/ff_nine_portfolio_enrichment.py, which persists results
+# directly into winnerdata.ff_batch_leads and flips
+# winnerdata.ff_batches.enrichment_status to complete/failed. It never sends
+# the client report -- that remains a separate, explicit post-enrichment
+# action. Idempotent: rows already row_enrichment_status='complete' are not
+# re-queried against paid vendors on a re-run (set force_refresh to override).
+on:
+  workflow_dispatch:
+    inputs:
+      batch_date:
+        description: 'YYYY-MM-DD third-party auction batch date'
+        required: true
+        default: '2026-08-26'
+      force_refresh:
+        description: 'Re-run paid vendor lookups even for already-complete rows'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winnerdata-nine-ff-enrichment-${{ github.event.inputs.batch_date }}
+  cancel-in-progress: false
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+
+      - name: Run nine-case enrichment
+        env:
+          BATCH_DATE: ${{ github.event.inputs.batch_date }}
+          FORCE_REFRESH: ${{ github.event.inputs.force_refresh == 'true' && '1' || '0' }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TRACERFY_API_KEY: ${{ secrets.TRACERFY_API_KEY }}
+          TRACERFY_MCP_URL: ${{ secrets.TRACERFY_MCP_URL }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          HUNTER_API_KEY: ${{ secrets.HUNTER_API_KEY }}
+          APIFY_API_KEY: ${{ secrets.APIFY_API_KEY }}
+          BRIGHTDATA_BROWSER_WSS: ${{ secrets.BRIGHTDATA_BROWSER_WSS }}
+        run: |
+          python scripts/ff_nine_portfolio_enrichment.py
+
+      - name: Render nine portfolio Fact Finder PDFs
+        if: always()
+        env:
+          BATCH_DATE: ${{ github.event.inputs.batch_date }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python scripts/portfolio_fact_finder_render.py --nine-case --batch-date "${BATCH_DATE}"
+
+      - name: Upload provenance JSON + PDFs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ff-nine-case-enrichment-${{ github.event.inputs.batch_date }}
+          path: |
+            /tmp/ff_nine_enrichment_*.json
+            winnerdata/batches/${{ github.event.inputs.batch_date }}/nine_case_portfolio/**
+          if-no-files-found: warn
+          retention-days: 90
