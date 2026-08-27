@@ -213,9 +213,95 @@ were not invoked (other cc-runner-ghonly.yml shard sessions were confirmed in-fl
 Logged to `gold_standard_ultraloop_audit` id 18764 (dispatch `8da482b6`, survived=true — the claim
 "this is the documented canon block plus a reversion bug," not a claim that C now passes).
 
+## Addendum (dispatch `97eac5d8`, shard-5, 2026-08-27): suwannee reconfirms the pattern
+
+### suwannee (6 rows, C = 82.9%, 29/35)
+
+Live DB check this session (VERIFIED) confirms exactly 6 `multi_county_auctions` rows for
+`county='suwannee'` carry `parity_status='CLERK_SSOT_CANCELLED'`: case numbers `4693`, `4676`, `4744`,
+`4672`, `4694`, `4681`. Each row's `parity_source` already documents a schedule-diff verification
+(case present in the clerk's staged 2026-08-24 PDF snapshot, absent from the 2026-08-25 snapshot and
+from a fresh independent re-fetch on 2026-08-26), with `auction_status='redeemed'` corroborating.
+29 `PARITY_OK`/`matched_clean` + 6 `CLERK_SSOT_CANCELLED` = 35 = the full county.
+
+Verified against the live Suwannee Clerk tax-deed schedule PDF — the same source
+`scripts/clerk_ssot/parsers/suwannee.py` uses. The parser discovers the current PDF link from the
+landing page (`https://www.suwgov.org/tax-deed-sales/`) rather than hardcoding a filename, since the
+filename embeds the sale date and is replaced each sale cycle; today's discovered link is still
+`Schedule-08.24.2026.pdf` (labeled "Next Tax Deed Sale – September 3, 2026" on the landing page),
+i.e. the schedule has not rolled to a new PDF since the 2026-08-24/08-25 diff that originally produced
+this classification.
+
+| case_number | source checked | result |
+|---|---|---|
+| `4693` | `https://www.suwgov.org/wp-content/uploads/Schedule-08.24.2026.pdf` (fresh fetch, 2026-08-27, HTTP 200, Last-Modified: `Mon, 24 Aug 2026 19:37:40 GMT`) | Absent from the live schedule. Only case rows `4675, 4677, 4678, 4679, 4680, 4682, 4684, 4698, 4704, 4741, 4752, 4754, 4756, 4758, 4760` remain (15 case rows in the current PDF, all pre-`4693` or later, none matching). |
+| `4676` | same fetch as above | Absent from the live schedule (same 15-row result set). |
+| `4744` | same fetch as above | Absent from the live schedule. |
+| `4672` | same fetch as above | Absent from the live schedule. |
+| `4694` | same fetch as above | Absent from the live schedule. |
+| `4681` | same fetch as above | Absent from the live schedule. |
+
+All 6 case numbers were checked (not just 2) since the parser output is small and cheap to fully
+re-verify in one fetch. Every one of the 6 is confirmed still absent from the live PDF today, matching
+the 2026-08-26 finding exactly two days later with an independent fresh HTTP fetch — not a stale re-read
+of a cached result.
+
+## Live scoring evidence (VERIFIED, `pencil_dod_evaluate_county`, run 2026-08-27)
+
+```
+suwannee: C {"pass": false, "detail": "matched_clean=29",  "metric": 82.9}  D {"pass": true, "metric": 100.0}  auctions_total=35
+```
+
+Cancellation rate: 6/35 = 17.1% — well above the ~5% slack C's 95% threshold allows, and (as with
+calhoun/manatee/taylor/gadsden) driven entirely by genuine, independently-reconfirmed cancellations
+(redemptions, per `auction_status='redeemed'`), not a data defect.
+
+This diagnosis was independently reached once already, by an earlier shard-3 session (dispatch
+`697ee013`, `GOLD_STANDARD_SHARD3_SUMTER_SUWANNEE_WAKULLA_DISPATCH_697EE013_SESSION_REPORT.md`,
+2026-08-26), which fixed suwannee D (82.9%→100%, 29/35→35/35) via the same 6-row `CLERK_SSOT_CANCELLED`
+reclassification and explicitly held C unchanged "root cause found and fixed (D), C honestly held." That
+session's finding was never cross-referenced into this canonical cross-county document until now.
+
+### lake (18 rows, C = 87.1%, 121/139)
+
+Live DB check this session (VERIFIED) confirms 18 `multi_county_auctions` rows for `county='lake'` carry
+`parity_status='CLERK_SSOT_CANCELLED'` (`parity_source` values `lake_clerk_foreclosure` and
+`lake_clerk_foreclosure:manual_recheck_20260812`). Live `pencil_dod_evaluate_county` run this session:
+
+```
+lake: C {"pass": false, "detail": "matched_clean=121", "metric": 87.1}  D {"pass": true, "metric": 100.0}  auctions_total=139
+```
+
+Cancellation-vs-total gap: (139-121)/139 = 12.9% — same above-threshold pattern.
+
+Spot-checked 2 of the 18 against the live Lake Clerk foreclosure calendar
+(`https://foreclosurecalendar.lakecountyclerkfl.gov/?view=list`, the same source
+`scripts/clerk_ssot/parsers/lake.py` uses — fresh fetch, 2026-08-27, HTTP 200, 72 live `event_item`
+blocks / 71 distinct case numbers parsed):
+
+| case_number | source checked | result |
+|---|---|---|
+| `2025CA000251` | live list-view fetch, 2026-08-27 | Absent from the current rolling calendar. DB `auction_date=2026-08-25` (2 days in the past as of this check) — consistent with having rolled off Lake's list-view, which only shows near-term/upcoming events, not an archive. |
+| `2025CA002869` | live list-view fetch, 2026-08-27 | Absent from the current rolling calendar. DB `auction_date=2026-08-18` (9 days in the past) — same rolling-window explanation. |
+
+This is weaker-form evidence than suwannee's (Lake's calendar is a rolling window with no persistent
+per-case archive page discovered this session, so "absent" here is consistent with, not independently
+proof of, cancellation), but it does not contradict the classification, and it is corroborated by the
+existing `gold_standard_ultraloop_audit` id `18509` (2026-08-26, `county_slug='lake'`, `letter='C'`,
+`claim`: "C unchanged at 87.1 (121 of 139) -- gap is structurally CLERK_SSOT_CANCELLED rows correctly
+excluded by design, not touched this session", `survived=true`) — independently logged the day before
+this session, live-queried and reconfirmed identical (`metric_before=87.1`, `metric_after=87.1`) today.
+
+**No `parity_status` was changed for any suwannee or lake row this session.
+`pencil_dod_evaluate_county` was not modified. `gold_standard_loop()` / `gold_standard_certify()` were
+not invoked (per this dispatch's explicit instructions — other shard sessions are concurrently mid-flight
+on other counties).** Two new `gold_standard_ultraloop_audit` rows were inserted this session
+(dispatch `97eac5d8`, county_slug=`suwannee` and `lake`, letter=`C`, `survived=true`) documenting this
+reconfirmation — not a claim that C now passes.
+
 ## Files
 
 - This document: `GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md`
 - Precedent: `calhoun_c_546of2024_phantom_ssot_cancel_reconcile.sql`
-- No new SQL fix file — no live DB write was made in this session (all 15 rows, plus gadsden's 10,
-  reconfirmed correct as-is).
+- No new SQL fix file — no live DB write was made in this session (all 15 rows, plus gadsden's 10, plus
+  suwannee's 6 and lake's 18, reconfirmed correct as-is).
