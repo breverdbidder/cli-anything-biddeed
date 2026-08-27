@@ -1,0 +1,166 @@
+-- Gold Standard dispatch 8f944a71-a14f-4daa-bb6a-fe455c40c516 -- seminole letter I
+-- key=seminole-I (county=seminole, letter=I, property card completeness)
+--
+-- BASELINE (pencil_dod_evaluate_county('seminole') at session start, live):
+--   I: card_complete=149/157 = 94.9% (FAIL, threshold >=95%, need >=150)
+--   All other letters (A,B,C,D,E,F,G,H,J) PASS. auctions_total=157.
+--
+-- SESSION RESULT: NO DB WRITES. Metric UNCHANGED at 149/157 (94.9%) after
+-- this session. This is the 4th-5th documented session on this exact letter
+-- (prior: d7798b55, 8182e55d shard-1, 2026-08-25 shard-5 10-row backfill,
+-- 2026-08-26 8d979d33 shard-3). Per BLANK > WRONG, reporting BLOCKED rather
+-- than forcing a cosmetic write with zero metric effect or fabricating data.
+--
+-- RE-DIAGNOSIS (fresh, live, not trusting the 2026-08-26 row list): replicated
+-- the evaluator's exact card_complete predicate (supabase/migrations/
+-- 20260718_gtm22_phase1_3_pencil_dod_snapshot_param_and_loop_rewire.sql, CTE
+-- `c`/`zc`) in Python against live PostgREST data (full paginated fetch of
+-- seminole's 755-row multi_county_auctions set + 151-row zone-linked
+-- v_zoning_gold_standard_card set, no truncation). Result: 149/157, exact
+-- same 8-row gap set as the prior diagnose pass this session produced.
+-- Confirms baseline is accurate and no drift occurred since dispatch start.
+--
+-- The 8 gap rows (CONFIRMED live, unchanged from the diagnose pass):
+--   31e9dbd2-0d85-42de-832a-5e0f001673ca  case 20260083/2024-001947
+--     parcel 13-20-30-300-029A-0000 -- vacant lot, GENUINE no-situs-address
+--   fd2e99ed-e706-4be4-8c26-b0790bb8a037  case 2024CA002388
+--     parcel_id NULL -- scrape artifact ('MULTIPLE PARCELS' upstream)
+--   40fb7cb9-8a60-4bed-835f-3352e37530a3  case 2025CA001957
+--     parcel 34-19-31-501-0000-2040, 2657 Bullion Loop, Sanford -- zone-link only
+--   c1cbeb95-6440-4c34-9e5f-77425435c7dc  case 2025CA002908
+--     parcel_id NULL -- scrape artifact ('LIQUORE LICENSE' upstream)
+--   d96059f2-1cea-4aff-a699-0b61f00098d5  case 2025CA002115
+--     parcel_id='ALCOHOLIC LICENSE' -- no independent source found anywhere
+--   b290a56a-ae33-4b2f-8068-fc2101aa0f1e  case 2016CA000953
+--     "58 Buttonwood Avenue, Winter Springs" -- does not resolve to a real parcel
+--   43b87fa2-1dfb-4ed7-a662-9a82f07e5fae  case 2025CA000629
+--     parcel_id='SYN-SEM-2025CA000629' -- synthetic placeholder, no real parcel
+--   087e103f-370e-45d9-96c1-6153efa78e56  case 2025CA000060
+--     parcel_id='MULTIPLE PARCELS' -- scrape artifact
+--
+-- NEW AVENUE ATTEMPTED THIS SESSION (per task instruction to try one
+-- genuinely new lever, distinct from the 4 prior sessions' municipal ArcGIS
+-- layers (Sanford/Winter Springs/Lake Mary), the dead on-prem
+-- seminolearcgis.seminolecountyfl.gov:6443 server, the FL DOH statewide
+-- layer, and the InformationKiosk service already used 2026-08-26):
+--
+--   1. ArcGIS Online public content search (www.arcgis.com/sharing/rest/
+--      search) for "Seminole County zoning" turned up a third-party hosted
+--      Feature Service ("Seminole County Zoning", owner=TritenRE, url=
+--      services3.arcgis.com/MXkU0pYaiPJITABG/.../Seminole_County_Zoning/
+--      FeatureServer) -- queried live, returns HTTP 499 "Token Required".
+--      Not publicly accessible; dead end, not a viable independent source.
+--
+--   2. Re-resolved the OFFICIAL SeminoleCountyGIS org's "Zoning" web map
+--      (item 69e21196afcf45aa96e2d70eec4182d8, explicitly scoped to
+--      "Unincorporated Seminole County only" per its own description) and
+--      fetched its operationalLayers JSON directly. CONFIRMED this web map's
+--      ONLY backing layer is utility.arcgis.com/usrsvcs/servers/
+--      9b9c9fd45bdc4c39a2bd518da39d1e1c/rest/services/InformationKiosk/
+--      MapServer/1 -- the exact same service already used and documented in
+--      the 2026-08-26 session (8d979d33). Not a new source; same one.
+--
+--   3. Re-resolved the companion webapp viewer item
+--      (0b9c7108874c40d6b54137133a07c86a) and confirmed its "Address or
+--      Parcel No" search widget still points at
+--      seminolearcgis.seminolecountyfl.gov:6443/arcgis/rest/services/
+--      InformationKiosk2/MapServer/1 -- the same on-prem server documented
+--      dead in the 2026-08-25/26 sessions. Re-tested live this session:
+--      still unreachable (connection timeout on :6443/https from this
+--      environment). No change in status.
+--
+--   4. Probed 3 alternate county-hosted GIS hostnames as a genuinely
+--      different discovery path (gis.seminolecountyfl.gov,
+--      maps.seminolecountyfl.gov, egis.seminolecountyfl.gov) -- all
+--      unreachable (connection failed / timeout), consistent with the
+--      documented dead-on-prem-server finding.
+--
+--   5. Probed the county's ArcGIS Hub Open Data portal
+--      (data-seminolecountyfl.opendata.arcgis.com) -- returns HTTP 401
+--      "private org id ... is not accessible" on its search API. Not usable
+--      without auth; dead end.
+--
+-- DIRECT RE-VERIFICATION AGAINST THE LIVE INformationKiosk SERVICE (the one
+-- working source from prior sessions), queried fresh this session for the
+-- 2 zone-link-gap parcels and the vacant-lot row, to independently confirm
+-- (not just re-assert) the structural block:
+--   - 34-19-31-501-0000-2040 (Bullion Loop): queried by exact ParcelNumber
+--     (both dashed ParcelFormat and undashed ParcelNumber forms) AND by
+--     point-in-polygon at its stored coordinates (28.793337441032,
+--     -81.209559433644) -- ZERO features returned both ways. A LIKE query
+--     on ParcelFormat ending '%2040' confirms the service is live and
+--     returns real parcels with that suffix elsewhere in the county (5
+--     other parcels found, real zoning/addresses) -- proving the query
+--     mechanics work and this specific parcel simply does not exist in the
+--     county's own unincorporated parcel/zoning dataset. This is a 5th
+--     independent confirmation of the same finding across sessions
+--     (FL DOH layer, Sanford/Winter Springs/Lake Mary layers, dead on-prem
+--     server, and now this direct non-existence check against the one live
+--     source).
+--   - 13-20-30-300-029A-0000 (vacant lot): re-fetched from InformationKiosk,
+--     confirms Zoning='A-1, R-1A', AssessedValue=23266, TotalJustValue=41108,
+--     Latitude=28.74473986, Longitude=-81.27755311 (all real, matching the
+--     2026-08-26 session's FL DOH-sourced values) but PropertyAddress=null
+--     and Address=null -- STILL genuinely no situs address in the county's
+--     own official tax roll. Confirmed this parcel is NOT present in
+--     v_zoning_gold_standard_card (checked live, zero rows), so it fails
+--     card_complete on BOTH address_ok and zone_ok; fixing zone/value/geo
+--     alone would not flip it. Left untouched -- writing a fabricated
+--     address to force a pass would violate the no-fabrication guardrail.
+--   - "58 Buttonwood Avenue, Winter Springs": searched the live
+--     InformationKiosk service for all PropertyAddress values LIKE
+--     '%BUTTONWOOD%' (20 results) -- every real Buttonwood Dr/Ct/Cir address
+--     in the county is in Longwood or Altamonte Springs, none in Winter
+--     Springs, none numbered "58". Independently confirms (5th source now,
+--     alongside the prior sessions' FL DOH check) that this scraped address
+--     does not correspond to any real parcel.
+--
+-- realforeclose_aids RE-CHECK (independent scrape pipeline, reconfirmed live
+-- this session, unchanged from prior sessions):
+--   2025CA000060  -> 'MULTIPLE PARCELS' (both rows)
+--   2024CA002388  -> 'MULTIPLE PARCELS'
+--   2025CA002908  -> 'LIQUORE LICENSE'
+--   2025CA002115  -> no matching row found anywhere (still unresolved)
+--   2016CA000953  -> 'Property Appraiser' (scrape artifact)
+--   2025CA000629  -> 'Property Appraiser' (scrape artifact)
+--
+-- CONCLUSION: all 5 discovery avenues tried this session (3rd-party hosted
+-- FeatureService, official web-map operational layers, webapp viewer widget
+-- target, alternate county hostnames, ArcGIS Hub Open Data) either resolve
+-- to the SAME service already exhausted in the 2026-08-26 session, or are
+-- dead/inaccessible. No genuinely new, live, public data source was found
+-- for Seminole County's unincorporated zoning coverage beyond what the
+-- 2026-08-26 session already used. The residual 8-row gap is a CONFIRMED
+-- structural ceiling:
+--   - 1 row: genuine no-situs-address vacant lot (address_ok fails, cannot
+--     fix without fabrication)
+--   - 2 rows: zone-linkage-only gap on parcels confirmed absent from every
+--     known zoning data source for Seminole County (5 independent sources
+--     now checked, all agree)
+--   - 5 rows: upstream court-calendar scrape artifacts (MULTIPLE PARCELS /
+--     LIQUORE LICENSE / ALCOHOLIC LICENSE / Property Appraiser / synthetic
+--     placeholder) with no real parcel identifier ever captured, confirmed
+--     via a second independent scrape pipeline (realforeclose_aids)
+--
+-- Fixing this letter would require either: (a) the county's on-prem GIS
+-- server (seminolearcgis.seminolecountyfl.gov:6443) coming back online or a
+-- currently-undiscovered independent zoning source for these 2 specific
+-- unincorporated parcels, or (b) a court-calendar-scrape-quality fix for the
+-- 5 MULTIPLE-PARCELS/LICENSE cases (out of scope for a live-data-only DoD
+-- fix; would require re-scraping the original clerk source pages), or (c) an
+-- evaluator-level policy decision (explicitly out of scope per this
+-- dispatch's guardrails -- may not modify pencil_dod_evaluate_county) on
+-- whether structurally-unresolvable court cases with no real property
+-- parcel should be excluded from the I denominator.
+--
+-- No live DB writes were made this session. Per repo convention this file
+-- is a documentation-only audit trail (no UPDATE/INSERT statements to run --
+-- there is nothing safe to apply without fabrication).
+--
+-- ============================================================================
+-- VERIFICATION (run before/after; both identical this session)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('seminole');
+-- BEFORE: {"I":{"pass":false,"detail":"card_complete=149 of 157","metric":94.9}, ...}
+-- AFTER:  {"I":{"pass":false,"detail":"card_complete=149 of 157","metric":94.9}, ...}
+-- (A,B,C,D,E,F,G,H,J unchanged/PASS in both queries -- no regression.)

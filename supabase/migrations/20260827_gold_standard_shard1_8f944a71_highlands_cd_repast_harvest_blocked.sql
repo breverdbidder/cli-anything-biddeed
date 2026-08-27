@@ -1,0 +1,91 @@
+-- Gold Standard dispatch 8f944a71-a14f-4daa-bb6a-fe455c40c516 -- highlands letters C/D
+-- key=highlands-C, highlands-D (parity_clean / parity_any)
+--
+-- BASELINE (live, pencil_dod_evaluate_county('highlands'), this session):
+--   C: matched_clean=350 of 401 = 87.3% (FAIL, threshold >=95% i.e. >=381)
+--   D: matched_any=375 of 401 = 93.5% (FAIL, threshold >=95% i.e. >=381, gap=6)
+--   All other letters (A,B,E,F,G,H,I,J) PASS.
+--
+-- EVALUATOR CONTRACT (read live from supabase/migrations/
+-- 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql, the most
+-- recent CREATE OR REPLACE of pencil_dod_evaluate_county):
+--   matched_clean counts rows where (parity_status='matched_clean' AND
+--     parity_source LIKE 'tier1%') OR parity_status IN ('PARITY_OK','CLERK_VERIFIED').
+--   matched_any additionally counts parity_status='CLERK_SSOT_CANCELLED'.
+--   26 highlands rows fail matched_any: 22 carry parity_status='matched_clean'
+--   but parity_source='shard8_run6046_litmus_fallback:...' (does NOT start
+--   with 'tier1' -- does not count), 2 carry parity_status='matched_divergent'
+--   with parity_source='shard8_run6046_synthetic_placeholder:...' (synthetic,
+--   no real case), 2 are parity_status='PHANTOM_NOT_ON_CLERK'.
+--
+-- ATTEMPTED FIX (this session): re-ran scripts/gold_standard_dispatch_
+-- 8f944a71_highlands_cd_repast_harvest.py, a live RealAuction/RealTaxDeed
+-- AJAX preview-calendar harvest targeting the 23 fallback-labeled rows whose
+-- auction_date has now passed (2026-08-18, 08-19, 08-26 foreclosure;
+-- 2026-08-26 tax_deed), reusing harvest_date() verbatim from
+-- scripts/shard2_run2450_ajax_realforeclose_harvest.py (SEARCH-FIRST
+-- MANDATE -- no reimplementation).
+--
+-- RESULT: 0 rows promoted.
+--   - realforeclose.com foreclosure previews for 08-18/08-19/08-26: 0 live
+--     items parsed for all three dates (preview calendar is empty -- this
+--     platform only lists FUTURE previews; past auction dates return no
+--     items via this endpoint, confirmed live, not a bug).
+--   - realtaxdeed.com tax_deed preview for 08-26: 36 live items parsed
+--     (endpoint IS live and returning real data for this date), but ZERO of
+--     the 10 target case numbers (25000573/574/575/580/592/611/744/745/746/
+--     747) appear among them -- independently re-verified by printing all 36
+--     raw case_number values live and diff-checking by hand, not just
+--     trusting the script's own match logic. These 10 cases are genuinely
+--     absent from the live tax-deed preview calendar for 2026-08-26.
+--
+-- SECOND LEVER ATTEMPTED (bid-history/results scrape, the mechanism that
+-- fixed leon-B in this same session -- scripts/realauction_bidhistory.py,
+-- Firecrawl-actions login+navigate bypass): re-tested Firecrawl account
+-- status live this session with a trivial unrelated scrape call
+-- (https://example.com) -- response: {"success": false, "error":
+-- "Insufficient credits to perform this request. ..."}. HTTP-level 402,
+-- account-level quota exhaustion, identical finding to the leon-B fix
+-- earlier in this same session (same FIRECRAWL_API_KEY, same account). Not
+-- a bug, not retried further -- retrying an exhausted-credits account
+-- produces the same result.
+--
+-- CONCLUSION: both known live-data levers for these 24 rows (live preview
+-- calendar re-harvest, Firecrawl bid-history/results scrape) are exhausted
+-- this session -- one by genuine data absence (cases not on the live
+-- calendar for their auction date), one by an account-level resource block
+-- shared with (and already spent by) the leon-B fix earlier in this same
+-- session. No live DB writes were made -- forcing a 'tier1%' parity_source
+-- label without independently reconfirming these cases would violate the
+-- HARD GUARDRAIL against fabricated data and the NEVER-FABRICATE rule.
+--
+-- RESIDUAL / NEXT-SESSION LEVERS (ascending cost, not attempted this
+-- session):
+--   a. Once Firecrawl account credits are restored, re-run
+--      scripts/realauction_bidhistory.py (parameterized for highlands, as
+--      the leon-B pattern demonstrates) against the RESULTS page for
+--      2026-08-18/08-19/08-26 to check for post-sale outcome data on these
+--      24 cases -- results pages are a different endpoint than the preview
+--      calendar and were not reachable this session due to the shared
+--      credit exhaustion, not because they were tried and failed.
+--   b. For the 2 PHANTOM_NOT_ON_CLERK rows and 2 synthetic-placeholder rows,
+--      a direct Highlands Clerk case search (highlandsclerk.com or the civil
+--      case search portal) could establish CLERK_SSOT_CANCELLED status if
+--      genuinely cancelled/redeemed -- this would count toward D (not C) per
+--      the evaluator contract above. Not attempted this session (out of
+--      proportion to a 4-row yield against a 6-row D gap and a 31-row C gap;
+--      flagged for a session with Firecrawl credits restored to combine with
+--      lever (a)).
+--
+-- metric_moved: NO. C remains 87.3% (350/401), D remains 93.5% (375/401).
+-- This is the honest ceiling reachable this session -- both known avenues
+-- are genuinely blocked (data absence + shared resource exhaustion), not
+-- unexploited.
+--
+-- ============================================================================
+-- VERIFICATION (before/after identical this session -- no writes made)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('highlands');
+-- BEFORE: {"C":{"pass":false,"metric":87.3,"detail":"matched_clean=350"},
+--          "D":{"pass":false,"metric":93.5,"detail":"matched_any=375"}}
+-- AFTER:  identical (unchanged). A,B,E,F,G,H,I,J unchanged and PASS.
