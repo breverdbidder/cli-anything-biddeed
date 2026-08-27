@@ -1,0 +1,58 @@
+name: winnerdata-ff-send-approved
+# "The Daily Winner FFs" -- SEND step (issue #19482, Aug 27 scope change).
+# Sends via Resend for any winnerdata.ff_batches row with status='approved',
+# then flips it to 'sent'. Never sends a pending_approval batch -- the only
+# path to 'approved' is Ariel calling public.ff_approve_batch() (Cowork
+# task). See supabase/migrations/20260827_winnerdata_ff_batches_approval_gate.sql.
+#
+# Two triggers:
+#  1. workflow_dispatch with batch_date set -- fired immediately by the
+#     winnerdata.ff_batches_notify_approved DB trigger via
+#     public.fire_workflow_dispatch() the instant a batch is approved.
+#  2. schedule -- a bounded morning-window backstop poll (every 15 min,
+#     10:00-15:00 UTC / 6:00-11:00 AM EDT) with no batch_date filter, in
+#     case the trigger's outbound GitHub API call ever fails. Safe to run
+#     redundantly: the send script only touches status='approved' rows, so
+#     an already-sent batch is a no-op.
+on:
+  workflow_dispatch:
+    inputs:
+      batch_date:
+        description: 'YYYY-MM-DD; omit to process all approved-unsent batches'
+        required: false
+        default: ''
+      test_send_to:
+        description: 'Safe test recipient override (never Mariam''s)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (no Resend call, no DB write)'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: "*/15 10-15 * * *"    # every 15 min, 6:00-11:00 AM EDT backstop poll
+concurrency: {group: winnerdata-ff-send-approved, cancel-in-progress: false}
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Send approved batches
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.batch_date }}" ]; then
+            ARGS="$ARGS --batch-date ${{ github.event.inputs.batch_date }}"
+          fi
+          if [ -n "${{ github.event.inputs.test_send_to }}" ]; then
+            ARGS="$ARGS --test-send-to ${{ github.event.inputs.test_send_to }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python scripts/winnerdata_ff_send_approved.py $ARGS
