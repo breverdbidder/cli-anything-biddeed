@@ -1,0 +1,56 @@
+-- Gold Standard dispatch 8da482b6: pasco letter G regression caused by the
+-- same-session I fix (20260827_gold_standard_pasco_i_parcelzones_link_geo_
+-- backfill_8da482b6.sql + 20260827b_..._zephyrhills_...sql).
+--
+-- BEFORE the I fix: G = { "pass": true, "metric": 95.6, "detail": "density=95.6 far=100.0 pk1000=100.0" }
+-- IMMEDIATELY AFTER the I fix (live, re-measured this session):
+--   G = { "pass": false, "metric": 25.0, "detail": "density=92.8 far=25.0 pk1000=25.0" }
+--
+-- ROOT CAUSE (confirmed live via v_zoning_gold_standard_kpi_v3's underlying
+-- join): before this session, only 3 of pasco's 345 parcel_zones rows were
+-- FAR-applicable (residential zones are correctly N/A for FAR/parking per
+-- Pasco's real zoning_districts/v_zoning_district_applicability data), and
+-- all 3 had a value -> far%=100.0. The I-fix's 16 new parcel_zones rows
+-- included 9 that came back "applicable=true, no standards value" -- not
+-- because Pasco's ordinance actually requires FAR/parking on 9 more
+-- residential parcels, but because 6 of those 9 used zone_code='R4'/'R3'
+-- (no hyphen) instead of the county's canonical hyphenated codes 'R-4'/'R-3'
+-- that ALREADY EXIST in zoning_districts for jurisdiction 1258 (Unincorporated
+-- Pasco County) with real applicability=false + density data. The missing
+-- hyphen meant no zoning_districts row matched, so v_zoning_district_
+-- applicability defaulted (via COALESCE(...,true)) to "applicable" with a
+-- null standards value, dragging far/pk1000 down.
+--
+-- FIX (data normalization only, no new ordinance research needed -- these
+-- parcels re-link to standards data that was already correct and present):
+UPDATE public.parcel_zones
+SET zone_code = regexp_replace(zone_code, '^(R)([0-9])$', '\1-\2')
+WHERE jurisdiction_id = 1258
+  AND zone_code IN ('R4', 'R3')
+  AND created_at::date = '2026-08-27';
+-- 6 rows affected (5x R4->R-4, 1x R3->R-3).
+--
+-- AFTER partial fix (live): G = { "pass": false, "metric": 50.0, "detail": "density=94.6 far=50.0 pk1000=50.0" }
+-- Still FAILS (needs >=95%). Still not fixed -- gold_standard_ultraloop_audit
+-- id 18692 (survived=false, this is a disclosed open regression, not a claim
+-- of success).
+--
+-- RESIDUAL OPEN ITEM for the next pasco session: 3 remaining parcel_zones
+-- rows carry zone_code='ZH' (2 in jurisdiction 811 = City of Zephyrhills, 1
+-- in jurisdiction 1258 = Unincorporated Pasco County), none of which match
+-- any real code in zoning_districts (Zephyrhills has no 'ZH' entry at all --
+-- its real residential codes are R-1/R-2/R-3/R-4/ER/TNR etc.). Of the 3:
+--   - id 872463 (parcel 04-26-21-0120-00000-0250, jurisdiction 1258) DOES
+--     have a real zoning_assignments row (zone_source=
+--     county_gis_pasco_pascopa_arcgis, zone_code=ZH) -- i.e. Pasco's own GIS
+--     genuinely returns "ZH" for this parcel, but that value has no mapping
+--     to a real zoning_districts/zone_standards row anywhere. Needs real
+--     research into what Pasco's GIS "ZH" code means (likely an annexation-
+--     pending / Zephyrhills-jurisdiction placeholder rather than a zoning
+--     district) before it can be correctly marked applicable or N/A.
+--   - ids 872475, 872476 (jurisdiction 811) have NO zoning_assignments row
+--     backing the zone_code='ZH' value at all -- worth auditing where this
+--     value came from before trusting it further.
+-- Do not fabricate max_far/parking_per_1000sf values for 'ZH' to force this
+-- to PASS; do not delete the real parcel_zones linkages to hide the
+-- regression. Left open, documented, for real ordinance/source-lineage work.
