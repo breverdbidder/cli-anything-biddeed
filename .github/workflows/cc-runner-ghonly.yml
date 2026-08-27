@@ -65,10 +65,18 @@ jobs:
           } > /tmp/prompt.md
           echo "----- BRIEF -----"; cat /tmp/prompt.md
       - name: Run Claude Code (in-runner, OAuth token, NO Hetzner, retry on 5xx)
-        # 315min: 300min MAX_WAIT (weekly-quota-reset sleep, below) + ~15min for the
-        # attempt loop's own overhead (3x claude -p attempts, 25s transient-error sleeps).
-        # Shorter than the 330min job timeout so a hang inside this step specifically is
-        # reported as a step timeout, distinct from a generic job-level timeout.
+        # 315min budget, but MAX_WAIT below is capped at 200min (not 315) — see incident
+        # 2026-08-27 issue #19511, run 33052164053: the step's timeout-minutes is measured
+        # from STEP START, not from wake-up. A MAX_WAIT of 300min let the reset-sleep alone
+        # consume ~298min of this 315min budget, leaving only ~16min for the actual claude -p
+        # retry before this same timeout cancelled it mid-attempt with ZERO work done —
+        # the entire 5.5h window wasted on a sleep that by design should have produced a
+        # working session afterward. 200min MAX_WAIT guarantees >=110min of real working
+        # time after any capped sleep (well above the 89min p99 / 106min max successful
+        # runtime, 129-run sample 2026-08-25..27). If the real reset is >200min away, fail
+        # fast instead of sleeping the whole window away — cc_redispatch_guard/tick already
+        # retries blocked issues on a later wave, so a fast non-transient failure recovers
+        # sooner than a multi-hour sleep that ends in the same zero-progress cancellation.
         timeout-minutes: 315
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -138,13 +146,13 @@ jobs:
                 TARGET_EPOCH=$(date -u -d "today ${H24}:00" +%s)
                 if [ "$TARGET_EPOCH" -le "$NOW_EPOCH" ]; then TARGET_EPOCH=$(date -u -d "tomorrow ${H24}:00" +%s); fi
                 WAIT=$((TARGET_EPOCH - NOW_EPOCH + 60))
-                MAX_WAIT=$((300 * 60))
+                MAX_WAIT=$((200 * 60))
                 if [ "$WAIT" -le "$MAX_WAIT" ]; then
                   echo "usage limit hit, reset ~${H24}:00 UTC — sleeping ${WAIT}s then retrying"
                   sleep "$WAIT"
                   continue
                 fi
-                echo "::error::usage-limit reset (${RESET_STR} UTC) is more than 5h away — cannot wait within job budget"; exit 1
+                echo "::error::usage-limit reset (${RESET_STR} UTC) is more than 200min away — cannot wait and still leave real working time within this step's budget"; exit 1
               fi
             fi
             echo "::error::claude -p failed (exit=$CC_EXIT, non-transient)"; exit 1
