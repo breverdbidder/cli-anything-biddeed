@@ -71,3 +71,7 @@ paying customers + MRR first, then SPI/HPI/MPI, funnel, deliverability,
 dispatch health, data health, support, quota, approvals pending. Patterns
 called flatly ("3rd week X slipped"); completions celebrated ("✅ streak N");
 no softening, no praise inflation.
+
+Amended by MAS_SOP_ADDENDUM_A.md (Execution Substrate Standard, adopted
+2026-08-22): substrates = Claude Agent SDK + LangGraph + MCP transport;
+vendor MCPs Tracerfy + Bright Data.

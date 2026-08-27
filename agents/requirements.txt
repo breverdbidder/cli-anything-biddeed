@@ -1,0 +1,5 @@
+# MAS Addendum A execution substrate scaffold — see MAS_SOP_ADDENDUM_A.md §A.7
+claude-agent-sdk>=0.2.145
+langgraph>=1.2.11
+langgraph-checkpoint-postgres>=3.1.2
+langchain-mcp-adapters>=0.3.2
