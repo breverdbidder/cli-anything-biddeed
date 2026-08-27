@@ -6,9 +6,6 @@ on:
         description: 'Comma-separated issue numbers (REQUIRED)'
         required: true
         type: string
-concurrency:
-  group: cc-ghonly-${{ inputs.issues }}
-  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -20,7 +17,16 @@ jobs:
   run-cc:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 330min = confirmed legitimate worst case (~300min weekly-quota-reset wait in the
+    # retry loop below, see MAX_WAIT, historically hit exactly at 08:19-08:20 2026 run
+    # 32230550433 which exited at the 300min mark) + ~30min buffer for setup/commit/retry
+    # overhead. Historical p99 successful runtime is 89min, max 106min (129-run sample,
+    # 2026-08-25..27) — the 300min+ tail is real and by-design, not padding: do not shrink
+    # this to "30-60min" without first killing the weekly-limit sleep-and-retry behavior.
+    timeout-minutes: 330
+    concurrency:
+      group: cc-ghonly-issue-${{ matrix.issue }}
+      cancel-in-progress: false
     strategy:
       matrix:
         issue: ${{ fromJson(format('[{0}]', inputs.issues)) }}
@@ -59,6 +65,11 @@ jobs:
           } > /tmp/prompt.md
           echo "----- BRIEF -----"; cat /tmp/prompt.md
       - name: Run Claude Code (in-runner, OAuth token, NO Hetzner, retry on 5xx)
+        # 315min: 300min MAX_WAIT (weekly-quota-reset sleep, below) + ~15min for the
+        # attempt loop's own overhead (3x claude -p attempts, 25s transient-error sleeps).
+        # Shorter than the 330min job timeout so a hang inside this step specifically is
+        # reported as a step timeout, distinct from a generic job-level timeout.
+        timeout-minutes: 315
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

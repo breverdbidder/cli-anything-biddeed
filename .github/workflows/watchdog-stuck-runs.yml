@@ -1,0 +1,75 @@
+name: Watchdog — Stuck CC Runner runs
+
+# Defense in depth for cc-runner-ghonly.yml's own timeout-minutes (job=330, CC
+# step=315). Catches anything the in-workflow timeout misses (e.g. a runner
+# that goes unresponsive without GitHub ever delivering the cancellation).
+# See incident 2026-08-27: 5 runs sat in_progress 5.5+hrs before manual cancel.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Find and cancel stuck cc-runner-ghonly.yml runs
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # 335min = cc-runner-ghonly.yml's own 330min job timeout + 5min grace —
+          # this workflow only acts on runs the in-workflow timeout should already
+          # have caught. Do not lower without also lowering the job timeout there.
+          THRESHOLD_MIN=335
+          NOW_EPOCH=$(date -u +%s)
+
+          RUNS="$(gh api "repos/${REPO}/actions/workflows/cc-runner-ghonly.yml/runs?status=in_progress&per_page=50" \
+            --jq '.workflow_runs[] | [.id, (.run_started_at // .created_at)] | @tsv')"
+
+          if [ -z "$RUNS" ]; then
+            echo "No in_progress cc-runner-ghonly.yml runs."
+            exit 0
+          fi
+
+          FOUND_STUCK=0
+          while IFS=$'\t' read -r RUN_ID STARTED_AT; do
+            [ -z "$RUN_ID" ] && continue
+            START_EPOCH=$(date -u -d "$STARTED_AT" +%s)
+            AGE_MIN=$(( (NOW_EPOCH - START_EPOCH) / 60 ))
+            echo "run=$RUN_ID started=$STARTED_AT age=${AGE_MIN}min"
+
+            if [ "$AGE_MIN" -gt "$THRESHOLD_MIN" ]; then
+              FOUND_STUCK=1
+              RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+              echo "::warning::run $RUN_ID stuck for ${AGE_MIN}min (threshold ${THRESHOLD_MIN}min) — cancelling"
+
+              if gh api -X POST "repos/${REPO}/actions/runs/${RUN_ID}/cancel"; then
+                CANCEL_RESULT="cancelled"
+              else
+                CANCEL_RESULT="cancel request failed (run may have just completed)"
+              fi
+              echo "$CANCEL_RESULT"
+
+              if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+                MSG="Watchdog: run ${RUN_ID} of cc-runner-ghonly.yml stuck ${AGE_MIN}min (threshold ${THRESHOLD_MIN}min) — ${CANCEL_RESULT}. ${RUN_URL}"
+                if ! curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                  --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                  --data-urlencode "text=${MSG}" \
+                  --data-urlencode "disable_web_page_preview=true" >/dev/null; then
+                  echo "::warning::Telegram alert failed for run $RUN_ID"
+                fi
+              else
+                echo "::warning::TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set — skipping alert"
+              fi
+            fi
+          done <<< "$RUNS"
+
+          if [ "$FOUND_STUCK" -eq 0 ]; then
+            echo "No stuck runs past ${THRESHOLD_MIN}min."
+          fi
