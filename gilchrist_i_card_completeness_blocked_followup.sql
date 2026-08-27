@@ -149,3 +149,22 @@ ORDER BY m.parcel_id IS NULL, m.case_number;
 -- correct jurisdiction_id (likely "unincorporated Gilchrist County", not 883/
 -- Trenton) before re-running pencil_dod_evaluate_county('gilchrist').
 -- ============================================================================
+
+-- ============================================================================
+-- SESSION UPDATE 2026-08-27 (same dispatch, later same session) -- the
+-- NEXT-SESSION LEVER above was executed the same day. See migration
+-- supabase/migrations/20260827_gold_standard_shard2_fd5b5878_gilchrist_i_unincorporated_ag_zoning.sql
+-- for the full record: real Gilchrist County (unincorporated) Land
+-- Development Code Article 2 Section 2.06 Agriculture-2/-3 districts were
+-- sourced and inserted (jurisdiction_id=1918, distinct from 883/Trenton),
+-- with a live FL GIO acreage cross-check that corrected the Marcum/Mercado
+-- parcel from A-3 to A-2 (5.05 acres, not the originally briefed 10.1).
+--
+-- RESULT: I flipped 12/14 (85.7%) -> 14/14 (100.0%), PASS. Gilchrist is now
+-- 10/10 letters PASS live (pencil_dod_evaluate_county('gilchrist'),
+-- independently re-verified by an adversarial verifier subagent same
+-- session). This SUPERSEDES the "structurally gated, out of scope" framing
+-- above -- that framing was correct at the time it was written (earlier the
+-- same session, before the zoning research was done) but is now stale; the
+-- migration file above is the authoritative record of the final state.
+-- ============================================================================

@@ -1,0 +1,102 @@
+-- Gold Standard shard-2 (dispatch fd5b5878), 2026-08-27: gilchrist letter I fix.
+--
+-- Documents live writes already applied via PostgREST during this session
+-- (data-only INSERTs against existing tables -- no schema change -- so no
+-- BEGIN/COMMIT DDL is needed; this file is the traceability record required
+-- by this campaign's own convention, matching every prior gold-standard fix).
+--
+-- ROOT CAUSE: 2 gilchrist parcels (Slocum 20-07-15-0000-0003-0070, case
+-- 212025CA000033CAAXMX; Marcum/Mercado 140814019700000171, case
+-- 212025CA000043CAAXMX) had a real parcel_id/address/geo/value (fixed earlier
+-- this same session via Bright Data owner-name search -- see
+-- gilchrist_i_card_completeness_blocked_followup.sql) but NO row in
+-- parcel_zones, so v_zoning_gold_standard_card returned zero rows for either
+-- and letter I (card_complete) could not exceed 12/14 (85.7%).
+--
+-- The other 12 gilchrist rows all ride on jurisdiction_id=883 (Trenton,
+-- the INCORPORATED municipality), zoning_districts.code='R-1', whose own
+-- description field reads "Synthetic R-1 seeded by shard5_g_i_fix" -- i.e.
+-- not sourced from real ordinance text. That pattern was explicitly NOT
+-- copied onto these 2 new parcels; real research was done instead.
+--
+-- REAL RESEARCH (verified live this session):
+-- - Both parcels are 10-acre-class rural tracts with mobile homes, several
+--   miles outside the incorporated limits of Bell/Trenton/Fanning Springs
+--   (Slocum: 7.5mi from Bell center, 17.5mi from Trenton; Marcum: 1.7-2.1mi
+--   from Bell, 12.8mi from Trenton -- computed from live DB lat/long vs.
+--   Wikipedia town-boundary data) -- confirmed unincorporated Gilchrist
+--   County, not governed by any municipal ordinance.
+-- - Gilchrist County's own Land Development Code (not a municipality's),
+--   Article 2 Section 2.06 "Agriculture-2,-3,-4,-5 Districts" (adopted
+--   2006-12-04, effective 2007-01-01), sourced via
+--   https://www.zoneomics.com/code/gilchrist-county-unincorporated-FL/chapter_4
+--   and cross-referenced against the independent mirror
+--   http://gilchristcounty.elaws.us/code/ldc (same Article/Section structure
+--   and adoption date confirmed by both).
+-- - A-3 (10-acre min lot, 300ft width) and A-2 (5-acre min lot, 275ft width)
+--   both real, both defined with front/side/rear setbacks (30/25/25 ft),
+--   20% max lot coverage, 0.25 max FAR.
+-- - A live FL GIO Florida_Statewide_Cadastral FeatureServer query
+--   (PARCEL_ID=140814019700000171) caught and corrected an error in the
+--   original task brief: the Marcum/Mercado parcel is 5.05 acres
+--   (LND_SQFOOT=219978, NO_LND_UNT=505), not 10.1 acres as briefed --
+--   zoned A-2, not A-3, based on the directly-queried live figure.
+-- - The Slocum parcel was independently confirmed via FL GIO spatial
+--   point-in-polygon query at exactly 10.0 acres (owner "SLOCUM DOUGLAS L &
+--   VIRGINIA E", DOR_UC=002) -- A-3 confirmed correct.
+--
+-- WRITES ALREADY APPLIED live via PostgREST (verified by re-SELECT, no drift):
+--   jurisdictions id=1918: {name:'Gilchrist County', county:'Gilchrist', state:'FL'}
+--     (the unincorporated county, distinct from jurisdiction 883 'Trenton')
+--   zoning_districts id=14257: code='A-3', jurisdiction_id=1918, real
+--     ordinance_section='Article 2, Section 2.06', far_regulated=true,
+--     density_regulated=true
+--   zoning_districts id=14258: code='A-2', jurisdiction_id=1918, same
+--     ordinance_section, far_regulated=true, density_regulated=true
+--   zone_standards id=6388 (for district 14257/A-3): min_lot_sqft=435600,
+--     min_lot_width_ft=300, front/side/rear setbacks 30/25/25,
+--     max_lot_coverage_pct=20, max_far=0.25, max_density_du_acre=0.1
+--     (derived as 1/min_lot_sqft*43560, same method as the existing Trenton
+--     R-1 row zone_standards.id=3308, since the ordinance regulates by
+--     minimum lot acreage rather than a standalone density figure)
+--   zone_standards id=6389 (for district 14258/A-2): min_lot_sqft=217800,
+--     min_lot_width_ft=275, same setbacks/coverage/FAR, max_density_du_acre=0.2
+--   parcel_zones id=872591: parcel_id='20-07-15-0000-0003-0070' ->
+--     jurisdiction_id=1918, zone_code='A-3', future_land_use='Agricultural',
+--     source cites the exact URLs/coordinates/distances used
+--   parcel_zones id=872592: parcel_id='140814019700000171' ->
+--     jurisdiction_id=1918, zone_code='A-2', future_land_use='Agricultural',
+--     source cites the FL GIO acreage correction explicitly
+--
+-- SIDE EFFECT CAUGHT AND FIXED SAME SESSION: adding the 2 new
+-- zoning_districts rows without matching zone_standards rows transiently
+-- regressed letter G (density=100.0 PASS -> density=85.7 FAIL) because the
+-- new districts existed but had no standards values yet. Populating
+-- zone_standards (above) with real Section 2.06 data restored G to PASS
+-- (density=100.0, far=100.0) before this session ended -- not left broken.
+--
+-- VERIFICATION (pencil_dod_evaluate_county('gilchrist'), live, this session):
+--   BEFORE: I {"pass":false,"detail":"card_complete=12 of 14","metric":85.7}
+--   AFTER:  I {"pass":true, "detail":"card_complete=14 of 14","metric":100.0}
+--   E, G, and all other letters PASS, unchanged/restored. auctions_total=14.
+--   Full county gilchrist is now 10/10 letters PASS.
+--
+-- Independently re-verified by an adversarial verifier subagent this same
+-- session via a fresh pencil_dod_evaluate_county('gilchrist') call and a
+-- fresh SELECT against v_zoning_gold_standard_card for both parcel_ids --
+-- confirmed both now return real rows (A-3 and A-2 respectively) and I=100%
+-- live. Verifier separately flagged that the OLDER committed narrative in
+-- gilchrist_i_card_completeness_blocked_followup.sql (written earlier the
+-- same session, before this fix was applied) was left stale relative to this
+-- later state -- addressed in the same commit as this migration file by
+-- appending a closing update to that file rather than leaving it
+-- contradicting live DB reality.
+--
+-- No fabrication: every zone_code/dimensional value traces to a cited,
+-- fetched ordinance source; the one acreage discrepancy found was corrected
+-- against the live authoritative figure rather than silently using the
+-- (wrong) briefed number. PropertyOnion was not used as a source anywhere
+-- in this fix. No fleet-wide function (pencil_dod_evaluate_county,
+-- gold_standard_loop, gold_standard_certify) was modified.
+
+SELECT 1;

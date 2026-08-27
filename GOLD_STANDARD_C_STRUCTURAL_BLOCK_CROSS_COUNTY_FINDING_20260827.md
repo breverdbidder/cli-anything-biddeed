@@ -339,12 +339,70 @@ Separately and out of scope for the C canon question: charlotte had 5 rows with 
 (a genuine, actionable D-hygiene gap, unrelated to the C/D canon tension) — reconciled the same session;
 see the county's own session report for exact before/after values.
 
+## Addendum (same day 2026-08-27): sumter reconfirms the pattern, plus a genuinely new 4th row
+
+### sumter (4 rows, C = 87.5%, 28/32)
+
+Live `parity_status` breakdown, pulled this session via a direct `multi_county_auctions` REST query
+(county=eq.sumter, 32 rows, matches `auctions_total`):
+
+| case_number | parity_status | parity_source | auction_status |
+|---|---|---|---|
+| `104` | `CLERK_SSOT_CANCELLED` | `sumter_clerk_tax_deed` | `CANCELLED` |
+| `1078` | `CLERK_SSOT_CANCELLED` | `sumter_clerk_tax_deed` | `CANCELLED` |
+| `1159` | `CLERK_SSOT_CANCELLED` | `sumter_clerk_tax_deed` | `CANCELLED` |
+| `1400` | `CLERK_SSOT_CANCELLED` | `sumter_clerk_tax_deed` | `CANCELLED` |
+
+This is a **genuinely different set from the previously-documented 3-row sumter finding**
+(`scripts/sumter_shard3_697ee013_c_reconfirm_no_write.py`, 2026-08-26, 24-row baseline, cases 104/1159/1400
+only). Case `1078` was **not yet blocking C as of 2026-08-26** — it has since redeemed and joined the
+blocking set, growing sumter's total auction rows from 24 to 32 and the C-gap from 3 to 4 in the interim.
+
+Verified this session against the live `sumterclerk.com` tax-deed sales widget
+(`GET https://www.sumterclerk.com/public-records/tax-deeds/tax-deed-sales/`, HTTP 200, 175047 bytes,
+`<tax-deed-sales :taxdeeds="[...]">` inline JSON widget, `today` field `20260827181114` i.e.
+2026-08-27T18:11:14 UTC — confirms live, not cached):
+
+| cert | parcel | owner | status | modified |
+|---|---|---|---|---|
+| `1078` | `J16C020` | JACKSON, MARTIN | `redeemed` | 2026-08-27 08:42:56 (today) |
+| `1159` | `M06C003` | CROMER, BRENDA | `redeemed` | 2026-08-25 08:32:23 |
+| `104` | `C27-268` | TRUSTEES OF THE OAK HILL CEMETERY | `redeemed` | 2026-08-19 08:57:06 |
+| `1400` | `N33-021` | GRINER, ANDREW & SEAN (JTWROS) | `redeemed` | 2026-08-19 09:05:58 |
+
+All 4 `cert`/parcel pairs match the DB's `case_number`/`parcel_id` exactly, string-for-string. Case `1078`
+in particular was cross-checked directly (`parcel_id=J16C020`, `parity_status=CLERK_SSOT_CANCELLED`,
+`auction_status=CANCELLED` in DB) against the live widget row (`cert=1078 parcel=J16C020 status=redeemed`,
+modified the same day as this session) — DB classification already matches live reality exactly, no drift,
+no stale tagging.
+
+`pencil_dod_evaluate_county('sumter')` (VERIFIED, live run this session, before and after — identical,
+confirming no write occurred):
+
+```
+C {"pass": false, "detail": "matched_clean=28", "metric": 87.5}
+D {"pass": true,  "detail": "matched_any=32",   "metric": 100.0}
+auctions_total=32
+```
+
+Cancellation rate implied by the gap: 4/32 = 12.5% — above the ~5% slack C's 95% threshold allows, in
+the same range as calhoun (11.1%) and gadsden (14.9%).
+
+**No fabricated matches were created. No row's `parity_status` was changed.** All 4 rows are genuine,
+live, currently-redeemed tax-deed certificates, correctly excluded from `matched_clean` by C's canon
+design and correctly included in `matched_any` (D, which passes at 100.0%). This is the 6th (7th
+counting gadsden separately) independent county confirming the same canon-level C/D tension — and the
+first case where a **new row joined the blocking set between sessions** (1078, redeemed just today),
+demonstrating the block is not a one-time historical artifact but an ongoing, structurally recurring
+outcome as clerk redemptions continue to happen in the normal course of business.
+
 ## Files
 
 - This document: `GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md`
 - Precedent: `calhoun_c_546of2024_phantom_ssot_cancel_reconcile.sql`
 - Charlotte precedent (independent, pre-dates this doc): `scripts/charlotte_cd_realforeclose_tier1_backfill_ch_cd.py`,
   `scripts/charlotte_cd_tier1_run93161_parity_stamp.py`
+- Sumter precedent (independent, pre-dates this doc, 3-row/24-total baseline): `scripts/sumter_shard3_697ee013_c_reconfirm_no_write.py`
 - No new SQL fix file — no live DB write was made against any pre-existing `CLERK_SSOT_CANCELLED` row in
-  this session (all 15 original rows, plus gadsden's 10, suwannee's 6, lake's 18, and charlotte's 109,
-  reconfirmed correct as-is).
+  this session (all 15 original rows, plus gadsden's 10, suwannee's 6, lake's 18, charlotte's 109, and
+  sumter's 4 — including the newly-redeemed case 1078 — reconfirmed correct as-is).
