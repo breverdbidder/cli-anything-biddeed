@@ -37,3 +37,115 @@ ORDER BY m.parcel_id IS NULL, m.case_number;
 -- CONCLUSION: I is structurally gated by E. Blocked, same root cause, needs more research
 -- (a working, non-blocked source for Gilchrist parcel/owner-name lookup) before either
 -- letter can move. 0 rows changed.
+
+-- ============================================================================
+-- SESSION UPDATE 2026-08-27 -- Bright Data MCP unblocked E fully; I now has a
+-- DIFFERENT, NEWLY-DISCOVERED residual blocker (zoning-card join), not the same
+-- root cause as before. Real writes applied to multi_county_auctions only.
+-- ============================================================================
+-- NEW LEVER: mcp__brightdata__scrape_as_markdown / search_engine (Bright Data
+-- residential/datacenter proxy network), not available/tried in any prior
+-- session. Results per source:
+--   1. civitekflorida.com/ocrs/county/21/ -- Turnstile NOT triggered this time;
+--      returned the real "select access option" splash page (Public/Attorney/
+--      Registered/Party). Still a genuine login-tier gate beyond that page --
+--      not further pursued once the address/parcel were found elsewhere.
+--   2. qpublic.schneidercorp.com -- Bright Data itself refused the request
+--      ("Residential Failed (bad_endpoint): ... not available for immediate
+--      residential (no KYC) access mode in accordance with robots.txt").
+--      Confirmed dead for this session/account tier, distinct failure mode
+--      from the earlier Cloudflare 403s (this is Bright Data's own policy
+--      gate, not the target site's).
+--   3. gilchrist.realforeclose.com AID=1512459 and AID=1512462 direct detail
+--      pages -- same Bright Data "bad_endpoint" KYC refusal as qpublic. Never
+--      reached the target site at all.
+--   4. mcp__brightdata__search_engine for owner names -- THIS is what worked.
+--      "Chad Slocum" Gilchrist Florida foreclosure surfaced two real Trellis.law
+--      court-filing scans (civil cover sheet + summons) confirming address
+--      "1309 NW 87th Pl, Bell, Florida 32619" for case 25000033CAAXMX (our
+--      212025CA000033CAAXMX). A follow-up search for the myfloridacounty/
+--      civitek-adjacent term set surfaced NoticeRegistry.com, which republishes
+--      the VERBATIM official Notice of Sale / Notice of Action text (sourced
+--      from newspaper legal-notice publication, not gated) for both cases,
+--      free, no paywall needed for the full notice text block:
+--        - Case 212025CA000043CAAXMX (Marcum/Mercado): full legal description,
+--          confirmed decedent's real full name "KENNETH MARCUM A/K/A KENNETH J.
+--          MARCUM" (our DB's "Kenneth Marc" was mid-word truncation of
+--          "Marcum", not a different surname), address "3079 NW 45TH AVE,
+--          BELL, FL 32619", and a Florida DOR 2025 certified-tax-roll citation
+--          giving parcel 140814019700000171, just value $115,751, land value
+--          $55,550.
+--        - Case 25000033CAAXMX / 212025CA000033CAAXMX (Slocum): full legal
+--          description (NE 1/4 of SW 1/4 of NE 1/4, Sec 20, T7S, R15E) and
+--          address "1309 Northwest 87th Place, Bell, Florida 32619", matching
+--          the Trellis.law summons address exactly.
+--      Parcel for Slocum (not stated on NoticeRegistry) cross-confirmed via 4
+--      independent secondary sources returned by search_engine, all agreeing
+--      on the same APN: shortsales.net (tax-lien record, mailing address
+--      "1309 NW 87TH PL", parcel "20-07-15-0000-0003-0070", assessed $77,447,
+--      land $42,775, tax year 2019), compass.com, fastpeoplesearch.com, and
+--      affordablehousing.net -- all four independently list the identical APN
+--      for this address. Parcel format (NN-NN-NN-NNNN-NNNN-NNNN,
+--      Section-Township-Range) matches the existing gilchrist convention
+--      already live in multi_county_auctions (e.g. 16-10-15-0046-000A-0041).
+--      Lat/long for both addresses obtained from the US Census Bureau's free,
+--      unauthenticated geocoder (geocoding.geo.census.gov), which returned
+--      exact TIGER-line address-range matches (not zip-centroid fallback) for
+--      both: Slocum (29.861788632026, -82.829686123025), Marcum/Mercado
+--      (29.783077727453, -82.883635471662).
+--
+-- WRITES APPLIED (via PostgREST PATCH to multi_county_auctions, verified by
+-- re-SELECT immediately after each write -- no drift):
+--   id=9bbeb28e-d2ec-4b2a-a7f5-bc6ce46b0484 (212025CA000033CAAXMX, Slocum):
+--     parcel_id='20-07-15-0000-0003-0070',
+--     property_address='1309 NW 87TH PL, BELL, FL 32619',
+--     latitude=29.861788632026, longitude=-82.829686123025,
+--     assessed_value=77447, market_value=77447,
+--     data_source='brightdata_noticeregistry_shortsales_census_geocode'
+--   id=4517a039-4157-4b84-bc04-b0fe22b22df3 (212025CA000043CAAXMX, Marcum/Mercado):
+--     parcel_id='140814019700000171',
+--     property_address='3079 NW 45TH AVE, BELL, FL 32619',
+--     latitude=29.783077727453, longitude=-82.883635471662,
+--     assessed_value=115751, market_value=115751,
+--     data_source='brightdata_noticeregistry_flsource_census_geocode'
+--
+-- RESULT ON E: pencil_dod_evaluate_county('gilchrist') re-run live immediately
+-- after both writes: E flipped from {"pass":false,"detail":"parcel_linked=12",
+-- "metric":85.7} to {"pass":true,"detail":"parcel_linked=14","metric":100.0}.
+-- CONFIRMED PASS, all 14 gilchrist rows now parcel-linked.
+--
+-- RESULT ON I: DID NOT MOVE. Still {"pass":false,"detail":"card_complete=12 of
+-- 14","metric":85.7} after the same writes. Root cause diagnosed live: I's
+-- underlying evaluator (not modified this session, per scope boundary) checks
+-- more than the 5 fields written above. Queried v_zoning_gold_standard_card
+-- for both new parcel_ids -- ZERO rows for either
+-- ('20-07-15-0000-0003-0070' and '140814019700000171' both return []),
+-- while all 12 already-passing gilchrist rows DO have a zone_code='R-1' row in
+-- that view (all under jurisdiction_id=883 / Trenton FL ordinance source,
+-- regardless of parcel_id format -- STR-hyphenated or 18-digit numeric). This
+-- is a NEW, DISTINCT residual blocker from the one documented in the original
+-- follow-up above ("I is structurally gated by E") -- E is now fully fixed,
+-- but I additionally requires a zoning_assignments/zoning-card row that does
+-- not exist yet for either of these 2 newly-linked parcels.
+-- NOT FABRICATED: did not insert a zone_code/setback/FAR row for either
+-- parcel. These are both genuinely different parcels from the other 12 --
+-- Slocum is a 10-acre rural tract with a 1996 mobile home, Marcum/Mercado is
+-- a 10.1-acre rural tract with a 1995 mobile home, both in unincorporated
+-- Gilchrist County -- inserting an R-1/Trenton-ordinance row without a real,
+-- sourced spatial/zoning-district lookup for these specific parcels would
+-- violate the "cite the exact source, never fabricate" instruction. Also, the
+-- underlying zoning_assignments-style base table backing
+-- v_zoning_gold_standard_card was NOT in this session's authorized write
+-- scope (only "PATCH the multi_county_auctions row" was authorized) --
+-- writing to it would itself be a scope violation independent of the
+-- fabrication concern.
+--
+-- NEXT-SESSION LEVER for I: research the real zoning designation for
+-- unincorporated agricultural/rural parcels in Gilchrist County (may be
+-- "AG" / "A-1" rather than R-1 -- Trenton's RSF-1 ordinance almost certainly
+-- does not govern 10-acre rural tracts outside the municipal boundary) via
+-- the Gilchrist County (not City of Trenton) Land Development Code, then
+-- insert a real, sourced zoning_assignments row for these 2 parcels with a
+-- correct jurisdiction_id (likely "unincorporated Gilchrist County", not 883/
+-- Trenton) before re-running pencil_dod_evaluate_county('gilchrist').
+-- ============================================================================

@@ -1,0 +1,178 @@
+-- GOLD STANDARD sumter, letters E (parcel linkage) + I (property card completeness)
+-- + J (deal thesis) -- 3-row owner-name/address re-attempt, session 2026-08-27.
+-- No-op documentation artifact: honest exhaustion, nothing written. BLANK > WRONG.
+--
+-- BASELINE (VERIFIED live via public.pencil_dod_evaluate_county('sumter') at session
+-- start AND again at session end -- IDENTICAL, no drift either direction):
+--   E: pass=false, parcel_linked=29 of 32 (90.6%), threshold >=95%.
+--   I: pass=false, card_complete=28 of 32 (87.5%).
+--   J: pass=false, deal_complete=29 of 32 (90.6%).
+--   auctions_total=32. All other letters (A/B/C/D/F/G/H) already PASS.
+--
+-- THE 3 TARGET ROWS (all parity_status='PARITY_OK', parity_source=
+-- 'sumter_clerk_foreclosure', property_address/parcel_id/latitude/longitude/
+-- assessed_value/market_value/owner_name/data_source ALL NULL, re-queried live
+-- via PostgREST this session):
+--   2026-CA-000074  WILMINGTON SAVINGS FUND SOCIETY FSB -VS- MARC G. RATLIFF
+--                   sale_date 09/17/2026, judgment $265,593.22
+--   2026-CA-000090  WILMINGTON SAVINGS FUND SOCIETY FSB -VS- MARY MCLEAN
+--                   sale_date 09/17/2026, judgment $509,135.13
+--   2026-CA-000129  KENNETH STRONG -VS- JOHNATHON YOUNG
+--                   sale_date 10/01/2026, judgment $249,174.17
+-- These 3 rows are the entire E gap (32-29=3) and 3 of the 4 I gap (the 4th I
+-- gap row is one of the CLERK_SSOT_CANCELLED tax-deed rows 104/1159/1400, a
+-- documented, dead, canon-level block, out of scope -- see
+-- scripts/sumter_shard3_697ee013_c_reconfirm_no_write.py).
+--
+-- PRIOR SESSION, SAME DAY (dispatch 3b3e322c, files
+-- scripts/sumter_shard4_3b3e322c_e_mca_enrichment.py and companion migration
+-- supabase/migrations/20260827_sumter_shard4_3b3e322c_ei_7row_zoning_link.sql)
+-- already ran the standard methodology (sumterclerk.com foreclosure-sales page
+-- -> Sumter County ArcGIS geocoder -> FL DOR statewide cadastral point-in-
+-- polygon query -> owner-name cross-check) on these exact 3 cases and found:
+--   2026-CA-000074 -> geocoded to parcel D13D081, but DOR OWN_NAME "WHEELER
+--     DALE N & SHARON R" != clerk-scraped defendant "MARC G. RATLIFF" --
+--     MISMATCH, NOT enriched (geocode score 89.35, lowest of that session's
+--     batch, consistent with an imprecise interpolated match).
+--   2026-CA-000090 -> geocoded to parcel D28E030, but DOR OWN_NAME "FRISKE
+--     ROBERTA M" != clerk-scraped defendant "MARY MCLEAN" -- MISMATCH, NOT
+--     enriched (geocode score 87.72, 2nd lowest).
+--   2026-CA-000129 -> the sumterclerk.com foreclosure-sales page has NO
+--     Address field at all for this row (re-confirmed live this session,
+--     see below) -- genuine source gap, no geocode attempted.
+--
+-- THIS SESSION (2026-08-27, same day, independent re-verification + 4 NEW
+-- LEVERS tried, none repeating the prior session's exact geocode+PIP method):
+--
+--   0. Re-scraped https://www.sumterclerk.com/courts/foreclosures/foreclosure-
+--      sales/ live via the canonical parser (scripts/clerk_ssot/parsers/
+--      sumter.py's field-extraction logic). Confirmed byte-for-byte identical
+--      Status/Sale Date/Case Number/Judgement Amount/Parties fields as the
+--      prior session for all 3 cases, and confirmed NO Address field exists
+--      on this page for ANY row (Address is not part of this page's grid at
+--      all -- the prior session's docstring inference that only 000129
+--      "has no Address field" was imprecise; in fact NONE of the foreclosure
+--      rows carry an Address field on this page. The 5 rows enriched by the
+--      prior session got their addresses from a DIFFERENT, non-scraped
+--      geocode-first flow, not from this page.) STATUS: confirmed, no new
+--      data.
+--
+--   1. MyFloridaCounty.com Official Records Index (ORI) party-name search,
+--      per-county URL https://www.myfloridacounty.com/orisearch/60 (Sumter's
+--      internal ORI id=60). Genuinely NEW lever for Sumter specifically (used
+--      successfully as a documented dead end for Gilchrist id=21 in
+--      gilchrist_e_parcel_linkage_blocked.sql lever 1, confirming this is a
+--      real, previously-cataloged block class -- re-tried here in case Sumter's
+--      instance differs). Initial GET of the search form: HTTP 200, "Instruments
+--      verified through 8/17/2026" banner, genuinely live and current, no gate
+--      on the form itself. POST'd party-name search (name="RATLIFF MARC",
+--      partyType=Both) against the form's own dynamic action URL
+--      (/orisearch/s/search?q1=<token>): response is NOT results -- it
+--      silently re-renders the same empty search form (10.8-10.9 KB, identical
+--      shape to the GET). This is the same "search action gated / non-
+--      scriptable without a live browser session" failure class documented for
+--      Gilchrist (there: an explicit Cloudflare Turnstile challenge page; here:
+--      a silent form-token rejection -- same root cause, JS-dependent anti-
+--      automation on the POST action, different surface symptom). CONFIRMED
+--      DEAD for a stateless HTTP client.
+--
+--   2. Sumter County's own ArcGIS REST services directory
+--      (https://gis.sumtercountyfl.gov/sumtergis/rest/services/), enumerated
+--      ALL folders looking for a publicly exposed, owner-name-queryable
+--      parcels/property layer (an alternative to the FL DOR statewide
+--      cadastral layer, which is known from the prior session to 400/timeout
+--      on non-PARCEL_ID filters): Public, DevelopmentServices, Operations,
+--      Elections, Engineering, Imagery, Interactive, Internal, RequestedServices,
+--      Utilities folders enumerated. Public/DevelopmentServices/Operations
+--      (the only plausible candidates) contain ONLY Cityworks asset-management
+--      layers, geocoders (Sumter_Geocoder, Sumter_Geocoder_Secure, Streets
+--      composite locators), Parks, Fire/EMS, and infrastructure layers -- NO
+--      parcels/property-appraiser layer with an OWNER or OWN_NAME field is
+--      exposed anywhere in this service catalog. (The FLU_Zoning layer used by
+--      the prior session for zone-code lookup is present but has no owner
+--      field either -- it is a zoning-district polygon layer, not a parcel/
+--      ownership layer.) STATUS: structurally absent, not blocked -- no such
+--      endpoint exists to query.
+--
+--   3. Independently re-confirmed the FL DOR statewide cadastral FeatureServer
+--      (services9.arcgis.com/Gh9awoU677aKree0/.../FeatureServer/0/query) still
+--      times out (httpx.ReadTimeout at 15s) on a CO_NO=63 AND OWN_NAME LIKE
+--      '%RATLIFF%' attribute filter, matching the prior session's own
+--      documented finding ("400s on any non-PARCEL_ID attribute filter") --
+--      re-verified live rather than assumed. STATUS: confirmed still dead,
+--      same root cause.
+--
+--   4. Sumter County Property Appraiser's own parcel-search tool: sumterpa.com
+--      links directly to qPublic.schneidercorp.com/Application.aspx?
+--      App=SumterCountyFL&PageType=Search (Schneider Corp-hosted). Direct HTTP
+--      GET (both plain and with full browser Accept/Accept-Language headers):
+--      HTTP 403, response body confirmed to be a literal Cloudflare
+--      "Attention Required!" interstitial (title tag + cf_styles-css markers).
+--      Same Cloudflare-WAF block class already documented for Gilchrist's
+--      identical Schneider-hosted qPublic instance
+--      (gilchrist_e_parcel_linkage_blocked.sql lever 3) and for CiviTek OCRS
+--      Turnstile blocks elsewhere in this repo. Per this campaign's own
+--      standing precedent, a Cloudflare/Turnstile wall is NOT attempted to be
+--      bypassed. STATUS: confirmed dead, same class of gate.
+--
+--   5. Sumter County Clerk's own CiviTek OCRS instance
+--      (civitekflorida.com/ocrs/county/60/) -- per this repo's own prior,
+--      Playwright-driven exhaustive documentation for the SAME county
+--      (supabase/migrations/20260725_sumter_i_property_address_source_search_
+--      dead_end.sql, lever 4): reachable up to the live Case Search form
+--      (Year/Court Type/Sequence#), but the search SUBMISSION is gated by a
+--      Cloudflare Turnstile CAPTCHA, confirmed via literal 'cf-turnstile'
+--      markup in that prior session's rendered page. Per that same file's own
+--      "NEXT-SESSION LEAD" note, this is NOT re-attempted here (no CAPTCHA-
+--      solving capability available this session, and re-attempting an
+--      already-proven Cloudflare Turnstile block would waste session budget
+--      per this campaign's own precedent for gilchrist/hamilton/columbia/dixie/
+--      putnam/bradford on the identical CiviTek platform). This session
+--      independently confirmed via a lightweight GET that
+--      civitekflorida.com/ocrs/county/60/index.xhtml is a stateful
+--      JSF/PrimeFaces POST-form application (not a scriptable GET-based
+--      search), consistent with the browser-only nature already documented.
+--      STATUS: pre-confirmed dead, not re-attempted past the CAPTCHA wall.
+--
+-- CONCLUSION: No new address, parcel_id, or owner-confirmation data was
+-- retrieved for any of the 3 target rows this session. Per Honesty Protocol /
+-- BLANK > WRONG: the 2 owner-name mismatches (000074, 000090) from the prior
+-- same-day session remain unresolved -- forcing the geocoded D13D081/D28E030
+-- parcels onto these rows despite a confirmed owner-name mismatch would be a
+-- fabrication risk (a wrong VERIFIED claim carries a 3x honesty_violations
+-- penalty per HONESTY PROTOCOL), so this is correctly NOT done. 2026-CA-000129
+-- has no address field on its source page at all and no independent lever
+-- (geocode-by-name, GIS owner search, PA search, CiviTek OCRS) was reachable
+-- this session either. NO WRITE APPLIED to multi_county_auctions for any of
+-- the 3 rows.
+--
+-- RESULT (VERIFIED live, pencil_dod_evaluate_county('sumter'), before AND
+-- after this session -- IDENTICAL, confirming no drift, no regression, no
+-- accidental write):
+--   BEFORE: E=90.6% (29/32) FAIL, I=87.5% (28/32) FAIL, J=90.6% (29/32) FAIL.
+--   AFTER:  E=90.6% (29/32) FAIL, I=87.5% (28/32) FAIL, J=90.6% (29/32) FAIL.
+--
+-- NEXT-SESSION LEVERS (genuinely untried after this session):
+--   1. A Turnstile-solving capability (2Captcha, Turnstile-specific solver)
+--      would unblock BOTH civitekflorida.com/ocrs/county/60 (Case Search by
+--      Year/Court Type/Sequence#, would directly resolve the case caption
+--      and true defendant/property for all 3 cases) and
+--      myfloridacounty.com/orisearch/60 (party-name Official Records search)
+--      in one capability addition. This is now the confirmed common blocker
+--      for the LAST 3 residual sumter rows, matching the pattern already
+--      established for Gilchrist's last 2 residual rows.
+--   2. A funded Firecrawl account (prior sessions confirmed balance
+--      exhausted, HTTP 402) with managed-browser CAPTCHA handling could
+--      attempt the CiviTek/myfloridacounty flows from Firecrawl's own IP
+--      pool and browser stack, which may not trip the identical Cloudflare
+--      heuristics as this sandbox's direct curl calls.
+--   3. Direct phone/manual contact with the Sumter Clerk's office for the
+--      case caption/legal description on 2026-CA-000074, 2026-CA-000090,
+--      2026-CA-000129 remains outside this session's autonomous scope but
+--      is the most reliable path given the CAPTCHA walls above.
+--
+-- (No SQL to run -- this file is a documentation-only record of an honest
+-- exhaustion, consistent with the campaign's own gilchrist_e_parcel_linkage_
+-- blocked.sql template.)
+
+SELECT 1;

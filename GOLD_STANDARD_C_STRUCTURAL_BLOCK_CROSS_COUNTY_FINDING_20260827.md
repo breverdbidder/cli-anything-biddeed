@@ -299,9 +299,52 @@ on other counties).** Two new `gold_standard_ultraloop_audit` rows were inserted
 (dispatch `97eac5d8`, county_slug=`suwannee` and `lake`, letter=`C`, `survived=true`) documenting this
 reconfirmation — not a claim that C now passes.
 
+## Addendum (same day 2026-08-27): charlotte reconfirms the pattern — 4th/5th independent confirmation
+
+### charlotte (109 rows, C = 60.4%, 174/288 — the starkest ratio observed yet)
+
+Live `parity_status` breakdown for charlotte, pulled this session via `pencil_dod_evaluate_county('charlotte')`
+and a direct `multi_county_auctions` count:
+
+| parity_status | count | % of 288 |
+|---|---|---|
+| `matched_clean` | 174 | 60.4% |
+| `CLERK_SSOT_CANCELLED` | 109 | 37.8% |
+| `NULL` | 5 | 1.7% |
+| **Total** | **288** | 100% |
+
+`pencil_dod_evaluate_county('charlotte')` (VERIFIED, live run this session):
+
+```
+C {"pass": false, "detail": "matched_clean=174", "metric": 60.4}
+D {"pass": true,  "detail": "matched_any=283",   "metric": 98.3}
+auctions_total=288
+```
+
+Charlotte is the **starkest instance of the canon-level block found so far**: a 37.8% cancellation rate,
+more than **7x** the ~5% slack C's 95% threshold allows (vs. calhoun 11.1%, manatee 7.8%, taylor 7.7%,
+gadsden's 10/67=14.9%). This is consistent with charlotte's own prior sessions
+(`charlotte_cd_realforeclose_tier1_backfill_ch_cd.py`, `charlotte_cd_tier1_run93161_parity_stamp.py`) which
+already independently documented, on 2026-08-11 and 2026-08-12 respectively, that charlotte's remaining
+`CLERK_SSOT_CANCELLED`/redeemed rows are "genuinely cancelled/redeemed and correctly excluded from
+matched_clean by the evaluator's design; ... no further legitimate lever without fabricating a status
+change on real cancelled/redeemed sales" — the same conclusion this cross-county finding reaches
+independently, now for a 4th (arguably 5th, counting gadsden separately) county.
+
+**No fabricated matches were created. No pre-existing `CLERK_SSOT_CANCELLED` row's `parity_status` was
+changed.** Consistent with the recommendation above (Options A/B/C), this remains a canon-level decision,
+not a per-county data-quality gap. `pencil_dod_evaluate_county` was not modified for this addendum.
+
+Separately and out of scope for the C canon question: charlotte had 5 rows with `parity_status IS NULL`
+(a genuine, actionable D-hygiene gap, unrelated to the C/D canon tension) — reconciled the same session;
+see the county's own session report for exact before/after values.
+
 ## Files
 
 - This document: `GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md`
 - Precedent: `calhoun_c_546of2024_phantom_ssot_cancel_reconcile.sql`
-- No new SQL fix file — no live DB write was made in this session (all 15 rows, plus gadsden's 10, plus
-  suwannee's 6 and lake's 18, reconfirmed correct as-is).
+- Charlotte precedent (independent, pre-dates this doc): `scripts/charlotte_cd_realforeclose_tier1_backfill_ch_cd.py`,
+  `scripts/charlotte_cd_tier1_run93161_parity_stamp.py`
+- No new SQL fix file — no live DB write was made against any pre-existing `CLERK_SSOT_CANCELLED` row in
+  this session (all 15 original rows, plus gadsden's 10, suwannee's 6, lake's 18, and charlotte's 109,
+  reconfirmed correct as-is).
