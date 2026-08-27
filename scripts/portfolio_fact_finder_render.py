@@ -150,11 +150,31 @@ def main():
 # number.
 # ---------------------------------------------------------------------------
 import html as _html
+import re as _re
 import subprocess as _subprocess
 import urllib.error as _urlerr
 import urllib.request as _urlreq
 
 _MGMT_URL = "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query"
+
+
+def _sanitize_for_client(text):
+    """Redact internal vendor names / file paths / issue numbers from any
+    free-text DB value before it reaches a client PDF. identity_match_rationale,
+    qa_errors_json reasons, and similar fields are internal QA provenance
+    written by enrichment code with no client-safety discipline applied at
+    write time (unlike scripts/render_ff_9buyer_20260827.py's hand-authored
+    strings) -- assert_content_safe() below is the backstop, this is the
+    fix, not a substitute for it."""
+    from render_ff_9buyer_20260827 import BANNED_TERMS, BANNED_PATTERNS  # noqa: E402
+    if text in (None, ""):
+        return text
+    out = str(text)
+    for term in BANNED_TERMS:
+        out = _re.sub(_re.escape(term), "a verified data provider", out, flags=_re.IGNORECASE)
+    for pattern, _desc in BANNED_PATTERNS:
+        out = pattern.sub("[internal reference redacted]", out)
+    return out
 
 
 def mgmt_sql(query: str, timeout: int = 90):
@@ -173,7 +193,7 @@ def mgmt_sql(query: str, timeout: int = 90):
 
 
 def _esc(v):
-    return _html.escape(str(v)) if v not in (None, "") else ""
+    return _html.escape(_sanitize_for_client(v)) if v not in (None, "") else ""
 
 
 def _money(v):
@@ -380,7 +400,7 @@ def render_nine_case_html(r: dict) -> str:
 
 
 def slugify_nine_case(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", (name or "unknown").lower()).strip("-") or "unknown"
+    return _re.sub(r"[^a-z0-9]+", "-", (name or "unknown").lower()).strip("-") or "unknown"
 
 
 def render_nine_case_pdfs(batch_date: str):
@@ -400,7 +420,10 @@ def render_nine_case_pdfs(batch_date: str):
         except ValueError as e:
             print(f"CONTENT-SAFETY GATE FAILED for {label}: {e}", file=sys.stderr)
             raise
-        slug = slugify_nine_case(r.get("winning_bidder"))
+        # One file per case_number, not per buyer -- Mundi Marketing LLC and
+        # OK Business LLC each won 2 of the 9 cases, so a buyer-name-only
+        # slug collides and silently overwrites the first case's PDF.
+        slug = slugify_nine_case(f"{r.get('winning_bidder')} {r.get('case_number')}")
         html_path = os.path.join(out_dir, f"{slug}.html")
         pdf_path = os.path.join(out_dir, f"{slug}.pdf")
         with open(html_path, "w", encoding="utf-8") as f:
