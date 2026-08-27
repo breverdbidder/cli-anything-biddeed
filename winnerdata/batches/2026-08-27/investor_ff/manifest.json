@@ -1,56 +1,72 @@
 [
   {
-    "buyer_key": "JOHN ZIARKOWSKI AND MENDY RANDALL",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/john-ziarkowski-and-mendy-randall.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/john-ziarkowski-and-mendy-randall.pdf",
+    "buyer_key": "FLORIDA INVESTORS CAPITAL LLC",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/florida-investors-capital-llc-2025-ca-000894.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/florida-investors-capital-llc-2025-ca-000894.pdf",
+    "paid": false,
+    "phone": false,
+    "email": false
+  },
+  {
+    "buyer_key": "Hart Land Development",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/hart-land-development-2026ca000210.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/hart-land-development-2026ca000210.pdf",
     "paid": true,
     "phone": true,
     "email": true
   },
   {
-    "buyer_key": "HART LAND DEVELOPMENT",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/hart-land-development.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/hart-land-development.pdf",
-    "paid": false,
-    "phone": false,
+    "buyer_key": "MUNDI MARKETING LLC",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/mundi-marketing-llc-24000615.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/mundi-marketing-llc-24000615.pdf",
+    "paid": true,
+    "phone": true,
     "email": false
   },
   {
-    "buyer_key": "FLORIDA INVESTORS CAPITAL LLC",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/florida-investors-capital-llc.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/florida-investors-capital-llc.pdf",
-    "paid": false,
-    "phone": false,
-    "email": false
-  },
-  {
-    "buyer_key": "OK BUSINESS LLC",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ok-business-llc.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ok-business-llc.pdf",
+    "buyer_key": "ellen horwitz",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ellen-horwitz-24000618.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ellen-horwitz-24000618.pdf",
     "paid": false,
     "phone": false,
     "email": false
   },
   {
     "buyer_key": "MUNDI MARKETING LLC",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/mundi-marketing-llc.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/mundi-marketing-llc.pdf",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/mundi-marketing-llc-24000637.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/mundi-marketing-llc-24000637.pdf",
+    "paid": true,
+    "phone": true,
+    "email": false
+  },
+  {
+    "buyer_key": "John Ziarkowski and Mendy Randall, husband and wife",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/john-ziarkowski-and-mendy-randall-husband-and-wife-25000033ca.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/john-ziarkowski-and-mendy-randall-husband-and-wife-25000033ca.pdf",
+    "paid": true,
+    "phone": true,
+    "email": true
+  },
+  {
+    "buyer_key": "OK Business LLC",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ok-business-llc-25000543.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ok-business-llc-25000543.pdf",
     "paid": false,
     "phone": false,
     "email": false
   },
   {
-    "buyer_key": "ELLEN HORWITZ",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ellen-horwitz.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ellen-horwitz.pdf",
+    "buyer_key": "OK Business LLC",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ok-business-llc-25000544.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/ok-business-llc-25000544.pdf",
     "paid": false,
     "phone": false,
     "email": false
   },
   {
     "buyer_key": "JEAN JUNIOR LOUIS JEUNE",
-    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/jean-junior-louis-jeune.html",
-    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/jean-junior-louis-jeune.pdf",
+    "html": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/jean-junior-louis-jeune-25000546.html",
+    "pdf": "/home/runner/work/cli-anything-biddeed/cli-anything-biddeed/scripts/../winnerdata/batches/2026-08-27/investor_ff/jean-junior-louis-jeune-25000546.pdf",
     "paid": false,
     "phone": false,
     "email": false

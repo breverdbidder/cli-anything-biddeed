@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Renders the 7 real Investor Fact Finders for the 2026-08-27 P0 manual
-catch-up (9 properties / 7 distinct third_party buyers, Aug 26 close) from
-templates/FF_TEMPLATE_A_AUCTION_SALES.html -- the confirmed real-production
+"""Renders the 9 real per-case Investor Fact Finders for the 2026-08-26 batch
+from templates/FF_TEMPLATE_A_AUCTION_SALES.html -- the confirmed real-production
 buyer-side template (per its own header: pulled from the chat session that
 hand-built and delivered 17 real FFs, confirmed against an actually-delivered
-PDF). Reads scripts/skiptrace_20260827_9buyer_ff_batch.py's live resolution
-output (/tmp/ff_9buyer_20260827_report.json).
+PDF).
+
+Reads live winnerdata.ff_batch_leads (the durable SSOT), not the ephemeral
+/tmp resolution-run scratch file the first version of this script depended
+on -- that file does not survive across runner sessions, and this batch's
+mission requires one PDF per case (9), not one per distinct buyer entity (7).
+Buyers holding multiple cases in this batch (Mundi Marketing LLC, OK Business
+LLC) still get a portfolio cross-sell note on each of their case PDFs, built
+from the sibling case_numbers, but each PDF's own property table shows only
+its own case.
 
 Content-safety gate carried forward unmodified from
 scripts/render_factfinder_master.py (issue #19433): a client-facing FF must
@@ -17,10 +24,90 @@ import json
 import os
 import re
 import subprocess
+import sys
+import urllib.request
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "templates", "FF_TEMPLATE_A_AUCTION_SALES.html")
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "winnerdata", "batches", "2026-08-27", "investor_ff")
-REPORT_PATH = "/tmp/ff_9buyer_20260827_report.json"
+REPORT_PATH = os.environ.get("REPORT_PATH", "/tmp/ff_9buyer_20260827_report.json")
+BATCH_DATE = os.environ.get("BATCH_DATE", "2026-08-26")
+PROJECT_REF = "mocerqjnksmhcjzxrewo"
+MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
+
+
+def _sql(q):
+    token = os.environ["SUPABASE_ACCESS_TOKEN"]
+    req = urllib.request.Request(MGMT_URL, data=json.dumps({"query": q}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                 "User-Agent": "render-ff-9buyer/2.0"}, method="POST")
+    with urllib.request.urlopen(req, timeout=90) as r:
+        return json.loads(r.read())
+
+
+def _tier_from_validity(validity, provider):
+    if not provider:
+        return None
+    v = (validity or "").upper()
+    if "DNC_FLAGGED" in v:
+        return "UNCONFIRMED CLAIM"
+    if "CURRENT" in v and "CANDIDATE" not in v:
+        return "VERIFIED·PRIMARY"
+    if "CANDIDATE" in v:
+        return "LIKELY·SINGLE SOURCE"
+    return "LIKELY·SINGLE SOURCE"
+
+
+def load_report_from_db(batch_date: str) -> list[dict]:
+    """Builds one record PER CASE (not per buyer) directly from the live
+    winnerdata.ff_batch_leads SSOT. Sibling case_numbers for the same
+    resolved_entity_name/winning_bidder are attached only as a portfolio
+    cross-sell note, never merged into a shared property table."""
+    rows = _sql(f"""
+        select case_number, county, winning_bidder, resolved_entity_name, resolved_principal_name,
+               identity_type, registered_agent_name, registered_agent_address, principal_home_address,
+               phone, phone_validity, email, contact_provider,
+               property_address, tier1_sold_amount, sale_type, dor_luse_desc, val_market, val_assessed
+        from winnerdata.ff_batch_leads where batch_date = date '{batch_date}' order by case_number
+    """)
+    by_entity: dict[str, list[str]] = {}
+    for r in rows:
+        key = (r.get("resolved_entity_name") or r["winning_bidder"]).strip().upper()
+        by_entity.setdefault(key, []).append(r["case_number"])
+
+    out = []
+    for r in rows:
+        key = (r.get("resolved_entity_name") or r["winning_bidder"]).strip().upper()
+        sibling_cases = [c for c in by_entity[key] if c != r["case_number"]]
+        is_business = (r.get("identity_type") or "").startswith("business")
+        mailing_addr_str = r.get("registered_agent_address") or r.get("principal_home_address")
+        is_candidate = bool(mailing_addr_str) and "candidate" in mailing_addr_str.lower()
+        mailing_tier = "UNCONFIRMED CLAIM" if is_candidate else ("VERIFIED·CROSS-CHECKED" if mailing_addr_str else None)
+        out.append({
+            "buyer_key": r.get("resolved_entity_name") or r["winning_bidder"],
+            "entity": r.get("resolved_entity_name") or r["winning_bidder"],
+            "type": "business" if is_business else "person",
+            "case_numbers": [r["case_number"]],
+            "sibling_case_numbers": sibling_cases,
+            "county": r["county"],
+            "mailing_address": {"addr1": mailing_addr_str, "city": None, "state": None, "zip": None} if mailing_addr_str else None,
+            "mailing_tier": mailing_tier,
+            "phone": r.get("phone"),
+            "phone_tier": _tier_from_validity(r.get("phone_validity"), r.get("contact_provider")),
+            "email": r.get("email"),
+            "email_tier": _tier_from_validity(r.get("phone_validity"), r.get("contact_provider")) if r.get("email") else None,
+            "registered_agent": r.get("registered_agent_name"),
+            "principal": r.get("resolved_principal_name"),
+            "sunbiz_doc_number": None,
+            "sunbiz_status": None,
+            "dnc": None,
+            "paid": bool(r.get("phone") or r.get("email")),
+            "properties": [{
+                "case_number": r["case_number"],
+                "fact": {"property_address": r.get("property_address"), "sold_amount": r.get("tier1_sold_amount"), "sale_type": r.get("sale_type")},
+                "subject": {"luse_desc": r.get("dor_luse_desc"), "val_market": r.get("val_market"), "val_assessed": r.get("val_assessed")},
+            }],
+        })
+    return out
 
 TOKEN_RE = re.compile(r"\{\{(\w+)\}\}")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -176,12 +263,15 @@ def build_property_rows(r):
 
 
 def build_cross_sell(r):
-    n = len(r["properties"])
-    if n < 2:
+    siblings = r.get("sibling_case_numbers") or []
+    if not siblings:
         return ""
+    n = len(siblings) + 1
     return (
         '<section class="cross"><h2>Portfolio Note</h2><ul>'
-        f'<li>This buyer holds {n} properties in this batch (same county) -- bundle/umbrella conversation warranted.</li>'
+        f'<li>This buyer holds {n} properties in this batch (same county), case numbers '
+        f'{esc(", ".join([r["case_numbers"][0]] + siblings))} -- bundle/umbrella conversation warranted. '
+        'This report covers only its own case; see the sibling case Fact Finder(s) for those properties.</li>'
         '</ul></section>'
     )
 
@@ -217,13 +307,19 @@ def slugify(name):
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    with open(REPORT_PATH) as f:
-        report = json.load(f)
+    if os.environ.get("SUPABASE_ACCESS_TOKEN"):
+        report = load_report_from_db(BATCH_DATE)
+    else:
+        with open(REPORT_PATH) as f:
+            report = json.load(f)
+
+    if len(report) != 9:
+        print(f"WARNING: expected 9 case records, got {len(report)}", file=sys.stderr)
 
     written = []
     for r in report:
         out_html = render(r)
-        fname = f"{slugify(r['buyer_key'])}.html"
+        fname = f"{slugify(r['buyer_key'])}-{slugify(r['case_numbers'][0])}.html"
         out_path = os.path.join(OUT_DIR, fname)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(out_html)

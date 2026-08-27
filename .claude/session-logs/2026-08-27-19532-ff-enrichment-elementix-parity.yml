@@ -1,0 +1,167 @@
+session:
+  date: "2026-08-27"
+  issue: "#19532 - Elementix-Parity FF Enrichment -- 9 Protection Partners Leads (batch 2026-08-26)"
+  agent: claude-code
+  note: >
+    Prior sessions (commits 5b7b0b6a, 1724e373, 866984f0) had already resolved
+    identity for 4 of 9 buyers and delivered 7 PDFs (2 buyers with 2 cases
+    each were combined into one PDF apiece). This session's job was closing
+    the remaining KPI/contact/PDF-count gaps and fixing real bugs found along
+    the way, not a rebuild from zero.
+
+decisions:
+  - step: "Re-derive the live 9-row population before trusting the issue's own table"
+    action: "Queried public.multi_county_auctions live for auction_date=2026-08-26, tier1_buyer_type='third_party', winning_bidder not null"
+    result: "Exactly 9 rows, matching the issue's list case-for-case (bay/25000033CA, clay/2026CA000210, escambia/2025 CA 000894, highlands x6). Live-confirmed, not assumed."
+    reason: "CC_META_PROMPT #2: re-derive the numbers, do not trust a stale snapshot"
+
+  - step: "Inspect ff_nine_enrichment_2026-08-26.json (repo root) before treating it as a real deliverable"
+    action: "Read the file and its git history (commit 866984f0)"
+    result: >
+      Found it was fabricated placeholder data: county='test', owner_name='OWNER',
+      winning_bidder='BUYER 0'..'BUYER 8', address='1 MAIN ST' for all 9 records.
+      This was test-fixture output committed to the production output path by
+      a prior session, not real enrichment -- a genuine honesty-protocol
+      finding, not a false alarm.
+    reason: "SHIP GATE / HONESTY PROTOCOL: verify before treating any existing artifact as evidence"
+
+  - step: "Check whether winnerdata.ff_batches was ever approved/enrichment-run despite the fabricated JSON existing"
+    action: "Queried winnerdata.ff_batches for batch_date=2026-08-26"
+    result: "status=pending_approval, enrichment_status=not_started, approved_at=null, sent_at=null -- the fail-closed gate was never breached. The fabricated JSON was dead output, not something that reached the client."
+    reason: "Distinguishing a cosmetic/test-artifact bug from an actual client-facing incident before deciding how urgently to react"
+
+  - step: "Independently re-search the 4 buyers the issue marked unresolved, rather than accept the prior finding without a second method"
+    action: "Bright Data Google/Bing SERP + direct Sunbiz search for OK Business LLC, Ellen Horwitz, Jean Junior Louis Jeune (prior session used Exa + a 5-step cascade)"
+    result: >
+      Same negative result via an independent method for all 3: no active FL
+      entity named exactly 'OK Business LLC' (4 near-name Corporation-type
+      entities found and explicitly rejected as different entity types, all
+      inactive); no Ellen Horwitz tied to Highlands County FL; only
+      geographically-inconsistent NY directory candidates for Jean Junior
+      Louis Jeune. Upgrades confidence from 'one method tried' to 'genuine
+      absence, confirmed twice.'
+    reason: "Mission requires exhausting independent methods before declaring blank-over-wrong, not stopping at the first miss"
+
+  - step: "Trace legitimate (non-purchased-property) contact anchors via Tracerfy for the resolvable buyers"
+    action: >
+      mcp__tracerfy__enhanced_trace_lookup against: (1) the cross-corroborated
+      Bonifay FL address for Ziarkowski/Randall, (2) the Sunbiz registered-agent
+      address for Hart Land Development, (3) an alternate business address for
+      Justin Hart found via an independent campaign-finance filing + Radaris
+      profile (after the Sunbiz-address trace returned hit=false), (4) the
+      Sunbiz registered-agent address for Mundi Marketing's Lorena Soares Lopes.
+    result: >
+      3 of 4 hit. Ziarkowski (current mobile+email, DNC/TCPA clean, address
+      history independently corroborates the 2022 Bay Co permit record already
+      in the handoff). Justin Hart (current mobile, but DNC-FLAGGED -- stored
+      with that flag, not silently used as a clean number). Lorena Lopes
+      (current mobile, DNC/TCPA clean). The direct Sunbiz-address trace for
+      Hart returned hit=false (business-only address, no personal record) --
+      correctly logged as a miss (free) rather than retried blindly.
+    reason: "Mission explicitly requires never using the just-purchased auction property as the buyer contact anchor -- every anchor used here was independently sourced (Sunbiz filing, corroborated prior-deed history, or a public campaign-finance record), never the subject property"
+
+  - step: "Evaluate a plausible business-website candidate for Mundi Marketing before attaching it"
+    action: "Scraped mundimarketing.com.br and compared its listed address to the Sunbiz registered-agent address"
+    result: >
+      Entity name, city, and manager first-name/handle (Eduardo, @eduardohlf)
+      all match, but the site lists '6500 Sand Lake Sound Rd' (no unit) vs
+      Sunbiz's '6560 Sand Lake Sound Road, Apt 6305' -- a street-number and
+      unit discrepancy. Left business_website blank per policy rather than
+      attach a same-named-but-address-mismatched site; the candidate URL and
+      rationale are recorded in evidence_ledger for human follow-up only.
+    reason: "Mission: 'Do not attach a similarly named website' -- a name match alone is not sufficient corroboration when a concrete field (street address) actively conflicts"
+
+  - step: "Fix the Tracerfy contract-mismatch bug named in the mission"
+    action: "Read scripts/ff_nine_portfolio_enrichment.py's inline tracerfy() next to scripts/tracerfy_client.py's proven _split_owner_name()"
+    result: >
+      Found the runner had its own naive name-splitting re-implementation
+      that did not use the surname-first-aware logic tracerfy_client already
+      fixed in a prior session (the exact bug class that once cost a full
+      session of false NO_MATCH results). Replaced the inline function with a
+      thin wrapper delegating to tracerfy_client.trace_lead(); added 2 unit
+      tests (surname-first split, suffix-after-comma split) plus tests
+      proving the wrapper calls trace_lead unmodified and never calls it when
+      no address anchor exists.
+    reason: "Mission's own 'Tracerfy execution repair' section named this exact contract mismatch; fixing it in place rather than writing a parallel adapter kept the change surgical (K3)"
+
+  - step: "Regenerate the fabricated repo-root JSON as a real artifact"
+    action: "Wrote a snapshot generator reading the live, now-enriched winnerdata.ff_batch_leads rows -- does NOT flip ff_batches.enrichment_status (that remains gated behind approval by design)"
+    result: "ff_nine_enrichment_2026-08-26.json now contains the 9 real case records with real names, addresses, values, and evidence -- with the prior fabricated version's provenance documented inline so the history isn't silently erased."
+    reason: "Blank-over-wrong / SHIP GATE: a fabricated artifact left in place is worse than no artifact"
+
+  - step: "Fix the PDF-count gap (7 PDFs for 9 cases)"
+    action: >
+      Rewrote scripts/render_ff_9buyer_20260827.py's data source from the
+      ephemeral (and, this session, absent) /tmp scratch file to a live
+      per-case query against winnerdata.ff_batch_leads, splitting Mundi
+      Marketing LLC's and OK Business LLC's 2 cases each into 2 separate PDFs
+      with a portfolio cross-sell note pointing at the sibling case instead
+      of merging both properties into one file.
+    result: "9/9 individual case PDFs rendered, each non-empty, each showing its own case number, none combining two cases."
+    reason: "Mission: 'Render one PDF per case, not one combined PDF only'"
+
+  - step: "Catch a self-introduced bug before treating the PDFs as done"
+    action: "Extracted text from all 9 regenerated PDFs and manually read each one rather than trusting the render script's own success log"
+    result: >
+      Found Hart Land Development's and Mundi Marketing's PDFs showed
+      'Mailing / Registered Address: NOT AVAILABLE [VERIFIED·CROSS-CHECKED]'
+      -- a self-contradictory line this session's own first-draft adapter
+      introduced (it always set mailing_address=None regardless of the tier
+      badge). Fixed by wiring registered_agent_address/principal_home_address
+      into the adapter and re-derived the tier from whether the address
+      string is a documented 'candidate' vs a Sunbiz/corroborated one, then
+      regenerated all 9 PDFs again and re-verified.
+    reason: "Evidence-Before-Claims: 'the render succeeded' is not the same as 'the rendered content is correct' -- had to actually read the output"
+
+  - step: "Confirm the approval gate is still fail-closed after all writes"
+    action: "Re-queried winnerdata.ff_batches after every write batch"
+    result: "status=pending_approval, enrichment_status=not_started, approved_at=null, sent_at=null throughout -- never called ff_approve_batch(), consistent with 4/9 cases remaining genuinely unresolved."
+    reason: "Mission: do not call the approval RPC unless every acceptance gate passes -- it does not, so it was correctly left alone"
+
+  - step: "Scope-lock check on the GHA workflow / approval-trigger rewiring described in issue #19531's comment"
+    action: "Searched .github/workflows/ for winnerdata-nine-ff-enrichment.yml"
+    result: "Does not exist. Judged this a separate, higher-blast-radius piece of work (rewiring a live approval trigger) belonging to #19531, not #19532, and too risky to improvise without a dedicated dry run -- reported as a residual gap rather than attempted."
+    reason: "CC_META_PROMPT #7: stop and report BLOCKED rather than improvise when completing a goal would require touching a non-goal (a live production trigger function)"
+
+artifacts:
+  - path: scripts/ff_nine_portfolio_enrichment.py
+    type: code-fix
+    status: tracerfy() now delegates to tracerfy_client.trace_lead
+  - path: scripts/render_ff_9buyer_20260827.py
+    type: code-fix
+    status: DB-backed per-case report loader, mailing-tier consistency fix, 9-PDF split
+  - path: scripts/tests/test_ff_nine_enrichment.py
+    type: tests
+    status: 11 new focused tests, all passing
+  - path: ff_nine_enrichment_2026-08-26.json
+    type: data
+    status: replaced fabricated placeholder content with a real live-DB snapshot
+  - path: winnerdata/batches/2026-08-27/investor_ff/*.pdf (9 files)
+    type: client-facing-deliverable
+    status: regenerated, one per case, content-safety-gate passed
+  - path: winnerdata/batches/2026-08-27/investor_ff/QA_REPORT_2026-08-26.md
+    type: qa-report
+    status: this session's coverage table + residual gaps
+
+verification:
+  - check: "9 target leads still exactly match tier1_buyer_type='third_party', unchanged"
+    proof: "Live query against public.multi_county_auctions, 2026-08-27, returned the same 9 case numbers as the issue's list"
+    status: VERIFIED
+  - check: "Approval gate remains fail-closed after all enrichment writes"
+    proof: "winnerdata.ff_batches: status=pending_approval, enrichment_status=not_started, approved_at=null, sent_at=null (re-checked after every write batch)"
+    status: VERIFIED
+  - check: "Idempotent DB writes"
+    proof: "Re-ran both enrichment SQL scripts a second time; identical resulting rows (jsonb || merge on identical keys is a no-op on replay)"
+    status: VERIFIED
+  - check: "9/9 PDFs non-empty, correct case number, no fabricated values, no internal-vendor/issue-number leak"
+    proof: "pdfminer text-extraction + banned-term/pattern scan across all 9 PDFs -- 0 issues"
+    status: VERIFIED
+  - check: "Existing + new tests pass"
+    proof: "python3 -m pytest pipelines/winnerdata/tests/test_momentum_delivery.py scripts/tests/test_ff_nine_enrichment.py -q -> 29 passed, 1 skipped"
+    status: VERIFIED
+  - check: "No secret values in any file this session touched"
+    proof: "grep -RIn for sbp_/eyJhbGci/sk-/ghp_ patterns across all modified/new files -> clean"
+    status: VERIFIED
+  - check: "winnerdata-nine-ff-enrichment.yml GHA workflow + notify_ff_batch_approved() trigger rewiring (per #19531 comment)"
+    proof: "find .github/workflows -iname '*nine-ff*' -> no results"
+    status: "NOT BUILT -- explicit residual gap, judged out of this issue's scope, see QA_REPORT_2026-08-26.md"
