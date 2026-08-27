@@ -1,0 +1,104 @@
+session:
+  date: "2026-08-27"
+  issue: "#19490 - The Daily Winner FFs email delivery to Mariam, hard 8 AM ET SLA"
+  agent: claude-code
+  note: >
+    Full build (script, GHA workflow, migration, cron SLA alert) was already
+    shipped in a prior session (commits 1b785d0c, 0a10372c, 2026-08-26). This
+    session's job was independent live verification, not a rebuild -- no
+    application code was changed.
+
+decisions:
+  - step: "Re-confirm the blocking item fresh rather than trusting the prior session's docstring claim"
+    action: "Queried live winnerdata.producers for full_name='Mariam Shapira' and information_schema.columns for winnerdata.organizations"
+    result: "Both producer rows still have email=null; organizations has no email column at all. Blocking item unchanged and still genuinely blocking."
+    reason: "Evidence-before-claims -- a memory of a prior finding is not verification"
+
+  - step: "Search for Mariam's email anywhere else in the live DB before accepting the block as absolute"
+    action: "Grepped information_schema for email columns, then traced the 'FL upcoming lots' Resend send visible in the Resend account's email list back to public.flip_alert_routing"
+    result: >
+      Found ms@property360re.com as an active DAILY_UPCOMING_DIGEST recipient
+      since 2026-07-05, alongside ariel@zonewise.ai and everestcapital8@gmail.com.
+      Property360 is Mariam's known company per CLAUDE.md. This is a strong
+      circumstantial (INFERRED) candidate, NOT a confirmed match -- no name
+      field ties it to her, so it was not written to winnerdata.producers.email
+      and not used as the recipient for this new, compliance-sensitive pipeline.
+      Surfaced to Ariel for confirmation instead of guessed-and-used.
+    reason: "Issue explicitly forbids guessing/fabricating a recipient for a real lead-data email; a plausible lead is not the same as a confirmed one"
+
+  - step: "Prove the Resend send mechanism live today, not just cite yesterday's log row"
+    action: "Ran scripts/winnerdata_daily_winner_ff_digest.py --test-send-to delivered@resend.dev (Resend's official sandbox address -- simulates real delivery, never reaches a human inbox)"
+    result: "Sent, msg_id=b7d77a99-... , Resend API confirms last_event=delivered. Logged to winnerdata.ff_digest_log id=34."
+    reason: "SHIP GATE requires fresh proof, not a stale artifact from a prior session"
+
+  - step: "Prove the actual CI path (not just local script execution) works, since the DoD requires a real test send demonstrated"
+    action: "gh workflow run on the registered winnerdata-daily-winner-ff-digest workflow (id 342922263) with test_send_to=delivered@resend.dev"
+    result: "Run 33076753590 completed success. Sent msg_id=972599cc-..., last_event=delivered, logged as ff_digest_log id=35. Confirms SUPABASE_ACCESS_TOKEN + RESEND_API_KEY are correctly wired as GitHub secrets, not just present in this session's shell."
+    reason: "A working local script proves the script; only a GHA run proves the actual production path"
+
+  - step: "Check whether the digest's own 10:00 UTC cron schedule has ever actually fired"
+    action: "gh run list against workflow id 342922263 with no filters"
+    result: >
+      Zero runs of any kind (schedule or otherwise) prior to this session's
+      manual trigger, despite the workflow being 'active' since
+      2026-08-26T12:55:36Z and today's 10:00 UTC slot having passed 3+ hours
+      before this check (current time ~13:24 UTC). Cross-checked
+      winnerdata-daily.yml (the older, upstream #19428 pipeline) which DID
+      fire on schedule twice today (01:31 and 06:10 UTC, both success) --
+      ruling out a repo-wide Actions outage. This narrows the finding to the
+      newly-added digest workflow specifically not yet being picked up by
+      GitHub's own cron scheduler (a known propagation quirk for brand-new
+      schedules, not a code defect -- manual dispatch proves the workflow
+      itself is correct).
+    reason: "A workflow file existing and being 'active' is not evidence it has ever executed on schedule -- checked run history directly rather than assuming"
+
+  - step: "Verify the SLA-alert path with real production evidence instead of a synthetic dry run"
+    action: "Queried cron.job_run_details for jobid 11354 (winnerdata-daily-ff-digest-sla-alert) and cross-checked telegram-notify.yml run history for the same UTC minute"
+    result: >
+      The alert fired for real today at 11:15:00 UTC (status=succeeded,
+      return_message='1 row', meaning the NOT EXISTS check correctly found no
+      sent/no_leads_sent row for 2026-08-27 at that point) and two
+      corresponding telegram-notify.yml workflow_dispatch runs at 11:15:0x UTC
+      both completed success. This is a live production firing, not a
+      simulation -- and it is caused directly by the digest-schedule gap
+      above (no digest ran by 11:15, so the backstop correctly fired).
+    reason: "DoD asked for the SLA path 'tested (can be dry-run/simulated)' -- a real live firing that already happened today is stronger evidence than manufacturing a synthetic one, and finding it explains the digest-schedule gap rather than leaving it unexplained"
+
+  - step: "Confirm the #19481 plaintiff/lender guard is actually live before treating the digest as ship-safe"
+    action: "Queried information_schema.triggers for lender/plaintiff triggers on winnerdata.leads/routing_decisions, and grouped winnerdata.leads by is_lender_or_plaintiff"
+    result: "leads_tag_lender_or_plaintiff (INSERT+UPDATE) and routing_decisions_block_lender_plaintiff (INSERT) triggers both live; 33 of 146 leads are correctly flagged and excluded from routing. Guard is live -- delivery is not blocked on this condition."
+    reason: "Issue's own build step 3 says: hold delivery if the guard isn't live. Had to confirm this, not assume it from the prior session's migration file existing."
+
+artifacts:
+  - path: .claude/session-logs/2026-08-27-19490-daily-winner-ffs-verify.yml
+    type: session-log
+    status: this file
+
+verification:
+  - check: "Mariam's email still not on file (blocking item genuinely unresolved, not stale)"
+    proof: "winnerdata.producers rows ef1856ff-.../72bab226-... both email=null (queried 2026-08-27); winnerdata.organizations has no email column"
+    status: VERIFIED
+  - check: "RESEND_API_KEY live and both sending domains verified"
+    proof: "https://api.resend.com/domains returns biddeed.ai and winnerdataai.com both status=verified, sending=enabled"
+    status: VERIFIED
+  - check: "Real test send demonstrated today, both via local script and via the actual GHA workflow"
+    proof: "ff_digest_log ids 34 (msg b7d77a99, script) and 35 (msg 972599cc, GHA run 33076753590) -- both to delivered@resend.dev, both Resend last_event=delivered"
+    status: VERIFIED
+  - check: "SLA alert path exercised"
+    proof: "cron.job_run_details runid 2420373, jobid 11354, succeeded, 11:15:00 UTC 2026-08-27, return_message='1 row'; corresponding telegram-notify.yml runs 33066541217/33066539649 both conclusion=success"
+    status: VERIFIED (real production firing, not synthetic)
+  - check: "Cron timing / buffer to hard 8:00 AM ET deadline"
+    proof: >
+      Digest: 10:00 UTC (6:00 AM EDT). SLA-check: 11:15 UTC (7:15 AM EDT).
+      Hard deadline: 12:00 UTC (8:00 AM EDT). Buffer from digest cron to hard
+      deadline = 2h00m; to the issue's own 7:30 AM ET internal target = 1h30m.
+      Fixed-UTC cron means these buffers widen (not shrink) during EST months
+      -- flagged, not silently assumed, per this repo's existing DST-caveat
+      convention.
+    status: VERIFIED
+  - check: "#19481 guard live before treating digest as ship-safe"
+    proof: "information_schema.triggers shows leads_tag_lender_or_plaintiff + routing_decisions_block_lender_plaintiff live; 33/146 leads flagged is_lender_or_plaintiff=true"
+    status: VERIFIED
+  - check: "Digest workflow's own 10:00 UTC schedule has fired at least once"
+    proof: "gh run list for workflow 342922263 returned zero runs before this session's manual dispatch, despite being active since 2026-08-26T12:55Z and today's 10:00 UTC slot having passed"
+    status: "NOT YET VERIFIED -- open residual risk, see report"
