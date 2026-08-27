@@ -57,17 +57,36 @@ def _tier_from_validity(validity, provider):
     return "LIKELY·SINGLE SOURCE"
 
 
-def load_report_from_db(batch_date: str) -> list[dict]:
+def _related_entity_contact_note(evidence_ledger, wanted_fields=("business_phone", "business_website")):
+    """evidence_ledger entries that support a related-entity contact (per the
+    web-search cross-check workflow) carry a 'note' + 'fields_supported' pair
+    under a case-specific key (e.g. 'cassidy_business_contact') -- scan by
+    shape, not by key name, so this generalizes across cases/principals."""
+    if not isinstance(evidence_ledger, dict):
+        return None
+    for v in evidence_ledger.values():
+        if isinstance(v, dict) and v.get("note") and "fields_supported" in v:
+            if any(f in (v.get("fields_supported") or []) for f in wanted_fields):
+                return v["note"]
+    return None
+
+
+def load_report_from_db(batch_date: str, case_number: str = None) -> list[dict]:
     """Builds one record PER CASE (not per buyer) directly from the live
     winnerdata.ff_batch_leads SSOT. Sibling case_numbers for the same
     resolved_entity_name/winning_bidder are attached only as a portfolio
     cross-sell note, never merged into a shared property table."""
+    where = f"batch_date = date '{batch_date}'"
+    if case_number:
+        where += f" and case_number = '{case_number.replace(chr(39), chr(39) * 2)}'"
     rows = _sql(f"""
         select case_number, county, winning_bidder, resolved_entity_name, resolved_principal_name,
                identity_type, registered_agent_name, registered_agent_address, principal_home_address,
                phone, phone_validity, email, contact_provider,
+               business_phone, business_phone_source, business_website, business_website_source,
+               contact_confidence, contact_match_status, evidence_ledger,
                property_address, tier1_sold_amount, sale_type, dor_luse_desc, val_market, val_assessed
-        from winnerdata.ff_batch_leads where batch_date = date '{batch_date}' order by case_number
+        from winnerdata.ff_batch_leads where {where} order by case_number
     """)
     by_entity: dict[str, list[str]] = {}
     for r in rows:
@@ -95,12 +114,19 @@ def load_report_from_db(batch_date: str) -> list[dict]:
             "phone_tier": _tier_from_validity(r.get("phone_validity"), r.get("contact_provider")),
             "email": r.get("email"),
             "email_tier": _tier_from_validity(r.get("phone_validity"), r.get("contact_provider")) if r.get("email") else None,
+            "business_phone": r.get("business_phone"),
+            "business_phone_source": r.get("business_phone_source"),
+            "business_website": r.get("business_website"),
+            "business_website_source": r.get("business_website_source"),
+            "contact_confidence": r.get("contact_confidence"),
+            "contact_match_status": r.get("contact_match_status"),
+            "related_entity_note": _related_entity_contact_note(r.get("evidence_ledger")),
             "registered_agent": r.get("registered_agent_name"),
             "principal": r.get("resolved_principal_name"),
             "sunbiz_doc_number": None,
             "sunbiz_status": None,
             "dnc": None,
-            "paid": bool(r.get("phone") or r.get("email")),
+            "paid": bool(r.get("phone") or r.get("email") or r.get("business_phone") or r.get("business_website")),
             "properties": [{
                 "case_number": r["case_number"],
                 "fact": {"property_address": r.get("property_address"), "sold_amount": r.get("tier1_sold_amount"), "sale_type": r.get("sale_type")},
@@ -219,6 +245,23 @@ def build_contact_rows(r):
         rows.append(contact_row("Email", f'<a href="mailto:{esc(r["email"])}">{esc(r["email"])}</a>', email_tier))
     else:
         rows.append(contact_row("Email", "NOT AVAILABLE", "Checked through standard verification process; no match found this cycle"))
+
+    # business_phone/business_website: written by the web-search cross-check
+    # step (unresolved-after-Sunbiz+Tracerfy+ZoneWise fallback). May belong to
+    # a related entity the principal also controls rather than the buyer LLC
+    # itself -- related_entity_note carries that distinction into the source
+    # citation so the card never implies the contact is the buyer's own.
+    business_tier = tier_label(r.get("contact_confidence"))
+    note_suffix = f" — {r['related_entity_note']}" if r.get("related_entity_note") else ""
+    if r.get("business_phone"):
+        source = (r.get("business_phone_source") or "Web-search cross-check, two independent sources") + note_suffix
+        rows.append(contact_row(f"Business Phone [{business_tier}]",
+                                 f'<a href="tel:{esc(r["business_phone"])}">{esc(r["business_phone"])}</a>', source))
+    if r.get("business_website"):
+        url = r["business_website"] if r["business_website"].startswith("http") else f"https://{r['business_website']}"
+        source = (r.get("business_website_source") or "Web-search cross-check, two independent sources") + note_suffix
+        rows.append(contact_row(f"Business Website [{business_tier}]",
+                                 f'<a href="{esc(url)}" target="_blank" rel="noopener">{esc(r["business_website"])}</a>', source))
     return "\n      ".join(rows)
 
 
@@ -306,15 +349,25 @@ def slugify(name):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--case-number", default=None,
+                     help="Render only this case_number (leaves the other 8 batch files untouched)")
+    args = ap.parse_args()
+
     os.makedirs(OUT_DIR, exist_ok=True)
     if os.environ.get("SUPABASE_ACCESS_TOKEN"):
-        report = load_report_from_db(BATCH_DATE)
+        report = load_report_from_db(BATCH_DATE, case_number=args.case_number)
     else:
         with open(REPORT_PATH) as f:
             report = json.load(f)
+        if args.case_number:
+            report = [r for r in report if r["case_numbers"][0] == args.case_number]
 
-    if len(report) != 9:
+    if args.case_number is None and len(report) != 9:
         print(f"WARNING: expected 9 case records, got {len(report)}", file=sys.stderr)
+    elif args.case_number and len(report) != 1:
+        print(f"WARNING: expected exactly 1 case record for {args.case_number!r}, got {len(report)}", file=sys.stderr)
 
     written = []
     for r in report:
@@ -339,9 +392,22 @@ def main():
         written.append({"buyer_key": r["buyer_key"], "html": out_path, "pdf": pdf_path if pdf_ok else None,
                          "paid": r["paid"], "phone": bool(r.get("phone")), "email": bool(r.get("email"))})
 
-    with open(os.path.join(OUT_DIR, "manifest.json"), "w") as f:
+    manifest_path = os.path.join(OUT_DIR, "manifest.json")
+    if args.case_number:
+        # Merge into the existing 9-entry manifest by html path -- a filtered
+        # run must not clobber the other 8 cases' manifest rows.
+        try:
+            with open(manifest_path) as f:
+                existing = json.load(f)
+        except FileNotFoundError:
+            existing = []
+        by_html = {e["html"]: e for e in existing}
+        for e in written:
+            by_html[e["html"]] = e
+        written = list(by_html.values())
+    with open(manifest_path, "w") as f:
         json.dump(written, f, indent=2)
-    print(f"\n{len(written)} Fact Finders rendered to {OUT_DIR}/")
+    print(f"\n{len(written)} Fact Finder(s) rendered to {OUT_DIR}/ (manifest has {len(written)} total entries)")
 
 
 if __name__ == "__main__":

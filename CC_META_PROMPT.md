@@ -127,6 +127,62 @@ Know the undo before you do the do. If a step fails midway, roll back, then repo
 `BLOCKED` with the failing output. Do not leave a half-applied migration and
 describe it as partial success.
 
+### 3.6 FF enrichment: web-search cross-check for principals/registered agents
+Permanent pipeline step, added 2026-08-27 (issue #19533). Applies to every FF
+batch going forward, not just the batch that motivated it.
+
+**Trigger condition:** after the Sunbiz + Tracerfy + ZoneWise cascade has
+already run for a case, run a general web search on `"<principal name>
+<related entity or city>"` only if BOTH hold:
+1. The case still has an unresolved `business_phone`, `business_website`, or
+   `business_email`.
+2. The resolved principal or registered agent is a named individual (not
+   just an LLC with no natural person attached — nothing to search on
+   otherwise).
+
+`scripts/ff_nine_portfolio_enrichment.py::web_search_cross_check_eligible(row)`
+is the code-side eligibility check — call it after identity resolution to
+decide whether this step applies to a case. The search itself stays a
+manual/agent step (matching the right entity, judging source independence,
+rejecting aggregators, etc. is a judgment call, not something to automate
+into a deterministic batch script).
+
+**Acceptance bar (unchanged from the existing mission rules):** two
+independent, mutually corroborating sources minimum before writing anything
+as `VERIFIED`. One source is a candidate/unconfirmed — do not write it as
+verified. Zero sources leaves the field blank. Enforced in code by
+`ff_nine_portfolio_enrichment.py::validate_web_search_cross_check()` /
+`build_web_search_evidence_entry()` — both raise rather than let a
+single-source result through.
+
+**Related-entity labeling:** if the found phone/email/website belongs to a
+related entity (a title company, a family business, etc.) rather than the
+target entity itself, the `evidence_ledger` entry MUST carry an explicit
+`note` field stating the relationship (e.g. "President/CEO of Majesty Title
+Services, a related entity Cassidy also controls") — never present a
+related-entity contact as if it were the target LLC's own.
+`build_web_search_evidence_entry()` enforces this: it raises if
+`is_related_entity=True` and no `relationship_note` is given.
+`scripts/render_ff_9buyer_20260827.py::_related_entity_contact_note()`
+reads this note back out by shape (any evidence_ledger value with both
+`note` and `fields_supported`, not a hardcoded key name) and folds it into
+the contact card's source citation so a client PDF never implies a related
+entity's contact is the buyer's own.
+
+**Never do:** use this step to search for a private individual's home
+address, personal cell, or personal email beyond what a business/
+professional bio voluntarily publishes (news releases, sponsor bios,
+official org pages). Never use people-search/skip-trace aggregator sites
+as a source for this step — those stay in the Tracerfy-only lane. If the
+only available info is a home address from an aggregator, leave it blank
+rather than write it from an unverified aggregator.
+
+**Reference implementation:** case `2025 CA 000894` (Florida Investors
+Capital LLC) — `business_phone`/`business_website` resolved to Majesty
+Title Services, LLC (Vincent J. Cassidy's related company), sourced from a
+PRWeb press release + a business-wise.org sponsor bio, with the relationship
+explicitly noted in `evidence_ledger.cassidy_business_contact.note`.
+
 ---
 
 ## 4. CREDENTIALS AND CONNECTIVITY

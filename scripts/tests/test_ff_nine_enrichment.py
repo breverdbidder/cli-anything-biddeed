@@ -17,6 +17,8 @@ import os
 import sys
 from unittest.mock import patch
 
+from pytest import raises as pytest_raises
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import ff_nine_portfolio_enrichment as enrich  # noqa: E402
@@ -151,3 +153,68 @@ def test_slug_includes_case_number_no_collision_for_shared_buyer():
     slug_615 = render.slugify("MUNDI MARKETING LLC") + "-" + render.slugify("24000615")
     slug_637 = render.slugify("MUNDI MARKETING LLC") + "-" + render.slugify("24000637")
     assert slug_615 != slug_637
+
+
+# --- Web-search cross-check step (issue #19533) ---------------------------
+
+def test_web_search_cross_check_not_eligible_when_already_resolved():
+    row = {"business_phone": "(813) 831-3885", "resolved_principal_name": "Vincent J. Cassidy"}
+    eligible, reason = enrich.web_search_cross_check_eligible(row)
+    assert eligible is False
+    assert "already resolved" in reason
+
+
+def test_web_search_cross_check_not_eligible_without_named_individual():
+    row = {"business_phone": None, "business_website": None, "business_email": None,
+           "resolved_principal_name": None, "registered_agent_name": None}
+    eligible, reason = enrich.web_search_cross_check_eligible(row)
+    assert eligible is False
+    assert "no named individual" in reason
+
+
+def test_web_search_cross_check_eligible_when_unresolved_with_named_principal():
+    row = {"business_phone": None, "business_website": None, "business_email": None,
+           "resolved_principal_name": "Vincent J. Cassidy", "registered_agent_name": None}
+    eligible, reason = enrich.web_search_cross_check_eligible(row)
+    assert eligible is True
+    assert "Cassidy" in reason
+
+
+def test_web_search_cross_check_rejects_single_source():
+    with pytest_raises(ValueError, match="2\\+ independent"):
+        enrich.validate_web_search_cross_check(["https://prweb.com/x"])
+
+
+def test_web_search_cross_check_rejects_related_entity_without_note():
+    with pytest_raises(ValueError, match="relationship note"):
+        enrich.validate_web_search_cross_check(
+            ["https://prweb.com/x", "https://business-wise.org/y"], is_related_entity=True)
+
+
+def test_web_search_cross_check_accepts_two_sources_with_relationship_note():
+    entry = enrich.build_web_search_evidence_entry(
+        sources=["https://prweb.com/x", "https://business-wise.org/y"],
+        fields_supported=["business_phone", "business_website"],
+        match_method="exact_name_plus_related_entity",
+        is_related_entity=True,
+        relationship_note="President/CEO of Majesty Title Services, a related entity Cassidy also controls.",
+    )
+    assert entry["confidence"] == "verified_cross_checked_two_independent_sources"
+    assert entry["note"].startswith("President/CEO")
+    assert set(entry["fields_supported"]) == {"business_phone", "business_website"}
+
+
+def test_render_extracts_related_entity_note_from_evidence_ledger_by_shape():
+    """render_ff_9buyer_20260827._related_entity_contact_note scans by shape
+    (note + fields_supported), not by a hardcoded key name -- it must find
+    an entry built by build_web_search_evidence_entry under any key."""
+    entry = enrich.build_web_search_evidence_entry(
+        sources=["https://prweb.com/x", "https://business-wise.org/y"],
+        fields_supported=["business_phone", "business_website"],
+        match_method="exact_name_plus_related_entity",
+        is_related_entity=True,
+        relationship_note="President/CEO of a related company.",
+    )
+    ledger = {"some_case_specific_key": entry}
+    note = render._related_entity_contact_note(ledger)
+    assert note == "President/CEO of a related company."

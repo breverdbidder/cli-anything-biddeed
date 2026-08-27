@@ -88,6 +88,73 @@ def tracerfy(name, address, city, state, zipcode):
     }
 
 
+def web_search_cross_check_eligible(row: dict) -> tuple[bool, str]:
+    """Trigger condition for the "web-search cross-check for principals /
+    registered agents" step (issue #19533, documented in full in
+    CC_META_PROMPT.md). Runs only after Sunbiz + Tracerfy + ZoneWise have
+    already been tried and a case still has an unresolved business contact
+    field AND a named individual (principal or registered agent) to search
+    on -- an LLC with no natural person attached has nothing for a general
+    web search to anchor to. This function only decides eligibility; the
+    search itself is an agent/manual step (matching entity vs. same-named
+    different entity, judging source independence, etc. is not something a
+    deterministic batch script should attempt -- see the acceptance-bar
+    enforcement in validate_web_search_cross_check below for what a human/
+    agent session must satisfy before writing a result)."""
+    already_resolved = bool(row.get("business_phone") or row.get("business_website") or row.get("business_email"))
+    if already_resolved:
+        return False, "business_phone/website/email already resolved -- no cross-check needed"
+    principal = row.get("resolved_principal_name") or row.get("registered_agent_name")
+    if not principal:
+        return False, "no named individual principal or registered agent on file to search"
+    return True, f"eligible for web-search cross-check on {principal!r}"
+
+
+def validate_web_search_cross_check(sources: list, is_related_entity: bool = False, relationship_note: str | None = None) -> None:
+    """Enforces the acceptance bar before a web-search cross-check result may
+    be written as VERIFIED: two independent, mutually corroborating sources
+    minimum (a single source is a candidate/unconfirmed, never VERIFIED; zero
+    sources means leave the field blank). A related-entity contact (e.g. the
+    principal's other company) must always carry an explicit relationship
+    note -- never presented as if it were the target entity's own contact.
+    Raises ValueError on violation; callers must not silently downgrade and
+    write anyway."""
+    distinct = {s for s in (sources or []) if s}
+    if len(distinct) < 2:
+        raise ValueError(
+            f"web-search cross-check requires 2+ independent, mutually corroborating sources; "
+            f"got {len(distinct)}. Write as a candidate/unconfirmed field, not VERIFIED, or leave blank."
+        )
+    if is_related_entity and not relationship_note:
+        raise ValueError(
+            "related-entity contact requires an explicit relationship note in the evidence_ledger entry "
+            "(e.g. 'President/CEO of <related company>, a related entity <principal> also controls') -- "
+            "never write a related entity's contact as if it were the target entity's own."
+        )
+
+
+def build_web_search_evidence_entry(sources: list, fields_supported: list, match_method: str,
+                                     is_related_entity: bool = False, relationship_note: str | None = None) -> dict:
+    """Builds the evidence_ledger entry for a web-search cross-check result,
+    in the shape scripts/render_ff_9buyer_20260827.py's
+    _related_entity_contact_note() scans for (a 'note' + 'fields_supported'
+    pair identifies a related-entity contact regardless of the dict key name
+    used). Keep the two in sync if either shape changes. Validates the
+    acceptance bar first -- raises rather than building an entry that would
+    fail policy."""
+    validate_web_search_cross_check(sources, is_related_entity, relationship_note)
+    entry = {
+        "sources": sources,
+        "confidence": "verified_cross_checked_two_independent_sources",
+        "match_method": match_method,
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "fields_supported": fields_supported,
+    }
+    if relationship_note:
+        entry["note"] = relationship_note
+    return entry
+
+
 def set_enrichment_status(status: str, error: str | None = None):
     fields = [f"enrichment_status = '{esc(status)}'", "updated_at = now()"]
     if status == "running":
