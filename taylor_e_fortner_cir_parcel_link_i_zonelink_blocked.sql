@@ -1,0 +1,136 @@
+-- Gold Standard letters E and I fix for county=taylor
+-- Session: 2026-08-27
+-- Ground-truth predicate (per public.pencil_dod_evaluate_county, canonical
+-- copy supplied by task spec):
+--   E: has_parcel := count(*) WHERE parcel_id IS NOT NULL (over auctions_total).
+--   I: card_complete := count WHERE property_address IS NOT NULL AND
+--      COALESCE(latitude,po_latitude) IS NOT NULL AND
+--      COALESCE(longitude,po_longitude) IS NOT NULL AND
+--      COALESCE(assessed_value,market_value) IS NOT NULL AND parcel_id/tax_account
+--      resolves to a zone_code row in v_zoning_gold_standard_card for this county.
+--
+-- Before: E = 92.3% (12/13) -- FAIL. I = 84.6% (11/13) -- FAIL.
+-- After this fix:  E = 100.0% (13/13) -- PASS.
+--                   I = 84.6% (11/13) -- still FAIL (see BLOCKED note below).
+
+SET statement_timeout = 0;
+
+-- ---------------------------------------------------------------------
+-- Row: case_number = '25-145 CA', property_address = '4450 Fortner Cir,
+-- Perry, FL 32347'. Pre-fix: parcel_id IS NULL, assessed_value IS NULL.
+-- latitude/longitude (30.176684, -83.602402) were already populated.
+--
+-- Source (live-queried this session): FL Statewide Cadastral FeatureServer
+-- (FL Dept. of Revenue parcel data, same authoritative source used by our
+-- own scripts/ingest_county.py DOR_UC baseline pipeline):
+--   https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/
+--     Florida_Statewide_Cadastral/FeatureServer/0/query
+--   ?geometry=-83.602402,30.176684&geometryType=esriGeometryPoint
+--   &inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&f=json
+-- Point-in-polygon query against our own already-verified lat/lng returned
+-- exactly ONE feature: CO_NO=72 (Taylor County FL's official DOR county
+-- code), PARCEL_ID='02035-000', PHY_ADDR1='4450 FORTNER CIR', PHY_CITY=
+-- 'Perry', PHY_ZIPCD=32348, OWN_NAME='LANGFORD JOSHUA B & ELIZABETH',
+-- JV (just/assessed value) = 196560, DOR_UC='002' (Mobile Homes use code).
+-- Address match is exact (street number/name/city). Owner name
+-- ("Langford") also matches the plaintiff/defendant party names already
+-- on file for this case (Joshua B. Langford, Elizabeth A. Langford).
+-- ---------------------------------------------------------------------
+UPDATE multi_county_auctions
+SET parcel_id = '02035-000',
+    assessed_value = 196560
+WHERE lower(county) = 'taylor' AND case_number = '25-145 CA';
+
+-- ---------------------------------------------------------------------
+-- RESULT (verified via public.pencil_dod_evaluate_county('taylor')):
+--   Before: E = 92.3% (12/13)  ->  After: E = 100.0% (13/13)  PASS
+--   I unchanged this fix:      84.6% (11/13)  -- still FAILS (see below)
+--   B/F unchanged: 0 rows with sold_amount anywhere in scope (see note)
+--   C unchanged: 92.3% (12/13) -- structurally blocked, see note
+-- ---------------------------------------------------------------------
+
+-- ===========================================================================
+-- LETTER I -- BLOCKED, not fixed this session (no fabrication)
+-- ===========================================================================
+-- I's true gap (verified via v_zoning_gold_standard_card lookups by both
+-- parcel_id and tax_account, for all 13 taylor rows) is exactly 2 rows:
+--
+--   1. '25-145 CA' / parcel_id='02035-000' (fixed for E above, still fails I
+--      because no zone_code link exists for this parcel yet -- see below).
+--   2. '23-505 CA' / parcel_id='09459-119' (Steinhatchee, 1205 Sweetgum Ln
+--      NE). No match on parcel_id OR tax_account against
+--      v_zoning_gold_standard_card. BLOCKED -- same reason as row 1.
+--
+-- NOTE: 5 other Taylor parcel_ids with "R" prefix (R09486-414, R09113-000,
+-- R07503-000, R09208-000) initially LOOKED like zone-link gaps when queried
+-- by parcel_id (all return []), but actually resolve correctly via
+-- tax_account match (v_zoning_gold_standard_card.tax_account = 'R09486-414'
+-- etc, with the view's own parcel_id column stripped of the leading 'R').
+-- This is why the evaluator already scores 11/13 pass, not 8/13 -- re-verify
+-- both fields before concluding a zone-link gap. Confirmed live this session.
+--
+-- 02035-000 (unincorporated Taylor County -- point at 30.176684,-83.602402
+-- is ~5 miles NW of Perry city limits, well outside jurisdiction_id=908's
+-- City of Perry LDR boundary) and 09459-119 (Steinhatchee, also
+-- unincorporated) both require a zone_code from Taylor County's
+-- unincorporated Future Land Use / zoning districts
+-- (AG1/AG2/AGR/MUR/MUD/I/CAR/CWO/P/CON per jurisdiction_id=1513, source:
+-- https://library.municode.com/fl/taylor_county/codes/code_of_ordinances?nodeId=COOR_CH42LADECO_ARTVLAUS).
+--
+-- Researched this session, live:
+--   - qpublic.schneidercorp.com (Taylor County Property Appraiser GIS) --
+--     403 Forbidden to scripted fetch (both curl and WebFetch).
+--   - No dedicated Taylor County zoning/FLU ArcGIS FeatureServer found in
+--     the shared FL GIO ArcGIS Online org (services9.arcgis.com/
+--     Gh9awoU677aKree0) that hosts the statewide cadastral layer -- only
+--     the parcel layer exists there, no zoning/FLU layer.
+--   - taylorcountygov.com/departments/planning_and_zoning/maps.php -- lists
+--     14 maps (evacuation, wells, soils, wetlands, etc), NO zoning map or
+--     future land use map among them.
+--   - taylorcountygov.com/departments/planning_and_zoning/land_use_specifications.php
+--     -- confirms the 6 unincorporated FLU district names/PDFs (Mixed Use
+--     Urban Development, Mixed Use Rural Residential, Ag Rural Residential,
+--     Ag 2, Ag 1, Industrial) but has NO future land use map and NO
+--     address/parcel lookup tool to determine which district applies to a
+--     specific parcel.
+--   - No self-service GIS parcel-to-zoning lookup or zoning verification
+--     letter tool is published; the department directs inquiries to a
+--     phone call / email (lpemberton@taylorcountygov.com).
+--
+-- Assigning AGR (or any of the other 5 unincorporated districts) to either
+-- parcel by pattern-matching against other unincorporated Taylor rows
+-- already in our data (all currently AGR/AG1/MUR/MUD) would be a guess, not
+-- a verified district boundary lookup -- explicitly prohibited by this
+-- campaign's fabrication guardrail ("never fabricate ... any value you
+-- cannot trace to a live, named, real source"). BLOCKED -- no real,
+-- parcel-specific zoning-district source was found this session.
+--
+-- ===========================================================================
+-- LETTERS B/F -- checked live, genuinely zero change (no fabrication)
+-- ===========================================================================
+-- Live-checked taylorclerk.com/departments/foreclosure-sales/ and
+-- /departments/tax-deeds/ and /departments/property-sales/ this session.
+-- Foreclosure-sales page shows 5 of our 13 cases (25-210 CA, 26-042 CA,
+-- 23-505 CA, 23-597 CA, 25-145 CA) all still Status=scheduled with no sold/
+-- winning-bid figures displayed (25-210 CA and 26-042 CA have a sale date of
+-- 08/27/2026 = today; results, if any, are not yet posted). Tax-deeds page
+-- states explicitly: "There are no properties on the list of tax deeds at
+-- this time" -- none of our 4 TDA cases (26-031, 26-032, 26-028, 26-026)
+-- appear. No independent (non-PropertyOnion) source with a genuine dollar
+-- sale figure was found for any of the 13 cases. B and F remain at
+-- closed_sold=0 -- correctly reported as null/FAIL, not fabricated.
+--
+-- ===========================================================================
+-- LETTER C -- confirmed structurally blocked, not attempted
+-- ===========================================================================
+-- '25-014 CA' has parity_status='CLERK_SSOT_CANCELLED', which the
+-- evaluator's C canon deliberately EXCLUDES from matched_clean by design
+-- (only D accepts CLERK_SSOT_CANCELLED). C is structurally capped at
+-- 12/13 = 92.3% for as long as this case remains cancelled -- identical
+-- pattern to calhoun's known 546-OF-2024 case. Not attempted, per task
+-- instructions.
+--
+-- NEVER-LIE: I/B/F/C gaps above are reported BLOCKED, not silently skipped
+-- or fabricated. No PropertyOnion data was used or counted as authoritative.
+-- No cron jobs, other counties, or other letters' scoring logic were
+-- touched.
