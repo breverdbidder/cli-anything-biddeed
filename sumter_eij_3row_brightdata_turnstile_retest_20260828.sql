@@ -1,0 +1,152 @@
+-- GOLD STANDARD sumter, letters E (parcel linkage) + I (property card completeness)
+-- + J (deal thesis) -- 3-row Bright Data MCP retest against the specific
+-- Turnstile/Cloudflare-gated sources, session 2026-08-28.
+-- No-op documentation artifact: honest exhaustion, nothing written. BLANK > WRONG.
+--
+-- BASELINE (VERIFIED live via public.pencil_dod_evaluate_county('sumter') at
+-- session start AND again at session end -- IDENTICAL, no drift):
+--   E: pass=false, parcel_linked=30 of 32 (93.8%), threshold >=95%.
+--   I: pass=false, card_complete=28 of 32 (87.5%).
+--   J: pass=false, deal_complete=30 of 32 (93.8%).
+--   auctions_total=32. All other letters (A/B/D/F/G/H) PASS; C also FAIL
+--   (matched_clean=28, out of this session's scope -- not one of E/I/J).
+--   NOTE: E and J both already improved 29->30 (90.6%->93.8%) vs. the
+--   2026-08-27 session-start baseline, because the McLean row
+--   (2026-CA-000090, id=548b963d-3ce1-457f-b75b-011c68f70ba0) now carries
+--   assessed_value=402160 / market_value=402160, assessed_value_source=
+--   'fl_dor_statewide_cadastral_pip_geocoded', last_changed_at=
+--   2026-08-27T18:17:38Z -- written same-day as the prior session by what
+--   appears to be an automated FL DOR statewide-cadastral pipeline step
+--   that fires once a parcel_id is linked, DISTINCT from the manual
+--   trellis/sumterclerk work documented in
+--   sumter_eij_3row_owner_address_dead_end_20260827.sql (which only covered
+--   owner_name/address/lat-lon and explicitly said assessed/market value
+--   was "NOT written" as of that file's authoring). This is a legitimate
+--   tax-roll-derived source (FL DOR cadastral, not an AVM/Redfin estimate),
+--   consistent with this campaign's guardrail -- no correction needed.
+--
+-- THE 3 TARGET ROWS (re-queried live via PostgREST this session, state
+-- UNCHANGED from 2026-08-27 except the above pre-existing McLean value):
+--   2026-CA-000074  WILMINGTON SAVINGS FUND SOCIETY FSB -VS- MARC G. RATLIFF
+--                   id=02a7cd9e-7649-46d2-af4d-4f3d4120efcc
+--                   property_address/parcel_id/owner_name/assessed_value: all NULL
+--   2026-CA-000090  WILMINGTON SAVINGS FUND SOCIETY FSB -VS- MARY MCLEAN
+--                   id=548b963d-3ce1-457f-b75b-011c68f70ba0
+--                   parcel_id='D28E030', address/owner_name RESOLVED (prior session),
+--                   assessed_value=402160, market_value=402160 (pre-existing, see above)
+--   2026-CA-000129  KENNETH STRONG -VS- JOHNATHON YOUNG
+--                   id=a551e9da-12b3-4092-83e3-6954a83b885b
+--                   property_address/parcel_id/owner_name/assessed_value: all NULL
+--
+-- ============================================================================
+-- SESSION UPDATE 2026-08-28 -- Bright Data MCP tools tested DIRECTLY against
+-- the 3 specific Turnstile/Cloudflare-gated sources named in the prior
+-- session's "next-session levers" list (civitekflorida.com/ocrs/county/60,
+-- myfloridacounty.com/orisearch/60, sumterpa.com). RESULT: STILL DEAD, all
+-- 3 targets, for 3 genuinely DIFFERENT failure reasons (not a repeat of the
+-- same Turnstile block -- each source failed a distinct way this session):
+-- ============================================================================
+--
+--   1. civitekflorida.com/ocrs (Ratliff 2026-CA-000074, Strong/Young
+--      2026-CA-000129) -- Bright Data's unlocker RENDERED THE PAGE FINE, no
+--      Turnstile/CAPTCHA block encountered. mcp__brightdata__scrape_as_markdown
+--      against https://www.civitekflorida.com/ocrs/app/search.xhtml returned
+--      full page content (confirmed: a 33-county dropdown selector, version
+--      2.0.2.0). The actual blocker is STRUCTURAL, not bot-detection: OCRS is
+--      a stateful JSF (JavaServer Faces) application requiring a POST-back
+--      with a server-issued ViewState token after selecting county+search
+--      criteria -- a single-shot GET to any guessed direct search endpoint
+--      (/ocrs/county/60/search.xhtml, /ocrs/county/60/PartySearch.xhtml,
+--      /ocrs/county/60/CaseSearch.xhtml) either 404s ("Page not found") or
+--      redirects back to a bare county-picker. No plain-GET or single-page
+--      markdown-scrape tool -- Bright Data included -- can complete a
+--      multi-step JSF form flow without session-cookie continuity across
+--      requests, which this tool class does not provide. This is a newly
+--      confirmed, DIFFERENT blocker than the Turnstile block reported
+--      2026-08-27 (that prior report described civitekflorida.com as
+--      Turnstile-gated; this session found the actual page reachable but the
+--      search flow itself unreachable via single-shot requests). CONCLUSION:
+--      genuinely un-crackable by this tool without a persistent-session
+--      browser automation capability (e.g. Playwright with cookie jar +
+--      form POST), which is out of scope for brightdata's scrape_as_markdown/
+--      scrape_batch/search_engine tools as invoked here.
+--
+--   2. myfloridacounty.com/orisearch/60 -- Bright Data REFUSED the request
+--      outright: "Residential Failed (bad_endpoint): Requested site is not
+--      available for immediate residential (no KYC) access mode in
+--      accordance with robots.txt. To get full residential access for
+--      targeting this site, fill in the KYC form: https://brightdata.com/cp/kyc"
+--      This is a POLICY-LEVEL refusal on Bright Data's own side (their
+--      unlocker declines to even attempt this domain without a completed
+--      Know-Your-Customer form on the Bright Data account), not a Turnstile
+--      defeat/non-defeat result. Same refusal reproduced against
+--      qpublic.schneidercorp.com (Sumter PA's GIS/data-download partner
+--      site) -- both sites apparently flagged in Bright Data's own
+--      robots.txt-compliance denylist for unverified accounts. KYC
+--      enrollment is outside this session's autonomous scope.
+--
+--   3. sumterpa.com (McLean parcel D28E030 assessed/market value, needed for
+--      J) -- Bright Data's scrape_as_markdown returned EMPTY CONTENT
+--      ("content": "") on every URL variant tried this session: root
+--      https://www.sumterpa.com/, https://www.sumterpa.com/public-records/,
+--      and a guessed parcel-detail endpoint
+--      https://app.sumterpa.com/gis/D_ShowDetail.html?PARCEL=D28E030
+--      (discovered via search_engine as the real Sumter PA parcel-card URL
+--      pattern, distinct from the qPublic mirror). Empty-content-with-
+--      fulfilled-status is Bright Data's silent-failure signature for a page
+--      it could not actually render past whatever gate sumterpa.com runs --
+--      consistent with, and not contradicting, the 2026-08-27 finding that
+--      this domain is Cloudflare-gated. Bright Data's web-unlocker did NOT
+--      succeed here where a plain fetch also failed. CONCLUSION: still
+--      blocked, this is genuinely moot for J anyway since assessed_value is
+--      ALREADY populated for this row via the FL DOR statewide-cadastral
+--      pipeline (see BASELINE note above) -- sumterpa.com was being chased
+--      as a belt-and-suspenders authoritative confirmation, not because the
+--      value was missing. J's remaining 2 shortfall rows (30 of 32, needs
+--      31/32 to pass) are Ratliff + Strong/Young, both blocked on parcel
+--      linkage (item 1/2 above), not on sumterpa.com specifically.
+--
+--   Cross-check: re-ran search_engine queries for both Ratliff and
+--   Strong/Young case numbers directly ("2026-CA-000074" Sumter RATLIFF...,
+--   "2026-CA-000129" Sumter STRONG YOUNG...). Both returned exactly ONE
+--   organic hit each: the same sumterclerk.com foreclosure-sales grid page
+--   already known to lack an address for these two rows (independently
+--   re-confirmed 2026-08-27 via WebFetch: "no address listed" for both).
+--   No new source surfaced. Also re-attempted
+--   mcp__brightdata__scrape_as_markdown directly against
+--   sumterclerk.com/courts/foreclosures/foreclosure-sales/ -- returned
+--   empty content (this JS-rendered grid page apparently cannot be rendered
+--   by Bright Data's markdown scraper either; WebFetch remains the only tool
+--   that has successfully read this specific page in this campaign).
+--
+-- RESULT (VERIFIED live, pencil_dod_evaluate_county('sumter'), before AND
+-- after this session -- IDENTICAL, zero drift, zero writes applied):
+--   BEFORE: E=93.8% (30/32) FAIL, I=87.5% (28/32) FAIL, J=93.8% (30/32) FAIL.
+--   AFTER:  E=93.8% (30/32) FAIL (unchanged), I=87.5% (28/32) FAIL (unchanged),
+--           J=93.8% (30/32) FAIL (unchanged).
+--
+-- NEXT-SESSION LEVERS (genuinely untried after this session):
+--   1. A persistent-session browser automation tool (Playwright/Puppeteer
+--      with cookie continuity) could potentially complete the civitekflorida
+--      OCRS JSF form flow (select Sumter -> Public -> search by case number)
+--      for Ratliff and Strong/Young -- this is a DIFFERENT capability gap
+--      than "Turnstile-solving": the page itself is reachable, only the
+--      stateful multi-step form is not completable by single-shot GET/scrape
+--      tools (Bright Data included).
+--   2. Bright Data KYC enrollment (https://brightdata.com/cp/kyc) would
+--      unlock myfloridacounty.com and qpublic.schneidercorp.com as
+--      candidate sources -- requires account-level action outside
+--      autonomous session scope.
+--   3. Direct phone/manual contact with the Sumter Clerk's office for the
+--      case caption/legal description on 2026-CA-000074 and 2026-CA-000129
+--      remains outside this session's autonomous scope (unchanged from
+--      prior session).
+--   4. sumterpa.com itself is now LOW PRIORITY for J specifically (McLean's
+--      value is already populated from FL DOR cadastral) -- only relevant
+--      if a future session wants a second corroborating source for that
+--      one row, not because J is currently blocked on it.
+--
+-- (No SQL to run -- this file is a documentation-only record. Zero writes
+-- were applied this session; PostgREST was used only for read/verify calls.)
+
+SELECT 1;
