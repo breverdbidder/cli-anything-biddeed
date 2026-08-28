@@ -220,6 +220,22 @@ def main():
     hunter_budget = [int(hunter_acct["requests"]["credits"]["remaining"])] if hunter_acct else [0]
     print(f"Hunter.io credits available at start: {hunter_budget[0]}")
     apify_token = os.environ.get("APIFY_API_KEY", "")
+    if not apify_token:
+        try:
+            url = os.environ["SUPABASE_URL"].rstrip("/")
+            key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+            req = urllib.request.Request(
+                f"{url}/rest/v1/rpc/vault_secret",
+                data=json.dumps({"p_name": "apify_api_token"}).encode(),
+                headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                v = json.loads(resp.read())
+            apify_token = v.strip('"') if isinstance(v, str) else (v or "")
+        except Exception as e:
+            print(f"Apify vault fetch failed: {e}")
+    print(f"Apify token available: {'yes' if apify_token else 'NO -- Apify tier will be skipped'}")
 
     report = []
     for buyer_key, buyer_rows in groups.items():
