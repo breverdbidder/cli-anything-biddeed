@@ -5977,6 +5977,32 @@ footer{padding:2.5rem 2rem;background:var(--navy-band);border-top:1px solid var(
 #exit-panel .lead-input{width:100%;margin-bottom:10px}
 #exit-panel .lead-submit{width:100%}
 #exit-form-wrap.hidden,#exit-success.hidden{display:none}
+/* WinnerDataAI child-brand light mode: cream canvas, terracotta action, black ink. */
+:root{
+  --navy:#f5f0e8;--navy-band:#ede3d7;--header-strip:#fbfaf7;--charcoal:#fbfaf7;
+  --orange:#c15f3c;--orange-hover:#a94f31;--slate:#5f564e;--slate-dim:#766f67;
+  --body-text:#1f1b16;--green:#2f7a4b;--amber:#c15f3c;--red:#a13b32;
+  --divider:rgba(31,27,22,.14);--gold:#c15f3c
+}
+body{background:var(--navy);color:var(--body-text)}
+nav{background:rgba(245,240,232,.94);border-bottom-color:var(--orange)}
+.logo,.case-address,h1,.section-h,.feat-title,.tile-val,.upsell-price,.price-name,.price-amount{color:var(--body-text)}
+.nav-links a,.hero-sub,.section-sub,.case-date,.status-line,.feat-desc,.proof-footnote,.price-desc,.price-feature,.foot-upl,.foot-copy{color:var(--slate)}
+.nav-links a:hover,.btn-outline:hover,.btn-outline-orange:hover{color:var(--body-text)}
+.hero-cred b,.eyebrow,.hero-artifact b,.feat-section,.case-meta,.tile-val.orange,.btn-outline-orange,.popular-chip{color:var(--orange)}
+.hero-artifact,.tile,.feat-card,.price-card,.upsell-card{background:var(--charcoal);border-color:var(--divider)}
+.case-card{background:var(--navy);border-color:var(--divider)}
+.case-header{background:var(--header-strip);border-left-color:var(--orange)}
+.btn-solid,.btn-replay,.nav-cta,.lead-submit,.upsell-cta,.price-cta{background:var(--orange);color:var(--navy)}
+.btn-solid:hover,.btn-replay:hover,.nav-cta:hover,.lead-submit:hover,.upsell-cta:hover,.price-cta:hover{background:var(--orange-hover)}
+.btn-outline{border-color:var(--slate);color:var(--body-text)}
+.lead-band,.proof-band{background:var(--navy-band)}
+.county-select,.lead-input{background:var(--charcoal);border-color:var(--slate);color:var(--body-text)}
+.county-select option{background:var(--charcoal);color:var(--body-text)}
+.disclaimer-bar{background:var(--header-strip);color:var(--slate);border-color:var(--divider)}
+#chat-bubble{background:var(--orange);color:var(--navy);box-shadow:0 4px 24px rgba(193,95,60,.28)}
+#chat-close{background:rgba(251,250,247,.9);border-color:var(--divider);color:var(--slate)}
+#chat-close:hover{background:var(--charcoal);color:var(--body-text)}
 </style>
 </head>
 <body>
