@@ -5269,6 +5269,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
           <div class="w-full rounded-xl py-3.5 px-4 text-center text-sm border border-slate-700 bg-slate-800/50 text-slate-400">
             <div class="font-semibold text-slate-300">📋 S5 Report — coming soon for COUNTY_TITLE_PLACEHOLDER</div>
             <div class="text-[11px] mt-1">Full AI max-bid analysis available now in certified counties</div>
+            <a href="/subscribe?tier=investor" class="mt-3 inline-flex w-full items-center justify-center rounded-lg py-3 px-4 font-bold text-white" style="background:var(--terracotta)">Join Investor — $99/mo</a>
           </div>
         </template>
         <p class="text-[10px] text-slate-500 text-center mt-2 leading-snug">18-section AI analysis · Shapira Max Bid ceiling · CMA comps · zoning · outcome prediction · branded PDF</p>
