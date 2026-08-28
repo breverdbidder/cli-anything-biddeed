@@ -4432,7 +4432,7 @@ ${POSTHOG_SCRIPT}
 :root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
 body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%}
-.badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
+.badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}.s5-overview{margin:1.25rem 0 1.5rem;padding:1.1rem 1.15rem;border:1px solid rgba(193,95,60,.28);border-radius:14px;background:rgba(245,240,232,.72)}.s5-overview h2{font-size:1.05rem;color:#1F1B16;margin-bottom:.35rem}.s5-overview p{font-size:.8rem;line-height:1.45;color:#766F67;margin-bottom:.8rem}.s5-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem .75rem;list-style:none}.s5-grid li{display:flex;gap:.45rem;align-items:flex-start;font-size:.73rem;line-height:1.25;color:#1F1B16}.s5-grid b{color:#C15F3C;font-size:.68rem;min-width:1.35rem}.s5-overlays{margin-top:.75rem;padding-top:.65rem;border-top:1px solid rgba(193,95,60,.2);font-size:.72rem;color:#766F67}.s5-overlays strong{color:#C15F3C}@media(max-width:560px){.s5-grid{grid-template-columns:1fr}.s5-overview{padding:.95rem}.s5-grid li{font-size:.76rem}}
 .steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
 .steps span{flex:1;height:3px;border-radius:2px;background:var(--border)}
 .steps span.done,.steps span.active{background:var(--orange)}
@@ -4479,6 +4479,31 @@ html[data-theme=light] .upl a{color:#C15F3C}
 </style></head><body>
 <div class="card">
   <div class="badge">ONE-TIME · NO SUBSCRIPTION</div>
+  <div class="s5-overview" aria-labelledby="s5-overview-title">
+    <h2 id="s5-overview-title">What your S5 report includes</h2>
+    <p>One property. One evidence-backed decision document. Review every section before selecting the auction record.</p>
+    <ol class="s5-grid">
+      <li><b>01</b><span>Subject property identification</span></li>
+      <li><b>02</b><span>Clearing-band value estimate</span></li>
+      <li><b>03</b><span>Market-band value estimate</span></li>
+      <li><b>04</b><span>Comparable sales layer</span></li>
+      <li><b>05</b><span>Comparable quality and confidence</span></li>
+      <li><b>06</b><span>Comparable distance analysis</span></li>
+      <li><b>07</b><span>Comparable timing and market fit</span></li>
+      <li><b>08</b><span>Transaction history</span></li>
+      <li><b>09</b><span>Property record</span></li>
+      <li><b>10</b><span>Listing and auction details</span></li>
+      <li><b>11</b><span>Neighborhood context</span></li>
+      <li><b>12</b><span>School context</span></li>
+      <li><b>13</b><span>Flood-risk context</span></li>
+      <li><b>14</b><span>Market context</span></li>
+      <li><b>15</b><span>Judgment and encumbrance review</span></li>
+      <li><b>16</b><span>Provenance and methodology</span></li>
+      <li><b>17</b><span>Auction outcome tracking</span></li>
+      <li><b>18</b><span>Prediction scorecard and max-bid decision</span></li>
+    </ol>
+    <div class="s5-overlays"><strong>Included intelligence overlays:</strong> Shapira third-party-purchase model and ZoneWise.AI land/zoning intelligence.</div>
+  </div>
   <div class="steps"><span id="dot1" class="active"></span><span id="dot2"></span><span id="dot3"></span></div>
 
   <div id="step-county">
