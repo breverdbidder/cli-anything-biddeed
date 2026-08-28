@@ -1,0 +1,132 @@
+-- Gold Standard live FIX session -- seminole letter I (card_complete)
+-- key=seminole-I (county=seminole, letter=I, property card completeness)
+--
+-- BASELINE (pencil_dod_evaluate_county('seminole') at session start, live,
+-- 2026-08-28):
+--   I: card_complete=149/160 = 93.1% (FAIL, need >=152/160)
+--   All other letters (A,B,C,D,E,F,G,H,J) PASS. auctions_total=160.
+--
+-- CONTEXT: prior sessions (2026-08-25, 08-26, 08-27 x2) exhausted an 8-row
+-- gap set tied to the old 157-row denominator (documented in
+-- 20260827_gold_standard_shard1_8f944a71_seminole_i_no_new_avenue_exhausted.sql)
+-- and confirmed it a structural ceiling. This session targeted 3 BRAND NEW
+-- rows that appeared 2026-08-28T07:57-58Z, not part of the exhausted set,
+-- already carrying real parcel_id + property_address from the scraper:
+--   3927111f-a002-4ff7-98a9-cb3a827498a5  case 20260030/2024-001109
+--     parcel 08-21-30-511-0A00-0160, 416 Lotus Ln, Casselberry
+--   593423e9-98b9-436a-aa88-7c3e1f4f3424  case 2025CA002881
+--     parcel 12-20-30-502-0000-0010, 100 E Coleman Cir, Sanford
+--   5e8d6ddb-9273-4db9-b5fa-b27930a0c0c2  case 2025CA001854
+--     parcel 21-21-30-522-0000-07C0, 513 Polaris Loop #109, Casselberry
+--
+-- LIVE SOURCE (re-verified fresh this session, matches prior diagnosis
+-- exactly): InformationKiosk ArcGIS MapServer layer 1, queried by undashed
+-- ParcelNumber --
+--   https://utility.arcgis.com/usrsvcs/servers/9b9c9fd45bdc4c39a2bd518da39d1e1c/rest/services/InformationKiosk/MapServer/1/query
+--   where=ParcelNumber='<undashed>' outFields=ParcelNumber,Zoning,
+--   FutureLandUse,PropertyAddress,AssessedValue,TotalJustValue,TaxableValue,
+--   Latitude,Longitude f=json
+--
+-- WRITES APPLIED THIS SESSION (all values live-sourced from the query above,
+-- reproducible; PATCH via PostgREST with Prefer: return=representation,
+-- each confirmed in the returned row):
+--   3927111f-a002-4ff7-98a9-cb3a827498a5: assessed_value=359504,
+--     market_value=359504 (source: AssessedValue=359504, TotalJustValue=359504)
+--   5e8d6ddb-9273-4db9-b5fa-b27930a0c0c2: latitude=28.64360783,
+--     longitude=-81.32483, assessed_value=48124, market_value=154839
+--     (source: AssessedValue=48124, TotalJustValue=154839 -- these differ,
+--     likely homestead-cap difference; TotalJustValue used for market_value)
+--   593423e9-98b9-436a-aa88-7c3e1f4f3424: assessed_value=350297,
+--     market_value=350297 (source: AssessedValue=350297, TotalJustValue=350297)
+--
+-- NOT WRITTEN (deliberately, per anti-fabrication guardrail):
+--   593423e9-98b9-436a-aa88-7c3e1f4f3424 has NO zoning_assignments row and
+--   Sanford has NO zoning_districts row for zone_code SR1 (checked live,
+--   zero rows both). The ArcGIS attribute gives Zoning=SR1 but NOT the
+--   dimensional standards (setbacks/height/density/lot size) that
+--   zoning_districts/zone_standards require. Attempted to find a real
+--   Sanford LDC source this session:
+--     - WebSearch: found Municode Schedule C (Area/Density/Height
+--       Requirements) URL but no extractable SR1 row in the snippet.
+--     - WebFetch on library.municode.com Schedule C node: HTTP 403 Forbidden.
+--     - mcp__brightdata__scrape_as_markdown on the same URL: returned only
+--       "Municode Library" (Angular SPA shell, no content -- blocked).
+--     - mcp__brightdata__scrape_as_markdown on zoneomics.com/code/sanford-FL/
+--       chapter_17: empty response.
+--     - mcp__brightdata__search_engine for "SR1" Sanford FL zoning dimensional
+--       standards: no usable results (irrelevant hits only).
+--   No real, live, citable source for Sanford SR1 standards was found. Per
+--   BLANK > WRONG, no zoning_assignments/zoning_districts/zone_standards
+--   rows were written for this parcel. Value backfill only was applied.
+--
+-- ADVERSARIAL VERIFICATION -- CRITICAL FINDING: after applying all 3 writes
+-- above (value backfill for all 3 rows, geo backfill for row 3), re-ran
+-- pencil_dod_evaluate_county('seminole') and the I metric DID NOT MOVE:
+-- still exactly 149/160 (93.1%), identical to baseline. This DISPROVES the
+-- prior session's hypothesis (recorded in this dispatch's own diagnosis)
+-- that "these 3 rows most likely just need zoning-link + geo/value
+-- enrichment" -- for 2 of the 3 rows (3927111f, 5e8d6ddb) that hypothesis
+-- predicted a pass once assessed_value/market_value/geo were non-null AND
+-- zoning_assignments+zoning_districts already existed (Casselberry R-9 id
+-- 6354, RMF-13 id 6359, both pre-existing before this session). Both
+-- conditions were met after this session's writes; card_complete still did
+-- not count them.
+--
+-- Independently investigated v_zoning_gold_standard_card (the view named in
+-- the diagnosis as the likely join surface) and found it is NOT the join
+-- surface the evaluator uses for per-row card_complete: querying it live
+-- shows it returns exactly ONE deduplicated representative parcel per
+-- (jurisdiction_id, zone_code) pair (e.g. casselberry+R-9 has 2449 rows in
+-- zoning_assignments but exactly 1 row in the view, and it is a DIFFERENT
+-- parcel -- 15-21-30-5BW-0G00-0010 -- not either of our target parcels).
+-- This means the view is a zoning-district catalog sample, not a per-auction
+-- card completeness surface, and the prior diagnosis's join-key theory
+-- (dash normalization requiring a value/geo backfill to surface) does not
+-- hold. The actual RPC-internal predicate for card_complete on individual
+-- multi_county_auctions rows remains UNKNOWN from outside the function body
+-- (PostgREST/pooler access does not expose function source; direct psql is
+-- documented dead). Also could not reproduce auctions_total=160 as any
+-- simple PostgREST filter combination on multi_county_auctions (raw
+-- county=seminole count is 1266; is_operational=true count is 669;
+-- auction_status=upcoming+is_operational=true is 645; sale_result_date is
+-- null+is_operational=true is 669; data_source=calendar_sweep_mca_v3+
+-- is_operational=true is 98) -- the RPC's denominator scoping is internal
+-- SQL logic not reconstructable via REST filters alone.
+--
+-- CONCLUSION: this session's writes are real, correctly sourced, and
+-- improve underlying data quality (2 of 3 target rows now have non-null
+-- assessed_value/market_value where they previously had null; row 3
+-- additionally now has real lat/long) but had ZERO measured effect on the
+-- letter-I evaluator metric. This is reported as-is per BLANK > WRONG --
+-- not claiming a fix that didn't move the metric. The genuinely new finding
+-- for future sessions: card_complete's true predicate is NOT satisfied by
+-- {assessed_value/market_value non-null} + {lat/long non-null} +
+-- {zoning_assignments row exists} + {zoning_districts row exists with
+-- core8 fields}, contrary to the working hypothesis carried into this
+-- session. A future session with direct access to the
+-- pencil_dod_evaluate_county function body (or an authorized psql session)
+-- is needed to identify the actual missing predicate before further blind
+-- backfill attempts on this letter.
+--
+-- ============================================================================
+-- VERIFICATION (before/after this session's writes, all 10 letters)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('seminole');
+-- BEFORE: {"A":{"pass":true,"metric":28},"B":{"pass":true,"metric":100.0},
+--   "C":{"pass":true,"metric":98.1},"D":{"pass":true,"metric":98.1},
+--   "E":{"pass":true,"metric":98.1},"F":{"pass":true,"metric":100.0},
+--   "G":{"pass":true,"metric":96.3},"H":{"pass":true,"metric":0.0},
+--   "I":{"pass":false,"detail":"card_complete=149 of 160","metric":93.1},
+--   "J":{"pass":true,"metric":98.1},"auctions_total":160}
+-- AFTER (post 3-row value/geo backfill): identical on all letters except H
+--   (freshness clock, expected to tick: metric moved 0.0->0.1->0.0 across
+--   repeated calls, still well under 48h SLA, still PASS); I UNCHANGED at
+--   {"pass":false,"detail":"card_complete=149 of 160","metric":93.1}.
+-- No regression on any of the 9 passing letters.
+--
+-- No further writes attempted this session after the 3-row value/geo
+-- backfill; Sanford SR1 zoning_districts insert deliberately withheld
+-- (no real source found, see above). Per repo convention this file is a
+-- documentation-only audit trail for the writes already applied live via
+-- PostgREST PATCH (not re-applied here as SQL, since they were already
+-- executed and verified against production during this session).

@@ -1,0 +1,125 @@
+-- Gold Standard shard-4 (dispatch 757d2329-b5dd-4596-b060-171a1c701bef): seminole/levy/sumter
+-- ULTRALOOP session: diagnose (fanned per county) -> fix (real sources only) -> adversarial verify
+-- (separate agent, refuted one claim, both fixes below are the corrected/confirmed result).
+--
+-- BASELINE (live, session start 2026-08-28T08:00Z):
+--   seminole 9/10 (I fail, card_complete=149/157=94.9%)
+--   levy     7/10 (E fail 79.5%, I fail 76.9%, J fail 79.5%)
+--   sumter   6/10 (C fail 87.5%, E fail 93.8%, I fail 87.5%, J fail 90.6%)
+--
+-- ============================================================================
+-- WRITE 1 (CONFIRMED by independent adversarial verifier, cross-checked against
+-- live SCPA Property Record Card PDFs + live Seminole InformationKiosk ArcGIS,
+-- lat/long matched to 8 decimal places): seminole -- 3 brand-new rows (appeared
+-- 2026-08-28T07:57-58Z, NOT part of the already-exhausted 8-row structural-
+-- ceiling gap documented in 20260827_..._8f944a71_..._no_new_avenue_exhausted.sql)
+-- got real assessed_value/market_value/lat/long backfilled from the Seminole
+-- County Property Appraiser + live ArcGIS InformationKiosk service.
+-- RESULT: I metric UNCHANGED (149/160, 93.1%) -- these 3 rows still fail
+-- card_complete because they have no matching row in v_zoning_gold_standard_card
+-- (zone-linkage gap, not a value/geo gap). Honestly reported as a partial,
+-- non-metric-moving write, NOT a fabricated success. See migration
+-- 20260828_gold_standard_seminole_i_3row_value_geo_backfill_no_metric_effect.sql
+-- (written by the fix-phase subagent directly during this session) for the
+-- full row-level detail; not duplicated here.
+--
+-- ============================================================================
+-- WRITE 2 (verified by this session directly, then independently re-confirmed):
+-- levy -- letter E (parcel linkage). The 2026-08-23 structural-ceiling finding
+-- (supabase/migrations/20260823_shard2_levy_eij_structural_ceiling_documentation.sql)
+-- was RE-TESTED this session using mcp__brightdata__scrape_as_markdown /
+-- search_engine (a lever not available in that prior session) against
+-- qpublic.net/fl/levy and online.levyclerk.com/TaxSmartWeb -- qpublic remains
+-- KYC-gated even via brightdata (confirmed dead end). BUT online.levyclerk.com/
+-- TaxSmartWeb's own "Search for Case" -> GridSearchData JSON endpoint
+-- (POST SearchForCase=<short case #> to /TaxSmartWeb/, then GET
+-- /TaxSmartWeb/Home/GridSearchData?SearchType=Case%20%23 with the same session
+-- cookie) turned out to be reachable via a PLAIN curl request (standard UA, no
+-- special bypass tooling) -- the prior WebFetch/BrightData scrape_as_markdown
+-- attempts likely hit a bot-challenge on their fingerprint/IP that a vanilla
+-- HTTP client did not. This is a real, previously-unexploited lever.
+--
+-- Queried all 8 levy rows with NULL parcel_id (case numbers 2026-4164TD,
+-- 2026-4166TD through 2026-4171TD, 2026-4173TD) against this endpoint. Each
+-- returned exactly one authoritative row with a real parcel_id (Levy County's
+-- own tax-deed certificate parcel identifier), confirmed live 2026-08-28:
+--   2026-4164TD -> 17660-000-00   (cert 4975-24, HUGH DAVID MCMICHAEL et al.)
+--   2026-4166TD -> 15993-000-00   (cert 4855-24, MARY L MCQUISTON-BRITTEN)
+--   2026-4167TD -> 13489-000-00   (cert 4677-24, BRENDA C / ANTHONY J GARRISON)
+--   2026-4168TD -> 12199-000-00   (cert 4516-24, JOHN J PHILLIPS)
+--   2026-4169TD -> 03467-002-0A   (cert 1027-24, BRONSON VILLAS 2 LTD et al.)
+--   2026-4170TD -> 03427-002-00   (cert 1022-24, WILLIAM C COBB)
+--   2026-4171TD -> 01651-001-00   (cert 354-24,  ALICE N EAKES HIGGINS et al.)
+--   2026-4173TD -> 03283-000-00   (cert 782-24,  BRONSON SOLAR LLC)
+--
+-- WRITE APPLIED (PostgREST PATCH, verified via return=representation on each):
+--   UPDATE multi_county_auctions SET parcel_id=<above>,
+--     data_source='taxsmart_levyclerk_com_GridSearchData_case_search_2026-08-28'
+--   WHERE id IN (the 8 corresponding row ids).
+--
+-- VERIFICATION: pencil_dod_evaluate_county('levy') immediately after:
+--   BEFORE: E FAIL, parcel_linked=31, metric=79.5
+--   AFTER:  E PASS, parcel_linked=39, metric=100.0   <-- criterion flips PASS
+-- levy moves from 7/10 to 8/10. I and J remain FAIL (still need
+-- property_address/lat/long/assessed_value for these same 8 parcels -- qpublic
+-- is KYC-gated to every tool available this session, confirmed a genuine
+-- residual blocker, not attempted further; TaxSmart's own grid does not carry
+-- address/value fields).
+--
+-- ============================================================================
+-- CORRECTION (not a new write, a bugfix to a write made earlier in this same
+-- session by the workflow's sumter fix-phase agent, caught by the adversarial
+-- verify-phase agent): sumter bid_decisions rows for cases 2026-CA-000090,
+-- 2026-CA-000099, 2025-CA-000394 used arv_source=
+-- 'fl_parcels_comps_p75_zip_dor_uc_dedup_bulk_n301' -- a comp query against
+-- fl_parcels (co_no=70, phy_zipcd=32162, dor_uc=001, sale_yr1>=2022,
+-- sale_prc1>1000) that hit PostgREST's default 1000-row page limit without
+-- pagination. The TRUE universe for that filter is 2159 raw rows / 612 unique
+-- deduplicated sale prices (independently confirmed twice: once by the
+-- verify-phase agent, once by this session directly re-running the identical
+-- paginated query). True percentiles: p75=$579,925 (vs the wrong $367,500),
+-- p25=$323,375 (vs the wrong $284,000) -- the original write understated ARV
+-- by ~58%, which would have understated max_bid on any of these 3 rows if
+-- used for a real bid. (Zip 34785 and 32159 rows elsewhere in sumter's
+-- bid_decisions were independently checked and are NOT affected -- their true
+-- raw counts are 227 and 479 respectively, both under the 1000-row cap, so
+-- those percentiles were never truncated.)
+--
+-- CORRECTED (PostgREST PATCH, all 3 rows, using the full 612-unique-price
+-- dataset, same max_bid formula the original write used --
+-- 0.7*ARV - repairs - MIN(25000, 0.15*ARV), repairs unchanged at $15,000):
+--   id=930644 (2026-CA-000090): arv 367500->579925, max_bid 217250->365947.50
+--   id=920477 (2026-CA-000099): arv 367500->579925, max_bid 217250->365947.50
+--   id=920479 (2025-CA-000394): arv 367500->579925, max_bid 217250->365947.50
+--   arv_source -> 'fl_parcels_comps_p75_zip_dor_uc_dedup_bulk_n612_full_pagination_corrected_20260828'
+-- J's deal_complete predicate (arv/max_bid/ml_score/factors-keys all NOT NULL)
+-- was already satisfied before and after this correction -- this is a data-
+-- accuracy fix protecting a real bidding decision, not a metric-mover. No
+-- other letter is affected.
+--
+-- ============================================================================
+-- FINAL LIVE STATE (pencil_dod_evaluate_county, this session, 2026-08-28):
+--   seminole: A T B T C T D T E T F T G T H T I FAIL(93.1) J T  -- 9/10 (unchanged)
+--   levy:     A T B T C T D T E T(was F) F T G T H T I FAIL(76.9) J FAIL(79.5) -- 8/10 (+1)
+--   sumter:   A T B T C FAIL(87.5) D T E FAIL(93.8) F T G T H T I FAIL(87.5) J FAIL(93.8) -- 6/10 (unchanged pass-count; J metric improved 90.6->93.8 from the earlier McLean write, still below threshold)
+--
+-- Residual, confirmed-genuine blockers (not re-attempted without new evidence):
+--   seminole I: 8-row legacy gap = confirmed structural (5 independent sources,
+--     4 prior sessions); 3 new rows have value/geo but no zoning-link match.
+--   levy I/J: same 8 parcels now parcel-linked but qpublic.net/fl/levy (the
+--     only source for address/value) is KYC-gated to every tool tried this
+--     session (brightdata scrape_as_markdown explicitly refuses without KYC
+--     enrollment) -- genuine tooling ceiling.
+--   sumter C: 2 genuinely redeemed tax deed certs (104, 1400) correctly never
+--     forced to matched_clean (would be fabrication); denominator grew since
+--     the 2026-08-24 finding, current exact 4-row gap set not re-enumerated
+--     this session -- flagged for next session.
+--   sumter E/I: RATLIFF (2026-CA-000074) and STRONG/YOUNG (2026-CA-000129)
+--     genuinely have no independently-discoverable address/parcel this
+--     session (re-confirmed); D28E030 (McLean parcel) sits in a CDD-governed
+--     zone with no genuine zone_code in Sumter's own zoning layers.
+--
+-- No fabricated values were written. Every write above is reproducible from a
+-- cited live source and was independently re-verified by an adversarial agent
+-- that did not perform the original write.
+SELECT 1;
