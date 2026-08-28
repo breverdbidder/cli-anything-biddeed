@@ -233,6 +233,17 @@ def process_lines(line_iter, source_file, limit, dry_run):
 
 
 def run_hydrate(limit, dry_run):
+    """Streams directly from the remote SFTP file object (paramiko SFTPFile
+    is seekable, so zipfile can read the central directory + member data
+    without downloading the whole ~1.8GB archive first) -- a plain
+    sftp.get() of the full file was tried first and reliably dropped the
+    connection (EOFError in paramiko's prefetch thread) partway through;
+    streaming sidesteps that entirely and is the only path exercised here.
+
+    cordata.zip contains 10 members (cordata0.txt..cordata9.txt, ~500-600K
+    records each) -- the brief's cordata0-9.zip naming was half right: the
+    split by digit is real, it's just packaged as 10 members inside one
+    zip, not 10 separate zip files."""
     dispatch_id = "sunbiz-hydrate-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     transport, sftp = sftp_connect()
     try:
@@ -240,23 +251,33 @@ def run_hydrate(limit, dry_run):
         st = sftp.stat(remote_path)
         print(f"cordata.zip remote size: {st.st_size} bytes", file=sys.stderr)
 
-        local_zip = "/tmp/cordata.zip"
-        print("downloading cordata.zip ...", file=sys.stderr)
-        sftp.get(remote_path, local_zip)
-        print("download complete, opening zip ...", file=sys.stderr)
-
-        with zipfile.ZipFile(local_zip) as zf:
-            names = zf.namelist()
+        remote_fh = sftp.open(remote_path, "rb")
+        remote_fh.set_pipelined(False)
+        try:
+            zf = zipfile.ZipFile(remote_fh)
+            names = sorted(zf.namelist())
             if not names:
                 raise RuntimeError("cordata.zip contains no members")
-            member = names[0]
-            print(f"reading member: {member}", file=sys.stderr)
-            with zf.open(member) as fh:
-                total_parsed, total_upserted = process_lines(fh, "cordata.zip", limit, dry_run)
+            print(f"members: {names}", file=sys.stderr)
+
+            total_parsed = 0
+            total_upserted = 0
+            for member in names:
+                remaining = (limit - total_parsed) if limit else None
+                if limit and remaining <= 0:
+                    break
+                print(f"reading member: {member} (remaining budget={remaining})", file=sys.stderr)
+                with zf.open(member) as fh:
+                    p, u = process_lines(fh, f"cordata.zip/{member}", remaining, dry_run)
+                total_parsed += p
+                total_upserted += u
+        finally:
+            remote_fh.close()
 
         evidence = (
-            f"hydrate: cordata.zip remote_size={st.st_size} parsed={total_parsed} "
-            f"upserted={total_upserted} limit={limit or 'unbounded'} dry_run={dry_run}"
+            f"hydrate: cordata.zip remote_size={st.st_size} members={len(names)} "
+            f"parsed={total_parsed} upserted={total_upserted} "
+            f"limit={limit or 'unbounded'} dry_run={dry_run}"
         )
         print(evidence)
         log_ops(dispatch_id, "VERIFIED" if not dry_run else "SKIPPED", evidence, "info")

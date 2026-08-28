@@ -217,10 +217,16 @@ path yet (explicit non-goal of the issue that shipped this).
 
 **Real directory layout differs from the original brief** (confirmed live
 via SFTP listing, logged as a deviation rather than silently corrected):
-`doc/quarterly/cor/cordata.zip` is a single ~1.8GB zip — the `cordata0.zip`
-.. `cordata9.zip` split files named in the brief do not exist on this
-server. Daily deltas live at `doc/cor/<YYYYMMDD>c.txt` (plain fixed-width
-text, not zipped) — `doc/daily/cor` does not exist.
+`doc/quarterly/cor/cordata.zip` is a single ~1.8GB zip containing 10
+members (`cordata0.txt`..`cordata9.txt`) — the brief's split-by-digit
+naming was half right; it's 10 members inside one zip, not 10 separate
+`cordata0.zip`..`cordata9.zip` files. A plain `sftp.get()` of the whole
+1.8GB archive reliably dropped the connection partway through (paramiko
+prefetch-thread `EOFError`) — the sync script streams directly from the
+seekable remote SFTP file object into `zipfile.ZipFile` instead, so only
+the bytes actually needed (central directory + the records up to
+`--limit`) cross the wire. Daily deltas live at `doc/cor/<YYYYMMDD>c.txt`
+(plain fixed-width text, not zipped) — `doc/daily/cor` does not exist.
 
 **Record format**: fixed-width, 1440 bytes/record, one record per line, no
 header. `dos.sunbiz.org/data-definitions/cor.html` (the official field-layout
