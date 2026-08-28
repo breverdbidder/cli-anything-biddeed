@@ -4833,7 +4833,7 @@ try { new Function('return 1')() } catch (e) { window.__bdFail && window.__bdFai
 <script defer src="/assets/alpine.min.js" onerror="window.__bdFail('alpine-local')"></script>
 <script>setTimeout(function(){if(!window.Alpine){window.__bdFail('alpine-boot-timeout');}},4000);</script>
 <style>
-:root { --safe-bottom: env(safe-area-inset-bottom,0px); --safe-top: env(safe-area-inset-top,0px); --cream:#F5F0E8; --surface:#FBFAF7; --ink:#1F1B16; --terracotta:#C15F3C; --terracotta-hover:#A94D30; --warm-muted:#766F67; --warm-border:#DDD5C9; --warm-fill:#EDE3D7; --soft-terracotta:#F8D4C5; }
+:root { --safe-bottom: env(safe-area-inset-bottom,0px); --safe-top: env(safe-area-inset-top,0px); --cream:#F5F0E8; --surface:#FBFAF7; --ink:#1F1B16; --terracotta:#D97757; --terracotta-hover:#BC5B3F; --warm-muted:#766F67; --warm-border:#DDD5C9; --warm-fill:#EDE3D7; --soft-terracotta:#EFE2D6; }
 html { background:var(--cream); color:var(--ink); }
 body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:var(--cream); color:var(--ink); -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
 .glass { background:rgba(30,41,59,0.55); backdrop-filter:blur(10px); border:1px solid rgba(245,158,11,0.12); }
@@ -4889,10 +4889,12 @@ html, body { background:var(--cream) !important; color:var(--ink) !important; }
 .grade-A, .grade-B, .grade-C, .grade-D, .grade-E, .grade-X, .grade-Z { background:var(--soft-terracotta) !important; color:var(--ink) !important; }
 header { background:rgba(251,250,247,.96) !important; border-color:var(--warm-border) !important; }
 select, input { background:var(--surface) !important; color:var(--ink) !important; border-color:var(--warm-border) !important; }
-.skeleton { background:linear-gradient(90deg,#ede3d7 0%,#f8d4c5 50%,#ede3d7 100%); }
+.skeleton { background:linear-gradient(90deg,#ede3d7 0%,#f4eadf 50%,#ede3d7 100%); }
+#county-lead-bar { box-shadow:0 -8px 24px rgba(31,27,22,.08); }
+@media (max-width:767px) { #county-lead-bar { left:0 !important; padding-left:12px !important; padding-right:12px !important; } body { padding-bottom:calc(144px + var(--safe-bottom)) !important; } }
 </style>
 </head>
-<body x-data="app()" x-init="init()" class="min-h-screen pb-24">
+<body x-data="app()" x-init="init()" class="min-h-screen pb-36">
 <noscript><div style="padding:20px;max-width:760px;margin:0 auto;color:#e2e8f0">
 <h1 style="color:#fcd34d;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h1>
 <p style="color:#94a3b8;font-size:15px;line-height:1.6">Upcoming Clerk of Court auctions in COUNTY_TITLE_PLACEHOLDER County. This page needs JavaScript for the interactive table. The full auction list is available as data at
@@ -5564,11 +5566,11 @@ function app() {
      independent of the Alpine app() component above to avoid any risk of
      interfering with its data binding. Reuses the same proven /chat/lead
      endpoint the blog posts and homepage chatbot already use. -->
-<div id="county-lead-bar" style="position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(2,6,23,.97);backdrop-filter:blur(12px);border-top:1px solid rgba(245,158,11,.3);padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-  <div style="flex:1;min-width:180px;font-size:12px;color:#94a3b8">Get COUNTY_TITLE_PLACEHOLDER's next 5 auctions emailed free</div>
+<div id="county-lead-bar" style="position:fixed;left:200px;right:0;bottom:0;z-index:40;background:rgba(251,250,247,.98);backdrop-filter:blur(12px);border-top:1px solid var(--warm-border);padding:12px 16px calc(12px + var(--safe-bottom));display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <div style="flex:1;min-width:180px;font-size:12px;color:var(--ink);font-weight:600">Get COUNTY_TITLE_PLACEHOLDER's next 5 auctions emailed free</div>
   <form id="county-lead-form" style="display:flex;gap:6px;flex:2;min-width:220px">
-    <input type="email" id="county-lead-email" placeholder="you@example.com" required style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px 12px;color:white;font-size:14px;outline:none">
-    <button type="submit" id="county-lead-btn" style="background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;white-space:nowrap;cursor:pointer">Send Free List</button>
+    <input type="email" id="county-lead-email" placeholder="you@example.com" required style="flex:1;background:var(--surface);border:1px solid var(--warm-border);border-radius:8px;padding:8px 12px;color:var(--ink);font-size:14px;outline:none">
+    <button type="submit" id="county-lead-btn" style="background:var(--terracotta);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;white-space:nowrap;cursor:pointer">Send Free List</button>
   </form>
   <div id="county-lead-msg" style="font-size:11px;width:100%;display:none"></div>
 </div>
