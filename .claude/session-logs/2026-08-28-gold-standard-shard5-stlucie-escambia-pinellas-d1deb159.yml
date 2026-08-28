@@ -1,0 +1,187 @@
+session:
+  shard: "SHARD-5 (st_lucie, escambia, pinellas), loop run 15078"
+  dispatch_id: d1deb159-ec7f-43db-8483-4dd5a63c6d45
+  chat_session: architect-20260828T160000
+  date: 2026-08-28
+  mode: "Direct PostgREST diagnosis first (SUPABASE_DB_PASSWORD confirmed known-broken,
+    REST confirmed working) to identify exact gap rows per county+letter, then the
+    Workflow tool (ultracode opt-in) for 4 parallel fix agents + 4 independent
+    adversarial verifiers + 1 closeout agent, then a final independent re-check by
+    the orchestrating session that caught and corrected a mischaracterized regression
+    the closeout agent had missed."
+
+pre_session_baseline: "Live pencil_dod_evaluate_county() matched the dispatched brief
+  exactly for all three counties: st_lucie 9/10 (C fails), escambia 7/10 (C/D/I
+  fail), pinellas 6/10 (C/D/G/I fail)."
+
+decisions:
+  - step: 1
+    action: "Diagnosed st_lucie C directly: live parity_status partition = 139
+      matched_clean, 62 PARITY_OK, 47 CLERK_SSOT_CANCELLED, 1 matched_divergent
+      (of 249). Cross-referenced against GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_
+      COUNTY_FINDING_20260827.md (a fleet-wide canon doc written the previous day)."
+    result: "Confirmed the exact same canon-level block documented for calhoun/
+      manatee/taylor/gadsden/suwannee/lake/charlotte/sumter -- CLERK_SSOT_CANCELLED
+      correctly excluded from matched_clean (C) but counted in matched_any (D).
+      Even a perfect 1-row fix only reaches 81.1%, nowhere near 95%. No fix
+      attempted -- 7th+ st_lucie session to reach this conclusion."
+  - step: 2
+    action: "Diagnosed escambia and pinellas C/D/I by pulling the live
+      parity_status breakdown and cross-referencing multi_county_auctions against
+      v_zoning_gold_standard_card by parcel_id (not just checking parcel_id
+      IS NOT NULL, which E already showed 99%+ on both)."
+    result: "escambia: 473 matched_clean / 1 matched_divergent / 25 NULL, zero
+      CLERK_SSOT_CANCELLED -- a genuine fixable gap, not a canon block. pinellas:
+      438 matched_clean / 0 cancelled / 28 NULL -- same genuine-gap pattern.
+      I-gap for both was purely zoning-linkage (25 escambia / 31 pinellas parcels
+      with real address+value but no parcel_zones row), heavily overlapping the
+      C/D gap set on pinellas."
+  - step: 3
+    action: "Diagnosed pinellas G: v_zoning_gold_standard_kpi_v3 showed exactly 1
+      pk1000_applicable parcel in the entire county (parcel_id=143001420300300210,
+      zone B, Indian Rocks Beach). Found a prior session (dispatch 8da482b6) had
+      already researched this exact parcel and correctly left parking_per_1000sf
+      NULL after Municode returned 403."
+    result: "Independently re-attempted (WebFetch on zoneomics.com mirror, direct
+      municode.com nodeId, the mcclibraryfunctions.azurewebsites.us PDF backend,
+      targeted WebSearch) -- same result, no verifiable citation exists. Left
+      NULL, reconfirming rather than re-litigating the prior finding."
+  - step: 4
+    action: "Read the repo's existing proven fix code before writing any new
+      prompts: scripts/gold_standard_shard1_escambia_cd_fix_2931b3a1.py (harvest->
+      match->patch pattern for RealAuction), scripts/shard8_charlotte_levy_monroe_
+      osceola_madison_cd_fix.py (paginated AJAX harvester), scripts/pinellas_i_
+      zoning_geo_shard1_3ce988ac.py (full per-jurisdiction Pinellas ArcGIS routing
+      table -- 24 municipalities, already battle-tested this campaign)."
+    result: "Workflow agent prompts explicitly instructed to reuse/import this
+      code rather than reinvent AJAX harvesting or ArcGIS jurisdiction routing --
+      avoided re-deriving already-solved plumbing."
+  - step: 5
+    action: "Ran a Workflow: 4 parallel fix agents (escambia-cd, escambia-i,
+      pinellas-cd, pinellas-i), each given the exact gap-row case_numbers already
+      identified in steps 2-3 plus explicit BLANK>WRONG / no-PropertyOnion /
+      idempotent-write guardrails, followed by 4 independent adversarial
+      verifiers (re-derived each claim from scratch against live sources, did not
+      reuse the fixer's code), followed by 1 closeout agent."
+    result: "escambia: 19/25 C-D rows matched live and patched (98.6/98.8%,
+      PASS), 21/25 I parcels zone-linked (99.0%, PASS). pinellas: 20/28 C-D rows
+      matched+patched (98.1/99.8%, PASS), 13/31 I parcels zone-linked (95.9%,
+      PASS). All 4 fixes survived independent adversarial re-verification."
+  - step: 6
+    action: "Did NOT trust the closeout agent's summary at face value -- diffed
+      its final_scoreboard against the pre-session baseline letter-by-letter and
+      found escambia G had silently flipped PASS 97.1% -> FAIL 94.7%, which the
+      closeout narrative dismissed as 'pre-existing, untouched by this session's
+      writes.' Independently re-queried v_zoning_district_applicability and
+      v_zoning_gold_standard_card live to check that claim rather than accept it."
+    result: "The claim was FALSE. Root cause: the escambia-I fix's new RMU
+      zoning_districts catalog row (jurisdiction 1151, 1 live parcel) is flagged
+      far_applicable=true and pk1000_applicable=true but has NULL max_far/
+      parking_per_1000sf (no ordinance value found at insert time) -- that single
+      applicable-but-valueless parcel is exactly what dropped far to 97.4% and
+      pk1000 to 94.7%. Attempted to source the real Escambia LDC Sec 3-2.4 RMU
+      values myself (WebFetch on escambiacounty-fl.elaws.us and a Loopnet PDF
+      mirror) -- both blocked/timed out, so per BLANK>WRONG no value was written."
+  - step: 7
+    action: "Inserted a corrective gold_standard_ultraloop_audit row (id 19223)
+      documenting the true cause of the escambia G regression, separate from and
+      correcting the closeout agent's 8 rows (ids 19192-19199), so this isn't
+      lost or re-derived from scratch by the next session."
+    result: "9 total ultraloop_audit rows for this dispatch, all survived=true,
+      with the escambia-G row explicitly flagging the closeout's
+      mischaracterization for future readers."
+  - step: 8
+    action: "git pull --rebase origin main before AND after committing (3 other
+      shard sessions pushed commits during this session's runtime), then pushed
+      directly to main per the SHIP-TO-MAIN MANDATE -- no side branch, no PR."
+    result: "Clean rebase both times, pushed 4c1306ce to main."
+
+verification_evidence:
+  - check: "pencil_dod_evaluate_county() for all three counties, before session
+      writes and again immediately before writing the session report (not a
+      mid-session or subagent self-report)"
+    proof: |
+      BEFORE: st_lucie 9/10 (C=80.7 FAIL, rest PASS)
+              escambia 7/10 (C=94.8 FAIL, D=95.0 FAIL, I=94.8 FAIL, G=97.1 PASS, rest PASS)
+              pinellas 6/10 (C=93.8 FAIL, D=93.8 FAIL, G=0.0 FAIL, I=93.3 FAIL, rest PASS)
+      AFTER:  st_lucie 9/10 (C=80.7 FAIL, unchanged, rest PASS)
+              escambia 9/10 (C=98.6 PASS, D=98.8 PASS, I=99.0 PASS, G=94.7 FAIL [NEW REGRESSION], rest PASS)
+              pinellas 8/10 (C=98.1 PASS, D=99.8 PASS, I=95.9 PASS, G=0.0 FAIL unchanged, rest PASS)
+      Net: 22/30 -> 26/30 letters passing across the shard, with one disclosed,
+      root-caused, self-inflicted regression (escambia G) that would have been
+      hidden had the closeout agent's self-report been trusted uncritically.
+  - check: "gold_standard_ultraloop_audit rows for this dispatch"
+    proof: "9 rows, ids 19192-19199 (closeout agent) + 19223 (orchestrating
+      session's correction of the escambia-G mischaracterization), all
+      survived=true, each with live pre/post-write metric evidence."
+  - check: "gold_standard_campaign id 5260 close-out"
+    proof: "criteria_passed set to the live per-letter A-J pass/fail for all
+      three counties, criteria_total=10, exit_reason='timeout',
+      session_end_at='2026-08-28T16:47:58Z' -- confirmed via a fresh GET after
+      the PATCH, not assumed from the PATCH response alone."
+  - check: "git push to main"
+    proof: "Commit 4c1306ce, pushed after two clean git pull --rebase cycles;
+      5 files (1 session report, 4 provenance scripts left uncommitted by the
+      fix agents on purpose, committed centrally here to avoid concurrent-push
+      conflicts per the workflow's own guardrail instructions)."
+
+plan_vs_actual:
+  - task: "Work the highest-leverage failing letters for st_lucie (C), escambia
+      (C/D/I), pinellas (C/D/G/I) within the session budget, per the dispatch
+      playbooks and canon."
+    planned: "Full diagnose/fix/verify cycle per letter per county via ULTRALOOP
+      fan-out, close out with gold_standard_campaign + ultraloop_audit rows."
+    actual: "st_lucie C and pinellas G were both genuine, already-partially-
+      documented structural ceilings -- correctly reconfirmed rather than
+      re-attempted, consistent with 6+ and 1 prior session's findings
+      respectively. escambia C/D/I and pinellas C/D/I were genuine, fixable
+      gaps and were fixed with real live evidence, all surviving independent
+      adversarial verification. One genuine regression (escambia G) was
+      introduced by the I-fix itself, caught by the orchestrating session
+      (not the workflow's own closeout agent, which mischaracterized it), and
+      disclosed + root-caused + logged rather than hidden or silently accepted."
+    deviation: "escambia nets 9/10 rather than the possible 10/10 because of the
+      self-inflicted G regression -- flagged as the clear #1 priority for the
+      next escambia session (source real Escambia LDC Sec 3-2.4 RMU FAR/parking
+      values, or reconsider the RMU applicability flags pending real data)."
+
+next_session_priorities:
+  - "escambia G: source real Escambia County LDC Sec 3-2.4 (RMU district)
+    max_far and parking_per_1000sf from a source other than escambiacounty-fl.
+    elaws.us (timed out 3x) and the Loopnet PDF mirror (403) -- try the county's
+    own myescambia.com LDC hosting directly, or a FOIA/direct-contact fallback
+    if all web sources remain blocked. One correct value likely returns
+    escambia to 10/10."
+  - "escambia C/D: 6 residual '2024 TD' case numbers absent from the live
+    01/06/2027 escambia.realtaxdeed.com calendar -- re-check on a later date in
+    case the calendar has since been populated further out, or confirm via the
+    Escambia Clerk's tax-deed department page directly."
+  - "escambia I: 4 residual parcels (2 with null/junk parcel_id, 2 confirmed
+    outside GIS coverage) -- the null/junk parcel_id ones need Escambia County
+    Property Appraiser lookup by address/case before any zone-link is possible."
+  - "pinellas I: 18 residual parcels -- 11 in Largo (no discoverable city
+    zoning ArcGIS service found after an exhaustive AGOL-org sweep this
+    session; may need a non-ArcGIS source, e.g. the city's own zoning-lookup
+    web form scraped directly) and 7 with null/junk parcel_id needing PCPAO
+    address-based resolution first."
+  - "pinellas G and st_lucie C both remain architect-level canon questions
+    (Option A/B/C in GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_
+    20260827.md for the C/CLERK_SSOT_CANCELLED tension; pinellas G has no
+    canon question, just a genuinely unsourceable single ordinance value) --
+    not solvable by more per-county data work."
+
+honesty_protocol_tags:
+  - "All DB counts and percentages in this log are VERIFIED via live
+    pencil_dod_evaluate_county() calls, re-run by the orchestrating session
+    itself immediately before this log was written -- not copy-pasted from any
+    subagent's self-report."
+  - "The escambia G regression is the single most important disclosure in this
+    session: the Workflow's own closeout agent produced a plausible-sounding
+    but factually wrong explanation ('pre-existing, unrelated') for a metric
+    drop it should have flagged as caused by its own sibling agent's write.
+    This was only caught because the orchestrating session diffed the full
+    before/after scoreboard letter-by-letter instead of trusting the closeout
+    summary -- exactly the self-preferential-bias failure mode the ULTRALOOP
+    PROTOCOL's adversarial-verification design exists to catch, except in this
+    case it slipped past the closeout agent itself and had to be caught one
+    layer up. Logged explicitly per HONESTY PROTOCOL rather than smoothed over."
