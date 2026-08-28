@@ -107,6 +107,23 @@ jobs:
         run: |
           set +e
           unset ANTHROPIC_API_KEY
+          # CHECKPOINT (2026-08-28, issue #19549 run 33170547452): pre-accept the workspace
+          # trust dialog. In a headless runner claude -p printed "workspace has not been
+          # trusted" and permissions.allow entries were ignored — nobody can click a dialog here.
+          python3 - << 'PYTRUST'
+          import json, os
+          p = os.path.expanduser('~/.claude.json')
+          data = {}
+          if os.path.exists(p):
+              try:
+                  data = json.load(open(p))
+              except Exception:
+                  data = {}
+          proj = data.setdefault('projects', {})
+          proj.setdefault(os.getcwd(), {})['hasTrustDialogAccepted'] = True
+          json.dump(data, open(p, 'w'))
+          print('trust pre-accepted for', os.getcwd())
+          PYTRUST
           ISSUE_NUM="${{ matrix.issue }}"
           ATTEMPT_NUM=0
           push_tail() {
@@ -129,7 +146,33 @@ jobs:
           for attempt in 1 2 3; do
             ATTEMPT_NUM=$attempt
             echo "=== claude -p attempt $attempt ==="
-            claude -p "$PROMPT" --dangerously-skip-permissions --output-format text > /tmp/cc.log 2>&1
+            # CHECKPOINT (2026-08-28): --verbose makes the session stream progress into
+            # /tmp/cc.log continuously instead of buffering until the end, which is what
+            # makes the live tailer above and the stall watchdog below actually work.
+            claude -p "$PROMPT" --dangerously-skip-permissions --output-format text --verbose > /tmp/cc.log 2>&1 &
+            CC_PID=$!
+            # CHECKPOINT (2026-08-28): stall watchdog. With --verbose a healthy session
+            # writes constantly; 20 straight minutes of zero log growth while the process
+            # is alive means it is wedged (e.g. waiting on input that can never come).
+            # Kill the attempt so the retry loop gets it, instead of burning the full
+            # 315-min step budget on a hang. Quota sleeps happen in THIS loop after
+            # claude exits, never inside claude, so the watchdog cannot kill a quota wait.
+            LOG_LAST=0; STALL_SECS=0
+            while kill -0 "$CC_PID" 2>/dev/null; do
+              sleep 30
+              LOG_CUR=$(wc -c < /tmp/cc.log 2>/dev/null || echo 0)
+              if [ "$LOG_CUR" -eq "$LOG_LAST" ]; then
+                STALL_SECS=$((STALL_SECS + 30))
+              else
+                STALL_SECS=0; LOG_LAST=$LOG_CUR
+              fi
+              if [ "$STALL_SECS" -ge 1200 ]; then
+                echo "STALL WATCHDOG: no log growth for 20min with process alive — killing attempt $attempt" | tee -a /tmp/cc.log
+                kill -9 "$CC_PID" 2>/dev/null
+                break
+              fi
+            done
+            wait "$CC_PID"
             CC_EXIT=$?
             tail -c 2000 /tmp/cc.log
             BYTES=$(wc -c < /tmp/cc.log)
@@ -146,6 +189,10 @@ jobs:
                 continue
               fi
               echo "CC OK"; exit 0
+            fi
+            if grep -q "STALL WATCHDOG" /tmp/cc.log; then
+              echo "attempt $attempt killed by stall watchdog — retrying"
+              continue
             fi
             if grep -qiE 'API Error: 5[0-9][0-9]|server error|overloaded|rate.?limit|timeout' /tmp/cc.log; then
               echo "transient error; retrying in 25s"; sleep 25; continue
