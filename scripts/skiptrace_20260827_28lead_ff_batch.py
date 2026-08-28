@@ -144,12 +144,18 @@ def load_batch_rows() -> list[dict]:
 def already_enriched_buyers() -> set[str]:
     """Resumability: buyers whose rows already carry a terminal qa_status from
     a prior (possibly killed-mid-run) invocation of this script -- skip them
-    so a re-run doesn't re-spend Tracerfy/Hunter/Apify credits."""
+    so a re-run doesn't re-spend Tracerfy/Hunter/Apify credits.
+
+    UNRESOLVED_NO_AUTHORITATIVE_MATCH is deliberately NOT terminal here: issue
+    #19564's entire purpose is re-attempting those buyers now that the
+    leads-finder/waterfall-enricher Apify tiers are live, so treating a prior
+    UNRESOLVED as "already handled" would skip exactly the rows this run
+    exists to retry."""
     rows = sql(f"""
         select distinct winning_bidder from winnerdata.ff_batch_leads
         where batch_date = date '{BATCH_DATE}'
           and qa_status in ('CONTACT_ENRICHED', 'CONTACT_ENRICHED_DNC_FLAGGED',
-                             'PARTIAL_ENRICHMENT_IDENTITY_ONLY', 'UNRESOLVED_NO_AUTHORITATIVE_MATCH')
+                             'PARTIAL_ENRICHMENT_IDENTITY_ONLY')
     """)
     return {r["winning_bidder"] for r in rows}
 
