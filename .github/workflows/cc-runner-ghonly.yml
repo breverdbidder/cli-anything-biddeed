@@ -107,8 +107,27 @@ jobs:
         run: |
           set +e
           unset ANTHROPIC_API_KEY
+          ISSUE_NUM="${{ matrix.issue }}"
+          ATTEMPT_NUM=0
+          push_tail() {
+            [ -f /tmp/cc.log ] || return 0
+            local chunk bytes
+            chunk="$(tail -c 4000 /tmp/cc.log 2>/dev/null | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null)"
+            [ -z "$chunk" ] && return 0
+            bytes="$(wc -c < /tmp/cc.log 2>/dev/null || echo 0)"
+            curl -s -o /dev/null --max-time 10 -X POST "${SUPABASE_URL}/rest/v1/cc_live_log" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Prefer: return=minimal" \
+              -d "{\"run_id\": ${GITHUB_RUN_ID}, \"issue_number\": ${ISSUE_NUM}, \"attempt\": ${ATTEMPT_NUM}, \"tail_chunk\": ${chunk}, \"bytes_so_far\": ${bytes}}"
+          }
+          ( while true; do push_tail; sleep 20; done ) &
+          TAIL_PID=$!
+          trap 'kill "$TAIL_PID" 2>/dev/null' EXIT
           PROMPT="$(cat /tmp/prompt.md)"
           for attempt in 1 2 3; do
+            ATTEMPT_NUM=$attempt
             echo "=== claude -p attempt $attempt ==="
             claude -p "$PROMPT" --dangerously-skip-permissions --output-format text > /tmp/cc.log 2>&1
             CC_EXIT=$?
