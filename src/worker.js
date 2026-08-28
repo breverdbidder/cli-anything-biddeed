@@ -5199,7 +5199,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 </div>
 
 <!-- DEAL DETAIL (status badge added) -->
-<div x-show="openDeal" class="fixed inset-0 z-40" x-cloak>
+<div x-show="openDeal" class="fixed inset-0 z-[60]" x-cloak>
   <div class="absolute inset-0 bg-black/80" @click="openDeal=null"></div>
   <div class="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-4">
     <div class="bg-slate-900 rounded-t-2xl md:rounded-2xl sheet open p-5 max-h-[90vh] md:max-w-2xl w-full overflow-y-auto border-t md:border border-amber-500/30" style="padding-bottom:calc(20px+var(--safe-bottom))">
@@ -5281,10 +5281,11 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
       </div>
 
       <div class="grid grid-cols-3 gap-2">
-        <a :href="openDeal && openDeal.google_maps_url" target="_blank" class="bg-slate-800 rounded-lg text-center text-xs py-3 font-medium">🗺️ Maps</a>
-        <a :href="openDeal && openDeal.bcpao_link" target="_blank" class="bg-slate-800 rounded-lg text-center text-xs py-3 font-medium">🏢 BCPAO</a>
-        <a :href="openDeal && openDeal.brevardclerk_tax_deed_page" target="_blank" class="bg-slate-800 rounded-lg text-center text-xs py-3 font-medium">⚖️ Clerk</a>
+        <a :href="openDeal && openDeal.google_maps_url" target="_blank" rel="noopener noreferrer" class="rounded-lg text-center text-xs py-3 font-semibold" style="background:var(--soft-terracotta);color:var(--ink);border:1px solid var(--warm-border)">🗺️ Maps</a>
+        <a :href="openDeal && openDeal.bcpao_link" target="_blank" rel="noopener noreferrer" class="rounded-lg text-center text-xs py-3 font-semibold" style="background:var(--soft-terracotta);color:var(--ink);border:1px solid var(--warm-border)">🏢 Property Appraiser</a>
+        <a :href="openDeal && openDeal.brevardclerk_tax_deed_page" target="_blank" rel="noopener noreferrer" class="rounded-lg text-center text-xs py-3 font-semibold" style="background:var(--soft-terracotta);color:var(--ink);border:1px solid var(--warm-border)">⚖️ Court Records</a>
       </div>
+      <button @click="openDeal=null" type="button" class="w-full mt-3 py-3 rounded-lg text-sm font-bold" style="background:var(--surface);color:var(--terracotta);border:1px solid var(--warm-border)">← Back to properties</button>
     </div>
   </div>
 </div>
@@ -5405,6 +5406,9 @@ function app() {
             auction_date: r.auction_date,
             clerk_url: r.clerk_url || r.auction_url || '',
             bcpao_url: r.bcpao_url || '',
+            google_maps_url: addr ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(addr) : '',
+            bcpao_link: r.bcpao_url || '',
+            brevardclerk_tax_deed_page: r.clerk_url || r.auction_url || '',
             plaintiff: r.plaintiff || '',
             property_category: r.sale_type === 'tax_deed' ? 'tax_deed' : 'foreclosure',
             tax_deed_grade: market > 0 && equity > 50000 ? 'A_PREMIUM' : market > 0 && equity > 20000 ? 'B_SOLID' : market > 0 ? 'C_MARGINAL' : 'X_UNKNOWN',
