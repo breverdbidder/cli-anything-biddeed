@@ -45,6 +45,8 @@ const POSTHOG_SCRIPT = `<script>
 posthog.init("phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14",{api_host:"https://us.i.posthog.com",capture_pageview:true});
 </script>`;
 
+const DEED_ROBOT_ICON = `<svg class="deed-robot-mark" viewBox="0 0 96 96" role="img" aria-label="Deed Voice AI robot"><circle cx="48" cy="10" r="6" fill="#f59e0b"/><path d="M48 16v8" stroke="#f59e0b" stroke-width="5" stroke-linecap="round"/><rect x="14" y="22" width="68" height="52" rx="18" fill="#020617" stroke="#f59e0b" stroke-width="4"/><rect x="23" y="31" width="50" height="34" rx="12" fill="#111b35"/><circle cx="36" cy="45" r="6" fill="#f59e0b"/><circle cx="60" cy="45" r="6" fill="#f59e0b"/><path d="M37 56h22M42 56v5m12-5v5" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/><path d="M48 74v8M34 86h28" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/></svg>`;
+
 const GOLD_COUNTIES = [
   'brevard','broward','charlotte','clay','duval','franklin','hardee','hendry',
   'hernando','highlands','hillsborough','indian_river','jackson','lafayette',
@@ -1269,7 +1271,7 @@ const PUBLIC_SHELL_STYLE = `<style>
 .bd-shell-topbar{position:fixed;inset:0 0 auto 248px;z-index:999;height:64px;display:flex;align-items:center;gap:12px;padding:0 24px;background:rgba(11,18,32,.96);border-bottom:1px solid #1e293b;color:#e2e8f0;backdrop-filter:blur(12px)}
 .bd-shell-menu{display:none}.bd-shell-route{font:600 14px/1.2 Inter,system-ui,sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bd-shell-top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}.bd-shell-cta{background:#f59e0b;color:#020617;border-radius:7px;padding:9px 13px;text-decoration:none;font:800 12px/1 Inter,system-ui,sans-serif}.bd-shell-cta:hover{background:#fbbf24}
 .bd-shell-drawer{display:none}.bd-shell-scrim{display:none}
-.bd-shell-content > nav{display:none!important}.bd-shell-content :where(a,button,input,select,textarea):focus-visible{outline:2px solid #f59e0b;outline-offset:2px}
+.bd-shell-content > nav,.bd-shell-content > header{display:none!important}.bd-shell-content :where(a,button,input,select,textarea):focus-visible{outline:2px solid #f59e0b;outline-offset:2px}
 @media (max-width:767px){
   .bd-shell-content{margin-left:0;padding-top:56px}
   .bd-shell-sidebar{display:none}
@@ -3294,7 +3296,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 
 /* WELCOME */
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:12px;padding:16px 10px;min-height:0}
-.wl-icon{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--orange),var(--orange2));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;color:var(--navy);flex-shrink:0}
+.wl-icon{width:92px;height:92px;border-radius:24px;background:rgba(245,158,11,.08);border:2px solid rgba(245,158,11,.7);display:flex;align-items:center;justify-content:center;color:var(--navy);flex-shrink:0;box-shadow:0 0 32px rgba(245,158,11,.18)}.deed-robot-mark{width:100%;height:100%;display:block}
 .wl-title{font-size:17px;font-weight:700;color:white}
 .wl-sub{font-size:12px;color:var(--muted);max-width:280px;line-height:1.5}
 .quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%;max-width:380px}
@@ -3358,11 +3360,11 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .snd svg{width:17px;height:17px;fill:var(--navy)}
 .disclaimer-bar{flex-shrink:0;text-align:center;font-size:9.5px;color:var(--muted);padding:3px 12px 8px;line-height:1.4}
 .disclaimer-bar a{color:var(--muted);text-decoration:underline}
-@media(max-width:380px){.quick-grid{grid-template-columns:1fr}.bd-brand p{display:none}}
+@media(max-width:380px){.quick-grid{grid-template-columns:1fr}.bd-brand p{display:none}.voice-dock{padding-left:9px;padding-right:9px}.voice-dock-copy{margin-bottom:6px}}
 
 /* VOICE WIDGET */
-.voice-btn{display:flex;align-items:center;gap:6px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent;margin-top:2px}
-.voice-btn:hover,.voice-btn:active{background:var(--navy3);border-color:var(--orange);color:white}
+.voice-dock{flex-shrink:0;padding:10px 12px 8px;background:rgba(2,6,23,.98);border-top:1px solid rgba(245,158,11,.28);box-shadow:0 -10px 28px rgba(0,0,0,.18)}.voice-dock-copy{display:flex;align-items:center;gap:8px;margin-bottom:8px}.voice-dock-copy .deed-robot-mark{width:34px;height:34px;flex-shrink:0}.voice-dock-title{font-size:12px;font-weight:800;color:#fff}.voice-dock-sub{font-size:10.5px;color:var(--muted);line-height:1.35}.voice-btn{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,var(--orange),var(--orange2));border:1px solid var(--orange);border-radius:12px;padding:13px 16px;cursor:pointer;color:var(--navy);font-size:14px;font-weight:800;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent;min-height:50px;box-shadow:0 8px 24px rgba(245,158,11,.18)}
+.voice-btn:hover,.voice-btn:active{background:var(--orange);border-color:#fbbf24;color:var(--navy);transform:translateY(-1px)}
 .voice-btn.active{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.5);color:var(--orange)}
 .voice-btn.listening{background:rgba(245,158,11,.08);border-color:var(--orange);color:var(--orange)}
 .voice-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .2s}
@@ -3382,7 +3384,7 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .voice-cap-btns .vcb-upgrade:hover{opacity:.88}
 .voice-cap-btns .vcb-report{background:transparent;border:1px solid rgba(245,158,11,.4);color:var(--orange)}
 .voice-cap-btns .vcb-report:hover{border-color:var(--orange);opacity:.88}
-.voice-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:center;margin-top:2px}
+.voice-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:center;margin-top:2px}.voice-dock .voice-actions{margin-top:0}.voice-dock .voice-btn-label{display:inline}
 .veg{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.22);border-radius:10px;padding:10px 12px;margin-top:8px;display:none;max-width:340px;width:100%}
 .veg.show{display:block}
 .veg-lbl{font-size:11px;color:var(--orange);font-weight:600;margin-bottom:6px;text-align:center}
@@ -3464,38 +3466,14 @@ ${countyBar}
 
 <div class="msgs" id="msgs">
   <div class="welcome" id="welcome">
-    <div class="wl-icon">BD</div>
-    <div class="wl-title">Foreclosure &amp; Tax Deed Intelligence</div>
-    <div class="wl-sub">Ask about any Florida county. Responds in your language automatically.</div>
+    <div class="wl-icon">${DEED_ROBOT_ICON}</div>
+    <div class="wl-title">Deed Voice AI</div>
+    <div class="wl-sub">Ask about any Florida county in natural language. Talk or type in 70+ languages.</div>
     <div class="quick-grid">
       <button class="qbtn prime" data-msg="Show me the Marion County proof — Shapira Formula ceiling held to the cent.">📊 See proof it works</button>
       <button class="qbtn" data-msg="What foreclosure and tax deed auctions are coming up across Florida this week?">📅 What's coming to auction?</button>
       <button class="qbtn" data-msg="How does the Shapira Max Bid formula work? Walk me through it.">🧮 Shapira Max Bid formula</button>
       <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a Shapira S5 Report?">💼 Get a $25 S5 Report</button>
-    </div>
-    <div class="voice-actions">
-      <button class="voice-btn" id="voice-btn" type="button"><span class="voice-dot" id="voice-dot"></span><span id="voice-btn-label">🎙️ Talk to Deed</span></button>
-      <button class="attach-btn" id="attach-btn" type="button" title="Attach PDF or image to this conversation">📎 Attach</button>
-    </div>
-    <div class="veg" id="voice-email-gate">
-      <div class="veg-lbl">Enter your email to start talking with Deed</div>
-      <div class="veg-row">
-        <input type="email" id="veg-email" placeholder="your@email.com" autocomplete="email">
-        <button id="veg-submit" type="button">Start →</button>
-      </div>
-      <div class="veg-err" id="veg-err">Please enter a valid email address.</div>
-    </div>
-    <input type="file" id="attach-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,application/pdf" style="display:none">
-    <input type="text" class="attach-caption" id="attach-caption" placeholder="Optional caption (or just attach silently)…">
-    <div class="voice-status" id="voice-status"></div>
-    <div class="attach-progress" id="attach-progress"></div>
-    <div class="voice-transcript" id="voice-transcript"></div>
-    <div class="voice-cap" id="voice-cap">
-      <div class="voice-cap-msg">That's our free 10-minute session. <strong>Investor members get unlimited time with Deed</strong> — or I can send you the full report on this county right now.</div>
-      <div class="voice-cap-btns">
-        <a href="/subscribe?tier=investor" class="vcb-upgrade">Upgrade to Investor →</a>
-        <a href="/free-report" class="vcb-report" id="vcb-report-link">Get free report</a>
-      </div>
     </div>
     <div class="lang-row">
       <span class="lchip">🇺🇸 English</span>
@@ -3510,6 +3488,37 @@ ${countyBar}
       <span class="lchip">🇯🇵 日本語</span>
       <span class="lchip">🇰🇷 한국어</span>
       <span class="lchip">🇮🇹 Italiano</span>
+    </div>
+  </div>
+</div>
+
+<div class="voice-dock">
+  <div class="voice-dock-copy">
+    ${DEED_ROBOT_ICON}
+    <div><div class="voice-dock-title">Talk to Deed Voice AI</div><div class="voice-dock-sub">Natural-language auction intelligence in 70+ languages.</div></div>
+  </div>
+  <div class="voice-actions">
+    <button class="voice-btn" id="voice-btn" type="button" aria-label="Talk to Deed Voice AI in 70 or more languages"><span class="voice-dot" id="voice-dot"></span><span id="voice-btn-label">Talk to Deed</span></button>
+    <button class="attach-btn" id="attach-btn" type="button" title="Attach PDF or image to this conversation">📎 Attach</button>
+  </div>
+  <div class="veg" id="voice-email-gate">
+    <div class="veg-lbl">Enter your email to start talking with Deed</div>
+    <div class="veg-row">
+      <input type="email" id="veg-email" placeholder="your@email.com" autocomplete="email">
+      <button id="veg-submit" type="button">Start →</button>
+    </div>
+    <div class="veg-err" id="veg-err">Please enter a valid email address.</div>
+  </div>
+  <input type="file" id="attach-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,application/pdf" style="display:none">
+  <input type="text" class="attach-caption" id="attach-caption" placeholder="Optional caption (or just attach silently)…">
+  <div class="voice-status" id="voice-status"></div>
+  <div class="attach-progress" id="attach-progress"></div>
+  <div class="voice-transcript" id="voice-transcript"></div>
+  <div class="voice-cap" id="voice-cap">
+    <div class="voice-cap-msg">That's our free 10-minute session. <strong>Investor members get unlimited time with Deed</strong> — or I can send you the full report on this county right now.</div>
+    <div class="voice-cap-btns">
+      <a href="/subscribe?tier=investor" class="vcb-upgrade">Upgrade to Investor →</a>
+      <a href="/free-report" class="vcb-report" id="vcb-report-link">Get free report</a>
     </div>
   </div>
 </div>
