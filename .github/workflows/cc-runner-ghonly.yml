@@ -157,6 +157,14 @@ jobs:
             echo "attempt=$attempt exit=$CC_EXIT bytes=$BYTES"
             echo "$attempt" > /tmp/cc_attempt.txt
             if [ "$CC_EXIT" -eq 0 ] && [ "$BYTES" -ge 50 ]; then
+              # BUGFIX (2026-08-28, issues #19557/#19563): a usage-cap message ("You've hit
+              # your weekly limit · resets 1pm") can arrive with EXIT 0 and >=50 bytes,
+              # masquerading as success while zero work happened. The usage-limit handler
+              # below only ran on failure exits, so 4 sessions no-op'd as "success". Small
+              # exit-0 outputs matching cap phrases are treated as the cap, not success.
+              if [ "$BYTES" -lt 2000 ] && grep -qiE "hit your (weekly |session )?limit|weekly limit|spending cap|usage limit" /tmp/cc.log; then
+                echo "usage-cap message with exit 0 detected — NOT success; routing to limit handler"
+              else
               # A clean exit with output is not necessarily progress: the session may have
               # asked for human confirmation instead of acting (impossible to answer in -p
               # mode, see issue #19074) and exited 0 anyway. Treat that as a failed attempt
@@ -167,6 +175,7 @@ jobs:
                 continue
               fi
               echo "CC OK"; exit 0
+              fi
             fi
             if grep -qiE 'API Error: 5[0-9][0-9]|server error|overloaded|rate.?limit|timeout' /tmp/cc.log; then
               echo "transient error; retrying in 25s"; sleep 25; continue
