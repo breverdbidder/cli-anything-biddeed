@@ -141,6 +141,83 @@ def load_batch_rows() -> list[dict]:
     """)
 
 
+def already_enriched_buyers() -> set[str]:
+    """Resumability: buyers whose rows already carry a terminal qa_status from
+    a prior (possibly killed-mid-run) invocation of this script -- skip them
+    so a re-run doesn't re-spend Tracerfy/Hunter/Apify credits."""
+    rows = sql(f"""
+        select distinct winning_bidder from winnerdata.ff_batch_leads
+        where batch_date = date '{BATCH_DATE}'
+          and qa_status in ('CONTACT_ENRICHED', 'CONTACT_ENRICHED_DNC_FLAGGED',
+                             'PARTIAL_ENRICHMENT_IDENTITY_ONLY', 'UNRESOLVED_NO_AUTHORITATIVE_MATCH')
+    """)
+    return {r["winning_bidder"] for r in rows}
+
+
+def persist_entry(entry: dict) -> dict:
+    """Write one buyer's resolved contact/identity fields to every row for
+    that buyer. Called immediately after each buyer resolves (not batched at
+    the end) so a killed/timed-out run keeps whatever it already finished."""
+    qa = "UNRESOLVED_NO_AUTHORITATIVE_MATCH"
+    if entry["type"] == "land_trust":
+        qa = "UNRESOLVED_NO_AUTHORITATIVE_MATCH"
+    elif entry.get("phone") and entry.get("dnc") and entry["dnc"].get("flagged") is True:
+        qa = "CONTACT_ENRICHED_DNC_FLAGGED"
+    elif entry.get("phone") or entry.get("email"):
+        qa = "CONTACT_ENRICHED"
+    elif entry.get("principal") or entry.get("registered_agent") or entry.get("sunbiz_doc_number"):
+        qa = "PARTIAL_ENRICHMENT_IDENTITY_ONLY"
+
+    dnc_state = None
+    if entry.get("phone"):
+        if entry.get("dnc") and entry["dnc"].get("status") == "OK":
+            dnc_state = "DNC_FLAGGED" if entry["dnc"].get("flagged") else f"clear_at_lookup_{BATCH_DATE.replace('-', '')}"
+        elif entry.get("dnc"):
+            dnc_state = entry["dnc"].get("status")
+
+    identity_type_val = {"business": "business", "person": "person", "land_trust": "land_trust_unpierceable"}[entry["type"]]
+    phone_tier_tail = (entry.get("phone_tier") or "").split(":")[-1]
+    provider = "tracerfy" if phone_tier_tail.startswith("tracerfy") else (
+        "apify_google_maps" if phone_tier_tail.startswith("apify") else None)
+
+    ev = json.dumps({
+        "contact_enrichment_20260827": {
+            "phone": entry.get("phone"), "phone_tier": entry.get("phone_tier"),
+            "email": entry.get("email"), "email_tier": entry.get("email_tier"),
+            "principal": entry.get("principal"), "registered_agent": entry.get("registered_agent"),
+            "registered_agent_address": entry.get("registered_agent_address"),
+            "sunbiz_doc_number": entry.get("sunbiz_doc_number"), "sunbiz_status": entry.get("sunbiz_status"),
+            "sunbiz_source": entry.get("sunbiz_source"), "mailing_anchor": entry.get("mailing_anchor"),
+            "dnc": entry.get("dnc"), "tiers_failed": entry.get("tiers_failed"),
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }, default=str)
+
+    set_clauses = [
+        f"qa_status = {s(qa)}",
+        f"contact_match_status = {s(entry.get('contact_match_status'))}",
+        f"identity_type = {s(identity_type_val)}",
+        f"resolved_principal_name = {s(entry.get('principal'))}",
+        f"registered_agent_name = {s(entry.get('registered_agent'))}",
+        f"registered_agent_address = {s(entry.get('registered_agent_address'))}",
+        f"identity_match_method = {s(entry.get('identity_match_method'))}",
+        f"identity_match_confidence = {entry['identity_match_confidence'] if entry.get('identity_match_confidence') is not None else 'null'}",
+        f"identity_match_rationale = {s(entry.get('identity_match_rationale'))}",
+        f"phone = {s(entry.get('phone'))}",
+        f"email = {s(entry.get('email'))}",
+        f"contact_provider = {s(provider)}",
+        f"contact_verified_at = {'now()' if provider else 'null'}",
+        f"dnc_state = {s(dnc_state)}",
+        "evidence_ledger = evidence_ledger || " + s(ev) + "::jsonb",
+    ]
+    for auction_id in entry["auction_ids"]:
+        sql(f"update winnerdata.ff_batch_leads set {', '.join(set_clauses)} where batch_date = date '{BATCH_DATE}' and auction_id = '{esc(auction_id)}'")
+    entry["qa_status"] = qa
+    entry["dnc_state"] = dnc_state
+    print(f"  PERSISTED {entry['buyer']!r}: qa_status={qa} contact_match_status={entry.get('contact_match_status')} dnc_state={dnc_state} (cases={entry['case_numbers']})")
+    return entry
+
+
 def own_name_anchor(entity_name: str, exclude_pins: set[str]) -> dict | None:
     """FTS scan of public.zw_parcels for a prior own-name mailing address,
     excluding this batch's own just-purchased parcels. Same token-overlap +
@@ -216,6 +293,11 @@ def main():
     for r in rows:
         groups.setdefault(r["winning_bidder"], []).append(r)
 
+    done = already_enriched_buyers()
+    if done:
+        print(f"Resuming: {len(done)} buyer(s) already persisted from a prior run, skipping: {sorted(done)}")
+        groups = {k: v for k, v in groups.items() if k not in done}
+
     hunter_acct = contact_resolver.hunter_account()
     hunter_budget = [int(hunter_acct["requests"]["credits"]["remaining"])] if hunter_acct else [0]
     print(f"Hunter.io credits available at start: {hunter_budget[0]}")
@@ -260,7 +342,7 @@ def main():
             )
             entry["identity_match_method"] = "NOT_APPLICABLE_LAND_TRUST"
             entry["identity_match_rationale"] = entry["tiers_failed"][0]
-            report.append(entry)
+            report.append(persist_entry(entry))
             continue
 
         exclude_pins = all_pins  # never anchor on any parcel this batch's 28 rows just bought
@@ -350,82 +432,33 @@ def main():
             entry["dnc"] = dnc
             print(f"  DNC scrub: {dnc['status']} flagged={dnc['flagged']}")
 
-        report.append(entry)
-
-    # -------------------- persist --------------------
-    for entry in report:
-        qa = "UNRESOLVED_NO_AUTHORITATIVE_MATCH"
-        if entry["type"] == "land_trust":
-            qa = "UNRESOLVED_NO_AUTHORITATIVE_MATCH"
-        elif entry.get("phone") and entry.get("dnc") and entry["dnc"].get("flagged") is True:
-            qa = "CONTACT_ENRICHED_DNC_FLAGGED"
-        elif entry.get("phone") or entry.get("email"):
-            qa = "CONTACT_ENRICHED"
-        elif entry.get("principal") or entry.get("registered_agent") or entry.get("sunbiz_doc_number"):
-            qa = "PARTIAL_ENRICHMENT_IDENTITY_ONLY"
-
-        dnc_state = None
-        if entry.get("phone"):
-            if entry.get("dnc") and entry["dnc"].get("status") == "OK":
-                dnc_state = "DNC_FLAGGED" if entry["dnc"].get("flagged") else f"clear_at_lookup_{BATCH_DATE.replace('-', '')}"
-            elif entry.get("dnc"):
-                dnc_state = entry["dnc"].get("status")
-
-        identity_type_val = {"business": "business", "person": "person", "land_trust": "land_trust_unpierceable"}[entry["type"]]
-        provider = "tracerfy" if entry.get("phone_tier", "").split(":")[-1].startswith("tracerfy") else (
-            "apify_google_maps" if entry.get("phone_tier", "").split(":")[-1].startswith("apify") else None)
-
-        ev = json.dumps({
-            "contact_enrichment_20260827": {
-                "phone": entry.get("phone"), "phone_tier": entry.get("phone_tier"),
-                "email": entry.get("email"), "email_tier": entry.get("email_tier"),
-                "principal": entry.get("principal"), "registered_agent": entry.get("registered_agent"),
-                "registered_agent_address": entry.get("registered_agent_address"),
-                "sunbiz_doc_number": entry.get("sunbiz_doc_number"), "sunbiz_status": entry.get("sunbiz_status"),
-                "sunbiz_source": entry.get("sunbiz_source"), "mailing_anchor": entry.get("mailing_anchor"),
-                "dnc": entry.get("dnc"), "tiers_failed": entry.get("tiers_failed"),
-                "resolved_at": datetime.now(timezone.utc).isoformat(),
-            }
-        }, default=str)
-
-        set_clauses = [
-            f"qa_status = {s(qa)}",
-            f"contact_match_status = {s(entry.get('contact_match_status'))}",
-            f"identity_type = {s(identity_type_val)}",
-            f"resolved_principal_name = {s(entry.get('principal'))}",
-            f"registered_agent_name = {s(entry.get('registered_agent'))}",
-            f"registered_agent_address = {s(entry.get('registered_agent_address'))}",
-            f"identity_match_method = {s(entry.get('identity_match_method'))}",
-            f"identity_match_confidence = {entry['identity_match_confidence'] if entry.get('identity_match_confidence') is not None else 'null'}",
-            f"identity_match_rationale = {s(entry.get('identity_match_rationale'))}",
-            f"phone = {s(entry.get('phone'))}",
-            f"email = {s(entry.get('email'))}",
-            f"contact_provider = {s(provider)}",
-            f"contact_verified_at = {'now()' if provider else 'null'}",
-            f"dnc_state = {s(dnc_state)}",
-            "evidence_ledger = evidence_ledger || " + s(ev) + "::jsonb",
-        ]
-        for auction_id in entry["auction_ids"]:
-            sql(f"update winnerdata.ff_batch_leads set {', '.join(set_clauses)} where batch_date = date '{BATCH_DATE}' and auction_id = '{esc(auction_id)}'")
-        entry["qa_status"] = qa
-        entry["dnc_state"] = dnc_state
-        print(f"  PERSISTED {buyer_key!r}: qa_status={qa} contact_match_status={entry.get('contact_match_status')} dnc_state={dnc_state} (cases={entry['case_numbers']})")
+        report.append(persist_entry(entry))
 
     with open(OUT, "w") as f:
         json.dump(report, f, indent=2, default=str)
 
-    contact_enriched = sum(1 for e in report for _ in e["auction_ids"] if e["qa_status"] in ("CONTACT_ENRICHED", "CONTACT_ENRICHED_DNC_FLAGGED"))
-    unresolved = sum(1 for e in report for _ in e["auction_ids"] if e["qa_status"] == "UNRESOLVED_NO_AUTHORITATIVE_MATCH")
-    identity_only = sum(1 for e in report for _ in e["auction_ids"] if e["qa_status"] == "PARTIAL_ENRICHMENT_IDENTITY_ONLY")
-    dnc_flagged = sum(1 for e in report for _ in e["auction_ids"] if e["qa_status"] == "CONTACT_ENRICHED_DNC_FLAGGED")
+    # Query live totals (not just this invocation's `report`) so a resumed
+    # run's summary reflects the true full-batch state, not only what this
+    # process personally touched.
+    totals = sql(f"""
+        select qa_status, count(*) as n from winnerdata.ff_batch_leads
+        where batch_date = date '{BATCH_DATE}' group by qa_status
+    """)
+    by_status = {t["qa_status"]: int(t["n"]) for t in totals}
+    contact_enriched = by_status.get("CONTACT_ENRICHED", 0) + by_status.get("CONTACT_ENRICHED_DNC_FLAGGED", 0)
+    unresolved = by_status.get("UNRESOLVED_NO_AUTHORITATIVE_MATCH", 0)
+    identity_only = by_status.get("PARTIAL_ENRICHMENT_IDENTITY_ONLY", 0)
+    dnc_flagged = by_status.get("CONTACT_ENRICHED_DNC_FLAGGED", 0)
+    still_pending = by_status.get("PARTIAL_ENRICHMENT", 0)
     print("\n" + "=" * 70)
-    print("FF 28-LEAD 2026-08-27 -- FINAL REPORT")
+    print("FF 28-LEAD 2026-08-27 -- FINAL REPORT (live DB totals)")
     print("=" * 70)
-    print(f"buyers: {len(report)}  rows: {sum(len(e['auction_ids']) for e in report)}")
+    print(f"this run resolved {len(report)} buyer(s) ({sum(len(e['auction_ids']) for e in report)} rows)")
     print(f"contact-matched (phone or email): {contact_enriched}")
     print(f"identity-only partial: {identity_only}")
     print(f"unresolved: {unresolved}")
     print(f"DNC-flagged (subset of contact-matched): {dnc_flagged}")
+    print(f"still not run (qa_status=PARTIAL_ENRICHMENT): {still_pending}")
     print(f"Wrote {OUT}")
 
 
