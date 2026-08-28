@@ -2672,6 +2672,7 @@ function buildCountyPage(slug, d, lots, rtConfig) {
   const esc = (v) => String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
     .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const escJs = (v) => JSON.stringify(String(v == null ? '' : v)).slice(1, -1);
   const lotRows   = Array.isArray(lots) ? lots : [];
   const lotCount  = lotRows.length;
   const lotTd     = lotRows.filter(x => x && x.sale_type === 'tax_deed').length;
@@ -2705,6 +2706,7 @@ function buildCountyPage(slug, d, lots, rtConfig) {
     .replace('COUNTY_JSONLD', jsonLd)
     .replace(/COUNTY_SLUG_PLACEHOLDER/g, slug)
     .replace(/COUNTY_TITLE_PLACEHOLDER/g, name)
+    .replace(/COUNTY_TITLE_JS_PLACEHOLDER/g, escJs(name))
     .replace('S5_COUNTIES_PLACEHOLDER', s5List)
     .replace(/COUNTY_CERT_BADGE_CLASS/g, isGold ? 'cert-gold' : 'cert-review')
     .replace(/COUNTY_CERT_BADGE_TEXT/g, isGold ? '⭐ Gold Standard certified' : '⚠️ Data under review')
@@ -5311,7 +5313,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 
 <script>
 const COUNTY_SLUG = "COUNTY_SLUG_PLACEHOLDER";
-const COUNTY_TITLE_JS = "COUNTY_TITLE_PLACEHOLDER";
+const COUNTY_TITLE_JS = "COUNTY_TITLE_JS_PLACEHOLDER";
 const S5_CERTIFIED_COUNTIES = S5_COUNTIES_PLACEHOLDER;
 const S5_AVAILABLE = S5_CERTIFIED_COUNTIES.includes(COUNTY_SLUG);
 const SUPABASE_URL = "https://mocerqjnksmhcjzxrewo.supabase.co";
