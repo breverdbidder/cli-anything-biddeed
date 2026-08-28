@@ -4459,6 +4459,23 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
 .summary .addr{font-weight:600;color:white;margin-bottom:.4rem}
 .empty{color:var(--dim);font-size:.85rem;padding:1rem 0}
 .spin{color:var(--dim);font-size:.85rem;padding:1rem 0}
+/* WinnerDataAI house-brand light mode for the complete S5 purchase flow. */
+html[data-theme=light] body{background:#F5F0E8;color:#1F1B16}
+html[data-theme=light] .card{background:#FBFAF7;border-color:rgba(193,95,60,.35);box-shadow:0 18px 50px rgba(31,27,22,.10)}
+html[data-theme=light] :root{--navy:#F5F0E8;--orange:#C15F3C;--orange2:#A94D30;--text:#1F1B16;--muted:#766F67;--dim:#766F67;--border:#DDD5C9}
+html[data-theme=light] h1{color:#1F1B16}
+html[data-theme=light] p,html[data-theme=light] label,html[data-theme=light] .consent,html[data-theme=light] .meta,html[data-theme=light] .empty,html[data-theme=light] .spin{color:#766F67}
+html[data-theme=light] select,html[data-theme=light] input[type=email]{background:#F5F0E8;color:#1F1B16;border-color:#B5A9A0}
+html[data-theme=light] select:focus,html[data-theme=light] input[type=email]:focus{outline:2px solid rgba(193,95,60,.28);border-color:#C15F3C}
+html[data-theme=light] .btn{background:linear-gradient(135deg,#C15F3C,#A94D30);color:#FBFAF7}
+html[data-theme=light] .back{color:#766F67}
+html[data-theme=light] .back:hover{color:#A94D30}
+html[data-theme=light] .auction-card{border-color:#DDD5C9;background:#FBFAF7}
+html[data-theme=light] .auction-card:hover,html[data-theme=light] .auction-card.selected{border-color:#C15F3C;background:rgba(193,95,60,.10)}
+html[data-theme=light] .auction-card .addr,html[data-theme=light] .summary .addr{color:#1F1B16}
+html[data-theme=light] .summary{border-color:#DDD5C9;background:#F5F0E8;color:#766F67}
+html[data-theme=light] .upl{border-color:#DDD5C9;color:#766F67}
+html[data-theme=light] .upl a{color:#C15F3C}
 </style></head><body>
 <div class="card">
   <div class="badge">ONE-TIME · NO SUBSCRIPTION</div>
