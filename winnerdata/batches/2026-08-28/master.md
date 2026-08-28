@@ -1,6 +1,6 @@
 # Winner Data — Auction Flash Batch 2026-08-28
 
-Generated: 2026-08-28T03:01:52.649693+00:00Z (live-queried, org=Protection Partners)
+Generated: 2026-08-28T06:39:18.898374+00:00Z (live-queried, org=Protection Partners)
 
 Total leads: 9 | Producers: 1
 
