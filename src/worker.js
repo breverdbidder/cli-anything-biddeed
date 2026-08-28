@@ -1250,6 +1250,72 @@ async function captureError(error, request, env) {
   }
 }
 
+// ── Shared public-site shell ───────────────────────────────────────────────────
+// Worker-served public pages use this shell so they remain visually and
+// functionally consistent with the Next.js workspace shell. It is deliberately
+// local HTML/CSS/JS: no external runtime, analytics, storage, or platform
+// dependency is introduced. Page content remains owned by each existing
+// builder; only the chrome is standardized.
+const PUBLIC_SHELL_STYLE = `<style>
+.bd-shell-content{min-height:100vh;min-width:0;margin-left:248px;padding-top:64px;position:relative}
+.bd-shell-sidebar{position:fixed;inset:0 auto 0 0;z-index:1000;width:248px;background:#0b1220;border-right:1px solid #1e293b;color:#cbd5e1;display:flex;flex-direction:column;padding:18px 12px}
+.bd-shell-brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;padding:4px 10px 22px;border-bottom:1px solid #1e293b;margin-bottom:14px}
+.bd-shell-mark{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#f97316);display:grid;place-items:center;color:#020617;font-size:12px;font-weight:900;flex:none}
+.bd-shell-brand-text{display:grid;line-height:1.1}.bd-shell-brand-text strong{font-size:15px}.bd-shell-brand-text strong span{color:#f59e0b}.bd-shell-brand-text small{font-size:10px;color:#94a3b8;margin-top:4px}
+.bd-shell-label{font:600 10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:#64748b;padding:0 10px 8px}
+.bd-shell-nav{display:grid;gap:4px}.bd-shell-nav a,.bd-shell-deed{display:flex;align-items:center;gap:10px;min-height:42px;padding:10px;border:1px solid transparent;border-radius:8px;color:#cbd5e1;text-decoration:none;font:500 14px/1.2 Inter,system-ui,sans-serif;background:transparent;cursor:pointer;text-align:left;width:100%}
+.bd-shell-nav a:hover,.bd-shell-deed:hover,.bd-shell-nav a[aria-current=page],.bd-shell-deed[aria-expanded=true]{background:#1e293b;color:#fff;border-color:#334155}.bd-shell-nav a[aria-current=page]{box-shadow:inset 3px 0 #f59e0b}.bd-shell-icon{width:18px;text-align:center;color:#94a3b8}.bd-shell-nav a[aria-current=page] .bd-shell-icon,.bd-shell-deed[aria-expanded=true] .bd-shell-icon{color:#f59e0b}
+.bd-shell-footer{margin-top:auto;border-top:1px solid #1e293b;padding:14px 10px 4px;color:#64748b;font:11px/1.5 Inter,system-ui,sans-serif}.bd-shell-footer a{color:#94a3b8;text-decoration:none}.bd-shell-footer a:hover{color:#f59e0b}
+.bd-shell-topbar{position:fixed;inset:0 0 auto 248px;z-index:999;height:64px;display:flex;align-items:center;gap:12px;padding:0 24px;background:rgba(11,18,32,.96);border-bottom:1px solid #1e293b;color:#e2e8f0;backdrop-filter:blur(12px)}
+.bd-shell-menu{display:none}.bd-shell-route{font:600 14px/1.2 Inter,system-ui,sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bd-shell-top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}.bd-shell-cta{background:#f59e0b;color:#020617;border-radius:7px;padding:9px 13px;text-decoration:none;font:800 12px/1 Inter,system-ui,sans-serif}.bd-shell-cta:hover{background:#fbbf24}
+.bd-shell-drawer{display:none}.bd-shell-scrim{display:none}
+.bd-shell-content > nav{display:none!important}.bd-shell-content :where(a,button,input,select,textarea):focus-visible{outline:2px solid #f59e0b;outline-offset:2px}
+@media (max-width:767px){
+  .bd-shell-content{margin-left:0;padding-top:56px}
+  .bd-shell-sidebar{display:none}
+  .bd-shell-topbar{inset:0 0 auto 0;height:56px;padding:0 12px}
+  .bd-shell-menu{display:inline-grid;place-items:center;width:40px;height:40px;border:1px solid #334155;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:20px;cursor:pointer}
+  .bd-shell-top-actions .bd-shell-cta{padding:9px 10px;font-size:11px}
+  .bd-shell-drawer{position:fixed;display:flex;flex-direction:column;inset:0 auto 0 0;z-index:1002;width:min(86vw,300px);padding:18px 12px;background:#0b1220;color:#cbd5e1;transform:translateX(-105%);transition:transform .2s ease;box-shadow:12px 0 32px rgba(0,0,0,.35)}
+  .bd-shell-drawer[data-open=true]{transform:translateX(0)}
+  .bd-shell-scrim{position:fixed;inset:0;z-index:1001;background:rgba(2,6,23,.7)}
+  .bd-shell-scrim[data-open=true]{display:block}
+  .bd-shell-drawer .bd-shell-brand{margin-bottom:18px}
+  .bd-shell-drawer .bd-shell-footer{margin-top:auto}
+  .bd-shell-content .split-container{height:calc(100vh - 56px)}
+}
+@media (prefers-reduced-motion:reduce){.bd-shell-drawer{transition:none}}
+</style>`;
+
+function publicRouteLabel(path) {
+  if (path === '/') return 'Overview';
+  if (path === '/counties' || path.startsWith('/county/')) return 'Counties';
+  if (path === '/buy-report' || path.startsWith('/free-report')) return 'Reports';
+  if (path === '/subscribe') return 'Plans & pricing';
+  if (path === '/chat' || path.startsWith('/chat')) return 'Deed';
+  if (path === '/blog' || path.startsWith('/blog/')) return 'Blog';
+  if (path === '/pioneers') return 'Pioneers';
+  if (path.startsWith('/proof/')) return 'Proof';
+  return 'BidDeed.AI';
+}
+function publicNavLink(path, href, label, icon, match) {
+  const active = match ? match(path) : path === href;
+  return `<a href="${href}"${active ? ' aria-current="page"' : ''}><span class="bd-shell-icon" aria-hidden="true">${icon}</span><span>${label}</span></a>`;
+}
+function withPublicShell(html, path) {
+  const nav = [
+    publicNavLink(path, '/', 'Home', '⌂'),
+    publicNavLink(path, '/radar', 'Auctions', '◆', p => p === '/radar' || p.startsWith('/radar/')),
+    publicNavLink(path, '/radar?view=calendar', 'Calendar', '▦', p => p === '/calendar'),
+    publicNavLink(path, '/counties', 'Counties', '⌖', p => p === '/counties' || p.startsWith('/county/')),
+    publicNavLink(path, '/buy-report', 'Reports', '▤', p => p === '/buy-report' || p.startsWith('/free-report') || p.startsWith('/report/')),
+    publicNavLink(path, '/blog', 'Blog', '✦', p => p === '/blog' || p.startsWith('/blog/')),
+  ].join('');
+  const label = publicRouteLabel(path);
+  const shell = `<aside class="bd-shell-sidebar" aria-label="Primary navigation"><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><header class="bd-shell-topbar"><button class="bd-shell-menu" type="button" aria-label="Open navigation" aria-controls="bd-mobile-drawer" aria-expanded="false" data-menu-toggle>☰</button><span class="bd-shell-route">${label}</span><div class="bd-shell-top-actions"><a class="bd-shell-cta" href="/subscribe?tier=investor">Investor $99/mo</a></div></header><div class="bd-shell-scrim" data-menu-scrim></div><aside class="bd-shell-drawer" id="bd-mobile-drawer" aria-label="Mobile navigation" data-mobile-drawer><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><script>(function(){var d=document.querySelector('[data-mobile-drawer]'),s=document.querySelector('[data-menu-scrim]'),m=document.querySelector('[data-menu-toggle]');function close(){if(d)d.dataset.open='false';if(s)s.dataset.open='false';if(m)m.setAttribute('aria-expanded','false')}function open(){if(d)d.dataset.open='true';if(s)s.dataset.open='true';if(m)m.setAttribute('aria-expanded','true')}if(m)m.addEventListener('click',function(){d&&d.dataset.open==='true'?close():open()});if(s)s.addEventListener('click',close);document.querySelectorAll('[data-mobile-drawer] a').forEach(function(a){a.addEventListener('click',close)});document.addEventListener('keydown',function(e){if(e.key==='Escape')close()})})();</script>`;
+  return html.replace('</head>', PUBLIC_SHELL_STYLE + '</head>').replace(/<body[^>]*>/i, match => `${match}${shell}<div class="bd-shell-content">`).replace(/<\/body>/i, '</div></body>');
+}
+
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
   async fetch(request, env, ctx) {
@@ -1533,7 +1599,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
 </html>
 `;
 
-      if (path === '/terms' || path === '/tos') return new Response(TERMS_HTML,      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/terms' || path === '/tos') return new Response(withPublicShell(TERMS_HTML, path),      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/unsubscribe') {
         const uEmail = (url.searchParams.get('email') || '').trim();
         let uMsg = 'No email address provided.';
@@ -1552,13 +1618,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           }
         }
         const uHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Unsubscribed — BidDeed.AI</title><style>body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem}.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:16px;padding:2rem;max-width:440px;text-align:center}h1{color:white;font-size:1.3rem;margin-bottom:.75rem}p{color:#94a3b8;font-size:.9rem;line-height:1.5}a{color:#f59e0b}</style></head><body><div class="card"><h1>${uOk ? 'Unsubscribed' : 'Request received'}</h1><p>${uMsg}</p><p style="margin-top:1rem"><a href="/">Return to BidDeed.AI</a></p></div></body></html>`;
-        return new Response(uHtml, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+        return new Response(withPublicShell(uHtml, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
-      if (path === '/privacy')                  return new Response(PRIVACY_HTML,    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/section18-teaser')           return new Response(SECTION18_TEASER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/disclaimer')                return new Response(DISCLAIMER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/security')                  return new Response(SECURITY_HTML,   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/data-retention')            return new Response(DATA_RETENTION_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/privacy')                  return new Response(withPublicShell(PRIVACY_HTML, path),    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/section18-teaser')           return new Response(withPublicShell(SECTION18_TEASER_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/disclaimer')                return new Response(withPublicShell(DISCLAIMER_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/security')                  return new Response(withPublicShell(SECURITY_HTML, path),   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/data-retention')            return new Response(withPublicShell(DATA_RETENTION_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
       // ── /subscribe ───────────────────────────────────────────────────────
       // Served as an HTML interstitial (not a raw 302) so PostHog can record
@@ -1575,7 +1641,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const tierPrice = '$' + monthlyNum;
         const annualPrice = '$' + annualNum.toLocaleString('en-US');
         const savePrice = '$' + (monthlyNum * 12 - annualNum).toLocaleString('en-US');
-        const html = SUBSCRIBE_HTML
+        const html = withPublicShell(SUBSCRIBE_HTML
           .replace(/TIER_LABEL_PLACEHOLDER/g, tierLabel)
           .replace(/TIER_PRICE_PLACEHOLDER/g, tierPrice)
           .replace(/ANNUAL_PRICE_PLACEHOLDER/g, annualPrice)
@@ -1583,7 +1649,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           .replace('INTERVAL_PLACEHOLDER_monthly_active', safeInterval === 'monthly' ? 'active' : '')
           .replace('INTERVAL_PLACEHOLDER_annual_active', safeInterval === 'annual' ? 'active' : '')
           .replace(/INTERVAL_PLACEHOLDER/g, safeInterval)
-          .replace(/TIER_PLACEHOLDER/g, safeTier);
+          .replace(/TIER_PLACEHOLDER/g, safeTier), path);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
@@ -1690,7 +1756,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const pDate = url.searchParams.get('date') || '';
         const prefill = pMcaId ? { mca_id: pMcaId, address: pAddress, county: pCounty, county_name: pCounty ? toDisplay(pCounty) : '', date: pDate } : null;
         const prefillJson = JSON.stringify(prefill).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
-        const html = BUY_REPORT_HTML.replace('"PREFILL_PLACEHOLDER"', prefillJson);
+        const html = withPublicShell(BUY_REPORT_HTML.replace('"PREFILL_PLACEHOLDER"', prefillJson), path);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': prefill ? 'no-store' : 'public,max-age=300' } });
       }
 
@@ -1790,7 +1856,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/free-report' && method === 'GET') {
         const prefillEmail = url.searchParams.get('email') || '';
         const counties = await fetchReportCounties();
-        const html = buildFreeReportFormHtml(prefillEmail, counties);
+        const html = withPublicShell(buildFreeReportFormHtml(prefillEmail, counties), path);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
@@ -1809,7 +1875,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const invalid = !email || !email.includes('@') || !phone || !county || (!emailConsent && !smsConsent);
         if (invalid) {
           const counties = await fetchReportCounties();
-          const html = buildFreeReportFormHtml(email, counties, { phone, county, emailConsent, smsConsent, error: 'Please fill in all required fields and check at least one consent box.' });
+          const html = withPublicShell(buildFreeReportFormHtml(email, counties, { phone, county, emailConsent, smsConsent, error: 'Please fill in all required fields and check at least one consent box.' }), path);
           return new Response(html, { status: 400, headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
         }
 
@@ -1826,13 +1892,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             const err = await res.text();
             await logErr(env, '/free-report/submit', 'upsert_lead_full failed', err, res.status);
             const counties = await fetchReportCounties();
-            const html = buildFreeReportFormHtml(email, counties, { phone, county, emailConsent, smsConsent, error: 'Something went wrong — please try again.' });
+            const html = withPublicShell(buildFreeReportFormHtml(email, counties, { phone, county, emailConsent, smsConsent, error: 'Something went wrong — please try again.' }), path);
             return new Response(html, { status: 500, headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
           }
         } catch(e) {
           await logErr(env, '/free-report/submit', 'Exception', String(e), 500);
           const counties = await fetchReportCounties();
-          const html = buildFreeReportFormHtml(email, counties, { phone, county, emailConsent, smsConsent, error: 'Something went wrong — please try again.' });
+          const html = withPublicShell(buildFreeReportFormHtml(email, counties, { phone, county, emailConsent, smsConsent, error: 'Something went wrong — please try again.' }), path);
           return new Response(html, { status: 500, headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
         }
 
@@ -1848,13 +1914,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const consent = { emailConsent: url.searchParams.get('ec') === '1', smsConsent: url.searchParams.get('sc') === '1' };
         const [auctions, counties] = await Promise.all([fetchFreeReportAuctions(county), fetchReportCounties()]);
         const countyMeta = counties.find(c => c.county_slug === county) || null;
-        const html = buildFreeReportDeliveryHtml(email, county, auctions, countyMeta, consent);
+        const html = withPublicShell(buildFreeReportDeliveryHtml(email, county, auctions, countyMeta, consent), path);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
       // ── GET /report-success — post-payment report key delivery page ─────
       if (path === '/report-success' && method === 'GET') {
-        return new Response(REPORT_SUCCESS_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+        return new Response(withPublicShell(REPORT_SUCCESS_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
 
       // ── GET /report/:mca_id — interactive S5 Shapira report (issue #18307) ──
@@ -1867,7 +1933,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
         // ── Sample report bypass — no auth, no billing, publicly accessible ──
         if (mcaId === MARION_SAMPLE_MCA_ID && apiKey === SAMPLE_REPORT_KEY) {
-          const html = renderS5ReportHtml(SAMPLE_STATIC_REPORT, { mcaId, keyLast8: apiKey.slice(-8), isSample: true });
+          const html = withPublicShell(renderS5ReportHtml(SAMPLE_STATIC_REPORT, { mcaId, keyLast8: apiKey.slice(-8), isSample: true }), path);
           return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
         }
 
@@ -1914,14 +1980,14 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const slug = path.replace('/county/', '').toLowerCase().replace(/-/g,'_').replace(/\/.*$/,'');
         if (!slug) return Response.redirect('/counties', 302);
         const [data, lots, rtConfig] = await Promise.all([fetchCountyData(slug), fetchCountyLots(slug), fetchRuntimeConfig()]);
-        const html = buildCountyPage(slug, data, lots, rtConfig);
+        const html = withPublicShell(buildCountyPage(slug, data, lots, rtConfig), path);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
       }
 
       // ── /counties — all counties index ───────────────────────────────────
       if (path === '/counties') {
         const ciConfig = await fetchRuntimeConfig();
-        const html = buildCountiesIndex(ciConfig);
+        const html = withPublicShell(buildCountiesIndex(ciConfig), path);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
@@ -1961,7 +2027,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // issuance goes live. Do not wire this page to Stripe or issue any
       // options/SAFE until that review has happened.
       if (path === '/pioneers') {
-        return new Response(buildPioneersPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        return new Response(withPublicShell(buildPioneersPage(), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
       // ── /proof/:slug — shareable "we called it" result cards. Added Aug
@@ -1978,7 +2044,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const slug = path.slice('/proof/'.length);
         const card = PROOF_CARDS[slug];
         if (!card) return new Response('Not found', { status: 404 });
-        return new Response(buildProofCard(card), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        return new Response(withPublicShell(buildProofCard(card), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
       // ── POST /pioneers/join — waitlist signup only, no payment, no
@@ -2066,13 +2132,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // marketing. Server-rendered like /county pages so it's fully
       // crawlable; BLOG_POSTS is a plain array below, add new posts there.
       if (path === '/blog') {
-        return new Response(buildBlogIndex(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        return new Response(withPublicShell(buildBlogIndex(), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
       if (path.startsWith('/blog/')) {
         const slug = path.slice('/blog/'.length);
         const post = BLOG_POSTS.find(p => p.slug === slug);
         if (!post) return new Response('Not found', { status: 404 });
-        return new Response(buildBlogPost(post), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        return new Response(withPublicShell(buildBlogPost(post), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
       // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
@@ -2564,7 +2630,7 @@ ${DISCLAIMER_SHORT}`;
         const ref    = url.searchParams.get('ref')    || '';
         const action = url.searchParams.get('action') || '';
         if (action === 'subscribe') return Response.redirect(`/subscribe?tier=investor`, 302);
-        return new Response(buildChatPage(county, hook, ref), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+        return new Response(withPublicShell(buildChatPage(county, hook, ref), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
       // ── GET / ────────────────────────────────────────────────────────────
