@@ -321,7 +321,21 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
         matched += 1
         matched_our_cases.add(matched_case_number)
         matched_row = ssot_row if matched_case_number == case_number else {**ssot_row, "case_number": matched_case_number}
-        if ssot_row["cancelled"] and our_row["auction_status"] != "CANCELLED":
+        # A row already carrying a specific, independently-verified terminal
+        # status (e.g. auction_status='redeemed', which IS a cancellation --
+        # the sale never happens -- just a more precise one than the SSOT
+        # diff's generic "cancelled" flag) must not be treated as disagreeing
+        # with the clerk just because the strings don't match exactly. Before
+        # this fix, every daily rerun forced such rows back to the generic
+        # auction_status='CANCELLED'/parity_status='CLERK_SSOT_CANCELLED'
+        # pair, silently reverting whatever more specific, verified
+        # classification (e.g. tier1_tax_deed_outcome/matched_clean) had been
+        # applied -- confirmed live for gadsden case 26000018TDC and siblings
+        # (reverted 2026-08-27T11:25:13Z and again 2026-08-28T11:52:12Z,
+        # exact-same-updated_at across all 10 rows both times) despite the
+        # rows already being independently reconciled the day before.
+        already_agrees = ssot_row["cancelled"] and our_row["auction_status"] in ("CANCELLED", "redeemed")
+        if ssot_row["cancelled"] and not already_agrees:
             cancelled_mismatch.append(matched_row)
         else:
             clean_matches.append(matched_row)
@@ -387,13 +401,20 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
             values = ",".join(
                 f"({sql_str(r['case_number'])},{sql_str(r['sale_date'])})" for r in already_cancelled
             )
+            # Do not stamp parity_source over an already-verified tier1_*
+            # provenance tag (tier1_tax_deed_outcome / tier1_foreclosure_outcome):
+            # that would silently break the pencil_dod_evaluate_county matched_clean
+            # FILTER's "parity_source LIKE 'tier1%%'" requirement even though
+            # parity_status itself is left untouched here -- the exact reversion
+            # this fix (see already_agrees above) is meant to stop.
             run_sql(f"""
                 UPDATE public.multi_county_auctions m
                 SET parity_source={sql_str(f'{county_slug}_clerk_{sale_type}')},
                     auction_date=v.sale_date::date
                 FROM (VALUES {values}) AS v(case_number, sale_date)
                 WHERE lower(m.county)={sql_str(county_slug)} AND m.sale_type={sql_str(sale_type)}
-                  AND m.case_number = v.case_number;
+                  AND m.case_number = v.case_number
+                  AND m.parity_source NOT LIKE 'tier1%%';
             """)
 
     if phantom_in_ours:
