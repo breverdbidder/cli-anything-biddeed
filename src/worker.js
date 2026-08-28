@@ -3217,6 +3217,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filte
 .lm{width:32px;height:32px;background:linear-gradient(135deg,var(--orange),var(--orange2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:var(--navy)}
 .ln{font-size:15px;font-weight:700;color:white}.ln span{color:var(--orange)}
 .nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
+.nav-links{display:flex;align-items:center;gap:1rem;margin-left:auto;margin-right:1rem}.nav-links a{color:var(--muted);font-size:13px;font-weight:600;text-decoration:none}.nav-links a:hover{color:var(--orange)}
 .wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem}
 .ey{display:inline-flex;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
 h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.8rem,4vw,2.8rem);color:white;margin-bottom:.75rem}
@@ -3229,11 +3230,24 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 .gs-tag{display:block;font-size:.65rem;color:var(--orange);font-family:'JetBrains Mono',monospace;margin-top:.2rem;letter-spacing:.05em}
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
 footer a{color:var(--muted);text-decoration:none}
+/* WinnerDataAI child-brand light mode — default for Worker-owned county pages. */
+:root{--navy:#f5f0e8;--navy2:#fbfaf7;--navy3:#ede3d7;--orange:#c15f3c;--orange2:#a94d30;--text:#1f1b16;--muted:#766f67;--border:#ddd5c9;--green:#2f7a4b}
+body{background:var(--navy);color:var(--text)}
+nav{background:rgba(245,240,232,.96);border-bottom-color:var(--border)}
+.ln,h1{color:var(--text)}
+.nav-links a,.sub,.county-link,footer,footer a{color:var(--muted)}
+.county-link{background:var(--navy2);border-color:var(--border)}
+.county-link:hover{background:var(--navy3);border-color:var(--orange);color:var(--text)}
+.county-link.gold{border-color:rgba(193,95,60,.35);color:var(--text)}
+.gs-tag,.nav-links a:hover{color:var(--orange)}
+footer{border-top-color:var(--border)}
+@media(max-width:767px){.nav-links{display:none}.nav-cta{padding:10px 14px;font-size:13px}.wrap{padding:2rem 1rem}.counties-grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.6rem}.county-link{padding:.8rem .75rem;font-size:.82rem}}
 </style>
 </head>
 <body>
 <nav><div class="nav-inner">
   <a href="/" class="logo"><div class="lm">BD</div><span class="ln">BidDeed<span>.AI</span></span></a>
+  <div class="nav-links" aria-label="Primary navigation"><a href="/">Overview</a><a href="/radar">Radar</a><a href="/radar?view=calendar">Calendar</a><a href="/buy-report">Reports</a><a href="/chat">Deed</a></div>
   <a href="/subscribe?tier=investor" class="nav-cta">Investor $99/mo</a>
 </div></nav>
 <div class="wrap">
