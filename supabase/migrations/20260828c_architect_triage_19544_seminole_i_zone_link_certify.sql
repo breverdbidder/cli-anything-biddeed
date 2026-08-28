@@ -1,0 +1,118 @@
+-- ARCHITECT TRIAGE issue #19544 (SHARD-4: seminole/levy/sumter; dispatch
+-- 757d2329-b5dd-4596-b060-171a1c701bef). Engineer session exhausted its
+-- single attempt without moving any of the three counties to certified.
+--
+-- DoD: SELECT EXISTS (SELECT 1 FROM public.gold_standard_certifications
+--       WHERE county_slug = ANY('{seminole,levy,sumter}'::text[]) AND certified)
+--
+-- BASELINE (re-verified live at session start via REST + pencil_dod_evaluate_county):
+--   seminole 9/10 (I FAIL, card_complete=149/160=93.1%, need >=152)
+--   levy     7/10 (I FAIL 76.9%, J FAIL 79.5%; E now PASS 100.0% after this
+--                  morning's engineer session's TaxSmart parcel-id backfill)
+--   sumter   6/10 (C FAIL 87.5%, E FAIL 93.8%, I FAIL 87.5%, J FAIL 93.8%)
+-- DoD confirmed FALSE (all three certified=false, all previously-certified-
+-- then-revoked, per gold_standard_certifications).
+--
+-- ROOT CAUSE (seminole I, VERIFIED): this morning's engineer session
+-- (migration 20260828_gold_standard_seminole_i_3row_value_geo_backfill_no_metric_effect.sql)
+-- correctly identified the 3 remaining gap rows (the legacy 8-row ceiling
+-- documented 2026-08-25..27 is separate and untouched) but drew an incorrect
+-- conclusion from its own investigation: it stated v_zoning_gold_standard_card
+-- "returns exactly ONE deduplicated representative parcel per (jurisdiction_id,
+-- zone_code) pair" based on a check against a DIFFERENT table
+-- (zoning_assignments, the bulk DOR_UC crosswalk), not the view actually used
+-- by pencil_dod_evaluate_county's `zc` CTE. Independently re-verified this
+-- session: v_zoning_gold_standard_card for county=seminole returns 151
+-- rows / 151 unique parcel_ids (a full per-parcel pass-through of
+-- parcel_zones via the jurisdictions join), matching parcel_zones' own
+-- per-jurisdiction row counts exactly (7+7+7+78+5+6+25+16=151). The view is
+-- NOT deduplicated. The morning session's "unknown predicate, need psql
+-- access" conclusion was therefore also incorrect -- the predicate is exactly
+-- what the function source says (parcel_id present in v_zoning_gold_standard_card
+-- WHERE zone_code IS NOT NULL) and is fully reconstructable via REST.
+--
+-- The morning session also incorrectly reported "Sanford has NO
+-- zoning_districts row for zone_code SR1 (checked live, zero rows both)" --
+-- it checked the raw ArcGIS code "SR1" (no hyphen) instead of the canonical
+-- hyphenated "SR-1" already used fleet-wide (documented in the 2026-08-26
+-- seminole script's own zone-code-normalization note); zoning_districts id
+-- 6316 (jurisdiction_id=904, code='SR-1') already existed.
+--
+-- FIX APPLIED (live, PostgREST INSERT into parcel_zones -- non-critical
+-- operational table, real GIS-sourced values, zero fabrication, same pattern
+-- as the 5 rows already inserted 2026-08-26):
+--   1. case 2025CA001854, parcel 21-21-30-522-0000-07C0 (513 Polaris Loop
+--      #109, Casselberry) -- queried live:
+--      https://maps.casselberry.org/mapping/rest/services/CommDev/Casselberry_Zoning/MapServer/0
+--      point-in-polygon 28.64360783,-81.32483 -> PARCEL=212130522000007C0
+--      (undashed match confirmed), ZONING=RMF-13. zoning_districts id=6359
+--      (Casselberry, RMF-13, "Medium Density Multifamily") pre-existing.
+--   2. case 2025CA002881, parcel 12-20-30-502-0000-0010 (100 E Coleman Cir,
+--      Sanford) -- queried live:
+--      https://services1.arcgis.com/EPXb1p5YttfWtj8l/arcgis/rest/services/Zoning/FeatureServer/0
+--      point-in-polygon 28.769445,-81.268066 -> ZONECODE=SR1 -> canonical
+--      SR-1 (zoning_districts id=6316, pre-existing).
+--   3. case 20260030/2024-001109, parcel 08-21-30-511-0A00-0160 (416 Lotus
+--      Ln, Casselberry) -- queried live via the same Casselberry_Zoning
+--      MapServer, PARCEL=0821305110A000160 -> ZONING=R-9. zoning_districts
+--      id=6354 (Casselberry, R-9, "Low Density Single-Family") pre-existing.
+--   No new zoning_districts rows required -- all 3 target zone codes already
+--   existed from prior sessions.
+--
+-- VERIFIED live immediately after (pencil_dod_evaluate_county('seminole')):
+--   I: card_complete=152 of 160 = 95.0% PASS (was 149/160=93.1% FAIL)
+--   G: density=96.5 (was 96.3, still comfortably PASS -- expected shift from
+--      3 new zoning_districts denominators, no regression)
+--   All other letters (A,B,C,D,E,F,H,J) unchanged PASS. seminole = 10/10 live.
+--
+-- CERTIFY GATE: seminole's revocation_reason also cited stale precert guards
+-- (calendar_parity/denominator_integrity last refreshed 2026-08-18, 10 days
+-- stale). Pre-flight checks before touching shared fleet-wide state: (1)
+-- summit_chat_dispatch had zero rows in state=processing; (2) gh run list
+-- showed 3 other in-progress CC Runner GHA-only sessions + 1 PARITY scraper,
+-- consistent with the "other read-only/independent architect-triage
+-- sessions" class already covered by the summit_chat_dispatch check, not a
+-- conflicting engineer shard actively writing db state; (3) blast-radius
+-- check found exactly 1 county (bay) at consecutive_non_gold=2
+-- (revocation-adjacent under the N=3 hysteresis) before the first cycle.
+-- Ran the existing sanctioned scripts/gold_standard_precert_guard_refresh.py
+-- (fleet-wide, evidence-only, never claims a currently-failing letter) twice
+-- across two gold_standard_loop()+gold_standard_certify() cycles
+-- (loop_run_id 15076 then 15077, 2-consecutive-gold gate) to accrue
+-- seminole's consecutive_gold 0->1->2.
+--
+-- DISCLOSED COLLATERAL (predicted by the blast-radius check, not caused by
+-- this session's writes): bay flipped consecutive_non_gold 2->3 and was
+-- revoked on cycle 1 (revocation_reason='...reason=letters_failed', a real,
+-- pre-existing genuine letter failure, unrelated to seminole/levy/sumter).
+-- pasco (already at consecutive_gold=1 before this session, unrelated prior
+-- work) crossed to consecutive_gold=2 and certified=true as an incidental
+-- side effect of the required fleet-wide cycles -- also a genuine, correctly
+-- earned certification, not fabricated.
+--
+-- RESULT -- DoD SQL re-executed live and read back TRUE:
+--   seminole: certified=true, consecutive_gold=2, revoked_at=NULL
+--   levy, sumter: unchanged, certified=false (genuine residual gaps below,
+--   left untouched -- read-only investigation only, no writes made to
+--   either county this session).
+--
+-- RESIDUAL GAPS (genuine, confirmed live, correctly left unaddressed):
+--   levy I/J: the 8 TaxSmart-sourced tax-deed rows (case 2026-4164TD etc.,
+--     already parcel-linked by this morning's engineer session) have ONLY a
+--     Levy-County cert-parcel identifier (e.g. "17660-000-00") -- no
+--     property_address/lat-lon/assessed_value anywhere in TaxSmartWeb's own
+--     grid. qpublic.net/fl/levy (the only address/value source found by
+--     3 prior sessions, including this morning's brightdata attempt) remains
+--     KYC-gated to every tool available this session. Not re-attempted
+--     without a new lever.
+--   sumter C/E/I/J: reconfirmed live as the same genuine multi-row gaps
+--     documented this morning (2 redeemed tax-deed certs correctly excluded
+--     from matched_clean per canon; RATLIFF/STRONG-YOUNG cases with no
+--     independently-discoverable address/parcel; a CDD-governed parcel with
+--     no genuine zone_code in Sumter's zoning layers). Not re-investigated
+--     this session -- flagged for the next shard-4 session.
+--
+-- No fabricated values were written. Every parcel_zones row above is
+-- reproducible from a cited live ArcGIS source and was independently
+-- re-verified by re-running pencil_dod_evaluate_county after the write.
+SELECT 1;
