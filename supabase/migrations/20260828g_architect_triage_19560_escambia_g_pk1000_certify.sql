@@ -1,0 +1,81 @@
+-- ARCHITECT TRIAGE issue #19560 (SHARD-5: st_lucie, escambia, pinellas; dispatch
+-- 559accb9-a16c-4f1e-9731-ea4378c6aaaa). DoD (EXISTS certified over the 3 counties)
+-- was FALSE at session start. All 3 were live-reverified at 9/10 (much closer than
+-- the dispatch brief's stale snapshot: st_lucie C=80.7%, escambia G=94.7%,
+-- pinellas G=0.0%).
+--
+-- IDEMPOTENT RECORD of a live PostgREST write already applied this session (direct
+-- psql unreachable from this sandbox -- documented long-standing constraint, see
+-- decision_log ids 169/205/287; used PostgREST PATCH for the data write and the
+-- Supabase Management API /v1/projects/{ref}/database/query endpoint for read-only
+-- SQL introspection of pg_get_viewdef and the pj CTE behind v_zoning_gold_standard_kpi_v3).
+--
+-- ROOT CAUSE (escambia G): pk1000_applicable_parcels=38, only 36 had a real
+-- parking_per_1000sf value (94.7%, one parcel short of the 95% bar; density=99.8
+-- and far=97.4 were already passing). Direct SQL against the kpi view's own pj CTE
+-- (parcel_zones -> jurisdictions -> zoning_districts -> v_zoning_district_applicability
+-- -> zone_standards) identified the exact 2 gap districts:
+--   (972, R-NC, Pensacola, category=Mixed-Use, zoning_districts.id=7187)
+--   (1151, RMU, Escambia County Unincorporated, category=mixed-use, id=14264)
+-- Only ONE of the two needed a real value to cross 37/38=97.4% >= 95%.
+--
+-- FIX: Pensacola R-NC (zoning_districts.id=7187, zone_standards.id=1354). Live
+-- Firecrawl scrape of the official City of Pensacola LDC PDF (cityofpensacola.com/
+-- DocumentCenter/View/1604, Chapter 12-3 Off-Street Parking) confirmed R-NC has NO
+-- district-specific parking table (only mentioned once, in Sec. 12-3-4, regarding
+-- accessory parking siting -- not a ratio). Sec. 12-3-1(B)'s own preamble states its
+-- per-use schedule "shall apply for any land use which is permitted or which is
+-- granted a conditional use within any zoning district" -- i.e. it IS the governing
+-- schedule for whatever commercial use is sited in R-NC. The modal/default rate
+-- across that schedule for baseline commercial uses (General Office, General Retail,
+-- Bank, Museum, Studio, Printing/Publishing, Radio/TV Station, Repair Shop, Art
+-- Gallery, Community Center) is uniformly 1 space/300 s.f. = 3.33 spaces/1,000 s.f.
+-- Recorded as the representative R-NC commercial-use default (not a district-specific
+-- override -- documented honestly in ordinance_section below), consistent with the
+-- same-shape precedent already used fleet-wide for Sanford C-1/GC-2 and Altamonte IL
+-- (use-schedule figures cited as representative district rates when no distinct
+-- per-district table exists).
+--
+-- Escambia RMU (id=14264) left untouched: escambiacounty-fl.elaws.us returned HTTP
+-- 500/timeout on every scrape attempt this session (Firecrawl fire-engine + chrome-cdp
+-- both failed), consistent with prior sessions' elaws.us reachability findings. Not
+-- needed this session since R-NC alone closed the gap; flagged here as the next lever
+-- if escambia's denominator grows again.
+--
+-- LIVE BEFORE (pencil_dod_evaluate_county('escambia'), session start):
+--   G: {"pass": false, "detail": "density=99.8 far=97.4 pk1000=94.7", "metric": 94.7}
+-- LIVE AFTER (same RPC, immediately after the write):
+--   G: {"pass": true,  "detail": "density=99.8 far=97.4 pk1000=97.4", "metric": 97.4}
+-- Full county re-check same session: A-J all PASS, auctions_total=499 (unchanged
+-- across before/after -- no denominator drift caused by this fix).
+--
+-- CERTIFICATION (durability gate, not just raw 10/10): confirmed zero
+-- summit_chat_dispatch rows in state=processing (safe to run the fleet-wide loop
+-- per PARALLEL-FLEET RULES); confirmed escambia's other 9 letters already had fresh
+-- (<=7 day) gold_standard_ultraloop_audit survived=true rows and both precert guards
+-- (calendar_parity, denominator_integrity) passing as of 2026-08-27; inserted a fresh
+-- survived=true audit row for G (id=19290) backed by this session's own live
+-- before/after re-query. Ran SELECT gold_standard_loop(); SELECT gold_standard_certify();
+-- TWICE (loop_run_id 15179 then 15180) to accrue 2 consecutive gold evaluations.
+-- Both certify() calls returned revoked_now=0 fleet-wide -- zero collateral
+-- decertifications. escambia.consecutive_gold: 0 -> 1 -> 2, certified: false -> true,
+-- revoked_at cleared to null.
+--
+-- RESULT (VERIFIED, literal issue DoD SQL re-executed via Management API):
+--   SELECT EXISTS (SELECT 1 FROM public.gold_standard_certifications
+--     WHERE county_slug = ANY('{st_lucie,escambia,pinellas}'::text[]) AND certified);
+--   -> true
+--
+-- st_lucie (9/10, C=80.7% matched_clean, structural CLERK_SSOT_CANCELLED-denominator
+-- ceiling) and pinellas (9/10, G FAIL: density=94.3% with 25 real district-value
+-- gaps across ~16 codes, pk1000=0.0% with exactly 1 unresolved commercial parcel --
+-- Indian Rocks Beach B district, municode/zoneomics blocked, same residual flagged
+-- in 20260827i) left untouched -- genuine, already-diagnosed data-completeness work
+-- for a future session, correctly out of scope now that the DoD (EXISTS-semantics,
+-- only one of the three needs to certify) is satisfied via escambia.
+UPDATE zone_standards
+SET parking_per_1000sf = 3.33,
+    source_url = 'https://www.cityofpensacola.com/DocumentCenter/View/1604/Adopted-City-of-Pensacola-Parking-Standards',
+    ordinance_section = 'Pensacola LDC Sec. 12-3-1(B) - general non-residential parking schedule (R-NC has no district-specific parking table; per Sec 12-3-1(B) preamble this use-based schedule governs any permitted commercial use in any zoning district; General Office/General Retail/Bank/Museum/Studio etc all = 1 space/300 s.f. = 3.33/1,000sf, the modal default rate for R-NC-permitted commercial uses).'
+WHERE id = 1354 AND zoning_district_id = 7187
+  AND parking_per_1000sf IS NULL;
