@@ -862,7 +862,7 @@ async function fetchCountyLots(county) {
   try {
     const today = new Date().toISOString().slice(0,10);
     const cutoff = new Date(Date.now() + 35*24*60*60*1000).toISOString().slice(0,10);
-    const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&or=(auction_status.in.(upcoming,active,scheduled),auction_status.is.null)&order=auction_date.asc,sale_type.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff,auction_status`;
+    const url = `${SUPABASE_URL}/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&or=(auction_status.in.(upcoming,active,scheduled),auction_status.is.null)&order=auction_date.asc,sale_type.asc&limit=300&select=sale_type,property_address,auction_date,opening_bid,assessed_value,market_value,auction_url,clerk_url,bcpao_url,judgment_amount,case_number,plaintiff,auction_status`;
     const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } });
     if (!res.ok) return [];
     return await res.json();
@@ -4808,7 +4808,7 @@ const COUNTY_PAGE_TEMPLATE = `<!doctype html>
 <meta charset="utf-8">
 <title>BidDeed.AI · COUNTY_TITLE Auctions</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#020617">
+<meta name="theme-color" content="#F5F0E8">
 <link rel="canonical" href="https://biddeed.ai/county/COUNTY_URLSLUG">
 <meta name="description" content="COUNTY_META_DESC">
 <meta property="og:title" content="COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions">
@@ -4833,9 +4833,9 @@ try { new Function('return 1')() } catch (e) { window.__bdFail && window.__bdFai
 <script defer src="/assets/alpine.min.js" onerror="window.__bdFail('alpine-local')"></script>
 <script>setTimeout(function(){if(!window.Alpine){window.__bdFail('alpine-boot-timeout');}},4000);</script>
 <style>
-:root { --safe-bottom: env(safe-area-inset-bottom,0px); --safe-top: env(safe-area-inset-top,0px); }
-html { background:#020617; color:#e2e8f0; }
-body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:#020617; color:#e2e8f0; -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
+:root { --safe-bottom: env(safe-area-inset-bottom,0px); --safe-top: env(safe-area-inset-top,0px); --cream:#F5F0E8; --surface:#FBFAF7; --ink:#1F1B16; --terracotta:#C15F3C; --terracotta-hover:#A94D30; --warm-muted:#766F67; --warm-border:#DDD5C9; --warm-fill:#EDE3D7; --soft-terracotta:#F8D4C5; }
+html { background:var(--cream); color:var(--ink); }
+body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; background:var(--cream); color:var(--ink); -webkit-tap-highlight-color:transparent; overscroll-behavior-y:contain; }
 .glass { background:rgba(30,41,59,0.55); backdrop-filter:blur(10px); border:1px solid rgba(245,158,11,0.12); }
 .glass-diamond { background:linear-gradient(135deg,rgba(56,189,248,0.12),rgba(168,85,247,0.12)); backdrop-filter:blur(10px); border:1px solid rgba(168,85,247,0.35); }
 .glass-triangle { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(245,158,11,0.10)); backdrop-filter:blur(10px); border:1px solid rgba(239,68,68,0.30); }
@@ -4875,7 +4875,21 @@ input, select { font-size:16px; min-height:48px; }
 .cert-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:9999px; font-size:10px; font-weight:800; letter-spacing:0.03em; margin-top:4px; }
 .cert-gold { background:rgba(245,158,11,0.18); color:#fcd34d; border:1px solid rgba(245,158,11,0.35); }
 .cert-review { background:rgba(100,116,139,0.20); color:#cbd5e1; border:1px solid rgba(100,116,139,0.35); }
-input[type=range] { accent-color:#f59e0b; }
+input[type=range] { accent-color:var(--terracotta); }
+/* County pages were bypassing the shared shell and retained the legacy navy/amber skin. */
+html, body { background:var(--cream) !important; color:var(--ink) !important; }
+.bg-slate-950, .bg-slate-950\\/90, .bg-slate-950\\/85, .bg-slate-900, .bg-slate-900\\/80, .bg-slate-800, .bg-slate-800\\/60, .bg-slate-800\\/50, .bg-slate-900\\/60 { background-color:var(--surface) !important; }
+.text-white, .text-slate-200, .text-slate-300, .text-slate-400, .text-slate-500, .text-slate-600 { color:var(--ink) !important; }
+.text-amber-300, .text-amber-400, .text-amber-500, .text-amber-400\\/80, .text-emerald-400, .text-blue-300, .text-blue-400, .text-purple-400, .text-red-300, .text-red-400, .text-pink-300, .text-sky-300 { color:var(--terracotta) !important; }
+.border-slate-700, .border-slate-700\\/60, .border-slate-700\\/50, .border-slate-800\\/40, .border-slate-700\\/40, .border-amber-500\\/20, .border-amber-500\\/30 { border-color:var(--warm-border) !important; }
+.bg-amber-500, .bg-amber-500\\/10, .bg-amber-500\\/5 { background-color:var(--soft-terracotta) !important; }
+.bg-emerald-950\\/50, .bg-blue-950\\/40 { background-color:var(--warm-fill) !important; }
+.glass, .glass-sold, .glass-diamond, .glass-triangle, .glass-canceled { background:var(--surface) !important; border-color:var(--warm-border) !important; backdrop-filter:none; color:var(--ink); }
+.status-LISTED, .status-SOLD, .status-CANCELED, .status-REDEEMED, .cert-gold, .cert-review { background:var(--soft-terracotta) !important; color:var(--ink) !important; border-color:var(--terracotta) !important; }
+.grade-A, .grade-B, .grade-C, .grade-D, .grade-E, .grade-X, .grade-Z { background:var(--soft-terracotta) !important; color:var(--ink) !important; }
+header { background:rgba(251,250,247,.96) !important; border-color:var(--warm-border) !important; }
+select, input { background:var(--surface) !important; color:var(--ink) !important; border-color:var(--warm-border) !important; }
+.skeleton { background:linear-gradient(90deg,#ede3d7 0%,#f8d4c5 50%,#ede3d7 100%); }
 </style>
 </head>
 <body x-data="app()" x-init="init()" class="min-h-screen pb-24">
@@ -5370,10 +5384,17 @@ function app() {
             zip5: zip5,
             opening_bid: bid,
             market_value: market,
+            parcel_id: r.parcel_id || r.bcpao_account || '',
+            bcpao_account: r.bcpao_account || r.parcel_id || '',
+            sold_amount: Number(r.sold_amount) || 0,
+            sold_premium_pct: Number(r.sold_premium_pct) || 0,
+            sold_pct_of_market: Number(r.sold_pct_of_market) || 0,
+            sold_to: r.sold_to || '',
+            buyer_residual_equity: Number(r.buyer_residual_equity) || 0,
             equity_at_opening_bid: equity,
             opening_bid_pct_of_market: pctMkt,
             assessed_value: assessed,
-            sale_status: 'LISTED',
+            sale_status: r.auction_status === 'sold' ? 'SOLD' : r.auction_status === 'canceled' ? 'CANCELED' : 'LISTED',
             sale_type: r.sale_type,
             auction_date: r.auction_date,
             clerk_url: r.clerk_url || r.auction_url || '',
@@ -5381,10 +5402,10 @@ function app() {
             plaintiff: r.plaintiff || '',
             property_category: r.sale_type === 'tax_deed' ? 'tax_deed' : 'foreclosure',
             tax_deed_grade: market > 0 && equity > 50000 ? 'A_PREMIUM' : market > 0 && equity > 20000 ? 'B_SOLID' : market > 0 ? 'C_MARGINAL' : 'X_UNKNOWN',
-            owner_distress_score: 0,
-            owner_distress_signals: '',
-            owner_name: r.plaintiff || '',
-            owner_mailing_state: 'FL',
+            owner_distress_score: Number(r.owner_distress_score) || 0,
+            owner_distress_signals: r.owner_distress_signals || '',
+            owner_name: r.owner_name || r.plaintiff || '',
+            owner_mailing_state: r.owner_mailing_state || 'FL',
           };
         }).filter(d => d && (d.tax_deed_case || d.full_address));
       })
