@@ -26,7 +26,17 @@ JURISDICTION RESOLUTION (per parcel):
      supabase/migrations/20260719_shard3_okaloosa_i_unincorporated_jurisdiction.sql),
      zone_code source is the County Zoning layer:
        https://okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/
-       Zoning/MapServer/28  (field ZNGPY_ZONE)
+       Zoning/MapServer/25  (field ZNGPY_ZONE)
+
+     CORRECTION 2026-08-28: the service's layer IDs were renumbered upstream
+     at some point after this script was written -- MapServer/28 is now
+     "Coastal Construction Control Line" (no ZNGPY_ZONE field at all; every
+     query against it returns HTTP 400 "Failed to execute query"), which
+     silently blocked 2 genuinely-resolvable Unincorporated-area parcels this
+     session. Re-enumerated the service's live layer list
+     (MapServer?f=json) and confirmed layer 25 ("County Zoning") is the real
+     current zoning layer, with the same ZNGPY_ZONE field this script always
+     expected. Updated COUNTY_ZONING_URL to /25.
   3. If ICLPY_CITY_CODE is an incorporated city already present in
      `jurisdictions` (Crestview/Fort Walton Beach/Niceville/Destin -- the
      only 4 that appeared among our 36 points; Mary Esther/Shalimar/
@@ -78,7 +88,7 @@ import sys
 import httpx
 
 CITY_LIMITS_URL = "https://okgis.myokaloosa.com/arcgis/rest/services/Admin-Boundaries/Admin_Boundaries/MapServer/99/query"
-COUNTY_ZONING_URL = "https://okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/Zoning/MapServer/28/query"
+COUNTY_ZONING_URL = "https://okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/Zoning/MapServer/25/query"
 
 # Per-city zoning source registry. Only cities we've actually confirmed a
 # live, working zoning layer for are listed -- anything else (a city code

@@ -35,11 +35,20 @@ id, discovered by reading the status-dropdown's data-status-id attributes on
 the unfiltered list page) plus pagination returns a static server-rendered
 `<table class="table public">` of ACTIVE cases, one row per case: Status |
 Case Number | Date Created | App Number | Parcel Number | Sale Date |
-Surplus Balance. No independent "cancelled" signal is exposed by the ACTIVE
-filter (cancelled cases carry other status ids entirely -- see STATUS_IDS),
-so cancelled is always False for rows returned by this filter; a case that
-drops out of the ACTIVE list on a later run has changed status, which
-run_parity's phantom-detection already handles at the orchestration layer.
+Surplus Balance.
+
+CORRECTION 2026-08-28: filterCaseStatus=1827 was found to only cover ONE of
+realtdm's several status buckets. Live-verified that 30 genuinely-live
+highlands tax_deed cases -- some "ACTIVE - REDEMPTION" / "ACTIVE - SOLD
+BIDDER", some "CANCELED - RESCHEDULE" -- never appear under filterCaseStatus
+=1827 at all, so the filtered pull silently dropped them and the daily
+clerk_ssot reconcile flagged them PHANTOM_NOT_ON_CLERK, regressing D
+(matched_any 96.0% -> 94.8%, PASS -> FAIL) the moment it ran. Switched to
+filterCaseStatus="" (unfiltered -- confirmed live to return every status
+bucket, same pagination contract) and derive `cancelled` from the status
+text itself ("CANCEL" substring) instead of assuming filter-implies-active.
+TD_STATUS_ACTIVE is kept only as a documented artifact of the prior
+(narrower) filter; it is no longer passed to the live request.
 """
 import re
 
@@ -164,11 +173,20 @@ def _normalize_td_date(raw: str) -> str | None:
 
 
 def _fetch_td_page(page: int) -> str:
+    # filterCaseStatus=TD_STATUS_ACTIVE ("1827") only returns ONE of realtdm's
+    # several "active-ish" status buckets. Live-verified 2026-08-28: cases
+    # sitting in "ACTIVE - REDEMPTION" and "CANCELED - RESCHEDULE" status
+    # never appear under filterCaseStatus=1827 at all, so the previous filtered
+    # pull silently dropped 30 genuinely-live highlands tax_deed cases and the
+    # daily clerk_ssot reconcile then flagged them PHANTOM_NOT_ON_CLERK,
+    # regressing D. Unfiltered (filterCaseStatus="") returns every status
+    # bucket in one paginated pull -- confirmed live to include REDEMPTION,
+    # SOLD BIDDER, and CANCELED - RESCHEDULE rows that the filtered pull misses.
     resp = httpx.post(
         TD_URL,
         headers={"User-Agent": UA, "X-Requested-With": "XMLHttpRequest",
                  "Content-Type": "application/x-www-form-urlencoded"},
-        data={"filterFiltered": "1", "filterCaseStatus": TD_STATUS_ACTIVE,
+        data={"filterFiltered": "1", "filterCaseStatus": "",
               "filterCasesPerPage": "100", "filterPageNumber": str(page)},
         timeout=30, follow_redirects=True,
     )
@@ -207,7 +225,7 @@ def parse_tax_deed() -> list[dict]:
                 "sale_type": "tax_deed",
                 "case_number": case_number,
                 "sale_date": _normalize_td_date(sale_date),
-                "cancelled": False,  # ACTIVE-status filter only; see module docstring
+                "cancelled": "CANCEL" in status.upper(),
                 "raw_comment": f"{status} | parcel {parcel}",
                 "case_title": case_number,
                 "source_url": TD_URL,
