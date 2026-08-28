@@ -5,6 +5,11 @@ account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 routes = [
   { pattern = "biddeed.ai/buy-report*", zone_name = "biddeed.ai" },
   { pattern = "biddeed.ai/discover*", zone_name = "biddeed.ai" },
+  { pattern = "biddeed.ai/security*", zone_name = "biddeed.ai" },
+  { pattern = "biddeed.ai/disclaimer*", zone_name = "biddeed.ai" },
+  { pattern = "biddeed.ai/terms*", zone_name = "biddeed.ai" },
+  { pattern = "biddeed.ai/privacy*", zone_name = "biddeed.ai" },
+  { pattern = "biddeed.ai/data-retention*", zone_name = "biddeed.ai" },
 ]
 
 [vars]
