@@ -4965,18 +4965,19 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
   <button @click="clearPersona()" class="px-3 text-xs text-slate-300 shrink-0">✕</button>
 </div>
 
-<div class="px-4 py-2 flex items-center gap-2 sticky bg-slate-950/85 backdrop-blur z-20" style="top:170px">
-  <button @click="showFilters=true" class="flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-800 border border-slate-700 text-sm">
+<div class="px-4 pt-3 pb-1 text-xs font-extrabold uppercase tracking-[0.14em]" style="color:var(--warm-muted)">Auction inventory</div>
+<div class="px-4 py-2 flex items-center gap-2 relative z-20" style="background:var(--surface);border-bottom:1px solid var(--warm-border)">
+  <button @click="showFilters=true" class="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-semibold" style="background:var(--terracotta);color:#fff;border:1px solid var(--terracotta-hover)">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18M6 12h12M10 20h4"/></svg>
-    Filters <span x-show="activeFilterCount>0" class="bg-amber-500 text-slate-900 text-[10px] font-bold rounded-full px-1.5" x-text="activeFilterCount"></span>
+    Filters <span x-show="activeFilterCount>0" class="text-[10px] font-bold rounded-full px-1.5" style="background:var(--surface);color:var(--ink)" x-text="activeFilterCount"></span>
   </button>
-  <select x-model="sortKey" class="bg-slate-800 border border-slate-700 rounded-full px-3 py-2 text-sm">
+  <select x-model="sortKey" class="rounded-full px-3 py-2 text-sm" style="background:var(--surface);color:var(--ink);border:1px solid var(--warm-border)">
     <option value="equity_at_opening_bid">Sort: Equity ↓</option>
     <option value="owner_distress_score">Sort: 🔺 Distress ↓</option>
     <option value="opening_bid">Sort: Open Bid ↑</option>
     <option value="opening_bid_pct_of_market">Sort: Discount</option>
   </select>
-  <div class="ml-auto text-[11px] text-slate-500"><span x-text="filteredDeals.length"></span>/<span x-text="deals.length"></span></div>
+  <div class="ml-auto text-[11px]" style="color:var(--warm-muted)"><span x-text="filteredDeals.length"></span>/<span x-text="deals.length"></span></div>
 </div>
 
 <main class="px-3 sm:px-4 pb-4 max-w-5xl mx-auto">
