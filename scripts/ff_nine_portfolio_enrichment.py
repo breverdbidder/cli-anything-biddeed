@@ -23,6 +23,7 @@ from datetime import date, datetime, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 import ff_credit_ledger  # noqa: E402
 import tracerfy_client  # noqa: E402
+from entity_portfolio_resolver import resolve_entity_portfolio, normalize  # noqa: E402
 
 PROJECT_REF = "mocerqjnksmhcjzxrewo"
 MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
@@ -196,6 +197,140 @@ def persist_lead(auction_id: str, tf: dict, qa_status: str):
     """)
 
 
+# ---------------------------------------------------------------------------
+# Entity/Portfolio Correlation pass (P0 follow-up to issue #19547, 2026-08-28).
+#
+# Generalizes scripts/skiptrace_20260825_portfolio_batch.py's hardcoded
+# 15-row owner_portfolio (batch_id='20260825_third_party_portfolio') by
+# running scripts/entity_portfolio_resolver.py's statewide zw_parcels +
+# auction_buyer_sightings + Sunbiz walk for every buyer in THIS batch, not
+# just the two hand-picked test entities the resolver was proven against.
+# Writes each resolved property edge through
+# winnerdata.upsert_entity_portfolio_edge() (the one narrow write path the
+# 2026-08-28 migration ships, rather than ad hoc INSERTs), and persists the
+# per-buyer KPI summary onto the buyer's own winnerdata.ff_batch_leads
+# row(s) so portfolio_fact_finder_render.py can render it without a second
+# live resolver call at render time.
+# ---------------------------------------------------------------------------
+
+ENTITY_PORTFOLIO_BATCH_ID_PREFIX = "entity_portfolio_"
+
+
+def sql_lit(v):
+    return "null" if v in (None, "") else "'" + esc(v) + "'"
+
+
+def sql_num(v):
+    try:
+        return "null" if v in (None, "") else str(float(v))
+    except (TypeError, ValueError):
+        return "null"
+
+
+def sql_int(v):
+    try:
+        return "null" if v in (None, "") else str(int(v))
+    except (TypeError, ValueError):
+        return "null"
+
+
+def county_slug(county: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (county or "").strip().lower()).strip("_")
+
+
+def county_co_no_map() -> dict:
+    rows = sql("select co_no, slug from public.fl_counties")
+    return {r["slug"]: r["co_no"] for r in rows if r.get("slug")}
+
+
+def write_portfolio_edge(owner_key, entity_name, county_map, prop, batch_id):
+    slug = county_slug(prop.get("county"))
+    co_no = county_map.get(slug)
+    if co_no is None:
+        return False, f"no co_no match for county={prop.get('county')!r} (slug={slug!r})"
+    if prop.get("source") == "zw_parcels":
+        parcel_id = prop.get("pin_clean")
+        address = prop.get("site_addr") or prop.get("owner_addr1")
+        dor_uc = prop.get("luse_code")
+        jv = prop.get("val_assessed")
+        acquisition_source = "prior_holding"
+        case_number = None
+    else:  # auction_buyer_sightings -- a real win, but not yet crosswalked to a zw_parcels pin
+        parcel_id = f"CASE:{prop.get('case_number')}" if prop.get("case_number") else None
+        address = prop.get("site_addr")
+        dor_uc = None
+        jv = None  # sold_amount is a price, not a Just Value -- never conflate the two (Honesty Protocol)
+        acquisition_source = "auction_win"
+        case_number = prop.get("case_number")
+    if not parcel_id:
+        return False, "no parcel_id or case_number to key this edge on"
+    q = f"""select winnerdata.upsert_entity_portfolio_edge(
+        {sql_lit(owner_key)}, {sql_lit(entity_name)}, {sql_lit(county_slug(prop.get('county')))}, {co_no}, {sql_lit(parcel_id)},
+        {sql_lit(address)}, {sql_lit(dor_uc)}, null, {sql_num(jv)},
+        {sql_lit(acquisition_source)}, {sql_lit(prop.get('linked_via'))}, {sql_lit(prop.get('linked_via_detail'))},
+        {sql_lit(batch_id)}, {sql_lit(case_number)}, {sql_lit(prop.get('source'))}, {sql_lit(prop.get('confidence_tier'))}
+    );"""
+    sql(q)
+    return True, None
+
+
+def entity_portfolio_pass(auctions: list[dict]) -> list[dict]:
+    county_map = county_co_no_map()
+    batch_id = f"{ENTITY_PORTFOLIO_BATCH_ID_PREFIX}{BATCH_DATE}"
+    by_buyer: dict[str, list[dict]] = {}
+    for a in auctions:
+        name = a.get("winning_bidder")
+        if name:
+            by_buyer.setdefault(name, []).append(a["id"])
+
+    report = []
+    for name, auction_ids in by_buyer.items():
+        entry = {"winning_bidder": name, "auction_ids": auction_ids}
+        try:
+            result = resolve_entity_portfolio(name, run_live_cascade=False)
+            kpi = result["kpi"]
+            all_props = result["properties_from_ownership_records"] + result["auction_wins_not_yet_crosswalked"]
+            written, skipped = 0, 0
+            for prop in all_props:
+                ok, why = write_portfolio_edge(result["owner_key"], name, county_map, prop, batch_id)
+                if ok:
+                    written += 1
+                else:
+                    skipped += 1
+            entry.update({
+                "status": "OK",
+                "total_properties": kpi["total_properties"],
+                "counties": kpi["counties"],
+                "confidence_summary": kpi["confidence_summary"],
+                "acquisition_velocity": kpi["acquisition_velocity"],
+                "edges_written": written,
+                "edges_skipped": skipped,
+            })
+            props_json = json.dumps(all_props, default=str)
+            counties_arr = "array[" + ",".join(sql_lit(c) for c in kpi["counties"]) + "]::text[]" if kpi["counties"] else "null"
+            for auction_id in auction_ids:
+                sql(f"""
+                    update winnerdata.ff_batch_leads
+                    set portfolio_property_count = {kpi['total_properties']},
+                        portfolio_county_count = {kpi['county_spread']},
+                        portfolio_counties = {counties_arr},
+                        portfolio_assessed_value_total = {sql_num(kpi['total_assessed_value'])},
+                        portfolio_market_value_total = {sql_num(kpi['total_market_value'])},
+                        portfolio_properties_json = {sql_lit(props_json)}::jsonb,
+                        portfolio_acquisition_velocity_per_year = {sql_num(kpi['acquisition_velocity'].get('velocity_per_year'))},
+                        portfolio_wins_on_file = {sql_int(kpi['acquisition_velocity'].get('wins_on_file'))},
+                        portfolio_confidence_summary = {sql_lit(json.dumps(kpi['confidence_summary']))}::jsonb
+                    where batch_date = date '{esc(BATCH_DATE)}' and auction_id = '{esc(auction_id)}'
+                """)
+        except Exception as e:
+            entry.update({"status": "FAILED", "error": str(e)[:500]})
+            print(f"  entity/portfolio resolution FAILED for {name!r}: {e}", file=sys.stderr)
+        report.append(entry)
+        print(f"  entity/portfolio: {name!r} -> {entry.get('status')} "
+              f"(total_properties={entry.get('total_properties')}, edges_written={entry.get('edges_written')})")
+    return report
+
+
 def main():
     set_enrichment_status("running")
     try:
@@ -260,7 +395,11 @@ def main():
                 qa = {"NO_MATCH": "ENRICHED_NO_CONTACT_MATCH", "SKIPPED_DAILY_CAP": "ENRICHMENT_SKIPPED_DAILY_CAP", "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS": "ENRICHMENT_SKIPPED_NO_PRIOR_ADDRESS", "REQUEST_FAILED": "ENRICHMENT_REQUEST_FAILED"}.get(tf.get("status"), "SSOT_MATCHED_NO_CONTACT")
             out.append({"auction": a, "crosswalk": x[0], "parcel": parcel, "prior_buyer_owned_addresses": prior, "tracerfy": tf, "qa_status": qa})
             persist_lead(auction_id, tf, qa)
-        payload = {"generated_at": datetime.now(timezone.utc).isoformat(), "batch_date": BATCH_DATE, "candidate_count": len(auctions), "records": out, "bright_data": "NOT_RUN_NO_KEY", "policy": "BLANK_OVER_WRONG; no purchased-property address used for buyer contact"}
+
+        print("Running entity/portfolio correlation pass...")
+        portfolio_report = entity_portfolio_pass(auctions)
+
+        payload = {"generated_at": datetime.now(timezone.utc).isoformat(), "batch_date": BATCH_DATE, "candidate_count": len(auctions), "records": out, "entity_portfolio": portfolio_report, "bright_data": "NOT_RUN_NO_KEY", "policy": "BLANK_OVER_WRONG; no purchased-property address used for buyer contact"}
         with open(OUT, "w") as f:
             json.dump(payload, f, indent=2, default=str)
         print(json.dumps({"output": OUT, "candidate_count": len(auctions), "contact_found": sum(r.get("qa_status") == "ENRICHED_CONTACT_FOUND" for r in out)}, indent=2))
@@ -269,5 +408,23 @@ def main():
         set_enrichment_status("failed", str(e)[:500])
         raise
 
+
+def main_portfolio_only():
+    """Re-run just the entity/portfolio correlation pass against an
+    already-enriched batch, without re-spending Tracerfy credits or
+    resetting winnerdata.ff_batches.enrichment_status. Used to backfill the
+    2026-08-26 batch, which was approved and contact-enriched (issue #19531)
+    before this pass existed."""
+    auctions = sql(f"""select id, county, auction_date, winning_bidder from public.multi_county_auctions where auction_date = date '{esc(BATCH_DATE)}' and tier1_buyer_type = 'third_party' and nullif(btrim(winning_bidder), '') is not null order by county, case_number""")
+    print(f"{len(auctions)} third-party auction(s) for {BATCH_DATE}. Running entity/portfolio correlation pass...")
+    portfolio_report = entity_portfolio_pass(auctions)
+    print(json.dumps({"batch_date": BATCH_DATE, "buyers": len(portfolio_report),
+                       "multi_property_buyers": sum(1 for r in portfolio_report if r.get("total_properties", 0) >= 2)}, indent=2))
+    return portfolio_report
+
+
 if __name__ == "__main__":
-    main()
+    if os.environ.get("PORTFOLIO_ONLY") == "1":
+        main_portfolio_only()
+    else:
+        main()

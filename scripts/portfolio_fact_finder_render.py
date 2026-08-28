@@ -249,6 +249,73 @@ def _row(label, value):
     return f'<tr><td class="label">{_esc(label)}</td><td class="val">{value}</td></tr>'
 
 
+# Entity/Portfolio Correlation section (P0 follow-up to issue #19547,
+# 2026-08-28). Reads the KPI columns scripts/ff_nine_portfolio_enrichment.py's
+# entity_portfolio_pass() persists onto this row (portfolio_wins_on_file,
+# portfolio_acquisition_velocity_per_year, portfolio_confidence_summary --
+# 2026-08-28 migration -- plus the pre-existing portfolio_property_count/
+# portfolio_counties/portfolio_properties_json columns it also updates) so
+# rendering never has to make a second live resolver call. Same tier
+# vocabulary as scripts/entity_portfolio_resolver.py's TIER_* constants,
+# duplicated here (not imported) to avoid a circular import with
+# scripts/render_entity_portfolio_section_test.py, which imports FROM this
+# module.
+_TIER_BADGE_CLASS = {
+    "VERIFIED-PRIMARY": "green", "VERIFIED-CROSS-CHECKED": "blue",
+    "LIKELY-SINGLE-SOURCE": "amber", "UNCONFIRMED": "red", "NOT AVAILABLE": "amber",
+}
+
+
+def _entity_tier_badge(tier):
+    return _badge(tier, _TIER_BADGE_CLASS.get(tier, "amber"))
+
+
+def render_entity_portfolio_correlation_section(r: dict) -> str:
+    props = r.get("portfolio_properties_json") or []
+    if not props and r.get("portfolio_property_count") is None:
+        return """
+    <section>
+      <h2>Entity / Portfolio Correlation</h2>
+      <div class="note">UNRESOLVED -- entity/portfolio correlation pass has not run for this row yet.</div>
+    </section>"""
+
+    prop_rows = ""
+    for p in sorted(props, key=lambda p: p.get("county") or "")[:25]:
+        addr = p.get("site_addr") or p.get("owner_addr1") or "Address not established"
+        county = (p.get("county") or "").title()
+        case_no = p.get("case_number") or ""
+        source = {"zw_parcels": "County ownership record", "auction_buyer_sightings": "Auction record"}.get(p.get("source"), p.get("source"))
+        prop_rows += (
+            f'<tr><td>{_esc(addr)}, {_esc(county)}</td><td>{_esc(case_no) or "n/a"}</td>'
+            f'<td>{_esc(source)}</td><td>{_entity_tier_badge(p.get("confidence_tier"))}</td></tr>'
+        )
+
+    wins_on_file = r.get("portfolio_wins_on_file")
+    velocity = r.get("portfolio_acquisition_velocity_per_year")
+    if velocity is not None:
+        vel_line = f"{float(velocity):.1f} wins/year (from {wins_on_file} win(s) on file)"
+    elif wins_on_file is not None:
+        vel_line = f"Not established -- insufficient history ({wins_on_file} win(s) on file)"
+    else:
+        vel_line = "Not established"
+
+    tiers = r.get("portfolio_confidence_summary") or {}
+    tier_summary = " &nbsp; ".join(f'{_entity_tier_badge(t)} {n}' for t, n in tiers.items() if n) or "n/a"
+
+    return f"""
+    <section>
+      <h2>Entity / Portfolio Correlation</h2>
+      <table>
+        {_row("Total properties on file (this entity)", r.get("portfolio_property_count"))}
+        {_row("Counties active", ", ".join(c.title() for c in (r.get("portfolio_counties") or [])) or "n/a")}
+        {_row("Total assessed value (held book)", _money(r.get("portfolio_assessed_value_total")))}
+        {_row("Acquisition velocity", vel_line)}
+        {_row("Confidence tier breakdown", tier_summary)}
+      </table>
+      {'<table class="ptable"><thead><tr><th>Property</th><th>Case #</th><th>Source</th><th>Confidence</th></tr></thead><tbody>' + prop_rows + '</tbody></table>' if prop_rows else '<div class="note">No properties returned by the statewide correlation walk.</div>'}
+    </section>"""
+
+
 def render_nine_case_html(r: dict) -> str:
     entity_type = "Individual(s)" if r.get("identity_type") == "individual" else "Business Entity"
     property_row = (
@@ -357,6 +424,8 @@ def render_nine_case_html(r: dict) -> str:
   </section>
 
   {portfolio_section}
+
+  {render_entity_portfolio_correlation_section(r)}
 
   <section>
     <h2>Registered Agent / Principal / Related-Entity Graph</h2>
