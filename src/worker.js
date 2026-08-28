@@ -1418,7 +1418,9 @@ async function handleRequest(request, env, ctx) {
         path === '/sign-in' || path.startsWith('/sign-in/') ||
         path === '/sign-up' || path.startsWith('/sign-up/') ||
         // P1 Discovery is a Next/Vercel surface proxied through the canonical Worker host.
-        path === '/discover' || path.startsWith('/discover/')
+        path === '/discover' || path.startsWith('/discover/') ||
+        // Authenticated Alerts UI is a Vercel surface; its API remains Clerk-protected.
+        path === '/alerts' || path.startsWith('/alerts/')
       ) {
         return proxyToRadar(request, url);
       }
