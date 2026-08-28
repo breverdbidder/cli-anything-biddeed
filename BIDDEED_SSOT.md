@@ -253,13 +253,31 @@ repo has been moving to since the `homeharvest-rental-weekly` migration
 as a convention mismatch for Ariel to reconcile later; the issue that
 shipped this explicitly specified native GHA schedules.
 
-**Initial hydration was intentionally bounded for this session** (see the
-issue's own bounded-batch discipline) rather than an unbounded ~multi-GB /
-multi-million-row first sweep — full-scale hydration is follow-up work,
-re-dispatchable via `workflow_dispatch` with `mode=hydrate` and no `limit`.
-Live counts/evidence: see the session's `agent_ops_log` rows
-(`dispatch_id` prefix `sunbiz-hydrate-`/`sunbiz-daily-`) and the closing
-issue/session comment.
+**Initial hydration was intentionally bounded for this session** (`--limit
+5000`, first member `cordata0.txt` only of 10) rather than an unbounded
+~multi-GB / multi-million-row first sweep — full-scale hydration across
+all 10 members is follow-up work, re-dispatchable via `workflow_dispatch`
+with `mode=hydrate` and no `limit` (expect a long run; consider raising
+`timeout-minutes` further and/or chunking per-member if a single run can't
+clear all ~5-6M records inside the 340min cap).
+
+**Live evidence, 2026-08-28** (GHA runs `33130568842` hydrate,
+`33130605823` hydrate re-run, `33130640996` daily, `33130668980` daily
+re-run — first attempt `33130461510` failed with the full-download
+`EOFError` documented above, before the streaming fix):
+- Hydrate: `parsed=5000 upserted=5000` from `cordata.zip/cordata0.txt`
+  (oldest FL corp records — `date_filed` observed range 1892-03-18 to
+  2026-07-01). Re-run with identical args: row count stayed `5000` (no
+  duplication — upsert proven, not insert).
+- Daily: `parsed=2364 upserted=2364` from `doc/cor/20260826c.txt` (all new
+  `document_number`s vs. the hydrate batch — table went `5000` → `7364`).
+  Re-run with the same `--date 20260826`: row count stayed `7364`.
+- `public.sunbiz_entities` final state this session: `7364` rows, `7364`
+  distinct `document_number`s, `4856/5000` of the hydrate batch had a
+  parsed registered-agent name.
+- `agent_ops_log` carries one real `BLOCKED` row (the pre-fix full-download
+  failure) plus four `VERIFIED` rows with the counts above —
+  `dispatch_id` prefix `sunbiz-hydrate-`/`sunbiz-daily-`, `task='sunbiz-sync'`.
 
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
