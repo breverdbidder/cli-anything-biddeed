@@ -1,0 +1,114 @@
+name: sunbiz-sync
+
+# Sunbiz bulk SFTP sync: hydrates/refreshes public.sunbiz_entities from FL
+# DOS's free public SFTP bulk-download service (sftp.floridados.gov, user
+# "Public"). Additive corporate-entity data source for buyer/owner piercing
+# in the Winner Data pipeline -- NOT wired into any live query path yet.
+#
+# Real directory layout (see scripts/sunbiz_sftp_sync.py docstring for the
+# full deviation log vs the original brief):
+#   - Quarterly master: doc/quarterly/cor/cordata.zip (single zip, no
+#     cordata0-9.zip split files exist on this server)
+#   - Daily deltas: doc/cor/<YYYYMMDD>c.txt (plain fixed-width text, NOT
+#     doc/daily/cor -- that path does not exist)
+#
+# Scheduling: GH Actions cron has no native quarterly trigger, so the
+# monthly cron below runs a job-level month gate (Jan/Apr/Jul/Oct only) --
+# same shape as other date-gated crons in this repo. Weekday cron pulls
+# the daily delta file. Both are also available via workflow_dispatch for
+# manual/bounded runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "hydrate (quarterly master) or daily (delta)"
+        required: true
+        default: "daily"
+        type: choice
+        options: [hydrate, daily]
+      limit:
+        description: "Max records to parse for hydrate mode (empty = unbounded)"
+        required: false
+        default: ""
+      date:
+        description: "YYYYMMDD for daily mode (empty = most recent available)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (no writes)"
+        required: false
+        default: "false"
+
+  schedule:
+    # 03:00 UTC on the 1st of every month -- job gates itself to Jan/Apr/Jul/Oct
+    # (FL DOS's actual quarterly generation cadence); no-ops other months.
+    - cron: "0 3 1 * *"
+    # 09:00 UTC every FL DOS business day (Mon-Fri) -- daily delta pull.
+    - cron: "0 9 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUNBIZ_SFTP_HOST: ${{ secrets.SUNBIZ_SFTP_HOST }}
+      SUNBIZ_SFTP_USER: ${{ secrets.SUNBIZ_SFTP_USER }}
+      SUNBIZ_SFTP_PASSWORD: ${{ secrets.SUNBIZ_SFTP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install paramiko httpx
+
+      - name: Determine mode for scheduled runs
+        id: sched
+        if: github.event_name == 'schedule'
+        env:
+          FIRED_CRON: ${{ github.event.schedule }}
+        run: |
+          MONTH=$(date -u +%-m)
+          if [ "$FIRED_CRON" = "0 3 1 * *" ]; then
+            case "$MONTH" in
+              1|4|7|10) echo "mode=hydrate" >> "$GITHUB_OUTPUT" ;;
+              *) echo "mode=skip" >> "$GITHUB_OUTPUT" ;;
+            esac
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run sync
+        if: github.event_name == 'workflow_dispatch' || steps.sched.outputs.mode != 'skip'
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE="${{ inputs.mode }}"
+          else
+            MODE="${{ steps.sched.outputs.mode }}"
+          fi
+
+          ARGS=(--mode "$MODE")
+          if [ "$MODE" = "hydrate" ] && [ -n "${{ inputs.limit }}" ]; then
+            ARGS+=(--limit "${{ inputs.limit }}")
+          fi
+          if [ "$MODE" = "daily" ] && [ -n "${{ inputs.date }}" ]; then
+            ARGS+=(--date "${{ inputs.date }}")
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+
+          echo "Running: python scripts/sunbiz_sftp_sync.py ${ARGS[*]}"
+          python scripts/sunbiz_sftp_sync.py "${ARGS[@]}"
+
+      - name: Skip (not a quarterly month)
+        if: github.event_name == 'schedule' && steps.sched.outputs.mode == 'skip'
+        run: echo "Not Jan/Apr/Jul/Oct -- skipping quarterly hydration this month."

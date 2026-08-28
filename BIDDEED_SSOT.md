@@ -201,6 +201,60 @@ CourtListener/AGPL code anywhere. `pyproject.toml` `legal` extra
   sequential per-court requests — recovered by the single bounded retry;
   script never crashed, always exited 0.
 
+### 1.5 SUNBIZ BULK SFTP SYNC (2026-08-28)
+
+New, additive table `public.sunbiz_entities` (migration
+`supabase/migrations/20260828_sunbiz_entities_bulk_sync.sql`), hydrated from
+FL DOS/Division of Corporations' free public SFTP bulk-download service —
+**not** the login-gated `search.sunbiz.org` website. Host
+`sftp.floridados.gov`, user `Public`, stored as repo secrets
+`SUNBIZ_SFTP_HOST`/`SUNBIZ_SFTP_USER`/`SUNBIZ_SFTP_PASSWORD` (this is FL
+DOS's own published shared public login for the bulk-file service, not an
+Everest-issued credential). RLS enabled, **service_role only** — no
+anon/authenticated policy; not on the anon-readable allowlist and not to be
+added without Ariel's sign-off. Not wired into any live buyer/owner query
+path yet (explicit non-goal of the issue that shipped this).
+
+**Real directory layout differs from the original brief** (confirmed live
+via SFTP listing, logged as a deviation rather than silently corrected):
+`doc/quarterly/cor/cordata.zip` is a single ~1.8GB zip — the `cordata0.zip`
+.. `cordata9.zip` split files named in the brief do not exist on this
+server. Daily deltas live at `doc/cor/<YYYYMMDD>c.txt` (plain fixed-width
+text, not zipped) — `doc/daily/cor` does not exist.
+
+**Record format**: fixed-width, 1440 bytes/record, one record per line, no
+header. `dos.sunbiz.org/data-definitions/cor.html` (the official field-layout
+page) is behind a Cloudflare managed challenge that blocks direct `curl`/
+`WebFetch`-summarized access beyond a rough approximation, so the byte
+ranges in `scripts/sunbiz_sftp_sync.py` were reverse-engineered empirically
+against real sample records instead. Verified against multiple real
+domestic (`FLAL`) and foreign (`FORL`) records: document number, entity
+name, status, filing type, both address blocks, FEI, dates, registered-agent
+block, and the 6×128-byte officer-block stride. The officer
+first-name/middle-initial sub-split is a best-effort inference, not
+independently double-source-confirmed — flagged for a follow-up spot-check
+once officer-heavy records are sampled at volume.
+
+**Pipeline**: `scripts/sunbiz_sftp_sync.py` (paramiko SFTP + fixed-width
+parser + chunked PostgREST upsert on `document_number`), dispatched by
+`.github/workflows/sunbiz-sync.yml` (`workflow_dispatch` with `mode`/
+`limit`/`date`/`dry_run` inputs, plus two schedules: a monthly cron that
+self-gates to Jan/Apr/Jul/Oct for quarterly hydration via
+`github.event.schedule`, and a Mon-Fri daily-delta cron). This is a native
+GHA `schedule:` trigger, **not** the pg_cron-dispatch-function pattern this
+repo has been moving to since the `homeharvest-rental-weekly` migration
+(`supabase/migrations/20260816_rental_comps_statewide_cron.sql`) — flagged
+as a convention mismatch for Ariel to reconcile later; the issue that
+shipped this explicitly specified native GHA schedules.
+
+**Initial hydration was intentionally bounded for this session** (see the
+issue's own bounded-batch discipline) rather than an unbounded ~multi-GB /
+multi-million-row first sweep — full-scale hydration is follow-up work,
+re-dispatchable via `workflow_dispatch` with `mode=hydrate` and no `limit`.
+Live counts/evidence: see the session's `agent_ops_log` rows
+(`dispatch_id` prefix `sunbiz-hydrate-`/`sunbiz-daily-`) and the closing
+issue/session comment.
+
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
 Customer → `mcp.biddeed.ai` → Cloudflare Tunnel → **local Dell** → MCP HTTP server (this repo, `main`) → Supabase.
