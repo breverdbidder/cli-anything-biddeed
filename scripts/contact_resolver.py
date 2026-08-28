@@ -64,6 +64,7 @@ import os
 import re
 import smtplib
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -160,6 +161,134 @@ def apify_google_maps(business_name: str, city: str | None, state: str, apify_to
         "address": it.get("address"),
         "name_matched": matched,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tier 1, legs 1b/1c: Apify leads-finder + waterfall-contact-enricher
+# (issue #19563 P0, added 2026-08-28) -- both require FULL_PERMISSIONS on the
+# Apify account (unlike Google Maps' LIMITED_PERMISSIONS), which can only be
+# granted by a human clicking approve at console.apify.com -- verified live
+# 2026-08-28: both return HTTP 403 full-permission-actor-not-approved until
+# that happens. These functions surface that as an explicit blocked state
+# (never silently treated as "no data") and start working automatically the
+# moment the account owner approves, no code change required.
+# ---------------------------------------------------------------------------
+
+_PERMISSION_APPROVAL_URLS = {
+    "code_crafter~leads-finder": "https://console.apify.com/actors/IoSHqwTR9YGhzccez?approvePermissions=true",
+    "fatihtahta~waterfall-contact-enricher": "https://console.apify.com/actors/FpuoTo0ktReRORcMq?approvePermissions=true",
+}
+
+
+def _apify_run_and_wait(actor_id: str, payload: dict, apify_token: str,
+                         max_total_charge_usd: float = 0.5, timeout: int = 120) -> dict:
+    """POST /runs -> poll /actor-runs/{id} -> GET /datasets/{id}/items. Returns
+    {"items": [...]} on success, {"blocked": True, "reason": ...} on the
+    full-permission-actor-not-approved 403, or {"error": ...} on any other
+    failure. Never raises -- callers treat all three as "no usable data"
+    except blocked, which is surfaced distinctly for honest reporting."""
+    req = urllib.request.Request(
+        f"https://api.apify.com/v2/acts/{actor_id}/runs?token={apify_token}&maxTotalChargeUsd={max_total_charge_usd}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": UA},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            start = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        if e.code == 403 and "full-permission-actor-not-approved" in body:
+            log(f"  {actor_id}: BLOCKED -- account owner must approve {_PERMISSION_APPROVAL_URLS.get(actor_id, actor_id)}")
+            return {"blocked": True, "reason": "FULL_PERMISSIONS_NOT_APPROVED",
+                     "approval_url": _PERMISSION_APPROVAL_URLS.get(actor_id)}
+        log(f"  {actor_id} run start HTTP {e.code}: {body[:300]}")
+        return {"error": f"HTTP {e.code}: {body[:300]}"}
+    except Exception as e:
+        log(f"  {actor_id} run start failed: {e}")
+        return {"error": str(e)}
+
+    run_id = start["data"]["id"]
+    dataset_id = start["data"]["defaultDatasetId"]
+    deadline = time.time() + timeout
+    status = "READY"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(f"https://api.apify.com/v2/actor-runs/{run_id}?token={apify_token}",
+                                        headers={"User-Agent": UA}), timeout=20) as resp:
+                status = json.loads(resp.read())["data"]["status"]
+        except Exception as e:
+            log(f"  {actor_id} run poll failed: {e}")
+            break
+        if status not in ("READY", "RUNNING"):
+            break
+        time.sleep(5)
+    if status != "SUCCEEDED":
+        return {"error": f"run ended status={status}"}
+
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={apify_token}",
+                                    headers={"User-Agent": UA}), timeout=30) as resp:
+            items = json.loads(resp.read())
+    except Exception as e:
+        log(f"  {actor_id} dataset fetch failed: {e}")
+        return {"error": str(e)}
+    return {"items": items}
+
+
+def apify_leads_finder(business_name: str, domain: str | None, apify_token: str) -> dict:
+    """Apollo-style leads: domain-filtered if a domain is already known
+    (higher confidence), otherwise falls back to a company_keywords search
+    on the business name's significant tokens -- weaker signal, so callers
+    MUST gate any returned company_name through name_match() before trusting
+    phone/email (same discipline as apify_google_maps)."""
+    if not apify_token:
+        return {"error": "no_token"}
+    payload = {"fetch_count": 5, "file_name": f"ff-resolve-{business_name[:40]}"}
+    keyword_mode = not domain
+    if domain:
+        payload["company_domain"] = [domain]
+    else:
+        tokens = list(_sig_tokens(business_name))[:4]
+        if not tokens:
+            return {"error": "no_usable_tokens"}
+        payload["company_keywords"] = tokens
+        payload["contact_location"] = ["united states"]
+    result = _apify_run_and_wait("code_crafter~leads-finder", payload, apify_token)
+    if result.get("blocked") or result.get("error"):
+        return result
+    candidates = []
+    for it in result.get("items", []):
+        cname = it.get("company_name") or it.get("organization_name") or it.get("company")
+        if keyword_mode and not name_match(business_name, cname):
+            continue
+        email = it.get("email") or it.get("work_email") or it.get("business_email")
+        phone = it.get("phone") or it.get("company_phone") or it.get("mobile_phone")
+        if email or phone:
+            candidates.append({"company_name": cname, "email": email, "phone": phone,
+                                "website": it.get("website") or it.get("company_domain")})
+    return {"items": result.get("items", []), "candidates": candidates}
+
+
+def apify_waterfall_enricher(domain: str, apify_token: str) -> dict:
+    """Domain-only enrichment -- only callable once a domain is already known
+    (e.g. from apify_google_maps)."""
+    if not apify_token or not domain:
+        return {"error": "no_token_or_domain"}
+    payload = {"domains": [domain], "maxResults": 5}
+    result = _apify_run_and_wait("fatihtahta~waterfall-contact-enricher", payload, apify_token)
+    if result.get("blocked") or result.get("error"):
+        return result
+    candidates = []
+    for it in result.get("items", []):
+        email = it.get("email") or it.get("work_email")
+        phone = it.get("phone") or it.get("company_phone")
+        if email or phone:
+            candidates.append({"company_name": it.get("organization_name") or it.get("company_name"),
+                                "email": email, "phone": phone, "website": domain})
+    return {"items": result.get("items", []), "candidates": candidates}
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +517,36 @@ def resolve_business_contact(entity_name: str, city: str | None, state: str, api
                         out["email_dropped"] = {"value": candidate, "reason": f"hunter_verifier_status={status}"}
         else:
             out["sources_tried"].append("hunter_SKIPPED_credit_ceiling")
+
+    if apify_token and not out["phone"] and not out["email"]:
+        attempts = []
+        if domain:
+            attempts.append(("apify_waterfall_enricher", lambda: apify_waterfall_enricher(domain, apify_token)))
+            attempts.append(("apify_leads_finder_domain", lambda: apify_leads_finder(entity_name, domain, apify_token)))
+        else:
+            attempts.append(("apify_leads_finder_keyword", lambda: apify_leads_finder(entity_name, None, apify_token)))
+        for label, call in attempts:
+            if out["phone"] and out["email"]:
+                break
+            res = call()
+            out["sources_tried"].append(label)
+            if res.get("blocked"):
+                out[f"{label}_blocked"] = res
+                continue
+            if res.get("error"):
+                out[f"{label}_error"] = res["error"]
+                continue
+            cands = res.get("candidates") or []
+            if not cands:
+                out[f"{label}_no_candidates"] = True
+                continue
+            best = cands[0]
+            if not out["phone"] and best.get("phone"):
+                out["phone"] = {"value": best["phone"], "tier": 1, "source": label,
+                                 "confidence": "medium", "detail": f"{label}: {best.get('company_name')}"}
+            if not out["email"] and best.get("email"):
+                out["email"] = {"value": best["email"], "tier": 1, "source": label,
+                                 "confidence": "medium", "detail": f"{label}: {best.get('company_name')}"}
 
     if not out["email"] and domain:
         pname = principal_name or ""

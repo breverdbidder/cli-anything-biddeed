@@ -134,7 +134,7 @@ def classify(winning_bidder: str) -> str:
 
 def load_batch_rows() -> list[dict]:
     return sql(f"""
-        select auction_id, county, case_number, winning_bidder, pin_clean, auction_parcel_id
+        select auction_id, county, case_number, winning_bidder, pin_clean, auction_parcel_id, qa_status
         from winnerdata.ff_batch_leads
         where batch_date = date '{BATCH_DATE}'
         order by county, case_number
@@ -289,9 +289,15 @@ def main():
 
     all_pins = {r["pin_clean"] for r in rows if r.get("pin_clean")}
 
+    ALREADY_ENRICHED = {"CONTACT_ENRICHED", "CONTACT_ENRICHED_DNC_FLAGGED"}
     groups: dict[str, list[dict]] = {}
+    skipped = 0
     for r in rows:
+        if r.get("qa_status") in ALREADY_ENRICHED:
+            skipped += 1
+            continue
         groups.setdefault(r["winning_bidder"], []).append(r)
+    print(f"Skipping {skipped} row(s) already CONTACT_ENRICHED -- re-running {sum(len(v) for v in groups.values())} row(s) across {len(groups)} buyer(s)")
 
     done = already_enriched_buyers()
     if done:
