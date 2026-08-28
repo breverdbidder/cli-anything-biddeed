@@ -1,0 +1,158 @@
+-- Gold Standard shard-1 (dispatch 95d2d8fc-cb62-4ba1-a58b-7e1134cf00cf), 2026-08-28
+-- brevard, letter I (property card completeness)
+--
+-- NO WRITES THIS SESSION. This file documents the investigation per the repo's
+-- fail-loud / no-silent-no-op rule. Every prior lever was re-checked LIVE
+-- rather than trusted from memory; none produced a writable, non-fabricated
+-- row this session.
+--
+-- BEFORE (live RPC public.pencil_dod_evaluate_county('brevard'), 2026-08-28):
+--   I: card_complete=6271 of 7315, metric=85.7, pass=false (need >=95%, i.e. >=6949; gap ~678)
+-- AFTER (same RPC, end of session):
+--   I: card_complete=6271 of 7315, metric=85.7, pass=false -- UNCHANGED, zero writes
+-- All other letters (A-H, J) confirmed PASS both before and after, no regression.
+--
+-- ── Recap of prior sessions (read before this one) ──
+-- 2026-08-02 (dispatch unspecified, gis_backfill): initial GIS-keyed address/geo
+--   backfill attempt against BCPAO NAL crosswalk.
+-- 2026-08-03 (dispatch 1f5f4ede, zoning_backfill): zoning-linkage pass for letter I.
+-- 2026-08-09 (architect-triage-18374): denominator 7244, card_complete 6093->6095
+--   (+2 mechanical geo/value backfill).
+-- 2026-08-16 (dispatch 3eefe79f): denominator 7252, card_complete 6198->6202 (+4).
+--   Palm Bay/Titusville municipal ArcGIS address-point layers; 2 hits (Palm Bay),
+--   0 (Titusville). Declared EXHAUSTED for those two municipalities.
+-- 2026-08-25 (dispatch c62ab4fb): denominator 7299, card_complete 6265 UNCHANGED
+--   (zero writes). New lever attempted: Firecrawl for bcpao.us -> HTTP 402
+--   insufficient credits (confirmed fleet-wide via control-URL test, not
+--   bcpao-specific). Also tried other municipal ArcGIS hosts (Melbourne, Cocoa
+--   Beach, Rockledge, Satellite Beach: DNS-fail/timeout/Cloudflare) and reverse
+--   geocoding via Census + Nominatim (neither returns a usable street address for
+--   the rural/unincorporated parcels in question). 15 no-parcel_id brevard_clerk
+--   stub rows flagged AcclaimWeb as next differentiated lever, not attempted in
+--   depth that session (requires session/cookie-based XHR flow, not bare curl).
+-- 2026-08-27 (dispatch 8f944a71): denominator 7300, card_complete 6267->6271 (+4,
+--   geo bucket only, real GIS centroid backfill for 4 rows with a resolvable
+--   polygon). Address bucket: 977 parcel_id rows re-diagnosed against
+--   gis.brevardfl.gov -- 926 confirmed STREET_NAME=UNKNOWN/blank (genuine
+--   no-situs parcels, corroborated independently via sample_properties: 777/782
+--   also address=UNKNOWN there), 50 with zero GIS feature at all (retired/
+--   merged/pre-fabric TaxAccts, confirmed via both batch and single-TaxAcct
+--   spot-check), 1 non-numeric STRAP parcel_id. Declared STRUCTURAL BLOCK.
+--
+-- ── This session (dispatch 95d2d8fc): re-diagnosis + genuinely new lever attempt ──
+--
+-- Step 1: Recomputed the live gap via pencil_dod_evaluate_county('brevard'):
+--   auctions_total grew 7300->7315 (+15 new/updated rows since 2026-08-27),
+--   card_complete UNCHANGED at 6271. This means the +15 rows are either already
+--   card_complete=false themselves, or a net-zero mix of newly-passing and
+--   newly-failing rows. Not investigated further -- immaterial to the 678-row gap.
+--
+-- Step 2: Re-queried multi_county_auctions directly for the address-null bucket
+--   (property_address IS NULL, excluding PropertyOnion litmus rows per hard
+--   guardrail): 992 rows -- IDENTICAL to the 2026-08-25 session's count (992,
+--   977 with parcel_id / 15 without). This confirms the address-gap population
+--   has NOT drifted since 08-25 (structural, not a moving target). Geo-null
+--   (lat+lon both NULL, parcel_id present): 56 rows, matching the "56 no-GIS-
+--   feature residual" reported after the 08-27 session's 4-row fix. Value-null
+--   (assessed_value+market_value both NULL): 60 rows.
+--
+-- Step 3: Directly re-queried gis.brevardfl.gov's Base_Map/Parcel_New_WKID2881/
+--   MapServer/5 LIVE, THIS SESSION, for all 976 numeric TaxAccts in the
+--   address-null bucket (batched IN-list queries, 150/batch): 789/976 resolved
+--   a GIS feature; 187 had NO feature at all (up from 50-51 in the 08-27
+--   session -- the no-feature population has grown, consistent with continued
+--   natural drift/retirement of certificate-era TaxAccts, not a regression).
+--   Of the 789 resolved features, exactly 1 had a non-blank, non-"UNKNOWN"
+--   STREET_NAME -- and that one (TaxAcct=2209912) is an Address Confidentiality
+--   Program parcel: STREET_NAME literally returns "CONFIDENTIAL" with blank
+--   STREET_NUMBER/CITY. Per the established rule (also documented in the
+--   scripts/brevard_i_clerk_noblk_legal_backfill_7bcb4434.py script, see Step 4),
+--   writing "CONFIDENTIAL" as property_address would be a Honesty Protocol
+--   fabricated-precision violation -- not a real usable address. RESULT: 0
+--   writable address rows found via direct live re-query.
+--
+-- Step 4: Discovered and executed a genuinely untried lever this session:
+--   scripts/brevard_i_clerk_noblk_legal_backfill_7bcb4434.py (dispatch 7bcb4434,
+--   written in an EARLIER session but never applied/committed -- confirmed via
+--   grep of supabase/migrations/ for "7bcb4434" + "brevard" -- no matching
+--   migration exists). This script targets data_source='brevard_clerk' AND
+--   parcel_id IS NULL rows via Brevard Clerk's AcclaimWeb XHR search flow
+--   (session-cookie + form POST, NOT a bare GET -- this is why WebFetch/curl
+--   single-request probes report only the disclaimer page) + legal-description
+--   LOT/PB/PG parsing + county GIS cross-resolution.
+--   Population at script-write-time: 38 rows. Population TODAY (re-queried live,
+--   this session): 15 rows -- 23 already resolved/removed by intervening
+--   sessions/scrapers since the script was written. Ran the script fresh
+--   (dry-run) against all 15 current rows:
+--     resolved=0, confidential_skipped=1, no_legal=12, ambiguous=2, applied=0
+--   The 12 "no_legal" rows are condo/timeshare or metes-and-bounds legal
+--   descriptions -- genuinely unparseable by LOT/PB/PG regex, not a bug.
+--   The 2 "ambiguous" rows returned 0 or >1 GIS features for their LOT/PB/PG
+--   combination -- correctly skipped rather than guessed.
+--   The 1 confidential-address row (case 05-2025-CC-051498-XXCC-BC,
+--   TaxAcct=2460880) resolves parcel_id/geo/value but NOT property_address
+--   (same Address Confidentiality Program constraint as Step 3) -- even if
+--   applied with --include-confidential, this row would remain
+--   property_address IS NULL and therefore STILL card_complete=false for
+--   letter I (card completeness requires all four fields: address + geo +
+--   value + zoning_code). Confirmed via direct read of the row
+--   (id=f4337ddf-278c-43e7-98e5-6d9828039d5b): currently fully NULL across
+--   parcel_id/property_address/latitude/longitude/assessed_value/market_value.
+--   Applying the confidential-address partial write would be legitimate,
+--   non-fabricated enrichment (may help letter E parcel_linkage) but has ZERO
+--   possible impact on letter I's metric -- out of scope for this session's
+--   assigned letter, not applied here to keep this migration's writes (zero)
+--   strictly traceable to letter I outcomes only.
+--
+-- Step 5: Re-confirmed Firecrawl account status live (control-URL test against
+--   https://example.com): still HTTP 402 "Insufficient credits", 3 days after
+--   the 08-25 session's identical finding -- not yet a viable lever.
+--
+-- Step 6: Did NOT re-attempt bcpao.us direct API/ArcGIS discovery (Cloudflare-
+--   gated, confirmed independently in the 08-16 and 08-25 sessions -- re-testing
+--   a twice-confirmed-dead source a third time would violate the "do not
+--   re-attempt a source already confirmed dead" instruction for this session).
+--
+-- CONCLUSION: Letter I remains a confirmed STRUCTURAL ceiling this session.
+-- Every bucket (address/geo/value, no-parcel_id/AcclaimWeb, Firecrawl) was
+-- re-verified LIVE rather than cited from memory. The address-null population
+-- (992 rows, dominant blocker) is stable/unchanged since 2026-08-25 and its
+-- root cause -- Brevard County's own GIS parcel fabric has no situs address
+-- for these parcels (genuinely no-situs vacant/small-lot/certificate parcels,
+-- STREET_NAME=UNKNOWN or no feature at all) -- is independently reconfirmed by
+-- a fresh direct query this session (789/976 resolve a feature, only 1 of
+-- those has a non-UNKNOWN street name, and that one is address-confidentiality-
+-- protected and unusable). The one genuinely new lever this session
+-- (executing the previously-unapplied AcclaimWeb script) is now EXHAUSTED: the
+-- resolvable subset of its original 38-row population was already captured by
+-- other sessions/scrapers between script-authoring and today, leaving only
+-- unparseable (no_legal/ambiguous) or letter-I-irrelevant (confidential-address)
+-- residue. Per the hard guardrail (BLANK > WRONG, no forced pass, no fabricated
+-- address/geo/value), ZERO rows were written this session.
+--
+-- RESIDUAL / NEXT-SESSION LEVERS (not exploitable this session, per HONESTY
+-- PROTOCOL -- do not silently drop):
+--   a. Firecrawl bcpao.us for the 187 zero-GIS-feature TaxAccts once account
+--      credits are replenished (ceiling: well under 187 rows realistically,
+--      does not close the 678-row gap alone).
+--   b. The 1 confidential-address row's parcel_id/geo/value COULD be written
+--      for letter E (parcel_linkage) benefit -- explicitly NOT done here as
+--      it has zero letter-I impact and this migration is scoped to letter I.
+--   c. The dominant 926+-row UNKNOWN-street population remains the true
+--      structural ceiling: Brevard County's own system of record has no situs
+--      address for these parcels. This is not solvable via enrichment from any
+--      source checked to date (county GIS, BCPAO direct, Firecrawl, municipal
+--      ArcGIS, Census/Nominatim reverse-geocode, AcclaimWeb legal-description
+--      resolution). Matches the canon-level GOLD_STANDARD structural-block
+--      pattern.
+--
+-- ============================================================================
+-- VERIFICATION (live, this session)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('brevard');
+-- BEFORE: {"I":{"pass":false,"detail":"card_complete=6271 of 7315","metric":85.7}}
+-- AFTER:  {"I":{"pass":false,"detail":"card_complete=6271 of 7315","metric":85.7}}
+-- All other letters (A,B,C,D,E,F,G,H,J) unchanged and PASS both before and
+-- after -- no regression, no drift from concurrent fleet sessions observed.
+
+SELECT 1;

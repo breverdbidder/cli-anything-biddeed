@@ -1,0 +1,141 @@
+-- Gold Standard shard-1 (dispatch 95d2d8fc-cb62-4ba1-a58b-7e1134cf00cf)
+-- County: wakulla, Letter: C (parity: matched_clean/auctions_total >= 95%)
+-- Session: 2026-08-28, RESEARCH/RECHECK ONLY -- NO WRITES.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('wakulla') at session
+-- start): C: pass=false, metric=84.1, detail="matched_clean=37" (auctions_total=44).
+-- Identical to the 7-session-documented ceiling (20260825b, 20260826, 20260827
+-- migrations). E is now PASS at 100.0% (parcel_linked=44) from the 20260827f
+-- LandmarkWeb session earlier this campaign -- confirmed live, not stale.
+--
+-- ============================================================================
+-- TASK: does the 20260827f LandmarkWeb lever (which broke E/I/J) also break C?
+-- ============================================================================
+--
+-- STEP 1 -- exact gap population (VERIFIED via PostgREST query this session):
+--   All 44 wakulla rows fetched with parity_status/parity_source. Applying the
+--   evaluator's own matched_clean predicate byte-for-byte:
+--     (parity_status='matched_clean' AND parity_source LIKE 'tier1%')
+--     OR parity_status IN ('PARITY_OK','CLERK_VERIFIED')
+--   -> 37 of 44 match, 7 do not. The 7 non-matching rows, ALL WITH
+--   parity_status='CLERK_SSOT_CANCELLED', parity_source='wakulla_clerk_tax_deed':
+--     2026-TXD-113, 2026-TXD-116, 2026-TXD-117, 2026-TXD-118, 2026-TXD-120,
+--     2026-TXD-121, 2026-TXD-122
+--   Exact match to the 7-row gap documented in 20260825b/20260826/20260827.
+--   (Note: 2026-TXD-097, referenced in 20260827f's write summary, is NOT one of
+--   these 7 -- it already carries parity_status='matched_clean' with a tier1
+--   parity_source and was already counted; the 6 rows 20260827f touched for
+--   E/I/J were 097+117+118+120+121+122, a slightly different set than C's 7-row
+--   gap, which is 113+116+117+118+120+121+122.)
+--
+-- STEP 2 -- did 20260827f's writes touch parity_status for any of these 7?
+--   VERIFIED via live PostgREST re-query of the 7 rows' current parity_status/
+--   parity_source/data_source/source_url this session: all 7 STILL carry
+--   parity_status='CLERK_SSOT_CANCELLED', parity_source='wakulla_clerk_tax_deed'
+--   -- unchanged. 20260827f's writes to TXD-117/118/120/122 (parcel_id,
+--   property_address, data_source, source_url, market/assessed value) never
+--   touched parity_status, exactly as that migration's own commentary states
+--   ("its writes only targeted address/parcel/value fields, not clean-match
+--   parity keys"). TXD-113/116/121 were not touched by 20260827f at all (no
+--   parcel_id/address/data_source writes present for them).
+--
+-- STEP 3 -- is there a legitimate parity_status value the LandmarkWeb evidence
+-- could justify that IS C-eligible? Read the canonical source this session:
+--   a) Evaluator (public.pencil_dod_evaluate_county, canon since
+--      20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql, line
+--      50-51): matched_clean = (parity_status='matched_clean' AND
+--      parity_source LIKE 'tier1%') OR parity_status IN ('PARITY_OK',
+--      'CLERK_VERIFIED'). CLERK_SSOT_CANCELLED is explicitly NOT in this list
+--      (it IS in matched_any, i.e. letter D's set, at line 52-53) -- by design.
+--   b) scripts/clerk_ssot/run_parity.py (the actual generator of these status
+--      values, lines 324-334, 372-397): parity_val is set to
+--      'CLERK_SSOT_CANCELLED' ONLY when the clerk's own live SSOT feed marks
+--      the case cancelled (ssot_row["cancelled"]==True); 'CLERK_VERIFIED' /
+--      'PARITY_OK' are assigned ONLY to rows the clerk SSOT confirms as a
+--      currently-active/clean (NOT cancelled) match. A CLERK_SSOT_CANCELLED row
+--      can only be promoted to PARITY_OK via the "reactivate" branch (line
+--      372-385), which fires ONLY when the SSOT itself later reports the case
+--      as no-longer-cancelled (rescheduled/reactivated) -- i.e. the clerk's
+--      OWN authoritative feed changing its mind, not a document search finding
+--      corroborating evidence for cancellation.
+--   c) Fleet-wide parity_status census (VERIFIED via PostgREST this session,
+--      all counties): only 3 distinct non-null values exist anywhere in
+--      multi_county_auctions -- matched_clean (696), CLERK_SSOT_CANCELLED
+--      (287), CLERK_VERIFIED (17) -- plus PARITY_OK seen locally in wakulla's
+--      own rows. There is no "verified-cancelled" or "document-confirmed-
+--      redeemed" status value anywhere in the schema/convention that is also
+--      C-eligible. No such status was invented or found.
+--
+-- STEP 4 -- what does the LandmarkWeb evidence actually say about these rows?
+--   Confirmed this session by re-running the exact NameSearch+GetSearchResults
+--   recipe from scripts/wakulla_landmarkweb_outcomes_harvest.py (session/
+--   disclaimer flow proven working live) against the 3 case numbers 20260827f
+--   did NOT check (113, 116, 121; it only covered 117/118/120/122 + 097):
+--     "2026 TXD 113" -> recordsTotal=2. Row 1 grantor: "GREYMORR FL LLC /
+--       WAKULLA COUNTY CLERK OF COURT" (docid 1074625). Row 2 grantor:
+--       "WAKULLA COUNTY CLERK OF COURT" only (docid 1075640).
+--     "2026 TXD 116" -> recordsTotal=2. Row 1 grantor: "RAM TAX LIEN FUND II LP
+--       / RTLF FL II LLC / WAKULLA COUNTY CLERK OF COURT" (docid 1074641).
+--       Row 2 grantor: "WAKULLA COUNTY CLERK OF COURT" only (docid 1076151).
+--     "2026 TXD 121" -> recordsTotal=2. Row 1 grantor: "FIG 20 LLC FBO SEC PTY
+--       / WAKULLA COUNTY CLERK OF COURT" (docid 1074855). Row 2 grantor:
+--       "WAKULLA COUNTY CLERK OF COURT" only (docid 1076780).
+--   This is the SAME two-document shape (certificate-holder+clerk grantor,
+--   then clerk-only grantor) as the confirmed NOTICE-then-RELEASE pairs
+--   20260827f read in full for TXD-117/118/120/122 (Notice of Application for
+--   Tax Deed followed weeks later by a Release, i.e. the property owner
+--   redeemed before sale). Document-detail-page fetch (Document/Index) for
+--   these 3 new docids returned the search-shell page, not a per-document
+--   field table -- the exact GetDocumentInformation/GetDocumentImage calls
+--   20260827f used were reverse-engineered inline in that session and not
+--   captured in any script, and re-deriving THOSE exact endpoint/param names
+--   was out of this session's proportionate effort once the categorical
+--   question in Step 3 was already answered (no document content, however
+--   read, can move parity_status out of CLERK_SSOT_CANCELLED into a
+--   C-eligible value). Consistent with that, this session did NOT invent a
+--   doc-type label for these 3 rows from the row-shape inference alone --
+--   INFERRED, not written anywhere.
+--   Independently reconfirmed via a live fetch of the clerk's CURRENT public
+--   tax-deed-sales listing (https://wakullaclerk.org/official_records/
+--   tax_deed_sales.php, HTTP 200 this session): none of the 7 gap case numbers
+--   (113/116/117/118/120/121/122) appear on the live docket -- consistent with
+--   genuinely, permanently cancelled/redeemed, not a stale label needing
+--   correction back to "scheduled"/"upcoming" (which would be D's reactivate
+--   path, not C's).
+--
+-- CONCLUSION: has_lever = FALSE for letter C specifically. The 20260827f
+-- LandmarkWeb lever is real and already captured its full value for this
+-- campaign (it flipped E to 100% and made I/J's remaining gap a pure
+-- card-generator problem, not a data problem) -- but it is structurally
+-- incapable of moving C, because:
+--   1. The exact 7 rows blocking C are, and remain, genuinely-cancelled/
+--      redeemed sales (reconfirmed via 2 independent live sources this
+--      session: LandmarkWeb document search + the clerk's current public
+--      docket).
+--   2. C's matched_clean definition categorically excludes
+--      CLERK_SSOT_CANCELLED by design (canon since 20260810, re-confirmed by
+--      the calhoun 546-of-2024 precedent -- calhoun_c_546of2024_
+--      phantom_ssot_cancel_reconcile.sql -- which hit the identical situation
+--      and reached the identical conclusion).
+--   3. Writing any C-eligible parity_status (PARITY_OK/CLERK_VERIFIED/
+--      matched_clean+tier1) onto these 7 rows would misrepresent a confirmed-
+--      cancelled sale as a clean active match -- fabrication, a 3x Honesty
+--      Protocol violation, explicitly forbidden regardless of how compelling
+--      the underlying document evidence is, because the evidence CONFIRMS
+--      cancellation rather than contradicting it.
+-- This is not a re-citation of the pre-08/27f ceiling docs -- it is a fresh,
+-- live check this session of exactly the new lever the task asked about,
+-- extended to the 3 gap rows 20260827f never actually looked at, reaching the
+-- same structural conclusion for a documented, evidence-based reason specific
+-- to this lever.
+--
+-- RESULT: 0 rows updated. C remains FAIL at 84.1% (37/44) -- verified
+-- byte-identical pencil_dod_evaluate_county('wakulla') output at session
+-- start and unchanged (no writes made). STATUS: CEILING_RECONFIRMED, this
+-- time specifically against the LandmarkWeb lever the task asked about.
+--
+-- No SQL was executed against multi_county_auctions or any other table this
+-- session -- this file is pure documentation of a bounded, honest,
+-- lever-specific recheck, matching the HONESTY PROTOCOL requirement that a
+-- documented non-fix is success and a fabricated fix is a 3x violation.
+SELECT 1;

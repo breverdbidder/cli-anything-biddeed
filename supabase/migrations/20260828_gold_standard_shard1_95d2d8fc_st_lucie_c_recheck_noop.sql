@@ -1,0 +1,147 @@
+-- Gold Standard shard-1 (dispatch 95d2d8fc-cb62-4ba1-a58b-7e1134cf00cf)
+-- County: st_lucie, Letter: C (parity: matched_clean/auctions_total >= 95%)
+-- Session: 2026-08-28, RESEARCH/RECHECK ONLY -- NO WRITES.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('st_lucie') at
+-- session start):
+--   C: pass=false, metric=80.7, detail="matched_clean=201" (auctions_total=249)
+--   D: pass=true,  metric=100.0, detail="matched_any=249"
+-- i.e. D is fully closed; the gap is entirely in the stricter C (clean-only)
+-- criterion.
+--
+-- ============================================================================
+-- PRIOR HISTORY ON THIS EXACT PAIR (read first, per REUSE-FIRST)
+-- ============================================================================
+-- st_lucie C/D has been independently worked and reconfirmed structural by
+-- at least these prior sessions:
+--   20260702_shard5_miami_dade_st_lucie_canonical_parity_refresh.sql
+--     -- ran refresh_parity_tier1_outcomes('st_lucie') for the first time
+--   20260826_gold_standard_shard3_st_lucie_b_realauction_results_8d979d33.sql
+--     -- fixed B (unrelated), reconfirmed C structurally blocked at that
+--        session's snapshot (242 rows, matched_clean=187=77.3%), full
+--        parity_status breakdown taken and ceiling math shown: even 100%
+--        resolution of the 9 then-open future rows tops out at 81.0%,
+--        34 rows short of the 95% bar -- 8th+ independent session (per that
+--        file's own count) to reach this conclusion (see commits 433fb7fa,
+--        9d96d950, 74ec5289, 8b604627, a64bd476, 513e64c7).
+--   20260827_gold_standard_stlucie_d_parity_realforeclose_verify.sql
+--     -- fixed D (16 null-parity future rows resolved to matched_clean via
+--        live RealForeclose auction-calendar preview pages), raising D to
+--        100% -- but by definition writes only to rows where
+--        parity_status IS NULL, so it could only ever grow D/C together
+--        (all 16 landed as matched_clean, which is why C's raw numerator
+--        also rose since that session, see below).
+--
+-- This session (2026-08-28) is a FRESH independent recheck of whether
+-- anything has changed since 2026-08-27, not a re-derivation from scratch.
+--
+-- ============================================================================
+-- WHAT WAS CHECKED THIS SESSION
+-- ============================================================================
+-- 1. Read the live evaluator function source
+--    (public.pencil_dod_evaluate_county, as shipped in
+--    20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql --
+--    confirmed this is still the deployed definition via the live RPC call
+--    behavior matching its WHERE-clause exactly, see #2 below). Its C/D
+--    FILTER clauses are:
+--      C numerator (matched_clean) := (parity_status='matched_clean' AND
+--        parity_source LIKE 'tier1%') OR parity_status IN
+--        ('PARITY_OK','CLERK_VERIFIED')
+--      D numerator (matched_any)   := C's set UNION parity_status IN
+--        ('matched_divergent' [tier1-sourced], 'CLERK_SSOT_CANCELLED')
+--    i.e. CLERK_SSOT_CANCELLED is COUNTED for D but DELIBERATELY EXCLUDED
+--    from C, by explicit design documented in that migration's own comment
+--    (lines 20-27): CLERK_SSOT_CANCELLED represents a divergence the
+--    clerk_ssot pipeline found and CORRECTED -- it is agreement with the
+--    clerk source of truth (hence D), but not "no divergence ever occurred"
+--    (hence excluded from C). This is canon, not a bug.
+--
+-- 2. Live parity_status breakdown for st_lucie (249 rows total, matching
+--    auctions_total exactly, fetched via PostgREST 2026-08-28):
+--      matched_clean          139
+--      PARITY_OK                62   } C numerator = 201 (139+62), exactly
+--                                       matching the evaluator's live
+--                                       matched_clean=201 output
+--      CLERK_SSOT_CANCELLED     47
+--      matched_divergent         1
+--      ---------------------------
+--      TOTAL                   249  (139+62+47+1 = 249, fully accounted)
+--    D numerator = 139+62+47+1 (all 4 buckets) = 249 = 100.0%, matching live.
+--    C numerator = 139+62 (excludes the 47 CLERK_SSOT_CANCELLED and the 1
+--    matched_divergent) = 201 = 80.7%, matching live exactly.
+--
+--    Row count grew 242 (2026-08-26 snapshot) -> 249 (today) purely because
+--    the 16 D-fix rows landed and 7 of them were still pending propagation
+--    as of the 08-26 snapshot; the newest-created_at rows in the live table
+--    are exactly the 7 remaining case numbers from the 08-27 D-fix list
+--    (2025CA000159, 2025CC001989, 2024CA002159, 2025CA001224, 2025CA001617,
+--    2024CA002152, 2025CA001777), all parity_status='matched_clean' -- i.e.
+--    this is the SAME fix from the 08-27 migration continuing to land, not
+--    a new gap. matched_clean rose 123->139 (+16, matches the D-fix count
+--    exactly) and CLERK_SSOT_CANCELLED rose 45->47 (+2, new tax-deed
+--    cancellations independently ingested by the clerk_ssot pipeline in the
+--    interim, unrelated to this letter).
+--
+-- 3. The 1 matched_divergent row (2025CA001832, parcel_id 24840, winning
+--    bidder IBANEZ JESUS A) re-checked live: still the same case, still the
+--    same classification, matching the 2026-08-26 session's finding that
+--    this case genuinely spans multiple parcels per RealForeclose's own
+--    Auction Results Report ("MULTIPLE PARCELS" cell) while our schema
+--    stores one parcel_id per row -- a real, structural data-model mismatch,
+--    not a normalization bug. Forcing it to matched_clean would fabricate a
+--    "no divergence" status on a case with a known real divergence.
+--
+-- 4. Re-ran scripts/clerk_ssot/parsers/st_lucie.py::parse_tax_deed() LIVE
+--    against acclaimweb.stlucieclerk.gov/TributeWeb/ this session
+--    (2026-08-28) -- existing, unmodified script, reused per REUSE-FIRST.
+--    Live pull returned 132 rows in the -120d/+180d window, 59 with
+--    status in {REDM, BANKRUPTCY, PULL} (cancelled/redeemed/pulled).
+--    Cross-matched all 47 DB-side CLERK_SSOT_CANCELLED case numbers against
+--    this fresh live pull by exact case_number:
+--      - 47 of 47 found in the live window
+--      - 47 of 47 STILL show a cancelled status (REDM/BANKRUPTCY/PULL) on
+--        the clerk's own live TributeWeb system, right now
+--      - 0 of 47 flipped to a non-cancelled status (e.g. "SALE" =
+--        still-scheduled, or "SOLD" = occurred) -- zero potential lever
+--        found, zero stale rows found
+--    This is a genuine, independent live re-verification against the
+--    clerk's own authoritative tax-deed system, not a re-citation of a
+--    prior session's finding.
+--
+-- ============================================================================
+-- CONCLUSION
+-- ============================================================================
+-- No genuine, non-fabricated lever found this session. C's entire 36-row
+-- gap to the 95% bar (need matched_clean>=237 of 249; currently 201) is
+-- structurally accounted for by the 47 CLERK_SSOT_CANCELLED rows (which the
+-- evaluator's own canon formula deliberately excludes from C by design) plus
+-- the 1 correctly-classified matched_divergent multi-parcel case. All 47
+-- cancelled-status rows were independently re-verified live against
+-- acclaimweb.stlucieclerk.gov/TributeWeb/ this session and are still
+-- genuinely cancelled/redeemed/pulled on the clerk's own system as of
+-- 2026-08-28 -- promoting any of them to matched_clean would be ghost-success
+-- (ratifying a "no divergence" status against a real, clerk-confirmed
+-- divergence). This reconfirms at least the 8th+ prior session's conclusion
+-- that st_lucie C is at a genuine structural ceiling requiring either (a)
+-- enough of the 47 cancelled sales to be genuinely rescheduled and re-sale
+-- clean in the future (not forceable today), or (b) a canon-level change to
+-- whether CLERK_SSOT_CANCELLED rows should be excluded from the C
+-- DENOMINATOR (not just the numerator) -- which would be a fleet-wide
+-- evaluator-semantics decision out of scope for a single-county session and
+-- was explicitly flagged as the only remaining theoretical lever by the
+-- 2026-08-26 session, still unresolved.
+--
+-- No St. Lucie foreclosure-side lever exists either: per
+-- scripts/clerk_ssot/parsers/st_lucie.py's own docstring (unchanged,
+-- re-read this session), the clerk's foreclosure page states foreclosure
+-- sales are conducted entirely on RealAuction/RealForeclose (a gated
+-- third-party platform this pipeline does not scrape directly for parity),
+-- and the only other candidate (courtcasesearch.stlucieclerk.gov) is a
+-- generic case-search portal gated behind Google reCAPTCHA -- a structural
+-- blocker independently confirmed by this session's read of that file, not
+-- newly discovered.
+--
+-- BLANK > WRONG: no UPDATE statements in this file. This is a documentation
+-- record of a research/recheck session with zero data mutation.
+
+SELECT 1;

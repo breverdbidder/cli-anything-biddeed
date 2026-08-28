@@ -1,0 +1,184 @@
+-- Gold Standard shard-1 (dispatch 95d2d8fc-cb62-4ba1-a58b-7e1134cf00cf)
+-- County: wakulla, Letters: I (property card completeness), J (deal-thesis)
+-- Session: 2026-08-28, PAIR wakulla-IJ.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('wakulla') at session
+-- start, byte-identical to the 20260827f/20260825c/20260827_wakulla_c sessions):
+--   I: {"pass": false, "detail": "card_complete=38 of 44", "metric": 86.4}
+--   J: {"pass": false, "detail": "deal_complete=38 (triangle + two-arm CMA +
+--       ml_score + max_bid)", "metric": 86.4}
+--   auctions_total: 44. Both gates fail on the SAME 6 rows: 25-CA-105,
+--   2026-TXD-097/117/118/120/122.
+--
+-- ============================================================================
+-- DIAGNOSIS (root cause confirmed by reading the canonical evaluator SQL,
+-- supabase/migrations/20260619_shard5_evaluator_county_norm_fix.sql lines
+-- 58-77, and live-querying every table it joins):
+-- ============================================================================
+--
+-- card_complete (I) requires, per row: property_address IS NOT NULL AND
+-- lat/lon IS NOT NULL AND COALESCE(assessed_value, market_value) IS NOT NULL
+-- AND parcel_id IN (SELECT parcel_id FROM v_zoning_gold_standard_card WHERE
+-- zone_code IS NOT NULL). VERIFIED live this session: all 6 target rows
+-- already have address/geo/value (written by the prior 20260827f LandmarkWeb
+-- session) -- the SOLE remaining I blocker for all 6 is the zoning-card join.
+--
+-- deal_complete (J) requires, per row: a bid_decisions row with arv, max_bid,
+-- ml_score all NOT NULL, and factors containing all 5 keys
+-- distress_location/distress_property/distress_owner/cma_distressed/
+-- cma_resale. This predicate is COMPLETELY INDEPENDENT of zoning -- confirmed
+-- by reading the SQL directly (the `d` CTE only joins bid_decisions +
+-- multi_county_auctions, no zoning table). VERIFIED live: bid_decisions had
+-- ZERO rows for all 6 target case_numbers at session start.
+--
+-- Root-cause correction to 20260827f's own commentary: that migration
+-- asserted TXD-117/118/120 "already have real, correctly-sourced
+-- zoning_assignments rows" (ids 4132690/4122653/4130588) implying I/J were
+-- blocked on a separate "generator" step. VERIFIED FALSE this session by
+-- direct query: those 3 zoning_assignments rows exist but store parcel_id
+-- WITHOUT dashes (e.g. "000009200011669002"), while multi_county_auctions and
+-- v_zoning_gold_standard_card/parcel_zones both use the DASHED format (e.g.
+-- "00-00-092-000-11669-002") -- confirmed by comparing a passing wakulla row
+-- (2026-TXD-108, parcel_id "00-00-035-008-07878-000") which has a
+-- v_zoning_gold_standard_card hit but ZERO zoning_assignments hit under that
+-- same dashed string, and a zoning_assignments hit only under the undashed
+-- string. v_zoning_gold_standard_card is backed by public.parcel_zones (row
+-- count for wakulla jurisdiction_id=1402 is exactly 38 in BOTH tables,
+-- pre-fix), not by zoning_assignments. So this was a pure key-format /
+-- missing-row gap in parcel_zones for the 6 target parcels, not a missing
+-- "generator" step and not a missing-data problem for 3 of the 6.
+--
+-- Live re-verification of the actual ArcGIS ZoningWakulla source
+-- (services1.arcgis.com/lDFzr3JyGEn5Eymu/.../ZoningWakulla/FeatureServer/0)
+-- this session, both by exact PIN_DSP match and by point-in-polygon spatial
+-- query against each of the 6 target rows' lat/lon:
+--   TXD-117 (00-00-092-000-11669-002): PIN_DSP exact match, CUR_ZONING=AG.
+--   TXD-118 (00-00-086-188-11586-05B): zoning_assignments id 4122653 already
+--     carried CUR_ZONING=RR1 from the same layer (exact PIN match, this
+--     session re-confirmed the source layer/methodology).
+--   TXD-120 (00-00-036-076-09686-001): zoning_assignments id 4130588 already
+--     carried CUR_ZONING=R1 (same layer/methodology, re-confirmed).
+--   TXD-122 (30-2S-01W-000-04171-004): spatial point-in-polygon query at its
+--     geocoded lat/lon (30.28437,-84.369386) DOES hit a feature
+--     (PIN_DSP=30-2S-01W-000-04171-000, CUR_ZONING=AG, TOTACRES_1=351.68) --
+--     but that PIN is the pre-subdivision PARENT parcel (Corbett Subdivision
+--     Lot "A" is carved out of it), not the current platted lot. Writing AG
+--     onto the child lot would assert a potentially-superseded zoning code
+--     with false confidence -- not written, per BLANK > WRONG (same
+--     conclusion 20260827f reached for 25-CA-105's analogous parent-parcel
+--     hit).
+--   25-CA-105 (00-00-055-429-19932-034): spatial query at
+--     (30.199151642067,-84.335199912882) hits PIN_DSP=00-00-055-000-09932-004
+--     (CUR_ZONING=AG, TOTACRES_1=33.23), again the pre-subdivision parent of
+--     Summerfield Phase 2 -- same parent-vs-platted-lot problem, not written.
+--   TXD-097 (23-5S-02W-128-02816-078): NO ArcGIS feature anywhere -- neither
+--     exact PIN_DSP match, nor PIN_DSP prefix match at the section/township/
+--     range level (23-5S-02W%, zero results), nor a spatial point-in-polygon
+--     query at its geocoded point with a 500m buffer (zero results). This
+--     entire subdivision (Twin Lakes Estate, coastal Wakulla near Panacea) is
+--     genuinely outside the ZoningWakulla layer's coverage. No lever found.
+--
+-- CONCLUSION: 3 of 6 rows (TXD-117/118/120) have a genuine, real,
+-- already-sourced zone code just sitting in the wrong table/key-format --
+-- a pure backfill. The other 3 (25-CA-105, TXD-097, TXD-122) have NO
+-- non-fabricated zone code available live this session (2 hit only a
+-- pre-subdivision parent parcel; 1 has zero coverage at all).
+--
+-- J has no such split -- all 6 rows have real assessed_value/market_value on
+-- file (written by 20260827f), so scripts/shard7_wakulla_j_generator_real.py
+-- (the existing, audit-survived Shapira V14 XGBoost real-inference generator
+-- for this exact county, already proven non-fabricated per its own header
+-- referencing gold_standard_ultraloop_audit ids 11347/11350/11354/11361) can
+-- generate real, non-flat, non-fabricated bid_decisions rows for all 6
+-- without any zoning dependency.
+--
+-- ============================================================================
+-- WRITES (this session, live via PostgREST + script execution)
+-- ============================================================================
+--
+-- 1. INSERT into public.parcel_zones (dashed parcel_id matching
+--    multi_county_auctions.parcel_id, jurisdiction_id=1402
+--    unincorporated_wakulla_county, zone codes carried forward verbatim from
+--    the already-sourced zoning_assignments rows / re-confirmed ArcGIS
+--    query), new ids 872664-872666:
+--      INSERT INTO parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source) VALUES
+--        ('00-00-092-000-11669-002', 1402, 'AG',  'AG Agricultural District',              'ZoningWakulla_ArcGIS_gold_standard_shard1_95d2d8fc_wakulla_ij'),
+--        ('00-00-086-188-11586-05B', 1402, 'RR1', 'Rural Residential',                     'ZoningWakulla_ArcGIS_gold_standard_shard1_95d2d8fc_wakulla_ij'),
+--        ('00-00-036-076-09686-001', 1402, 'R1',  'Single Family Residential (Rural/Urban)','ZoningWakulla_ArcGIS_gold_standard_shard1_95d2d8fc_wakulla_ij');
+--    Pre-insert GET confirmed zero existing parcel_zones rows for these 3
+--    parcel_ids (no duplicate-key risk). Post-insert v_zoning_gold_standard_card
+--    query confirms all 3 now resolve with the correct zone_code/zone_name and
+--    the same standards_source_url/ordinance_section already on file for the
+--    sibling zoning_districts rows (Wakulla LDC Sec. 5-25/5-27/5-30).
+--
+-- 2. Ran scripts/shard7_wakulla_j_generator_real.py unmodified (staged
+--    shapira_models v14.0 model.json/features.json from the shapira-models
+--    storage bucket to /tmp/shapira first). Script output:
+--      auctions=44 existing_bid_decisions=38
+--      in_scope_for_J_repair=44
+--      skipped_no_real_value=0 rows_to_write=44
+--      inserted=6 updated=38
+--    The 6 inserts are exactly the 6 target case numbers (they had zero prior
+--    bid_decisions rows); the 38 updates are the pre-existing rows, refreshed
+--    in place per the script's documented "full ghost-fill repair pass"
+--    behavior (unchanged from its last real run). Sample new rows (real,
+--    non-flat XGBoost v14 inference, GREATEST(assessed,market) ARV):
+--      2026-TXD-097: arv=5000.00   max_bid=750.00     ml_score=0.4145
+--      2026-TXD-117: arv=109625.00 max_bid=46737.50    ml_score=0.2949
+--      2026-TXD-118: arv=199016.00 max_bid=109311.20   ml_score=0.3554
+--      2026-TXD-120: arv=43736.00  max_bid=6560.40     ml_score=0.3391
+--      2026-TXD-122: arv=1076495.00 max_bid=731546.50  ml_score=0.2029
+--      25-CA-105:    arv=287905.00 max_bid=176533.50   ml_score=0.3430
+--    All 6 factors blobs contain the 5 required keys with real per-row values
+--    (distress_location/property/owner + cma_distressed/cma_resale), not a
+--    copy-pasted constant. Fleet-wide wakulla ml_score sanity check post-run:
+--    44 bid_decisions rows, 28 distinct ml_score values (not the flat 0.52
+--    constant a prior adversarial audit caught).
+--
+-- ============================================================================
+-- RESULT (live, verified via pencil_dod_evaluate_county('wakulla')
+-- immediately after both writes):
+-- ============================================================================
+--   I: {"pass": false, "detail": "card_complete=41 of 44", "metric": 93.2}
+--       <- IMPROVED (86.4 -> 93.2) but still FAIL (threshold >=95%, i.e.
+--       needs >=42 of 44). TXD-097 has no non-fabricated lever this session;
+--       25-CA-105 and TXD-122 only resolve to their pre-subdivision PARENT
+--       parcel's zone code, correctly withheld per BLANK > WRONG.
+--   J: {"pass": true,  "detail": "deal_complete=44 (triangle + two-arm CMA +
+--       ml_score + max_bid)", "metric": 100.0}   <- FLIPPED FAIL -> PASS
+--       (86.4 -> 100.0, 38 -> 44 of 44).
+--   No regression on A/B/C/D/E/F/G/H (all identical before/after):
+--     A pass fc=8 td=36 | B pass 100.0 | C FAIL 84.1 (matched_clean=37,
+--     unchanged, structural CLERK_SSOT_CANCELLED exclusion, out of this
+--     dispatch's scope, see sibling 20260828 wakulla-C migration) | D pass
+--     100.0 | E pass 100.0 | F pass 100.0 | G pass 97.3 | H pass (0.2h).
+--
+-- FOLLOW-UP (logged, not fixed this session): I remains blocked at 93.2%
+-- (need 1 more of the 3 remaining rows: 25-CA-105, TXD-097, TXD-122). No
+-- genuine non-fabricated zone code is available live for any of the 3 via the
+-- ArcGIS ZoningWakulla layer (2 hit only a pre-subdivision parent parcel with
+-- a materially larger/different-use parcel; 1 has zero layer coverage). A
+-- future session could try: (a) Wakulla County's platting/subdivision GIS
+-- layer if one exists separately from ZoningWakulla (not checked this
+-- session), (b) a manual read of the Wakulla LDC to determine whether
+-- subdivided residential lots inherit the parent AG designation by rule
+-- (would need an explicit ordinance citation, not an assumption, before
+-- writing), (c) a call/email to the Wakulla Planning Dept for TXD-097's
+-- parcel specifically since no GIS layer covers it at all.
+BEGIN;
+
+INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source)
+VALUES
+  ('00-00-092-000-11669-002', 1402, 'AG',  'AG Agricultural District', 'ZoningWakulla_ArcGIS_gold_standard_shard1_95d2d8fc_wakulla_ij'),
+  ('00-00-086-188-11586-05B', 1402, 'RR1', 'Rural Residential', 'ZoningWakulla_ArcGIS_gold_standard_shard1_95d2d8fc_wakulla_ij'),
+  ('00-00-036-076-09686-001', 1402, 'R1',  'Single Family Residential (Rural/Urban)', 'ZoningWakulla_ArcGIS_gold_standard_shard1_95d2d8fc_wakulla_ij')
+ON CONFLICT DO NOTHING;
+
+COMMIT;
+
+-- bid_decisions writes for the same 6 rows (25-CA-105, 2026-TXD-097/117/118/
+-- 120/122) were made by re-running scripts/shard7_wakulla_j_generator_real.py
+-- against live XGBoost v14 inference, not by static SQL -- see script output
+-- pasted above. That script is idempotent (upserts by case_number) and is the
+-- canonical wakulla J generator; re-run it directly rather than replicating
+-- its INSERT/PATCH payloads as hardcoded SQL here.

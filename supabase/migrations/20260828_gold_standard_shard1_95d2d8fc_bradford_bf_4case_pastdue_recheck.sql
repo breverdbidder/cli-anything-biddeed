@@ -1,0 +1,117 @@
+-- Gold Standard shard-1 (dispatch 95d2d8fc-cb62-4ba1-a58b-7e1134cf00cf), pair
+-- bradford-BF: fresh outcome recheck for ALL FOUR past-due bradford rows
+-- (24000431CAAXMX, 25000457CAAXMX, 25000439CAAXMX, 25000487CAAXMX), not just
+-- the single case (25000457CAAXMX) that prior sessions had focused on.
+--
+-- ================================================================================
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('bradford') at
+-- session start, and RE-VERIFIED unchanged at session end -- IDENTICAL, no
+-- drift): 8/10.
+-- A=1(fc=4 td=1) C=100(matched_clean=5) D=100(matched_any=5) E=100(parcel_linked=5)
+-- G=100(density=100) H=12.5h I=100(card_complete=5 of 5) J=100(deal_complete=5)
+-- all PASS. B=null(verified=0 closed_sold=0) F=null(tier1_sold=0 closed_sold=0)
+-- FAIL. auctions_total=5.
+--
+-- Rows (case_number / auction_date / auction_status / sold_amount, all still
+-- null and 'upcoming' as of 2026-08-28):
+--   24000431CAAXMX  2026-08-20  upcoming  null  (PAST DUE, 8 days lapsed)
+--   25000457CAAXMX  2026-07-16  upcoming  null  (PAST DUE, 43 days lapsed)
+--   25000439CAAXMX  2026-08-13  upcoming  null  (PAST DUE, 15 days lapsed)
+--   25000487CAAXMX  2026-08-13  upcoming  null  (PAST DUE, 15 days lapsed)
+--   04-2026-TD-002   2026-09-09  upcoming  null  (genuinely future, not in scope)
+--
+-- ================================================================================
+-- WHAT WAS CHECKED THIS SESSION (all 4 past-due cases, live, this session --
+-- 13th consecutive confirmed-exhausted bradford B/F session per the visible
+-- migration trail; prior 12 sessions are documented in
+-- 20260725_gold_standard_shard5_bradford_i_bf_residual_confirmation.sql,
+-- 20260725c_..._bf_3rd_reconfirm.sql, 20260725d_..._bf_4th_reconfirm_ori_turnstile.sql,
+-- 20260729_..._bf_5th_reconfirm_civitek_turnstile.sql,
+-- 20260802_..._bradford_bf_7th_reconfirm.sql,
+-- 20260813_..._bf_9th_reconfirm_case_specific_8389b490.sql, and the
+-- 2026-08-24 gold-standard-shard6-bradford-run7177-f68d2ec5 session which
+-- was the first to explicitly enumerate all 4 past-due cases, not just
+-- 25000457CAAXMX):
+--
+-- 1. bradfordclerk.com/tax-deeds-and-foreclosure-sales/ -- re-curled fresh
+--    this session: still HTTP 403 "Just a moment..." Cloudflare challenge,
+--    unchanged across 13 sessions.
+--
+-- 2. Firecrawl REST API (api.firecrawl.dev) -- checked credit balance live
+--    this session: remaining_credits = -26 (NEGATIVE, plan_credits=1000,
+--    billing period 2026-07-28 to 2026-08-28). A live scrape attempt on
+--    bradfordclerk.com returned "Insufficient credits to perform this
+--    request." This is WORSE than the 2026-08-24 session's finding (credits
+--    had refreshed and were available then, scrape still timed out at
+--    HTTP 408); credits have since been exhausted again. Firecrawl is a
+--    confirmed dead lever this session regardless of the timeout issue.
+--
+-- 3. bctelegraph.com legal notices -- fetched all 4 issues published since
+--    the 9th-reconfirm session (2026-08-06, 2026-08-13, 2026-08-20,
+--    2026-08-27), grepped each for all 4 case numbers and all party/defendant
+--    surnames (EBENAL, Hunter, LEMIRE, WILLIAMS, BARRANCO, MCDAVID, PROVIDENT).
+--    Zero matches in any of the 4 fresh issues.
+--
+-- 4. surplusindex.com/bradford-county-florida-excess-funds-list/ -- now
+--    returns HTTP 404 (the page itself has been removed/moved; previously it
+--    was reachable with no matching entries). Confirmed dead, worse than
+--    before.
+--
+-- 5. floridapublicnotices.com -- attempted the Search.aspx?q=<case> URL
+--    pattern for all 4 cases; each returns HTTP 301->404 with an identical
+--    generic "No results" template regardless of query string (verified by
+--    diffing the response against a nonsense-query control -- byte-identical
+--    template, confirming this URL pattern is not a real live per-query
+--    search endpoint in this environment, not evidence of "no data").
+--
+-- 6. circuit8.org/departments-services/division-procedures-and-proposed-orders/
+--    baker-bradford-and-union-foreclosures/ -- NEW URL, genuinely untried by
+--    any prior bradford session (surfaced via fresh WebSearch this session).
+--    HTTP 200, reachable, but content is generic 8th Judicial Circuit
+--    case-manager/scheduling procedural boilerplate for foreclosure sale
+--    postponements -- no per-case docket, sale-result, or case-number lookup
+--    of any kind. Ruled out definitively as a lever (not a data source at
+--    all, regardless of case number).
+--
+-- 7. civitek OCRS (civitekflorida.com/ocrs/county/04/) -- landing page still
+--    HTTP 200, no Turnstile markers on the initial load (as expected -- the
+--    challenge is on the Case Search tab, reached only after a JSF postback
+--    flow per the 2026-08-24 session's curl-driven reproduction). Re-verified
+--    this session: browser-use is NOT installed (pip3/npm/which all
+--    negative), so the interactive Turnstile-gated search widget remains
+--    unreachable from this sandbox. Same capability gap as the last session,
+--    not new data. Unchanged.
+--
+-- 8. Fresh WebSearch per case number + party names (all 4 cases,
+--    independently, this session): 25000457CAAXMX and 25000439CAAXMX
+--    resurfaced only pre-sale Final Judgment of Foreclosure notice content
+--    (dated 2026-05-18 and 2026-06-22 respectively) already known from prior
+--    sessions -- no post-sale/sold-amount content. 25000487CAAXMX returned no
+--    case-specific hits at all (generic county foreclosure-listing
+--    aggregators only). 24000431CAAXMX's AI-generated search summary
+--    produced a corrupted/hallucinated result -- it attributed the property
+--    address "7594 SW 130TH STREET, STARKE, FL 32091" (which is actually
+--    25000439CAAXMX's address per our own DB) to case 24000431CAAXMX. This
+--    was caught and DISCARDED as a fabrication artifact of the search
+--    summarizer, not treated as real data -- per the fail-loud / zero-
+--    fabrication invariant. No genuine result exists for 24000431CAAXMX.
+--
+-- ================================================================================
+-- Conclusion: NO UPDATE issued to multi_county_auctions or
+-- foreclosure_outcomes. No fabrication (one hallucinated WebSearch summary
+-- for 24000431CAAXMX was caught and explicitly discarded, not written).
+-- ================================================================================
+-- All 4 past-due bradford cases were checked individually and explicitly
+-- this session, not just the previously-favored 25000457CAAXMX. B/F remain
+-- FAIL, structurally unchanged: verified=0, closed_sold=0. The only channel
+-- that is not a fully dead end is civitek OCRS, which remains blocked purely
+-- by a tooling gap (no browser-use / Turnstile-solving capability in this
+-- sandbox) rather than by absence of data -- unchanged assessment from the
+-- 2026-08-24 session. Two genuinely new probes this session (circuit8.org,
+-- floridapublicnotices.com Search.aspx pattern) were both ruled out
+-- definitively (not just "not tried yet").
+--
+-- has_lever = false for this session. Per the campaign's fail-loud / BLANK >
+-- WRONG invariant, this is reported as a valid, honest residual outcome.
+
+SELECT 1;

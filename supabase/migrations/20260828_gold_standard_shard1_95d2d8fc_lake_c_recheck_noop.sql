@@ -1,0 +1,105 @@
+-- Gold Standard shard-1 (dispatch 95d2d8fc-cb62-4ba1-a58b-7e1134cf00cf)
+-- County: lake, Letter: C (parity: matched_clean/auctions_total >= 95%)
+-- Session: 2026-08-28, RESEARCH/RECHECK ONLY -- NO WRITES.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('lake') at session
+-- start and again just before closing):
+--   C: pass=false, metric=87.8, detail="matched_clean=122" (auctions_total=139)
+-- Identical to the number quoted in the task brief. No drift since the
+-- 20260814 session (supabase/migrations/20260814_gold_standard_shard2_
+-- 5f3a88a5_lake_ceij_efollowup.sql).
+--
+-- ============================================================================
+-- WHAT WAS CHECKED THIS SESSION
+-- ============================================================================
+-- 1. Re-derived the exact population of lake rows NOT counted as
+--    matched_clean under the current pencil_dod_evaluate_county C definition
+--    (parity_status IN ('PARITY_OK','CLERK_VERIFIED') OR
+--     (parity_status='matched_clean' AND parity_source LIKE 'tier1%')),
+--    scoped to county='lake' AND (data_source<>'propertyonion' OR
+--    tier1_authoritative=true) -- 137 rows returned via PostgREST (matches
+--    the evaluator's population within a couple of rows of the 139
+--    auctions_total, consistent with pagination/edge rounding, not
+--    independently reconciled row-by-row this session).
+--
+--    Live breakdown of that filtered set: PARITY_OK=80, matched_clean=39
+--    (tier1-sourced, already counted clean), CLERK_SSOT_CANCELLED=17,
+--    CLERK_VERIFIED=1. The CLERK_SSOT_CANCELLED=17 population is the
+--    entire non-passing remainder (17 of the ~17-row gap between
+--    matched_clean=122 and auctions_total=139 -- consistent with the task
+--    brief's "13" figure from 2026-08-14, which has since grown by a net
+--    +4 as new auctions were ingested and also independently confirmed
+--    CANCELLED by clerk_ssot in the interim; this is a DENOMINATOR/POPULATION
+--    change, not evidence of any of the original 13 flipping status).
+--
+--    NOTE: the 20260814 migration's file body does not literally enumerate
+--    13 case numbers for the C section (only a prose count); the 8 case
+--    numbers that migration DOES list by name are a DIFFERENT letter's
+--    residual (E: parcel-linkage unmatched rows), not C's. There is no
+--    stale case-number list from that file to diff against; this session's
+--    "13" comparison is therefore against the CURRENT live
+--    CLERK_SSOT_CANCELLED set (17 rows), which is authoritative.
+--
+-- 2. Re-ran scripts/lake_c_showcaseweb_docket_recheck_5f3a88a5.py --dry-run
+--    (existing, unmodified script; reused per REUSE-FIRST) against the
+--    live courtrecords.lakecountyclerk.org/sci docket API for all 17
+--    current CLERK_SSOT_CANCELLED rows:
+--      2016CA002108, 2022CA001381, 2024CA001040, 2025CA000251, 2025CA000481,
+--      2025CA001088, 2025CA001183, 2025CA001432, 2025CA001532, 2025CA001578,
+--      2025CA002239, 2025CA002626, 2025CA002732, 2025CA002782, 2025CA002869,
+--      2026CC001266, 2026CC002482
+--    Result: 16 of 17 "still_cancelled_no_new_reschedule_evidence"
+--    (no docket entry dated after parity_checked_at contains any
+--    reschedule/reopen/sale-confirming keyword). 1 of 17 (2016CA002108)
+--    flagged "reschedule_evidence_found" by the script's keyword scan --
+--    but this is a FALSE POSITIVE caused by that row's parity_checked_at
+--    being NULL (never previously checked), so the script's "new since
+--    cutoff" window degenerates to the case's ENTIRE docket history back
+--    to 2016, which naturally contains older ORDER RESETTING/RESCHEDULING
+--    entries from a prior reschedule cycle.
+--
+-- 3. Manually pulled and chronologically sorted the FULL docket for
+--    2016CA002108 (AMERICAN FINANCIAL RESOURCES INC vs ANA PEREZ, ET AL)
+--    live via the same sci/case/{sid}/dockets endpoint. The true most-recent
+--    entries are:
+--      2026-08-04 ORDER RESETTING/RESCHEDULING FORECLOSURE SALE
+--      2026-08-17 NOTICE OF FORECLOSURE SALE ISSUED AND
+--      2026-08-18 SUGGESTION OF BANKRUPTCY AS TO
+--      2026-08-18 FORECLOSURE SALE CANCELLED   <-- most recent entry
+--    i.e. the sale WAS rescheduled, but was then cancelled again (bankruptcy
+--    suggestion, same day) -- the docket's own most-recent entry is a
+--    cancellation, not a reopen. Independently cross-verified against the
+--    live public foreclosurecalendar.lakecountyclerkfl.gov/ main calendar
+--    page (fetched fresh this session): the 9/15 (2026-09-15, matching our
+--    stored auction_date) entry for case 2016CA002108 is rendered with CSS
+--    class "pscalendar-cancelled" and label "Canceled Notice of Bankruptcy"
+--    -- second independent source, same conclusion. Our stored
+--    auction_status='CANCELLED' is CORRECT. No write made.
+--
+-- 4. Spot-checked 3 additional CLERK_SSOT_CANCELLED rows (2025CA001088,
+--    2025CA000481, 2026CC002482) by manually pulling+sorting their full
+--    live dockets (not just trusting the script's keyword match): all 3
+--    have "FORECLOSURE SALE CANCELLED" as their chronologically last docket
+--    entry, confirming the script's non-flag verdict for those 3 by
+--    independent manual read.
+--
+-- ============================================================================
+-- CONCLUSION
+-- ============================================================================
+-- No genuine, non-fabricated lever found this session. All 17 current
+-- CLERK_SSOT_CANCELLED lake rows are, per fresh live re-verification against
+-- courtrecords.lakecountyclerk.org/sci (the site's own docket API, cross-
+-- checked for the flagged row and 3 additional spot-checks against the
+-- public foreclosurecalendar.lakecountyclerkfl.gov calendar), genuinely
+-- still-cancelled as of 2026-08-28. This reconfirms the prior sessions'
+-- (2026-08-03, 2026-08-14) finding of a structural ceiling: C cannot reach
+-- the 95% pass threshold (need matched_clean>=132 of 139; currently 122)
+-- purely through this docket-recheck lever, because the underlying
+-- foreclosure sales genuinely were cancelled per the court's own records --
+-- promoting them to matched_clean without a genuine reschedule/sale would
+-- be ghost-success (ratifying a wrong "upcoming" status against reality).
+--
+-- BLANK > WRONG: no UPDATE statements in this file. This is a documentation
+-- record of a research/recheck session with zero data mutation.
+
+SELECT 1;
