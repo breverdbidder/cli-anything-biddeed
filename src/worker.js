@@ -1416,7 +1416,9 @@ async function handleRequest(request, env, ctx) {
         // app). Without these branches biddeed.ai/sign-in hits this Worker's
         // 404 and auth.protect() redirects users into a dead URL.
         path === '/sign-in' || path.startsWith('/sign-in/') ||
-        path === '/sign-up' || path.startsWith('/sign-up/')
+        path === '/sign-up' || path.startsWith('/sign-up/') ||
+        // P1 Discovery is a Next/Vercel surface proxied through the canonical Worker host.
+        path === '/discover' || path.startsWith('/discover/')
       ) {
         return proxyToRadar(request, url);
       }
