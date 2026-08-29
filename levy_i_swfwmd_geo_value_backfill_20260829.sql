@@ -1,0 +1,88 @@
+-- Levy County, criterion I (property card completeness) — session 2026-08-29
+--
+-- CONTEXT: Prior session confirmed E already fixed (parcel_linked=45/45 live).
+-- This session diagnosed I's real live SQL definition (migration
+-- 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql):
+--   card_complete requires property_address IS NOT NULL AND lat/lon present
+--   AND (assessed_value OR market_value) present AND parcel zoning-linked
+--   (parcel_id or tax_account present with non-null zone_code in
+--   v_zoning_gold_standard_card).
+--
+-- LIVE DIAGNOSIS (fresh query, not the stale 19-row list in the task prompt):
+-- 19 rows initially looked incomplete on a naive address-string scan, but
+-- 13 of those already had property_address='Levy County, FL' (non-null
+-- placeholder, satisfies IS NOT NULL) + real lat/lon + real value +
+-- real zoning link from a prior session — those were already structurally
+-- passing I's SQL condition. The TRUE incomplete set (verified via
+-- pencil_dod_evaluate_county before/after) is 10 rows, ALL blocked on the
+-- SAME root cause: parcel_id absent from `parcel_zones` (i.e. zoning-link
+-- gap), not missing address/geo/value.
+--
+-- FIX APPLIED (this session, VERIFIED via live SWFWMD ArcGIS query):
+-- Source: https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/9
+--   ("Levy County Parcels" layer, Southwest Florida Water Management District
+--   public parcel mirror of the Levy County Property Appraiser tax roll).
+--   qpublic.net/fl/levy (the PA's own Schneider Beacon site) is Cloudflare-
+--   gated (HTTP 403 direct fetch; even via Firecrawl's rendering proxy, the
+--   KeyValue deep-link pattern returns "No data available for the following
+--   modules" for BOTH a known-good control parcel and all target parcels —
+--   confirmed this is a stateful-search-only site, not deep-linkable, tested
+--   against parcel 09470-002-00 which has verified real data in our DB).
+--   FL GIO statewide cadastral ArcGIS service (services9.arcgis.com) returned
+--   "Invalid query parameters" / empty results this session (documented as
+--   flaky in prior Levy sessions too).
+--
+-- Backfilled assessed_value + market_value (from SWFWMD's ASSD_TOT field,
+-- which mirrors the county PA's total assessed value) for 6 rows that had
+-- NULL value AND NULL address (the 2026-417xTD/418xTD/4181TD tax-deed batch).
+-- Verified match: legal_description already in our DB (from levy_clerk_tax_deed
+-- source) cross-checks exactly against SWFWMD's LEGDECFULL for all 6 rows
+-- (e.g. "OAK RIDGE ESTATES", "GREEN HIGHLAND PARK", "HAWKINS ACRES").
+--
+-- property_address LEFT NULL for all 6 (SWFWMD SITUSADD1 is NULL for these —
+-- genuinely vacant/unimproved platted lots with no situs address assigned by
+-- the county; same honest gap pattern as sibling rows already in the DB).
+--
+-- Values written (VERIFIED via live curl to SWFWMD ArcGIS query, 2026-08-29):
+--   3a75878b-b770-4fb5-8dd7-8e49f8f09748 (case 2026-4179TD, parcel 09377-018-00): assessed_value=market_value=4500
+--   ff99536a-0ccc-43f8-a8dd-6bb836f60328 (case 2026-4176TD, parcel 00881-000-00): assessed_value=market_value=1438
+--   698b8523-ea99-4674-bb8a-8c782affac18 (case 2026-4177TD, parcel 01097-028-00): assessed_value=market_value=1900
+--   fa22404e-b665-4003-a941-074d6c5afde6 (case 2026-4178TD, parcel 06697-000-00): assessed_value=market_value=6075
+--   80b531a3-8760-4df5-8d66-dab6c77ce686 (case 2026-4180TD, parcel 11944-000-00): assessed_value=market_value=1750
+--   42aac473-b444-4c67-ad13-93af484607e7 (case 2026-4181TD, parcel 1194600000): assessed_value=market_value=1750
+-- (latitude/longitude were already present on these 6 rows from a prior
+-- session and match the SWFWMD polygon centroid within ~0.0003 degrees.)
+--
+-- REFUTED (not done): copying zone_code='A' (Agriculture) from the 38
+-- existing levy `parcel_zones` rows (all sourced 'levy_shard13_inferred',
+-- itself a countywide default inference, not per-parcel GIS truth) onto
+-- these 10 residual parcels. Checked SWFWMD PARUSEDESC for all 10: they are
+-- SINGLE FAMILY, CONDOMINIA, MULTI-FAMILY, and VACANT RESIDENTIAL platted
+-- subdivision lots (Oak Ridge Estates, Green Highland Park, Hawkins Acres,
+-- Oakvilla S/D, The Island Place, Jemlands) — a materially different land-use
+-- profile than the existing 38 rural/agricultural "A"-zoned parcels. SWFWMD's
+-- own ZONING attribute is NULL for all 10 (the source itself doesn't carry
+-- per-parcel zoning for Levy). No other Levy zoning GIS/ArcGIS layer was
+-- found this session (Firecrawl search: zero hits for a Levy County zoning
+-- MapServer/FeatureServer). Writing zone_code='A' here would be a fabricated
+-- guess feeding a real bidding decision — left NULL per BLANK > WRONG.
+--
+-- RESULT: I did NOT flip to PASS this session (still 35/45 = 77.8%, need
+-- 43/45). All 10 residual failures share one root cause: no parcel_zones row
+-- for these 10 parcel_ids for Levy County. This is a genuine data-source gap
+-- (no verifiable Levy-specific parcel-level zoning source found), not an
+-- address/geo/value gap. Flagged for whoever owns Levy's zoning-linkage
+-- backlog: real progress requires either (a) a working Levy County zoning
+-- GIS/ArcGIS endpoint (none found across FL GIO, SWFWMD, qpublic, county
+-- .org domains this session) or (b) manual ordinance-based zoning research
+-- per parcel (10 parcels, each needing Levy's Land Development Code Article
+-- XIII zoning-district lookup keyed by the parcel's platted subdivision).
+--
+-- Rows written this session: 6 (multi_county_auctions.assessed_value +
+-- market_value, table multi_county_auctions).
+-- Rows NOT written (structural block, zoning_link, left NULL): 10 parcel_zones
+-- rows that would be required to flip I to PASS.
+
+-- No SQL DDL/DML in this file — all writes were PostgREST PATCH calls
+-- against multi_county_auctions, documented above for audit trail. This file
+-- is committed as the session's evidence record per HARD RULES.
