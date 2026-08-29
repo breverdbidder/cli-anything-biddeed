@@ -1,0 +1,107 @@
+-- Gold Standard: lake county, Letter C (parity: matched_clean/auctions_total >= 95%)
+-- Session: 2026-08-29, INDEPENDENT RE-VERIFICATION ONLY -- NO WRITES.
+--
+-- TASK: diagnose the 87.9% (124/141 matched_clean) C FAIL for lake -- root-cause
+-- whether the ~11-row gap to 95% is a genuine PropertyOnion coverage gap, a
+-- fixable address-normalization mismatch, or a fixable sale-date/case-number
+-- key mismatch.
+--
+-- ============================================================================
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('lake'), session start)
+-- ============================================================================
+--   C: pass=false, metric=87.9, detail="matched_clean=124" (auctions_total=141)
+-- Identical to the task brief. AFTER this session's work: IDENTICAL
+-- (no writes made -- see conclusion below).
+--
+-- ============================================================================
+-- HOW C IS COMPUTED (read from public.pencil_dod_evaluate_county source,
+-- migration 20260810_gold_standard_shard3_lake_clerk_ssot_cd_recognition.sql)
+-- ============================================================================
+-- matched_clean = count(*) FILTER (WHERE
+--     (parity_status='matched_clean' AND parity_source LIKE 'tier1%')
+--     OR parity_status IN ('PARITY_OK','CLERK_VERIFIED'))
+-- scoped to county='lake' AND (data_source<>'propertyonion' OR tier1_authoritative=true)
+--
+-- ============================================================================
+-- LIVE ROW-LEVEL BREAKDOWN (fetched fresh this session, 141-row scoped population)
+-- ============================================================================
+--   PARITY_OK           = 84
+--   matched_clean(tier1) = 39
+--   CLERK_VERIFIED       = 1
+--   CLERK_SSOT_CANCELLED = 17   <-- the entire gap (84+39+1=124; 124+17=141)
+--
+-- 124 = 39+84+1 exactly matches the live evaluator's matched_clean=124.
+-- The ENTIRE non-passing remainder is the 17-row CLERK_SSOT_CANCELLED bucket.
+-- No PARITY_UNKNOWN/PHANTOM_NOT_ON_CLERK/mca_only/null-status rows exist in
+-- the scoped population -- ruling out an address-normalization mismatch or a
+-- case-number/sale-date key mismatch as a contributor. This is NOT a
+-- PropertyOnion coverage gap either: clerk_ssot (lake_clerk_foreclosure,
+-- our own primary/tier-1 source, courtrecords.lakecountyclerk.org) is what
+-- classified these 17 as cancelled, not an absence in PropertyOnion. The
+-- CLAUDE.md PropertyOnion-coverage-gap pre-authorization for adopting
+-- clerk/official-records as a supplementary litmus source does NOT apply
+-- here -- clerk_ssot is already the primary source in use for these rows.
+--
+-- Case numbers (17, identical set to the 2026-08-28 session --
+-- migrations/20260828_gold_standard_shard1_95d2d8fc_lake_c_recheck_noop.sql --
+-- zero drift in one day):
+--   2016CA002108, 2022CA001381, 2024CA001040, 2025CA000251, 2025CA000481,
+--   2025CA001088, 2025CA001183, 2025CA001432, 2025CA001532, 2025CA001578,
+--   2025CA002239, 2025CA002626, 2025CA002732, 2025CA002782, 2025CA002869,
+--   2026CC001266, 2026CC002482
+--
+-- ============================================================================
+-- INDEPENDENT RE-VERIFICATION PERFORMED THIS SESSION
+-- ============================================================================
+-- 1. Re-ran scripts/lake_c_showcaseweb_docket_recheck_5f3a88a5.py --dry-run
+--    (existing, unmodified script -- reused per REUSE-FIRST) against the
+--    live courtrecords.lakecountyclerk.org/sci docket API for all 17 current
+--    CLERK_SSOT_CANCELLED rows. Result: 16/17 "still_cancelled_no_new_
+--    reschedule_evidence" (chronologically last docket entry post-dating
+--    parity_checked_at contains no reschedule/reopen/re-sale keyword).
+--    1/17 (2016CA002108) keyword-flagged "reschedule_evidence_found" --
+--    known false positive: that row's parity_checked_at is NULL, so the
+--    script's "new since cutoff" window spans the case's entire history
+--    back to 2016, picking up an older reschedule cycle.
+--
+-- 2. Independently (NOT via the script -- separate raw HTTP calls this
+--    session) authenticated to courtrecords.lakecountyclerk.org/sci as
+--    the site's own public/anonymous role and pulled+chronologically-sorted
+--    full dockets for 4 cases:
+--      2016CA002108 (the flagged false-positive) -- true last entry:
+--        2026-08-18T15:34:50.907 "FORECLOSURE SALE CANCELLED" (after a
+--        2026-08-04 reschedule order and 2026-08-18 bankruptcy suggestion
+--        on the SAME day as the cancellation). Confirms CANCELLED is
+--        correct; the reschedule was itself superseded by a later
+--        cancellation.
+--      2025CA001183 -- last 3 entries all post-cancellation administrative
+--        (erecorded order book entry, clerk's letter, certified mail
+--        receipt returned) -- no reschedule/resale.
+--      2025CA002732 -- last 3 entries all post-cancellation administrative
+--        (refund receipt revision, refund request issued, certified mail
+--        receipt returned) -- no reschedule/resale.
+--      2026CC002482 -- last 3 entries: bankruptcy notice recorded,
+--        FORECLOSURE SALE CANCELLED, then a duplicate e-recorded bankruptcy
+--        notice -- cancellation confirmed as the terminal sale-related event.
+--    All 4 independently-pulled dockets corroborate the script's verdict.
+--
+-- ============================================================================
+-- CONCLUSION
+-- ============================================================================
+-- All 17 lake CLERK_SSOT_CANCELLED rows are, per fresh independent live
+-- re-verification against courtrecords.lakecountyclerk.org/sci (our own
+-- tier-1 clerk source, not PropertyOnion), genuinely still-cancelled as of
+-- 2026-08-29. This is the SAME finding as the 2026-08-03, 2026-08-14, and
+-- 2026-08-28 sessions -- zero case-set drift in the intervening day. No
+-- matcher bug found (no address-normalization or case/date key mismatches
+-- exist in the scoped population; the gap is 100% attributable to genuinely
+-- cancelled sales). This is a structural data ceiling, not a fixable defect:
+-- C cannot reach 95% (need matched_clean>=135 of 141; currently 124) without
+-- either (a) genuine reschedule/reopen events occurring on these cases in
+-- the future, or (b) redefining "clean match" to count confirmed-cancelled
+-- sales as clean, which would misrepresent 17 dead auctions as live
+-- matched opportunities to the bidding pipeline -- ghost-success, rejected.
+--
+-- BLANK > WRONG: no UPDATE statements in this file. Zero data mutation.
+
+SELECT 1;
