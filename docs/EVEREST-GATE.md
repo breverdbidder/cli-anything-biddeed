@@ -1,15 +1,15 @@
-# EVEREST GATE — Enterprise-Grade 14-Point Verification (EG14)
+# EVEREST GATE — Enterprise-Grade 16-Point Verification (EG14 v2)
 
 **Status:** PERMANENT • Authoritative • SSOT for all SUMMIT shipping criteria
 **Owner:** Claude AI Architect
-**Established:** Mar 30 2026 • Codified: Apr 8 2026
+**Established:** Mar 30 2026 • Codified: Apr 8 2026 • **v2: Apr 9 2026 (SUMMIT #272)**
 **Supersedes:** All prior "shipped" / "WIP" / "verified" definitions
 
 ---
 
 ## Definition
 
-**EVEREST GATE (EG14)** is the 14-point enterprise-grade verification every SUMMIT must pass before claiming task satisfaction. No SUMMIT closes without **14/14 PASS** against the **production domain** (zonewise.ai or biddeed.ai), evidenced by Playwright screenshots stored in Supabase and posted as a comment on the originating issue.
+**EVEREST GATE (EG14 v2)** is the 16-point enterprise-grade verification every SUMMIT must pass before claiming task satisfaction. No SUMMIT closes without **16/16 PASS** against the **production domain** (zonewise.ai or biddeed.ai), evidenced by Playwright screenshots stored in Supabase and posted as a comment on the originating issue.
 
 **Verified delivery is the moat.** Anything less = WIP=0, SUMMIT reopens.
 
@@ -33,6 +33,8 @@
 | 12 | **API Health** | All /api/* routes touched by the feature return 200 with valid payload | curl loop log |
 | 13 | **Supabase Integrity** | Required tables exist, RLS policies set, RPCs callable | psql/REST verification |
 | 14 | **Cross-Browser** | Chromium + Firefox + WebKit at 1920x1080 — no layout breaks, feature works in all 3 | 3 Playwright screenshots |
+| 15 | **Supply-Chain Clean** | `npm audit --omit=dev --audit-level=high` exits 0. No high/critical vulnerabilities in production dependencies. | CI job output (SUMMIT #272) |
+| 16 | **RLS Coverage** | `select count(*) from public.zw_rls_audit()` returns 0. Every public table has RLS enabled with at least one policy. | psql query result (SUMMIT #272) |
 
 **Bonus (mandatory but not numbered):** Core Web Vitals — LCP <2.5s, CLS <0.1, INP <200ms.
 
@@ -40,8 +42,8 @@
 
 ## Pass / Fail Rules
 
-- **PASS = 14/14**, no exceptions. 13/14 = WIP=0, reopens automatically.
-- Any FAIL on points 1, 6, 8, 11 = **CRITICAL**, blocks all promotion.
+- **PASS = 16/16**, no exceptions. 15/16 = WIP=0, reopens automatically.
+- Any FAIL on points 1, 6, 8, 11, 15, 16 = **CRITICAL**, blocks all promotion.
 - Points 2 (Lighthouse) and 4 (axe) require numerical evidence files in Supabase.
 - All screenshots must be of the **production domain** (zonewise.ai / biddeed.ai), NOT vercel.app preview, NOT /labs/*.
 
@@ -56,7 +58,7 @@ SUMMIT dispatch
   → PR opened
   → Promote to production via promote-now.yml
   → EVEREST GATE runs (14-point Playwright suite)
-  → 14/14? → comment screenshots + close SUMMIT
+  → 16/16? → comment screenshots + close SUMMIT
   → <14? → AUTOLOOP V2: signal_detector → evolver → patch → redeploy → re-run gate (max 3 loops)
   → Still <14 after 3 loops? → BLOCKED comment, escalate
 ```
@@ -93,7 +95,7 @@ Every SUMMIT spec MUST include:
 - Long form: **EVEREST GATE**
 - Short form: **EG14**
 - Reference in commits: `eg14:` prefix (e.g., `eg14: pass 12/14, mobile overflow + lighthouse 87`)
-- Reference in SUMMIT comments: `EVEREST GATE 14/14 ✅` or `EVEREST GATE 11/14 — see eg14_runs`
+- Reference in SUMMIT comments: `EVEREST GATE 16/16 ✅` or `EVEREST GATE 11/14 — see eg14_runs`
 
 ---
 

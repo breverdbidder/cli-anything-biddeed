@@ -9,9 +9,9 @@
 
 ## The Rule
 
-Every feature built from competitive weakness analysis must preserve or improve the EG14 14/14 lock on the production domain. No feature is considered shipped until the live homepage passes all 14 enterprise-grade checks post-merge.
+Every feature built from competitive weakness analysis must preserve or improve the EG14 16/16 lock on the production domain. No feature is considered shipped until the live homepage passes all 16 enterprise-grade checks post-merge.
 
-**`<14/14 = WIP = 0`**
+**`<16/16 = WIP = 0`**
 
 ## What triggers this gate
 
@@ -25,7 +25,7 @@ Any SUMMIT, PR, or direct commit that:
 
 ## The 14 checks (SSOT)
 
-See `docs/EVEREST-GATE.md` for the canonical list. As of 2026-04-09 the 14 checks are:
+See `docs/EVEREST-GATE.md` for the canonical list. As of 2026-04-09 the 16 checks are:
 
 1. HTTP 200 on `/`
 2. Lighthouse Performance ≥ 90
@@ -41,17 +41,19 @@ See `docs/EVEREST-GATE.md` for the canonical list. As of 2026-04-09 the 14 check
 12. Meta tags valid (Open Graph, Twitter, canonical)
 13. Structured data valid (JSON-LD)
 14. Sitemap + robots valid and served
+15. Supply-chain clean (`npm audit --omit=dev --audit-level=high` exits 0)
+16. RLS coverage (`select count(*) from public.zw_rls_audit()` returns 0)
 
 ## Enforcement Protocol
 
 ### For SUMMIT dispatches
 
-Every SUMMIT issue body MUST include a **Deliverable N — EG14 14/14 Gate** section as the final blocking deliverable. The gate section must specify:
+Every SUMMIT issue body MUST include a **Deliverable N — EG14 16/16 Gate** section as the final blocking deliverable. The gate section must specify:
 
 - Exact workflow dispatch command
 - Poll interval and timeout
 - Supabase query for `eg14_runs` verification
-- Three outcome branches (A: 14/14 complete, B: regression fix loop, C: timeout retry)
+- Three outcome branches (A: 16/16 complete, B: regression fix loop, C: timeout retry)
 - No Telegram report until EG14 has a verdict
 
 ### For direct commits
@@ -71,7 +73,7 @@ When Claude Code is building from a SUMMIT issue, it must:
 2. Dispatch EG14 after the final deliverable lands
 3. Wait for the verdict (do not mark the SUMMIT complete mid-verdict)
 4. Execute outcome branch A, B, or C based on the result
-5. Only send the completion Telegram after EG14 returns 14/14 or after 3 failed retries
+5. Only send the completion Telegram after EG14 returns 16/16 or after 3 failed retries
 
 ### For emergency rollbacks
 
@@ -84,7 +86,7 @@ If a regression is discovered on the live site:
 
 ## Rationale
 
-The competitive weakness analysis process (PropZone, Algoma, MapWise, Zoneomics, etc.) continuously generates new feature requirements. Each new feature touches the production surface. Without an enforcement gate, incremental drift from the 14/14 lock is inevitable — new console errors from third-party dependencies, bundle size growth from new components, security header drift from middleware edits, brand guard violations from hasty UI work.
+The competitive weakness analysis process (PropZone, Algoma, MapWise, Zoneomics, etc.) continuously generates new feature requirements. Each new feature touches the production surface. Without an enforcement gate, incremental drift from the 16/16 lock is inevitable — new console errors from third-party dependencies, bundle size growth from new components, security header drift from middleware edits, brand guard violations from hasty UI work.
 
 The alternative — "ship moat, fix quality later" — produces exactly the opposite of an enterprise-grade product. PropZone can be beaten on KPI count. It cannot be beaten on KPI count AND broken pages AND 60-perf Lighthouse. We compete on the entire experience.
 
@@ -116,7 +118,7 @@ The alternative — "ship moat, fix quality later" — produces exactly the oppo
 
 ### The Rule
 
-When a SUMMIT closes a gap listed in any competitor battle card, the card MUST be refreshed in the same SUMMIT commit, **before** the EG14 14/14 gate. The refresh happens in the same branch as the feature so the live card reflects the new reality the moment EG14 passes.
+When a SUMMIT closes a gap listed in any competitor battle card, the card MUST be refreshed in the same SUMMIT commit, **before** the EG14 16/16 gate. The refresh happens in the same branch as the feature so the live card reflects the new reality the moment EG14 passes.
 
 ### What "refresh" means concretely
 
@@ -171,7 +173,7 @@ SUMMITs that ship features without refreshing the relevant battle card are marke
 | #404 Mapbox tiles | 50W / 1L / 29T | +1 parity (ZON-022) | 50W / 1L / 30T |
 | #405 Water setback | 50W / 1L / 30T | -1 gap, +1 parity (ZON-023) | **50W / 0L / 31T** |
 
-Each row reflects a battle card commit in the same SUMMIT as the feature ship. No SUMMIT is marked complete until both the feature AND the card update are live AND EG14 returns 14/14.
+Each row reflects a battle card commit in the same SUMMIT as the feature ship. No SUMMIT is marked complete until both the feature AND the card update are live AND EG14 returns 16/16.
 
 ### Applies to all 11 competitors
 
