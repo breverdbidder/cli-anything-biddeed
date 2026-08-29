@@ -28,6 +28,25 @@ from .schema import (
 )
 from .signal_detector import SignalDetector
 from .evolver import Evolver
+
+# JSON-path patcher (structured-config evolution; parallel to markdown evolver)
+# Pattern source: Meir770ar/agentic-video-maker patch-plan.cjs (MIT, REPOEVAL REFERENCE_ONLY)
+# See: docs/EVOLVER-JSONPATH.md
+from .jsonpath_schema import (
+    JsonPathEntry,
+    WhitelistConfig,
+    SQL_SKILL_EVOLUTION_JSONPATH_ENTRIES,
+)
+from .jsonpath_patcher import (
+    JsonPathPatcher,
+    PatchResult,
+    AppliedPatch,
+    SkippedPatch,
+    parse_path,
+    path_exists,
+    set_path,
+    coerce,
+)
 from .store import EvolutionStore
 from .service import EvolutionService
 
