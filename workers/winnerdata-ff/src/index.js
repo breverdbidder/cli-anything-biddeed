@@ -256,7 +256,7 @@ function crossSellSectionHtml(properties, isTemplateA) {
   const items = notes.map((n) => `<li>${esc(n)}</li>`).join('');
   const tag = isTemplateA ? 'section' : 'div';
   const cls = isTemplateA ? 'cross' : 'block cross';
-  return `<${tag} class="${cls}">\n    <h2>Cross-Sell Notes</h2>\n    <ul>${items}</ul>\n  </${tag}>`;
+  return `<${tag} class="${cls}">\n    <h2>Additional Coverage Signals</h2>\n    <ul>${items}</ul>\n  </${tag}>`;
 }
 
 function propertyTableRows(properties) {
