@@ -116,6 +116,50 @@ for (const path_ of pages) {
   await page.close();
 }
 
+// Negative test (issue #19602 DoD item 2): the secondary/fallback intake
+// paths (#intake-fallback-paths -- dec upload / callback / plain form
+// entry) must never visually or structurally outrank the Canopy Connect
+// primary CTA. Checked as real layout geometry + computed class list, not
+// just markup order: the fallback section must start below where the
+// Canopy CTA box ends, and must not carry the same brass-accent background
+// class the primary CTA uses.
+{
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const url = `${baseUrl}/get-a-quote`;
+  const response = await page.goto(url, { waitUntil: "networkidle" });
+  if (!response || response.status() >= 400) {
+    console.error(`FAIL /get-a-quote FALLBACK SUBORDINATION: page did not load (HTTP ${response ? response.status() : "no response"})`);
+    failures++;
+  } else {
+    const ctaBox = await page.$("#canopy-primary-cta");
+    const fallback = await page.$("#intake-fallback-paths");
+    if (!ctaBox) {
+      console.error(`FAIL /get-a-quote FALLBACK SUBORDINATION: #canopy-primary-cta not found in DOM`);
+      failures++;
+    } else if (!fallback) {
+      console.log(`OK   /get-a-quote FALLBACK SUBORDINATION: #intake-fallback-paths absent (all fallbacks disabled in config -- nothing to check)`);
+    } else {
+      const ctaBox_bb = await ctaBox.boundingBox();
+      const fallback_bb = await fallback.boundingBox();
+      const fallbackClass = (await fallback.getAttribute("class")) || "";
+      const startsBelowCta = fallback_bb.y >= ctaBox_bb.y + ctaBox_bb.height;
+      const usesAccentBackground = /bg-brass/.test(fallbackClass);
+      if (startsBelowCta && !usesAccentBackground) {
+        console.log(
+          `OK   /get-a-quote FALLBACK SUBORDINATION: cta bottom=${Math.round(ctaBox_bb.y + ctaBox_bb.height)}px, fallback top=${Math.round(fallback_bb.y)}px (follows CTA), class="${fallbackClass}" (no accent background)`
+        );
+      } else {
+        console.error(
+          `FAIL /get-a-quote FALLBACK SUBORDINATION: startsBelowCta=${startsBelowCta} (fallback.y=${Math.round(fallback_bb.y)} vs cta.bottom=${Math.round(ctaBox_bb.y + ctaBox_bb.height)}), usesAccentBackground=${usesAccentBackground} (class="${fallbackClass}")`
+        );
+        failures++;
+      }
+    }
+  }
+  await page.close();
+}
+
 await browser.close();
 
 if (failures > 0) {

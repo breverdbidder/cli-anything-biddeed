@@ -11,6 +11,12 @@
 // equivalent forward here on purpose; EZLynx has no public write API, and
 // the real integration path (Canopy's EZLynx Marketplace connector) lives
 // entirely inside Canopy's own dashboard, not in this codebase. See README.
+//
+// source is allow-listed server-side (issue #19602 Task 1/2) so the client
+// can distinguish the two ways a prospect reaches this same form -- plain
+// "answer a few questions instead" (form_entry) vs. the no-current-policy
+// "buying your first policy" path (first_time_buyer) -- without letting an
+// arbitrary client value land in the source column Mariam filters leads by.
 import { createClient } from "@supabase/supabase-js";
 
 interface Env {
@@ -18,6 +24,8 @@ interface Env {
   SUPABASE_SERVICE_ROLE: string;
   SUPABASE_TABLE: string;
 }
+
+const ALLOWED_SOURCES = new Set(["form_entry", "first_time_buyer"]);
 
 interface QuotePayload {
   schema_version?: string;
@@ -71,6 +79,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return jsonResponse({ error: "Server is not configured to accept submissions right now." }, 500);
   }
 
+  const requestedSource = body.source?.toString().trim();
+  const source = requestedSource && ALLOWED_SOURCES.has(requestedSource) ? requestedSource : "form_entry";
+
   const ip =
     request.headers.get("CF-Connecting-IP") ||
     request.headers.get("X-Forwarded-For") ||
@@ -103,7 +114,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     .insert({
       payload: payloadRecord,
       consent: consentRecord,
-      source: "website",
+      source,
       status: "new",
     })
     .select("id")

@@ -54,6 +54,9 @@ expected to fill in:
 | `canopy_connect.public_alias_env` | Name of the env var holding the Canopy Connect `publicAlias`. Defaults to `PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS` — omit this field entirely unless you have a reason to rename the var. | — |
 | `vapi.public_key_env` / `vapi.assistant_id_env` | Same pattern for Vapi's two env vars. | — |
 | `supabase_table` | Intake table name. Defaults to `<slug_with_underscores>_intake`. Must be created via a migration before go-live — the generator does not create tables. | `"protection_partners_intake"` |
+| `supabase_storage_bucket` | Storage bucket for the dec-page upload fallback. Defaults to `<slug>-dec-uploads`. Must exist before go-live if `intake.fallbacks.decUpload` is enabled — the generator does not create buckets. | `"protection-partners-dec-uploads"` |
+| `canopy_connect.dec_upload_url_env` | Env var name for a Canopy-hosted "Document Upload" sharing-path link, if that plan tier is enabled. Omit unless you have a reason to rename it — defaults to `PUBLIC_CANOPY_DEC_UPLOAD_URL`. | — |
+| `intake.fallbacks.decUpload` / `.formEntry` / `.callback` / `.firstTimeBuyer` | Per-path on/off switches for the secondary intake paths below the Canopy CTA (see next section). All default to `true` — omit `intake` entirely to keep every path on. | `{ "decUpload": false }` |
 | `posthog.enabled` | Whether the analytics snippet renders when `PUBLIC_POSTHOG_KEY` is set. | — |
 
 ## Canopy Connect — the core mechanic
@@ -90,6 +93,33 @@ connector, configured on Canopy's dashboard (manual step below). This
 codebase's job ends at keeping its own parallel record in
 `<supabase_table>` with `source='canopy_connect'`.
 
+## Intake safety net — secondary sharing paths (issue #19602)
+
+Canopy Connect's one-click pull is the primary CTA (above), but some
+prospects can't or won't use it — they don't know their carrier login,
+they're switching from a carrier Canopy doesn't support, or they're shopping
+their *first* policy and have nothing to connect. Without a fallback those
+prospects bounce with zero capture. `/get-a-quote` renders an
+`#intake-fallback-paths` section directly beneath the Canopy CTA — smaller
+type, no accent background, structurally and visually subordinate (enforced
+by the `FALLBACK SUBORDINATION` check in `scripts/audit-site.mjs`, same
+discipline as the existing `CANOPY DOMINANCE` check). Every path writes to
+`<supabase_table>` with its own `source` value so an operator can filter
+leads by which path produced them:
+
+| Path | Config flag | `source` value | What it does |
+|---|---|---|---|
+| Upload your declarations page | `intake.fallbacks.decUpload` | `dec_upload` | `DecUploadWidget.astro` posts a PDF/JPG/PNG (10MB cap, validated server-side) to `functions/api/dec-upload.ts`, which stores the file in Supabase Storage (`<supabase_storage_bucket>`) and writes an intake row flagged `payload.needs_manual_review=true` — this codebase does not parse or OCR the file. If `PUBLIC_CANOPY_DEC_UPLOAD_URL` is set (Canopy's own hosted "Document Upload" sharing path, plan-tier dependent), the widget links out to Canopy's flow instead and this endpoint isn't used. |
+| Answer a few questions instead | `intake.fallbacks.formEntry` | `form_entry` | The existing multi-step quote form (`#quote-form`), reachable via a small "Jump to the form" link in the fallback section — same form, same `functions/api/quote.ts`, just a different `source` tag than the Canopy path. |
+| Have an agent call me | `intake.fallbacks.callback` | `callback_request` | `CallbackWidget.astro` captures name, phone, best time to call, and TCPA consent, and posts to `functions/api/callback-request.ts`. Missing consent is rejected with 4xx and zero DB write, same as the main quote form. |
+| Buying your first policy? Start here | `intake.fallbacks.firstTimeBuyer` | `first_time_buyer` | A prospect with no current policy to connect has nothing to gain from the Canopy CTA. This link (in the fallback section and near the homepage's manual-quote link) sends them to `/get-a-quote?path=first_time_buyer#quote-form`, which shows a banner, skips straight to the form, and tags the submission `first_time_buyer` instead of `form_entry`. |
+
+Toggle any path off per agency by setting it `false` under `intake.fallbacks`
+in that agency's config and regenerating with `--force` — a disabled path is
+absent from the rendered HTML entirely, not just hidden by CSS.
+`agency-configs/test-agency.config.json` sets `decUpload: false` as the
+living proof of this.
+
 ## Vapi voice widget
 
 `src/components/VoiceWidget.astro` loads the real `@vapi-ai/web` SDK when
@@ -110,6 +140,8 @@ fallback is the only non-Vapi calling path.
 | Vapi assistant creation | **Manual — human only** | Third-party paid signup + assistant configuration on Vapi's dashboard. |
 | Setting secrets (`SUPABASE_SERVICE_ROLE`, `PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS`, `PUBLIC_VAPI_PUBLIC_KEY`, `PUBLIC_VAPI_ASSISTANT_ID`) | **Manual — human only** | Cloudflare Pages dashboard → Settings → Environment variables. Never commit these; `.dev.vars.example` documents the names only. |
 | Creating the Supabase intake table (`<supabase_table>`) | **Manual — human only** | Write and apply a migration before go-live. The generator does not create tables. |
+| Creating the Supabase Storage bucket (`<supabase_storage_bucket>`) | **Manual — human only** | Required only if `intake.fallbacks.decUpload` is enabled. Create via the Storage REST API or a migration before go-live. The generator does not create buckets. |
+| Enabling Canopy's own "Document Upload" sharing path (optional) | **Manual — human only** | Plan-tier dependent, configured on Canopy's dashboard. If enabled, set `PUBLIC_CANOPY_DEC_UPLOAD_URL` so `DecUploadWidget` links to it instead of this site's own upload form. |
 | Domain DNS / Cloudflare Pages project creation | **Manual — human only** | Bind a real domain and create the Pages project (or connect the repo via Git integration) on Cloudflare's dashboard. Until then the site builds and serves on the `*.pages.dev` preview domain from `domain.default`. |
 | CI build workflow (`.github/workflows/<slug>-web-ci.yml`) | **Automated** | Stamped from `_ci-template.yml` by the generator — one file per generated site, path-filtered to it. |
 

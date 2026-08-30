@@ -163,13 +163,23 @@
     "text_template": "By checking this box and submitting this form, I agree that {{agency_name}} and its licensed producers may contact me by phone (including calls and texts, which may use an automatic telephone dialing system or prerecorded/artificial voice) and by email at the number and address I provided, including for marketing purposes. Consent is not a condition of purchasing any insurance product. Message and data rates may apply. I can revoke consent at any time."
   },
   "canopy_connect": {
-    "public_alias_env": "PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS"
+    "public_alias_env": "PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS",
+    "dec_upload_url_env": "PUBLIC_CANOPY_DEC_UPLOAD_URL"
   },
   "vapi": {
     "public_key_env": "PUBLIC_VAPI_PUBLIC_KEY",
     "assistant_id_env": "PUBLIC_VAPI_ASSISTANT_ID"
   },
   "supabase_table": "protection_partners_intake",
+  "supabase_storage_bucket": "protection-partners-dec-uploads",
+  "intake": {
+    "fallbacks": {
+      "decUpload": true,
+      "formEntry": true,
+      "callback": true,
+      "firstTimeBuyer": true
+    }
+  },
   "posthog": {
     "enabled": true
   }

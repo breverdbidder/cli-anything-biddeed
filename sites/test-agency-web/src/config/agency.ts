@@ -51,9 +51,18 @@ export interface AgencyConfig {
   lines_of_business: LineOfBusiness[];
   team: TeamMember[];
   consent: { version: string; text_template: string };
-  canopy_connect?: { public_alias_env?: string };
+  canopy_connect?: { public_alias_env?: string; dec_upload_url_env?: string };
   vapi?: { public_key_env?: string; assistant_id_env?: string };
   supabase_table?: string;
+  supabase_storage_bucket?: string;
+  intake?: {
+    fallbacks?: {
+      decUpload?: boolean;
+      formEntry?: boolean;
+      callback?: boolean;
+      firstTimeBuyer?: boolean;
+    };
+  };
   posthog?: { enabled?: boolean };
 }
 
@@ -77,3 +86,14 @@ export const VAPI_ASSISTANT_ID_ENV = config.vapi?.assistant_id_env || "PUBLIC_VA
 
 export const SUPABASE_TABLE =
   config.supabase_table || `${config.slug.replace(/-/g, "_")}_intake`;
+
+// Secondary/fallback intake sharing paths beneath the primary Canopy
+// Connect CTA (issue #19602). Every key defaults to enabled -- an agency
+// opts OUT of a specific path by setting it false in agency.config.json,
+// not opts in.
+export const INTAKE_FALLBACKS = {
+  decUpload: config.intake?.fallbacks?.decUpload ?? true,
+  formEntry: config.intake?.fallbacks?.formEntry ?? true,
+  callback: config.intake?.fallbacks?.callback ?? true,
+  firstTimeBuyer: config.intake?.fallbacks?.firstTimeBuyer ?? true,
+};

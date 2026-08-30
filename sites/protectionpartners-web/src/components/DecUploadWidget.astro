@@ -1,0 +1,118 @@
+---
+// Secondary sharing path (issue #19602 Task 1): declarations-page upload.
+// If PUBLIC_CANOPY_DEC_UPLOAD_URL is set (Canopy's own hosted "Document
+// Upload" sharing path is enabled on our plan), this renders a link out to
+// it instead of our own form -- Canopy's DecSight extracts structured data
+// server-side on their end, which this codebase deliberately does not
+// duplicate (no OCR/parsing dependency, per issue non-goals). Unset is the
+// default posture: our own minimal form posts to /api/dec-upload and the
+// row is flagged for manual review in payload.needs_manual_review.
+const canopyUploadUrl = import.meta.env.PUBLIC_CANOPY_DEC_UPLOAD_URL;
+---
+
+{canopyUploadUrl && (
+  <div data-dec-upload-widget="canopy">
+    <p class="fallback-title">Upload your declarations page</p>
+    <a
+      href={canopyUploadUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="fallback-btn"
+    >
+      Upload securely →
+    </a>
+  </div>
+)}
+
+{!canopyUploadUrl && (
+  <div data-dec-upload-widget="self">
+    <p class="fallback-title">Upload your declarations page</p>
+    <p class="fallback-hint">PDF, JPG, or PNG, up to 10MB. A producer reviews it directly.</p>
+    <form id="dec-upload-form" class="mt-2 space-y-2" novalidate>
+      <input type="text" name="name" placeholder="Your name" class="fallback-input" />
+      <input type="tel" name="phone" placeholder="Phone" required class="fallback-input" />
+      <input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required class="fallback-input" />
+      <button type="submit" id="dec-upload-submit" class="fallback-btn">Send file →</button>
+      <p id="dec-upload-status" class="hidden fallback-status" role="status"></p>
+    </form>
+  </div>
+)}
+
+<style>
+  .fallback-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .fallback-hint {
+    margin-top: 0.2rem;
+    font-size: 0.7rem;
+    color: var(--color-slate);
+  }
+  .fallback-input {
+    display: block;
+    width: 100%;
+    border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+    background: white;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    color: var(--color-ink);
+  }
+  .fallback-btn {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--color-brass);
+    text-underline-offset: 3px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .fallback-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+  .fallback-status {
+    font-size: 0.7rem;
+  }
+</style>
+
+<script>
+  const form = document.getElementById("dec-upload-form") as HTMLFormElement | null;
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById("dec-upload-submit") as HTMLButtonElement;
+      const statusEl = document.getElementById("dec-upload-status")!;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending…";
+
+      try {
+        const res = await fetch("/api/dec-upload", { method: "POST", body: new FormData(form) });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          statusEl.className = "fallback-status text-evergreen";
+          statusEl.textContent = "Received — a producer will follow up.";
+          statusEl.classList.remove("hidden");
+          form.reset();
+          submitBtn.textContent = "Sent";
+        } else {
+          statusEl.className = "fallback-status text-red-700";
+          statusEl.textContent = (body.error || "Something went wrong.") + (body.details ? ` (${body.details.join(", ")})` : "");
+          statusEl.classList.remove("hidden");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Send file →";
+        }
+      } catch {
+        statusEl.className = "fallback-status text-red-700";
+        statusEl.textContent = "Network error. Please call us instead.";
+        statusEl.classList.remove("hidden");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send file →";
+      }
+    });
+  }
+</script>

@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import ProofPoint from "../components/ProofPoint.astro";
 import VoiceWidget from "../components/VoiceWidget.astro";
 import CanopyConnectWidget from "../components/CanopyConnectWidget.astro";
-import { AGENCY_TAGLINE, config } from "../config/agency";
+import { AGENCY_TAGLINE, config, INTAKE_FALLBACKS } from "../config/agency";
 ---
 
 <Layout title={AGENCY_TAGLINE} description={config.meta_description}>
@@ -34,6 +34,17 @@ import { AGENCY_TAGLINE, config } from "../config/agency";
           </a>
           <VoiceWidget />
         </div>
+        {INTAKE_FALLBACKS.firstTimeBuyer && (
+          <p class="mt-3 text-xs text-slate">
+            Buying your first policy?{" "}
+            <a
+              href="/get-a-quote?path=first_time_buyer#quote-form"
+              class="font-semibold text-ink underline decoration-brass decoration-2 underline-offset-4 hover:text-brass"
+            >
+              Start here →
+            </a>
+          </p>
+        )}
       </div>
 
       <div class="relative border border-ink/10 bg-ink p-8 text-paper shadow-xl">

@@ -6,9 +6,10 @@ compatibility_date = "2026-08-24"
 pages_build_output_dir = "dist"
 
 # Non-secret build-time vars. Secrets (SUPABASE_SERVICE_ROLE,
-# PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS, PUBLIC_VAPI_PUBLIC_KEY,
-# PUBLIC_VAPI_ASSISTANT_ID) are set in the Cloudflare Pages dashboard --
-# see README.md, never committed here.
+# PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS, PUBLIC_CANOPY_DEC_UPLOAD_URL,
+# PUBLIC_VAPI_PUBLIC_KEY, PUBLIC_VAPI_ASSISTANT_ID) are set in the
+# Cloudflare Pages dashboard -- see README.md, never committed here.
 [vars]
 PUBLIC_SITE_DOMAIN = "__SITE_DOMAIN_PLACEHOLDER__"
 SUPABASE_TABLE = "__SUPABASE_TABLE_PLACEHOLDER__"
+SUPABASE_STORAGE_BUCKET = "__SUPABASE_STORAGE_BUCKET_PLACEHOLDER__"

@@ -180,6 +180,26 @@
           "type": "string",
           "default": "PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS",
           "description": "Env var holding the Canopy Connect 'publicAlias' (the /c/<alias> link segment from the Canopy dashboard's Links page). Client-safe by design -- it is already public in the shareable Canopy link."
+        },
+        "dec_upload_url_env": {
+          "type": "string",
+          "default": "PUBLIC_CANOPY_DEC_UPLOAD_URL",
+          "description": "Optional env var holding a Canopy-hosted 'Document Upload' sharing-path link (plan-tier dependent -- do not assume it exists). When set, DecUploadWidget links out to Canopy's own hosted upload flow instead of rendering the site's own upload form."
+        }
+      }
+    },
+    "intake": {
+      "type": "object",
+      "description": "Optional. Config-driven toggles for the secondary/fallback intake sharing paths that render beneath the primary Canopy Connect one-click CTA on / and /get-a-quote (issue #19602). Omitting this object, or any individual key, defaults that path to enabled.",
+      "properties": {
+        "fallbacks": {
+          "type": "object",
+          "properties": {
+            "decUpload": { "type": "boolean", "default": true, "description": "Declarations-page file upload (PDF/JPG/PNG). Writes protection_partners_intake rows with source='dec_upload'." },
+            "formEntry": { "type": "boolean", "default": true, "description": "Plain multi-step quote form, visually demoted below Canopy. Writes rows with source='form_entry'." },
+            "callback": { "type": "boolean", "default": true, "description": "Minimal name/phone/best-time capture. Writes rows with source='callback_request'." },
+            "firstTimeBuyer": { "type": "boolean", "default": true, "description": "'Buying your first policy? Start here' path for prospects with no current policy to connect. Routes to the plain form with source='first_time_buyer'." }
+          }
         }
       }
     },
@@ -194,6 +214,10 @@
     "supabase_table": {
       "type": "string",
       "description": "Optional. Intake table name. Defaults to '<slug_with_underscores>_intake'. Must be created via a migration before go-live -- the generator does not create tables."
+    },
+    "supabase_storage_bucket": {
+      "type": "string",
+      "description": "Optional. Supabase Storage bucket name for the dec-page upload fallback path. Defaults to '<slug>-dec-uploads'. Must be created before go-live (Storage REST API or migration) -- the generator does not create buckets, same as supabase_table."
     },
     "posthog": {
       "type": "object",

@@ -98,6 +98,16 @@
     "assistant_id_env": "PUBLIC_VAPI_ASSISTANT_ID"
   },
   "supabase_table": "test_agency_intake_DISPOSABLE_DO_NOT_CREATE",
+  "supabase_storage_bucket": "test-agency-dec-uploads-DISPOSABLE-DO-NOT-CREATE",
+  "intake": {
+    "_note": "decUpload deliberately false here -- issue #19602 DoD item 5 living proof that toggling a fallback off in config removes it from the generated HTML entirely.",
+    "fallbacks": {
+      "decUpload": false,
+      "formEntry": true,
+      "callback": true,
+      "firstTimeBuyer": true
+    }
+  },
   "posthog": {
     "enabled": false
   }

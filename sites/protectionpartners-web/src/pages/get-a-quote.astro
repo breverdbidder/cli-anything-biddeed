@@ -1,7 +1,10 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import CanopyConnectWidget from "../components/CanopyConnectWidget.astro";
+import DecUploadWidget from "../components/DecUploadWidget.astro";
+import CallbackWidget from "../components/CallbackWidget.astro";
 import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
+import { INTAKE_FALLBACKS } from "../config/agency";
 ---
 
 <Layout
@@ -30,6 +33,42 @@ import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
         <CanopyConnectWidget class="w-full justify-center px-8 py-4 text-base sm:w-auto" />
       </div>
     </div>
+
+    {(INTAKE_FALLBACKS.decUpload || INTAKE_FALLBACKS.callback || INTAKE_FALLBACKS.formEntry) && (
+      <div id="intake-fallback-paths" class="mt-8 border-t border-ink/10 pt-6">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate">
+          Can't connect your carrier? Other ways to share:
+        </p>
+        <div class="mt-4 grid gap-5 sm:grid-cols-3">
+          {INTAKE_FALLBACKS.decUpload && <DecUploadWidget />}
+          {INTAKE_FALLBACKS.formEntry && (
+            <div>
+              <p class="fallback-title">Answer a few questions instead</p>
+              <p class="fallback-hint">The plain form below — five short steps.</p>
+              <a href="#quote-form" class="fallback-btn mt-2 inline-block">Jump to the form →</a>
+            </div>
+          )}
+          {INTAKE_FALLBACKS.callback && <CallbackWidget />}
+        </div>
+        {INTAKE_FALLBACKS.firstTimeBuyer && (
+          <p class="mt-5 text-xs text-slate">
+            Buying your first policy?
+            {" "}
+            <a
+              href="/get-a-quote?path=first_time_buyer#quote-form"
+              class="font-semibold text-ink underline decoration-brass decoration-2 underline-offset-4 hover:text-brass"
+            >
+              Start here →
+            </a>
+            {" "}— no current policy needed.
+          </p>
+        )}
+      </div>
+    )}
+
+    <p id="first-time-buyer-banner" class="mt-8 hidden border border-evergreen/40 bg-evergreen/10 p-4 text-sm text-ink">
+      Buying your first policy? You don't have a current policy to connect — just tell us what you need covered below.
+    </p>
 
     <p class="mt-10 text-sm font-semibold uppercase tracking-wide text-slate">
       Prefer to type it in yourself? Fill out the form manually
@@ -249,6 +288,29 @@ import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
       opacity: 1;
       color: var(--color-brass);
     }
+    .fallback-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+    .fallback-hint {
+      margin-top: 0.2rem;
+      font-size: 0.7rem;
+      color: var(--color-slate);
+    }
+    .fallback-btn {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--color-ink);
+      text-decoration: underline;
+      text-decoration-color: var(--color-brass);
+      text-underline-offset: 3px;
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+    }
   </style>
 
   <script>
@@ -257,6 +319,21 @@ import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
     const defaultNav = document.querySelector<HTMLElement>("[data-nav-default]")!;
     const stepPills = Array.from(document.querySelectorAll<HTMLElement>("[data-step-label]"));
     let current = 1;
+
+    // First-time-buyer path (issue #19602 Task 2): a prospect with no
+    // current policy to connect arrives via /get-a-quote?path=first_time_buyer.
+    // No carrier-connection framing is shown to them -- just a banner and a
+    // jump straight to the form -- and their submission is tagged with a
+    // distinct source so form.ts writes source='first_time_buyer' instead of
+    // the default 'form_entry'.
+    const isFirstTimeBuyer = new URLSearchParams(window.location.search).get("path") === "first_time_buyer";
+    if (isFirstTimeBuyer) {
+      const banner = document.getElementById("first-time-buyer-banner");
+      banner?.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
 
     function requiredFieldsFor(step: number): HTMLInputElement[] {
       const fs = steps.find((s) => s.dataset.step === String(step));
@@ -350,7 +427,7 @@ import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
 
       const payload = {
         schema_version: "1.0",
-        source: "website",
+        source: isFirstTimeBuyer ? "first_time_buyer" : "form_entry",
         product_line: productLine,
         applicant: {
           entity_name: { value: data.get("entity_name") || null, source: "website_form" },

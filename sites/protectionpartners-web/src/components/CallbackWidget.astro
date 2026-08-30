@@ -1,0 +1,121 @@
+---
+// Secondary sharing path (issue #19602 Task 1): minimal capture for
+// prospects who'd rather a producer call them than use Canopy Connect, an
+// upload, or the full quote form. Same TCPA consent basis/copy as the
+// quote form (src/config/consent.ts), just a shorter required-field set.
+import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
+---
+
+<div data-callback-widget>
+  <p class="fallback-title">Have an agent call me</p>
+  <p class="fallback-hint">Leave your number and when's best — no typing your policy details.</p>
+  <form id="callback-form" class="mt-2 space-y-2" novalidate>
+    <input type="text" name="name" placeholder="Your name" required class="fallback-input" />
+    <input type="tel" name="phone" placeholder="Phone" required class="fallback-input" />
+    <select name="best_time" class="fallback-input">
+      <option value="">Best time to call (optional)</option>
+      <option value="morning">Morning</option>
+      <option value="afternoon">Afternoon</option>
+      <option value="evening">Evening</option>
+    </select>
+    <label class="flex items-start gap-2 text-[0.7rem] leading-snug text-ink">
+      <input type="checkbox" name="tcpa_consent" required class="mt-0.5 h-3 w-3 shrink-0" />
+      <span>{TCPA_CONSENT_TEXT}</span>
+    </label>
+    <input type="hidden" name="consent_version" value={TCPA_CONSENT_VERSION} />
+    <button type="submit" id="callback-submit" class="fallback-btn">Request a call →</button>
+    <p id="callback-status" class="hidden fallback-status" role="status"></p>
+  </form>
+</div>
+
+<style>
+  .fallback-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .fallback-hint {
+    margin-top: 0.2rem;
+    font-size: 0.7rem;
+    color: var(--color-slate);
+  }
+  .fallback-input {
+    display: block;
+    width: 100%;
+    border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+    background: white;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    color: var(--color-ink);
+  }
+  .fallback-btn {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--color-brass);
+    text-underline-offset: 3px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .fallback-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+  .fallback-status {
+    font-size: 0.7rem;
+  }
+</style>
+
+<script>
+  const form = document.getElementById("callback-form") as HTMLFormElement | null;
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById("callback-submit") as HTMLButtonElement;
+      const statusEl = document.getElementById("callback-status")!;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending…";
+
+      const data = new FormData(form);
+      const payload = {
+        name: data.get("name"),
+        phone: data.get("phone"),
+        best_time: data.get("best_time") || null,
+        tcpa_consent: data.get("tcpa_consent") === "on",
+        consent_version: data.get("consent_version"),
+      };
+
+      try {
+        const res = await fetch("/api/callback-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          statusEl.className = "fallback-status text-evergreen";
+          statusEl.textContent = "Got it — a producer will call you soon.";
+          statusEl.classList.remove("hidden");
+          form.reset();
+          submitBtn.textContent = "Sent";
+        } else {
+          statusEl.className = "fallback-status text-red-700";
+          statusEl.textContent = (body.error || "Something went wrong.") + (body.details ? ` (${body.details.join(", ")})` : "");
+          statusEl.classList.remove("hidden");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Request a call →";
+        }
+      } catch {
+        statusEl.className = "fallback-status text-red-700";
+        statusEl.textContent = "Network error. Please call us instead.";
+        statusEl.classList.remove("hidden");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Request a call →";
+      }
+    });
+  }
+</script>

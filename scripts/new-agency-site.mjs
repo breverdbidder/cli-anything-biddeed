@@ -162,6 +162,7 @@ function main() {
   writeFileSync(path.join(siteDir, "agency.config.json"), JSON.stringify(config, null, 2) + "\n");
 
   const supabaseTable = config.supabase_table || `${args.slug.replace(/-/g, "_")}_intake`;
+  const supabaseStorageBucket = config.supabase_storage_bucket || `${args.slug}-dec-uploads`;
   const wranglerName = `${args.slug}-web`;
 
   replaceInFile(path.join(siteDir, "package.json"), {
@@ -171,9 +172,11 @@ function main() {
     __WRANGLER_NAME_PLACEHOLDER__: wranglerName,
     __SITE_DOMAIN_PLACEHOLDER__: config.domain.default,
     __SUPABASE_TABLE_PLACEHOLDER__: supabaseTable,
+    __SUPABASE_STORAGE_BUCKET_PLACEHOLDER__: supabaseStorageBucket,
   });
   replaceInFile(path.join(siteDir, ".dev.vars.example"), {
     __SUPABASE_TABLE_PLACEHOLDER__: supabaseTable,
+    __SUPABASE_STORAGE_BUCKET_PLACEHOLDER__: supabaseStorageBucket,
   });
   replaceInFile(path.join(siteDir, "README.md"), {
     __AGENCY_NAME_PLACEHOLDER__: config.agency_name,
@@ -197,6 +200,7 @@ function main() {
   console.log(`[new-agency-site] Done. sites/${args.slug}-web/ + .github/workflows/${args.slug}-web-ci.yml written.`);
   console.log(`[new-agency-site] Next: cd sites/${args.slug}-web && npm install && npm run build`);
   console.log(`[new-agency-site] Supabase table expected: public.${supabaseTable} (not created by this script -- write and apply a migration before go-live).`);
+  console.log(`[new-agency-site] Supabase Storage bucket expected: ${supabaseStorageBucket} (not created by this script -- create it before go-live if the decUpload fallback is enabled).`);
 }
 
 main();
