@@ -285,7 +285,11 @@ def main():
         sys.exit(1)
 
     run_id = str(uuid.uuid4())
+    tracerfy_key_status = "present" if TRACERFY_KEY else "ABSENT"
+    tracerfy_client_key_status = "present" if tracerfy_client.TRACERFY_KEY else "ABSENT"
+    sb_key_status = "present" if os.environ.get("SUPABASE_SERVICE_ROLE_KEY") else "ABSENT"
     print(f"seller_digest enrichment: batch_date={BATCH_DATE} run_id={run_id}")
+    print(f"  env check: TRACERFY_API_KEY={tracerfy_key_status} tracerfy_client.TRACERFY_KEY={tracerfy_client_key_status} SUPABASE_SERVICE_ROLE_KEY={sb_key_status}")
 
     set_batch_enrichment_status(BATCH_DATE, "running", run_id=run_id)
     try:

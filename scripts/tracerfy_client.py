@@ -80,10 +80,17 @@ def log(msg: str, tag: str = "INFO") -> None:
     print(f"[{ts}] {tag}: {msg}", flush=True)
 
 
-def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = TRACERFY_BASE, method: str = "POST") -> dict | None:
+_FAIL = object()  # sentinel: request failed, caller checks via `is _FAIL`
+
+
+def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = TRACERFY_BASE, method: str = "POST") -> "dict | tuple":
+    """Returns a parsed JSON dict on success.  On failure returns a 2-tuple
+    (sentinel, error_detail_dict) so callers can distinguish a legitimate
+    API response from a transport/auth failure and surface the detail."""
     if not TRACERFY_KEY:
-        log("TRACERFY_API_KEY absent -- cannot call Tracerfy.", "ERROR")
-        return None
+        msg = "TRACERFY_API_KEY absent -- cannot call Tracerfy."
+        log(msg, "ERROR")
+        return (_FAIL, {"error_type": "NO_API_KEY", "error": msg})
     limiter.wait()
     req = urllib.request.Request(
         base + path,
@@ -105,10 +112,10 @@ def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = 
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")[:500]
         log(f"Tracerfy {path} HTTP {e.code}: {body}", "ERROR")
-        return None
+        return (_FAIL, {"error_type": "HTTP_ERROR", "http_status": e.code, "response_body": body})
     except Exception as e:
-        log(f"Tracerfy {path} failed: {e}", "ERROR")
-        return None
+        log(f"Tracerfy {path} failed: {type(e).__name__}: {e}", "ERROR")
+        return (_FAIL, {"error_type": type(e).__name__, "error": str(e)})
 
 
 _NAME_SUFFIXES = {"SR", "JR", "II", "III", "IV", "V", "ESQ"}
@@ -147,7 +154,7 @@ def _split_owner_name(name: str) -> tuple[str, str]:
     return "", cleaned
 
 
-def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str) -> dict | None:
+def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str) -> "dict | tuple":
     """Name + known mailing address -> phone/email. The PROVEN method
     (per issue comment: trace the buyer at THEIR OWN prior address, not the
     address they just bought). Endpoint + payload verified live 2026-08-24
@@ -161,11 +168,11 @@ def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str)
     return _request("trace/enhanced/lookup/", payload, _enhanced_limiter)
 
 
-def dnc_scrub(phones: list[str]) -> dict | None:
+def dnc_scrub(phones: list[str]) -> "dict | tuple":
     return _request("dnc/scrub/", {"phones": phones}, _dnc_limiter, base=TRACERFY_BASE_V2)
 
 
-def get_queue_status(queue_id: int) -> dict | None:
+def get_queue_status(queue_id: int) -> "dict | tuple":
     """Poll a DNC scrub queue. Verified live 2026-08-24: the plain
     `queue/{id}` path 403s ("You do not have permission to access this
     queue") -- the real, version-independent path is `dnc/queue/{id}`
@@ -204,15 +211,18 @@ def trace_lead(entity_name: str, mailing_address: str, city: str, state: str, zi
     """Trace one lead via the enhanced (name+address) method only.
     Never calls find_owner -- see module docstring for why.
 
-    On HTTP/network failure, _raw_response is absent (no response body to
-    attach). On parse failure, _raw_response carries the raw Tracerfy response
-    body so REQUEST_FAILED cases are diagnosable (issue #19626 Bug 3)."""
+    On HTTP/network failure, _raw_response carries the error detail dict
+    (error_type, http_status/error, response_body) so every failure mode is
+    diagnosable through the same field (issue #19628 Bug 4).
+    On shape-mismatch parse failure, _raw_response carries the raw Tracerfy
+    response body (issue #19626 Bug 3)."""
     if not mailing_address:
         return {"phone": None, "email": None, "parse_status": "NO_MAILING_ADDRESS_AVAILABLE", "cost_cents": 0}
-    resp = enhanced_trace(entity_name, mailing_address, city, state, zipcode)
-    if resp is None:
-        return {"phone": None, "email": None, "parse_status": "REQUEST_FAILED", "cost_cents": 0}
-    parsed = _parse_trace_response(resp)
+    result = enhanced_trace(entity_name, mailing_address, city, state, zipcode)
+    if isinstance(result, tuple) and result[0] is _FAIL:
+        error_detail = result[1] if len(result) > 1 else {}
+        return {"phone": None, "email": None, "parse_status": "REQUEST_FAILED", "cost_cents": 0, "_raw_response": error_detail}
+    parsed = _parse_trace_response(result)
     parsed["cost_cents"] = ENHANCED_COST_CENTS
     return parsed
 
@@ -228,9 +238,12 @@ def main() -> int:
         log("TRACERFY_API_KEY absent from environment -- cannot run smoke test.", "ERROR")
         return 2
     name, address, city, state, zipcode = sys.argv[1:6]
-    resp = enhanced_trace(name, address, city, state, zipcode)
-    log(f"RAW RESPONSE: {json.dumps(resp)}")
-    log(f"PARSED: {json.dumps(_parse_trace_response(resp) if resp else {})}")
+    result = enhanced_trace(name, address, city, state, zipcode)
+    if isinstance(result, tuple) and result[0] is _FAIL:
+        log(f"REQUEST FAILED: {json.dumps(result[1])}", "ERROR")
+        return 1
+    log(f"RAW RESPONSE: {json.dumps(result)}")
+    log(f"PARSED: {json.dumps(_parse_trace_response(result))}")
     return 0
 
 
