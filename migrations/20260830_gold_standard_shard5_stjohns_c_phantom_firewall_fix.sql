@@ -1,0 +1,72 @@
+-- GOLD STANDARD SHARD-5: st_johns, okaloosa (dispatch aa259b14-5fc8-49cd-8809-3d21ed39f9bd)
+-- Session: architect-20260830T080000
+--
+-- BASELINE (verified live at session start, 2026-08-30, matches brief exactly):
+--   st_johns 9/10 -- FAIL: C (matched_clean=112, 94.1%, auctions_total=119)
+--   okaloosa 6/10 -- FAIL: C/D/E (matched_clean=79, 92.9%), I (card_complete=79 of 85)
+--
+-- ── st_johns C DIAGNOSIS ──────────────────────────────────────────────────
+-- pencil_dod_evaluate_county's C formula: matched_clean = (parity_status=
+-- 'matched_clean' AND parity_source LIKE 'tier1%') OR parity_status IN
+-- ('PARITY_OK','CLERK_VERIFIED'). The 7-row gap (119-112) broke down as:
+--   - 4 rows CLERK_SSOT_CANCELLED (genuinely resolved cancellations/redemptions,
+--     correctly D-pool-only per prior sessions -- not touched)
+--   - 2 rows PHANTOM_NOT_ON_CLERK: TD26-0059 (58 Carrera St, parcel 2040600000,
+--     auction_date 2026-09-16) and TD26-0078 (6300 A1A S, parcel 1829430450,
+--     auction_date 2026-10-21). Direct HTTP from this infra to
+--     apps.stjohnsclerk.com times out at the TCP level (DNS resolves fine to
+--     50.200.80.153; curl -v shows a pure connect timeout) -- the county
+--     firewall blocks our cloud egress IP range, not a real absence. Verified
+--     LIVE this session via mcp__brightdata__search_engine (independently,
+--     twice) pulling Google's indexed snapshot of the official
+--     apps.stjohnsclerk.com/TaxSmart/Home/Details?id=6306 and id=6325 pages:
+--     both show Status=SALE with Case Number/Certificate/Parcel ID/Auction
+--     Date matching our stored row exactly, corroborated by sheriff
+--     service-return and notice-of-application document snippets bearing the
+--     same file numbers. The daily parity sweep is almost certainly
+--     mis-classifying "connection blocked" as "not found" for this county --
+--     reclassified PARITY_OK with a distinct parity_source label documenting
+--     the brightdata-proxied verification path (worth revisiting: the sweep
+--     itself should route through a proxy for this county going forward).
+--   - 1 row CA25-1701: already parity_status='matched_clean' with a REAL
+--     tier1 backing (tier1_authoritative=true, tier1_source_run_id=173316,
+--     tier1_verified_at today) but parity_source was NULL -- same
+--     audit-trail-stamp bug documented in the 2026-08-16 0f0b7f9d session.
+--     Not a new match; completing the stamp for a match the ingestion
+--     pipeline already recorded.
+--
+-- RESULT (live, applied via PostgREST since direct psql is blocked --
+-- documented long-standing constraint):
+--   st_johns C: matched_clean 112 -> 115, metric 94.1% -> 96.6%, FAIL -> PASS
+--   st_johns D: matched_any 116 -> 119, metric 97.5% -> 100.0% (bonus)
+--   st_johns: 9/10 -> 10/10, ALL LETTERS PASS
+--
+-- ── okaloosa C/D/E/I: NO CHANGE, genuine ceiling reconfirmed 3rd session ──
+-- Same 6-row gap as the 2026-08-29 d99a3498 session (4 rows are legitimately
+-- Walton County parcels per legal description -- cross-shard reassignment
+-- correctly out of scope for a single-shard session; 2 rows [2024-CA-000470,
+-- 2024-TDD-000089] have no reachable official-source outcome). This session
+-- tried a genuinely new lever (mcp__brightdata unlocker, not available to
+-- yesterday's Playwright/xvfb-only session) against clerkapps.okaloosaclerk.com/
+-- ClerkQuest: returned empty even to the residential-proxy unlocker (a
+-- domain-level block, stronger finding than yesterday's Turnstile-only
+-- diagnosis -- control fetches to bid4assets.com on the same session
+-- succeeded, ruling out a general brightdata outage). Bid4Assets' own
+-- case-search widget is currently server-side down ("temporarily
+-- unavailable"), not bot-blocked. Zero writes. See
+-- gold_standard_ultraloop_audit rows (dispatch aa259b14, county=okaloosa,
+-- letters C/D/E/I) for full adversarial-verification evidence.
+--
+-- Applied live via PostgREST PATCH (not embedded here as executable SQL
+-- since this session's DB access path is REST, not psql):
+--   UPDATE public.multi_county_auctions
+--   SET parity_status='PARITY_OK',
+--       parity_source='st_johns_clerk_tax_deed_brightdata_proxy_verify',
+--       parity_checked_at='2026-08-30T09:00:00Z', updated_at='2026-08-30T09:00:00Z'
+--   WHERE county='st_johns' AND case_number IN ('TD26-0059','TD26-0078');
+--
+--   UPDATE public.multi_county_auctions
+--   SET parity_source='tier1_realforeclose_stjohns_calendar',
+--       parity_checked_at='2026-08-30T09:00:00Z', updated_at='2026-08-30T09:00:00Z'
+--   WHERE county='st_johns' AND case_number='CA25-1701'
+--     AND parity_status='matched_clean' AND parity_source IS NULL;
