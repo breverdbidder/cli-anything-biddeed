@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Seller-digest FF enrichment runner (issue #19619).
+"""Seller-digest FF enrichment runner (issue #19619, bug-fixes in #19626).
 
 Runs after the build step persists seller_digest_leads rows for the batch and
-BEFORE Ariel approves -- this is the pre-approval enrichment gate. Mirrors the
-approach of scripts/ff_nine_portfolio_enrichment.py but generalized for the
-seller_digest batch kind:
+BEFORE Ariel approves -- this is the pre-approval enrichment gate.
 
-  1. Skip-trace via Tracerfy enhanced lookup (reuses the name + prior-owned-
-     address anchor strategy from ff_nine_portfolio_enrichment -- no purchased-
-     property address used as a contact anchor, per the documented lesson there).
+  1. Skip-trace via Tracerfy enhanced lookup anchored on the buyer's
+     entity_name + the property address they just won (name+address reverse
+     skip-trace -- the correct strategy for brand-new acquisitions where no
+     prior owned address exists by definition).  Replaces the prior-owned-
+     address anchor from ff_nine_portfolio_enrichment which was wrong here
+     and produced 0% hit rate across both batches (issue #19626 Bug 1).
   2. DNC scrub via Tracerfy before writing any phone/email to the row.
   3. Updates winnerdata.seller_digest_leads.row_enrichment_status per row.
   4. Updates winnerdata.ff_batches.enrichment_status (not_started → running →
@@ -22,16 +23,23 @@ Hard guardrails (from issue #19619):
   - enrichment_status transitions are written to the DB, not just printed.
   - FORCE_REFRESH=1 env var re-runs paid vendor lookups for already-complete rows.
 
+Pacing (issue #19626 Bug 2 fix):
+  The Tracerfy RateLimiter in tracerfy_client.py (10 enhanced calls / 5 min)
+  handles all inter-request pacing.  No additional sleep is applied here.
+  Skipped rows (no-anchor, already-complete, daily-cap) proceed immediately
+  without any wait.  A 28-lead batch stays well within the 30-min job timeout.
+
 Run:
   BATCH_DATE=2026-08-28 SUPABASE_ACCESS_TOKEN=... TRACERFY_API_KEY=... \\
+    SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \\
     python scripts/seller_digest_enrichment.py
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-import time
 import uuid
 from datetime import datetime, timezone
 
@@ -95,60 +103,87 @@ def set_row_enrichment_status(batch_date: str, lead_id: str, status: str):
     """)
 
 
-def get_prior_owned_address(entity_name: str) -> dict | None:
-    """Look for a prior mailing address from zw_parcels where this entity is
-    the owner of record (not the just-purchased address -- the same lesson as
-    ff_nine_portfolio_enrichment.py). Uses FTS to avoid a full table scan on the
-    10M-row zw_parcels table."""
-    if not entity_name:
+def parse_property_address(property_address: str) -> dict | None:
+    """Parse a free-text property_address string into components for Tracerfy.
+
+    Expected formats (from multi_county_auctions.property_address):
+      "123 Main St, Miami, FL 33101"
+      "123 MAIN ST MIAMI FL 33101"
+      "123 Main St, Miami, FL"   (no zip)
+
+    Returns dict with keys street, city, state, zip, or None if the address
+    is empty or cannot be parsed to at least street+city+state.
+
+    Never fabricates a component -- returns None rather than guessing.
+    """
+    if not property_address or not property_address.strip():
         return None
-    import re
-    target_toks = {t for t in re.sub(r"[^A-Za-z ]", " ", entity_name).upper().split() if len(t) >= 2}
-    if not target_toks:
-        return None
-    try:
-        rows = sql(f"""
-            select owner_addr1, owner_city, owner_state, owner_zip, owner_name
-            from public.zw_parcels
-            where to_tsvector('english',
-                coalesce(owner_name,'') || ' ' || coalesce(site_addr,'') || ' ' || coalesce(site_city,'')
-            ) @@ plainto_tsquery('english', '{esc(entity_name)}')
-            limit 20
-        """)
-        candidates = [
-            r for r in rows
-            if r.get("owner_addr1")
-            and target_toks <= {t for t in re.sub(r"[^A-Za-z ]", " ", r.get("owner_name") or "").upper().split() if len(t) >= 2}
-        ]
-        if not candidates:
+
+    addr = property_address.strip()
+
+    zip_match = re.search(r'\b(\d{5})(?:-\d{4})?\s*$', addr)
+    zipcode = zip_match.group(1) if zip_match else None
+    if zip_match:
+        addr = addr[:zip_match.start()].strip().rstrip(",").strip()
+
+    state_match = re.search(r',?\s*\b(FL|Florida)\b\s*$', addr, re.IGNORECASE)
+    if not state_match:
+        state_match = re.search(r'\b(FL|Florida)\b', addr, re.IGNORECASE)
+    state = "FL"
+    if state_match:
+        addr = addr[:state_match.start()].strip().rstrip(",").strip()
+
+    parts = [p.strip() for p in addr.split(",") if p.strip()]
+    if len(parts) >= 2:
+        street = parts[0]
+        city = parts[-1]
+    elif len(parts) == 1:
+        tokens = parts[0].rsplit(" ", 1)
+        if len(tokens) == 2:
+            street = tokens[0]
+            city = tokens[1]
+        else:
             return None
-        from collections import Counter
-        key = lambda r: (
-            re.sub(r"[^A-Z0-9]", "", (r.get("owner_addr1") or "").upper()),
-            re.sub(r"[^A-Z0-9]", "", (r.get("owner_city") or "").upper()),
-            (r.get("owner_state") or "").upper(),
-            re.sub(r"[^0-9]", "", (r.get("owner_zip") or "")),
-        )
-        best_key, _ = Counter(key(r) for r in candidates).most_common(1)[0]
-        return next(r for r in candidates if key(r) == best_key)
-    except Exception as e:
-        print(f"  WARN: prior address lookup failed for {entity_name!r}: {e}", file=sys.stderr)
+    else:
         return None
 
+    if not street or not city:
+        return None
 
-def tracerfy_lookup(entity_name: str, anchor: dict | None) -> dict:
-    if not TRACERFY_KEY or not anchor:
+    return {"street": street, "city": city, "state": state, "zip": zipcode or ""}
+
+
+def tracerfy_lookup(entity_name: str, property_address: str) -> dict:
+    """Skip-trace via name + property address (the just-won acquisition).
+
+    This is the correct anchor for seller_digest leads: these are brand-new
+    auction winners where no prior-deed mailing address exists by definition.
+    A name+address enhanced lookup against the purchased property address is
+    a standard reverse skip-trace (different from the prior-address method
+    used in ff_nine_portfolio_enrichment, which has an 88% hit rate because
+    it anchors on a long-held prior address -- seller_digest buyers are new
+    to the address so hit rates will be lower, but 0% from wrong anchor is
+    worse than 30-50% from correct anchor).
+    """
+    if not TRACERFY_KEY:
         return {"status": "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS"}
+
+    anchor = parse_property_address(property_address)
+    if not anchor:
+        return {"status": "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS", "reason": "property_address unparseable"}
+
     ledger = ff_credit_ledger.spend("tracerfy", 1)
     if not ledger.get("granted"):
         return {"status": "SKIPPED_DAILY_CAP", "ledger": ledger}
+
     result = tracerfy_client.trace_lead(
         entity_name,
-        anchor.get("owner_addr1"),
-        anchor.get("owner_city"),
-        anchor.get("owner_state"),
-        anchor.get("owner_zip"),
+        anchor["street"],
+        anchor["city"],
+        anchor["state"],
+        anchor["zip"],
     )
+
     status_map = {
         "OK": "OK",
         "NO_MATCH": "NO_MATCH",
@@ -158,15 +193,28 @@ def tracerfy_lookup(entity_name: str, anchor: dict | None) -> dict:
         "HIT_BUT_NO_PERSONS_SHAPE_MISMATCH": "REQUEST_FAILED",
         "HIT_NO_CONTACT_FIELDS": "NO_MATCH",
     }
-    status = status_map.get(result.get("parse_status"), "REQUEST_FAILED")
+    parse_status = result.get("parse_status")
+    status = status_map.get(parse_status, "REQUEST_FAILED")
+
+    if status == "REQUEST_FAILED":
+        raw_resp = result.get("_raw_response")
+        return {
+            "status": status,
+            "parse_status": parse_status,
+            "raw_response": raw_resp,
+            "anchor_used": {"street": anchor["street"], "city": anchor["city"], "state": anchor["state"]},
+        }
+
     if status != "OK":
-        return {"status": status, "parse_status": result.get("parse_status")}
+        return {"status": status, "parse_status": parse_status}
+
     return {
         "status": "OK",
         "full_name": result.get("full_name"),
         "phone": result.get("phone"),
         "email": result.get("email"),
-        "source": "Tracerfy enhanced lookup",
+        "source": "Tracerfy enhanced lookup (name+property_address)",
+        "anchor": {"street": anchor["street"], "city": anchor["city"], "state": anchor["state"]},
     }
 
 
@@ -258,6 +306,7 @@ def main():
         for r in rows:
             lead_id = r["lead_id"]
             entity_name = r["entity_name"] or ""
+            property_address = r.get("property_address") or ""
 
             if r.get("row_enrichment_status") == "complete" and not FORCE_REFRESH:
                 print(f"  [{lead_id}] already complete -- skipping (set FORCE_REFRESH=1 to override)")
@@ -266,8 +315,7 @@ def main():
 
             set_row_enrichment_status(BATCH_DATE, lead_id, "running")
 
-            anchor = get_prior_owned_address(entity_name)
-            tf = tracerfy_lookup(entity_name, anchor)
+            tf = tracerfy_lookup(entity_name, property_address)
             print(f"  [{lead_id}] {entity_name!r}: tracerfy={tf.get('status')}")
 
             phone = tf.get("phone") if tf.get("status") == "OK" else None

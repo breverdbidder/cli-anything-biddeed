@@ -179,14 +179,17 @@ def _parse_trace_response(resp: dict) -> dict:
     emails: [{email, rank}]}]}. Picks the first person (Tracerfy's own best
     match) and their rank-1 phone/email. If the shape doesn't match what was
     verified live 2026-08-24, returns all-null tagged SKIP_TRACE_PARSE_MISMATCH
-    rather than guessing (BLANK > WRONG) -- Tracerfy may still change its API."""
+    rather than guessing (BLANK > WRONG) -- Tracerfy may still change its API.
+
+    On any shape-mismatch failure, the caller receives the raw resp body via
+    _raw_response so REQUEST_FAILED cases are diagnosable (issue #19626 Bug 3)."""
     if not isinstance(resp, dict):
-        return {"phone": None, "email": None, "full_name": None, "parse_status": "UNEXPECTED_RESPONSE_SHAPE"}
+        return {"phone": None, "email": None, "full_name": None, "parse_status": "UNEXPECTED_RESPONSE_SHAPE", "_raw_response": resp}
     if not resp.get("hit"):
         return {"phone": None, "email": None, "full_name": None, "parse_status": "NO_MATCH"}
     persons = resp.get("persons") or []
     if not persons:
-        return {"phone": None, "email": None, "full_name": None, "parse_status": "HIT_BUT_NO_PERSONS_SHAPE_MISMATCH"}
+        return {"phone": None, "email": None, "full_name": None, "parse_status": "HIT_BUT_NO_PERSONS_SHAPE_MISMATCH", "_raw_response": resp}
     person = persons[0]
     phones = sorted(person.get("phones") or [], key=lambda p: p.get("rank", 999))
     emails = sorted(person.get("emails") or [], key=lambda e: e.get("rank", 999))
@@ -199,7 +202,11 @@ def _parse_trace_response(resp: dict) -> dict:
 
 def trace_lead(entity_name: str, mailing_address: str, city: str, state: str, zipcode: str) -> dict:
     """Trace one lead via the enhanced (name+address) method only.
-    Never calls find_owner -- see module docstring for why."""
+    Never calls find_owner -- see module docstring for why.
+
+    On HTTP/network failure, _raw_response is absent (no response body to
+    attach). On parse failure, _raw_response carries the raw Tracerfy response
+    body so REQUEST_FAILED cases are diagnosable (issue #19626 Bug 3)."""
     if not mailing_address:
         return {"phone": None, "email": None, "parse_status": "NO_MAILING_ADDRESS_AVAILABLE", "cost_cents": 0}
     resp = enhanced_trace(entity_name, mailing_address, city, state, zipcode)
