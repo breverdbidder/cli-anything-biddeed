@@ -2153,7 +2153,15 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // field per card), never an access gate.
       if (path === '/auctions' && method === 'GET') {
         const county = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
-        if (!county) return new Response(JSON.stringify({ error: 'county required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!county) {
+          // `/auctions` is a legacy JSON endpoint for the chat panel, while the
+          // user-facing auction workspace lives at `/radar`. Preserve the JSON
+          // error contract for programmatic callers, but prevent a broken page
+          // when a user follows an old `/auctions` navigation link.
+          const acceptsHtml = (request.headers.get('Accept') || '').includes('text/html');
+          if (acceptsHtml) return Response.redirect(`${url.origin}/radar`, 302);
+          return new Response(JSON.stringify({ error: 'county required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
         let days = parseInt(url.searchParams.get('days') || '14', 10);
         if (!Number.isFinite(days) || days <= 0) days = 14;
         days = Math.min(days, 90);
