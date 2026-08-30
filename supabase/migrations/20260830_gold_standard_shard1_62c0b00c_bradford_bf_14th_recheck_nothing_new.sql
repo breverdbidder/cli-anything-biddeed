@@ -1,0 +1,72 @@
+-- Gold Standard shard-1 (dispatch 62c0b00c), pair bradford-BF: 14th consecutive
+-- session re-checking the same 4 past-due bradford cases (24000431CAAXMX,
+-- 25000457CAAXMX, 25000439CAAXMX, 25000487CAAXMX) plus the 5th genuinely-future
+-- case (04-2026-TD-002, sale 2026-09-09). This is a DELTA-ONLY note per
+-- dispatch instructions -- see 20260828_gold_standard_shard1_95d2d8fc_bradford_bf_4case_pastdue_recheck.sql
+-- for the full investigation history (13 prior sessions, every lever tried).
+--
+-- ================================================================================
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('bradford') at session
+-- start on 2026-08-30, and matches the 2026-08-28 baseline exactly -- NO DRIFT
+-- on any letter): 8/10.
+-- A=1(fc=4 td=1) C=100(matched_clean=5) D=100(matched_any=5) E=100(parcel_linked=5)
+-- G=100(density=100) H=0.1h I=100(card_complete=5 of 5) J=100(deal_complete=5)
+-- all PASS. B=null(verified=0 closed_sold=0) F=null(tier1_sold=0 closed_sold=0)
+-- FAIL. auctions_total=5.
+--
+-- ================================================================================
+-- WHAT WAS CHECKED THIS SESSION (2026-08-30, genuinely new time window -- only
+-- checks that could NOT have been performed on 2026-08-28; the dead levers
+-- (bradfordclerk.com direct fetch of the tax-deeds page, Firecrawl,
+-- surplusindex.com, floridapublicnotices.com, civitek OCRS) were NOT
+-- re-attempted per dispatch instructions):
+--
+-- 1. DB freshness/drift check -- live pull of all 5 rows from
+--    multi_county_auctions this session (last_seen_at refreshed to
+--    2026-08-30T16:21:02Z). auction_date, auction_status ('upcoming'), and
+--    sold_amount (null) are IDENTICAL to the 2026-08-28 baseline for all 5
+--    rows. CONFIRMED no sale has completed per our own ingestion data.
+--
+-- 2. bctelegraph.com new-issue check -- fetched the legal-notices category
+--    index page fresh this session. Newest post is still "Legal Notices for
+--    8-27-26" (published 2026-08-25); no issue has been published since the
+--    2026-08-28 session's check (which already covered the 8-27-26 issue).
+--    Attempted a direct fetch of a hypothetical "legal-notices-for-9-3-26"
+--    URL as a probe -- HTTP 404, confirming it does not exist yet. Zero new
+--    content this window; the fresh-issue premise for this session did not
+--    materialize (next issue is expected ~2026-09-03, after this dispatch).
+--
+-- 3. Fresh WebSearch per case number (all 4 past-due cases, independently,
+--    this session): no new results for any case. 25000439CAAXMX resurfaced
+--    only the same pre-sale Final Judgment of Foreclosure notice (Planet Home
+--    Lending LLC vs. Jonattan H. Barranco Pinto, dated 2026-06-22) already
+--    known from prior sessions. 25000457CAAXMX, 25000487CAAXMX, 24000431CAAXMX
+--    returned no case-specific hits at all -- only generic
+--    Bradford-County-FL/PA foreclosure-listing aggregators (Redfin, Zillow,
+--    foreclosure.com) and the Bradford County Sheriff's Office site, none of
+--    which contain per-case sale-result data. No fabrication risk taken -- no
+--    hallucinated content this session (unlike the 2026-08-28 session's
+--    discarded 24000431CAAXMX mix-up).
+--
+-- 4. Incidental additional probe: bradfordclerk.com/foreclosures/ (a distinct
+--    URL path from the previously-tried /tax-deeds-and-foreclosure-sales/
+--    page) -- re-curled fresh this session to confirm the Cloudflare block is
+--    domain-wide, not path-specific. HTTP 403 "Just a moment..." challenge,
+--    same as every other bradfordclerk.com path. Confirms no new lever exists
+--    on this domain, not just the specific page already ruled dead.
+--
+-- ================================================================================
+-- Conclusion: NO UPDATE issued to multi_county_auctions or foreclosure_outcomes.
+-- No fabrication. B/F remain FAIL, structurally unchanged: verified=0,
+-- closed_sold=0. Nothing genuinely new existed in this 2-day window -- the
+-- anticipated new bctelegraph issue has not yet published, and no sale has
+-- completed per live DB or live web checks. civitek OCRS remains the only
+-- non-dead-end channel, still gated purely by the absence of
+-- browser-use/Turnstile-solving capability in this sandbox (unchanged, not
+-- re-attempted per instructions).
+--
+-- has_lever = false for this session (14th consecutive). Per the campaign's
+-- fail-loud / BLANK > WRONG invariant, this is reported as a valid, honest
+-- residual outcome, not a failure of effort.
+
+SELECT 1;

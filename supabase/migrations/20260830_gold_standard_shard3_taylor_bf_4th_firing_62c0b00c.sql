@@ -1,0 +1,140 @@
+-- Gold Standard shard-3 taylor B/F — dispatch 62c0b00c (4th firing on this county+letters)
+-- Documentation-only file. NO DATA WRITTEN — no sourced sold_amount was found this session.
+-- Per HARD GUARDRAILS: fail-loud, no fabrication. This is the audit trail for a genuinely
+-- re-worked, still-blocked session, mirroring the 3rd firing's honest-null pattern.
+--
+-- Scope: sole assigned county = taylor, letters B and F only
+--   (verified independent sale outcomes / tier1 sold amounts).
+--
+-- ============================================================================
+-- BEFORE (live pencil_dod_evaluate_county('taylor'), fresh this session, 2026-08-30)
+-- ============================================================================
+-- {
+--   "county": "taylor", "auctions_total": 13,
+--   "A": {"pass": true,  "metric": 4,   "detail": "fc=9 td=4"},
+--   "B": {"pass": false, "metric": null, "detail": "verified=0 closed_sold=0"},
+--   "C": {"pass": true,  "metric": 100.0, "detail": "matched_clean=13"},
+--   "D": {"pass": true,  "metric": 100.0, "detail": "matched_any=13"},
+--   "E": {"pass": true,  "metric": 100.0, "detail": "parcel_linked=13"},
+--   "F": {"pass": false, "metric": null, "detail": "tier1_sold=0 closed_sold=0"},
+--   "G": {"pass": true,  "metric": 100.0, "detail": "density=100.0 far= pk1000="},
+--   "H": {"pass": true,  "metric": 1.3,  "detail": "hours since last_seen (SLA 48h)"},
+--   "I": {"pass": true,  "metric": 100.0, "detail": "card_complete=13 of 13"},
+--   "J": {"pass": true,  "metric": 100.0, "detail": "deal_complete=13"}
+-- }
+--
+-- Note: I is now 100% (13/13) vs 90.9% at the 3rd firing's BEFORE snapshot. This is
+-- CONFIRMED as pre-existing drift from a concurrent/prior shard (both previously-blocked
+-- parcels 02035-000/25-145 CA and 09459-119/23-505 CA now carry real zone_code links,
+-- AG2 and MUD respectively, under jurisdiction_id=1513 Unincorporated Taylor County) —
+-- NOT touched by this session (out of B/F-only scope). No action taken on I.
+--
+-- ============================================================================
+-- AFTER (live pencil_dod_evaluate_county('taylor'), re-run end of session, 2026-08-30)
+-- ============================================================================
+-- {
+--   "county": "taylor", "auctions_total": 13,
+--   "A": {"pass": true,  "metric": 4,   "detail": "fc=9 td=4"},
+--   "B": {"pass": false, "metric": null, "detail": "verified=0 closed_sold=0"},
+--   "C": {"pass": true,  "metric": 100.0, "detail": "matched_clean=13"},
+--   "D": {"pass": true,  "metric": 100.0, "detail": "matched_any=13"},
+--   "E": {"pass": true,  "metric": 100.0, "detail": "parcel_linked=13"},
+--   "F": {"pass": false, "metric": null, "detail": "tier1_sold=0 closed_sold=0"},
+--   "G": {"pass": true,  "metric": 100.0, "detail": "density=100.0 far= pk1000="},
+--   "H": {"pass": true,  "metric": 1.3,  "detail": "hours since last_seen (SLA 48h)"},
+--   "I": {"pass": true,  "metric": 100.0, "detail": "card_complete=13 of 13"},
+--   "J": {"pass": true,  "metric": 100.0, "detail": "deal_complete=13"}
+-- }
+--
+-- B and F: UNCHANGED (FAIL, null, correctly re-confirmed blocked — no fabrication, no writes).
+-- H metric identical (1.3) to BEFORE — no scrape landed between the two RPC calls, as
+-- expected for a documentation-only session with zero writes.
+--
+-- ============================================================================
+-- Genuinely new lever worked this session (the only mechanism by which B/F can ever
+-- move for a small, slow-volume county: a case crossing its sale date for the first time)
+-- ============================================================================
+-- Two cases crossed their 2026-08-27 sale date for the first time between the 3rd firing
+-- session and this one (2026-08-30, 3 days post-sale):
+--   26-042 CA  | Keaton Beach Storage, LLC v. et al | amount 897101.35 | parcel 06578-076
+--   25-210 CA  | Mark Aguon / Jessica Lynn Aguon    | amount 463269.10 | parcel 07845-000
+--
+-- Sources checked live, fresh, this session (2026-08-30T16:27:30Z):
+--   1. GET https://taylorclerk.com/wp-json/kma/v1/foreclosures
+--        -> both cases STILL present, "status":"scheduled" (unchanged, no post-sale flip
+--           observed 3 days out — same lag window flagged as a hypothesis by 3rd firing,
+--           now genuinely tested and still negative).
+--   2. GET https://taylorclerk.com/wp-json/kma/v1/taxdeeds -> [] (no rows; N/A to these 2 FC cases)
+--   3. GET https://taylorclerk.com/wp-json/kma/v1/landavailables -> unrelated older TDA rows only
+--   4. https://taylorclerk.com/foreclosures/26-042-ca/  -> HTTP 301 -> redirects to homepage (200)
+--      https://taylorclerk.com/foreclosures/25-210-ca/  -> HTTP 301 -> redirects to homepage (200)
+--      NEW OBSERVATION (not in 3rd firing report): the dedicated case pages for both of
+--      these specific cases are ALREADY hard-deleted/redirected, even though the kma/v1
+--      API's JSON list still shows them with status "scheduled". This is an inconsistency
+--      between the CPT post (deleted) and the API list cache (stale) — informative but does
+--      NOT provide a sold_amount or a definitive sale/no-sale outcome. Flagged for a future
+--      session: this divergence could itself be a signal that the case IS closed (page
+--      deletion appears to follow case closure per the pattern documented for the 5
+--      already-closed cases in the 3rd firing), but it is not proof and carries no dollar
+--      figure. NOT written as an outcome per the no-fabrication guardrail.
+--   5. Perry Newspapers (perrynewspapers.com) WP REST search (`?rest_route=/wp/v2/search`)
+--      -> newest "Legals" edition remains id 53146 "Legals 8-28-26" (same edition already
+--      confirmed by 3rd firing as pre-sale-only notices for other cases). No edition newer
+--      than 8-28-26 exists as of 2026-08-30 (weekly cadence, next edition not yet published).
+--      Re-confirmed dead end for post-sale results.
+--   6. https://taylorclerk.com/departments/property-sales/ -> NEW page discovered this
+--      session (not checked in 3rd firing report), but is pure boilerplate/navigation
+--      landing content linking back to the already-exhausted foreclosure-sales page.
+--      No case data. Dead end.
+--   7. Web search "26-042 CA" Keaton Beach Storage -> surfaced one genuinely new,
+--      independently-sourced fact: Keaton Beach Storage, LLC filed Chapter 11 bankruptcy
+--      (N.D. Fla, case #4:26-bk-40043, filed 2026-01-28) and underwent voluntary
+--      dissolution 2026-06-01 (source: sunbiz.org entity record + pacermonitor.com docket
+--      listing). This is REAL and relevant context for case 26-042 CA but provides NO
+--      sold_amount and NO definitive confirmation of whether the sale proceeded, was
+--      stayed, or was cancelled — the clerk's own live feed still shows "scheduled" for
+--      this case, meaning either the automatic stay was lifted/inapplicable or the feed
+--      is stale. NOT sufficient to write any outcome field. Flagged for a human follow-up
+--      lever (PACER docket check for a relief-from-stay order) — out of automatable scope.
+--   8. Web search "25-210 CA" Aguon foreclosure sale sold -> corroborated case metadata
+--      (plaintiff Lakeview Loan Servicing LLC, final judgment 2026-06-25, sale scheduled
+--      2026-08-27 at the courthouse) via a legal-notice aggregator, but zero post-sale
+--      result. Confirmed genuinely searched, genuinely negative.
+--
+-- ============================================================================
+-- What shipped this session
+-- ============================================================================
+-- 1. THIS FILE ONLY (documentation/audit trail). No `multi_county_auctions` writes.
+-- 2. No `foreclosure_outcomes` / `tax_deed_outcomes` rows written — zero candidate
+--    sold-amount data was found for any of the 13 taylor rows. Writing a null-value
+--    row would add noise, not signal, per the fail-loud guardrail.
+-- 3. No `sold_amount`, `tier1_sold_amount`, or `tier1_sale_status` values written or
+--    inferred for any row. No `promote_tier1_from_outcomes()` call made (nothing to
+--    promote — would be a no-op).
+-- 4. PropertyOnion / po_* fields: NOT consulted or written as evidence for B/F, per
+--    the litmus-only guardrail (po_sold_amount was not even queried this session).
+--
+-- ============================================================================
+-- Residual / next-session priorities (unchanged from 3rd firing, reconfirmed valid)
+-- ============================================================================
+-- 1. B/F: only remaining honest lever is a human phone call to the Clerk's
+--    tax-deed/foreclosure department (850-838-3506 ext 103, taxdeeds@taylorclerk.com)
+--    to request post-sale results for 26-042 CA and 25-210 CA directly. Every
+--    automatable source (kma/v1 API, dedicated case pages, Perry Newspapers legals,
+--    property-sales landing page, general web search, PACER-adjacent bankruptcy
+--    aggregators) has now been checked across 4 sessions on this county/letter pair.
+-- 2. NEW: the case-page-deleted-but-API-list-still-"scheduled" divergence observed
+--    for 26-042 CA and 25-210 CA this session is worth re-checking in ~1 week — if the
+--    kma/v1 API entry itself disappears (matching the pattern of the 5 older closed
+--    cases), that would independently corroborate the sale closed, though still without
+--    a dollar amount. Not sufficient alone to move B/F.
+-- 3. TDA 26-031 / TDA 26-032 "redeemed" status handling for F's tier1_sold/closed_sold
+--    logic remains an open design question flagged by the 3rd firing, still not acted
+--    on here (touches shared scoring logic, out of this session's scope).
+--
+-- ============================================================================
+-- Verification protocol
+-- ============================================================================
+-- - SELECT public.pencil_dod_evaluate_county('taylor'); run before and after (both
+--   pasted above with live timestamps). No other RPC called. gold_standard_loop() /
+--   gold_standard_certify() NOT invoked (out of scope, other shards concurrently active).

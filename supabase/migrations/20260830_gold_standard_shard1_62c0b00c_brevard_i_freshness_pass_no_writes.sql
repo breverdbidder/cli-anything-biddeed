@@ -1,0 +1,109 @@
+-- Gold Standard shard-1 (dispatch 62c0b00c), 2026-08-30
+-- brevard, letter I (property card completeness)
+--
+-- FRESH-DATA-ONLY PASS per dispatch instructions (this is the 7th+ documented
+-- session on this exact letter/county). NO WRITES THIS SESSION -- every
+-- population re-checked LIVE found either (a) already-diagnosed structural
+-- block rows with zero drift, or (b) PropertyOnion litmus rows explicitly
+-- excluded from independent-fix scope by the hard guardrail.
+--
+-- BEFORE (live RPC public.pencil_dod_evaluate_county('brevard'), 2026-08-30):
+--   I: card_complete=6316 of 7348, metric=86.0, pass=false
+-- AFTER (same RPC, end of session):
+--   I: card_complete=6316 of 7348, metric=86.0, pass=false -- UNCHANGED, zero writes
+-- All other letters (A-H, J) confirmed PASS both before and after, no regression.
+--
+-- ── Step 1: Denominator growth check ──
+-- auctions_total 7315 (08-28) -> 7348 (this session), +33.
+-- card_complete 6271 (08-28) -> 6316 (this session), +45 -- net-positive drift,
+-- consistent with prior sessions (immaterial to the 1,032-row gap; some of the
+-- +33 arrived already-complete, some pre-existing rows resolved via other
+-- scrapers/enrichment between sessions).
+--
+-- Queried directly for genuinely NEW rows (created_at >= 2026-08-28) that are
+-- ALSO card-incomplete (missing address, or missing both lat/lon, or missing
+-- both assessed/market value): 9 rows found, ALL 9 are data_source=
+-- 'propertyonion' (case_number prefix "PO-...", created_at 2026-08-28T07:09:49Z
+-- batch insert). Per the HARD GUARDRAIL, PropertyOnion is a litmus/comparison
+-- source only -- it is never a target for independent-fix writes and (per
+-- pencil_dod_evaluate_county's own definition, corroborated by the "matches
+-- exactly 86.0%" reconfirmation above) is not counted as an actionable
+-- card_complete gap target in the first place. RESULT: zero genuinely new,
+-- non-PropertyOnion, tractable rows arrived since 2026-08-28.
+--
+-- ── Step 2: brevard_i_clerk_noblk_legal_backfill_7bcb4434.py provenance check ──
+-- Corrected the 08-28 migration's inaccurate framing (that script was "written
+-- in an earlier session but never applied/committed"). Verified via git log:
+--   commit 3ea7785e "Gold Standard shard-1 (dispatch 7bcb4434): brevard I
+--   clerk-legal backfill, lake C showcaseweb docket reconciler"
+-- This WAS committed and its effects WERE applied live on 2026-08-14, moving
+-- card_complete 6121->6143 (+22) that same day (per that session's own
+-- migration record). The 08-28 session's actual action was a RE-RUN against
+-- the residual population, which correctly found it exhausted. This session
+-- re-confirms the same population is unchanged again:
+--   data_source='brevard_clerk' AND parcel_id IS NULL: 15 rows (14 with
+--   property_address IS NULL, 1 already has an address from an unrelated
+--   enrichment path -- case 05-2024-CA-053818-XXCA-BC, unrelated to this
+--   script). ALL 14 null-address rows have legal_description IS NULL and
+--   created_at ranging 2026-02-27 through 2026-06-18 -- i.e. stale-dated,
+--   not newly arrived, and structurally unfixable by this script since there
+--   is no legal description for it to parse (LOT/PB/PG regex has nothing to
+--   match against). Byte-identical population to the 08-28 session's 15-row
+--   finding. NOT re-run a third time -- no new legal_description data exists
+--   to feed it; re-running would be a duplicate, exhausted check.
+--
+-- ── Step 3: AcclaimWeb case-number-search lever (the one semi-fresh candidate
+--   flagged in this session's own diagnosis) ──
+-- The related-but-distinct population (data_source IS NULL, parcel_id IS
+-- NULL, bcpao_account IS NULL, source_platform='clerk_brevard', zero legal
+-- description) was re-queried live: 18 rows (was 19 at diagnosis time earlier
+-- this session -- 1 resolved via unrelated drift between the diagnose and fix
+-- steps of this same session, not a new fix applied here). New arrivals
+-- continue to land in this exact bucket weekly (created_at 2026-08-01,
+-- 08-05, 08-07, 08-11, 08-14, 08-20 all present) -- confirming this is a
+-- live, growing, NOT-yet-exhausted population, but resolving it requires
+-- building a genuinely new authenticated AcclaimWeb case-number search flow
+-- (session cookie + __RequestVerificationToken + form POST against
+-- vaclmweb1.brevardclerk.us/AcclaimWeb/Search/SearchTypeCourt -- confirmed
+-- this session via direct curl probe that a bare GET/POST without a valid
+-- anti-forgery token 302-redirects to the disclaimer page, same access
+-- pattern complexity as the exhausted legal-description script). This is a
+-- nontrivial NEW BUILD (new scraper code, new selectors, zero prior success
+-- evidence, uncertain that even a successful case lookup would return a
+-- situs ADDRESS rather than just parcel/docket metadata) -- explicitly out
+-- of scope for this session's LOW time budget per dispatch instructions.
+-- Flagged again (3rd consecutive session) as the only non-exhausted lever,
+-- for a FUTURE session with a dedicated budget large enough to build and
+-- validate a new authenticated scraper end-to-end.
+--
+-- ── Step 4: Guardrail compliance ──
+-- Did NOT re-attempt Firecrawl (confirmed dead, insufficient credits,
+-- fleet-wide). Did NOT re-attempt municipal ArcGIS hosts already marked dead
+-- (Titusville, Melbourne, Cocoa Beach, Rockledge, Satellite Beach). Did NOT
+-- re-derive the STRUCTURAL BLOCK conclusion for the already-diagnosed
+-- 926+/187-row no-situs/no-feature population -- re-confirmed via the
+-- denominator math only (1,011-row full address-null bucket this session vs.
+-- 992-1,000 in the 08-25/08-28 sessions -- consistent slow drift, same root
+-- cause, not re-investigated in depth per instructions).
+--
+-- CONCLUSION: No tractable, non-fabricated, in-budget lever exists this
+-- session. The only genuinely new rows since 08-28 (9 rows) are PropertyOnion
+-- litmus rows explicitly out of scope per the hard guardrail. The
+-- previously-applied AcclaimWeb legal-description script's residual
+-- population (15 rows) is unchanged and remains unparseable/ambiguous/
+-- confidential, matching the last two sessions' finding exactly. The one
+-- live, growing, non-exhausted population (18-row clerk_brevard no-legal-
+-- description bucket) requires a new authenticated-scraper build
+-- disproportionate to this session's LOW time budget. ZERO rows written,
+-- per HONESTY PROTOCOL / BLANK > WRONG.
+--
+-- ============================================================================
+-- VERIFICATION (live, this session)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('brevard');
+-- BEFORE: {"I":{"pass":false,"detail":"card_complete=6316 of 7348","metric":86.0}}
+-- AFTER:  {"I":{"pass":false,"detail":"card_complete=6316 of 7348","metric":86.0}}
+-- All other letters (A,B,C,D,E,F,G,H,J) PASS both before and after -- no
+-- regression, no drift from concurrent fleet sessions observed.
+
+SELECT 1;
