@@ -18,15 +18,21 @@ import { TCPA_CONSENT_TEXT, TCPA_CONSENT_VERSION } from "../config/consent";
       Nothing here binds coverage; a producer will call to finish your quote.
     </p>
 
-    <div class="mt-8 border border-ink/10 bg-white/50 p-6">
-      <p class="font-display text-lg text-ink">Fastest path: connect your current policy</p>
-      <div class="mt-3">
-        <CanopyConnectWidget />
+    <div id="canopy-primary-cta" class="mt-8 border-2 border-brass bg-brass/10 p-6 sm:p-8">
+      <p class="text-xs font-bold uppercase tracking-widest text-brass">Recommended — takes about a minute</p>
+      <p class="mt-2 font-display text-2xl text-ink sm:text-3xl">Get a quote in one click</p>
+      <p class="mt-2 max-w-lg text-sm text-slate">
+        Securely connect your current carrier account and we pull your policy
+        details, dec pages, and driver history automatically — no typing
+        required.
+      </p>
+      <div class="mt-5">
+        <CanopyConnectWidget class="w-full justify-center px-8 py-4 text-base sm:w-auto" />
       </div>
     </div>
 
-    <p class="mt-8 text-sm font-semibold uppercase tracking-wide text-slate">
-      Or fill out the form manually
+    <p class="mt-10 text-sm font-semibold uppercase tracking-wide text-slate">
+      Prefer to type it in yourself? Fill out the form manually
     </p>
 
     <ol class="mt-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-slate" id="step-indicator">

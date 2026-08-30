@@ -6,10 +6,13 @@
 // posts the completion event to our own intake endpoint so we keep a
 // parallel record -- it does not talk to EZLynx directly.
 //
-// Renders nothing when PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS is unset -- callers
-// are expected to always render the plain "Get a Quote" form/link alongside
-// this component as the fallback, same gated-optional pattern VoiceWidget
-// uses for Vapi.
+// When PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS is unset, this still renders a
+// disabled "coming soon" CTA in the same position/size as the live button
+// (issue #19601 Task 1 correction -- the prior behavior of rendering nothing
+// let the fallback form outrank Canopy in the page hierarchy whenever the
+// key was unset, which is the exact anti-pattern the corrected brief calls
+// out). The live CanopyConnect.create() flow below only wires up once
+// publicAlias is present.
 interface Props {
   class?: string;
   label?: string;
@@ -17,6 +20,25 @@ interface Props {
 const { class: className = "", label = "Connect your current policy →" } = Astro.props;
 const publicAlias = import.meta.env.PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS;
 ---
+
+{!publicAlias && (
+  <div data-canopy-connect-widget data-canopy-fallback="true">
+    <button
+      type="button"
+      disabled
+      title="Canopy Connect isn't configured on this site yet."
+      class:list={[
+        "inline-flex cursor-not-allowed items-center justify-center bg-brass/50 px-6 py-3 text-sm font-semibold text-ink/60",
+        className,
+      ]}
+    >
+      {label}
+    </button>
+    <p class="mt-2 text-xs text-slate">
+      Coming soon — 1-click policy connect via Canopy Connect. Use the form below for now.
+    </p>
+  </div>
+)}
 
 {publicAlias && (
   <div data-canopy-connect-widget>

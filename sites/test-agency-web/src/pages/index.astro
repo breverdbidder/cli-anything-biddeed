@@ -19,17 +19,20 @@ import { AGENCY_TAGLINE, config } from "../config/agency";
         <p class="mt-6 max-w-xl text-lg leading-relaxed text-slate">
           {config.hero_description}
         </p>
-        <div class="mt-8 flex flex-wrap items-center gap-4">
+        <div id="home-canopy-cta" class="mt-8">
+          <CanopyConnectWidget
+            class="px-8 py-4 text-base"
+            label="Get a quote in 1 click — connect your policy →"
+          />
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-4">
           <a
             href="/get-a-quote"
-            class="inline-flex items-center justify-center bg-ink px-6 py-3 text-sm font-semibold text-paper transition-colors hover:bg-brass hover:text-ink"
+            class="text-sm font-semibold text-ink underline decoration-brass decoration-2 underline-offset-4 hover:text-brass"
           >
-            Get a Quote →
+            Prefer a form? Get a quote manually →
           </a>
           <VoiceWidget />
-        </div>
-        <div class="mt-4">
-          <CanopyConnectWidget />
         </div>
       </div>
 

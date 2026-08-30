@@ -74,6 +74,48 @@ for (const path_ of pages) {
   await page.close();
 }
 
+// Negative test (issue #19601 DoD item 4): the Canopy Connect 1-click CTA
+// must be visually/structurally dominant over the fallback manual-entry
+// form on /get-a-quote -- above the fold at desktop width, and preceding
+// the form in vertical document order. Checked as real layout geometry, not
+// an assertion about markup order, so a future CSS change that visually
+// buries Canopy behind the form fails this check even if the DOM order
+// still looks right.
+{
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const url = `${baseUrl}/get-a-quote`;
+  const response = await page.goto(url, { waitUntil: "networkidle" });
+  if (!response || response.status() >= 400) {
+    console.error(`FAIL /get-a-quote CANOPY DOMINANCE: page did not load (HTTP ${response ? response.status() : "no response"})`);
+    failures++;
+  } else {
+    const ctaBox = await page.$("#canopy-primary-cta");
+    const form = await page.$("#quote-form");
+    if (!ctaBox || !form) {
+      console.error(`FAIL /get-a-quote CANOPY DOMINANCE: #canopy-primary-cta or #quote-form not found in DOM`);
+      failures++;
+    } else {
+      const ctaBox_bb = await ctaBox.boundingBox();
+      const form_bb = await form.boundingBox();
+      const viewportHeight = 900;
+      const aboveFold = ctaBox_bb.y < viewportHeight;
+      const precedesForm = ctaBox_bb.y < form_bb.y;
+      if (aboveFold && precedesForm) {
+        console.log(
+          `OK   /get-a-quote CANOPY DOMINANCE: CTA top=${Math.round(ctaBox_bb.y)}px (above ${viewportHeight}px fold), form top=${Math.round(form_bb.y)}px (CTA precedes form by ${Math.round(form_bb.y - ctaBox_bb.y)}px)`
+        );
+      } else {
+        console.error(
+          `FAIL /get-a-quote CANOPY DOMINANCE: aboveFold=${aboveFold} (cta.y=${Math.round(ctaBox_bb.y)} vs fold=${viewportHeight}), precedesForm=${precedesForm} (cta.y=${Math.round(ctaBox_bb.y)} vs form.y=${Math.round(form_bb.y)})`
+        );
+        failures++;
+      }
+    }
+  }
+  await page.close();
+}
+
 await browser.close();
 
 if (failures > 0) {
