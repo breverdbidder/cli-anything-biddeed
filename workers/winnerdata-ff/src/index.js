@@ -595,13 +595,27 @@ h1{color:#F59E0B}</style></head>
     .map((s) => `<option value="${s}"${s === current ? ' selected' : ''}>${s.replace('_', ' ')}</option>`)
     .join('');
 
+  // issue #19611: RingCentral click-to-dial helper.
+  // Renders a tel: link today (works on any device). Full RC REST API dial
+  // (dials from producer's RC line, not device native dialer) requires an
+  // OAuth app registration on Mariam's RingCentral account — BLOCKER #2
+  // per issue #19611. Link text and tooltip make the blocker visible.
+  const dialLink = (phone, itemId) => {
+    if (!phone) return '<span style="color:#64748b;font-size:.8rem">No phone on file</span>';
+    const cleaned = String(phone).replace(/[^0-9+]/g, '');
+    return [
+      `<a href="tel:${cleaned}" style="color:#F59E0B;font-size:.85rem;white-space:nowrap"`,
+      ` title="Native dialer. RC REST click-to-dial (dials from your RC line) pending OAuth app provisioning — see issue #19611 blocker #2.">`,
+      `&#9990; ${esc(phone)}</a>`,
+    ].join('');
+  };
+
   const rows = items.map((item) => {
     const obs = item.observed_signal || {};
     const derived = item.derived_context || {};
     const propAddr = esc(obs.property_address || obs.site_address || '—');
     const county = esc(obs.county || '—');
     const buyer = esc(obs.winning_bidder || '—');
-    const saleType = esc(obs.sale_type || '—');
     const purchasePrice = obs.tier1_sold_amount ? `$${Number(obs.tier1_sold_amount).toLocaleString()}` : '—';
     const assessedVal = obs.pa_assessed_value ? `$${Number(obs.pa_assessed_value).toLocaleString()}` : '—';
     const caseNum = esc(obs.case_number || '—');
@@ -614,6 +628,14 @@ h1{color:#F59E0B}</style></head>
     const flood = derived.flood_opportunity ? `✓ Flood (${esc(String(derived.flood_opportunity))})` : '';
     const bop = derived.commercial_bop_opportunity ? '✓ BOP' : '';
     const opportunities = [umbrella, flood, bop].filter(Boolean).join('  ');
+    const vapiState = item.vapi_dispatch_status;
+    const vapiLabel = vapiState === 'dispatched' ? '<span style="color:#F59E0B;font-size:.75rem">AI calling…</span>'
+      : vapiState === 'connected' ? '<span style="color:#22c55e;font-size:.75rem">AI connected ✓</span>'
+      : vapiState === 'voicemail' ? '<span style="color:#94a3b8;font-size:.75rem">VM left</span>'
+      : vapiState === 'no_answer' ? '<span style="color:#94a3b8;font-size:.75rem">No answer</span>'
+      : vapiState === 'pending' ? '<span style="color:#64748b;font-size:.75rem">AI queued</span>'
+      : vapiState && vapiState.startsWith('skipped_') ? '<span style="color:#334155;font-size:.75rem">AI N/A</span>'
+      : '';
 
     return `<tr>
       <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">
@@ -637,6 +659,10 @@ h1{color:#F59E0B}</style></head>
       </td>
       <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;font-size:.8rem;color:#F59E0B">
         ${opportunities || '<span style="color:#64748b">—</span>'}
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">
+        ${dialLink(item.contact_phone, item.id)}<br>
+        ${vapiLabel}
       </td>
       <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">
         <form method="POST" action="/producer-report/update-state" style="display:inline">
@@ -679,6 +705,7 @@ h1{color:#F59E0B}</style></head>
       <th>Portfolio</th>
       <th>Tier</th>
       <th>Opportunities</th>
+      <th>Call</th>
       <th>Status</th>
     </tr>
   </thead>
@@ -828,6 +855,139 @@ ${blockedNote}
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
 
+// POST /producer-report/call-webhook — RingCentral and Vapi status-callback handler
+// (issue #19611)
+//
+// RingCentral webhook contract (per RC REST API webhooks docs):
+//   POST body (JSON): { "body": { "telephonySessionId": "...", "direction": "Outbound",
+//     "parties": [{ "id": "...", "status": { "code": "Disconnected", "reason": "Completed" },
+//     "recordings": [...] }] } }
+//   Headers: Validation-Token (first delivery) + X-Bridge-Item-Id + X-Bridge-Secret
+//
+// Vapi status-callback contract:
+//   POST body (JSON): { "message": { "type": "end-of-call-report",
+//     "call": { "id": "vapi-call-uuid", "endedReason": "customer-did-not-answer" | "assistant-ended-call" | ... },
+//     "durationSeconds": 42 } }
+//   Headers: X-Bridge-Item-Id + X-Bridge-Secret + X-Bridge-Channel: vapi_call
+//
+// Both sources must include:
+//   X-Bridge-Item-Id: wd_report_items.id (bigint as string)
+//   X-Bridge-Secret: matching vault wd_call_webhook_secret (required when configured)
+//   X-Bridge-Channel: ringcentral_call | vapi_call
+//
+// BLOCKER #2 (RingCentral): RC webhook requires OAuth app registration on Mariam's
+// RC account to subscribe to telephony-session events. Until that OAuth app exists,
+// RC call outcomes will NOT be received here — the tel: link works but the outcome
+// will not be logged. Build is complete and correct per the contract above.
+//
+// BLOCKER #1 (Vapi): No Vapi account/phone exists yet for Winner Data outbound.
+// The vapi-outbound-dispatch Edge Function will POST to this endpoint once active.
+async function handleCallWebhook(request) {
+  if (request.method !== 'POST') {
+    return jsonResponse({ ok: false, error: 'POST required' }, 405);
+  }
+
+  const itemIdHeader = request.headers.get('X-Bridge-Item-Id');
+  const bridgeSecret = request.headers.get('X-Bridge-Secret');
+  const channelHeader = request.headers.get('X-Bridge-Channel');
+
+  // RingCentral sends a Validation-Token on first subscription delivery — must echo it back
+  const rcValidationToken = request.headers.get('Validation-Token');
+  if (rcValidationToken) {
+    return new Response('', {
+      status: 200,
+      headers: { 'Validation-Token': rcValidationToken },
+    });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ ok: false, error: 'malformed JSON' }, 400);
+  }
+
+  // item_id resolution: header wins; fall back to Vapi metadata in body or URL param
+  const url = new URL(request.url);
+  const metadataItemId = body?.message?.call?.metadata?.item_id
+    || body?.call?.metadata?.item_id
+    || url.searchParams.get('item_id');
+  const resolvedItemIdStr = itemIdHeader || metadataItemId;
+
+  if (!resolvedItemIdStr) {
+    return jsonResponse({ ok: false, error: 'X-Bridge-Item-Id header required (or metadata.item_id in body)' }, 400);
+  }
+
+  const itemId = Number(resolvedItemIdStr);
+  if (!Number.isFinite(itemId) || itemId <= 0) {
+    return jsonResponse({ ok: false, error: 'invalid item_id' }, 400);
+  }
+
+  // Channel detection: header wins; Vapi populates metadata.channel in body
+  const metadataChannel = body?.message?.call?.metadata?.channel || body?.call?.metadata?.channel;
+  let channel = channelHeader || metadataChannel || 'ringcentral_call';
+  if (!['ringcentral_call', 'vapi_call'].includes(channel)) {
+    channel = 'ringcentral_call';
+  }
+
+  // Vapi passes serverUrlSecret as Authorization: Bearer <secret>, not X-Bridge-Secret
+  const authHeader = request.headers.get('Authorization') || '';
+  const effectiveBridgeSecret = bridgeSecret
+    || (authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null);
+
+  let outcome = 'connected';
+  let durationSeconds = null;
+  let vapiCallId = null;
+
+  if (channel === 'vapi_call') {
+    const msg = body?.message || body;
+    vapiCallId = msg?.call?.id || null;
+    durationSeconds = msg?.durationSeconds != null ? Math.round(Number(msg.durationSeconds)) : null;
+    const endedReason = String(msg?.call?.endedReason || '');
+    if (endedReason.includes('did-not-answer') || endedReason.includes('no-answer')) {
+      outcome = 'no_answer';
+    } else if (endedReason.includes('voicemail')) {
+      outcome = 'voicemail';
+    } else if (endedReason.includes('error') || endedReason.includes('failed')) {
+      outcome = 'failed';
+    } else {
+      outcome = 'connected';
+    }
+  } else {
+    // RingCentral telephony-session webhook
+    const parties = body?.body?.parties || [];
+    const firstParty = parties[0] || {};
+    const statusCode = String(firstParty?.status?.code || '');
+    const statusReason = String(firstParty?.status?.reason || '');
+    if (statusCode === 'Disconnected') {
+      if (statusReason === 'Completed' || statusReason === 'Accepted') {
+        outcome = 'connected';
+      } else if (statusReason === 'NoAnswer' || statusReason === 'NotAccepted') {
+        outcome = 'no_answer';
+      } else if (statusReason === 'Voicemail') {
+        outcome = 'voicemail';
+      } else {
+        outcome = 'failed';
+      }
+    } else {
+      // Non-terminal state (Setup, Proceeding, etc.) — acknowledge but don't log yet
+      return jsonResponse({ ok: true, note: 'non-terminal telephony state, not logged' });
+    }
+  }
+
+  const result = await rpc('wd_log_call_outcome', {
+    p_org_id: ORG_ID,
+    p_item_id: itemId,
+    p_channel: channel,
+    p_outcome: outcome,
+    p_duration_seconds: durationSeconds,
+    p_vapi_call_id: vapiCallId,
+    p_bridge_secret: effectiveBridgeSecret,
+  });
+
+  return jsonResponse(result);
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -839,6 +999,7 @@ export default {
       if (pathname === '/portal/bind' && request.method === 'POST') return handlePortalBind(request);
       if (pathname === '/producer-report' && request.method === 'GET') return handleProducerReport(request);
       if (pathname === '/producer-report/update-state' && request.method === 'POST') return handleProducerReportUpdateState(request);
+      if (pathname === '/producer-report/call-webhook' && request.method === 'POST') return handleCallWebhook(request);
       if (pathname === '/owner-dashboard' && request.method === 'GET') return handleOwnerDashboard(request);
 
       const ffMatch = pathname.match(/^\/ff\/([0-9a-fA-F-]{36})$/);
