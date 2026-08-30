@@ -40,6 +40,46 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 SALE_STATUS_VALUE = "2"  # <option value='2' selected>SALE</option>
 SEARCH_WINDOW_DAYS = 180  # generous; run_parity.py's own 90-day window does the real filtering
 
+# The "Status" search form's SearchTypeStatus dropdown is a single-select, not
+# multi-select -- SALE-only (the original scope) can never see a case that
+# transitioned to a terminal status (e.g. REDEEMED) after ingestion, because
+# that case simply stops appearing in the SALE result set. run_parity.py's
+# diff_and_reconcile() then can't find the case in ssot_by_case at all and
+# phantom-flags the (still real, just no-longer-SALE) row PHANTOM_NOT_ON_CLERK
+# instead of the correct CLERK_SSOT_CANCELLED. Confirmed live 2026-08-30:
+# TD26-0059 and TD26-0078 both flipped SALE->REDEEMED and were mis-flagged
+# phantom by the very next daily sweep after a same-day manual PARITY_OK fix.
+# Fetch every status value the dropdown offers (all values confirmed live
+# from the rendered <SELECT id='idSearchTypeStatus'> options 2026-08-30) so a
+# case that exists on the clerk under ANY status is found; the existing
+# `cancelled` flag already treats every non-SALE status as a cancellation.
+#
+# Guardrail (confirmed live 2026-08-30, self-caught this session): widening
+# the search to all statuses also surfaces cases that were REDEEMED before
+# they were ever tracked as an upcoming auction -- 24 of them for st_johns,
+# none previously present in multi_county_auctions. run_parity.py's
+# missing_from_ours path INSERTs any SSOT row absent from "ours", so those
+# 24 landed as brand-new CLERK_SSOT_CANCELLED rows and inflated
+# auctions_total 119->143, dragging E/I/J from PASS to FAIL (they were never
+# real bid opportunities, just applications paid off pre-sale -- counting
+# them is denominator pollution, not honest coverage). The `insertable` flag
+# below tells run_parity.py's missing_from_ours filter (see the matching
+# `.get("insertable", True)` guard there) that only SALE-status rows may
+# create a brand-new tracked auction; non-SALE rows are still used to MATCH
+# and correctly reclassify a row we already have (the actual bug this fix
+# targets), just never to insert one we never had.
+ALL_STATUS_VALUES = {
+    "2": "SALE",
+    "4": "REDEEMED",
+    "3": "SOLD",
+    "14": "CANCELLED",
+    "17": "CANCELLED/SUPREME COURT ORDER 20-23",
+    "8": "BANKRUPTCY",
+    "7": "ESCHEATED",
+    "5": "LANDS AVAILABLE",
+    "11": "NO BID AT AUCTION/CERT HOLDER",
+}
+
 
 def _mmddyyyy(d: date) -> str:
     return f"{d.month}/{d.day}/{d.year}"
@@ -47,51 +87,56 @@ def _mmddyyyy(d: date) -> str:
 
 def parse_tax_deed() -> list[dict]:
     today = date.today()
+    date_from = _mmddyyyy(today)
+    date_to = _mmddyyyy(today + timedelta(days=SEARCH_WINDOW_DAYS))
+
+    rows_by_case = {}
     with httpx.Client(headers={"User-Agent": UA}, timeout=30, follow_redirects=True) as client:
         client.get(BASE_URL)
-        client.post(BASE_URL, data={
-            "SearchTypeStatus": SALE_STATUS_VALUE,
-            "dateFromStatus": _mmddyyyy(today),
-            "dateToStatus": _mmddyyyy(today + timedelta(days=SEARCH_WINDOW_DAYS)),
-            "buttonSubmitStatus": "Search for Status",
-        })
-        resp = client.get(GRID_URL, params={
-            "SearchType": "Status", "rows": 500, "page": 1,
-            "sidx": "SaleDate", "sord": "asc", "_search": "false", "nd": 1,
-        })
-    resp.raise_for_status()
-    payload = resp.json()
+        for status_value in ALL_STATUS_VALUES:
+            client.post(BASE_URL, data={
+                "SearchTypeStatus": status_value,
+                "dateFromStatus": date_from,
+                "dateToStatus": date_to,
+                "buttonSubmitStatus": "Search for Status",
+            })
+            resp = client.get(GRID_URL, params={
+                "SearchType": "Status", "rows": 500, "page": 1,
+                "sidx": "SaleDate", "sord": "asc", "_search": "false", "nd": 1,
+            })
+            resp.raise_for_status()
+            payload = resp.json()
 
-    rows_out = []
-    for row in payload.get("rows", []):
-        cell = row.get("cell") or []
-        if len(cell) < 6:
-            continue
-        applicant, case_number, cert_number, parcel_id, sale_date_raw, status = cell[0], cell[1], cell[2], cell[3], cell[4], cell[5]
-        owner = cell[9] if len(cell) > 9 else ""
-        sale_date = None
-        try:
-            mm, dd, yyyy = sale_date_raw.split("/")
-            sale_date = f"{int(yyyy):04d}-{int(mm):02d}-{int(dd):02d}"
-        except (ValueError, AttributeError):
-            pass
-        rows_out.append({
-            "county_slug": "st_johns",
-            "sale_type": "tax_deed",
-            "case_number": case_number,
-            "sale_date": sale_date,
-            "cancelled": status.strip().upper() not in ("SALE",),
-            "raw_comment": f"{status} | cert {cert_number} | parcel {parcel_id}",
-            "case_title": f"{applicant.strip()} VS {owner.strip()}".strip(" VS"),
-            "source_url": BASE_URL,
-        })
+            for row in payload.get("rows", []):
+                cell = row.get("cell") or []
+                if len(cell) < 6:
+                    continue
+                applicant, case_number, cert_number, parcel_id, sale_date_raw, status = cell[0], cell[1], cell[2], cell[3], cell[4], cell[5]
+                owner = cell[9] if len(cell) > 9 else ""
+                sale_date = None
+                try:
+                    mm, dd, yyyy = sale_date_raw.split("/")
+                    sale_date = f"{int(yyyy):04d}-{int(mm):02d}-{int(dd):02d}"
+                except (ValueError, AttributeError):
+                    pass
+                rows_by_case[case_number] = {
+                    "county_slug": "st_johns",
+                    "sale_type": "tax_deed",
+                    "case_number": case_number,
+                    "sale_date": sale_date,
+                    "cancelled": status.strip().upper() not in ("SALE",),
+                    "insertable": status.strip().upper() == "SALE",
+                    "raw_comment": f"{status} | cert {cert_number} | parcel {parcel_id}",
+                    "case_title": f"{applicant.strip()} VS {owner.strip()}".strip(" VS"),
+                    "source_url": BASE_URL,
+                }
 
-    if not rows_out:
+    if not rows_by_case:
         raise RuntimeError(
             "st_johns tax_deed: parsed 0 rows from the GridSearchData response — treat as FAILURE, not an empty calendar"
         )
 
-    return rows_out
+    return list(rows_by_case.values())
 
 
 if __name__ == "__main__":

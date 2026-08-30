@@ -316,7 +316,15 @@ def diff_and_reconcile(county_slug: str, sale_type: str, rows: list[dict]) -> di
                 our_row = ours_by_case.get(real_case_number)
                 matched_case_number = real_case_number
         if our_row is None:
-            missing_from_ours.append(ssot_row)
+            # A parser may mark a row not-insertable (see clerk_ssot/parsers/
+            # st_johns.py) when it only fetched the row to MATCH/reclassify an
+            # existing case, not because it represents a real, trackable new
+            # auction -- e.g. a case that was already resolved (redeemed/
+            # cancelled/etc.) before we ever saw it as scheduled. Defaults to
+            # True so every other parser (which never sets this key) is
+            # unaffected.
+            if ssot_row.get("insertable", True):
+                missing_from_ours.append(ssot_row)
             continue
         matched += 1
         matched_our_cases.add(matched_case_number)

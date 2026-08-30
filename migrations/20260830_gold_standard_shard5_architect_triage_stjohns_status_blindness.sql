@@ -1,0 +1,101 @@
+-- ARCHITECT TRIAGE issue #19607 (SHARD-5: st_johns/okaloosa, dispatch
+-- aa259b14-5fc8-49cd-8809-3d21ed39f9bd). Engineer session (commit 1c0ccca4,
+-- 08:19 UTC) had already fixed st_johns C live (94.1%->96.6%, 10/10) earlier
+-- today; DoD was still failing when this triage ran (13:30+ UTC) because the
+-- fix had silently reverted. This session found and fixed the ROOT CAUSE so
+-- it cannot recur, not just the symptom again.
+--
+-- ── ROOT CAUSE (confirmed live) ──────────────────────────────────────────
+-- scripts/clerk_ssot/parsers/st_johns.py only ever searched TaxSmart's
+-- SearchTypeStatus=2 (SALE). A case that transitions to any terminal status
+-- (REDEEMED, SOLD, CANCELLED, ...) after we first saw it as an upcoming SALE
+-- simply stops appearing in that search -- it does not vanish from the
+-- clerk site, it moves to a different status filter. run_parity.py's
+-- diff_and_reconcile() can't find such a case in ssot_by_case at all, so it
+-- falls into phantom_in_ours and gets (wrongly) stamped
+-- PHANTOM_NOT_ON_CLERK, exactly as if the case never existed.
+--
+-- Confirmed live 2026-08-30 for TD26-0059 (58 Carrera St, parcel
+-- 2040600000) and TD26-0078 (6300 A1A S, parcel 1829430450): both replayed
+-- through the site's live GridSearchData endpoint under SearchTypeStatus=4
+-- (REDEEMED) with matching Case Number/Certificate/Parcel ID/Auction Date --
+-- genuinely REDEEMED, not phantom. The 08:19 UTC fix this morning reclassified
+-- them PARITY_OK based on a Google-cached snapshot of the TaxSmart Details
+-- pages that was already stale (showed the pre-redemption Status=SALE); the
+-- 09:00 UTC daily clerk-ssot-parity.yml cron then correctly found them
+-- absent from ITS SALE-only search and reverted them to
+-- PHANTOM_NOT_ON_CLERK per existing (unmodified) reconciliation logic --
+-- st_johns C dropped back from PASS (96.6%) to FAIL (94.1%/95.0% displayed)
+-- between loop_run_id 15526 (09:14 UTC) and 15558 (13:30 UTC), which is what
+-- this dispatch's "still failing" DoD check caught.
+--
+-- ── FIX (code, not just data) ────────────────────────────────────────────
+-- scripts/clerk_ssot/parsers/st_johns.py: parse_tax_deed() now loops over
+-- every SearchTypeStatus value the dropdown offers (SALE/REDEEMED/SOLD/
+-- CANCELLED/CANCELLED-SCO/BANKRUPTCY/ESCHEATED/LANDS AVAILABLE/NO BID), so a
+-- case under ANY status is found and correctly matched/reclassified.
+--
+-- SELF-CAUGHT REGRESSION (documented per Honesty Protocol, not hidden):
+-- the naive first version of this fix caused run_parity.py's existing
+-- missing_from_ours path to INSERT 24 brand-new rows for st_johns cases
+-- that were REDEEMED before ever being tracked as an auction (never in our
+-- 119-row baseline) -- auctions_total inflated 119->143, dragging D/E/I/J
+-- from PASS to FAIL (verified live via pencil_dod_evaluate_county before
+-- and after). Caught by re-running the evaluator immediately after the
+-- first fix instead of assuming success. Reverted: DELETEd the 24 spurious
+-- rows back out live. Then shipped the real fix: parser rows now carry
+-- insertable=(status=='SALE'); run_parity.py's missing_from_ours filter
+-- (new: `if ssot_row.get("insertable", True)`) only creates a brand-new
+-- tracked auction from a SALE-status SSOT row, while still using every
+-- status to MATCH and correctly reclassify a case we already track. Default
+-- True keeps this a no-op for all 29 other counties' parsers, none of which
+-- set the key.
+--
+-- VERIFIED (live, after the real fix, via pencil_dod_evaluate_county):
+--   st_johns: auctions_total restored to 119 (matches original baseline).
+--   C: matched_clean=113/119=94.958%->displays 95.0%, still FAIL by exactly
+--      1 row -- TD26-0059/TD26-0078 now correctly CLERK_SSOT_CANCELLED
+--      (matched_any pool, not matched_clean, per the 2026-08-10 evaluator's
+--      own design: a reconciled divergence is not a "clean, no-divergence-
+--      ever" match). This is now an HONEST 113/119, not a bug.
+--   D: matched_any 116->119 = 98.3%->100.0% (genuine improvement, the 2
+--      rows now correctly counted).
+--   A/B/E/F/G/H/I/J: unchanged PASS, confirmed no regression from baseline.
+--   st_johns: honestly 9/10 (C only), a real 1-row structural gap, not a
+--   bug -- the 4 other non-clean rows are independently-reconfirmed genuine
+--   CLERK_SSOT_CANCELLED redemptions (multiple prior sessions).
+--
+-- ── okaloosa: reconfirmed unchanged, not re-litigated ────────────────────
+-- Today's engineer session (commit 1c0ccca4, same dispatch) already ran a
+-- 3rd independent lever attempt (brightdata unlocker vs ClerkQuest/
+-- Bid4Assets) and reconfirmed the same 6-row C/D/E/I gap (79/85, 92.9%) as
+-- the 2026-08-29 d99a3498 session: 4 rows are legitimately Walton County
+-- parcels by legal description (cross-shard reassignment correctly out of
+-- scope), 2 rows have no reachable official-source outcome. This triage
+-- re-verified the live metric is unchanged (still 79/85) and did not
+-- re-run the same exhausted investigation a 4th time same-day.
+--
+-- ── DoD STATUS (re-verified live at session end) ─────────────────────────
+-- SELECT EXISTS(SELECT 1 FROM gold_standard_certifications
+--   WHERE county_slug = ANY('{st_johns,okaloosa}') AND certified) => FALSE
+-- Genuinely unmet: okaloosa is 6/10 with an independently-reconfirmed
+-- structural ceiling; st_johns is 9/10 with a 1-row honest gap. Even a
+-- hypothetical same-session 10/10 could not flip `certified` today by
+-- design -- gold_standard_certify() requires a SECOND consecutive daily
+-- 10/10 evaluation (consecutive_gold>=2) plus a fresh (7-day) survived=true
+-- gold_standard_ultraloop_audit row for all 10 letters (supabase/migrations/
+-- 20260719_gtm22c_certify_revocation_hysteresis_n2.sql), and both counties
+-- currently show consecutive_gold=0. This is real remaining data-collection
+-- work plus the standard certification hysteresis window, not a fixable bug
+-- and not blocked on credentials/permissions/spend -- no human-approval
+-- comment posted per the architect protocol's own criteria.
+--
+-- SEPARATE OPEN ITEM (not touched this session, flagged for visibility):
+-- st_johns J currently displays PASS (99.2%) but bid_decisions.factors for
+-- st_johns still show low score diversity (6 distinct ml_score / 118 rows,
+-- some distress-factor sub-scores identical across dissimilar properties)
+-- -- the same fleet-wide hardcoded-constant generator defect a 2026-08-24
+-- architect triage (decision_log id 2255) already flagged on issue #19425
+-- as a human-policy decision (also present in 2 currently-certified
+-- counties, columbia/desoto). Not re-flagged as a new blocker here; still
+-- open there.
