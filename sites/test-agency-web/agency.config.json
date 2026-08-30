@@ -1,0 +1,104 @@
+{
+  "_disposable": "DISPOSABLE PROOF CONFIG -- issue #19600 Task 3 DoD item 2. Generates sites/test-agency-web/, which exists only to prove the generator works end-to-end. Not a real agency. Safe to delete this config and the generated site together.",
+  "slug": "test-agency",
+  "agency_name": "Test Agency Insurance (DISPOSABLE)",
+  "tagline": "Placeholder tagline for factory-proof purposes only.",
+  "hero_description": "This site was generated purely to prove scripts/new-agency-site.mjs produces a working build from a config file. It is not a real agency and should not be deployed.",
+  "meta_description": "Disposable proof site generated from the agency site factory template -- not a real business.",
+  "domain": {
+    "default": "test-agency-web.pages.dev"
+  },
+  "phone": {
+    "display": "(000) 000-0000",
+    "tel": "tel:+10000000000"
+  },
+  "city": "Nowhere, FL",
+  "license_line": "Placeholder License — Not a Real Agency",
+  "licensed_states": [
+    "FL"
+  ],
+  "ams_vendor": "ezlynx",
+  "client_center": {
+    "label": "Client Center",
+    "url": "https://example.com/client-center",
+    "note": "Placeholder link -- disposable proof site."
+  },
+  "carriers_note": "[PLACEHOLDER CARRIER ROW -- disposable proof site, no real carriers.]",
+  "why_points": [
+    "Placeholder point one.",
+    "Placeholder point two.",
+    "Placeholder point three."
+  ],
+  "proof_points": [
+    {
+      "number": "01",
+      "title": "Placeholder proof point A",
+      "body": "Filler copy to exercise the ProofPoint component."
+    },
+    {
+      "number": "02",
+      "title": "Placeholder proof point B",
+      "body": "Filler copy to exercise the ProofPoint component."
+    },
+    {
+      "number": "03",
+      "title": "Placeholder proof point C",
+      "body": "Filler copy to exercise the ProofPoint component."
+    }
+  ],
+  "lines_of_business": [
+    {
+      "slug": "sample-line",
+      "nav_label": "Sample Line",
+      "page_title": "Sample Line of Business",
+      "meta_description": "Placeholder line-of-business page generated for factory-proof purposes.",
+      "eyebrow": "Sample",
+      "h1": "Placeholder line-of-business headline.",
+      "intro": "Placeholder intro paragraph for the generic [line].astro template.",
+      "hero_variant": "dark",
+      "hero_cta_variant": "brass",
+      "coverages": [
+        {
+          "title": "Sample coverage A",
+          "body": "Placeholder coverage description."
+        },
+        {
+          "title": "Sample coverage B",
+          "body": "Placeholder coverage description."
+        },
+        {
+          "title": "Sample coverage C",
+          "body": "Placeholder coverage description."
+        }
+      ],
+      "final_cta_variant": "light",
+      "final_cta_heading": "Placeholder closing heading",
+      "final_cta_body": "Placeholder closing body copy.",
+      "final_cta_button_variant": "ink",
+      "final_cta_text": "Placeholder CTA →"
+    }
+  ],
+  "team": [
+    {
+      "initials": "PP",
+      "name": "Placeholder Producer",
+      "role": "Placeholder Role",
+      "bio": "Placeholder bio for factory-proof purposes."
+    }
+  ],
+  "consent": {
+    "version": "test-agency-tcpa-v1",
+    "text_template": "Placeholder TCPA consent text for {{agency_name}}. Not for real use."
+  },
+  "canopy_connect": {
+    "public_alias_env": "PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS"
+  },
+  "vapi": {
+    "public_key_env": "PUBLIC_VAPI_PUBLIC_KEY",
+    "assistant_id_env": "PUBLIC_VAPI_ASSISTANT_ID"
+  },
+  "supabase_table": "test_agency_intake_DISPOSABLE_DO_NOT_CREATE",
+  "posthog": {
+    "enabled": false
+  }
+}

@@ -1,9 +1,15 @@
 @import "tailwindcss";
 
+/*
+  Brand tokens default to the Protection Partners ink/brass palette (distinct
+  from the BidDeed.AI/ZoneWise navy+amber system, which stays scoped to those
+  two products per the repo CLAUDE.md). A generated site can override any of
+  these by setting agency.config.json#brand -- scripts/new-agency-site.mjs
+  writes the overrides into this file's @theme block at generation time.
+  AGENCY_BRAND_OVERRIDES_START / _END are the markers the generator patches.
+*/
 @theme {
-  /* Protection Partners brand -- distinct from the BidDeed.AI/ZoneWise navy+amber
-     system (that palette is scoped to those two products per CLAUDE.md). Deep ink
-     + brass reads as an established agency, not a SaaS template. */
+  /* AGENCY_BRAND_OVERRIDES_START */
   --color-ink: #0b1f33;
   --color-ink-2: #132c47;
   --color-brass: #c6942c;
@@ -12,9 +18,9 @@
   --color-paper-2: #efe9da;
   --color-slate: #4b5a67;
   --color-evergreen: #1f5d4b;
-
   --font-display: "Fraunces", "Georgia", serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* AGENCY_BRAND_OVERRIDES_END */
 }
 
 html {

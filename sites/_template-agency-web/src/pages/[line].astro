@@ -1,0 +1,84 @@
+---
+// One page per agency.config.json#lines_of_business entry -- replaces the
+// hand-written commercial-business-auto.astro / personal-lines.astro pair
+// from v1 with a single generic template so a config with 1, 2, or N lines
+// of business all just work, while still reproducing each page's distinct
+// hero/CTA color variants from the original hand-built copy.
+import Layout from "../layouts/Layout.astro";
+import VoiceWidget from "../components/VoiceWidget.astro";
+import { config } from "../config/agency";
+import type { LineOfBusiness } from "../config/agency";
+
+export function getStaticPaths() {
+  return config.lines_of_business.map((line: LineOfBusiness) => ({
+    params: { line: line.slug },
+    props: { line },
+  }));
+}
+
+const { line } = Astro.props as { line: LineOfBusiness };
+const heroDark = (line.hero_variant || "light") === "dark";
+const heroCtaBrass = (line.hero_cta_variant || "ink") === "brass";
+const finalDark = (line.final_cta_variant || "light") === "dark";
+const finalCtaBrass = (line.final_cta_button_variant || "ink") === "brass";
+---
+
+<Layout title={line.page_title} description={line.meta_description}>
+  <section class:list={["border-b border-ink/10", heroDark ? "bg-ink text-paper" : "bg-paper"]}>
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-20">
+      <p class="text-sm font-semibold uppercase tracking-widest text-brass">{line.eyebrow}</p>
+      <h1 class:list={["mt-3 max-w-2xl font-display text-4xl leading-tight sm:text-5xl", heroDark ? "text-paper" : "text-ink"]}>
+        {line.h1}
+      </h1>
+      <p class:list={["mt-5 max-w-xl", heroDark ? "text-paper/75" : "text-slate"]}>
+        {line.intro}
+      </p>
+      <div class="mt-8 flex flex-wrap gap-4">
+        <a
+          href="/get-a-quote"
+          class:list={[
+            "inline-flex items-center justify-center px-6 py-3 text-sm font-semibold transition-colors",
+            heroCtaBrass ? "bg-brass text-ink hover:bg-brass-light" : "bg-ink text-paper hover:bg-brass hover:text-ink",
+          ]}
+        >
+          Get a Quote →
+        </a>
+        <VoiceWidget class={heroDark ? "border-paper/40 text-paper hover:bg-paper/10" : ""} />
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <h2 class="font-display text-2xl text-ink sm:text-3xl">What we quote</h2>
+    <div class="mt-8 grid gap-6 md:grid-cols-3">
+      {line.coverages.map((c) => (
+        <div class="border border-ink/10 bg-white/40 p-6">
+          <h3 class="font-display text-lg text-ink">{c.title}</h3>
+          <p class="mt-2 text-sm leading-relaxed text-slate">{c.body}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class:list={["border-t border-ink/10 py-16", finalDark ? "bg-ink text-paper" : "bg-paper-2"]}>
+    <div class="mx-auto max-w-6xl px-4 text-center sm:px-6">
+      <h2 class:list={["font-display text-2xl sm:text-3xl", finalDark ? "text-paper" : "text-ink"]}>
+        {line.final_cta_heading}
+      </h2>
+      {line.final_cta_body && (
+        <p class:list={["mx-auto mt-4 max-w-2xl", finalDark ? "text-paper/75" : "text-slate"]}>
+          {line.final_cta_body}
+        </p>
+      )}
+      <a
+        href="/get-a-quote"
+        class:list={[
+          "mt-8 inline-flex items-center justify-center px-6 py-3 text-sm font-semibold transition-colors",
+          finalCtaBrass ? "bg-brass text-ink hover:bg-brass-light" : "bg-ink text-paper hover:bg-brass hover:text-ink",
+        ]}
+      >
+        {line.final_cta_text}
+      </a>
+    </div>
+  </section>
+</Layout>

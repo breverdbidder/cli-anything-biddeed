@@ -1,0 +1,119 @@
+---
+// Canopy Connect "Pull" flow -- the actual EZLynx integration path (see
+// README: EZLynx has no public write API; Canopy's own EZLynx Marketplace
+// connector is what pushes verified data into EZLynx, configured on Canopy's
+// dashboard by a human). This component only embeds Canopy's pull widget and
+// posts the completion event to our own intake endpoint so we keep a
+// parallel record -- it does not talk to EZLynx directly.
+//
+// Renders nothing when PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS is unset -- callers
+// are expected to always render the plain "Get a Quote" form/link alongside
+// this component as the fallback, same gated-optional pattern VoiceWidget
+// uses for Vapi.
+interface Props {
+  class?: string;
+  label?: string;
+}
+const { class: className = "", label = "Connect your current policy →" } = Astro.props;
+const publicAlias = import.meta.env.PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS;
+---
+
+{publicAlias && (
+  <div data-canopy-connect-widget>
+    <button
+      type="button"
+      id="canopy-connect-open"
+      class:list={[
+        "inline-flex items-center justify-center bg-brass px-6 py-3 text-sm font-semibold text-ink transition-colors hover:bg-brass-light disabled:cursor-wait disabled:opacity-60",
+        className,
+      ]}
+    >
+      {label}
+    </button>
+    <p class="mt-2 text-xs text-slate">
+      Securely pulls your current policy details from your carrier — takes
+      about a minute, no paperwork.
+    </p>
+    <div id="canopy-connect-status" class="mt-2 hidden text-sm" role="status"></div>
+
+    <script define:vars={{ publicAlias }}>
+      (function () {
+        const openBtn = document.getElementById("canopy-connect-open");
+        const statusEl = document.getElementById("canopy-connect-status");
+        if (!openBtn) return;
+
+        let handlerPromise = null;
+
+        function loadCanopyConnect() {
+          if (window.CanopyConnect) return Promise.resolve(window.CanopyConnect);
+          return new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://cdn.usecanopy.com/v2/canopy-connect.js";
+            script.async = true;
+            script.onload = () => resolve(window.CanopyConnect);
+            script.onerror = () => reject(new Error("Canopy Connect SDK failed to load"));
+            document.head.appendChild(script);
+          });
+        }
+
+        function getHandler() {
+          if (!handlerPromise) {
+            handlerPromise = loadCanopyConnect().then((CanopyConnect) => {
+              const handler = CanopyConnect.create({
+                publicAlias,
+                pullMetaData: { source: "website", page: window.location.pathname },
+              });
+
+              handler.on("authenticationSuccess", async (evt) => {
+                const pullId = evt?.pull?.pull_id;
+                if (!pullId) return;
+                try {
+                  await fetch("/api/canopy-complete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pull_id: pullId, metadata: evt.pull.metadata || null }),
+                  });
+                } catch (err) {
+                  console.error("[CanopyConnectWidget] failed to log completion:", err);
+                }
+              });
+
+              handler.on("exit", (evt) => {
+                openBtn.disabled = false;
+                if (evt?.err) {
+                  statusEl.className = "mt-2 text-sm text-red-700";
+                  statusEl.textContent =
+                    "That didn't finish connecting. You can try again, or use the quote form instead.";
+                  statusEl.classList.remove("hidden");
+                } else if (evt?.data?.pull) {
+                  statusEl.className = "mt-2 text-sm text-evergreen";
+                  statusEl.textContent =
+                    "Connected — a licensed producer will follow up with your quote shortly.";
+                  statusEl.classList.remove("hidden");
+                }
+              });
+
+              return handler;
+            });
+          }
+          return handlerPromise;
+        }
+
+        openBtn.addEventListener("click", async () => {
+          openBtn.disabled = true;
+          try {
+            const handler = await getHandler();
+            handler.open();
+          } catch (err) {
+            console.error("[CanopyConnectWidget] SDK load failed:", err);
+            statusEl.className = "mt-2 text-sm text-red-700";
+            statusEl.textContent = "Couldn't load the connect flow. Please use the quote form below instead.";
+            statusEl.classList.remove("hidden");
+          } finally {
+            openBtn.disabled = false;
+          }
+        });
+      })();
+    </script>
+  </div>
+)}

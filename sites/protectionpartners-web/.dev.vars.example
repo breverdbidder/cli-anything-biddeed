@@ -1,4 +1,7 @@
 # Copy to .dev.vars for local `wrangler pages dev` testing. Never commit .dev.vars.
 SUPABASE_URL=https://mocerqjnksmhcjzxrewo.supabase.co
 SUPABASE_SERVICE_ROLE=
-MOMENTUM_DELIVERY_URL=
+SUPABASE_TABLE=protection_partners_intake
+PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS=
+PUBLIC_VAPI_PUBLIC_KEY=
+PUBLIC_VAPI_ASSISTANT_ID=

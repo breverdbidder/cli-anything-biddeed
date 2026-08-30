@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/breverdbidder/cli-anything-biddeed/sites/_template-agency-web/agency.config.schema.json",
+  "title": "AI-native agency site config",
+  "description": "Everything agency-specific for one generated site under sites/<slug>-web/. Fed to scripts/new-agency-site.mjs. See sites/_template-agency-web/README.md for the plain-language field guide.",
+  "type": "object",
+  "required": [
+    "slug",
+    "agency_name",
+    "tagline",
+    "hero_description",
+    "meta_description",
+    "domain",
+    "phone",
+    "city",
+    "license_line",
+    "licensed_states",
+    "ams_vendor",
+    "why_points",
+    "proof_points",
+    "lines_of_business",
+    "team",
+    "consent",
+    "carriers_note"
+  ],
+  "properties": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "URL-safe identifier. The generator writes this site to sites/<slug>-web/ and names the Cloudflare Pages project <slug>-web."
+    },
+    "agency_name": { "type": "string" },
+    "tagline": { "type": "string", "description": "Homepage hero H1." },
+    "hero_description": { "type": "string", "description": "Paragraph under the hero H1." },
+    "meta_description": { "type": "string", "description": "Homepage <meta name=description>." },
+    "domain": {
+      "type": "object",
+      "required": ["default"],
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Placeholder *.pages.dev domain used until a real domain is bound (HITL, see README). Every absolute URL derives from this."
+        }
+      }
+    },
+    "brand": {
+      "type": "object",
+      "description": "Optional. Falls back to the Protection Partners ink/brass palette if omitted -- see sites/_template-agency-web/src/styles/global.css defaults.",
+      "properties": {
+        "ink": { "type": "string" },
+        "ink2": { "type": "string" },
+        "brass": { "type": "string" },
+        "brassLight": { "type": "string" },
+        "paper": { "type": "string" },
+        "paper2": { "type": "string" },
+        "slate": { "type": "string" },
+        "evergreen": { "type": "string" },
+        "fontDisplay": { "type": "string" },
+        "fontSans": { "type": "string" }
+      }
+    },
+    "logo_path": {
+      "type": ["string", "null"],
+      "description": "Path under public/ to a logo image. Null = text wordmark (agency_name) only, which is the default and requires no asset."
+    },
+    "phone": {
+      "type": "object",
+      "required": ["display", "tel"],
+      "properties": {
+        "display": { "type": "string", "description": "Human-readable, e.g. '(321) 555-0100'. Use '[PHONE TBD]' if not yet assigned." },
+        "tel": { "type": "string", "description": "tel: URI, e.g. 'tel:+13215550100'. This is also the VoiceWidget's fallback when Vapi env vars are unset." }
+      }
+    },
+    "city": { "type": "string", "description": "e.g. 'Titusville, FL'." },
+    "license_line": { "type": "string", "description": "e.g. 'Florida Licensed Insurance Agency — License #TBD'." },
+    "licensed_states": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z]{2}$" },
+      "minItems": 1,
+      "description": "Two-letter state codes this agency is licensed to write business in."
+    },
+    "ams_vendor": {
+      "type": "string",
+      "enum": ["ezlynx", "other"],
+      "description": "Agency management system. 'ezlynx' enables the Client Center login link and the README's EZLynx-via-Canopy-Marketplace explainer. There is no code-level AMS API integration for any vendor -- see README."
+    },
+    "client_center": {
+      "type": "object",
+      "description": "Optional. Existing-client self-service portal link (e.g. EZLynx Client Center). Omit if the agency has none yet.",
+      "properties": {
+        "label": { "type": "string" },
+        "url": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "carriers_note": { "type": "string", "description": "Copy for the homepage carriers placeholder row, e.g. '[CARRIER LOGOS PENDING APPOINTMENTS]'." },
+    "why_points": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Short bullet list in the homepage hero side panel ('Why agencies like ours exist')."
+    },
+    "proof_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["number", "title", "body"],
+        "properties": {
+          "number": { "type": "string" },
+          "title": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      }
+    },
+    "lines_of_business": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per line-of-business page. Rendered by the generic src/pages/[line].astro template -- no per-line page files needed.",
+      "items": {
+        "type": "object",
+        "required": ["slug", "nav_label", "page_title", "meta_description", "eyebrow", "h1", "intro", "coverages", "final_cta_heading", "final_cta_text"],
+        "properties": {
+          "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "nav_label": { "type": "string" },
+          "page_title": { "type": "string" },
+          "meta_description": { "type": "string" },
+          "eyebrow": { "type": "string" },
+          "h1": { "type": "string" },
+          "intro": { "type": "string" },
+          "hero_variant": { "type": "string", "enum": ["dark", "light"], "default": "light", "description": "Background of the top hero section." },
+          "hero_cta_variant": { "type": "string", "enum": ["ink", "brass"], "default": "ink", "description": "Button style of the hero section's Get a Quote CTA." },
+          "coverages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["title", "body"],
+              "properties": { "title": { "type": "string" }, "body": { "type": "string" } }
+            }
+          },
+          "final_cta_variant": { "type": "string", "enum": ["dark", "light"], "default": "light", "description": "Background of the closing CTA section." },
+          "final_cta_heading": { "type": "string" },
+          "final_cta_body": { "type": ["string", "null"] },
+          "final_cta_button_variant": { "type": "string", "enum": ["ink", "brass"], "default": "ink" },
+          "final_cta_text": { "type": "string" }
+        }
+      }
+    },
+    "team": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["initials", "name", "role", "bio"],
+        "properties": {
+          "initials": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "bio": { "type": "string" }
+        }
+      }
+    },
+    "consent": {
+      "type": "object",
+      "required": ["version", "text_template"],
+      "properties": {
+        "version": { "type": "string", "description": "Versioned TCPA consent id, e.g. 'pp-tcpa-v1-2026-08-24'. Bump when text_template changes." },
+        "text_template": {
+          "type": "string",
+          "description": "TCPA consent copy. Use the literal token {{agency_name}} where the agency name should be interpolated at build time."
+        }
+      }
+    },
+    "canopy_connect": {
+      "type": "object",
+      "description": "Optional. Omit entirely (or leave public_alias_env unset at runtime) to fall back to the plain intake form -- same gated-fallback pattern the v1 site used for Vapi.",
+      "properties": {
+        "public_alias_env": {
+          "type": "string",
+          "default": "PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS",
+          "description": "Env var holding the Canopy Connect 'publicAlias' (the /c/<alias> link segment from the Canopy dashboard's Links page). Client-safe by design -- it is already public in the shareable Canopy link."
+        }
+      }
+    },
+    "vapi": {
+      "type": "object",
+      "description": "Optional. Omit / leave env vars unset to fall back to the tel: link.",
+      "properties": {
+        "public_key_env": { "type": "string", "default": "PUBLIC_VAPI_PUBLIC_KEY" },
+        "assistant_id_env": { "type": "string", "default": "PUBLIC_VAPI_ASSISTANT_ID" }
+      }
+    },
+    "supabase_table": {
+      "type": "string",
+      "description": "Optional. Intake table name. Defaults to '<slug_with_underscores>_intake'. Must be created via a migration before go-live -- the generator does not create tables."
+    },
+    "posthog": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "If true, the analytics snippet renders when PUBLIC_POSTHOG_KEY is set at build time." }
+      }
+    }
+  }
+}

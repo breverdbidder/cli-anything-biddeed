@@ -1,0 +1,176 @@
+{
+  "slug": "protectionpartners",
+  "agency_name": "Protection Partners",
+  "tagline": "AI-native independent insurance, human-bound.",
+  "hero_description": "We use AI to compress the slow parts of insurance shopping — intake, carrier matching, paperwork — down to minutes. Every quote is still reviewed, and every policy is still bound, by a licensed Florida producer who knows your risk. Commercial, business auto, and personal lines, from an agency built for how fast your business actually moves.",
+  "meta_description": "Protection Partners is a Florida independent insurance agency built around commercial and business auto coverage, backed by licensed producers who quote fast and bind every policy themselves.",
+  "domain": {
+    "default": "protectionpartners.pages.dev"
+  },
+  "brand": {
+    "ink": "#0b1f33",
+    "ink2": "#132c47",
+    "brass": "#c6942c",
+    "brassLight": "#e0b969",
+    "paper": "#f7f4ec",
+    "paper2": "#efe9da",
+    "slate": "#4b5a67",
+    "evergreen": "#1f5d4b",
+    "fontDisplay": "\"Fraunces\", \"Georgia\", serif",
+    "fontSans": "\"Inter\", ui-sans-serif, system-ui, sans-serif"
+  },
+  "logo_path": null,
+  "phone": {
+    "display": "[PHONE TBD]",
+    "tel": "tel:+10000000000"
+  },
+  "city": "Titusville, FL",
+  "license_line": "Florida Licensed Insurance Agency — License #TBD",
+  "licensed_states": [
+    "FL"
+  ],
+  "ams_vendor": "ezlynx",
+  "client_center": {
+    "label": "Client Center",
+    "url": "https://clientcenter.ezlynx.com/protection-partners",
+    "note": "[Client Center URL placeholder — Ariel/Mariam to confirm the live EZLynx Client Center link before go-live.]"
+  },
+  "carriers_note": "[CARRIER LOGOS PENDING APPOINTMENTS] — carrier relationships are being finalized. This row will list our appointed carriers once contracts are signed.",
+  "why_points": [
+    "No 40-field PDF before you get a call back.",
+    "No CSR reading your risk off a script.",
+    "A producer who already has your numbers when they call."
+  ],
+  "proof_points": [
+    {
+      "number": "01",
+      "title": "Speed-to-quote",
+      "body": "Our intake is a five-minute form, not a phone tag exercise. AI structures your submission the moment you hit send so a producer opens your file already knowing your risk."
+    },
+    {
+      "number": "02",
+      "title": "Licensed FL producers bind every policy",
+      "body": "Nothing this site collects becomes a bound policy on its own. A Florida-licensed producer reviews every submission, quotes it against real carriers, and is the one who binds it."
+    },
+    {
+      "number": "03",
+      "title": "Commercial + business auto specialty",
+      "body": "We built this agency around the coverage general agencies treat as an afterthought — commercial auto, fleet, and business property for operators who can't afford a lapse."
+    }
+  ],
+  "lines_of_business": [
+    {
+      "slug": "commercial-business-auto",
+      "nav_label": "Commercial & Business Auto",
+      "page_title": "Commercial & Business Auto Insurance",
+      "meta_description": "Commercial and business auto coverage from a Florida agency built around fleets, contractors, and operators who can't afford a lapse.",
+      "eyebrow": "Specialty",
+      "h1": "Commercial & business auto, quoted by people who understand fleets.",
+      "intro": "Most agencies treat commercial auto as a line item. We built this agency around it — because a lapsed policy or a bad classification can shut a fleet down for weeks. Tell us your vehicles, your operation, and your drivers, and a licensed producer will get you real numbers.",
+      "hero_variant": "dark",
+      "hero_cta_variant": "brass",
+      "coverages": [
+        {
+          "title": "Commercial auto & fleet",
+          "body": "Single vehicle to multi-truck fleets — liability, physical damage, and hired/non-owned auto for operations that can't afford a lapse."
+        },
+        {
+          "title": "General liability",
+          "body": "Premises, operations, and products liability sized to how your business actually operates, not a generic template limit."
+        },
+        {
+          "title": "Business owners policy (BOP)",
+          "body": "Property and liability bundled for eligible small-to-midsize operations — one policy instead of three."
+        },
+        {
+          "title": "Workers' compensation",
+          "body": "Florida-compliant coverage for crews, contractors, and mixed-classification workforces."
+        },
+        {
+          "title": "Commercial property",
+          "body": "Buildings, equipment, and inventory — including builder's risk for active renovation or construction projects."
+        },
+        {
+          "title": "Umbrella / excess liability",
+          "body": "Extra limits layered over your primary policies once your operation, fleet, or portfolio outgrows base coverage."
+        }
+      ],
+      "final_cta_variant": "light",
+      "final_cta_heading": "Who this is for",
+      "final_cta_body": "Contractors, delivery and logistics operators, service fleets, artisan trades, and any Florida business where a vehicle is a working asset — not a commuter car. If your risk needs a real classification conversation instead of a dropdown menu, this is the line we exist for.",
+      "final_cta_button_variant": "ink",
+      "final_cta_text": "Start your quote →"
+    },
+    {
+      "slug": "personal-lines",
+      "nav_label": "Personal Lines",
+      "page_title": "Personal Lines Insurance",
+      "meta_description": "Home, auto, umbrella, and flood coverage for Florida households, quoted fast by licensed producers who bind every policy themselves.",
+      "eyebrow": "Personal lines",
+      "h1": "Home, auto, and umbrella coverage that fits Florida, not a national template.",
+      "intro": "Florida homeowners deal with risk most states don't — wind, flood, and a hard insurance market. We quote against carriers who actually write Florida risk, and a licensed producer walks you through it before you sign anything.",
+      "hero_variant": "light",
+      "hero_cta_variant": "ink",
+      "coverages": [
+        {
+          "title": "Homeowners",
+          "body": "Single-family, condo, and rental dwelling coverage sized to Florida wind and flood exposure — not a copy-paste national template."
+        },
+        {
+          "title": "Personal auto",
+          "body": "Liability, collision, and comprehensive for your household vehicles, with real bundling discounts when paired with home."
+        },
+        {
+          "title": "Renters",
+          "body": "Fast, affordable coverage for tenants — often quoted same-day."
+        },
+        {
+          "title": "Personal umbrella",
+          "body": "Extra liability limits above your home and auto policies for households with real assets to protect."
+        },
+        {
+          "title": "Flood",
+          "body": "Where indicated by your location, flood is quoted alongside your homeowners policy — not left for you to discover later."
+        },
+        {
+          "title": "Boat & recreational",
+          "body": "Coverage for the boat, the trailer, and the weekend — for Florida households that actually use the water."
+        }
+      ],
+      "final_cta_variant": "dark",
+      "final_cta_heading": "Five minutes, one form, a real call back",
+      "final_cta_body": "No mega-menu of product pages to dig through. Tell us about your household once and a licensed Florida producer takes it from there.",
+      "final_cta_button_variant": "brass",
+      "final_cta_text": "Start your quote →"
+    }
+  ],
+  "team": [
+    {
+      "initials": "MS",
+      "name": "Mariam Shapira",
+      "role": "Founder & Licensed Producer",
+      "bio": "Mariam founded Protection Partners to fix the two things that frustrate Florida business owners most about buying insurance: slow intake and CSRs who don't understand the risk. She personally reviews commercial and business auto submissions before they're quoted."
+    },
+    {
+      "initials": "TBD",
+      "name": "[Producer name — TBD]",
+      "role": "Licensed Producer, Personal Lines",
+      "bio": "[Bio pending — Ariel/Mariam to provide.]"
+    }
+  ],
+  "consent": {
+    "version": "pp-tcpa-v1-2026-08-24",
+    "text_template": "By checking this box and submitting this form, I agree that {{agency_name}} and its licensed producers may contact me by phone (including calls and texts, which may use an automatic telephone dialing system or prerecorded/artificial voice) and by email at the number and address I provided, including for marketing purposes. Consent is not a condition of purchasing any insurance product. Message and data rates may apply. I can revoke consent at any time."
+  },
+  "canopy_connect": {
+    "public_alias_env": "PUBLIC_CANOPY_CONNECT_PUBLIC_ALIAS"
+  },
+  "vapi": {
+    "public_key_env": "PUBLIC_VAPI_PUBLIC_KEY",
+    "assistant_id_env": "PUBLIC_VAPI_ASSISTANT_ID"
+  },
+  "supabase_table": "protection_partners_intake",
+  "posthog": {
+    "enabled": true
+  }
+}
