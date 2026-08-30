@@ -1,0 +1,171 @@
+-- Gold Standard shard-3 (dispatch 19992afc-3d8d-40fe-b887-f2286695b8b8, loop run 15456)
+-- Counties: lake, st_lucie, indian_river
+-- Session: 2026-08-30, ULTRALOOP diagnose/fix/adversarial-verify via the Workflow tool
+-- (fan-out one subagent per failing letter per county, then an independent
+-- second-opinion refuter agent before any live write).
+--
+-- ============================================================================
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county, session start)
+-- ============================================================================
+--   lake:         9/10 -- C FAIL 87.9  (matched_clean=124 of 141)
+--   st_lucie:     9/10 -- C FAIL 80.7  (matched_clean=201 of 249)
+--   indian_river: 7/10 -- C FAIL 93.8, D FAIL 93.8 (matched_clean=matched_any=106 of 113),
+--                          I FAIL 91.2 (card_complete=103 of 113)
+--
+-- ============================================================================
+-- LAKE C -- STILL STRUCTURAL CEILING (5th consecutive independent reconfirm)
+-- ============================================================================
+-- Fresh live query (2026-08-30): CLERK_SSOT_CANCELLED case set (17 cases) is
+-- byte-for-byte identical to the set recorded in
+-- 20260829_lake_c_independent_reverify_noop.sql. Zero drift in 1 day.
+-- No new cases appeared -> no new docket re-scrape performed (avoids repeating
+-- work already independently done 4x). pencil_dod_evaluate_county('lake').C
+-- unchanged: pass=false, metric=87.9, matched_clean=124.
+-- NO WRITES. Reconfirms canon: CLERK_SSOT_CANCELLED is deliberately excluded
+-- from C's numerator (counted in D) -- genuinely cancelled sales, not a bug.
+--
+-- ============================================================================
+-- ST_LUCIE C -- STILL STRUCTURAL CEILING (9th+ consecutive independent reconfirm)
+-- ============================================================================
+-- Fresh live query (2026-08-30): auctions_total, all 4 parity_status bucket
+-- counts, and max(created_at) are identical to the 2026-08-28 snapshot -- zero
+-- new rows in 2 days. Sampled 5 of the 47 CLERK_SSOT_CANCELLED cases fresh
+-- against acclaimweb.stlucieclerk.gov/TributeWeb/ (live, unmodified
+-- scripts/clerk_ssot/parsers/st_lucie.py): all 5 still show REDM (redeemed)
+-- with matching certificate numbers -- 0 of 5 flipped. pencil_dod_evaluate_
+-- county('st_lucie').C unchanged: pass=false, metric=80.7, matched_clean=201.
+-- NO WRITES.
+--
+-- ============================================================================
+-- INDIAN_RIVER C/D -- ONE REAL LEVER IDENTIFIED, REMAINS BLOCKED
+-- ============================================================================
+-- Live row-level diagnosis (2026-08-30): of 113 total rows, 6 have
+-- parity_status IS NULL. 5 are genuinely future auctions (auction_date
+-- 2026-09-02 through 2026-09-08, confirmed > today via live system-date
+-- check) -- not fixable today, not a defect.
+-- The 6th, case "2026-0018TD" (tax_deed, auction_date 2026-08-25, 5 days
+-- past due, data_source NULL), is the one real non-speculative lever this
+-- session. Fresh attempts against every discoverable tax-deed-specific and
+-- general source (realtaxdeed.com [403], taxdeeds.indian-river.org [200 OK
+-- landing page but POST-form-only, no GET-addressable results/details
+-- endpoint discoverable -- an improvement over the hard 403 wall found in
+-- the 2026-08-13 session, but still not resolvable via WebFetch/curl],
+-- qpublic [403], clerk.indian-river.org [retired/ECONNREFUSED],
+-- ori.indian-river.org [loads, POST-form search only], lienhub/deedflex/
+-- taxsaleresources/regrid/propertychecker [no case-level data]) all failed
+-- to surface a sale outcome. BLANK > WRONG: no status fabricated for
+-- 2026-0018TD. C/D remain unchanged: pass=false, metric=93.8,
+-- matched_clean=matched_any=106 of 113. NO WRITES to multi_county_auctions.
+-- Recommended next lever: phone verification with the Clerk's office
+-- ((772) 226-3166/3170) or a browser-automation tool that can submit the
+-- taxdeeds.indian-river.org search form.
+--
+-- ============================================================================
+-- INDIAN_RIVER I -- FIXED LIVE, VERIFIED PASS (91.2% -> 95.6%)
+-- ============================================================================
+-- Row-level diagnosis: of the 10 rows failing card_complete, 6 had all base
+-- fields (address/lat/lon/assessed_value/parcel_id) present and were missing
+-- only a zone_code link in public.parcel_zones (same pattern as the prior
+-- verified 2-row fix in 20260824_gold_standard_indian_river_i_zone_linkage_
+-- 2row.sql). Real zone codes were pulled live from two official ArcGIS
+-- sources and independently re-derived from scratch by two separate
+-- adversarial-verify agents (a first refuter re-ran all 6 point-in-polygon
+-- queries plus both jurisdictions for each point; a second "verify the
+-- verifier" agent re-ran a spot check and cross-checked jurisdiction_id
+-- routing) before any write:
+--   - Unincorporated Indian River County (jurisdiction_id=1224):
+--       gisportal.ircgov.com/server3/rest/services/Planning/IRC_Zoning_MS/
+--       MapServer/0 (official "Zoning for Unincorporated Area of Indian
+--       River County" layer; zone names taken verbatim from the layer's own
+--       ZONING field domain, not guessed)
+--   - City of Vero Beach (jurisdiction_id=882, confirmed live against
+--       public.jurisdictions, NOT 1224 -- the original candidate diagnosis
+--       had this right for 2 of 6 parcels; the refuter independently
+--       confirmed 882 via an existing in-use parcel_zones row):
+--       services1.arcgis.com/mK9abRqiJFkUgbPZ/arcgis/rest/services/
+--       ZoningDistricts/FeatureServer/0 (zone names from the layer's own
+--       "Description" coded-value domain)
+--
+-- Applied (via PostgREST INSERT, ON CONFLICT DO NOTHING -- see application
+-- record below; psql direct connection is a known-blocked pattern for this
+-- project per decision_log 169/205/287, PostgREST/RPC is the working path):
+--   parcel_id                    case_number      jurisdiction  zone_code    zone_name
+--   33391100001003000012.0       2025 CA 000572   882 (VB)      R-1          Residential Single Family
+--   32390500003001000001.0       2025 CA 000895   1224 (unincorp) RS-3       Single-Family Residential District (up to 3 units/acre)
+--   31392900000300000008.1       2026 CA 000296   1224 (unincorp) RM-6       Multiple-Family Residential District (up to 6 units/acre)
+--   33380900002000000249.0       2026 CC 000555   1224 (unincorp) RM-6       Multiple-Family Residential District (up to 6 units/acre)
+--   33392600015000000007.0       2026-0018TD      1224 (unincorp) RS-6       Single-Family Residential District (up to 6 units/acre)
+--   33390100052005000202.0       2026-0007TD      882 (VB)      RM-10/12     Residential Multifamily Medium & High Density
+--
+-- NOTE on row 6 (2026-0007TD): assessed_value AND market_value are both NULL
+-- in multi_county_auctions for this row (confirmed by both the refuter and
+-- second-opinion agents) -- the zone_code insert is correct and safe but
+-- does NOT flip this row's card_complete on its own; it remains a residual
+-- gap pending a value backfill. Logged, not silently absorbed into "closed".
+--
+-- 7TH ROW FOUND BY ADVERSARIAL VERIFY, NOT FIXED THIS SESSION: the
+-- second-opinion agent's refutation pass caught that the original diagnosis
+-- undercounted by one -- parcel_id 31391900001598000026.0 (case
+-- "2023 CA 000637", 171 Spring Valley Ave, Sebastian FL) also has complete
+-- base fields and needs only a zone link, but sits inside the City of
+-- Sebastian's municipal boundary (IRC unincorporated layer correctly returns
+-- ZONING=MUNI with a "contact City of Sebastian" comment; Vero Beach's
+-- FeatureServer correctly returns 0 features). Neither of this session's two
+-- data sources can supply City-of-Sebastian zoning -- a third source (the
+-- city's own GIS, not yet located) would be required. Logged as a residual
+-- gap for a future session; did not block this session's pass math.
+--
+-- ============================================================================
+-- REGRESSION CAUGHT AND FIXED WITHIN THIS SESSION (before close-out)
+-- ============================================================================
+-- Immediately after the 6-row INSERT above, a live re-check of
+-- pencil_dod_evaluate_county('indian_river') showed G flip from PASS (99.0)
+-- to FAIL (0.0, far=0.0 pk1000=0.0) -- a live, measured regression caused by
+-- this session's own I fix, the same failure class documented in
+-- 20260829_okaloosa_g_regression_maryesther_r1_standards.sql. Root-caused via
+-- v_zoning_gold_standard_kpi_v3 + v_zoning_district_applicability: NOT a
+-- missing-standards gap (the 4 residential IRC/unincorporated districts and
+-- the Vero Beach R-1 district all correctly resolve far_applicable=false /
+-- pk1000_applicable=false via their existing category='residential' rows).
+-- The actual cause: a transcription formatting bug in this migration's own
+-- insert -- zone_code was written as "RM-10 / 12" (spaces around the slash)
+-- for the Vero Beach RM-10/12 parcel, which does not exact-string-match the
+-- real district row's code "RM-10/12" (no spaces, id=7420, jurisdiction_id
+-- =882). The unmatched code fell through to a fallback bucket that counted
+-- as far/pk1000-applicable-but-unregulated. FIXED by correcting the stored
+-- zone_code to "RM-10/12" (exact match to the existing district) -- verified
+-- live: G returned to pass=true, metric=97.1 (density=97.1, far/pk1000 blank
+-- again, byte-consistent with the pre-session baseline shape). No standards
+-- were fabricated; this was a string-formatting correction, not a data claim.
+--
+-- ============================================================================
+-- FINAL VERIFICATION (live pencil_dod_evaluate_county, this session, post-fix)
+-- ============================================================================
+--   lake:         9/10 (C FAIL 87.9, unchanged -- structural)          NO CHANGE
+--   st_lucie:     9/10 (C FAIL 80.7, unchanged -- structural)          NO CHANGE
+--   indian_river: 8/10 (C FAIL 93.8, D FAIL 93.8 -- blocked;
+--                       I PASS 95.6, up from FAIL 91.2)                +1 LETTER
+--
+-- BLANK > WRONG: this file documents both the applied INSERT (indian_river I,
+-- 6 rows) and its immediate self-correction (1 UPDATE, indian_river G
+-- regression fix). No further writes were made for lake/st_lucie C or
+-- indian_river C/D -- those remain genuinely blocked/structural per the
+-- evidence above, not silently claimed as fixed.
+
+-- Application record (already executed live via PostgREST during this
+-- session; restated here in SQL form for the repo audit trail / replay):
+
+INSERT INTO public.parcel_zones (parcel_id, tax_account, jurisdiction_id, zone_code, zone_name, source)
+VALUES
+  ('33391100001003000012.0', NULL, 882,  'R-1',      'Residential Single Family', 'vero_beach_arcgis_zoningdistricts_20260830'),
+  ('32390500003001000001.0', NULL, 1224, 'RS-3',     'Single-Family Residential District (up to 3 units/acre)', 'irc_gis_zoning_ms_20260830'),
+  ('31392900000300000008.1', NULL, 1224, 'RM-6',     'Multiple-Family Residential District (up to 6 units/acre)', 'irc_gis_zoning_ms_20260830'),
+  ('33380900002000000249.0', NULL, 1224, 'RM-6',     'Multiple-Family Residential District (up to 6 units/acre)', 'irc_gis_zoning_ms_20260830'),
+  ('33392600015000000007.0', NULL, 1224, 'RS-6',     'Single-Family Residential District (up to 6 units/acre)', 'irc_gis_zoning_ms_20260830'),
+  ('33390100052005000202.0', NULL, 882,  'RM-10/12', 'Residential Multifamily Medium & High Density', 'vero_beach_arcgis_zoningdistricts_20260830')
+ON CONFLICT DO NOTHING;
+
+-- Verification:
+--   SELECT public.pencil_dod_evaluate_county('lake');          -- expect C still FAIL 87.9, 9/10 overall
+--   SELECT public.pencil_dod_evaluate_county('st_lucie');      -- expect C still FAIL 80.7, 9/10 overall
+--   SELECT public.pencil_dod_evaluate_county('indian_river');  -- expect I PASS 95.6, G PASS 97.1, C/D FAIL 93.8, 8/10 overall
