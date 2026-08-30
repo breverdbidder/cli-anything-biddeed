@@ -545,6 +545,289 @@ async function handleHealthz() {
   return jsonResponse(data);
 }
 
+// issue #19609: Producer daily report — shows assigned wd_report_items for a
+// specific user/date. URL: /producer-report?user_id=<uuid>&date=<YYYY-MM-DD>
+// Auth: user_id is validated server-side (wd_producer_report_items RPC
+// checks org membership). This screen is intentionally minimal — no session
+// auth yet, access is by user_id knowledge. A proper auth layer (JWT/cookie)
+// is a follow-up task once wd_portal_users is populated with real accounts.
+async function handleProducerReport(request) {
+  const url = new URL(request.url);
+  const userId = url.searchParams.get('user_id');
+  const reportDate = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+
+  if (!userId) {
+    return new Response(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Winner Data — Producer Report</title>
+<style>body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:2rem}</style></head>
+<body><h1 style="color:#F59E0B">Winner Data — Producer Report</h1>
+<p>Missing <code>user_id</code> parameter. Access this page via your assigned link.</p></body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8' } }
+    );
+  }
+
+  const items = await rpc('wd_producer_report_items', {
+    p_org_id: ORG_ID,
+    p_user_id: userId,
+    p_report_date: reportDate,
+  });
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return new Response(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Winner Data — Producer Report</title>
+<style>body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:2rem}
+h1{color:#F59E0B}</style></head>
+<body><h1>Winner Data — Producer Report</h1>
+<p>No leads assigned to you for <strong>${esc(reportDate)}</strong>.</p>
+<p style="color:#64748b;font-size:.85rem">If you expected leads, contact your manager — routing requires your account to be linked to an active producer profile.</p>
+</body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8' } }
+    );
+  }
+
+  const tierBadge = (tier) => {
+    const colors = { A: '#22c55e', B: '#F59E0B', C: '#f87171', unscored: '#64748b' };
+    const c = colors[tier] || colors.unscored;
+    return `<span style="background:${c};color:#020617;padding:.1rem .4rem;border-radius:3px;font-size:.75rem;font-weight:700">${esc(tier || 'unscored')}</span>`;
+  };
+
+  const stateOptions = (current) => ['new', 'in_progress', 'quoted', 'bound', 'declined']
+    .map((s) => `<option value="${s}"${s === current ? ' selected' : ''}>${s.replace('_', ' ')}</option>`)
+    .join('');
+
+  const rows = items.map((item) => {
+    const obs = item.observed_signal || {};
+    const derived = item.derived_context || {};
+    const propAddr = esc(obs.property_address || obs.site_address || '—');
+    const county = esc(obs.county || '—');
+    const buyer = esc(obs.winning_bidder || '—');
+    const saleType = esc(obs.sale_type || '—');
+    const purchasePrice = obs.tier1_sold_amount ? `$${Number(obs.tier1_sold_amount).toLocaleString()}` : '—';
+    const assessedVal = obs.pa_assessed_value ? `$${Number(obs.pa_assessed_value).toLocaleString()}` : '—';
+    const caseNum = esc(obs.case_number || '—');
+    const auctionDate = esc(obs.auction_date || '—');
+    const yearBuilt = esc(obs.property_year_built || '—');
+    const sqft = obs.property_sqft ? `${Number(obs.property_sqft).toLocaleString()} sq ft` : '—';
+    const dorDesc = esc(obs.dor_use_description || obs.dor_use_code || '—');
+    const portfolio = obs.portfolio_property_count ? `${obs.portfolio_property_count} properties` : '—';
+    const umbrella = derived.umbrella_opportunity ? '✓ Umbrella' : '';
+    const flood = derived.flood_opportunity ? `✓ Flood (${esc(String(derived.flood_opportunity))})` : '';
+    const bop = derived.commercial_bop_opportunity ? '✓ BOP' : '';
+    const opportunities = [umbrella, flood, bop].filter(Boolean).join('  ');
+
+    return `<tr>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">
+        <strong style="color:#e2e8f0">${buyer}</strong><br>
+        <span style="color:#94a3b8;font-size:.85rem">${propAddr} &middot; ${county} County</span><br>
+        <span style="color:#64748b;font-size:.8rem">Auction: ${auctionDate} &middot; Case: ${caseNum}</span>
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;font-size:.85rem">
+        ${purchasePrice}<br>
+        <span style="color:#64748b">Assessed: ${assessedVal}</span>
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;font-size:.85rem">
+        ${dorDesc}<br>
+        <span style="color:#64748b">${yearBuilt} &middot; ${sqft}</span>
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;font-size:.8rem;color:#94a3b8">
+        ${portfolio}
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">
+        ${tierBadge(item.confidence_tier)}
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;font-size:.8rem;color:#F59E0B">
+        ${opportunities || '<span style="color:#64748b">—</span>'}
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">
+        <form method="POST" action="/producer-report/update-state" style="display:inline">
+          <input type="hidden" name="item_id" value="${item.id}">
+          <input type="hidden" name="user_id" value="${esc(userId)}">
+          <input type="hidden" name="redirect_date" value="${esc(reportDate)}">
+          <select name="state" onchange="this.form.submit()" style="background:#1e3a5f;color:#e2e8f0;border:1px solid #2d4a6f;padding:.25rem;font-size:.8rem">
+            ${stateOptions(item.review_state)}
+          </select>
+        </form>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Winner Data — Producer Report ${esc(reportDate)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:1.5rem}
+  h1{color:#F59E0B;margin:0 0 .25rem;font-size:1.4rem}
+  .subtitle{color:#64748b;font-size:.85rem;margin:0 0 1.5rem}
+  table{width:100%;border-collapse:collapse}
+  th{background:#1E3A5F;color:#F59E0B;text-align:left;padding:.6rem .75rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+  a{color:#F59E0B}
+  .badge-count{background:#1E3A5F;color:#F59E0B;padding:.2rem .6rem;border-radius:4px;font-size:.8rem;font-weight:600}
+</style>
+</head><body>
+<h1>Winner Data &mdash; Producer Report</h1>
+<p class="subtitle">Date: ${esc(reportDate)} &middot; <span class="badge-count">${items.length} lead${items.length === 1 ? '' : 's'} assigned</span></p>
+<table>
+  <thead>
+    <tr>
+      <th>Buyer / Property</th>
+      <th>Purchase / Assessed</th>
+      <th>Property Type</th>
+      <th>Portfolio</th>
+      <th>Tier</th>
+      <th>Opportunities</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows}
+  </tbody>
+</table>
+<p style="color:#475569;font-size:.75rem;margin-top:1.5rem">
+  All data sourced from county property appraiser records and public auction filings.
+  Update lead status using the dropdown — changes save immediately.
+</p>
+</body></html>`;
+
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
+// POST /producer-report/update-state — form submission handler for review state changes
+async function handleProducerReportUpdateState(request) {
+  const form = await request.formData().catch(() => null);
+  if (!form) return jsonResponse({ ok: false, error: 'invalid form' }, 400);
+
+  const itemId = form.get('item_id');
+  const userId = form.get('user_id');
+  const state = form.get('state');
+  const redirectDate = form.get('redirect_date') || new Date().toISOString().slice(0, 10);
+
+  if (!itemId || !userId || !state) return jsonResponse({ ok: false, error: 'missing params' }, 400);
+
+  await rpc('wd_update_review_state', {
+    p_org_id: ORG_ID,
+    p_user_id: userId,
+    p_item_id: Number(itemId),
+    p_new_state: state,
+  });
+
+  return Response.redirect(
+    new URL(`/producer-report?user_id=${encodeURIComponent(userId)}&date=${encodeURIComponent(redirectDate)}`, 'https://ff.winnerdataai.com').toString(),
+    303
+  );
+}
+
+// GET /owner-dashboard?user_id=<uuid>&date=<YYYY-MM-DD>
+// Mariam (role=owner) sees all producers' items + closing ratio summary
+async function handleOwnerDashboard(request) {
+  const url = new URL(request.url);
+  const userId = url.searchParams.get('user_id');
+  const reportDate = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+
+  if (!userId) {
+    return new Response(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Winner Data — Owner Dashboard</title>
+<style>body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:2rem}h1{color:#F59E0B}</style></head>
+<body><h1>Winner Data — Owner Dashboard</h1><p>Missing <code>user_id</code> parameter.</p></body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8' } }
+    );
+  }
+
+  const dashData = await rpc('wd_owner_dashboard', {
+    p_org_id: ORG_ID,
+    p_user_id: userId,
+    p_report_date: reportDate,
+  });
+
+  if (!dashData || dashData.ok === false) {
+    const reason = dashData?.reason || 'unknown';
+    return new Response(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Winner Data — Owner Dashboard</title>
+<style>body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:2rem}h1{color:#F59E0B}</style></head>
+<body><h1>Winner Data — Owner Dashboard</h1>
+<p style="color:#f87171">Access denied: ${esc(reason)}. This dashboard requires an owner or admin role.</p></body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8' }, status: 403 }
+    );
+  }
+
+  const summary = dashData.report_summary || {};
+  const byProducer = Array.isArray(dashData.items_by_producer) ? dashData.items_by_producer : [];
+  const blockedCount = dashData.blocked_items || 0;
+
+  const producerRows = byProducer.map((p) => {
+    const tier = p.by_confidence || {};
+    const winRate = p.win_rate_pct_90d != null ? `${Number(p.win_rate_pct_90d).toFixed(1)}%` : '—';
+    return `<tr>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f">${esc(p.producer_name)}<br><span style="color:#64748b;font-size:.8rem">${esc(p.producer_email || '')}</span></td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;text-align:center"><strong style="color:#F59E0B">${p.items}</strong></td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;font-size:.85rem">
+        ${tier.A ? `<span style="color:#22c55e">A: ${tier.A}</span>  ` : ''}
+        ${tier.B ? `<span style="color:#F59E0B">B: ${tier.B}</span>  ` : ''}
+        ${tier.C ? `<span style="color:#f87171">C: ${tier.C}</span>` : ''}
+      </td>
+      <td style="padding:.75rem;border-bottom:1px solid #1e3a5f;text-align:center">${winRate}</td>
+    </tr>`;
+  }).join('');
+
+  const blockedNote = blockedCount > 0
+    ? `<p style="color:#f87171;margin-top:.75rem">⚠ ${blockedCount} lead${blockedCount === 1 ? '' : 's'} unassigned — no eligible active FL producer found. Add real producer records to <code>winnerdata.producers</code> and link them to <code>wd_portal_users</code> via email to activate assignment.</p>`
+    : '';
+
+  const html = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Winner Data — Owner Dashboard ${esc(reportDate)}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:1.5rem}
+  h1{color:#F59E0B;margin:0 0 .25rem;font-size:1.4rem}
+  h2{color:#94a3b8;font-size:1rem;margin:1.5rem 0 .5rem}
+  .subtitle{color:#64748b;font-size:.85rem;margin:0 0 1.5rem}
+  table{width:100%;border-collapse:collapse;margin-bottom:1rem}
+  th{background:#1E3A5F;color:#F59E0B;text-align:left;padding:.6rem .75rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+  .stat{display:inline-block;background:#1E3A5F;border-radius:6px;padding:.5rem 1rem;margin:.25rem;text-align:center}
+  .stat-num{font-size:1.5rem;font-weight:700;color:#F59E0B}
+  .stat-label{font-size:.75rem;color:#64748b;display:block}
+</style>
+</head><body>
+<h1>Winner Data &mdash; Owner Dashboard</h1>
+<p class="subtitle">Date: ${esc(reportDate)}</p>
+
+<div>
+  <div class="stat"><span class="stat-num">${summary.total_items || 0}</span><span class="stat-label">Total Leads</span></div>
+  <div class="stat"><span class="stat-num">${byProducer.length}</span><span class="stat-label">Producers Active</span></div>
+  <div class="stat"><span class="stat-num" style="color:${blockedCount > 0 ? '#f87171' : '#22c55e'}">${blockedCount}</span><span class="stat-label">Unassigned</span></div>
+</div>
+${blockedNote}
+
+<h2>Producer Performance — ${esc(reportDate)}</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Producer</th>
+      <th style="text-align:center">Leads Assigned</th>
+      <th>By Confidence Tier</th>
+      <th style="text-align:center">Win Rate (90d)</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${producerRows || `<tr><td colspan="4" style="padding:.75rem;color:#64748b;text-align:center">No producers with assigned leads for this date. Routing requires active FL-licensed producers in <code>winnerdata.producers</code>.</td></tr>`}
+  </tbody>
+</table>
+
+<p style="color:#475569;font-size:.75rem;margin-top:1.5rem">
+  Win rate = binds / leads routed in trailing 90 days. Producers with no history show —.<br>
+  Batch date for today's report: ${esc(String(summary.batch_date || 'not yet built'))}.
+</p>
+</body></html>`;
+
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -554,6 +837,9 @@ export default {
       if (pathname === '/healthz') return handleHealthz();
       if (pathname === '/portal' && request.method === 'GET') return handlePortal();
       if (pathname === '/portal/bind' && request.method === 'POST') return handlePortalBind(request);
+      if (pathname === '/producer-report' && request.method === 'GET') return handleProducerReport(request);
+      if (pathname === '/producer-report/update-state' && request.method === 'POST') return handleProducerReportUpdateState(request);
+      if (pathname === '/owner-dashboard' && request.method === 'GET') return handleOwnerDashboard(request);
 
       const ffMatch = pathname.match(/^\/ff\/([0-9a-fA-F-]{36})$/);
       if (ffMatch && request.method === 'GET') return handleFF(ffMatch[1]);
