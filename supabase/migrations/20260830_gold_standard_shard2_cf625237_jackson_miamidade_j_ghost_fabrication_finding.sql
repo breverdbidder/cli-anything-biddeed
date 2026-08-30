@@ -1,0 +1,94 @@
+-- ARCHITECT TRIAGE (issue #19621, dispatch cf625237-e30e-49ae-96ca-eee259884436):
+-- jackson + miami_dade J-letter ghost-fabrication finding. DOCUMENTATION ONLY —
+-- no data was mutated by this file; the finding was logged live via PostgREST
+-- (decision_log id=2867, gold_standard_ultraloop_audit ids=19797/19798) per
+-- migration-file convention (see migrations/20260823_shard4_ecbe151d_pasco_
+-- jackson_j_ghost_purge.sql for the prior instance of this same convention).
+--
+-- CONTEXT: dispatch cf625237's own session correctly reported jackson at
+-- "10/10, full gold standard" using pencil_dod_evaluate_county's live numbers.
+-- That surface reading is real (all 10 letters evaluate PASS today) but the
+-- fleet's own certify gate (EVALUATOR V6, docs/ULTRALOOP-SSOT.md) correctly
+-- withheld certification anyway: jackson's letter-J adversarial-survival
+-- evidence (gold_standard_ultraloop_audit id=17282, 2026-08-23T16:16:04Z)
+-- aged past the mandatory 7-day freshness window ~3h before this session's
+-- 19:30Z certify-gate run (gold_standard_certifications.revocation_reason=
+-- 'adversarial_survival_9_of_10').
+--
+-- INVESTIGATED: whether simply re-running a fresh J adversarial-verify was
+-- the correct fix to clear the staleness block. IT WAS NOT. Direct row-level
+-- query of bid_decisions for all 145 jackson case_numbers found 124 of 145
+-- (85.5%) rest on only 3 distinct (arv,max_bid,ml_score,repairs) tuples
+-- shared across dozens of UNRELATED case_numbers each — e.g. a single
+-- (arv=54000.0, max_bid=11600.0, ml_score=0.72, repairs=8100.0) tuple spans
+-- 110 distinct jackson auctions. This directly contradicts the 2026-08-23
+-- "rebuild" claim (audit id=17282, wrongly marked survived=true: "backed by
+-- real per-property assessed_value/market_value Shapira Formula ARV, no
+-- fabricated county-constant rows remain counted").
+--
+-- ROOT CAUSE (CONFIRMED live): scripts/shard6_j_generator.py — still
+-- unpatched, still executed daily by .github/workflows/shard6-daily-
+-- scraper.yml's j-generator job (cron '0 12 * * *') — contains:
+--     arv = opening * 1.35 if opening > 1000 else arv_base   # arv_base=135000 for jackson
+--     arv = max(arv, arv_base * 0.4)                         # <- floor clamp
+-- For any jackson case whose real opening_bid is low enough that
+-- opening*1.35 < arv_base*0.4 (=54000), the floor silently overrides the
+-- per-property computation with the SAME constant — collapsing dozens of
+-- genuinely different properties onto identical "analysis" regardless of
+-- their real opening_bid. The 2026-08-23 purge (migrations/20260823_shard4_
+-- ecbe151d_pasco_jackson_j_ghost_purge.sql) only renamed the OLD ghost rows'
+-- arv_source to a PURGED_GHOST_* tombstone label — that file's own text
+-- notes "arv_source is not read by pencil_dod_evaluate_county's J CTE", so
+-- the tombstone never affected the metric, and the generator script itself
+-- was never patched. The identical class of bug recurred a THIRD time the
+-- very same day this was diagnosed: 2026-08-30T08:22Z, a different fix
+-- attempt (audit id=19666, correctly refuted that morning — but only for
+-- report-accuracy reasons, never for this duplicate-cluster signature)
+-- collapsed 14 more jackson cases onto a 4th shared tuple
+-- (3795.25/569.29/0.55/25000.0).
+--
+-- CROSS-CHECKED miami_dade: same anti-pattern, larger blast radius. A
+-- 1000-case sample found 556 cases (55.6%) resting on 3 shared tuples,
+-- traced to supabase/migrations/20260626_shard3_miami_dade_j_generator.sql's
+-- own COALESCE(assessed_value, opening_bid*1.35, 250000) ARV fallback and
+-- COALESCE(location_score, 0.72) distress-score default — same structural
+-- flaw, different file. miami_dade J had NO prior ultraloop_audit row at
+-- all for this pattern (first check of its kind for this county+letter).
+--
+-- CONFIRMED CLEAN (this pattern only): alachua (91 bid_decisions rows for
+-- 91 auctions, 1:1, zero shared-tuple clusters) and liberty (1 row). Their
+-- current FAIL letters (E/I for alachua; A/B/F/H for liberty) are real,
+-- independently-documented structural blockers per this session's own
+-- report, unrelated to this finding.
+--
+-- ACTIONS TAKEN THIS SESSION (via PostgREST, non-critical tables, within
+-- autonomous architect authority):
+--   1. decision_log id=2867 — full diagnosis, decision_type='triage'.
+--   2. gold_standard_ultraloop_audit id=19797 — jackson J, survived=false,
+--      supersedes the wrongly-survived id=17282.
+--   3. gold_standard_ultraloop_audit id=19798 — miami_dade J, survived=false,
+--      first check of this kind for this county+letter.
+--   4. docs/ULTRALOOP-SSOT.md hardened: refuters must now explicitly group
+--      claimed rows by full value tuple and fail any claim where a tuple is
+--      shared across more than a handful of distinct case_numbers — closes
+--      the detection gap that let this recur 3x undetected across 2 months.
+--
+-- NOT DONE THIS SESSION (deliberately, per Honesty Protocol / BLANK>WRONG):
+-- no attempt was made to patch scripts/shard6_j_generator.py's valuation
+-- logic, disable its daily cron, or backfill real per-property ARVs for the
+-- ~124 jackson + ~556 miami_dade affected cases. That is a real engineering
+-- build task (real assessed-value/comps sourcing, not a data-correction),
+-- has fleet-wide blast radius (the 2026-08-23 purge migration's own residual
+-- notes flag the identical bug still live for manatee/indian_river
+-- (gold-standard-shard9-run651.yml) and okeechobee/dixie (this same
+-- shard6-daily-scraper.yml)), and risks shipping a 4th fabricated-constant
+-- pattern if rushed. Flagged to the AI Architect / Ariel as the concrete
+-- next dispatch via a comment on issue #19621.
+--
+-- RESULT: DoD SELECT EXISTS(...county_slug=ANY('{jackson,miami_dade,
+-- alachua,liberty}') AND certified) remains FALSE, correctly. jackson's
+-- surface "10/10" reading is real on today's evaluator output but not
+-- honestly gold-standard while J rests on fabricated data; miami_dade/
+-- alachua/liberty have their own independently-documented genuine residuals.
+-- This is a data/engineering ceiling requiring a dedicated follow-up
+-- dispatch, not a credentials/dashboard/spend blocker.
