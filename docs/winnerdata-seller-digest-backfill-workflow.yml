@@ -1,0 +1,65 @@
+# ── winnerdata-seller-digest-backfill.yml ────────────────────────────────────
+# One-time backfill workflow for the Aug 28 and Aug 29 stuck batches (issue #19619).
+#
+# To apply: copy to .github/workflows/winnerdata-seller-digest-backfill.yml
+# and dispatch manually with the dates to backfill.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: winnerdata-seller-digest-backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: 'Space-separated batch dates to backfill (e.g. 2026-08-28 2026-08-29)'
+        required: true
+        default: '2026-08-28 2026-08-29'
+      dry_run:
+        description: 'Dry run (no DB write)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winnerdata-seller-digest-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+
+      - name: Backfill seller_digest_leads rows
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          DATES="${{ github.event.inputs.dates }}"
+          ARGS="--dates $DATES"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python scripts/seller_digest_backfill.py $ARGS
+
+  enrich-aug28:
+    needs: [backfill]
+    if: github.event.inputs.dry_run != 'true'
+    uses: ./.github/workflows/winnerdata-seller-digest-enrichment.yml
+    with:
+      batch_date: '2026-08-28'
+    secrets: inherit
+
+  enrich-aug29:
+    needs: [backfill]
+    if: github.event.inputs.dry_run != 'true'
+    uses: ./.github/workflows/winnerdata-seller-digest-enrichment.yml
+    with:
+      batch_date: '2026-08-29'
+    secrets: inherit
