@@ -4,11 +4,17 @@ name: FF Winner Data DNS Fix (one-off)
 # pattern ff.winnerdataai.com/* is already declared in wrangler.toml) --
 # a Cloudflare Worker route only intercepts traffic for a hostname that
 # already has a DNS record proxied through Cloudflare. This creates that
-# record if missing. Read-only by default (action=list); create_dummy_a
-# adds a proxied 192.0.2.1 (TEST-NET, non-routable) placeholder A record --
-# the Worker route handles the request at the edge, the "content" IP is
-# never actually dialed. Same credential (CF_API_TOKEN) and DNS-op pattern
-# already established in cf-dns-op.yml / fix-biddeed-dns.yml.
+# record if missing.
+#
+# FIXED 2026-08-30: the original create_dummy_a step reported "success"
+# on every run regardless of what Cloudflare actually returned -- it
+# echoed the API response but never checked it. Three runs on 2026-08-24
+# all showed green while the record was never created (confirmed live via
+# Cloudflare's own DoH resolver returning NXDOMAIN on 2026-08-30, six days
+# later). This revision parses the actual Cloudflare response ("success"
+# field + "errors" array) and fails the step if the API call did not
+# really succeed, then independently re-queries DNS after creation and
+# fails if it still doesn't resolve -- a real check, not a checkmark.
 on:
   workflow_dispatch:
     inputs:
@@ -40,6 +46,12 @@ jobs:
             exit 1
           fi
 
+      - name: Check token permissions
+        run: |
+          RESP=$(curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}")
+          echo "$RESP" | python3 -m json.tool
+
       - name: List existing DNS records
         if: ${{ inputs.action == 'list_records' || inputs.action == 'create_dummy_a' }}
         run: |
@@ -49,8 +61,31 @@ jobs:
       - name: Create placeholder proxied A record for ff.winnerdataai.com
         if: ${{ inputs.action == 'create_dummy_a' }}
         run: |
-          RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.cloudflare.com/client/v4/zones/${{ steps.zone.outputs.zone_id }}/dns_records" \
+          RESP=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${{ steps.zone.outputs.zone_id }}/dns_records" \
             -H "Authorization: Bearer ${CF_API_TOKEN}" \
             -H "Content-Type: application/json" \
             --data '{"type":"A","name":"ff.winnerdataai.com","content":"192.0.2.1","proxied":true,"ttl":1}')
-          echo "$RESP"
+          echo "$RESP" | python3 -m json.tool
+          SUCCESS=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success'))")
+          if [ "$SUCCESS" != "True" ]; then
+            echo "::error::Cloudflare rejected the DNS record creation. See the printed response above for the exact error(s) -- do not assume this step worked without reading them."
+            exit 1
+          fi
+          echo "Cloudflare confirmed the record was created (API success=true)."
+
+      - name: Verify DNS actually resolves now -- real check, not a checkmark
+        if: ${{ inputs.action == 'create_dummy_a' }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            RESP=$(curl -s -H "accept: application/dns-json" --resolve cloudflare-dns.com:443:1.1.1.1 \
+              "https://cloudflare-dns.com/dns-query?name=ff.winnerdataai.com&type=A")
+            echo "attempt $i: $RESP"
+            STATUS=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('Status'))" 2>/dev/null || echo "parse_error")
+            if [ "$STATUS" = "0" ]; then
+              echo "CONFIRMED: ff.winnerdataai.com now resolves (DNS Status 0 = NOERROR)."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::ff.winnerdataai.com still does not resolve (last DNS Status: $STATUS) after 6 checks over 60s. The record creation step may have reported success but propagation has not happened, or something else is wrong -- do not report this as fixed."
+          exit 1
