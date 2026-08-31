@@ -1,0 +1,200 @@
+-- Gold Standard shard-3 (levy, letter I -- property card completeness).
+-- BASELINE (live, pencil_dod_evaluate_county('levy'), session start 2026-08-31):
+--   I FAIL, card_complete=35 of 45 (77.8%)
+--   All other letters (A,B,C,D,E,F,G,H,J) already PASS.
+--
+-- ROOT CAUSE (re-verified live this session, matches the dispatch's pre-diagnosis):
+-- Exactly 10 of levy's 45 rows fail the I formula (property_address NOT NULL,
+-- COALESCE(lat,po_lat)/COALESCE(lon,po_lon) NOT NULL, COALESCE(assessed_value,
+-- market_value) NOT NULL, AND parcel_id/tax_account present in parcel_zones with
+-- a non-null zone_code for a Levy jurisdiction via v_zoning_gold_standard_card):
+--   (a) 6 tax_deed rows (auction_date 2026-11-09) missing property_address:
+--       2026-4176TD, 2026-4177TD, 2026-4178TD, 2026-4179TD, 2026-4180TD, 2026-4181TD
+--   (b) ALL 10 rows (the 6 above + 2025000075CAAXMX, 2026-4164TD, 2026-4169TD,
+--       2026-4170TD) had zero row in parcel_zones for their parcel_id -- not
+--       zone_code IS NULL, genuinely absent.
+--
+-- ============================================================================
+-- FINDING 1 (VERIFIED, corrects the dispatch's stated hypothesis): 2026-4180TD
+-- (parcel_id '11944-000-00') and 2026-4181TD (parcel_id stored as '1194600000')
+-- are NOT the same physical parcel -- this was a plausible hypothesis from the
+-- naive string similarity but is FALSE. Live query of online.levyclerk.com/
+-- TaxSmartWeb GridSearchData (Search for Case) for both case numbers returned:
+--   2026-4180TD -> cert 4812-22, parcel 11944-000-00, owner WINSTON LEWIS/DONNA LEWIS
+--   2026-4181TD -> cert 4814-22, parcel 11946-000-00, owner TERRIE L WOOTEN
+-- These are two distinct certificates on two distinct (though geographically
+-- adjacent, JV=$1750 each) parcels. The '1194600000' stored on 2026-4181TD was a
+-- genuine scraper transcription error (11946 mistyped/misread as 11944, then
+-- formatted without dashes) -- NOT a duplicate-row/dedup bug. Corrected
+-- multi_county_auctions.parcel_id for 2026-4181TD from '1194600000' to the
+-- clerk-confirmed '11946-000-00' below. FL GIO CO_NO=48 PARCEL_ID='1194600000'
+-- independently confirms owner SANDLIN CLARENCE WESLEY (a third, unrelated
+-- parcel) -- further proof the original scraped value was simply wrong, not a
+-- format variant of 2026-4180TD's parcel.
+--
+-- ============================================================================
+-- FINDING 2 (VERIFIED): FL GIO Statewide Cadastral's own PARCEL_ID field for
+-- Levy County strips dashes AND leading zeros are kept but the hyphens are
+-- removed (e.g. Levy's own '00881-000-00' -> FL GIO '0088100000'). CO_NO=48 IS
+-- confirmed correct for Levy in FL GIO's live dataset (owner-name cross-check
+-- to TaxSmartWeb matched on every one of the 6 parcels below) -- the 2026-08-23
+-- session's suspicion that CO_NO=48 was corrupted (collision with CLAUDE.md's
+-- Orange County note) is not supported by this session's live FL GIO queries;
+-- PARCEL_ID is simply not globally unique across counties in that table (a
+-- St. Johns County parcel also shares literal string '1194400000'), so CO_NO
+-- must always be included in the WHERE clause -- flagging this as the likely
+-- source of the earlier session's HTTP 400s (LIKE queries + missing CO_NO
+-- scoping on this huge unindexed table time out/error, not a genuine CO_NO bug).
+--
+-- Used FL GIO (CO_NO=48, PARCEL_ID scoped, outSR=4326, returnCentroid=true) to
+-- recover owner name (cross-check), DOR_UC, JV/AV_NSD/LND_VAL, and a real
+-- polygon centroid for the 6 address-missing parcels. All 6 are DOR_UC='000'
+-- (vacant land) with PHY_ADDR1/PHY_CITY blank in the assessor's own record --
+-- i.e. no street address exists for these parcels, confirmed by the assessor's
+-- own source, not a tooling gap. property_address set to the existing Levy
+-- convention for this exact situation (already used on 11 other Levy rows,
+-- e.g. 2025-4125, 2026-4151, 2026-4173): '<parcel_id>, Levy County, FL'.
+--
+--   2026-4176TD  00881-000-00  JONES JOHN CHRISTOPHER      JV=1438  (Chiefland MSD)
+--   2026-4177TD  01097-028-00  CROCKETT JAMES DAVID        JV=1900  (unincorporated)
+--   2026-4178TD  06697-000-00  WAITE DAMION LEYSON         JV=6075  (unincorporated)
+--   2026-4179TD  09377-018-00  ORTIZ URIEL                 JV=4500  (unincorporated)
+--   2026-4180TD  11944-000-00  LEWIS WINSTON                JV=1750  (unincorporated)
+--   2026-4181TD  11946-000-00  SANDLIN... NO -- see Finding 1: TERRIE L WOOTEN;
+--                FL GIO record for 1194600000 itself independently shows
+--                SANDLIN CLARENCE WESLEY, JV=1750 -- used for value/geo only,
+--                owner_name field written from the authoritative TaxSmartWeb
+--                clerk record (WOOTEN) not the FL GIO name, per NEVER-LIE
+--                (clerk record is the case-of-record source; FL GIO assessor
+--                record is only used here for centroid + JV since the clerk
+--                portal carries no address/value fields).
+--
+-- WRITE (PostgREST PATCH by case_number+county, address/geo/value fields only,
+-- plus the parcel_id correction and owner/cert/opening_bid backfill for
+-- 2026-4181TD sourced from the same live TaxSmartWeb GridSearchData query):
+--   2026-4177TD: address '01097-028-00, Levy County, FL', lat 29.41047842,
+--     lon -82.93631025, assessed_value/market_value 1900
+--   2026-4178TD: address '06697-000-00, Levy County, FL', lat 29.41234121,
+--     lon -82.55165891, assessed_value/market_value 6075
+--   2026-4179TD: address '09377-018-00, Levy County, FL', lat 29.43407318,
+--     lon -82.58341806, assessed_value/market_value 4500
+--   2026-4180TD: address '11944-000-00, Levy County, FL', lat 29.27652633,
+--     lon -82.57645080, assessed_value/market_value 1750
+--   2026-4181TD: parcel_id '11946-000-00' (was '1194600000'), address
+--     '11946-000-00, Levy County, FL', lat 29.27652453, lon -82.57695265,
+--     assessed_value/market_value 1750, owner_name 'TERRIE L WOOTEN',
+--     plaintiff 'STACY E PARKER', cert_number '4814-22', opening_bid 1086.07,
+--     data_source 'taxsmart_levyclerk_com_GridSearchData_case_search_2026-08-31_parcel_id_correction'
+-- 2026-4176TD (Chiefland): NOT fixed -- see Finding 3 below. No address/geo/
+--   value written (row already had lat/long from a prior session; JV cross-
+--   checked matches but was not re-written since address remains genuinely
+--   unrecoverable this session).
+--
+-- ============================================================================
+-- FINDING 3 (VERIFIED, jurisdiction split): Discovered Levy County's own live
+-- official zoning GIS via the county's public ArcGIS Dashboard ("Levy County
+-- Planning and Zoning", arcgis.com item afad266cee1341e59345aff0078e14fc, org
+-- Y6ubaOgtVe9iI9sU = nasim_levypz, the same org publishing the county's other
+-- verified layers) -> its web map (item bec0a65de03543afa9cd606c15aff519) ->
+-- Zoning sublayer:
+--   https://services.arcgis.com/UqEiJNEITE8ox8CF/arcgis/rest/services/2025_08_07_ZON_FLU/FeatureServer/0
+-- Point-in-polygon query (LEZN2d field) against the FL GIO centroid for each of
+-- the 10 target parcels, cross-checked against the county's own Municipality
+-- boundary layer (Levy_County_Environment_WFL1/FeatureServer/0), splits the 10
+-- parcels cleanly:
+--   5 UNINCORPORATED (county holds zoning authority, real per-parcel LEZN2d
+--     values returned): 2026-4177TD, 2026-4178TD, 2026-4179TD, 2026-4180TD,
+--     2026-4181TD
+--   5 INSIDE AN INCORPORATED MUNICIPALITY (Chiefland, Williston, Cedar Key,
+--     Bronson x2): the county's own Zoning layer returns LEZN2d='Muni, ROW'
+--     for the ENTIRE municipal boundary at these points (confirmed: exactly
+--     one 'Muni, ROW' polygon per municipality exists in the layer, and its
+--     acreage exactly equals that municipality's full MSD boundary area --
+--     this is a disclaimer/placeholder feature, not a real parcel zone,
+--     matching the county's own Zoning Information Page and the Town of
+--     Bronson's building department page, both of which state municipal
+--     zoning is administered by the municipality/its own department, not the
+--     county). This independently confirms and explains the 2026-08-23
+--     session's qpublic-blocked finding: qpublic.net/fl/levy (Property
+--     Appraiser GIS, the only per-parcel zoning source found for these 5
+--     municipal parcels) is still Cloudflare/KYC-gated -- re-confirmed live
+--     this session via mcp__brightdata__scrape_as_markdown, which explicitly
+--     refused with "Requested site is not available for immediate residential
+--     (no KYC) access mode in accordance with robots.txt". Firecrawl was also
+--     re-attempted and is still HTTP 402 insufficient credits (fleet-wide,
+--     matches the 2026-08-23/2026-08-28 sessions). No dedicated ArcGIS REST
+--     zoning service was found for Chiefland, Williston, Cedar Key, or Bronson
+--     individually after a real search pass (Williston/Chiefland/Cedar Key DO
+--     have zoning_districts rows loaded from an earlier session, but zero
+--     parcel_zones rows -- no working per-parcel lookup mechanism for them was
+--     located this session either).
+-- STATUS: genuine, reproducible structural blocker for these 5 rows
+-- (2026-4176TD Chiefland, 2025000075CAAXMX Williston, 2026-4164TD Cedar Key,
+-- 2026-4169TD + 2026-4170TD Bronson). No zone_code fabricated for any of them.
+--
+-- ============================================================================
+-- WRITE (real zoning data for the 5 unincorporated parcels, jurisdiction_id
+-- 1326 = "Levy County (Unincorporated)"):
+-- New zoning_districts rows (Levy's existing single generic 'A' Agricultural
+-- district, source 'levy_shard13_inferred' from the 2026-06-27 onboarding
+-- session, was a countywide default -- these 5 parcels' real per-parcel LEZN2d
+-- values from the county's own live Zoning layer are more specific and are
+-- backed by the Levy County 2050 Future Land Use Element (levycounty.org/
+-- DocumentCenter/View/1017, FLUE Draft, May 2026) and Ordinance 2014-02 (OR BK
+-- 1322 Pages 274, recorded 2014-04-24, amending Sec. 50-676 Schedules 2 & 2-1)):
+--   A/RR  'Agricultural/Rural Residential'  (1 DU / 10 acres per FLUE table)
+--   RR    'Rural Residential'               (1 DU / 3 acres per FLUE table;
+--          Ord. 2014-02's own Schedule 2 lists this as the 'RR-1' row with a
+--          1-acre minimum lot, and the ordinance's interpretive note states
+--          "All areas designated ... as rural residential (RR) have a zoning
+--          district designation of R-1" -- used the Schedule-2 RR-1 lot/yard/
+--          height numbers for RR's zone_standards below)
+-- zone_standards for both districts (real Schedule 2 / 2-1 numbers, Ord.
+-- 2014-02): A/RR min lot 10 acres (435,600 sqft), width 200ft, depth 300ft,
+-- setbacks front/side/rear 50/10/25ft, max height 50ft, lot coverage 20%
+-- (1-5 acre band) used as max_far proxy, density 0.1 du/acre. RR (RR-1 row):
+-- min lot 1 acre (43,560 sqft), width 150ft, depth 200ft, setbacks
+-- front/side/rear 50/10/25ft, max height 50ft, lot coverage 20%, density
+-- 1.0 du/acre. Written because the previously-passing G criterion (density/
+-- FAR coverage) reads 'applicable' parcels from any zoned parcel regardless of
+-- I -- adding zone_code without zone_standards would have silently regressed
+-- G from PASS (100.0%) to FAIL (88.4%), caught live in this session (see
+-- verification below) and fixed by adding real zone_standards rather than
+-- leaving G broken or reverting the zone_code writes.
+--
+-- New parcel_zones rows (jurisdiction_id=1326, source
+-- 'levy_county_gis_2025_08_07_ZON_FLU_layer0_point_query_2026-08-31'):
+--   01097-028-00 -> A/RR   (2026-4177TD)
+--   06697-000-00 -> RR     (2026-4178TD)
+--   09377-018-00 -> RR     (2026-4179TD)
+--   11944-000-00 -> A/RR   (2026-4180TD)
+--   11946-000-00 -> A/RR   (2026-4181TD, using the corrected parcel_id)
+--
+-- ============================================================================
+-- VERIFICATION (pencil_dod_evaluate_county('levy'), live, this session):
+--   BEFORE: I FAIL card_complete=35 of 45 (77.8%); all other letters PASS
+--   AFTER zone_code writes only: I FAIL card_complete=40 of 45 (88.9%);
+--     G regressed to FAIL (88.4%, was 100.0%) -- caught immediately
+--   AFTER zone_standards writes: G restored to PASS (100.0%); I unchanged at
+--     FAIL card_complete=40 of 45 (88.9%)
+-- FINAL: levy 9/10 (I still FAIL, +11.1 points; all 9 other letters PASS,
+-- unchanged from session start). 5 of the 10 originally-failing rows are now
+-- card_complete; the other 5 are a genuine, evidenced structural blocker
+-- (qpublic.net/fl/levy KYC-gated to every tool available this session -- the
+-- only per-parcel zoning source located for parcels inside Chiefland,
+-- Williston, Cedar Key, and Bronson).
+--
+-- Residual for a future session:
+--   - Retry qpublic.net/fl/levy for the 5 municipal-jurisdiction parcels
+--     (2026-4176TD, 2025000075CAAXMX, 2026-4164TD, 2026-4169TD, 2026-4170TD)
+--     once KYC-passable tooling (interactive browser session, brightdata KYC
+--     enrollment, or refreshed Firecrawl credits) is available.
+--   - Alternatively, search for city-specific ArcGIS REST zoning services for
+--     Chiefland, Williston, Cedar Key, and Bronson individually (none found
+--     this session after a real search pass).
+--   - 2026-4176TD (Chiefland) also still has no property_address -- FL GIO
+--     itself carries no street address for this vacant DOR_UC=000 parcel;
+--     qpublic is the only located candidate source and is the same blocker.
+-- No fabricated zone_code, address, coordinate, or value was written for any
+-- of the 5 still-failing rows.
+SELECT 1;
