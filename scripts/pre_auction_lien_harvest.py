@@ -35,17 +35,30 @@ County choice — Duval, live-verified this session (not assumed):
     replicated in plain httpx/urllib (case-number search flow only --
     confirmed working, real JSON: {"Data":[...],"Total":N}).
 
-Known gap (documented honestly, not silently worked around): Duval
-AcclaimWeb's owner/party NAME search (SearchTypeName) requires a
-`BookTypesDisplay` parameter whose accepted encoding was not discovered this
-session -- every attempt returned `ShowError('The booktype is invalid...')`.
-That means this harvester can only search BY CASE NUMBER, which returns
-documents recorded UNDER that specific court case (Lis Pendens, Final
-Judgment, and any other doc cross-filed to the case) -- it does NOT do a
-broad owner-name lien sweep, so it will miss independent third-party liens
-(a separate senior mortgage, an HOA claim of lien, a mechanic's lien) that
-were never filed as part of this litigation. This is a real, disclosed
-capability limit, not a fabricated dataset.
+Owner/party NAME search (SOLVED, follow-on to #19657's disclosed gap):
+Duval AcclaimWeb's SearchTypeName is a 3-step flow, reverse-engineered live
+via Playwright driving the real UI (see verification/ for the captured
+requests) -- the prior `ShowError('The booktype is invalid...')` was caused
+by leaving BookTypes blank/malformed. The client's own
+GetBookTypeString() (Scripts/AcclaimSearchPages.js) sets BOTH BookTypes AND
+BookTypesDisplay to the literal string "All" when no individual book-type
+checkboxes are selected -- BookTypes must never be sent blank.
+  1. POST /search/SearchTypeName?Length=6 with SearchOnName=<name> and
+     BookTypes=All&BookTypesDisplay=All (both required, both literal "All").
+     Returns an HTML fragment embedding a Kendo treeview of every distinct
+     name AcclaimWeb has on file matching the search string (name
+     disambiguation -- a real name search can match multiple people).
+  2. POST /Search/SearchTypePreName with NameList=<treeview selection string>
+     (`"<Surname> (<n>)|||<Full Name> "` per matched leaf) + the same date/
+     book/doc-type params. This commits the name selection server-side.
+  3. POST /Search/GridResults (no body params needed beyond
+     sort=&group=&filter=) returns the same {"Data":[...],"Total":N} JSON
+     shape as the case-number flow.
+This returns ALL of that person's recorded documents STATEWIDE-in-Duval,
+not just ones tied to the auction's own case -- exactly the broad owner-name
+lien sweep the case-number-only flow couldn't do, surfacing independent
+third-party liens (a separate mortgage, an HOA claim of lien, a mechanic's
+lien) that never got cross-filed into this litigation.
 
 What gets written, and where:
   - LIS PENDENS / (FINAL) JUDGMENT docs (the case's OWN litigation
@@ -174,6 +187,66 @@ class AcclaimSession:
         except Exception:
             return []
 
+    def name_lookup(self, name):
+        """Documents recorded anywhere in Duval under this party's name --
+        the broad owner-name lien sweep (mortgages, HOA/mechanic's liens,
+        etc.) that case_lookup() cannot do. 3-step Kendo UI flow, reverse-
+        engineered live via Playwright (see class docstring reference above
+        the case_lookup gap note for the captured request shapes)."""
+        self._accept_disclaimer()
+        today = dt.date.today()
+        date_from, date_to = "1/1/1800", f"{today.month}/{today.day}/{today.year}"
+        h = {"Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest",
+             "Referer": self.base + f"{self.prefix}/search/SearchTypeName"}
+
+        step1 = urllib.parse.urlencode({
+            "IsParsedName": "False", "Both": "Both", "PartyType": "Both", "SearchOnName": name,
+            "DateRangeList": " ", "DocTypes": "all", "DocTypesDisplay-input": "All", "DocTypesDisplay": "",
+            "RecordDateFrom": date_from, "BookTypesDisplay": "All", "BookTypes": "All", "RecordDateTo": date_to,
+        })
+        html = self._req(self.base + f"{self.prefix}/search/SearchTypeName?Length=6", data=step1, hdrs=h)
+        name_list = self._build_name_list_selector(html or "")
+        if not name_list:
+            return []  # no recorded documents under this name -- a real result, not a fetch failure
+
+        step2 = urllib.parse.urlencode({
+            "NameList": name_list, "checkedFiles": "on", "SelectAllPrenamesToggle": "on",
+            "PartyType": "Both", "RecordDateFrom": f"{date_from} 12:00:00 AM", "RecordDateTo": f"{date_to} 12:00:00 AM",
+            "BookTypes": "All", "DocTypes": "all", "SearchOnName": name,
+            "SearchOnLastOrBusinessName": "", "SearchOnFirstName": "", "ShowAllNames": "", "ShowAllLegals": "",
+        })
+        self._req(self.base + f"{self.prefix}/Search/SearchTypePreName", data=step2, hdrs=h)
+        body = self._req(self.base + f"{self.prefix}/Search/GridResults", data="sort=&group=&filter=", hdrs=h)
+        try:
+            return json.loads(body).get("Data", [])
+        except Exception:
+            return []
+
+    @staticmethod
+    def _build_name_list_selector(html):
+        """Reconstructs the NameList selector string that AcclaimCommon.js's
+        GetNameListString() builds client-side when a user checks "All/None"
+        on the name-disambiguation treeview from step 1's response --
+        "<Surname Group> (<n>)|||<Full Name> " per matched leaf, joined with
+        '|||'. Selects every matched name (equivalent to checking All/None)
+        rather than requiring an exact single match, since a real owner name
+        can legitimately return multiple AcclaimWeb-indexed variants."""
+        m = re.search(r'"dataSource"\s*:\s*(\[.*?\])\s*,\s*"loadOnDemand"', html, re.S)
+        if not m:
+            return None
+        try:
+            tree = json.loads(m.group(1))
+        except Exception:
+            return None
+        parts = []
+        for group in tree:
+            parts.append(group.get("text", ""))
+            for leaf in group.get("items") or []:
+                text = leaf.get("text", "")
+                idx = text.rfind("(")
+                parts.append(text[:idx] if idx != -1 else text)
+        return "|||".join(parts) if parts else None
+
 
 # public.title_rules is a pre-existing curated taxonomy (rule_id NOT NULL FK
 # on title_defects) -- e.g. JUDG_001 "Judgment lien against owner". A raw
@@ -188,10 +261,32 @@ class AcclaimSession:
 JUDGMENT_RULE_ID = "JUDG_001"  # "Judgment lien against owner" — real, existing title_rules row
 
 
-def classify_docs(case_number, parcel_id, county, docs):
-    """Split a case's recorded documents into (title_defects rows, lien_results rows)."""
+def normalize_name_search_docs(docs):
+    """SearchTypeName's GridResults uses Party/Name/CrossPartyName instead of
+    case_lookup's DirectName/IndirectName (verified live 2026-08-31 — same
+    /Search/GridResults endpoint, different field shape per search type).
+    Party="From" means the searched Name is the direct/from party;
+    Party="To" means it's the indirect/to party. Normalizing here keeps
+    classify_docs() itself untouched."""
+    out = []
+    for d in docs:
+        party = d.get("Party")
+        name, cross = d.get("Name"), d.get("CrossPartyName")
+        direct_name, indirect_name = (name, cross) if party == "From" else (cross, name)
+        out.append({**d, "DirectName": direct_name, "IndirectName": indirect_name})
+    return out
+
+
+def classify_docs(case_number, parcel_id, county, docs, source="duval_acclaimweb_case_search", lp_date_override=None):
+    """Split a case's recorded documents into (title_defects rows, lien_results rows).
+
+    lp_date_override lets a name-search pass (whose own doc set has already
+    been filtered to exclude the case's own Lis Pendens, to avoid
+    reprocessing it) still classify senior/junior priority against the
+    case's real Lis Pendens date, computed by the caller's earlier
+    case_lookup() pass."""
     lp_dates = [d["RecordDate"] for d in docs if "LIS PENDENS" in (d.get("DocTypeDescription") or "").upper() and d.get("RecordDate")]
-    lp_date = min(lp_dates) if lp_dates else None  # 'YYYY/MM/DD' strings sort correctly lexically
+    lp_date = lp_date_override or (min(lp_dates) if lp_dates else None)  # 'YYYY/MM/DD' strings sort correctly lexically
 
     title_defect_rows, lien_rows = [], []
     for d in docs:
@@ -232,7 +327,7 @@ def classify_docs(case_number, parcel_id, county, docs):
                     "recording_date": rec_date.replace("/", "-") if rec_date else None,
                     "book_page": book_page,
                     "priority": priority,
-                    "source": "duval_acclaimweb_case_search",
+                    "source": source,
                     "raw_data": d,
                 })
                 break
@@ -284,6 +379,43 @@ def main():
             continue
 
         title_rows, lien_rows = classify_docs(case_number, a.get("parcel_id"), county, docs)
+
+        # Owner/party-name sweep (follow-on to #19657's disclosed gap): the
+        # case's own JUDGMENT (or, before judgment, its LIS PENDENS) names
+        # the defendant/owner as IndirectName -- search AcclaimWeb by that
+        # name to catch independent third-party liens never cross-filed into
+        # this litigation. Real "nobody by this name" or "no owner name found
+        # yet" results return [] / None, not an error.
+        owner_name = next(
+            (d.get("IndirectName") for d in docs
+             if re.search(r"\bJUDG(E|MENT)?\b", d.get("DocTypeDescription") or "", re.I) and d.get("IndirectName")),
+            None,
+        ) or next(
+            (d.get("IndirectName") for d in docs
+             if "LIS PENDENS" in (d.get("DocTypeDescription") or "").upper() and d.get("IndirectName")),
+            None,
+        )
+        case_lp_dates = [d["RecordDate"] for d in docs if "LIS PENDENS" in (d.get("DocTypeDescription") or "").upper() and d.get("RecordDate")]
+        case_lp_date = min(case_lp_dates) if case_lp_dates else None
+        seen_txn_ids = {d.get("TransactionItemId") for d in docs}
+        n_name_search_docs = 0
+        if owner_name:
+            try:
+                name_docs = session.name_lookup(owner_name)
+            except Exception as e:
+                print(f"  {case_number}: name search FAILED for {owner_name!r} — {e}")
+                name_docs = []
+            new_docs = [d for d in name_docs if d.get("TransactionItemId") not in seen_txn_ids]
+            n_name_search_docs = len(new_docs)
+            if new_docs:
+                name_title_rows, name_lien_rows = classify_docs(
+                    case_number, a.get("parcel_id"), county,
+                    normalize_name_search_docs(new_docs), source="duval_acclaimweb_name_search",
+                    lp_date_override=case_lp_date,
+                )
+                title_rows += name_title_rows
+                lien_rows += name_lien_rows
+
         for row in title_rows:
             if already_exists("title_defects", case_number, "rule_id", row.get("rule_id")):
                 n_skipped_dupe += 1
@@ -303,7 +435,8 @@ def main():
             except Exception as e:
                 print(f"  {case_number}: lien_results insert failed — {e}")
 
-        print(f"  {case_number}: {len(docs)} docs -> {len(title_rows)} case-filing, {len(lien_rows)} lien-type")
+        name_note = f", name search on {owner_name!r}: +{n_name_search_docs} new docs" if owner_name else ", no owner name found for name search"
+        print(f"  {case_number}: {len(docs)} case docs -> {len(title_rows)} case-filing, {len(lien_rows)} lien-type{name_note}")
 
     print(f"[pre_auction_lien_harvest] done: +{n_title_defects} title_defects, +{n_lien_results} lien_results, "
           f"{n_skipped_dupe} already on file, {n_cases_no_docs} cases with zero recorded documents")

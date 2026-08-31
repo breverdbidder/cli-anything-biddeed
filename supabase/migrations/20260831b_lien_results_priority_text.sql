@@ -1,0 +1,12 @@
+-- Issue #19657 follow-on, item 2 (AcclaimWeb owner/party-name search) —
+-- fixes a latent schema/consumer type mismatch that would have silently
+-- broken every real lien insert this session's fix produces.
+--
+-- public.lien_results.priority was declared `integer`, but
+-- packages/biddeed-mcp/src/report/lien-survival.js's classify() reads
+-- lien.priority as the STRING 'senior'/'junior' (`String(lien.priority ||
+-- '').toLowerCase() === 'senior'`), and scripts/pre_auction_lien_harvest.py's
+-- classify_docs() writes exactly those two string literals. All 7 existing
+-- rows have priority IS NULL (verified live 2026-08-31), so this is a
+-- zero-data-loss widening, not a backfill.
+alter table public.lien_results alter column priority type text;
