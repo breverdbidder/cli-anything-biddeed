@@ -1,0 +1,49 @@
+name: "Pasco Lien Harvest — deterministic (no Claude call)"
+# Plain-bash workaround per the Aug 27-28 quota-freeze incident pattern:
+# CC runner sessions have twice returned badge-green with no work on issue
+# #19660 (runs 33433459795, 33438291214 — breadcrumb only, no session
+# report, zero lien_results movement). This workflow runs the already-
+# committed deterministic script scripts/pasco_or_name_lien_harvest.py
+# directly, with NO claude invocation, so quota state cannot fake a result.
+# The script is idempotent (dedupes on case_number+book_page / rule match)
+# and covers all 5 Pasco tax-deed cases from the Aug 27 batch, including
+# the 3 not yet harvested (…000077, …000078, …000082).
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: pasco-lien-harvest-deterministic
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: "Run Pasco OR name-search harvest (deterministic)"
+        run: python scripts/pasco_or_name_lien_harvest.py
+      - name: "SQL VERIFICATION — real counts, not a badge"
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+          SB  = os.environ['SUPABASE_URL']; KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H   = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Prefer": "count=exact"}
+          def count(path):
+              req = urllib.request.Request(f"{SB}/rest/v1/{path}&limit=1", headers=H)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return r.headers.get("Content-Range", "")
+          print("### SQL VERIFICATION")
+          print("Timestamp UTC:", datetime.now(timezone.utc).isoformat())
+          for c in ["512026XX000077TDAXXX","512026XX000078TDAXXX","512026XX000082TDAXXX","512026XX000100TDAXXX","512026XX000105TDAXXX"]:
+              print(f"lien_results {c}:", count(f"lien_results?select=id&case_number=eq.{c}"))
+              print(f"title_defects {c}:", count(f"title_defects?select=id&case_number=eq.{c}"))
+          PYEOF
