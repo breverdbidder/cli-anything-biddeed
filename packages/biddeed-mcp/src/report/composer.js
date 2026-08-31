@@ -20,6 +20,7 @@ import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vecto
 import { predictEnsemble } from './ensemble-model.js';
 import { deriveRedFlags, hasJuniorLienRisk, hasTaxDeedLienRisk, JUNIOR_JUDGMENT_TO_ASSESSED } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
+import { classify as classifyLienSurvival } from './lien-survival.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 
 const NO_ESTIMATE_REFUSAL = "An estimate here would be fabrication; BidDeed declines where HouseCanary would extrapolate.";
@@ -301,6 +302,10 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   if (!locatable) {
     const priors = await priorsPromise;
     const redFlags = deriveRedFlags(auction);
+    const lienSurvival = await classifyLienSurvival(
+      { case_number: auction.case_number, parcel_id: auction.parcel_id, sale_type: auction.sale_type },
+      { get }
+    ).catch(() => ({ available: false, reason: 'classification failed', items: [], n_items: 0, statutory_basis: null }));
     return {
       cover: {
         case_number: auction.case_number,
@@ -318,7 +323,8 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       cma: { section_key: 'cma', comps: [], note: 'No comps — subject is unlocatable.' },
       red_flags: redFlags,
       auction_outcome: buildOutcomeSection(auction, { ceiling: null, value: null, entryBid: null }),
-      composition: sectionComposition({ locatable: false }),
+      lien_survival: lienSurvival,
+      composition: await sectionComposition({ locatable: false, lienSurvival }, { get }),
       provenance: buildProvenance(auction, { model: { available: false } }),
       disclaimer: DISCLAIMER_FULL,
     };
@@ -396,6 +402,11 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
 
   const outcome = buildOutcomeSection(auction, { ceiling, value, entryBid });
   if (outcome.flags?.length) redFlags.push(...outcome.flags);
+
+  const lienSurvival = await classifyLienSurvival(
+    { case_number: auction.case_number, parcel_id: parcel?.parcel_id || auction.parcel_id, sale_type: auction.sale_type },
+    { get }
+  ).catch(() => ({ available: false, reason: 'classification failed', items: [], n_items: 0, statutory_basis: null }));
 
   return {
     cover: {
@@ -488,22 +499,56 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     },
     red_flags: redFlags,
     auction_outcome: outcome,
-    composition: sectionComposition({ locatable: true }),
+    lien_survival: lienSurvival,
+    composition: await sectionComposition({ locatable: true, lienSurvival }, { get }),
     provenance: buildProvenance(auction, { model }),
     disclaimer: DISCLAIMER_FULL,
   };
 }
 
 // Maps to public.biddeed_report_composition's 6 canonical section keys.
-// Title Tiers 1-3 have no Marion pipeline today — rendered Pending, never
-// silently omitted, naming the gate per Amendment 2.
-function sectionComposition({ locatable }) {
+// FIX (ship-gate bypass, known bug since Aug 1 — this issue): lien_search,
+// lien_survival, and title_search now actually read
+// biddeed_report_composition.ship_status before claiming to deliver content
+// to a paying customer. auction_intel/zoning/deal_score are UNCHANGED —
+// they are not in scope for this gate (see issue: only lien_search/
+// title_search/lien_survival are named) and already ship today.
+// Any of the three title/lien tiers still ship_status='blocked' renders as
+// internal-preview-only — the real classify() output is always computed
+// (see report.lien_survival) so it's available for internal QA/tests, but
+// it is never surfaced as 'delivered' status to a customer response until a
+// human flips ship_status in Supabase.
+async function sectionComposition({ locatable, lienSurvival }, { get = defaultGet } = {}) {
+  const gateRows = await get(
+    'biddeed_report_composition?section_key=in.(lien_search,lien_survival,title_search)&select=section_key,ship_status,disclosure_text'
+  ).catch(() => []);
+  const gates = Object.fromEntries((gateRows || []).map(r => [r.section_key, r]));
+
+  const isLive = (key) => gates[key]?.ship_status === 'live';
+
+  const lienSearch = isLive('lien_search')
+    ? { section_key: 'lien_search', status: 'delivered', disclosure: gates.lien_search.disclosure_text }
+    : { section_key: 'lien_search', status: `Pending — Title Tier 1 (lien search) internal-preview-only, not yet shipped to customers (ship_status=${gates.lien_search?.ship_status || 'unknown'})` };
+
+  const titleSearch = isLive('title_search')
+    ? { section_key: 'title_search', status: 'delivered', disclosure: gates.title_search.disclosure_text }
+    : { section_key: 'title_search', status: `Pending — Title Tier 3 (title search) internal-preview-only, not yet shipped to customers (ship_status=${gates.title_search?.ship_status || 'unknown'})` };
+
+  let lienSurvivalStatus;
+  if (!isLive('lien_survival')) {
+    lienSurvivalStatus = { section_key: 'lien_survival', status: `Pending — Title Tier 2 (lien survival, Fla. Stat. §197.552/§713.07) internal-preview-only, not yet shipped to customers (ship_status=${gates.lien_survival?.ship_status || 'unknown'})` };
+  } else if (!lienSurvival?.available) {
+    lienSurvivalStatus = { section_key: 'lien_survival', status: `Pending — insufficient recorded-document coverage for this county (${lienSurvival?.reason || 'no data on file'})` };
+  } else {
+    lienSurvivalStatus = { section_key: 'lien_survival', status: 'delivered', disclosure: gates.lien_survival.disclosure_text };
+  }
+
   return {
     auction_intel: { section_key: 'auction_intel', status: locatable ? 'delivered' : 'refused (unlocatable subject)' },
     zoning: { section_key: 'zoning', status: 'delivered (see SECTION ZW)' },
-    lien_search: { section_key: 'lien_search', status: 'Pending — Title Tier 1 (lien search) not yet live for this county' },
-    lien_survival: { section_key: 'lien_survival', status: 'Pending — Title Tier 2 (lien survival, Fla. Stat. §197.552/§713.07) not yet live for this county' },
-    title_search: { section_key: 'title_search', status: 'Pending — Title Tier 3 (title search) not yet live for this county' },
+    lien_search: lienSearch,
+    lien_survival: lienSurvivalStatus,
+    title_search: titleSearch,
     deal_score: { section_key: 'deal_score', status: locatable ? 'delivered' : 'refused (unlocatable subject)' },
   };
 }

@@ -42,7 +42,7 @@ vertical is templating, not sourcing.
 
 ## Proof points
 
-- Shapira S5 Property Card (18 sections)
+- SIGNAL$ Property Report (18 sections)
 - Insurance Fact Finder (Protection Partners) — live
 - The same resolved lead resold to movers at zero incremental acquisition cost
 

@@ -1,0 +1,94 @@
+name: "Pre-Auction Lien/Title Harvest (SIGNAL$ Property Report §16)"
+# PART C of the SIGNAL$ Property Report / lien_survival.classify issue.
+# Separate, PARALLEL pipeline from the Daily Winner FF post-auction harvest
+# (winnerdata-daily.yml) — this one runs BEFORE the sale, sourcing
+# lien_results/title_defects from multi_county_auctions WHERE
+# auction_status='upcoming' so §16 has real lien_survival data by the time
+# a customer buys a SIGNAL$ Property Report, not after.
+#
+# County: Duval only for now — gold-certified, live-verified reachable
+# (2026-08-31), and the only county this repo has a working AcclaimWeb
+# case-number-search flow for on the Kendo-UI platform. See
+# scripts/pre_auction_lien_harvest.py header for the full live-verification
+# trail and the documented owner-name-search gap.
+#
+# Recurring: new auctions post to multi_county_auctions continuously, so
+# this is scheduled daily, not a one-off batch.
+
+on:
+  schedule:
+    - cron: "30 9 * * *"  # 09:30 UTC daily — after the Daily Winner FF morning run (00:00/04:00 UTC), before US business hours
+  workflow_dispatch:
+    inputs:
+      county:
+        description: "County slug (must have an AcclaimWeb config in pre_auction_lien_harvest.py)"
+        required: false
+        default: "duval"
+      lookahead_days:
+        description: "Harvest auctions this many days out"
+        required: false
+        default: "14"
+      limit:
+        description: "Max cases per run (shared production court records site — keep small)"
+        required: false
+        default: "20"
+
+concurrency:
+  group: pre-auction-lien-harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    name: "Pre-Auction Lien/Title Harvest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Harvest pre-auction lien/title data"
+        run: |
+          python scripts/pre_auction_lien_harvest.py \
+            --county "${{ github.event.inputs.county || 'duval' }}" \
+            --lookahead-days "${{ github.event.inputs.lookahead_days || '14' }}" \
+            --limit "${{ github.event.inputs.limit || '20' }}"
+
+      - name: "SQL VERIFICATION"
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request
+          from datetime import datetime, timezone
+
+          SB  = os.environ['SUPABASE_URL']
+          KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          H   = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+          now_utc = datetime.now(timezone.utc).isoformat()
+
+          def get(path):
+              req = urllib.request.Request(f"{SB}/rest/v1/{path}", headers=H)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read())
+
+          td = get("title_defects?select=id&limit=1")
+          req = urllib.request.Request(f"{SB}/rest/v1/title_defects?select=id&limit=1",
+                                        headers={**H, "Prefer": "count=exact"})
+          with urllib.request.urlopen(req, timeout=30) as r:
+              cr = r.headers.get("Content-Range", "")
+          lr = get("lien_results?select=id&limit=1")
+          req2 = urllib.request.Request(f"{SB}/rest/v1/lien_results?select=id&limit=1",
+                                         headers={**H, "Prefer": "count=exact"})
+          with urllib.request.urlopen(req2, timeout=30) as r2:
+              cr2 = r2.headers.get("Content-Range", "")
+
+          print("\n### SQL VERIFICATION")
+          print(f"Timestamp UTC: {now_utc}")
+          print(f"SELECT COUNT(*) FROM title_defects: {cr}")
+          print(f"SELECT COUNT(*) FROM lien_results: {cr2}")
+          PYEOF

@@ -8,7 +8,7 @@ Authoritative as of Aug 24 2026.
 ```mermaid
 graph LR
     S[Resolved parcel/property substrate] --> G[Shared generator]
-    G --> F1[S5 Property Card]
+    G --> F1[SIGNAL$ Property Report]
     G --> F2[ZoneWise Feasibility Card]
     G --> F3[Winner Data Fact Finder]
 ```

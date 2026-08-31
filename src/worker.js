@@ -253,7 +253,7 @@ const SAMPLE_STATIC_REPORT = {
     zoning:        { status: 'Sample report — ZoneWise section omitted', section_key: 'zoning' },
   },
   provenance: {
-    certification_disclosure: 'Palm Beach County — Gold Standard certified. S5 report tool is CERT_REQUIRED.',
+    certification_disclosure: 'Palm Beach County — Gold Standard certified. SIGNAL$ Property Report tool is CERT_REQUIRED.',
     generated_from: 'Static sample report — multi_county_auctions + Palm Beach RealForeclose.com outcome data',
     model_disclosure: 'V4 Stacked Ensemble (Patent Claim 8) — XGBoost + LightGBM + CatBoost + RF meta-learner. AUC 0.9468. Inference via Modal.com.',
   },
@@ -320,6 +320,8 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   const opp = report.opinion_of_price_bid_card || {};
   const judgment = report.judgment || {};
   const flags = report.red_flags || [];
+  const composition = report.composition || {};
+  const lienSurvival = report.lien_survival || {};
   const prov = report.provenance || {};
   const outcome = report.auction_outcome || {};
   const disclaimer = report.disclaimer || 'Informational only — not legal, financial, or investment advice.';
@@ -506,11 +508,31 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
     </div>`;
 
   // ── §16 Judgment & Encumbrance ────────────────────────────────────────────
+  const lienGate = composition.lien_survival || {};
+  let lienSurvivalHtml;
+  if (lienGate.status === 'delivered' && lienSurvival.available) {
+    const itemsHtml = (lienSurvival.items || []).map(item => {
+      const label = item.creditor && item.creditor !== 'Pending — not on file' ? `${escHtml(item.lien_type)} — ${escHtml(item.creditor)}` : escHtml(item.lien_type);
+      const cls = item.survives === true ? 'flag-risk' : item.survives === false ? 'flag-info' : 'flag-pending';
+      const tag = item.survives === true ? 'SURVIVES' : item.survives === false ? 'EXTINGUISHED' : 'UNRESOLVED';
+      return `<div class="flag ${cls}"><b>${tag}</b> ${label} — ${escHtml(item.statement)}</div>`;
+    }).join('');
+    lienSurvivalHtml = `
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Statutory Basis</span><span class="row-v">${escHtml(lienSurvival.statutory_basis || 'Pending')}</span></div>
+        <div class="flags">${itemsHtml}</div>
+        ${lienGate.disclosure ? `<div class="model-disclosure" style="margin-top:10px;font-size:11px">${escHtml(lienGate.disclosure)}</div>` : ''}
+      </div>`;
+  } else {
+    lienSurvivalHtml = `<div class="pending">${escHtml(lienGate.status || 'Pending — Title Tier 2 (lien survival) not yet live for this county')}</div>`;
+  }
   const sec16 = [
     s5Row('Judgment Amount', judgment.judgment_amount != null ? `$${Number(judgment.judgment_amount).toLocaleString()}` : 'Pending'),
     s5Row('Opening Bid', judgment.opening_bid != null ? `$${Number(judgment.opening_bid).toLocaleString()}` : 'Pending'),
     s5Row('Bid/Judgment Ratio', judgment.bid_to_judgment_ratio != null ? judgment.bid_to_judgment_ratio : 'Pending'),
     flags.length ? `<div class="flags">${flags.map(f => `<div class="flag flag-${escHtml(f.severity || 'info')}"><b>${escHtml(f.code || 'FLAG')}</b> ${escHtml(f.text || '')}</div>`).join('')}</div>` : '',
+    `<div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Lien Survival — Title Tier 2</div>`,
+    lienSurvivalHtml,
   ].join('');
 
   // ── §17 Provenance ────────────────────────────────────────────────────────
@@ -579,7 +601,7 @@ function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShor
   const addrRest = addr.includes(',') ? addr.slice(addr.indexOf(',') + 1).trim() : '';
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>BidDeed.AI S5 Report | ${addr}</title>
+<title>BidDeed.AI SIGNAL$ Property Report | ${addr}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -1581,7 +1603,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
   </div>
   <div class="stat">
     <div class="stat-num">$25</div>
-    <div class="stat-label">Per Full S5 Report</div>
+    <div class="stat-label">Per Full SIGNAL$ Property Report</div>
   </div>
   <div class="stat">
     <div class="stat-num">18</div>
@@ -2313,9 +2335,9 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
   <!-- CTA -->
   <tr><td style="padding:28px 32px">
     <div style="background:#f8fafc;border-radius:10px;padding:20px 24px;border-left:4px solid #F97316">
-      <div style="font-size:14px;font-weight:600;color:#0B1929;margin-bottom:6px">Want the full Shapira S5 Report on a specific property?</div>
-      <div style="font-size:13px;color:#64748b;margin-bottom:16px">Max-bid ceiling · Lien stack · Plaintiff intel · Zoning · BID/SKIP verdict — all in one $25 report.</div>
-      <a href="https://biddeed.ai/buy-report?county=${encodeURIComponent(county)}" style="display:inline-block;background:#F97316;color:#ffffff;font-size:13px;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;letter-spacing:.3px">Get Shapira S5 Report — $25 →</a>
+      <div style="font-size:14px;font-weight:600;color:#0B1929;margin-bottom:6px">Want the full SIGNAL$ Property Report on a specific property?</div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:16px">Max-bid ceiling · Lien stack · Plaintiff intel · Zoning · BID/SKIP verdict — all in one $25 report. We deliver the SIGNAL$. First.</div>
+      <a href="https://biddeed.ai/buy-report?county=${encodeURIComponent(county)}" style="display:inline-block;background:#F97316;color:#ffffff;font-size:13px;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;letter-spacing:.3px">Get SIGNAL$ Property Report — $25 →</a>
     </div>
   </td></tr>
   <!-- Investor Upsell -->
@@ -2423,7 +2445,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             if (Array.isArray(uRows) && uRows.length > 0) {
               liveDataCtx = '\n\nLIVE DATA — upcoming auctions (next 30 days) from the production database, same data that goes out in the daily BidDeed email digest. Use ONLY these real records, cite exact figures, do not invent any:\n' +
                 uRows.map(r => '- '+r.auction_date+' | '+(r.county||'')+' | '+(r.sale_type||'')+' | '+(r.property_address||'address pending')+' | case '+r.case_number+' | bid $'+(Number(r.opening_bid)||0).toLocaleString()+' | assessed $'+(Number(r.assessed_value)||0).toLocaleString()).join('\n') +
-                '\nTotal: '+uRows.length+' lots shown (there may be more — tell the user to visit biddeed.ai/county/SLUG for the full list). For each property, mention they can get a $25 Shapira S5 Report for a full max-bid analysis.';
+                '\nTotal: '+uRows.length+' lots shown (there may be more — tell the user to visit biddeed.ai/county/SLUG for the full list). For each property, mention they can get a $25 SIGNAL$ Property Report for a full max-bid analysis.';
             }
           } catch(e2) {
             liveDataCtx = '\n\nNote: upcoming auction data lookup failed — tell the user to check biddeed.ai/county/[name] directly.';
@@ -2480,21 +2502,21 @@ Your capabilities:
 - Respond in the same language the user writes in (English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese, French, Italian, German, Japanese, Korean, etc.)
 
 Key facts:
-- All 67 FL counties are available. Gold Standard counties (verified data quality — currently: ${goldListForPrompt}) have full S5 capability including CMA and ZoneWise. All other counties have Shapira Max Bid and opening bid analysis.
+- All 67 FL counties are available. Gold Standard counties (verified data quality — currently: ${goldListForPrompt}) have full SIGNAL$ Property Report capability including CMA and ZoneWise. All other counties have Shapira Max Bid and opening bid analysis.
 - Marion County proof: Case 422021CA000414CAAXXX — Shapira Max Bid $82,000, actual sale $73,501. Ceiling held by $8,499.
-- Shapira S5 reports: $25 each — full AI-powered max-bid analysis for one specific property
-- Investor tier: $99/month — unlimited property cards, 10 S5 reports/mo, daily digest all 67 counties
-- When a user asks for a specific property analysis, mention they can get a full Shapira S5 Report for $25
+- SIGNAL$ Property Reports: $25 each — full AI-powered max-bid analysis for one specific property. We deliver the SIGNAL$. First.
+- Investor tier: $99/month — unlimited property cards, 10 SIGNAL$ Property Reports/mo, daily digest all 67 counties
+- When a user asks for a specific property analysis, mention they can get a full SIGNAL$ Property Report for $25
 
-When someone asks for a specific property analysis or max bid, always suggest the $25 Shapira S5 Report as the way to get the full calculation.
+When someone asks for a specific property analysis or max bid, always suggest the $25 SIGNAL$ Property Report as the way to get the full calculation.
 
 FORMATTING RULES (the chat UI renders real markdown, not plain text — use it):
 - Use **bold** for prices, addresses, and key figures
 - Use markdown tables (| col | col |) when listing 3+ properties — they render as real HTML tables
 - ALWAYS end a county-specific answer with a link in this EXACT format: [See all COUNTY listings →](https://biddeed.ai/county/SLUG) using the lowercase-underscore county slug (e.g. palm_beach, st_johns, miami_dade). This link becomes clickable and drives users to the full property card grid.
 - If you listed live auction results and there could be more than what you showed, say so and link to the county page rather than just stopping — never imply the list is exhaustive when it's a top-N sample
-- ONLY TWO CTA link destinations exist and are valid — never invent or link to any other path: (1) [See all COUNTY listings →](https://biddeed.ai/county/SLUG) for county-specific results, (2) [Upgrade to Investor →](https://biddeed.ai/subscribe?tier=investor) for broad/multi-county questions. There is NO standalone /s5 page — for the $25 Shapira S5 Report, mention it by name and price in plain text (not as a link) and tell the user to ask about a specific property to get started.
-- ALWAYS end every substantive answer with a clear next step using only the two valid links above, or the plain-text S5 mention. Never end with just information and no path forward — every answer is a lead-generation opportunity.
+- ONLY TWO CTA link destinations exist and are valid — never invent or link to any other path: (1) [See all COUNTY listings →](https://biddeed.ai/county/SLUG) for county-specific results, (2) [Upgrade to Investor →](https://biddeed.ai/subscribe?tier=investor) for broad/multi-county questions. There is NO standalone /s5 page — for the $25 SIGNAL$ Property Report, mention it by name and price in plain text (not as a link) and tell the user to ask about a specific property to get started.
+- ALWAYS end every substantive answer with a clear next step using only the two valid links above, or the plain-text SIGNAL$ Property Report mention. Never end with just information and no path forward — every answer is a lead-generation opportunity.
 - If this message included a "LIVE AUCTION DATA ... End your response with exactly" instruction, obey it literally: put that [PROPERTIES_LOADED:...] token as the very last thing in your reply, on its own, with nothing after it. It is a control token for the UI, not a link — never wrap it in markdown or explain it to the user.
 ${DISCLAIMER_SHORT}`;
 
@@ -3518,7 +3540,7 @@ ${countyBar}
       <button class="qbtn prime" data-msg="Show me the Marion County proof — Shapira Formula ceiling held to the cent.">📊 See proof it works</button>
       <button class="qbtn" data-msg="What foreclosure and tax deed auctions are coming up across Florida this week?">📅 What's coming to auction?</button>
       <button class="qbtn" data-msg="How does the Shapira Max Bid formula work? Walk me through it.">🧮 Shapira Max Bid formula</button>
-      <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a Shapira S5 Report?">💼 Get a $25 S5 Report</button>
+      <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a SIGNAL$ Property Report?">💼 Get a $25 SIGNAL$ Property Report</button>
     </div>
     <div class="lang-row">
       <span class="lchip">🇺🇸 English</span>
@@ -3803,7 +3825,7 @@ function buildCard(a){
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
   html+=clerkParityBadge(a);
   html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt(\\'bid_link\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')">🔒 Place Bid — Upgrade to Unlock</button>'+
-        '<a class="pc-buy" href="'+buyUrl+'">Buy S5 Report — $25</a>'+
+        '<a class="pc-buy" href="'+buyUrl+'">Buy SIGNAL$ Property Report — $25</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
         '<div class="btn-locked" onclick="showUpgradePrompt(\\'maps\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')" style="font-size:12px;color:#64748b;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
         (''/* outbound competitor link removed Aug 17 2026 (Ariel, standing rule): that
@@ -3858,7 +3880,7 @@ function showS5CTA(){
   s5Shown=true;
   const m=document.getElementById('msgs');
   const d=document.createElement('div');d.id='s5cta';d.className='s5-cta';
-  d.innerHTML='<div class="s5-cta-text"><div class="title">💼 Get a Shapira S5 Report</div><div class="desc">Full AI max-bid analysis for a specific property — lien stack, plaintiff intel, zoning, BID/SKIP recommendation.</div></div><a href="/buy-report" class="s5-btn">$25 — Get Report →</a>';
+  d.innerHTML='<div class="s5-cta-text"><div class="title">💼 Get a SIGNAL$ Property Report</div><div class="desc">Full AI max-bid analysis for a specific property — lien stack, plaintiff intel, zoning, BID/SKIP recommendation. We deliver the SIGNAL$. First.</div></div><a href="/buy-report" class="s5-btn">$25 — Get Report →</a>';
   m.appendChild(d);scrollBottom();
 }
 
@@ -4508,7 +4530,7 @@ html[data-theme=light] .upl a{color:#C15F3C}
 <div class="card">
   <div class="badge">ONE-TIME · NO SUBSCRIPTION</div>
   <div class="s5-overview" aria-labelledby="s5-overview-title">
-    <h2 id="s5-overview-title">What your S5 report includes</h2>
+    <h2 id="s5-overview-title">What your SIGNAL$ Property Report includes</h2>
     <p>One property. One evidence-backed decision document. Review every section before selecting the auction record.</p>
     <ol class="s5-grid">
       <li><b>01</b><span>Subject property identification</span></li>
@@ -4759,7 +4781,7 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 </style></head><body>
 <div class="card">
   <div class="icon">✅</div>
-  <h1>Payment received — your S5 report credit is ready</h1>
+  <h1>Payment received — your SIGNAL$ Property Report credit is ready</h1>
   <p>Your Shapira Max Bid report is being activated. Your key will appear below momentarily.</p>
   <div class="property-info" id="property-info"></div>
   <div class="key-box" id="key-box">Activating...</div>
@@ -5275,12 +5297,12 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
         <template x-if="S5_AVAILABLE">
           <button @click="buyS5(openDeal)" class="w-full rounded-xl py-4 px-4 font-bold text-base flex items-center justify-center gap-2 transition-transform active:scale-[0.98]" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#1f2937;">
             <span style="font-size:1.2rem">💼</span>
-            <span>Get the Shapira S5 Report — $25</span>
+            <span>Get the SIGNAL$ Property Report — $25</span>
           </button>
         </template>
         <template x-if="!S5_AVAILABLE">
           <div class="w-full rounded-xl py-3.5 px-4 text-center text-sm border border-slate-700 bg-slate-800/50 text-slate-400">
-            <div class="font-semibold text-slate-300">📋 S5 Report — coming soon for COUNTY_TITLE_PLACEHOLDER</div>
+            <div class="font-semibold text-slate-300">📋 SIGNAL$ Property Report — coming soon for COUNTY_TITLE_PLACEHOLDER</div>
             <div class="text-[11px] mt-1">Full AI max-bid analysis available now in certified counties</div>
             <a href="/subscribe?tier=investor" class="mt-3 inline-flex w-full items-center justify-center rounded-lg py-3 px-4 font-bold text-white" style="background:var(--terracotta)">Join Investor — $99/mo</a>
           </div>
@@ -5725,7 +5747,7 @@ async function submitLead(){
             +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+addr+'</div>'
             +'<div style="font-size:11px;color:var(--slate);margin-top:3px">'+dt+' · <span style="color:var(--orange)">'+type+'</span></div></div>'
             +'<div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:700;color:#fff">'+bid+'</div>'
-            +'<a href="'+buyHref+'" style="font-size:11px;color:var(--orange);text-decoration:none;font-weight:600">S5 Report $25 →</a></div>'
+            +'<a href="'+buyHref+'" style="font-size:11px;color:var(--orange);text-decoration:none;font-weight:600">SIGNAL$ Report $25 →</a></div>'
             +'</div>';
         }).join('');
         // Wire $25 link to county
@@ -6290,7 +6312,7 @@ nav{background:rgba(245,240,232,.94);border-bottom-color:var(--orange)}
       </div>
       <div id="lead-auction-cards" style="display:flex;flex-direction:column;gap:10px"></div>
       <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
-        <a id="upsell-25" href="/buy-report" class="upsell-cta ghost" style="flex:1;min-width:160px;text-align:center;display:inline-block;border:1px solid var(--orange);color:var(--orange);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Get S5 Report — $25 →</a>
+        <a id="upsell-25" href="/buy-report" class="upsell-cta ghost" style="flex:1;min-width:160px;text-align:center;display:inline-block;border:1px solid var(--orange);color:var(--orange);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Get SIGNAL$ Property Report — $25 →</a>
         <a href="/subscribe?tier=investor" class="upsell-cta" style="flex:1;min-width:160px;text-align:center;display:inline-block;background:var(--orange);color:var(--navy);padding:12px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Investor $99/mo →</a>
       </div>
     </div>

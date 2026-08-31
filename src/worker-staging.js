@@ -190,7 +190,7 @@ function buildStagingShell() {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,interactive-widget=resizes-content">
 <title>BidDeed.AI — Staging</title>
 <meta name="robots" content="noindex,nofollow">
-<meta name="description" content="BidDeed.AI foreclosure and tax deed auction intelligence for all 67 Florida counties — Shapira Max Bid formula, live county feed, $25 S5 reports, $99/mo Investor tier. Staging environment — demo mode, no real charges.">
+<meta name="description" content="BidDeed.AI foreclosure and tax deed auction intelligence for all 67 Florida counties — Shapira Max Bid formula, live county feed, $25 SIGNAL$ Property Reports, $99/mo Investor tier. Staging environment — demo mode, no real charges.">
 <meta name="theme-color" content="#020617">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f59e0b'/%3E%3Ctext x='16' y='22' font-family='Inter,sans-serif' font-size='13' font-weight='900' text-anchor='middle' fill='%23020617'%3EBD%3C/text%3E%3C/svg%3E">
 <style>
@@ -678,7 +678,7 @@ function buildPropertyCard(a){
           '<div><label>Equity Gap</label><value>' + fmtMoneyP(a.equity_gap) + '</value></div></div>';
   html += '<div class="parity ' + p.cls + '">' + p.text + '</div>';
   html += clerkParityBadge(a);
-  html += '<div class="actions"><a class="btn-buy" href="' + buyUrl + '">Buy S5 Report — $25</a>' +
+  html += '<div class="actions"><a class="btn-buy" href="' + buyUrl + '">Buy SIGNAL$ Property Report — $25</a>' +
           (hasAddr ? ('<a class="btn-maps" href="' + mapsUrl + '" target="_blank" rel="noopener">View on Maps ↗</a>') : '') + '</div>';
   html += '</div>';
   return html;
@@ -707,7 +707,7 @@ function buildBuyReportHtml(prefill) {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>Buy Shapira S5 Report — $25 (DEMO) | BidDeed.AI Staging</title>
+<title>Buy SIGNAL$ Property Report — $25 (DEMO) | BidDeed.AI Staging</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,system-ui,-apple-system,sans-serif}
 :root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#e2eaf2;--border:#1e293b}
@@ -730,7 +730,7 @@ input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px soli
 <body>
 <div class="card">
   <div class="badge">ONE-TIME · $25 · DEMO MODE — NO REAL CHARGE</div>
-  <h1>Shapira S5 Report</h1>
+  <h1>SIGNAL$ Property Report</h1>
   ${summary}
   ${hasPrefill ? `<label for="br-email">Email for report delivery</label><input type="email" id="br-email" placeholder="your@email.com">
   <button class="btn" id="br-submit">Buy Report — $25 (DEMO)</button>

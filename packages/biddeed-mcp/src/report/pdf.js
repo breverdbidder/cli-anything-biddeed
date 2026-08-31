@@ -417,10 +417,34 @@ const SECTION_RENDERERS = {
     row(doc, 'County Tax',         money(j.county_tax),           true);
     row(doc, 'Hazard Insurance',   money(j.hazard_insurance));
     row(doc, 'Fees / Costs',       money(j.fees),                 true);
-    // Red flags
+    // Red flags (existing heuristic — kept as-is)
     if (flags.length) {
       doc.y += 4;
       flags.forEach(f => flagBox(doc, f));
+    }
+    // Lien survival — statute-cited classification (lien_survival.classify),
+    // gated by biddeed_report_composition.ship_status via composer.js's
+    // sectionComposition(). Never silently falls back to the heuristic
+    // above without saying so.
+    const lienGate = report.composition?.lien_survival;
+    doc.y += 4;
+    doc.fillColor(NAVY).fontSize(8).font('Helvetica-Bold').text('Lien Survival (Title Tier 2):', 44, doc.y); doc.y += 12;
+    if (lienGate?.status === 'delivered' && report.lien_survival?.available) {
+      const ls = report.lien_survival;
+      row(doc, 'Statutory Basis', ls.statutory_basis || 'Pending', true);
+      ls.items.forEach((item, i) => {
+        const label = `${item.lien_type}${item.creditor && item.creditor !== 'Pending — not on file' ? ' — ' + item.creditor : ''}`;
+        const survivesLabel = item.survives === true ? 'SURVIVES' : item.survives === false ? 'EXTINGUISHED' : 'UNRESOLVED';
+        row(doc, label, `${survivesLabel} — ${item.statement}`, i % 2 === 0);
+      });
+      if (lienGate.disclosure) {
+        doc.y += 2;
+        doc.fillColor(MUTED).fontSize(6.5).font('Helvetica-Oblique')
+          .text(lienGate.disclosure, 44, doc.y, { width: doc.page.width - 80 });
+        doc.y += 20;
+      }
+    } else {
+      row(doc, 'Status', lienGate?.status || 'Pending — Title Tier 2 (lien survival) not yet live for this county');
     }
     liabilityNote(doc, section.liability_note);
   },
@@ -488,7 +512,7 @@ export async function renderReportPdf(report, { get = defaultGet } = {}) {
     // ── VOID COVER BAND ────────────────────────────────────────────────────
     doc.rect(0, 0, doc.page.width, 100).fill(VOID);
     doc.fillColor(ORANGE).fontSize(22).font('Helvetica-Bold').text('BidDeed.AI', 40, 18);
-    doc.fillColor(WHITE).fontSize(11).font('Helvetica').text('▲ PROPERTY INTELLIGENCE REPORT · S5 CLASS · FINAL PRE-SALE EDITION', 40, 46);
+    doc.fillColor(WHITE).fontSize(11).font('Helvetica').text('▲ SIGNAL$ PROPERTY REPORT · FINAL PRE-SALE EDITION', 40, 46);
     const county   = (cover.county || '').toUpperCase();
     const saleType = (cover.sale_type || 'Foreclosure');
     const saleDate = cover.auction_date || '';

@@ -273,6 +273,87 @@ test('Palm Beach 502025CA005319XXXAMB: junior-lien judgment ratio fires, garbage
   const maxBid = report.cover.shapira_max_bid.value;
   if (maxBid != null) {
     assert.ok(maxBid < AUCTION_PALM_BEACH.assessed_value * 0.5,
-      `shapira_max_bid ($${maxBid}) must not track raw assessed value ($${AUCTION_PALM_BEACH.assessed_value}) on a junior-lien lot);
+      `shapira_max_bid ($${maxBid}) must not track raw assessed value ($${AUCTION_PALM_BEACH.assessed_value}) on a junior-lien lot`);
   }
+});
+
+// ── §16 lien_survival.classify — statute-cited survival + ship-gate ────────
+// SIGNAL$ Property Report §16 (Judgment & Encumbrance Summary) issue: real
+// lien_survival.classify wired through sectionComposition()'s ship-gate.
+// Reuses the Palm Beach fixture's parcel/case shape.
+const LIEN_RESULTS_ROWS = [
+  { lien_type: 'First Mortgage', creditor: 'Test Bank NA', recording_date: '2015-01-10', book_page: '1001/200', priority: 'senior', survives_foreclosure: null, source: 'acclaim' },
+  { lien_type: 'HOA Assessment Lien', creditor: 'Test HOA Inc', recording_date: '2024-03-01', book_page: '3002/50', priority: 'junior', survives_foreclosure: null, source: 'acclaim' },
+];
+
+const COMPOSITION_GATE_LIVE = [
+  { section_key: 'lien_search', ship_status: 'blocked', disclosure_text: 'DISCLOSURE_LIEN_SEARCH' },
+  { section_key: 'lien_survival', ship_status: 'live', disclosure_text: 'This section is provided for investment due-diligence purposes only. It is not title insurance, not a title opinion or abstract, and not legal advice.' },
+  { section_key: 'title_search', ship_status: 'blocked', disclosure_text: 'DISCLOSURE_TITLE_SEARCH' },
+];
+
+const COMPOSITION_GATE_BLOCKED = [
+  { section_key: 'lien_search', ship_status: 'blocked', disclosure_text: 'DISCLOSURE_LIEN_SEARCH' },
+  { section_key: 'lien_survival', ship_status: 'blocked', disclosure_text: 'DISCLOSURE_LIEN_SURVIVAL' },
+  { section_key: 'title_search', ship_status: 'blocked', disclosure_text: 'DISCLOSURE_TITLE_SEARCH' },
+];
+
+function mockGetForPalmBeachWithLiens(compositionGate) {
+  const base = mockGetForPalmBeach();
+  return async (pathStr) => {
+    if (pathStr.startsWith('biddeed_report_composition')) return compositionGate;
+    if (pathStr.startsWith('lien_results')) return LIEN_RESULTS_ROWS;
+    return base(pathStr);
+  };
+}
+
+test('§16 lien_survival: ship_status=live + recorded liens on file → statute-cited survive/extinguish lines + disclosure text', async () => {
+  installTinyModel();
+  const get = mockGetForPalmBeachWithLiens(COMPOSITION_GATE_LIVE);
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+
+  assert.equal(report.composition.lien_survival.status, 'delivered',
+    'ship_status=live must surface lien_survival as delivered, not the gated Pending string');
+  assert.ok(report.composition.lien_survival.disclosure.includes('not title insurance'),
+    'the delivered composition entry must carry the verbatim disclosure_text');
+  assert.ok(report.lien_survival.available, 'classify() must find the mocked lien_results rows');
+  assert.equal(report.lien_survival.items.length, 2);
+
+  const senior = report.lien_survival.items.find(i => i.lien_type === 'First Mortgage');
+  assert.equal(senior.survives, true, 'a senior-priority lien must be classified as surviving this foreclosure');
+  assert.match(senior.statutory_basis, /recording priority|first in time/i,
+    'survival must be statute/doctrine-cited, per the liability_note on this spec row');
+  assert.doesNotMatch(senior.statement, /you (will )?owe|amount owed is/i,
+    'output must never be an owed-amount conclusion — the sharpest UPL edge on this section');
+
+  const junior = report.lien_survival.items.find(i => i.lien_type === 'HOA Assessment Lien');
+  assert.equal(junior.survives, false, 'a junior-priority lien must be classified as extinguished by this foreclosure');
+});
+
+test('§16 lien_survival: ship_status=blocked → internal-preview-only, never rendered as delivered to a customer response', async () => {
+  installTinyModel();
+  const get = mockGetForPalmBeachWithLiens(COMPOSITION_GATE_BLOCKED);
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+
+  assert.notEqual(report.composition.lien_survival.status, 'delivered',
+    'a still-blocked ship_status must never render as delivered, even when classify() has real data available');
+  assert.match(report.composition.lien_survival.status, /internal-preview-only/,
+    'the ship-gate fix (B3) must name the gated state explicitly, not silently omit it');
+  // The real classification is still computed (available for internal QA /
+  // the moment ship_status flips) — it is the composition status gate that
+  // withholds it from the customer path, not classify() itself.
+  assert.ok(report.lien_survival.available, 'classify() output is always computed regardless of the ship gate');
+});
+
+test('§16 lien_survival: ship_status=live but no recorded-document coverage on file → explicit insufficient-coverage Pending, never a silent heuristic-only fallback', async () => {
+  installTinyModel();
+  const get = async (pathStr) => {
+    if (pathStr.startsWith('biddeed_report_composition')) return COMPOSITION_GATE_LIVE;
+    if (pathStr.startsWith('lien_results')) return [];
+    return mockGetForPalmBeach()(pathStr);
+  };
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+  assert.equal(report.lien_survival.available, false);
+  assert.match(report.composition.lien_survival.status, /insufficient recorded-document coverage/,
+    'no lien_results rows for this parcel must render the exact insufficient-coverage Pending reason, not fall back silently to only the red-flags heuristic');
 });
