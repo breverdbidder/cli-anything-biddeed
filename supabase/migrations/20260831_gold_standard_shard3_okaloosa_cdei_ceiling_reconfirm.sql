@@ -1,0 +1,145 @@
+-- Gold Standard shard-3 (dispatch this session, 2026-08-31): okaloosa letters
+-- C/D/E/I -- all four fail on the SAME 6 rows (matched_clean=matched_any=
+-- parcel_linked=card_complete=79 of 85, metric=92.9% each). This session
+-- attempted two genuinely NEW levers (not re-attempts of prior dead levers)
+-- and re-verified everything else fresh. RESULT: no DB writes -- both new
+-- levers are real, evidence-backed structural/infrastructure blocks. This is
+-- a documentation-only migration recording that live re-verification.
+--
+-- BEFORE (pencil_dod_evaluate_county('okaloosa'), LIVE-VERIFIED this session,
+-- pre- AND post-investigation -- identical, since no write was made):
+--   C: matched_clean=79 of 85 (92.9%) -- FAIL
+--   D: matched_any=79 of 85 (92.9%) -- FAIL
+--   E: parcel_linked=79 of 85 (92.9%) -- FAIL
+--   I: card_complete=79 of 85 (92.9%) -- FAIL
+--   A/B/F/G/H/J: all PASS, unchanged (no regression).
+--
+-- ============================================================================
+-- CLUSTER 1: 2024-CA-000470 (FC), 2024-TDD-000089 (TD)
+-- ============================================================================
+-- Symptom (unchanged since 2026-07-05 creation): property_address=NULL,
+-- parcel_id=NULL, data_source=NULL, provenance='primary_scrape', source_url=
+-- okaloosa.realforeclose.com (a landing page, not a listing detail page).
+--
+-- NEW LEVER TRIED THIS SESSION: Okaloosa Clerk's official case-search system,
+-- ClerkQuest (clerkapps.okaloosaclerk.com/ClerkQuest/), discovered fresh via
+-- WebSearch this session (NOT tried in any prior okaloosa session per repo
+-- history -- prior sessions tried okaloosaclerk.com/tax-deed-list-of-lands-
+-- available/ and library.municode.com, both different URLs).
+--   - The ClerkQuest search page itself IS reachable (HTTP 200, unlike
+--     realforeclose.com's HTTP 403) and has a genuine CaseNumber search field
+--     (confirmed via WebFetch page inspection: form name="SearchForm",
+--     method="post", fields include CaseNumber, CaseTypeGroup, DateFrom/To,
+--     __RequestVerificationToken).
+--   - BLOCKED by Cloudflare Turnstile: the page loads
+--     challenges.cloudflare.com/turnstile/v0/api.js, and a direct POST with a
+--     valid session cookie + fresh CSRF token (both extracted live via curl
+--     this session) to the search form returns HTTP 302 ->
+--     "?validationMessage=Invalid%20Search%20Criteria" for BOTH case-number
+--     formats attempted (2024-CA-000470-O and 2024-CA-000470, per the site's
+--     own documented format list) -- consistent with server-side Turnstile
+--     token validation failing because no real browser executed the challenge.
+--   - No hidden/unauthenticated JSON API found (tried /ClerkQuest/api/search,
+--     /ClerkQuest/Home/Search, /ClerkQuest/api/CaseSearch,
+--     /ClerkQuest/CaseSearch -- all HTTP 404).
+--   - browser-use CLI (which could solve Turnstile via a real browser) is NOT
+--     installed in this session's environment (`browser-use doctor` ->
+--     command not found).
+--   - Firecrawl (an alternate real-browser-backed scraper) re-checked live
+--     this session via api.firecrawl.dev/v1/team/credit-usage:
+--     remaining_credits=-3 (still negative/exhausted; was -23 in the
+--     2026-08-26 session -- balance drifted but is still in deficit, not
+--     usable for new scrapes this billing period, which runs through
+--     2026-09-28).
+--   - okaloosa.realforeclose.com and okaloosa.realtaxdeed.com re-checked live
+--     this session via curl -I: both still HTTP 403 (AWS ELB), unchanged from
+--     every prior session.
+-- CONCLUSION: genuine, evidence-backed infrastructure block (Cloudflare
+-- Turnstile CAPTCHA + no browser-automation tool available + exhausted
+-- Firecrawl credits), not a data-absence or logic gap. No write made -- BLANK
+-- is correct here, not a fabricated address/parcel.
+--
+-- ============================================================================
+-- CLUSTER 2: 2025-CA-002286-F / -F3 / -F4 / -F5
+-- ============================================================================
+-- All four re-queried fresh this session against Okaloosa's live ArcGIS
+-- parcel layer (okgis.myokaloosa.com/arcgis/rest/services/Land-Ownership/
+-- Parcels_with_Addressing/MapServer/121/query), independently of the prior
+-- 2026-08-25/26 sessions' findings, using the layer's real field list
+-- (confirmed via ?f=json metadata: PIN, SITE_ADDR, LEGL1/LEGL2/LEGL3, OWNER,
+-- TOTALAPPR, ASSEDVAL, STR_ARCIMS [an address field, NOT a Section-Township-
+-- Range field despite the name -- confirmed by inspecting real values, e.g.
+-- "1032 MAR WALT DR STE 100"]):
+--
+--   -F  "Lot 50 Delaware PLANTATIONS SUBDIVISION":
+--       LEGL1/2/3 LIKE '%DELAWARE%' -> 0 results (re-confirmed, was already
+--       0 in the 2026-08-26 session). No "Delaware" subdivision exists
+--       anywhere in Okaloosa's parcel legal-description index.
+--   -F3 "Condominium Unit D-311, SUMMER BREEZE":
+--       LEGL1/2/3 LIKE '%BREEZ%' -> 713 results, manually scanned for
+--       "SUMMER" -> 0 matches (all hits are unrelated developments, e.g.
+--       "FKA SOFT BREEZE CONDO" / Cinco Bayou Condo). No "Summer Breeze"
+--       condominium exists in Okaloosa's parcel index, corroborating prior
+--       WebSearch finding that Summer Breeze Condominiums is a real property
+--       in Miramar Beach, Walton County -- out of Okaloosa's cadastral scope.
+--   -F4 "Lot 24 of UNRECORDED DELAWARE PLANTATION SUBDIVISION PHASE TWO":
+--       Same DELAWARE search as -F -> 0 results (this row's key term is also
+--       "Delaware"). A broader '%PLANTATION%' search returns 1000+ hits but
+--       all are unrelated (Kelly Plantation, etc.) -- consistent with
+--       "unrecorded" plats having no official platted legal description in
+--       the county appraiser's GIS.
+--   -F5 "SECTION 8, TOWNSHIP 3 NORTH, RANGE 21 WEST, WALTON COUNTY, FLORIDA":
+--       Row's own text explicitly names Walton County. Independently
+--       structurally verified this session: queried Okaloosa's PIN format
+--       (TT-TWNSHP-RANGE-...) for any PIN containing township "3N"/"03N" with
+--       range "21"/"021" -- PIN LIKE '%-3N-21-%', '%-03N-21-%', and
+--       '%-3N-021-%' all return count=0. A 1000-row ordered sample of real
+--       Okaloosa PINs shows only Township/Range combos "1N-22" and "2S-22" in
+--       use. Okaloosa's cadastral system does not contain Township 3N /
+--       Range 21W anywhere -- this land is structurally outside Okaloosa's
+--       parcel system, corroborating (not just trusting) the row's own
+--       Walton County statement.
+--
+--   NEW LEVER TRIED (owner-name matching, since legal-description matching is
+--   exhausted): bid4assets.com auction detail pages for the 4 specific
+--   auction IDs named in this dispatch (1308924, 1309797, 1309798, 1309799)
+--   and the county listings page (bid4assets.com/OkaloosaFL/listings?
+--   salesdate=20260902) all return HTTP 403 Forbidden (Akamai bot protection)
+--   to automated curl requests this session -- no owner/defendant name
+--   recoverable from Bid4Assets to attempt an OWNER-field GIS match as an
+--   alternative to the legal-description text.
+--
+-- CONCLUSION: re-confirmed structural ceiling for all 4 rows -- 2 are
+-- genuinely not in Okaloosa's cadastral system (F3 Walton/Miramar Beach, F5
+-- explicitly Walton by its own text and now structurally corroborated via
+-- PIN township/range), and 2 reference a subdivision name ("Delaware
+-- Plantation[s]") that does not exist anywhere in Okaloosa's parcel legal-
+-- description index, whether recorded (F) or explicitly unrecorded (F4).
+-- Per this dispatch's explicit instruction, no match was forced and no
+-- county reassignment was made (that would touch a cross-shard concern and
+-- risk being wrong without adjudicating the source case documents, which
+-- remain unreachable behind Cloudflare/Akamai this session).
+--
+-- ============================================================================
+-- RESULT: no DB writes this session. C/D/E/I unchanged at 79/85 (92.9%),
+-- still FAIL. Every other letter (A/B/F/G/H/J) reconfirmed unchanged/PASS via
+-- full pencil_dod_evaluate_county('okaloosa') re-run before and after this
+-- session's investigation -- no regression.
+--
+-- This is the same 6-row ceiling independently re-confirmed by dispatch
+-- 8d979d33 (2026-08-26) and now by this session (2026-08-31), across two new,
+-- previously-untried levers (ClerkQuest case search; Bid4Assets owner-name
+-- lookup) plus fresh independent re-verification of the GIS legal-description
+-- and PIN-structure checks. Unblocking cluster 1 requires either a browser-
+-- automation tool capable of solving Cloudflare Turnstile, or restored
+-- Firecrawl credit balance, in a future session. Cluster 2 requires either
+-- Walton County's own parcel GIS (for F3/F5, if genuinely cross-county) or
+-- the original case docket text (Cloudflare-gated) to recover a legal
+-- description Okaloosa's own GIS can match, for F/F4.
+--
+-- Env used: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (PostgREST REST + RPC
+-- only). County scope: okaloosa ONLY. No writes to multi_county_auctions or
+-- any other table were made this session -- this migration is a
+-- documentation-only record of a fresh live re-verification, per BLANK >
+-- WRONG.
+SELECT 1;
