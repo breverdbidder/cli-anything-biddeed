@@ -1,0 +1,85 @@
+-- Gold Standard shard-3, pair bradford-BF: 15th consecutive session re-checking
+-- the same 4 past-due bradford cases (24000431CAAXMX, 25000457CAAXMX,
+-- 25000439CAAXMX, 25000487CAAXMX). This is a DELTA-ONLY note per dispatch
+-- instructions (LIGHTWEIGHT recheck, ~15min cap) -- see
+-- 20260828_gold_standard_shard1_95d2d8fc_bradford_bf_4case_pastdue_recheck.sql
+-- for the full 13-session investigation history and
+-- 20260830_gold_standard_shard1_62c0b00c_bradford_bf_14th_recheck_nothing_new.sql
+-- for the 14th session.
+--
+-- ================================================================================
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('bradford') at session
+-- start on 2026-08-31): B=FAIL(verified=0 closed_sold=0), F=FAIL(tier1_sold=0
+-- closed_sold=0). All other bradford letters PASS. auctions_total=5. Matches
+-- the 2026-08-30 baseline exactly -- NO DRIFT.
+--
+-- FRESH DRIFT CHECK (VERIFIED, live REST query this session, 2026-08-31):
+-- all 4 cases still auction_status='upcoming', sold_amount=null,
+-- last_seen_at='2026-08-31T05:34:32+00:00'. Identical to the 2026-08-30
+-- baseline -- no sale has resolved.
+--
+-- ================================================================================
+-- THE ONE NEW LEVER THIS SESSION: browser-use skill, flagged by the dispatch
+-- as newly available in this sandbox (prior 14 sessions logged it as
+-- MISSING -- "pip3/npm/which all negative"). Attempted against civitek OCRS
+-- (civitekflorida.com/ocrs/county/04/), Bradford County's Official Records
+-- Search, the only channel not yet ruled a dead end.
+--
+-- WHAT WAS TRIED (VERIFIED):
+-- 1. `which browser-use` / `pip3 show browser-use` / `npm list -g browser-use`
+--    / `pipx list` / `python3 -m browser_use --help` -- all negative. No
+--    pre-installed browser-use binary in this sandbox, consistent with the
+--    14 prior findings.
+-- 2. `npx --yes browser-use --version` -- succeeded, resolved v0.8.0 from the
+--    npm registry on demand. This IS the same tool the skill documents
+--    (matching command surface: doctor, open, state, task, session, profile,
+--    --mcp). So a *reachable* lever existed this session that did not exist
+--    in prior sessions' checks (which only tested for a pre-installed binary,
+--    not on-demand npx resolution).
+-- 3. `npx --yes browser-use doctor` -- 3/5 checks passed: package ok (0.8.0),
+--    browser ok (Chrome detected at /usr/bin/google-chrome), network ok.
+--    Missing: BROWSER_USE_API_KEY (cloud features only) and cloudflared
+--    (tunnel only) -- neither blocks local `open`.
+-- 4. `npx --yes browser-use open https://civitekflorida.com/ocrs/county/04/`
+--    -- launched Chromium locally (sandbox disabled via --no-sandbox,
+--    expected in this environment), attempted go_to_url, then failed with
+--    "fetch failed" on 4 consecutive internal steps and aborted after 3
+--    consecutive failures. Never reached the Case Search tab or any
+--    Turnstile challenge -- failed before rendering the target page at all.
+-- 5. CONTROL TEST (critical isolating step): re-ran the identical command
+--    against https://example.com, a trivial site with zero bot-protection.
+--    IDENTICAL failure -- "fetch failed" on all 4 steps, same abort pattern.
+--    This proves the failure is NOT specific to civitek/Bradford/Turnstile;
+--    it is a general failure of the browser-use agent loop in this sandbox.
+-- 6. Root-cause probe: `env | grep -iE "anthropic|openai|browser_use|gemini"`
+--    shows GEMINI_API_KEY present but no ANTHROPIC_API_KEY/OPENAI_API_KEY,
+--    and `doctor` confirms no BROWSER_USE_API_KEY. browser-use's agentic
+--    `open`/`run` commands drive an LLM-controlled action loop that needs a
+--    configured model provider to decide each step; independent plain-curl
+--    control confirmed civitekflorida.com itself is reachable (HTTP 301,
+--    DNS resolves fine) -- so the block is in browser-use's own provider/
+--    fetch wiring in this sandbox, not network egress or the target site.
+--
+-- CONCLUSION: browser-use is technically resolvable in this sandbox via npx
+-- (a genuine change from "not installed" to "installed but non-functional
+-- for this task"), but it cannot complete even a trivial navigation to a
+-- non-protected control URL, let alone reach civitek OCRS's Turnstile-gated
+-- Case Search widget. This is reported as a valid, honest residual outcome
+-- per BLANK > WRONG -- evidence attached above (doctor output, matched
+-- failure on target + control URL, env probe). Not re-attempting further
+-- browser-use variants (--browser real, --headed) this session -- out of
+-- scope for the 15-minute lightweight-recheck budget; a properly-provisioned
+-- browser-use (LLM provider key configured) is the next genuinely new lever,
+-- not yet available.
+--
+-- ================================================================================
+-- NO UPDATE issued to multi_county_auctions or foreclosure_outcomes. No
+-- fabrication. B/F remain FAIL, structurally unchanged: verified=0,
+-- closed_sold=0. has_lever = true this session (browser-use became reachable)
+-- but the lever did not pay off (tool non-functional even on a control URL).
+-- 15th consecutive session confirming this structural block; all previously
+-- dead levers (bradfordclerk.com direct fetch, generic WebSearch per case,
+-- surplusindex.com, floridapublicnotices.com) correctly NOT re-attempted per
+-- dispatch instructions.
+
+SELECT 1;
