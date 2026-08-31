@@ -161,6 +161,9 @@ const SECTION_RENDERERS = {
   subject_identification(doc, report, section) {
     const cover   = report.cover || {};
     const auction = report.auction_listing || {};
+    // Sale-type-aware (issue #19662): a tax deed sale has no final judgment —
+    // that is a Chapter 45 foreclosure concept. Render Chapter 197 fields
+    // instead, never a Judgment/Plaintiff row that just reads "Pending".
     const isTaxDeed = cover.sale_type === 'tax_deed';
     row(doc, 'Address',          cover.property_address,   true);
     row(doc, 'County',           `${(cover.county||'').toUpperCase()} County, Florida`);
@@ -168,19 +171,11 @@ const SECTION_RENDERERS = {
     row(doc, 'Sale Type',        cover.sale_type);
     row(doc, 'Auction Date',     auction.auction_date || cover.auction_date, true);
     if (isTaxDeed) {
-      // Tax deed sales (FL FS Ch. 197) have no final judgment — that is a
-      // foreclosure (Ch. 45) concept. No plaintiff either. #19662
-      row(doc, 'Assessed Value', money(auction.assessed_value), true);
-      const hasOpeningBid = auction.opening_bid && auction.opening_bid.value != null;
-      const hasCertsTotal = auction.outstanding_certs_total && auction.outstanding_certs_total.value != null;
-      const hasCertNumber = !!auction.cert_number;
-      if (!hasOpeningBid && !hasCertsTotal && !hasCertNumber) {
-        row(doc, 'Opening Bid', 'N/A — tax deed sale (no final judgment)');
-      } else {
-        row(doc, 'Opening Bid', money(auction.opening_bid));
-        if (hasCertsTotal) row(doc, 'Outstanding Certificates Total', money(auction.outstanding_certs_total), true);
-        if (hasCertNumber) row(doc, 'Certificate #', auction.cert_number);
-      }
+      row(doc, 'Taxing Authority', auction.taxing_authority);
+      row(doc, 'Assessed Value',   money(auction.assessed_value), true);
+      row(doc, 'Opening Bid',      auction.unpaid_taxes?.value != null ? money(auction.unpaid_taxes) : 'N/A — tax deed sale (no final judgment)');
+      if (auction.outstanding_certs_total?.value != null) row(doc, 'Outstanding Certificates Total', money(auction.outstanding_certs_total), true);
+      if (auction.cert_number) row(doc, 'Certificate #', auction.cert_number);
     } else {
       row(doc, 'Plaintiff',        auction.plaintiff || cover.plaintiff);
       row(doc, 'Assessed Value',   money(auction.assessed_value), true);
@@ -427,13 +422,23 @@ const SECTION_RENDERERS = {
   judgment_encumbrance(doc, report, section) {
     const j     = report.judgment || {};
     const flags = report.red_flags || [];
-    row(doc, 'Recorded CFN',       j.cfn            || 'Pending', true);
-    row(doc, 'Judgment Amount',    money(j.judgment_amount));
-    row(doc, 'Principal',          money(j.principal),            true);
-    row(doc, 'Interest',           money(j.interest));
-    row(doc, 'County Tax',         money(j.county_tax),           true);
-    row(doc, 'Hazard Insurance',   money(j.hazard_insurance));
-    row(doc, 'Fees / Costs',       money(j.fees),                 true);
+    // Sale-type-aware (issue #19662): never render "Judgment Amount: Pending"
+    // on a tax deed — it has no final judgment.
+    if (report.cover?.sale_type === 'tax_deed') {
+      row(doc, 'Sale Type Note',   j.sale_type_note || 'Tax deed sale — no foreclosure judgment.', true);
+      row(doc, 'Unpaid Taxes (Opening Bid Basis)', j.unpaid_taxes != null ? money(j.unpaid_taxes) : 'N/A — tax deed sale (no final judgment)');
+      row(doc, 'IRS Lien Survival', j.irs_lien_survives ? 'Survives (26 U.S.C. §7425)' : 'Pending', true);
+      row(doc, 'HOA/COA Lien',      j.hoa_lien_may_survive ? 'May survive (FL FS 720.3085/718.116)' : 'Pending');
+      row(doc, 'Statutory Extinguishment', j.statutory_extinguishment || 'Pending', true);
+    } else {
+      row(doc, 'Recorded CFN',       j.cfn            || 'Pending', true);
+      row(doc, 'Judgment Amount',    money(j.judgment_amount));
+      row(doc, 'Principal',          money(j.principal),            true);
+      row(doc, 'Interest',           money(j.interest));
+      row(doc, 'County Tax',         money(j.county_tax),           true);
+      row(doc, 'Hazard Insurance',   money(j.hazard_insurance));
+      row(doc, 'Fees / Costs',       money(j.fees),                 true);
+    }
     // Red flags (existing heuristic — kept as-is)
     if (flags.length) {
       doc.y += 4;
@@ -552,7 +557,7 @@ export async function renderReportPdf(report, { get = defaultGet } = {}) {
     // below, applied to this cover KPI strip (#19662).
     doc.fontSize(9)
       .text(cover.sale_type === 'tax_deed'
-        ? `OPENING BID ${money(aj.opening_bid)}  ·  ASSESSED VALUE ${money(aj.assessed_value)}`
+        ? `OPENING BID ${aj.unpaid_taxes?.value != null ? money(aj.unpaid_taxes) : 'N/A — tax deed sale (no final judgment)'}  ·  ASSESSED VALUE ${money(aj.assessed_value)}`
         : `FINAL JUDGMENT ${money(aj.judgment_amount)}  ·  ASSESSED VALUE ${money(aj.assessed_value)}  ·  PLAINTIFF MAX BID ${money(aj.plaintiff_max_bid)}`,
         50, doc.y - 4);
     doc.y += 14;

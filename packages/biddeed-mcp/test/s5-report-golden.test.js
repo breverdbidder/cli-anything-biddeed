@@ -424,10 +424,12 @@ test('§16 lien_survival: ship_status=live but no recorded-document coverage on 
 // §1 rendered "Judgment Amount: Pending" on tax deed cases, which falsely
 // implies a judgment exists and is forthcoming. Fixed at the source: the
 // composer's auction_listing object for isTaxDeed never carries a
-// judgment_amount key at all, only opening_bid/outstanding_certs_total/
-// cert_number — every renderer (worker.js, pdf.js, generate_internal_signal_
-// report.mjs) must brand on cover.sale_type and stop rendering a Judgment
-// field for these cases.
+// judgment_amount key at all, only unpaid_taxes (the opening-bid basis) /
+// outstanding_certs_total / cert_number — every renderer (worker.js, pdf.js,
+// generate_internal_signal_report.mjs, which as of the consistency fix calls
+// worker.js's renderS5ReportHtml directly rather than a second template)
+// must brand on cover.sale_type and stop rendering a Judgment field for
+// these cases.
 const PARCEL_PASCO_TD = {
   parcel_id: 'PASCO-TD-TEST-01', co_no: 51, phy_addr1: '456 TAX DEED LN',
   phy_city: 'NEW PORT RICHEY', municipality: 'NEW PORT RICHEY', dor_uc: '000',
@@ -468,24 +470,25 @@ test('Pasco tax deed 512026XX000100TDAXXX: auction_listing carries no judgment_a
   assert.equal(report.cover.sale_type, 'tax_deed');
   assert.ok(!('judgment_amount' in report.auction_listing),
     'a tax deed auction_listing must never carry a judgment_amount key — a final judgment is a foreclosure (Ch. 45) concept');
-  assert.equal(report.auction_listing.opening_bid.value, 10159.72);
-  assert.equal(report.auction_listing.opening_bid.display, '$10,159.72');
+  assert.equal(report.auction_listing.unpaid_taxes.value, 10159.72);
+  assert.equal(report.auction_listing.unpaid_taxes.display, '$10,159.72');
   assert.ok(!('plaintiff' in report.auction_listing),
     'a tax deed sale has a taxing authority, not a plaintiff — the foreclosure-only field must not appear');
 });
 
-// The internal-preview renderer (generate_internal_signal_report.mjs) is the
-// one HTML-producing §1 renderer this suite can import directly (worker.js
-// and pdf.js are not module-exported for renderer-level testing) — it proves
-// the fix end-to-end: real rendered HTML, not just the composer's data shape.
+// worker.js's renderS5ReportHtml is the single renderer generate_internal_
+// signal_report.mjs calls (post consistency-fix, issue #19661 follow-on) —
+// it proves the fix end-to-end: real rendered HTML, not just the composer's
+// data shape. See also packages/biddeed-mcp/test/s5-report-render-parity.test.js
+// for the fuller internal-vs-production parity suite.
 test('Pasco tax deed: rendered §1 HTML contains no "Judgment" and shows Opening Bid', async () => {
   installTinyModel();
-  const { renderInternalPreviewHtml } = await import('../scripts/generate_internal_signal_report.mjs');
+  const { renderS5ReportHtml } = await import('../../../src/worker.js');
   const get = mockGetForPascoTaxDeed();
   const report = await buildReport(AUCTION_PASCO_TAX_DEED, { get });
 
-  const html = renderInternalPreviewHtml(report, null, { caseNumber: AUCTION_PASCO_TAX_DEED.case_number });
-  const sec1 = html.slice(html.indexOf('&sect;1 '), html.indexOf('&sect;16'));
+  const html = renderS5ReportHtml(report, { mcaId: AUCTION_PASCO_TAX_DEED.case_number, keyLast8: 'TESTKEY1' });
+  const sec1 = html.slice(html.indexOf('Subject Property Identification'), html.indexOf('Value Estimate'));
 
   assert.doesNotMatch(sec1, /Judgment/, '§1 must not render a "Judgment" field on a tax deed case');
   assert.match(sec1, /Opening Bid/, '§1 must render "Opening Bid" on a tax deed case');

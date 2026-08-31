@@ -286,25 +286,6 @@ function s5Row(label, value) {
   return `<div class="row"><span class="row-l">${escHtml(label)}</span><span class="row-v">${value}</span></div>`;
 }
 
-// Tax deed §1 identification rows — Chapter 197 opening bid data, never a
-// foreclosure "Final Judgment" (#19662). Opening bid renders whenever on
-// file; certificate rows are conditional on data presence, per composer.js
-// isTaxDeed auction_listing shape.
-function taxDeedIdRows(auction) {
-  const rows = [s5Row('Assessed Value', dispVal(auction.assessed_value))];
-  const hasOpeningBid = auction.opening_bid && auction.opening_bid.value != null;
-  const hasCertsTotal = auction.outstanding_certs_total && auction.outstanding_certs_total.value != null;
-  const hasCertNumber = !!auction.cert_number;
-  if (!hasOpeningBid && !hasCertsTotal && !hasCertNumber) {
-    rows.push(s5Row('Opening Bid', 'N/A — tax deed sale (no final judgment)'));
-    return rows;
-  }
-  rows.push(s5Row('Opening Bid', dispVal(auction.opening_bid)));
-  if (hasCertsTotal) rows.push(s5Row('Outstanding Certificates Total', dispVal(auction.outstanding_certs_total)));
-  if (hasCertNumber) rows.push(s5Row('Certificate #', escHtml(auction.cert_number)));
-  return rows;
-}
-
 function s5CompTable(comps, cols) {
   if (!Array.isArray(comps) || !comps.length) return '<div class="pending">No comps available.</div>';
   const head = cols.map(c => `<th>${escHtml(c.label)}</th>`).join('');
@@ -323,7 +304,13 @@ function s5CalibrationFootnote(shapiraMaxBid, county) {
   return `Calibrated on ${escHtml(n)} verified ${escHtml(toDisplay(county || ''))} County sales.`;
 }
 
-function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
+// internal/internalDisclosure: used ONLY by the internal-preview script
+// (packages/biddeed-mcp/scripts/generate_internal_signal_report.mjs, issue
+// #19661/consistency-fix) so that a single review copy renders the real §16
+// lien-survival content regardless of biddeed_report_composition.ship_status.
+// The customer-facing call sites in this file (fetchS5ReportJson path below)
+// never pass these — production behavior is byte-identical to before.
+function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, internalDisclosure = null } = {}) {
   const cover = report.cover || {};
   const auction = report.auction_listing || {};
   const value = report.value_estimate;
@@ -351,6 +338,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   if (cover.locatable === false) {
     return s5Page({
       cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer,
+      banner: internal ? INTERNAL_PREVIEW_BANNER : '',
       body: `
         <div class="bidcard" style="border-color:#b8cfe0">
           <div class="verdict" style="color:#e2eaf2">SKIP — UNLOCATABLE</div>
@@ -363,21 +351,30 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   }
 
   // ── §1 Subject & Auction Identification ──────────────────────────────────
-  // Tax deed sales (FL FS Ch. 197) have no final judgment — that is a
-  // foreclosure (Ch. 45) concept. Never render "Judgment Amount: Pending" on
-  // a tax deed; render the opening bid / certificate data instead (#19662).
-  const isTaxDeedSale = cover.sale_type === 'tax_deed';
-  const sec1 = [
+  // Sale-type-aware (issue #19662): a tax deed sale has no final judgment —
+  // a judgment is a Chapter 45 foreclosure concept. Rendering "Judgment
+  // Amount: Pending" on a tax deed falsely implies one is forthcoming.
+  const isTaxDeed = cover.sale_type === 'tax_deed';
+  const sec1 = isTaxDeed ? [
+    s5Row('Address', escHtml(cover.property_address)),
+    s5Row('County', `${escHtml(countyLabel)} County, Florida`),
+    s5Row('Case Number', escHtml(cover.case_number)),
+    s5Row('Sale Type', 'Tax Deed (FL FS Chapter 197 — no final judgment)'),
+    s5Row('Auction Date', escHtml(auction.auction_date || 'Pending')),
+    s5Row('Taxing Authority', dispVal(auction.taxing_authority)),
+    s5Row('Assessed Value', dispVal(auction.assessed_value)),
+    s5Row('Opening Bid', auction.unpaid_taxes?.value != null ? dispVal(auction.unpaid_taxes) : 'N/A — tax deed sale (no final judgment)'),
+    ...(auction.outstanding_certs_total?.value != null ? [s5Row('Outstanding Certificates Total', dispVal(auction.outstanding_certs_total))] : []),
+    ...(auction.cert_number ? [s5Row('Certificate #', escHtml(auction.cert_number))] : []),
+  ].join('') : [
     s5Row('Address', escHtml(cover.property_address)),
     s5Row('County', `${escHtml(countyLabel)} County, Florida`),
     s5Row('Case Number', escHtml(cover.case_number)),
     s5Row('Auction Date', escHtml(auction.auction_date || 'Pending')),
-    ...(isTaxDeedSale ? taxDeedIdRows(auction) : [
-      s5Row('Plaintiff', dispVal(auction.plaintiff)),
-      s5Row('Assessed Value', dispVal(auction.assessed_value)),
-      s5Row('Final Judgment', dispVal(auction.judgment_amount)),
-      s5Row('Plaintiff Max Bid', dispVal(auction.plaintiff_max_bid)),
-    ]),
+    s5Row('Plaintiff', dispVal(auction.plaintiff)),
+    s5Row('Assessed Value', dispVal(auction.assessed_value)),
+    s5Row('Final Judgment', dispVal(auction.judgment_amount)),
+    s5Row('Plaintiff Max Bid', dispVal(auction.plaintiff_max_bid)),
   ].join('');
 
   // ── §2-3 Value Estimate ───────────────────────────────────────────────────
@@ -534,8 +531,13 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
 
   // ── §16 Judgment & Encumbrance ────────────────────────────────────────────
   const lienGate = composition.lien_survival || {};
+  // internal-preview override: render the real classify() output regardless
+  // of ship_status (see the `internal` param comment above renderS5ReportHtml).
+  // The customer path (internal=false) is completely unchanged.
+  const lienDelivered = internal ? lienSurvival.available === true : (lienGate.status === 'delivered' && lienSurvival.available);
+  const lienDisclosureText = lienGate.disclosure || (internal ? internalDisclosure : null);
   let lienSurvivalHtml;
-  if (lienGate.status === 'delivered' && lienSurvival.available) {
+  if (lienDelivered) {
     const itemsHtml = (lienSurvival.items || []).map(item => {
       const label = item.creditor && item.creditor !== 'Pending — not on file' ? `${escHtml(item.lien_type)} — ${escHtml(item.creditor)}` : escHtml(item.lien_type);
       const cls = item.survives === true ? 'flag-risk' : item.survives === false ? 'flag-info' : 'flag-pending';
@@ -546,15 +548,28 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
       <div class="lien-survival">
         <div class="row"><span class="row-l">Statutory Basis</span><span class="row-v">${escHtml(lienSurvival.statutory_basis || 'Pending')}</span></div>
         <div class="flags">${itemsHtml}</div>
-        ${lienGate.disclosure ? `<div class="model-disclosure" style="margin-top:10px;font-size:11px">${escHtml(lienGate.disclosure)}</div>` : ''}
+        ${lienDisclosureText ? `<div class="model-disclosure" style="margin-top:10px;font-size:11px">${escHtml(lienDisclosureText)}</div>` : ''}
+        ${internal ? `<div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#F59E0B">INTERNAL PREVIEW: real ship_status for this section in production is "${escHtml(lienGate.status || 'unknown')}" — this content is withheld from every customer-facing report until a human flips that flag.</div>` : ''}
       </div>`;
   } else {
     lienSurvivalHtml = `<div class="pending">${escHtml(lienGate.status || 'Pending — Title Tier 2 (lien survival) not yet live for this county')}</div>`;
   }
-  const sec16 = [
+  // Sale-type-aware (issue #19662, sweep of the judgment-labeled fields):
+  // a tax deed has no final judgment, so this must never render
+  // "Judgment Amount: Pending" — render the real Chapter 197 fields instead.
+  const sec16TopRows = isTaxDeed ? [
+    s5Row('Sale Type Note', escHtml(judgment.sale_type_note || 'Tax deed sale — no foreclosure judgment.')),
+    s5Row('Unpaid Taxes (Opening Bid Basis)', judgment.unpaid_taxes != null ? `$${Number(judgment.unpaid_taxes).toLocaleString()}` : 'N/A — tax deed sale (no final judgment)'),
+    s5Row('IRS Lien Survival', judgment.irs_lien_survives ? 'Survives (26 U.S.C. §7425)' : 'Pending'),
+    s5Row('HOA/COA Lien', judgment.hoa_lien_may_survive ? 'May survive (FL FS 720.3085/718.116)' : 'Pending'),
+    s5Row('Statutory Extinguishment', escHtml(judgment.statutory_extinguishment || 'Pending')),
+  ] : [
     s5Row('Judgment Amount', judgment.judgment_amount != null ? `$${Number(judgment.judgment_amount).toLocaleString()}` : 'Pending'),
     s5Row('Opening Bid', judgment.opening_bid != null ? `$${Number(judgment.opening_bid).toLocaleString()}` : 'Pending'),
     s5Row('Bid/Judgment Ratio', judgment.bid_to_judgment_ratio != null ? judgment.bid_to_judgment_ratio : 'Pending'),
+  ];
+  const sec16 = [
+    ...sec16TopRows,
     flags.length ? `<div class="flags">${flags.map(f => `<div class="flag flag-${escHtml(f.severity || 'info')}"><b>${escHtml(f.code || 'FLAG')}</b> ${escHtml(f.text || '')}</div>`).join('')}</div>` : '',
     `<div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Lien Survival — Title Tier 2</div>`,
     lienSurvivalHtml,
@@ -617,10 +632,12 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
     ${s5Section('18', 'Auction Outcome & Prediction Scorecard', sec18, { isOutcome: !outcomePending })}
   `;
 
-  return s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid });
+  return s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid, banner: internal ? INTERNAL_PREVIEW_BANNER : '' });
 }
 
-function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid = '' }) {
+const INTERNAL_PREVIEW_BANNER = `<div style="background:#DC2626;color:#fff;font-weight:800;text-align:center;padding:14px;font-size:16px;letter-spacing:1px">&#9888; INTERNAL PREVIEW — NOT FOR CUSTOMER DELIVERY</div><div style="background:#7F1D1D;color:#FEE2E2;text-align:center;padding:8px;font-size:12px">Generated for internal review only. Title/lien sections may carry biddeed_report_composition.ship_status=blocked in production and are not shipped to any paying customer — see the note inline on §16 below.</div>`;
+
+function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid = '', banner = '' }) {
   const addr     = escHtml(cover.property_address || 'Address pending');
   const addrCity = addr.includes(',') ? addr.slice(0, addr.indexOf(',')) : addr;
   const addrRest = addr.includes(',') ? addr.slice(addr.indexOf(',') + 1).trim() : '';
@@ -760,7 +777,7 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
   .sec-h{background:#f1f5f9 !important}
 }
 </style></head><body>
-<div class="wrap">
+${banner ? banner + '\n' : ''}<div class="wrap">
   <div class="rpt-top">
     <div class="rpt-brand-row">
       <div>
@@ -781,7 +798,7 @@ a{color:#F97316;text-decoration:none}a:hover{color:#FDBA74;text-decoration:under
       <div class="rpt-meta">
         <div class="rpt-meta-county">${escHtml(countyLabel.toUpperCase())} COUNTY</div>
         <div>Case ${escHtml(cover.case_number || '—')}</div>
-        <div>Sale ${escHtml(cover.auction_date || '—')} &middot; ${escHtml(cover.sale_type ? cover.sale_type.toUpperCase() : 'FORECLOSURE')}</div>
+        <div>Sale ${escHtml(cover.auction_date || '—')} &middot; ${escHtml(cover.sale_type ? cover.sale_type.toUpperCase().replace(/_/g, ' ') : 'FORECLOSURE')}</div>
       </div>
     </div>
     <div class="rpt-divider-sub"></div>
@@ -1365,6 +1382,14 @@ function withPublicShell(html, path) {
 <span>Dark</span></button><a class="bd-shell-cta" href="/subscribe?tier=investor">Investor $99/mo</a></div></header><div class="bd-shell-scrim" data-menu-scrim></div><aside class="bd-shell-drawer" id="bd-mobile-drawer" aria-label="Mobile navigation" data-mobile-drawer><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><script>(function(){var d=document.querySelector('[data-mobile-drawer]'),s=document.querySelector('[data-menu-scrim]'),m=document.querySelector('[data-menu-toggle]');function close(){if(d)d.dataset.open='false';if(s)s.dataset.open='false';if(m)m.setAttribute('aria-expanded','false')}function open(){if(d)d.dataset.open='true';if(s)s.dataset.open='true';if(m)m.setAttribute('aria-expanded','true')}if(m)m.addEventListener('click',function(){d&&d.dataset.open==='true'?close():open()});if(s)s.addEventListener('click',close);document.querySelectorAll('[data-mobile-drawer] a').forEach(function(a){a.addEventListener('click',close)});document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});})();</script><script>(function(){var root=document.documentElement;var buttons=document.querySelectorAll('[data-theme-toggle]');function apply(theme){root.dataset.theme=theme;buttons.forEach(function(b){var light=theme==='dark';b.setAttribute('aria-label','Switch to '+(light?'light':'dark')+' mode');b.innerHTML=(light?'☼ <span>Light</span>':'☾ <span>Dark</span>')})}apply('light');buttons.forEach(function(b){b.addEventListener('click',function(){apply(root.dataset.theme==='dark'?'light':'dark')})})})();</script>`;
   return html.replace('</head>', PUBLIC_SHELL_STYLE + '</head>').replace(/<body[^>]*>/i, match => `${match}${shell}<div class="bd-shell-content">`).replace(/<\/body>/i, '</div></body>');
 }
+
+// Named export so the internal-preview script
+// (packages/biddeed-mcp/scripts/generate_internal_signal_report.mjs) can
+// reuse this EXACT renderer instead of maintaining a second HTML template
+// that drifts from production — the consistency fix this section exists for.
+// Adding a named export alongside `export default { fetch }` is a no-op for
+// the Cloudflare Worker itself (wrangler only invokes the default export).
+export { renderS5ReportHtml };
 
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
