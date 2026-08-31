@@ -161,15 +161,32 @@ const SECTION_RENDERERS = {
   subject_identification(doc, report, section) {
     const cover   = report.cover || {};
     const auction = report.auction_listing || {};
+    const isTaxDeed = cover.sale_type === 'tax_deed';
     row(doc, 'Address',          cover.property_address,   true);
     row(doc, 'County',           `${(cover.county||'').toUpperCase()} County, Florida`);
     row(doc, 'Case Number',      cover.case_number,         true);
     row(doc, 'Sale Type',        cover.sale_type);
     row(doc, 'Auction Date',     auction.auction_date || cover.auction_date, true);
-    row(doc, 'Plaintiff',        auction.plaintiff || cover.plaintiff);
-    row(doc, 'Assessed Value',   money(auction.assessed_value), true);
-    row(doc, 'Final Judgment',   money(auction.judgment_amount));
-    row(doc, 'Plaintiff Max Bid',money(auction.plaintiff_max_bid), true);
+    if (isTaxDeed) {
+      // Tax deed sales (FL FS Ch. 197) have no final judgment — that is a
+      // foreclosure (Ch. 45) concept. No plaintiff either. #19662
+      row(doc, 'Assessed Value', money(auction.assessed_value), true);
+      const hasOpeningBid = auction.opening_bid && auction.opening_bid.value != null;
+      const hasCertsTotal = auction.outstanding_certs_total && auction.outstanding_certs_total.value != null;
+      const hasCertNumber = !!auction.cert_number;
+      if (!hasOpeningBid && !hasCertsTotal && !hasCertNumber) {
+        row(doc, 'Opening Bid', 'N/A — tax deed sale (no final judgment)');
+      } else {
+        row(doc, 'Opening Bid', money(auction.opening_bid));
+        if (hasCertsTotal) row(doc, 'Outstanding Certificates Total', money(auction.outstanding_certs_total), true);
+        if (hasCertNumber) row(doc, 'Certificate #', auction.cert_number);
+      }
+    } else {
+      row(doc, 'Plaintiff',        auction.plaintiff || cover.plaintiff);
+      row(doc, 'Assessed Value',   money(auction.assessed_value), true);
+      row(doc, 'Final Judgment',   money(auction.judgment_amount));
+      row(doc, 'Plaintiff Max Bid',money(auction.plaintiff_max_bid), true);
+    }
     row(doc, 'Gold Standard',    cover.cert_status || 'Standard');
     liabilityNote(doc, section.liability_note);
   },
@@ -530,8 +547,14 @@ export async function renderReportPdf(report, { get = defaultGet } = {}) {
     doc.fontSize(11).font('Helvetica')
       .text(`INVESTMENT GRADE ${cover.investment_grade || '—'}  ·  SHAPIRA MAX BID ${money(cover.shapira_max_bid)}`, 50, doc.y - 20);
     const aj = report.auction_listing || {};
+    // Tax deed sales (FL FS Ch. 197) have no final judgment or plaintiff —
+    // those are foreclosure (Ch. 45) concepts. Same rule as the §1 band
+    // below, applied to this cover KPI strip (#19662).
     doc.fontSize(9)
-      .text(`FINAL JUDGMENT ${money(aj.judgment_amount)}  ·  ASSESSED VALUE ${money(aj.assessed_value)}  ·  PLAINTIFF MAX BID ${money(aj.plaintiff_max_bid)}`, 50, doc.y - 4);
+      .text(cover.sale_type === 'tax_deed'
+        ? `OPENING BID ${money(aj.opening_bid)}  ·  ASSESSED VALUE ${money(aj.assessed_value)}`
+        : `FINAL JUDGMENT ${money(aj.judgment_amount)}  ·  ASSESSED VALUE ${money(aj.assessed_value)}  ·  PLAINTIFF MAX BID ${money(aj.plaintiff_max_bid)}`,
+        50, doc.y - 4);
     doc.y += 14;
 
     // Thesis line (from cover.thesis if present)

@@ -286,6 +286,25 @@ function s5Row(label, value) {
   return `<div class="row"><span class="row-l">${escHtml(label)}</span><span class="row-v">${value}</span></div>`;
 }
 
+// Tax deed §1 identification rows — Chapter 197 opening bid data, never a
+// foreclosure "Final Judgment" (#19662). Opening bid renders whenever on
+// file; certificate rows are conditional on data presence, per composer.js
+// isTaxDeed auction_listing shape.
+function taxDeedIdRows(auction) {
+  const rows = [s5Row('Assessed Value', dispVal(auction.assessed_value))];
+  const hasOpeningBid = auction.opening_bid && auction.opening_bid.value != null;
+  const hasCertsTotal = auction.outstanding_certs_total && auction.outstanding_certs_total.value != null;
+  const hasCertNumber = !!auction.cert_number;
+  if (!hasOpeningBid && !hasCertsTotal && !hasCertNumber) {
+    rows.push(s5Row('Opening Bid', 'N/A — tax deed sale (no final judgment)'));
+    return rows;
+  }
+  rows.push(s5Row('Opening Bid', dispVal(auction.opening_bid)));
+  if (hasCertsTotal) rows.push(s5Row('Outstanding Certificates Total', dispVal(auction.outstanding_certs_total)));
+  if (hasCertNumber) rows.push(s5Row('Certificate #', escHtml(auction.cert_number)));
+  return rows;
+}
+
 function s5CompTable(comps, cols) {
   if (!Array.isArray(comps) || !comps.length) return '<div class="pending">No comps available.</div>';
   const head = cols.map(c => `<th>${escHtml(c.label)}</th>`).join('');
@@ -344,15 +363,21 @@ function renderS5ReportHtml(report, { mcaId, keyLast8 }) {
   }
 
   // ── §1 Subject & Auction Identification ──────────────────────────────────
+  // Tax deed sales (FL FS Ch. 197) have no final judgment — that is a
+  // foreclosure (Ch. 45) concept. Never render "Judgment Amount: Pending" on
+  // a tax deed; render the opening bid / certificate data instead (#19662).
+  const isTaxDeedSale = cover.sale_type === 'tax_deed';
   const sec1 = [
     s5Row('Address', escHtml(cover.property_address)),
     s5Row('County', `${escHtml(countyLabel)} County, Florida`),
     s5Row('Case Number', escHtml(cover.case_number)),
     s5Row('Auction Date', escHtml(auction.auction_date || 'Pending')),
-    s5Row('Plaintiff', dispVal(auction.plaintiff)),
-    s5Row('Assessed Value', dispVal(auction.assessed_value)),
-    s5Row('Final Judgment', dispVal(auction.judgment_amount)),
-    s5Row('Plaintiff Max Bid', dispVal(auction.plaintiff_max_bid)),
+    ...(isTaxDeedSale ? taxDeedIdRows(auction) : [
+      s5Row('Plaintiff', dispVal(auction.plaintiff)),
+      s5Row('Assessed Value', dispVal(auction.assessed_value)),
+      s5Row('Final Judgment', dispVal(auction.judgment_amount)),
+      s5Row('Plaintiff Max Bid', dispVal(auction.plaintiff_max_bid)),
+    ]),
   ].join('');
 
   // ── §2-3 Value Estimate ───────────────────────────────────────────────────

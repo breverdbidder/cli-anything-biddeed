@@ -28,6 +28,24 @@ function money(v) {
   return `$${Number(n).toLocaleString()}`;
 }
 
+// Tax deed sales (FL FS Ch. 197) have no final judgment — that is a
+// foreclosure (Ch. 45) concept. Opening bid / certificate data replaces the
+// "Judgment Amount" row here, matching composer.js's isTaxDeed auction_listing
+// shape. #19662
+function renderTaxDeedIdRows(auction) {
+  const hasOpeningBid = auction.opening_bid && auction.opening_bid.value != null;
+  const hasCertsTotal = auction.outstanding_certs_total && auction.outstanding_certs_total.value != null;
+  const hasCertNumber = !!auction.cert_number;
+  if (!hasOpeningBid && !hasCertsTotal && !hasCertNumber) {
+    return `<div class="row"><span class="row-l">Opening Bid</span><span class="row-v">N/A — tax deed sale (no final judgment)</span></div>`;
+  }
+  return [
+    `<div class="row"><span class="row-l">Opening Bid</span><span class="row-v">${money(auction.opening_bid)}</span></div>`,
+    hasCertsTotal ? `<div class="row"><span class="row-l">Outstanding Certificates Total</span><span class="row-v">${money(auction.outstanding_certs_total)}</span></div>` : '',
+    hasCertNumber ? `<div class="row"><span class="row-l">Certificate #</span><span class="row-v">${escHtml(auction.cert_number)}</span></div>` : '',
+  ].join('');
+}
+
 export async function fetchAuction(caseNumber) {
   const rows = await get(`multi_county_auctions?case_number=eq.${encodeURIComponent(caseNumber)}&select=*`);
   if (!rows || !rows.length) return null;
@@ -71,6 +89,8 @@ export function renderInternalPreviewHtml(report, rawGate, { caseNumber }) {
   const cover = report.cover || {};
   const auction = report.auction_listing || {};
   const generatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+
+  const isTaxDeed = (cover.sale_type || report.lien_survival?.sale_type) === 'tax_deed';
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>SIGNAL$ Property Report — INTERNAL PREVIEW — ${escHtml(caseNumber)}</title>
@@ -116,10 +136,10 @@ export function renderInternalPreviewHtml(report, rawGate, { caseNumber }) {
   <div class="body">
     <div class="sec">
       <div class="sec-h">&sect;1 Subject &amp; Auction Identification</div>
-      <div class="row"><span class="row-l">Sale Type</span><span class="row-v">${escHtml(report.lien_survival?.sale_type === 'tax_deed' ? 'Tax Deed' : 'Foreclosure')}</span></div>
+      <div class="row"><span class="row-l">Sale Type</span><span class="row-v">${escHtml(isTaxDeed ? 'Tax Deed' : 'Foreclosure')}</span></div>
       <div class="row"><span class="row-l">Auction Date</span><span class="row-v">${escHtml(auction.auction_date || 'Pending')}</span></div>
       <div class="row"><span class="row-l">Assessed Value</span><span class="row-v">${money(auction.assessed_value)}</span></div>
-      <div class="row"><span class="row-l">Judgment Amount</span><span class="row-v">${money(auction.judgment_amount)}</span></div>
+      ${isTaxDeed ? renderTaxDeedIdRows(auction) : `<div class="row"><span class="row-l">Judgment Amount</span><span class="row-v">${money(auction.judgment_amount)}</span></div>`}
       <div class="row"><span class="row-l">Verdict</span><span class="row-v">${escHtml(cover.verdict || 'Pending')}</span></div>
     </div>
     <div class="sec">

@@ -416,3 +416,78 @@ test('§16 lien_survival: ship_status=live but no recorded-document coverage on 
   assert.match(report.composition.lien_survival.status, /insufficient recorded-document coverage/,
     'no lien_results rows for this parcel must render the exact insufficient-coverage Pending reason, not fall back silently to only the red-flags heuristic');
 });
+
+// ── §1 tax-deed "Judgment Amount: Pending" fix (issue #19662) ──────────────
+// Tax deed sales (FL FS Ch. 197) have no final judgment — that is a
+// foreclosure (Ch. 45) concept. Live defect (Pasco 512026XX000100TDAXXX /
+// 512026XX000105TDAXXX, verification/signal-report-INTERNAL-pasco-*.png):
+// §1 rendered "Judgment Amount: Pending" on tax deed cases, which falsely
+// implies a judgment exists and is forthcoming. Fixed at the source: the
+// composer's auction_listing object for isTaxDeed never carries a
+// judgment_amount key at all, only opening_bid/outstanding_certs_total/
+// cert_number — every renderer (worker.js, pdf.js, generate_internal_signal_
+// report.mjs) must brand on cover.sale_type and stop rendering a Judgment
+// field for these cases.
+const PARCEL_PASCO_TD = {
+  parcel_id: 'PASCO-TD-TEST-01', co_no: 51, phy_addr1: '456 TAX DEED LN',
+  phy_city: 'NEW PORT RICHEY', municipality: 'NEW PORT RICHEY', dor_uc: '000',
+  jv: 45000, lnd_val: 20000, lnd_sqfoot: 6000, tot_lvg_ar: 0,
+  phy_zipcd: '34652',
+};
+
+const AUCTION_PASCO_TAX_DEED = {
+  case_number: '512026XX000100TDAXXX', county: 'pasco',
+  property_address: '456 TAX DEED LN, NEW PORT RICHEY, FL- 34652',
+  auction_date: '2026-09-15', sale_type: 'tax_deed',
+  opening_bid: 10159.72, assessed_value: 45000, market_value: 45000,
+  cert_number: null, outstanding_certs_total: null,
+};
+
+function mockGetForPascoTaxDeed() {
+  return async (pathStr) => {
+    if (pathStr.startsWith('multi_county_auctions')) return []; // insufficient priors — not the point of this fixture
+    if (pathStr.startsWith('county_co_no_resolution')) return [{ co_no: 51 }]; // pasco
+    if (pathStr.startsWith('fl_parcels')) {
+      const match = decodeURIComponent(pathStr).match(/phy_addr1=eq\.([^&]+)/);
+      const addr = match?.[1];
+      return addr === '456 TAX DEED LN' ? [PARCEL_PASCO_TD] : [];
+    }
+    if (pathStr.startsWith('zoning_assignments')) return [];
+    if (pathStr.startsWith('shapira_formula_params')) return []; // falls to default params
+    if (pathStr.startsWith('rpc/get_report_composition_gate')) return [];
+    if (pathStr.startsWith('lien_results')) return [];
+    return [];
+  };
+}
+
+test('Pasco tax deed 512026XX000100TDAXXX: auction_listing carries no judgment_amount key, opening_bid populated instead', async () => {
+  installTinyModel();
+  const get = mockGetForPascoTaxDeed();
+  const report = await buildReport(AUCTION_PASCO_TAX_DEED, { get });
+
+  assert.equal(report.cover.sale_type, 'tax_deed');
+  assert.ok(!('judgment_amount' in report.auction_listing),
+    'a tax deed auction_listing must never carry a judgment_amount key — a final judgment is a foreclosure (Ch. 45) concept');
+  assert.equal(report.auction_listing.opening_bid.value, 10159.72);
+  assert.equal(report.auction_listing.opening_bid.display, '$10,159.72');
+  assert.ok(!('plaintiff' in report.auction_listing),
+    'a tax deed sale has a taxing authority, not a plaintiff — the foreclosure-only field must not appear');
+});
+
+// The internal-preview renderer (generate_internal_signal_report.mjs) is the
+// one HTML-producing §1 renderer this suite can import directly (worker.js
+// and pdf.js are not module-exported for renderer-level testing) — it proves
+// the fix end-to-end: real rendered HTML, not just the composer's data shape.
+test('Pasco tax deed: rendered §1 HTML contains no "Judgment" and shows Opening Bid', async () => {
+  installTinyModel();
+  const { renderInternalPreviewHtml } = await import('../scripts/generate_internal_signal_report.mjs');
+  const get = mockGetForPascoTaxDeed();
+  const report = await buildReport(AUCTION_PASCO_TAX_DEED, { get });
+
+  const html = renderInternalPreviewHtml(report, null, { caseNumber: AUCTION_PASCO_TAX_DEED.case_number });
+  const sec1 = html.slice(html.indexOf('&sect;1 '), html.indexOf('&sect;16'));
+
+  assert.doesNotMatch(sec1, /Judgment/, '§1 must not render a "Judgment" field on a tax deed case');
+  assert.match(sec1, /Opening Bid/, '§1 must render "Opening Bid" on a tax deed case');
+  assert.match(sec1, /\$10,159\.72/, '§1 must render the real opening bid amount, not a placeholder');
+});

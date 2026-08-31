@@ -310,6 +310,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       cover: {
         case_number: auction.case_number,
         county,
+        sale_type: auction.sale_type || null,
         verdict: 'SKIP',
         investment_grade: 'D',
         shapira_max_bid: null,
@@ -413,6 +414,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       case_number: auction.case_number,
       county,
       property_address: auction.property_address,
+      sale_type: auction.sale_type || null,
       verdict,
       investment_grade: grade(marginPct ?? -1, true),
       // Equity at acquisition (day-one, as-is)
@@ -456,15 +458,19 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       homestead_status: auction.homestead_status || (parcel?.jv_hmstd != null ? (Number(parcel.jv_hmstd) > 0 ? 'homestead (fl_parcels jv_hmstd>0)' : 'non-homestead (fl_parcels jv_hmstd=0)') : 'Pending'),
     },
     auction_listing: isTaxDeed ? {
-      // §1 TAX DEED — no plaintiff, no judgment
-      case_number:            auction.case_number,
-      auction_date:           auction.auction_date,
-      assessed_value:         money(auction.assessed_value, 'assessed_value'),
-      taxing_authority:       auction.plaintiff || 'Pending — taxing authority not on file',
-      unpaid_taxes:           money(auction.opening_bid, 'opening_bid (unpaid taxes + certificate interest + fees)'),
-      irs_lien_risk:          'IRS federal tax liens survive FL tax deed sales — independent IRS lien search required (26 U.S.C. § 7425)',
-      hoa_lien_risk:          'HOA/COA liens may survive or re-attach (FL FS 720.3085 / 718.116) — confirm outstanding balance',
-      statutory_basis:        'FL FS 197.502 / 197.552 / 197.582',
+      // §1 TAX DEED — no plaintiff, no judgment (Chapter 197 opening bid, not
+      // a Chapter 45 final judgment — see #19662).
+      case_number:             auction.case_number,
+      auction_date:            auction.auction_date,
+      assessed_value:          money(auction.assessed_value, 'assessed_value'),
+      taxing_authority:        auction.plaintiff || 'Pending — taxing authority not on file',
+      unpaid_taxes:            money(auction.opening_bid, 'opening_bid (unpaid taxes + certificate interest + fees)'),
+      opening_bid:             money(auction.opening_bid ?? auction.opening_bid_usd, 'opening_bid'),
+      outstanding_certs_total: auction.outstanding_certs_total != null ? money(auction.outstanding_certs_total, 'outstanding_certs_total') : null,
+      cert_number:             auction.cert_number || null,
+      irs_lien_risk:           'IRS federal tax liens survive FL tax deed sales — independent IRS lien search required (26 U.S.C. § 7425)',
+      hoa_lien_risk:           'HOA/COA liens may survive or re-attach (FL FS 720.3085 / 718.116) — confirm outstanding balance',
+      statutory_basis:         'FL FS 197.502 / 197.552 / 197.582',
     } : {
       // §1 FORECLOSURE — standard fields
       case_number: auction.case_number,
