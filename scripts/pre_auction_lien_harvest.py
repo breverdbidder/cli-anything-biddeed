@@ -132,6 +132,15 @@ THROTTLE = 2.5
 COUNTY_ACCLAIM = {
     "duval": {"base": "https://or.duvalclerk.com", "prefix": ""},
     "santa_rosa": {"base": "https://acclaim.srccol.com", "prefix": "/AcclaimWeb"},
+    # highlands added (issue #19661, targeted 13-case title/lien pull): base
+    # URL + platform from clerk_official_records_subdomains (honesty_marker
+    # VERIFIED, classic ASP.NET AcclaimWeb -- same /AcclaimWeb prefix family
+    # as Brevard/santa_rosa). That row recorded acclaim.highlandsclerkfl.gov
+    # as UNREACHABLE (TCP connect timeout) from the runner in a prior
+    # session; re-checked live this session (curl -> HTTP 200 in 0.4s,
+    # Playwright not needed) -- reachable now, a real network-path change,
+    # not a stale assumption being trusted.
+    "highlands": {"base": "https://acclaim.highlandsclerkfl.gov", "prefix": "/AcclaimWeb"},
 }
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -192,7 +201,14 @@ class AcclaimSession:
         if self._disclaimer_accepted:
             return
         search_path = f"{self.prefix}/search/SearchTypeCaseNumber"
-        self._req(self.base + search_path)  # 302 -> Disclaimer page, establishes session
+        body = self._req(self.base + search_path)  # 302 -> Disclaimer page, establishes session
+        # Some AcclaimWeb deployments (highlands, live-verified 2026-08-31)
+        # serve the real search form directly with no disclaimer
+        # click-through at all -- id="CaseNumber" already present means
+        # there is no /Search/Disclaimer endpoint to POST to (404 if tried).
+        if body and 'id="CaseNumber"' in body:
+            self._disclaimer_accepted = True
+            return
         self._req(
             self.base + f"{self.prefix}/Search/Disclaimer?st={search_path}",
             data="disclaimer=true",
@@ -386,6 +402,10 @@ def main():
     ap.add_argument("--county", default="duval")
     ap.add_argument("--lookahead-days", type=int, default=14)
     ap.add_argument("--limit", type=int, default=8, help="max cases per run — shared production court records site, throttled")
+    ap.add_argument("--case-numbers", default=None,
+                     help="comma-separated exact case_number list -- targeted pull for already-decided "
+                          "cases (e.g. billable_ff_events), bypasses the upcoming/lookahead-window filter "
+                          "which would otherwise exclude auction_status='sold' rows")
     args = ap.parse_args()
 
     county = args.county
@@ -393,14 +413,24 @@ def main():
         print(f"BLOCKED: no AcclaimWeb config for county={county!r}. Configured: {list(COUNTY_ACCLAIM)}")
         sys.exit(1)
 
-    today = dt.date.today()
-    cutoff = today + dt.timedelta(days=args.lookahead_days)
-    auctions = sb_get(
-        f"multi_county_auctions?county=eq.{county}&auction_status=eq.upcoming"
-        f"&auction_date=gte.{today.isoformat()}&auction_date=lte.{cutoff.isoformat()}"
-        f"&select=id,case_number,parcel_id,auction_date,sale_type&order=auction_date.asc&limit={args.limit}"
-    )
-    print(f"[pre_auction_lien_harvest] {county}: {len(auctions)} genuinely-future upcoming auctions in [{today}, {cutoff}] (limit={args.limit})")
+    if args.case_numbers:
+        wanted = [c.strip() for c in args.case_numbers.split(",") if c.strip()]
+        in_list = ",".join(urllib.parse.quote(c) for c in wanted)
+        auctions = sb_get(
+            f"multi_county_auctions?county=eq.{county}&case_number=in.({in_list})"
+            f"&select=id,case_number,parcel_id,auction_date,sale_type"
+        )
+        print(f"[pre_auction_lien_harvest] {county}: targeted pull, {len(auctions)}/{len(wanted)} of the "
+              f"requested case_numbers found in multi_county_auctions")
+    else:
+        today = dt.date.today()
+        cutoff = today + dt.timedelta(days=args.lookahead_days)
+        auctions = sb_get(
+            f"multi_county_auctions?county=eq.{county}&auction_status=eq.upcoming"
+            f"&auction_date=gte.{today.isoformat()}&auction_date=lte.{cutoff.isoformat()}"
+            f"&select=id,case_number,parcel_id,auction_date,sale_type&order=auction_date.asc&limit={args.limit}"
+        )
+        print(f"[pre_auction_lien_harvest] {county}: {len(auctions)} genuinely-future upcoming auctions in [{today}, {cutoff}] (limit={args.limit})")
 
     cfg = COUNTY_ACCLAIM[county]
     session = AcclaimSession(cfg["base"], cfg["prefix"])
