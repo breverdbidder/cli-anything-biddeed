@@ -345,6 +345,65 @@ test('§16 lien_survival: ship_status=blocked → internal-preview-only, never r
   assert.ok(report.lien_survival.available, 'classify() output is always computed regardless of the ship gate');
 });
 
+// ── §16 lien_survival — issue #19661 pre-step fixes ─────────────────────────
+// Fix 1: §197.122 property-tax-lien super-priority on the foreclosure path.
+// Fix 2: the survives_foreclosure boolean fallback must not honor a raw
+// harvester column default (priority=null) as if it were a derived call.
+const LIEN_RESULTS_ROWS_197122 = [
+  { lien_type: 'Property Tax Certificate', creditor: 'County Tax Collector', recording_date: '2026-01-05', book_page: '4001/10', priority: null, survives_foreclosure: null, source: 'acclaim' },
+  { lien_type: 'Second Mortgage', creditor: 'Test Bank NA', recording_date: '2010-01-01', book_page: '900/1', priority: 'junior', survives_foreclosure: null, source: 'acclaim' },
+];
+
+function mockGetForPalmBeachWithTaxLien() {
+  const base = mockGetForPalmBeach();
+  return async (pathStr) => {
+    if (pathStr.startsWith('rpc/get_report_composition_gate')) return COMPOSITION_GATE_LIVE;
+    if (pathStr.startsWith('lien_results')) return LIEN_RESULTS_ROWS_197122;
+    return base(pathStr);
+  };
+}
+
+test('§16 lien_survival FIX 1: a property tax lien/certificate on the foreclosure path survives under §197.122 super-priority, regardless of recording date', async () => {
+  installTinyModel();
+  const get = mockGetForPalmBeachWithTaxLien();
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+
+  const taxLien = report.lien_survival.items.find(i => i.lien_type === 'Property Tax Certificate');
+  assert.equal(taxLien.survives, true, 'a property tax lien/certificate must survive foreclosure under §197.122 super-priority');
+  assert.match(taxLien.statutory_basis, /197\.122/, 'the tax-lien exception must cite Fla. Stat. §197.122');
+  assert.doesNotMatch(taxLien.statement, /you (will )?owe|amount owed is/i,
+    'output must never be an owed-amount conclusion');
+
+  const juniorMortgage = report.lien_survival.items.find(i => i.lien_type === 'Second Mortgage');
+  assert.equal(juniorMortgage.survives, false, 'ordinary recording-priority classification is unaffected by the tax-lien exception');
+});
+
+const LIEN_RESULTS_ROWS_DEFAULTED = [
+  // Mirrors the live Pasco pattern: survives_foreclosure=false written as a
+  // raw harvester column default — priority/amount both null, no derivation.
+  { lien_type: 'Code Enforcement/Municipal Lien', creditor: 'Test County BOCC', recording_date: '2024-05-09', book_page: '11008/688', priority: null, amount: null, survives_foreclosure: false, source: 'or_name_search' },
+];
+
+function mockGetForPalmBeachWithDefaultedFlag() {
+  const base = mockGetForPalmBeach();
+  return async (pathStr) => {
+    if (pathStr.startsWith('rpc/get_report_composition_gate')) return COMPOSITION_GATE_LIVE;
+    if (pathStr.startsWith('lien_results')) return LIEN_RESULTS_ROWS_DEFAULTED;
+    return base(pathStr);
+  };
+}
+
+test('§16 lien_survival FIX 2: a defaulted survives_foreclosure=false with no priority/amount on file classifies UNRESOLVED, never extinguished', async () => {
+  installTinyModel();
+  const get = mockGetForPalmBeachWithDefaultedFlag();
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+
+  const item = report.lien_survival.items[0];
+  assert.equal(item.survives, null, 'a raw harvester default (priority=null) must never masquerade as a derived survival call');
+  assert.equal(item.statutory_basis, null);
+  assert.equal(item.statement, "Insufficient recorded-document data on file to classify this lien's survival — recording date/priority not on file. Not classified as survives or extinguished.");
+});
+
 test('§16 lien_survival: ship_status=live but no recorded-document coverage on file → explicit insufficient-coverage Pending, never a silent heuristic-only fallback', async () => {
   installTinyModel();
   const get = async (pathStr) => {

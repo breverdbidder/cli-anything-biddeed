@@ -16,6 +16,9 @@
 //                 (including the foreclosed lien itself) are extinguished
 //                 by the judgment, per this case's own recorded lien
 //                 position — not a generic rule applied blind to the file.
+//                 EXCEPT property tax liens/certificates, which hold
+//                 super-priority under Fla. Stat. §197.122 regardless of
+//                 recording date (fix, issue #19661 pre-step 1).
 // tax_deed     -> Fla. Stat. §197.552: most private liens are extinguished;
 //                 governmental liens and certain liens (IRS liens under
 //                 26 U.S.C. §7425, some HOA/COA claims under Fla. Stat.
@@ -41,12 +44,28 @@ function baseItem(lien) {
   };
 }
 
+// Fla. Stat. §197.122: property tax liens/certificates hold super-priority
+// over every other recorded interest regardless of recording date. The
+// foreclosure path below is otherwise pure recording-priority and has no
+// other way to except a tax lien — without this check, a tax certificate
+// recorded after the foreclosed instrument would be wrongly classified
+// extinguished.
+const TAX_LIEN_BASIS = 'Fla. Stat. §197.122';
+function isPropertyTaxLien(lien) {
+  const type = String(lien.lien_type || '').toLowerCase();
+  return type.includes('tax lien') || type.includes('tax certificate') || type.includes('property tax');
+}
+
 // ── Foreclosure: recording-priority classification ─────────────────────────
 function classifyForeclosureLien(lien) {
   const priority = String(lien.priority || '').toLowerCase();
   let survives, statutory_basis, statement;
 
-  if (priority === 'senior') {
+  if (isPropertyTaxLien(lien)) {
+    survives = true;
+    statutory_basis = TAX_LIEN_BASIS;
+    statement = `Per ${TAX_LIEN_BASIS}, a property tax lien/certificate holds super-priority over this foreclosure regardless of recording date — this lien class survives this foreclosure sale. This states statutory survival class only — it is not an opinion on amount owed or lien validity.`;
+  } else if (priority === 'senior') {
     survives = true;
     statutory_basis = FORECLOSURE_BASIS;
     statement = `Per ${FORECLOSURE_BASIS}, this lien class survives this foreclosure sale. This states recording priority only — it is not an opinion on amount owed or lien validity.`;
@@ -54,11 +73,16 @@ function classifyForeclosureLien(lien) {
     survives = false;
     statutory_basis = FORECLOSURE_BASIS;
     statement = `Per ${FORECLOSURE_BASIS}, this lien class is extinguished by this foreclosure judgment/sale. This states recording priority only — it is not an opinion on amount owed or lien validity.`;
-  } else if (typeof lien.survives_foreclosure === 'boolean') {
-    // Recorded-document data carries a priority call but this table's own
-    // `priority` field wasn't populated senior/junior — use the recorded
-    // survives_foreclosure flag, but say plainly that we did not
-    // independently re-derive it from book/page sequencing.
+  } else if (typeof lien.survives_foreclosure === 'boolean' && lien.priority) {
+    // The stored survives_foreclosure flag is only honored when this row's
+    // own `priority` field carries SOME value (i.e. was actually populated
+    // by a derivation step, even if not exactly 'senior'/'junior') — proof
+    // this is a derived call, not a harvester column default. Live Pasco
+    // rows demonstrate the default pattern this guards against: every row
+    // ingested with survives_foreclosure=false, priority=null, amount=null —
+    // a raw INSERT default, never a real priority derivation. A default must
+    // never masquerade as a survival call; those fall to the UNRESOLVED
+    // branch below instead of silently reporting "does not survive".
     survives = lien.survives_foreclosure;
     statutory_basis = FORECLOSURE_BASIS;
     statement = `Recorded lien data on file indicates this lien class ${survives ? 'survives' : 'does not survive'} this foreclosure sale (per recording priority). Book/page sequencing was not independently re-derived from this record alone — reported as recorded. Not an opinion on amount owed or lien validity.`;
