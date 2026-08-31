@@ -518,9 +518,18 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
 // (see report.lien_survival) so it's available for internal QA/tests, but
 // it is never surfaced as 'delivered' status to a customer response until a
 // human flips ship_status in Supabase.
+//
+// FIX (RLS ship-gate bug, follow-on to #19657): biddeed_report_composition
+// has RLS enabled with zero policies, so the direct table read below used to
+// return 0 rows under the Vercel runtime's anon/authenticated key (service_role
+// bypasses RLS, masking this in local/CI testing). Reads now go through
+// get_report_composition_gate(), a SECURITY DEFINER RPC
+// (supabase/migrations/20260831_report_composition_gate_rpc.sql) matching the
+// existing check_s5_report_access pattern — granted to anon/authenticated
+// directly, so it returns real rows regardless of caller role.
 async function sectionComposition({ locatable, lienSurvival }, { get = defaultGet } = {}) {
   const gateRows = await get(
-    'biddeed_report_composition?section_key=in.(lien_search,lien_survival,title_search)&select=section_key,ship_status,disclosure_text'
+    'rpc/get_report_composition_gate?p_section_keys=%7Blien_search,lien_survival,title_search%7D'
   ).catch(() => []);
   const gates = Object.fromEntries((gateRows || []).map(r => [r.section_key, r]));
 

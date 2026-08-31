@@ -8,6 +8,10 @@ name: "MCP HTTP — Deploy to Vercel (biddeed.ai/api/mcp)"
 # project" step below looks the project up by name via the Vercel API instead.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/biddeed-mcp/**"
   workflow_dispatch:
     inputs:
       environment:
@@ -81,13 +85,13 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          vercel pull --yes --environment=${{ inputs.environment }} --token=$VERCEL_TOKEN
+          vercel pull --yes --environment=${{ inputs.environment || 'production' }} --token=$VERCEL_TOKEN
 
       - name: Build locally (so we can smoke-test the exact deployed bundle)
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          if [ "${{ inputs.environment }}" = "production" ]; then
+          if [ "${{ inputs.environment || 'production' }}" = "production" ]; then
             vercel build --prod --token=$VERCEL_TOKEN
           else
             vercel build --token=$VERCEL_TOKEN
@@ -126,7 +130,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -o pipefail
-          if [ "${{ inputs.environment }}" = "production" ]; then
+          if [ "${{ inputs.environment || 'production' }}" = "production" ]; then
             vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
           else
             vercel deploy --prebuilt --token=$VERCEL_TOKEN 2>&1 | tee /tmp/vercel-deploy.log
@@ -157,7 +161,7 @@ jobs:
 
       - name: Verify /report/pdf is wired on production domain
         id: verify_pdf
-        if: inputs.environment == 'production'
+        if: (inputs.environment || 'production') == 'production'
         run: |
           sleep 5
           HTTP=$(curl -s -o /dev/null -w "%{http_code}" "https://mcp.biddeed.ai/report/pdf")

@@ -301,7 +301,7 @@ const COMPOSITION_GATE_BLOCKED = [
 function mockGetForPalmBeachWithLiens(compositionGate) {
   const base = mockGetForPalmBeach();
   return async (pathStr) => {
-    if (pathStr.startsWith('biddeed_report_composition')) return compositionGate;
+    if (pathStr.startsWith('rpc/get_report_composition_gate')) return compositionGate;
     if (pathStr.startsWith('lien_results')) return LIEN_RESULTS_ROWS;
     return base(pathStr);
   };
@@ -348,7 +348,7 @@ test('§16 lien_survival: ship_status=blocked → internal-preview-only, never r
 test('§16 lien_survival: ship_status=live but no recorded-document coverage on file → explicit insufficient-coverage Pending, never a silent heuristic-only fallback', async () => {
   installTinyModel();
   const get = async (pathStr) => {
-    if (pathStr.startsWith('biddeed_report_composition')) return COMPOSITION_GATE_LIVE;
+    if (pathStr.startsWith('rpc/get_report_composition_gate')) return COMPOSITION_GATE_LIVE;
     if (pathStr.startsWith('lien_results')) return [];
     return mockGetForPalmBeach()(pathStr);
   };
