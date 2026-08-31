@@ -173,8 +173,8 @@ async function processS5OnetimeCompletion(session) {
     body: JSON.stringify({
       from: resendFrom,
       to: [email],
-      subject: `Your BidDeed.AI Shapira Report — Case ${caseNumber}`,
-      text: `Your Shapira Report for case ${caseNumber} (${county} County, FL) is attached.\n\n` +
+      subject: `Your BidDeed.AI SIGNAL$ Property Report — Case ${caseNumber}`,
+      text: `Your SIGNAL$ Property Report for case ${caseNumber} (${county} County, FL) is attached.\n\n` +
         `Verdict: ${cover.verdict || 'see attached'}  ·  Investment Grade: ${cover.investment_grade || 'see attached'}\n\n` +
         `This is informational only — not legal, financial, or investment advice. Verify independently and consult a licensed Florida attorney before bidding.`,
       attachments: [{ filename: `biddeed-report-${caseNumber}.pdf`, content: result.pdf_base64 }],

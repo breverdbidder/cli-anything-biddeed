@@ -2874,7 +2874,7 @@ const BLOG_POSTS = [
 <h2>What the current pipeline looks like</h2>
 <p>Marion currently has 99 upcoming auctions — 95 tax deed, 4 mortgage foreclosure. The average opening bid is around <strong>$11,376</strong> against an average assessed value of roughly <strong>$14,897</strong>. But the average is skewed by a handful of higher-value lots — the <em>median</em> opening bid is closer to <strong>$4,006</strong>, against a median assessed value around <strong>$6,149</strong>. For a county with this much volume, the median is the more honest picture of what a typical lot actually looks like: modest opening bids, modest assessed values, and a real but not dramatic spread.</p>
 <h2>Why we use Marion as the proof case</h2>
-<p>Not because it's the biggest county, and not because the numbers are the most dramatic — Escambia and Putnam both show wider headline spreads. We use Marion because we had a specific, verifiable auction outcome to publish the prediction against <em>before</em> the sale happened, and then grade it after the fact against the courthouse record. That's the standard we hold every Shapira report to: a number published pre-sale, graded automatically within 24 hours of the actual result.</p>
+<p>Not because it's the biggest county, and not because the numbers are the most dramatic — Escambia and Putnam both show wider headline spreads. We use Marion because we had a specific, verifiable auction outcome to publish the prediction against <em>before</em> the sale happened, and then grade it after the fact against the courthouse record. That's the standard we hold every SIGNAL$ Property Report to: a number published pre-sale, graded automatically within 24 hours of the actual result.</p>
 <h2>Before you bid in Marion</h2>
 <ol>
 <li>Don't anchor on the average — check the median and the specific lot's numbers, not the county-wide mean.</li>
@@ -3210,7 +3210,7 @@ footer a{color:var(--muted);text-decoration:none}
   </script>` : ''}
   <div class="cta-box">
     <div>Get your own max bid number before you show up.</div>
-    <a href="/buy-report">Get a Shapira Report — $25 →</a>
+    <a href="/buy-report">Get a SIGNAL$ Property Report — $25 →</a>
   </div>
   <p class="disclaimer">This is general educational information, not legal, financial, or investment advice. Auction data and value estimates should always be independently verified. Consult a licensed Florida attorney and title professional before bidding on any property.</p>
 </div>
@@ -4474,8 +4474,8 @@ poll();
 
 const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Buy One Shapira Report — $25 | BidDeed.AI</title>
-<meta name="description" content="Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. One-time $25, no subscription.">
+<title>Buy One SIGNAL$ Property Report — $25 | BidDeed.AI</title>
+<meta name="description" content="Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. One-time $25, no subscription. We deliver the SIGNAL$. First.">
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -4579,13 +4579,13 @@ html[data-theme=light] .upl a{color:#C15F3C}
 
   <div id="step-checkout" style="display:none">
     <button class="back" id="back-to-auction">&larr; Change auction</button>
-    <h1>One Shapira Report — $25</h1>
+    <h1>One SIGNAL$ Property Report — $25</h1>
     <div class="summary" id="checkout-summary"></div>
     <form id="f">
       <label for="email">Email address (report delivered here)</label>
       <input type="email" id="email" name="email" required placeholder="you@example.com">
       <label class="consent"><input type="checkbox" id="consent" name="consent"> Send me occasional auction intelligence updates (optional)</label>
-      <button type="submit" class="btn" id="btn">Get My Shapira Report — $25</button>
+      <button type="submit" class="btn" id="btn">Get My SIGNAL$ Property Report — $25</button>
       <div class="err" id="err"></div>
     </form>
   </div>
@@ -4646,7 +4646,7 @@ if (PREFILL && PREFILL.mca_id) {
       selected.opening_bid=d.opening_bid;
       selected.sale_type=d.sale_type;
       document.getElementById('btn').disabled=false;
-      document.getElementById('btn').textContent='Get My Shapira Report — $25';
+      document.getElementById('btn').textContent='Get My SIGNAL$ Property Report — $25';
       goToCheckout();
     } else {
       document.getElementById('btn').textContent='Property not found';
@@ -4754,9 +4754,9 @@ document.getElementById('f').addEventListener('submit', async function(e){
         try{if(window.posthog)posthog.identify(hashedEmail,{county_interest:selected.county,source:'buy_report'});}catch(e2){}
         window.location.href=r.data.url;
       }
-      else{ err.textContent=r.data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My Shapira Report — $25'; }
+      else{ err.textContent=r.data.error||'Something went wrong. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My SIGNAL$ Property Report — $25'; }
     })
-    .catch(function(){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My Shapira Report — $25'; });
+    .catch(function(){ err.textContent='Network error. Please try again.'; err.style.display='block'; btn.disabled=false; btn.textContent='Get My SIGNAL$ Property Report — $25'; });
 });
 </script></body></html>`;
 
@@ -6177,7 +6177,7 @@ nav{background:rgba(245,240,232,.94);border-bottom-color:var(--orange)}
       </div>
     </div>
 
-    <p class="proof-footnote">Every Shapira report ships with this scorecard — the prediction is published pre-sale and graded automatically against the courthouse record within 24 hours.</p>
+    <p class="proof-footnote">Every SIGNAL$ Property Report ships with this scorecard — the prediction is published pre-sale and graded automatically against the courthouse record within 24 hours.</p>
   </div>
 </section>
 
@@ -6222,7 +6222,7 @@ nav{background:rgba(245,240,232,.94);border-bottom-color:var(--orange)}
   <div class="lead-inner">
     <div class="section-label">Get the next pre-sale report free.</div>
     <h2 class="section-h" style="font-size:clamp(1.4rem,2.5vw,2rem);font-weight:800;color:#fff;margin-bottom:.5rem;letter-spacing:-.02em">Get the next pre-sale report free.</h2>
-    <p style="color:var(--slate);font-size:15px;line-height:1.6">Choose your county. We'll send you one full S5 Shapira report from an upcoming sale — scorecard included when the outcome lands.</p>
+    <p style="color:var(--slate);font-size:15px;line-height:1.6">Choose your county. We'll send you one full SIGNAL$ Property Report from an upcoming sale — scorecard included when the outcome lands.</p>
 
     <div id="lead-form-wrap">
       <select class="county-select" id="lead-county">
@@ -6329,7 +6329,7 @@ nav{background:rgba(245,240,232,.94);border-bottom-color:var(--orange)}
 
     <div class="pricing-grid">
       <div class="price-card">
-        <div class="price-tier">S5 Single Report</div>
+        <div class="price-tier">SIGNAL$ Single Report</div>
         <div class="price-amount">$25<span> one-time</span></div>
         <div class="price-desc">All 18 sections on one property. Full ZoneWise zoning intelligence. Free scorecard re-issue when the outcome lands.</div>
         <a class="price-cta" href="/buy-report">Get a report →</a>
