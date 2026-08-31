@@ -1,0 +1,148 @@
+-- Gold Standard live FIX session -- brevard letter I (property card completeness)
+-- key=brevard-I (county=brevard, letter=I, property card completeness)
+-- dispatch: 999b87f8 (2026-08-31)
+--
+-- BASELINE (pencil_dod_evaluate_county('brevard') at session start, live,
+-- 2026-08-31): I: card_complete=6316 of 7348 (86.0%), FAIL (need >=95%).
+-- All other letters (A,B,C,D,E,F,G,H,J) PASS. auctions_total=7348.
+--
+-- SCOPE: the prior closeout report's explicit "next-session levers" item (b)
+-- -- the 16-row parcel_id-IS-NULL / data_source<>'propertyonion' population
+-- (a genuinely narrower, previously-unaudited subset of the parcel_id-IS-NULL
+-- gap, distinct from the data_source-filtered populations worked by
+-- scripts/brevard_i_clerk_noblk_legal_backfill_7bcb4434.py and
+-- scripts/brevard_i_clerk_platform_legal_backfill_e91f7a52.py). List
+-- re-verified live via PostgREST immediately before running -- unchanged
+-- from the dispatch brief, all 16 case numbers still present.
+--
+-- SCRIPT: scripts/brevard_i_shard1_999b87f8_backfill.py (forked verbatim
+-- from the e91f7a52 script -- AcclaimWeb Case Number search -> legal
+-- description regex (BLK-first, no-BLK fallback) -> gis.brevardfl.gov
+-- PLAT_BOOK/PLAT_PAGE(/BLOCK)/LOT single-feature resolve -> fabrication
+-- guard on STREET_NAME=UNKNOWN/CONFIDENTIAL -> idempotent PostgREST PATCH
+-- guarded by parcel_id=is.null&case_number=eq.<X>&county=eq.brevard).
+--
+-- RESULT (dry-run then --apply, single throttled AcclaimWeb session, no
+-- parallelization): of 16 rows,
+--   no_legal (condo/metes-and-bounds, unparseable by LOT+PB+PG regex) = 13
+--     05-2021-CA-049250-XXXX-XX, 05-2023-CA-054344-XXXX-XX,
+--     05-2023-CC-054131-XXXX-XX, 05-2024-CC-061068-XXCC-BC,
+--     05-2025-CA-024861-XXCA-BC, 05-2025-CA-039290-XXCA-BC,
+--     05-2025-CA-039583-XXCA-BC, 05-2025-CA-039826-XXCA-BC,
+--     05-2025-CA-046960-XXCA-BC, 05-2025-CA-048107-XXCA-BC,
+--     05-2025-CA-052989-XXCA-BC, 05-2025-CC-031709-XXCC-BC,
+--     05-2025-CC-057622-XXCC-BC
+--   ambiguous GIS match (0 or >1 features, correctly skipped, not guessed) = 2
+--     05-2024-CA-053818-XXCA-BC (noblk lot=14 pb=0010 pg=0057 -> 4 features)
+--     05-2025-CA-015733-XXCA-BC (blk lot=13 blk=379 pb=0015 pg=0010 -> 0 features)
+--   RESOLVED to exactly 1 GIS feature = 1
+--     05-2025-CC-051498-XXCC-BC -> TaxAcct=2460880, legal="LT 123 PB 57
+--     PG 49  ADAMSON CREEK PHASE ONE-A S 22 T 24 R 35 SUBID 25", GIS feature
+--     STREET_NAME="CONFIDENTIAL" (Address Confidentiality Program parcel).
+--
+-- FABRICATION GUARD APPLIED: property_address was NOT written for the
+-- resolved row (real GIS confidentiality flag, not a fabricated address).
+-- parcel_id/latitude/longitude/assessed_value WERE written (real GIS values,
+-- legitimate per the confidential-row carve-out in the dispatch brief).
+--
+-- WRITE APPLIED (id=f4337ddf-278c-43e7-98e5-6d9828039d5b, case
+-- 05-2025-CC-051498-XXCC-BC), via idempotent PostgREST PATCH
+-- (?parcel_id=is.null&case_number=eq.05-2025-CC-051498-XXCC-BC&county=eq.brevard,
+-- Prefer: return=representation, rows_affected=1, confirmed in response):
+--   parcel_id = '2460880'
+--   latitude  = 28.379438895096314
+--   longitude = -80.8179775588836
+--   assessed_value = 253160
+--   property_address left NULL (confidentiality guard)
+--
+-- ADVERSARIAL VERIFICATION -- CRITICAL FINDING: this script's own
+-- zone_linked() check queried v_zoning_gold_standard_card(county=brevard,
+-- tax_account=2460880) and found a matching row with zone_code='REU'
+-- (Rural Estate Use Residential, jurisdiction_id=13), reporting
+-- zone_linked=True. This is the SAME misleading signal a prior session
+-- (20260828_gold_standard_seminole_i_3row_value_geo_backfill_no_metric_effect.sql)
+-- flagged: v_zoning_gold_standard_card returns one deduplicated
+-- representative sample row per (jurisdiction_id, zone_code) pair, NOT a
+-- per-parcel completeness join surface. Independently queried
+-- zoning_assignments directly for parcel_id='2460880' (0 rows), the
+-- dash-normalized GIS parcel_id '24 3522-25-*-123' (0 rows exact match),
+-- and an ILIKE '*3522-25*' sweep (149 rows returned, all for OTHER lot
+-- numbers in the same subdivision/section -- e.g. '24 3522-25-*-14',
+-- '24 3522-25-*-147' -- none for '-123' specifically) and an ILIKE '*123*'
+-- sweep across all of brevard zoning_assignments (155 rows, none matching
+-- '24 3522-25-*-123' or '2460880' in any form). CONFIRMED: this specific
+-- parcel has NO row in zoning_assignments under any parcel_id format
+-- tried. The v_zoning_gold_standard_card "hit" was a false positive for
+-- per-row zone-linkage purposes, exactly as the seminole session predicted
+-- would keep happening until the evaluator's true internal join key is
+-- identified from the function body directly (not exposed via
+-- PostgREST/pooler in this session either -- psql auth to the pooler
+-- failed for both direct (5432) and transaction (6543) ports with this
+-- session's SUPABASE_DB_PASSWORD).
+--
+-- METRIC EFFECT: re-ran pencil_dod_evaluate_county('brevard') after the
+-- write. I metric UNCHANGED: card_complete=6316 of 7348 (86.0%), byte-
+-- identical detail string and percentage to the pre-write baseline. No
+-- regression on any of the 9 passing letters (A/B/C/D/F/G/J unchanged;
+-- E improved 7309->7310 parcel_linked, a legitimate independent side
+-- effect of the parcel_id write; H ticked 2.0->0.0 hours, the freshness
+-- clock, still well under the 48h SLA).
+--
+-- CONCLUSION: this session's write is real, correctly sourced from a live
+-- AcclaimWeb legal description and a live single-feature GIS match, and
+-- correctly fabrication-guarded (no confidential address invented). It is
+-- reported as APPLIED, not reverted -- it is legitimate data quality
+-- improvement (parcel_id/geo/value populated where previously null,
+-- confirmed by the independent E-metric parcel_linked increment). But it
+-- had ZERO measured effect on the letter-I evaluator metric, because the
+-- resolved parcel is not actually present in zoning_assignments despite
+-- appearing zone-linked via the (non-authoritative for per-row purposes)
+-- v_zoning_gold_standard_card view. Per BLANK > WRONG, no card_complete
+-- gain is claimed. The remaining 15 rows in this session's 16-row target
+-- population are genuine, differently-shaped structural blocks from the
+-- populations prior sessions exhausted: 13 are condo/metes-and-bounds legal
+-- descriptions this LOT+PB+PG regex method cannot parse (a different
+-- failure mode than "UNKNOWN street name" or "zero GIS feature" -- these
+-- have NO resolvable plat-lot legal description at all, so the method
+-- cannot even attempt a GIS query), and 2 are genuinely ambiguous GIS
+-- matches (0 or 4 features) correctly skipped rather than guessed.
+--
+-- NEW FINDING FOR FUTURE SESSIONS: (1) v_zoning_gold_standard_card is
+-- confirmed (now twice, seminole + brevard) to NOT be a reliable per-row
+-- zone-linkage signal -- future sessions should query zoning_assignments
+-- directly by exact parcel_id before predicting a card_complete flip.
+-- (2) This 16-row population is now provably NOT a productive lever for
+-- the LOT+PB+PG/AcclaimWeb method -- 13/16 fail at the legal-description
+-- parsing step (condo/apartment-unit legals, not platted lots), a
+-- genuinely different and harder blocker than either confirmed structural
+-- bucket already documented in
+-- 20260827_gold_standard_shard1_8f944a71_brevard_i_geo_backfill_structural_block.sql.
+-- A future session would need a condo/unit-legal parser or a different
+-- data source (e.g. BCPAO account-number lookup by owner/case) to make
+-- progress on this specific 13-row sub-bucket.
+--
+-- ============================================================================
+-- VERIFICATION (before/after this session's write, all 10 letters)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('brevard');
+-- BEFORE: {"A":{"pass":true,"detail":"fc=6384 td=964","metric":964},
+--   "B":{"pass":true,"detail":"verified=297 closed_sold=301","metric":98.7},
+--   "C":{"pass":true,"detail":"matched_clean=7060","metric":96.1},
+--   "D":{"pass":true,"detail":"matched_any=7081","metric":96.4},
+--   "E":{"pass":true,"detail":"parcel_linked=7309","metric":99.5},
+--   "F":{"pass":true,"detail":"tier1_sold=298 closed_sold=301","metric":99.0},
+--   "G":{"pass":true,"detail":"density=99.7 far=99.1 pk1000=100.0","metric":99.1},
+--   "H":{"pass":true,"detail":"hours since last_seen (SLA 48h)","metric":2.0},
+--   "I":{"pass":false,"detail":"card_complete=6316 of 7348","metric":86.0},
+--   "J":{"pass":true,"detail":"deal_complete=7172 (triangle + two-arm CMA + ml_score + max_bid)","metric":97.6},
+--   "county":"brevard","V2_LITMUS":null,"auctions_total":7348}
+-- AFTER (post 1-row parcel_id/geo/value write): identical on all letters
+--   except E (parcel_linked 7309->7310, expected) and H (freshness clock,
+--   2.0->0.0, still well under SLA); I UNCHANGED at
+--   {"pass":false,"detail":"card_complete=6316 of 7348","metric":86.0}.
+-- No regression on any of the 9 passing letters.
+--
+-- No further writes attempted this session. Per repo convention this file
+-- is a documentation-only audit trail for the write already applied live
+-- via PostgREST PATCH (not re-applied here as SQL, since it was already
+-- executed and verified against production during this session).
