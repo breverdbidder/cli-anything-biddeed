@@ -364,7 +364,7 @@ def classify_docs(case_number, parcel_id, county, docs, source="duval_acclaimweb
                 "rule_category": "JUDGMENT",
                 "rule_name": doc_type.strip(),
                 "severity": "high",
-                "defect_description": f"{doc_type} recorded {rec_date}, book/page {book_page}, instrument {d.get('InstrumentNumber')}, {direct} v {indirect} (Duval AcclaimWeb case-number search — this case's own foreclosure judgment)",
+                "defect_description": f"{doc_type} recorded {rec_date}, book/page {book_page}, instrument {d.get('InstrumentNumber')}, {direct} v {indirect} ({source} — this case's own foreclosure judgment)",
                 "affected_parties": [p for p in (direct, indirect) if p],
                 "auto_detected": True,
             })

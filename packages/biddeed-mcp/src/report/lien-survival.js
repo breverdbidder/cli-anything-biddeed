@@ -34,6 +34,32 @@ const TAXDEED_BASIS = 'Fla. Stat. §197.552 (tax deed extinguishment), with mech
 
 const NO_DATA_STATEMENT = 'Insufficient recorded-document data on file to classify this lien\'s survival — recording date/priority not on file. Not classified as survives or extinguished.';
 
+const SEARCHED_CLEAN_DISCLOSED_LIMITS = 'This was a name/case-index search against the county\'s recorded-document system, not exhaustive title abstraction — a lien recorded under a differently spelled name variant (e.g. an LLC\'s old name), or not yet indexed by the source system, would not appear here.';
+
+// Distinguishes "a harvest ran for this case and found zero third-party
+// liens" from "nothing was ever searched" — title_defects rows sharing this
+// case_number/parcel_id (the case's own Ch.197/Lis-Pendens filings, written
+// by the pre-auction harvesters) are proof a search executed even when
+// lien_results (third-party liens found) has zero rows for the same subject.
+// Without this check both states render the identical generic
+// "insufficient recorded-document coverage" message, which is false for the
+// searched-clean case: coverage exists, the search ran, it just found nothing.
+async function checkSearchedClean({ case_number, parcel_id }, { get }) {
+  const filters = [];
+  if (case_number) filters.push(`case_number.eq.${encodeURIComponent(case_number)}`);
+  if (parcel_id)   filters.push(`parcel_id.eq.${encodeURIComponent(parcel_id)}`);
+  if (!filters.length) return { searched: false };
+  const query = filters.length > 1 ? `or=(${filters.join(',')})` : filters[0].replace('.', '=');
+
+  const rows = await get(`title_defects?${query}&select=defect_description&limit=1`).catch(() => null);
+  if (!rows || rows.length === 0) return { searched: false };
+
+  const desc = rows[0].defect_description || '';
+  const sourceMatch = desc.match(/\(([^()]*)\)/);
+  const source = sourceMatch ? sourceMatch[1].split(' -- ')[0].trim() : 'recorded-document search';
+  return { searched: true, source };
+}
+
 function baseItem(lien) {
   return {
     lien_type: lien.lien_type || 'Pending — lien type not on file',
@@ -151,7 +177,16 @@ export async function classify({ case_number, parcel_id, sale_type } = {}, { get
   ).catch(() => null);
 
   if (!rows || rows.length === 0) {
-    return { available: false, reason: 'no recorded-document coverage on file for this parcel/case', items: [], n_items: 0, statutory_basis: null };
+    const searchState = await checkSearchedClean({ case_number, parcel_id }, { get });
+    if (searchState.searched) {
+      return {
+        available: false,
+        searched: true,
+        reason: `Recorded-document search completed via ${searchState.source}; zero third-party lien instruments found. Disclosed limits: ${SEARCHED_CLEAN_DISCLOSED_LIMITS}`,
+        items: [], n_items: 0, statutory_basis: null,
+      };
+    }
+    return { available: false, searched: false, reason: 'no recorded-document coverage on file for this parcel/case', items: [], n_items: 0, statutory_basis: null };
   }
 
   const isTaxDeed = String(sale_type || '').toLowerCase() === 'tax_deed';

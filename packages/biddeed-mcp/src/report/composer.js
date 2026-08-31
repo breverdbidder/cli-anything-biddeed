@@ -554,7 +554,9 @@ async function sectionComposition({ locatable, lienSurvival }, { get = defaultGe
   if (!isLive('lien_survival')) {
     lienSurvivalStatus = { section_key: 'lien_survival', status: `Pending — Title Tier 2 (lien survival, Fla. Stat. §197.552/§713.07) internal-preview-only, not yet shipped to customers (ship_status=${gates.lien_survival?.ship_status || 'unknown'})` };
   } else if (!lienSurvival?.available) {
-    lienSurvivalStatus = { section_key: 'lien_survival', status: `Pending — insufficient recorded-document coverage for this county (${lienSurvival?.reason || 'no data on file'})` };
+    lienSurvivalStatus = lienSurvival?.searched
+      ? { section_key: 'lien_survival', status: `Pending — ${lienSurvival.reason}` }
+      : { section_key: 'lien_survival', status: `Pending — insufficient recorded-document coverage for this county (${lienSurvival?.reason || 'no data on file'})` };
   } else {
     lienSurvivalStatus = { section_key: 'lien_survival', status: 'delivered', disclosure: gates.lien_survival.disclosure_text };
   }

@@ -551,6 +551,16 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
         ${lienDisclosureText ? `<div class="model-disclosure" style="margin-top:10px;font-size:11px">${escHtml(lienDisclosureText)}</div>` : ''}
         ${internal ? `<div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#F59E0B">INTERNAL PREVIEW: real ship_status for this section in production is "${escHtml(lienGate.status || 'unknown')}" — this content is withheld from every customer-facing report until a human flips that flag.</div>` : ''}
       </div>`;
+  } else if (internal && lienSurvival.searched === true) {
+    // Searched-clean (issue #19661 follow-on, §16 honesty fix): a harvest
+    // ran for this subject and found zero third-party lien instruments —
+    // NOT the same fact as "nothing was ever searched", so this must not
+    // render the generic ship-gate/no-coverage message either one uses.
+    lienSurvivalHtml = `
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Status</span><span class="row-v">Recorded-document search completed — zero third-party lien instruments found</span></div>
+        <div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#F59E0B">INTERNAL PREVIEW: ${escHtml(lienSurvival.reason)}</div>
+      </div>`;
   } else {
     lienSurvivalHtml = `<div class="pending">${escHtml(lienGate.status || 'Pending — Title Tier 2 (lien survival) not yet live for this county')}</div>`;
   }

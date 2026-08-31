@@ -413,8 +413,37 @@ test('§16 lien_survival: ship_status=live but no recorded-document coverage on 
   };
   const report = await buildReport(AUCTION_PALM_BEACH, { get });
   assert.equal(report.lien_survival.available, false);
+  assert.equal(report.lien_survival.searched, false);
   assert.match(report.composition.lien_survival.status, /insufficient recorded-document coverage/,
     'no lien_results rows for this parcel must render the exact insufficient-coverage Pending reason, not fall back silently to only the red-flags heuristic');
+});
+
+// Live defect (issue #19661 remaining-11 follow-on): 5 Pasco/Bay/Pinellas
+// harvest-complete cases had 0 lien_results rows but real title_defects rows
+// (proof a search ran) — the code above rendered them identically to a
+// parcel that was NEVER searched, which is false: coverage exists, the
+// search executed, it just found zero third-party lien instruments.
+const TITLE_DEFECTS_ROWS_SEARCHED_CLEAN = [
+  { defect_description: "NOTICE recorded 5/19/2026, book/page 11422/3741, instrument 2026093143, legal '11-26-16' (Pasco Official Records name search on 'TEST OWNER' -- this case's own Ch.197 tax deed application/notice)" },
+];
+
+test('§16 lien_survival: harvest ran (title_defects rows exist) but 0 lien_results → searched-clean, never conflated with insufficient-coverage', async () => {
+  installTinyModel();
+  const get = async (pathStr) => {
+    if (pathStr.startsWith('rpc/get_report_composition_gate')) return COMPOSITION_GATE_LIVE;
+    if (pathStr.startsWith('lien_results')) return [];
+    if (pathStr.startsWith('title_defects')) return TITLE_DEFECTS_ROWS_SEARCHED_CLEAN;
+    return mockGetForPalmBeach()(pathStr);
+  };
+  const report = await buildReport(AUCTION_PALM_BEACH, { get });
+  assert.equal(report.lien_survival.available, false, 'zero third-party liens found is still "not available" — there is nothing to classify');
+  assert.equal(report.lien_survival.searched, true,
+    'title_defects rows for this case_number are proof a harvest actually ran and must flip searched=true');
+  assert.match(report.lien_survival.reason, /zero third-party lien instruments found/);
+  assert.doesNotMatch(report.lien_survival.reason, /no recorded-document coverage/,
+    'a searched-clean subject must never reuse the never-searched wording — those are different facts');
+  assert.doesNotMatch(report.composition.lien_survival.status, /insufficient recorded-document coverage/,
+    'the customer-facing composition status must also distinguish searched-clean from no-coverage');
 });
 
 // ── §1 tax-deed "Judgment Amount: Pending" fix (issue #19662) ──────────────
