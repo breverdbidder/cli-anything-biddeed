@@ -35,6 +35,13 @@ County choice — Duval, live-verified this session (not assumed):
     replicated in plain httpx/urllib (case-number search flow only --
     confirmed working, real JSON: {"Data":[...],"Total":N}).
 
+County expansion (follow-on to #19657) — santa_rosa added, gold-certified
+and live-reachable, but currently BLOCKED on case_lookup(): see the
+COUNTY_ACCLAIM dict's santa_rosa comment for the disclosed root cause (its
+AcclaimWeb indexes an internal docket number, not the UCN case_number we
+store, and we have no owner-name fallback for this county). Included as an
+honestly-disclosed 0-yield expansion, not a working second county yet.
+
 Owner/party NAME search (SOLVED, follow-on to #19657's disclosed gap):
 Duval AcclaimWeb's SearchTypeName is a 3-step flow, reverse-engineered live
 via Playwright driving the real UI (see verification/ for the captured
@@ -98,8 +105,33 @@ THROTTLE = 2.5
 
 # county -> AcclaimWeb base URL + whether it uses the /AcclaimWeb/ path
 # prefix (Brevard-style, classic ASP.NET MVC) or not (Duval-style, Kendo UI).
+#
+# santa_rosa added (county expansion follow-on to #19657): verified live
+# 2026-08-31 -- gold_standard_certifications.certified=true (42 consecutive
+# gold runs), 13 genuinely-future 'upcoming' auctions in the next 14 days,
+# and acclaim.srccol.com/AcclaimWeb/ reachable (HTTP 200, real disclaimer +
+# SearchTypeName form, same Kendo BookTypes fields as Duval's build). This
+# CONTRADICTS nothing prior -- santa_rosa's AcclaimWeb reachability was not
+# previously assumed or checked for this pipeline.
+#
+# KNOWN GAP, disclosed not worked around: santa_rosa's AcclaimWeb indexes
+# documents under the CLERK'S OWN internal docket number (verified live via
+# Playwright, e.g. "25000824CAMXAX" = 2-digit year + 6-digit sequence + case
+# type + judge/division suffix), NOT the standard Florida Uniform Case
+# Number (UCN) format stored in multi_county_auctions.case_number (e.g.
+# "57-2025-CA-000824-CA-AXMX" family) -- confirmed by cross-referencing a
+# real "000824" substring search against 11 real unrelated cases sharing
+# that sequence, none of which UCN-format-match our stored value. No
+# defendant/owner_name column is populated for santa_rosa rows either, so
+# name_lookup() has no fallback search key. Real result of a live run this
+# session: 0 title_defects/lien_results added for 5 genuinely-future
+# santa_rosa auctions (4 case numbers -> 0 documents found; case "2026122"
+# -> 1 unrelated doc, no lien/judgment match). This needs either a UCN <->
+# internal-docket crosswalk or an owner-name data source before it can
+# harvest -- not attempted this session.
 COUNTY_ACCLAIM = {
     "duval": {"base": "https://or.duvalclerk.com", "prefix": ""},
+    "santa_rosa": {"base": "https://acclaim.srccol.com", "prefix": "/AcclaimWeb"},
 }
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -182,10 +214,21 @@ class AcclaimSession:
              "Referer": self.base + f"{self.prefix}/search/SearchTypeCaseNumber"}
         self._req(self.base + f"{self.prefix}/search/SearchTypeCaseNumber?Length=6", data=payload, hdrs=h)
         body = self._req(self.base + f"{self.prefix}/search/GridResults", data="page=1&size=200", hdrs=h)
+        return self._extract_grid_data(body)
+
+    @staticmethod
+    def _extract_grid_data(body):
+        """GridResults' JSON key casing differs by AcclaimWeb build: Duval's
+        Kendo UI returns PascalCase {"Data":[...],"Total":N}; Santa Rosa's
+        classic ASP.NET MVC build (like Brevard's, see acclaim_case_lookup.py)
+        returns lowercase {"data":[...],"total":N} -- verified live 2026-08-31
+        against both. Checking both keys keeps one case_lookup()/name_lookup()
+        implementation working across both AcclaimWeb generations."""
         try:
-            return json.loads(body).get("Data", [])
+            d = json.loads(body)
         except Exception:
             return []
+        return d.get("Data") if d.get("Data") is not None else d.get("data", [])
 
     def name_lookup(self, name):
         """Documents recorded anywhere in Duval under this party's name --
@@ -217,10 +260,7 @@ class AcclaimSession:
         })
         self._req(self.base + f"{self.prefix}/Search/SearchTypePreName", data=step2, hdrs=h)
         body = self._req(self.base + f"{self.prefix}/Search/GridResults", data="sort=&group=&filter=", hdrs=h)
-        try:
-            return json.loads(body).get("Data", [])
-        except Exception:
-            return []
+        return self._extract_grid_data(body)
 
     @staticmethod
     def _build_name_list_selector(html):
