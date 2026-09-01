@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { validateKey, assertTier, resolveApiKey, AuthError } from './auth.js';
 import { validateOAuthToken, resolveCustomerFromOAuth, isJwtLike } from './oauth.js';
 import { recordBilling, checkChargeAllowance, logChargeOutcome } from './billing.js';
+import { checkAndSpendCredits } from './credits.js';
 import { computeIdempotencyKey, claimIdempotencyKey, completeIdempotencyKey } from './idempotency.js';
 import { captureToolCall } from './posthog.js';
 import { logUsage } from './usage-log.js';
@@ -226,6 +227,23 @@ export async function handleToolCall(apiKey, name, args = {}, requestId) {
     completeIdempotencyKey({ idempotencyKey, response: gateResult, isError: true }).catch(() => {});
     return {
       content: [{ type: 'text', text: JSON.stringify(gateResult) }],
+      isError: true,
+    };
+  }
+
+  // Token/credit wallet (Ariel directive, Aug 31 2026) — runs in the same
+  // slot evaluateCertGate occupies for S5: before the tool executes, before
+  // the tier-allowance check below. Layers alongside checkChargeAllowance,
+  // does not replace it (tier-gate removal is an explicit follow-up issue).
+  // Fails CLOSED (see credits.js header) — an unreachable wallet blocks the
+  // call rather than letting it through free.
+  const creditResult = await checkAndSpendCredits({ customerRecord, toolName: name, streamId, mcaId: args.mca_id || null });
+  if (!creditResult.ok) {
+    logChargeOutcome({ customerId: customerRecord.customer_id, toolName: name, streamId, outcome: creditResult.outcome });
+    const errorResponse = { error: creditResult.message, code: 'INSUFFICIENT_CREDITS', balance: creditResult.balance, cost: creditResult.cost };
+    completeIdempotencyKey({ idempotencyKey, response: errorResponse, isError: true }).catch(() => {});
+    return {
+      content: [{ type: 'text', text: JSON.stringify(errorResponse) }],
       isError: true,
     };
   }

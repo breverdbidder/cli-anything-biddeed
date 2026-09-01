@@ -174,6 +174,99 @@ async function handleS5OnetimeCheckout(body: any): Promise<Response> {
   return jsonRes({ url: session.url, session_id: session.id });
 }
 
+// Token/credit wallet (Ariel directive, Aug 31 2026) — one-time Stripe
+// Checkout Sessions for prepaid credit packs. Credits are granted server-
+// side by processCreditPackCompletion() in packages/biddeed-mcp/src/
+// webhook.js on checkout.session.completed, never trusted from the client.
+// Amounts and bonus % are fixed here (server-side), matching the
+// S5_ONETIME_AMOUNT_CENTS "never trust a client-supplied price" pattern.
+const CREDIT_PACKS: Record<string, { amountCents: number; credits: number; label: string }> = {
+  starter: { amountCents: 2000, credits: 2200, label: "Starter — 2,200 credits" },
+  growth: { amountCents: 9900, credits: 11880, label: "Growth — 11,880 credits" },
+  pro: { amountCents: 10000, credits: 12000, label: "Pro — 12,000 credits" },
+};
+const CREDIT_PACK_SUCCESS_URL = "https://biddeed.ai/credits/success";
+const CREDIT_PACK_CANCEL_URL = "https://biddeed.ai/credits/buy";
+
+async function handleCreditPackCheckout(body: any): Promise<Response> {
+  const { pack, customer_email: customerEmail, api_key: apiKey } = body;
+  if (!pack || !CREDIT_PACKS[pack]) {
+    return jsonRes({ error: `pack must be one of: ${Object.keys(CREDIT_PACKS).join(", ")}` }, 400);
+  }
+  if (!customerEmail || typeof customerEmail !== "string") {
+    return jsonRes({ error: "customer_email required" }, 400);
+  }
+  const packConfig = CREDIT_PACKS[pack];
+  const supabase = await getAdminClient();
+
+  let customerId: string;
+  if (apiKey && typeof apiKey === "string") {
+    const keyHash = await sha256Hex(apiKey);
+    const { data: keyRows } = await supabase
+      .from("mcp_api_keys")
+      .select("customer_id")
+      .eq("key_hash", keyHash)
+      .limit(1);
+    if (!keyRows?.length) return jsonRes({ error: "invalid api_key" }, 401);
+    customerId = keyRows[0].customer_id;
+  } else {
+    try {
+      customerId = await findOrCreateColdCustomer(customerEmail.toLowerCase().trim());
+    } catch (e) {
+      console.error("findOrCreateColdCustomer failed (credit pack):", (e as Error).message);
+      return jsonRes({ error: "could not resolve customer record" }, 500);
+    }
+  }
+
+  const stripeKey = await resolveStripeKey();
+  if (!stripeKey) {
+    return jsonRes({ error: "stripe key not configured (vault + env both empty)" }, 503);
+  }
+
+  const params = new URLSearchParams({
+    mode: "payment",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][product_data][name]": `BidDeed.AI Credits — ${packConfig.label}`,
+    "line_items[0][price_data][unit_amount]": String(packConfig.amountCents),
+    "line_items[0][quantity]": "1",
+    customer_email: customerEmail,
+    success_url: `${CREDIT_PACK_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: CREDIT_PACK_CANCEL_URL,
+    "metadata[product]": "credit_pack",
+    "metadata[pack]": pack,
+    "metadata[credits]": String(packConfig.credits),
+    "metadata[customer_id]": customerId,
+    "metadata[customer_email]": customerEmail,
+  });
+
+  const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${stripeKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+
+  if (!stripeRes.ok) {
+    const errText = await stripeRes.text();
+    console.error("stripe checkout.sessions.create (credit_pack) failed:", stripeRes.status, errText.slice(0, 300));
+    return jsonRes({ error: "stripe session creation failed" }, 502);
+  }
+
+  const session = await stripeRes.json();
+
+  // NOT recorded in stripe_checkout_sessions: that table's tier_id is
+  // NOT NULL with an FK to mcp_subscription_tiers and billing_interval is
+  // constrained to ('monthly','annual') only (verified live via
+  // pg_get_constraintdef) — neither fits a tier-less one-time credit
+  // purchase, and this migration is additive-only (does not alter existing
+  // tables). mcp_credit_ledger.stripe_payment_id is the audit trail for
+  // credit-pack purchases instead — populated by processCreditPackCompletion
+  // in packages/biddeed-mcp/src/webhook.js on checkout.session.completed.
+  return jsonRes({ url: session.url, session_id: session.id, pack, credits: packConfig.credits });
+}
+
 const COLD_SUCCESS_URL = "https://biddeed.ai/success";
 const COLD_CANCEL_URL = "https://biddeed.ai/subscribe";
 
@@ -322,6 +415,10 @@ Deno.serve(async (req: Request) => {
 
   if (body.tier === "s5_onetime") {
     return handleS5OnetimeCheckout(body);
+  }
+
+  if (body.product === "credit_pack") {
+    return handleCreditPackCheckout(body);
   }
 
   if (!body.api_key && body.customer_email) {

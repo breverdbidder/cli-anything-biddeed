@@ -196,6 +196,49 @@ async function processS5OnetimeCompletion(session) {
   await logOpsResult(caseNumber, session.id, 'VERIFIED', 'info', `delivered to ${email}`);
 }
 
+// Token/credit wallet (Ariel directive, Aug 31 2026) — grants the purchased
+// credits once the Checkout Session actually completes. Trusts only
+// metadata that biddeed-checkout itself set at session-creation time
+// (customer_id, credits), same trust boundary as processCheckoutCompletion
+// above — never a client-supplied amount. mcp_credit_grant is idempotent-
+// safe to call twice for the same session in the sense that it will not
+// corrupt the balance (each call is a real, intentional +credits grant) but
+// IS NOT deduped against stripe event_id here — stripe_webhook_events'
+// event_id primary key is what protects against Stripe's own redelivery
+// retries; this function is only reached once per unique event.id already.
+async function processCreditPackCompletion(session) {
+  const metadata = session.metadata || {};
+  if (metadata.product !== 'credit_pack') return;
+
+  const customerId = metadata.customer_id;
+  const credits = Number(metadata.credits);
+  if (!customerId || !Number.isFinite(credits) || credits <= 0) {
+    process.stderr.write(`[stripe/webhook] credit_pack completion missing/invalid metadata for session ${session.id}\n`);
+    return;
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/mcp_credit_grant`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      p_customer_id: customerId,
+      p_delta: credits,
+      p_reason: 'purchase',
+      p_stripe_payment_id: session.payment_intent || session.id,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    process.stderr.write(`[stripe/webhook] mcp_credit_grant failed for session ${session.id}: ${errText.slice(0, 300)}\n`);
+    return;
+  }
+  const result = await res.json();
+  if (!result?.ok) {
+    process.stderr.write(`[stripe/webhook] mcp_credit_grant rejected for session ${session.id}: ${JSON.stringify(result).slice(0, 300)}\n`);
+  }
+}
+
 export async function handleStripeWebhook(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
@@ -261,6 +304,9 @@ export async function handleStripeWebhook(req, res) {
     });
     await processS5OnetimeCompletion(event.data.object).catch(err => {
       process.stderr.write(`[stripe/webhook] s5_onetime completion post-processing failed for ${event.id}: ${err.message}\n`);
+    });
+    await processCreditPackCompletion(event.data.object).catch(err => {
+      process.stderr.write(`[stripe/webhook] credit_pack completion post-processing failed for ${event.id}: ${err.message}\n`);
     });
   }
 
