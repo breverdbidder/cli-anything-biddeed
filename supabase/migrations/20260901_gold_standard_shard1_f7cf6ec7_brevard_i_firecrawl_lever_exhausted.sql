@@ -1,0 +1,110 @@
+-- Gold Standard shard-1 (dispatch f7cf6ec7), 2026-09-01
+-- brevard, letter I (property card completeness)
+--
+-- BOUNDED-ATTEMPT SESSION per dispatch instructions: this letter has been
+-- exhaustively diagnosed across 7+ prior sessions (see
+-- scripts/gold_standard_shard1_a96722e9_brevard_i_bcpao_nal_backfill.py,
+-- scripts/gold_standard_shard1_35db0a28_brevard_i_gis_backfill.py, and
+-- supabase/migrations/20260830_gold_standard_shard1_62c0b00c_brevard_i_freshness_pass_no_writes.sql).
+-- This session's SPECIFIC, EXPLICITLY-ASSIGNED job was to try the one
+-- residual, previously-untried lever those sessions flagged: Firecrawl
+-- against bcpao.us for the subset of card-incomplete rows whose parcel_id
+-- returns ZERO features from Brevard County's own live GIS layer (i.e. the
+-- only rows where a *different* source could plausibly surface something
+-- the GIS layer doesn't have).
+--
+-- ── Step 1: Live baseline (VERIFIED, public.pencil_dod_evaluate_county('brevard')) ──
+--   I: {"pass": false, "detail": "card_complete=6321 of 7362", "metric": 85.9}
+--   auctions_total: 7362
+-- Needs >=95% (~6994 of 7362) to pass. Consistent slow drift from the prior
+-- session's 6316/7348 (86.0%) baseline -- same structural population, +14
+-- total rows, +5 card_complete, net immaterial to the 1,041-row gap.
+--
+-- ── Step 2: Fresh live re-query of the 3 card-incomplete buckets (parcel_id
+--   present), canonical COALESCE-aware evaluator filter, county=brevard ──
+--   property_address IS NULL, parcel_id NOT NULL:                978 rows (977 numeric TaxAcct)
+--   latitude AND po_latitude both NULL, parcel_id NOT NULL:       56 rows (56 numeric TaxAcct)
+--   assessed_value AND market_value both NULL, parcel_id NOT NULL: 6 rows (6 numeric TaxAcct)
+--   distinct numeric TaxAcct values across all 3 buckets: 847
+--
+-- ── Step 3: Live Brevard County GIS query (authoritative system of record) ──
+--   https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_New_WKID2881/MapServer/5/query
+--   Queried all 847 distinct TaxAcct values (6 chunks of <=150, WAF-safe chunk size).
+--   Matched a feature: 792 / 847
+--   NO feature returned at all: 55 / 847  <- the Firecrawl target population
+--     (addr bucket: 50 of these 55; geo bucket: all 56 geo rows map to this
+--      55-TaxAcct set; value bucket: 4 of these 55 -- overlapping TaxAccts,
+--      55 DISTINCT TaxAccts total need Firecrawl, consistent with prior
+--      sessions' ~51-56-row finding)
+--   STREET_NAME=UNKNOWN/blank among the 792 matched features (addr bucket):
+--     790 rows -- genuine no-situs-address parcels per the county's own
+--     system of record, NOT re-attempted this session (already
+--     double/triple-confirmed across 3+ prior sessions via FL DOR + county
+--     GIS agreement; per dispatch instructions this population is
+--     out-of-bounds for this session).
+--
+-- ── Step 4: Firecrawl attempt against bcpao.us (the assigned, previously-
+--   untried lever) for the 55-TaxAcct no-GIS-feature population ──
+--   Direct curl to https://www.bcpao.us/api/v1/account/{TaxAcct} (no
+--   Firecrawl): HTTP 403, Cloudflare "Just a moment..." managed-challenge
+--   page -- confirms bcpao.us remains unreachable from this environment's
+--   IP without a rendering proxy, exactly as documented in the 08-10/a96722e9
+--   session.
+--   Firecrawl POST https://api.firecrawl.dev/v1/scrape against the SAME
+--   bcpao.us account URL: HTTP 402 "Insufficient credits to perform this
+--   request."
+--   Control test: Firecrawl POST against https://example.com (trivial,
+--   zero-cost-equivalent URL, unrelated to bcpao.us): ALSO HTTP 402
+--   "Insufficient credits" -- confirms this is total Firecrawl account-level
+--   credit exhaustion (fleet-wide, matches the note already logged in the
+--   2026-08-30/62c0b00c migration: "Did NOT re-attempt Firecrawl (confirmed
+--   dead, insufficient credits, fleet-wide)"), NOT a bcpao.us-specific
+--   block and NOT something a retry or different request shape would fix.
+--   Zero Firecrawl calls succeeded (attempted 2 of the ~40-call budget
+--   before confirming total exhaustion; stopped immediately per cost
+--   discipline once the control test proved the account has no remaining
+--   credits at all).
+--
+-- ── Step 5: Fabrication guard compliance ──
+-- No value was written for any row. Per HARD GUARDRAILS #2 (FABRICATION
+-- GUARD) and #5 (BLANK > WRONG): the assigned lever (Firecrawl/bcpao.us) is
+-- confirmed unavailable this session (account-level 402, not a data
+-- question), and the two prior independent official sources (FL DOR
+-- Statewide Cadastral, Brevard County's own live GIS) already agree there
+-- is no situs address / no feature for the remaining population. Writing
+-- anything here would require inventing data no live source actually
+-- returned.
+--
+-- CONCLUSION: The letter-I gap (85.9%, need 95%, ~673-row shortfall vs the
+-- current 6321/7362) remains at its structural ceiling for this session.
+-- The dispatch's designated only-untried-lever (Firecrawl against bcpao.us
+-- for the 55-TaxAcct no-GIS-feature bucket) was attempted live and found
+-- categorically unavailable (Firecrawl account has zero credits, confirmed
+-- via a control test against an unrelated trivial URL, not specific to
+-- bcpao.us or this bucket). Even in the theoretical best case where
+-- Firecrawl succeeded for all 55 TaxAccts AND every one yielded a genuine
+-- address/geo/value, the ceiling recoverable is 55 rows (out of a 978+56+6
+-- overlapping-but-mostly-978-row gap) -- moving card_complete from 6321 to
+-- at most ~6376 (~86.6%), still far short of 95%/6994. The dominant
+-- population (790 STREET_NAME=UNKNOWN rows in the addr bucket alone, out of
+-- scope this session per instructions) is the true structural ceiling and
+-- requires Brevard County / BCPAO itself to assign situs addresses to
+-- parcels that currently have none in their own system of record -- not
+-- solvable via any enrichment source available to this session.
+--
+-- ZERO rows written this session. Firecrawl budget used: 2 of ~40 allowed
+-- calls (stopped early once total account exhaustion was confirmed via
+-- control test, per cost discipline -- spending the remaining budget
+-- against a source already proven unreachable would be wasteful, not
+-- diligent).
+--
+-- ============================================================================
+-- VERIFICATION (live, this session)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('brevard');
+-- BEFORE: {"I":{"pass":false,"detail":"card_complete=6321 of 7362","metric":85.9}}
+-- AFTER:  {"I":{"pass":false,"detail":"card_complete=6321 of 7362","metric":85.9}} -- UNCHANGED, zero writes
+-- All other letters (A,B,C,D,E,F,G,H,J) confirmed PASS both before and
+-- after this session (no writes made to any letter, no regression possible).
+
+SELECT 1;

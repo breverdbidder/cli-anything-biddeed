@@ -1,0 +1,119 @@
+-- GOLD STANDARD shard-1 (dispatch f7cf6ec7-66ec-4268-b11e-ddf31f1930a4, county=holmes,
+-- letter=C_D, session 2026-09-01).
+--
+-- NO WRITES THIS SESSION. Honest exhaustion, fabrication guard held. BLANK > WRONG.
+--
+-- ============================================================================
+-- BASELINE (re-verified live via pencil_dod_evaluate_county at session start AND end --
+-- identical, no drift):
+--   C: matched_clean=11 of 16 (68.8%), threshold >=95% (need 15/16) -> FAIL
+--   D: matched_any=11 of 16 (68.8%), threshold >=95% (need 15/16)   -> FAIL
+--   auctions_total=16 (7 matched_clean + 4 PARITY_OK + 5 NULL)
+--
+-- 5 rows with parity_status=NULL, parity_source=NULL, all sale_type='tax_deed':
+--   id=4b5d852e-6c6d-4516-8b55-7b50870f80b4  case=TD#2020-589  parcel=1327.04-001-002-096.000  owner=SAFFORD RUPERT E, II
+--   id=50c12296-35af-44a2-ba45-dab3c3c7c259  case=TD#2023-496  parcel=1316.00-000-000-022.000  owner=MANCILL JAMES ERWIN & MELISSA
+--   id=54f472b4-9267-45cf-b3c4-becbe4dbba2f  case=TD#2023-584  parcel=1327.04-000-000-002.000  owner=WILLIAMS KENNETH ADAMS
+--   id=ad545621-e051-4769-afb3-8c458c436c6a  case=TD#2023-225  parcel=0811.04-001-000-041.000  owner=TRSTE LLC
+--   id=0d66fb95-7ba9-43c3-9908-55a3a6cba2d6  case=TD#2023-185  parcel=0607.00-000-000-005.000  owner=BOWEN BRANDON M & TARA L
+-- All 5 auction_date values have already passed relative to today (2026-09-01): range
+-- 2026-07-07 through 2026-07-21. auction_status still reads 'upcoming' (stale field, not
+-- touched this session -- out of scope for C/D and no live source available to correct it
+-- either, see below).
+--
+-- This is the 4TH consecutive session confirming this exact 5-row gap for holmes C/D
+-- (prior sessions: shard12/run3534 2026-07-10, shard9/ddbb047c 2026-07-10,
+-- shard6/95f77ed6 2026-07-18, shard5/f60cabe3 2026-08-01 -- see
+-- scripts/shard6_run4870_holmes_cd_bf_residual_investigation.py and
+-- scripts/holmes_clerk_fresh_scrape_shard5_run7963.py for prior write-ups). This session
+-- re-ran every avenue fresh rather than citing the prior findings, plus tried genuinely
+-- new angles (Official Records with a real session + matching form fields, Property
+-- Appraiser via the DB-configured holmespa.com URL, holmes county_auction_config /
+-- clerk_sale_calendar_sources / county_appraiser_urls lookups). All confirmed still
+-- blocked or non-dispositive:
+--
+-- 1. Firecrawl (scrape) against holmesclerk.com -- BLOCKED, same as all 4 prior sessions:
+--    {"success":false,"error":"Insufficient credits to perform this request..."}
+--    FIRECRAWL_API_KEY is set but the account balance is still exhausted.
+--
+-- 2. holmesclerk.com/courts/foreclosures-tax-deeds/tax-deeds/ -- fresh live fetch (plain
+--    HTTP + WP REST API /wp-json/wp/v2/pages?slug=tax-deeds), confirmed genuinely current
+--    (modified_gmt=2026-07-21T18:29:45Z, not a stale cache). Page content literally reads:
+--    "Updated 7/21/2026 there are no sales scheduled at this time-check here for updates."
+--    followed by an EMPTY "TD#" template block with no PARCEL ID / OPENING BID / SALE DATE
+--    filled in. Zero TD# cards for ANY case, not just the 5 targets -- this confirms the
+--    page is a forward-looking sale calendar only, with no disposition/outcome data ever
+--    retained after a sale date passes.
+--
+-- 3. holmesclerk.com site search (?s=TD%23...) for a representative target case
+--    (TD#2023-496) -- returns "Nothing was found using your search criteria." The case
+--    number does not exist anywhere else on the clerk's own site either.
+--
+-- 4. holmesclerk.com/courts/foreclosures-tax-deeds/lands-available-for-taxes/ (LOLA list,
+--    a genuinely distinct page from the tax-deed sale calendar) -- fresh live fetch via WP
+--    REST API confirms: "UPDATED FEBRUARY 2026-THERE ARE NO LOLA FILES AT THIS TIME." None
+--    of the 5 target parcels are listed as lands-available (which would have indicated an
+--    unsold/reverted tax deed, a legitimate parity-relevant disposition).
+--
+-- 5. Official Records index (myfloridacounty.com/orisearch/30) -- genuinely retried this
+--    session with a FRESH session cookie jar and the REAL form field names scraped from
+--    the live page (name, partyType, legalDescription, documentTypeID, instrumentTypeID,
+--    startDate/endDate, instrumentNumber, book, page_number) posted to the session-scoped
+--    form action URL (…/orisearch/s/search;jsessionid=…), using the actual owner name for
+--    one target case (BOWEN BRANDON) as the party-name search term. Result: the search
+--    submission returns a "verify you are human" CAPTCHA challenge page. This confirms the
+--    prior session's finding was a genuine CAPTCHA gate on submission, not a parameter-
+--    guessing artifact -- a correctly-shaped, session-consistent POST is still blocked.
+--    This is a name-based party index (not case/parcel keyed) and would in any case require
+--    passing the CAPTCHA to reach results.
+--
+-- 6. Holmes County Tax Collector (holmescountytaxcollector.com) -- POST to /Property/search
+--    with a fresh cookie jar now returns an ASP.NET "Runtime Error" for all 5 target
+--    parcel_ids (worse/different failure than the prior session's AJAX detail-endpoint
+--    failure, but equally non-functional this session). Direct site root returns HTTP 302
+--    with only 4 cookies set, insufficient session state for the search POST to succeed.
+--
+-- 7. qpublic.net/fl/holmes (Property Appraiser, per the clerk's own tax-deed page text
+--    "you may view the Holmes County Property Appraiser's website at
+--    www.qpublic.net/holmes") -- HTTP 403, Cloudflare "Just a moment..." JS challenge.
+--    Same blocker class as before, still unresolved without a real browser session.
+--
+-- 8. county_appraiser_urls.appraiser_url for holmes (https://www.holmespa.com/) -- NEW
+--    finding this session: this domain is a PARKED/EXPIRED domain, redirecting
+--    (HTTP 302 -> 200) to www.hugedomains.com/domain_profile.cfm?d=holmespa.com (a domain-
+--    for-sale marketplace page). This DB row is stale/wrong and not a usable Property
+--    Appraiser source. Not corrected this session (out of scope for the C/D letter task;
+--    flagging here for a future session, no write made to county_appraiser_urls).
+--
+-- 9. FL GIO Statewide Cadastral ArcGIS (services9.arcgis.com/.../Florida_Statewide_
+--    Cadastral/FeatureServer/0) -- direct PARCEL_ID equality queries for all 5 target
+--    parcel_ids returned zero features (format mismatch vs. the service's stored PARCEL_ID
+--    representation); a LIKE wildcard query to discover the real format timed out
+--    (service does not tolerate an unindexed wildcard scan without a CO_NO filter, and a
+--    bare CO_NO=30 query also timed out this session). Not pursued further given session
+--    budget -- this avenue remains theoretically viable but was not productive today.
+--
+-- CONCLUSION: no live, named, authoritative source returned a disposition (sold / redeemed
+-- / cancelled) or even a re-confirmed "still upcoming" listing for any of the 5 target
+-- rows. Per the FABRICATION GUARD, no parity_status/parity_source/parity_checked_at write
+-- was made for any of the 5 rows. C and D remain unchanged at 68.8% (matched_clean=11 /
+-- matched_any=11 of 16), re-verified via pencil_dod_evaluate_county immediately before
+-- writing this file:
+--   {"C": {"pass": false, "detail": "matched_clean=11", "metric": 68.8},
+--    "D": {"pass": false, "detail": "matched_any=11", "metric": 68.8},
+--    "auctions_total": 16}
+--
+-- RECOMMENDATION for the next session (do not repeat any of the 9 avenues above as if new):
+--   - The only structurally-different remaining lever is a genuine interactive browser
+--     session (Playwright/browser-use or Firecrawl with restored credits) that can (a) pass
+--     the myfloridacounty.com CAPTCHA to search Official Records by owner name for an
+--     actual recorded Tax Deed / Certificate of Title, or (b) render qpublic.net/fl/holmes
+--     past its Cloudflare JS challenge, or (c) drive the Holmes County Tax Collector's
+--     session-cookie-gated /Property/search AJAX flow the way a real browser would.
+--   - Firecrawl credit balance should be checked with a trivial call BEFORE spending
+--     session budget on a full scrape attempt (confirmed exhausted again today).
+--   - county_appraiser_urls row for holmes (holmespa.com) is a parked domain and should be
+--     corrected to qpublic.net/fl/holmes or another live source in a future session
+--     (out of scope here).
+--
+-- No UPDATE/INSERT statements in this file -- there is nothing honest to write.

@@ -1,0 +1,84 @@
+-- Gold Standard: Wakulla County, letter C (parity clean-match rate)
+-- Session: 2026-09-01, dispatch f7cf6ec7-66ec-4268-b11e-ddf31f1930a4, shard-1
+--
+-- DOCUMENTATION-ONLY MIGRATION -- no rows changed. This file records a
+-- structural-ceiling finding so a future session does not re-attempt the
+-- same dead end. Same class of finding as
+-- 20260813_gold_standard_shard5_charlotte_c_orphan_parity_stamp.sql (see
+-- that file's "STRUCTURAL CEILING FINDING" section for the precedent).
+--
+-- STARTING STATE (verified live via pencil_dod_evaluate_county('wakulla'),
+-- this session, 2026-09-01):
+--   C: FAIL, metric=78.8%, matched_clean=41 of auctions_total=52
+--   Threshold to PASS: >=95% (50 of 52 rows), per the same 0.95 threshold
+--   convention used fleet-wide (see 20260615_brevard_cd_parity_fix.sql:182,
+--   "COUNT(... matched_clean ...) >= COUNT(*) * 0.95").
+--
+-- HISTORY: on 2026-07-31 (dispatch 5cd42fe0, see
+-- GOLD_STANDARD_SHARD7_WAKULLA_SUWANNEE_DISPATCH_5CD42FE0_SESSION_REPORT.md)
+-- wakulla C was live-verified PASS at 100.0% (matched_clean=30 of
+-- auctions_total=30). Between then and now, auctions_total grew from 30 to
+-- 52 (22 new rows ingested, mostly wakulla_clerk_tax_deed sourced), and 11
+-- of the current 52 rows were correctly parity-stamped
+-- CLERK_SSOT_CANCELLED by the wakulla_clerk_tax_deed harvester. This is a
+-- genuine, expected regression from real new data, not a stale/incorrect
+-- prior PASS and not evaluator drift.
+--
+-- PARITY_STATUS BREAKDOWN (verified live, county='wakulla', this session):
+--   matched_clean         : 25
+--   PARITY_OK             : 16   (counts toward the evaluator's C numerator
+--                                 alongside matched_clean -- 25+16=41 matches
+--                                 pencil_dod_evaluate_county's matched_clean=41
+--                                 exactly)
+--   CLERK_SSOT_CANCELLED  : 11   (genuinely cancelled tax-deed auctions per
+--                                 Wakulla Clerk SSOT -- source=
+--                                 'wakulla_clerk_tax_deed', auction_status=
+--                                 'CANCELLED' for all 11 rows, case numbers
+--                                 2026-TXD-113,116,117,118,120,121,122,124,
+--                                 125,126,127 -- counts toward matched_any/D,
+--                                 never eligible for matched_clean/C by
+--                                 definition, per the same reasoning
+--                                 established in the charlotte precedent: a
+--                                 cancelled auction was never a "clean sale-
+--                                 amount match")
+--   NULL (never stamped)  : 0    (unlike the charlotte case, wakulla has NO
+--                                 orphan rows -- 25 + 16 + 11 = 52, every row
+--                                 is already correctly parity-stamped. There
+--                                 is no row-level fix available here.)
+--
+-- STRUCTURAL CEILING FINDING (evidence, not an evaluator change):
+--   auctions_total              = 52
+--   CLERK_SSOT_CANCELLED (fixed)= 11   (never eligible for matched_clean by
+--                                        definition)
+--   max possible matched_clean  = 52 - 11 = 41
+--   max possible C metric       = 41 / 52 = 78.846...% ~= 78.8%
+--   PASS threshold              = 95.0% (50 of 52 rows)
+--   => Wakulla C CANNOT reach PASS under the current evaluator definition.
+--      Today's live metric (78.8%) IS the structural ceiling -- there are
+--      zero unstamped/orphan rows left to fix (confirmed: 25 matched_clean +
+--      16 PARITY_OK + 11 CLERK_SSOT_CANCELLED = 52 = auctions_total exactly).
+--      Restamping any of the 11 CLERK_SSOT_CANCELLED rows to matched_clean
+--      to force a PASS would be fabrication against a live, authoritative,
+--      named source (Wakulla Clerk SSOT tax-deed feed) and is explicitly
+--      out of scope. Redefining the evaluator's auctions_total denominator
+--      to exclude structurally-cancelled rows is a canon/evaluator-
+--      definition question, also out of scope --
+--      pencil_dod_evaluate_county is a read-only guardrail per CLAUDE.md
+--      gold-standard brief and was NOT modified this session.
+--
+-- LIVE VERIFICATION (this session, 2026-09-01):
+--   1. POST rest/v1/rpc/pencil_dod_evaluate_county {"p_county":"wakulla"}
+--      -> C: {"pass":false,"detail":"matched_clean=41","metric":78.8},
+--         auctions_total=52
+--   2. GET rest/v1/multi_county_auctions?county=eq.wakulla&select=parity_status
+--      -> matched_clean=25, PARITY_OK=16, CLERK_SSOT_CANCELLED=11 (total 52)
+--   3. GET .../multi_county_auctions?county=eq.wakulla&select=case_number,
+--      parity_status,parity_source,auction_status filtered to
+--      CLERK_SSOT_CANCELLED rows -> all 11 carry parity_source=
+--      'wakulla_clerk_tax_deed' and auction_status='CANCELLED', confirming
+--      they are genuinely fixed cancellations from a named live source, not
+--      fabricated or orphaned.
+--
+-- No data changed by this migration -- there is nothing honest left to fix
+-- for wakulla/C this session. Reported as AT STRUCTURAL CEILING, not as a
+-- failure to fix.
