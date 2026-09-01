@@ -1,0 +1,113 @@
+session:
+  task: "P2 rename Forgot Password to Forgot login on both LMS/admin login pages -- the
+    existing #19701/#19702/#19707 reset already regenerates and emails BOTH username and
+    password together (single shared credential pair, no per-account usernames), so the
+    old label implied a narrower feature than what actually exists. Copy-only, no backend
+    change."
+  date: 2026-09-01
+  mode: headless claude -p, non-interactive, standing zero-HITL authorization per CLAUDE.md
+    -- gh CLI for cross-repo commit/push/dispatch/inspection (winnerdataai-mvp is a separate
+    private repo, not checked out locally in this session's cli-anything-biddeed workspace,
+    same as the prior 2026-09-01 Forgot Password session)
+
+decisions:
+  - step: 1
+    action: "Located the two live surfaces named in the brief: workers/winnerdata-lms/src/index.js
+      loginPage() in this repo, and (via `gh repo clone breverdbidder/winnerdataai-mvp`)
+      server/adminAuthHandler.ts adminLoginPage() -- confirmed byte-for-byte mirrors of each
+      other per adminAuthHandler.ts's own header comment, same as documented in the prior
+      2026-09-01 Forgot Password session log."
+    result: "Both pages had identical button text 'Forgot password?' and identical helper
+      note 'Triggers a real credential reset — a new login gets emailed to Ariel. Limited to
+      once per hour.' -- confirming the brief's premise that this is one copy fix applied
+      twice, not two different features."
+    reason: "K1 think-before-coding -- verify structure before editing instead of assuming."
+    tag: VERIFIED
+
+  - step: 2
+    action: "Edited both files: button text 'Forgot password?' -> 'Forgot login?'; helper
+      note now reads 'a new username and password get emailed to Ariel' (was 'a new login',
+      ambiguous about whether username changes too). No backend/endpoint change -- both forms
+      still POST to the existing /admin/reset-request handler."
+    result: "cli-anything-biddeed: workers/winnerdata-lms/src/index.js updated, node --check
+      passed. winnerdataai-mvp: server/adminAuthHandler.ts updated, its 13-test vitest suite
+      (server/adminAuthHandler.test.ts, which asserted the literal old string) updated to match
+      and re-run green (13/13 passed)."
+    reason: "DoD is copy-only; matched K3 surgical-changes -- touched only the two lines per
+      file that needed to change, left the historical Basic-Auth-retirement comments (which
+      quote the old affordance name in a past-tense sense) untouched in both files."
+    tag: VERIFIED
+
+  - step: 3
+    action: "Grepped both repos for every other reference to the literal string 'Forgot
+      password?' before pushing, since a prior session had already hard-coded that exact
+      string into CI verification steps."
+    result: "Found and fixed two stale live-verification greps that would have broken every
+      future deploy if left unfixed: cli-anything-biddeed's
+      .github/workflows/deploy-winnerdata-lms.yml ('Verify live' step for the LMS Worker) and
+      winnerdataai-mvp's .github/workflows/mirror-deploy.yml ('Verify live' step for /admin).
+      Both updated to grep for 'Forgot login?' instead."
+    reason: "Caught before push, not after -- confirmed live: pushing the LMS source change
+      alone (commit f250d84e) before the workflow fix landed did trigger GHA run 33570776907,
+      which failed exactly as predicted on the stale grep ('/login is missing the visible
+      Forgot Password link'). The follow-up commit (39c1cc02) fixing the grep triggered run
+      33570812612, which passed all steps including the live curl checks."
+    tag: VERIFIED
+
+  - step: 4
+    action: "Pushed both repos to main. cli-anything-biddeed: direct push (matches this
+      repo's established pattern of direct-to-main for small P1/P2 copy/behavior fixes, see
+      prior LMS commits 7364bfc4/cfefc7e5). winnerdataai-mvp: same, then manually dispatched
+      .github/workflows/mirror-deploy.yml (workflow_dispatch-only trigger, does not fire on
+      push) since that is the only path that republishes the Cloudflare Pages bundle."
+    result: "cli-anything-biddeed GHA run 33570812612: SUCCESS (all live-verify steps green).
+      winnerdataai-mvp GHA run 33571107665 (manual dispatch): SUCCESS, including its own
+      'Verify live' step against the deployed https://637533ad.winnerdataai.pages.dev build."
+    tag: VERIFIED
+
+verification:
+  - check: "LMS Worker /login shows the new button text and helper note"
+    proof: "curl -s https://winnerdata-lms.brevardbidderai.workers.dev/login | grep -A2
+      Forgot -- returned: <button type=\"submit\" class=\"link-btn\">Forgot login?</button>
+      ... <p class=\"note\">Triggers a real credential reset — a new username and password
+      get emailed to Ariel. Limited to once per hour.</p>"
+    status: PASS
+
+  - check: "winnerdataai-mvp /admin shows the same new button text and helper note"
+    proof: "curl -s https://winnerdataai.com/admin | grep -A2 Forgot -- returned:
+      <button type=\"submit\" class=\"link-btn\">Forgot login?</button> ... <p class=\"note\">
+      Triggers a real credential reset — a new username and password get emailed to Ariel.
+      Limited to once per hour.</p>"
+    status: PASS
+
+  - check: "Neither deploy's live-verification workflow regressed from this rename"
+    proof: "cli-anything-biddeed run 33570812612 (gh run watch --exit-status): exit 0, all
+      steps green. winnerdataai-mvp run 33571107665: exit 0, all steps green, including each
+      repo's own 'Forgot login?' grep assertion."
+    status: PASS
+
+  - check: "winnerdataai-mvp unit test suite still passes with the renamed assertion"
+    proof: "npx vitest run server/adminAuthHandler.test.ts -- 13 tests, 13 passed."
+    status: PASS
+
+deviation_log:
+  - what: "Scope grew from the two HTML files named in the brief to also include two CI
+      workflow files (deploy-winnerdata-lms.yml, mirror-deploy.yml) and one test file
+      (adminAuthHandler.test.ts) not mentioned in the ticket."
+    why: "All three hard-coded the literal old string 'Forgot password?' as a pass/fail
+      assertion. Leaving them unfixed would have broken every subsequent deploy of both
+      Workers/Pages -- confirmed live when the intermediate LMS deploy failed on exactly
+      this before the fix landed. This is the direct, unavoidable consequence of the
+      requested rename, not scope creep."
+    downstream_impact: "None negative -- both CI pipelines are green again and now assert
+      the correct current copy instead of stale copy."
+
+commits:
+  cli-anything-biddeed:
+    - f250d84e: "fix(lms): rename Forgot Password to Forgot login on LMS login page"
+    - 39c1cc02: "fix(lms): update deploy-verify grep for renamed Forgot login link"
+  winnerdataai-mvp:
+    - 636bd22: "fix(admin): rename Forgot Password to Forgot login on /admin login page"
+
+residual:
+  - "None -- both DoD surfaces verified live with real curl proof, both CI pipelines green."
