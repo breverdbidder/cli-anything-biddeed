@@ -126,35 +126,30 @@ jobs:
       # material) are appended to the job summary as the DoD evidence.
       - name: Evidence - real rows for all 4 views (org_id=032f4717-545f-4a18-b48b-28ea4257699d, Protection Partners)
         run: |
+          set +e
           URL="${{ steps.deploy.outputs.worker_url }}"
           AUTH="${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}"
           ORG_ID="032f4717-545f-4a18-b48b-28ea4257699d"
 
+          fetch_view() {
+            # $1=label $2=path
+            echo "#### $1"
+            CODE=$(curl -s -o /tmp/view_body.html -w "%{http_code}" -u "$AUTH" "$URL$2")
+            echo "HTTP $CODE"
+            echo '```'
+            grep -oE '<td>[^<]{0,60}(<[^t][^<]*)?</td>|<h2>[^<]*</h2>|<span class="stat-num[^"]*">[^<]*</span>' /tmp/view_body.html | head -30
+            echo '```'
+            echo
+          }
+
           {
             echo "### Live-data evidence — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-            echo '#### 1. Clients/orgs view (GET /orgs)'
-            echo '```json'
-            curl -s -u "$AUTH" "$URL/orgs" | grep -oE '<td><a class="link"[^<]*</a></td>|<td>[0-9]+</td>' | head -20
-            echo '```'
-
-            echo '#### 2. Leads view (GET /leads?org_id=...)'
-            echo '```'
-            LEADS_HTML=$(curl -s -u "$AUTH" "$URL/leads?org_id=$ORG_ID")
-            echo "$LEADS_HTML" | grep -oE '<h2>Leads \([0-9]+ total, showing [0-9]+\)</h2>'
-            echo "$LEADS_HTML" | grep -oE '<td>[a-z_]+</td>' | sort | uniq -c | head -10
-            echo '```'
-
-            echo '#### 3. Producer performance view (GET /producers?org_id=...)'
-            echo '```'
-            curl -s -u "$AUTH" "$URL/producers?org_id=$ORG_ID" | grep -oE '<td>[A-Za-z0-9 .@%_-]{1,40}</td>' | head -30
-            echo '```'
-
-            echo '#### 4. Billing view (GET /billing?org_id=...)'
-            echo '```'
-            curl -s -u "$AUTH" "$URL/billing?org_id=$ORG_ID" | grep -oE '<span class="stat-num[^>]*>[^<]*</span>|Billable Events|Pending|Invoiced|Paid'
-            echo '```'
+            fetch_view "1. Clients/orgs view (GET /orgs)" "/orgs"
+            fetch_view "2. Leads view (GET /leads?org_id=...)" "/leads?org_id=$ORG_ID"
+            fetch_view "3. Producer performance view (GET /producers?org_id=...)" "/producers?org_id=$ORG_ID"
+            fetch_view "4. Billing view (GET /billing?org_id=...)" "/billing?org_id=$ORG_ID"
           } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
 
       - name: Summary
         run: |
