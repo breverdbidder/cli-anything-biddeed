@@ -1,0 +1,71 @@
+-- Gold Standard shard-1 (dispatch f7cf6ec7), pair bradford-BF: 16th consecutive
+-- session re-checking the same 4 past-due bradford cases (24000431CAAXMX,
+-- 25000457CAAXMX, 25000439CAAXMX, 25000487CAAXMX) plus the 5th genuinely-future
+-- case (04-2026-TD-002, sale 2026-09-09). Full 15-session investigation history:
+-- 20260828_gold_standard_shard1_95d2d8fc_bradford_bf_4case_pastdue_recheck.sql
+-- (13 sessions), 20260830_..._14th_recheck_nothing_new.sql (14th),
+-- 20260831_..._15th_recheck_browseruse_attempted.sql (15th).
+--
+-- ================================================================================
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('bradford') at session
+-- start on 2026-09-01): B=FAIL(verified=0 closed_sold=0), F=FAIL(tier1_sold=0
+-- closed_sold=0). All other letters (A,C,D,E,G,H,I,J) PASS. auctions_total=5.
+-- Identical to the 2026-08-31 baseline -- NO DRIFT.
+--
+-- FRESH DRIFT CHECK (VERIFIED, live REST query this session, 2026-09-01T05:34:56Z
+-- last_seen_at on all 5 rows): all 4 past-due cases still auction_status=
+-- 'upcoming', sold_amount=null. No sale has resolved per our own ingestion data.
+--
+-- ================================================================================
+-- THE NEW ANGLE THIS SESSION (per dispatch instruction to try something other
+-- than re-running the exhausted clerk-portal / civitek-OCRS / browser-use /
+-- WebSearch / bctelegraph.com levers, all confirmed dead in prior 15 sessions):
+--
+-- Bradford County Property Appraiser GIS chain, discovered fresh this session:
+--   www.bradfordappraiser.com (200, unlike bradfordclerk.com's Cloudflare 403)
+--     -> /GIS/ page references gz.floridapa.com/mapserver/ (GrizzlyLogic FL PA
+--        network) and a same-origin /GIS_Server/ path
+--     -> /GIS_Server/ root returns 200 but empty body; probed common backend
+--        paths (Search, search.aspx, SearchResults, api/search, Parcel,
+--        Parcels, rest/services, arcgis/rest/services) -- all 404 except
+--        search.aspx, which 302-redirects to an ASPX generic error page
+--        (/_error/?aspxerrorpath=/GIS_Server/search.aspx), confirming no
+--        server-side-renderable search endpoint is reachable without the
+--        client-side map widget's session/query state.
+--     -> Response headers (CSP) reveal the actual backend is a JS-rendered
+--        SPA gated behind *.pictometry.com / *.grizzlygis.com /
+--        *.countygismapping.com -- same class of blocker as bradfordclerk.com
+--        (client-side JS execution required), just a different vendor.
+--     -> bradford.countygismapping.com does not resolve (no county-specific
+--        subdomain provisioned there).
+--   Also checked Bradford.FloridaPA.com (mirror of bradfordappraiser.com,
+--   same GIS/ link, same dead end) and bradfordcountypropertyappraise.org
+--   (third-party aggregator site, described its own search portal in prose
+--   but disclosed no queryable URL pattern).
+--
+-- CONCLUSION: this is a genuinely new lever not attempted in the prior 15
+-- sessions (property-appraiser GIS sales-history lookup, rather than the
+-- clerk's tax-deed/foreclosure-sale results page), but it terminates in the
+-- same structural wall -- a JS-only SPA with no plain-HTTP-fetchable search
+-- API -- that already defeated bradfordclerk.com and civitek OCRS. This
+-- session did NOT re-attempt browser-use (confirmed non-functional even on a
+-- trivial control URL in the 15th session, unchanged condition) or repeat any
+-- of the already-dead-ended checks (bradfordclerk.com direct fetch, Firecrawl
+-- [also out of credits this session -- HTTP 402], civitek OCRS, generic
+-- WebSearch per case, bctelegraph.com legal-notices index [checked fresh,
+-- still no issue past 8-27-26]).
+--
+-- ================================================================================
+-- NO UPDATE issued to multi_county_auctions or foreclosure_outcomes. No
+-- fabrication -- BLANK > WRONG. B/F remain FAIL, structurally unchanged:
+-- verified=0, closed_sold=0. has_lever = true this session (new
+-- appraiser-GIS angle identified and tried) but did not pay off (same
+-- JS-SPA/no-API blocker as every clerk-side channel). 16th consecutive
+-- session confirming this structural block. Next genuinely new lever would
+-- require either a properly-provisioned browser-use with a working LLM
+-- provider key (able to execute the client-side map widget's JS), or manual
+-- phone/in-person contact with the Bradford County Clerk or Property
+-- Appraiser's office (904-966-6216) -- outside the scope of automated
+-- research tools available in this sandbox.
+
+SELECT 1;
