@@ -3,6 +3,18 @@ main = "src/index.js"
 compatibility_date = "2026-08-24"
 account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 
+# workers_dev=true: the CF_API_TOKEN available to this repo's GHA runners can
+# read the zone (Zone:Read) but returns "Authentication error" (code 10000)
+# on every DNS record read/write call -- confirmed live 2026-09-01, and NOT
+# specific to this Worker: ff.winnerdataai.com (workers/winnerdata-ff, routed
+# the same way) is STILL NXDOMAIN via Cloudflare's own DoH resolver despite
+# .github/workflows/ff-winnerdata-dns-fix.yml's 2026-08-30 commit message
+# claiming it was fixed. The token needs Zone:DNS:Edit added before
+# lms.winnerdataai.com (or ff.winnerdataai.com) can resolve. Until then, the
+# workers.dev URL below is the only reachable live endpoint -- the [[routes]]
+# binding stays declared so it activates automatically once DNS is fixed.
+workers_dev = true
+
 [[routes]]
 pattern = "lms.winnerdataai.com/*"
 zone_name = "winnerdataai.com"

@@ -57,12 +57,19 @@ jobs:
         run: npm install
 
       - name: Deploy via wrangler
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: workers/winnerdata-lms
-          command: deploy
+        id: deploy
+        run: |
+          npx wrangler deploy 2>&1 | tee /tmp/deploy_output.txt
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy_output.txt | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not extract workers.dev URL from wrangler output"
+            exit 1
+          fi
+          echo "worker_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $URL"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
       - name: Set Worker Basic Auth secrets
         run: |
@@ -72,24 +79,26 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
-      - name: Verify live - unauthenticated request must be rejected
+      # lms.winnerdataai.com/* is declared in wrangler.toml's [[routes]] and will
+      # activate automatically once DNS is fixed (see wrangler.toml comment —
+      # CF_API_TOKEN currently lacks Zone:DNS permission). Primary verification
+      # target is the workers.dev URL, which does not depend on that route.
+      - name: Verify live - unauthenticated request must be rejected (workers.dev)
         run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
           sleep 8
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" https://lms.winnerdataai.com/healthz || echo "000")
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/healthz" || echo "000")
           echo "/healthz (no auth) returned $CODE"
-          if [ "$CODE" = "000" ]; then
-            echo "::warning::Endpoint unreachable - check route/DNS binding for lms.winnerdataai.com (run lms-winnerdata-dns-fix.yml if needed)"
-            exit 0
-          fi
           if [ "$CODE" != "401" ]; then
             echo "::error::Expected 401 for unauthenticated request, got $CODE. Basic Auth gate is not enforcing."
             exit 1
           fi
           echo "PASS: unauthenticated request correctly rejected (401)"
 
-      - name: Verify live - authenticated request returns real data
+      - name: Verify live - authenticated request returns real data (workers.dev)
         run: |
-          CODE=$(curl -s -o /tmp/healthz_body.json -w "%{http_code}" -u "${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}" https://lms.winnerdataai.com/healthz || echo "000")
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          CODE=$(curl -s -o /tmp/healthz_body.json -w "%{http_code}" -u "${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}" "$URL/healthz" || echo "000")
           echo "/healthz (authenticated) returned $CODE"
           cat /tmp/healthz_body.json || true
           if [ "$CODE" != "200" ]; then
@@ -99,8 +108,14 @@ jobs:
           grep -q '"ok": true' /tmp/healthz_body.json || { echo "::error::healthz body missing ok:true"; exit 1; }
           echo "PASS: authenticated healthz returns ok:true"
 
+      - name: Check custom domain (informational only - known DNS gap)
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://lms.winnerdataai.com/healthz || echo "000")
+          echo "/healthz via lms.winnerdataai.com returned $CODE (expected unreachable until CF_API_TOKEN gets Zone:DNS:Edit — see wrangler.toml)"
+
       - name: Summary
         run: |
           echo "### Winner Data LMS Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
-          echo "URL: https://lms.winnerdataai.com" >> "$GITHUB_STEP_SUMMARY"
+          echo "Live URL (workers.dev): ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Intended custom domain: https://lms.winnerdataai.com (blocked on DNS — CF_API_TOKEN lacks Zone:DNS permission, see wrangler.toml)" >> "$GITHUB_STEP_SUMMARY"
           echo "Auth: HTTP Basic (credentials in LMS_AUTH_USER/LMS_AUTH_PASS repo secrets)" >> "$GITHUB_STEP_SUMMARY"
