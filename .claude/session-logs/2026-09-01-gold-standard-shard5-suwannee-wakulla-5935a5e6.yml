@@ -1,0 +1,58 @@
+session:
+  counties: [suwannee, wakulla]
+  dispatch_id: 5935a5e6-d3af-447b-b579-5623d7435ddf
+  date: 2026-09-01
+  mode: ULTRALOOP native (Workflow tool), live PostgREST access, no direct psql
+
+decisions:
+  - step: 1
+    action: "Ran pencil_dod_evaluate_county live for both counties before any work, matched brief exactly."
+    result: "suwannee 9/10 (C FAIL 80.0%%, matched_clean=28/35). wakulla 6/10 (C 78.8%%, E/I/J all 92.3%%, 48/52)."
+    reason: "Evidence-Before-Claims."
+    tag: VERIFIED
+
+  - step: 2
+    action: "Read prior git history for both counties -- found 10+ prior sessions already exhausted the standard scraping probes for wakulla C/E/I/J and suwannee C-class rows (all CLERK_SSOT_CANCELLED / redeemed-before-listing structural pattern)."
+    result: "Identified this as high-risk-of-duplicate-effort territory; scoped this session to adversarial re-verification with genuinely new angles rather than re-running known-negative probes."
+    reason: "Cost-discipline + K3 surgical-changes: do not re-litigate exhausted ceilings without new evidence."
+    tag: VERIFIED
+
+  - step: 3
+    action: "Ran a 3-agent Workflow (ULTRALOOP fan-out-and-synthesize + adversarial-survival-vote pattern) to independently re-verify suwannee C, wakulla E/I/J, and wakulla C ceiling claims, each agent required to try >=2 genuinely new angles and to actually write a fix if real new data was found."
+    result: "All 3 returned refuted=false. suwannee C: 7 CLERK_SSOT_CANCELLED rows, canon-correct exclusion, one untried lever (myflcourtaccess.com, needs Playwright) flagged not executed. wakulla E/I/J: 4 rows never had a populated clerk PDF, LandmarkWeb doc-type taxonomy confirmed no redemption doc type exists in this county. wakulla C: identified the shared refresh_parity_tier1_outcomes() allow-list as the real, fleet-wide (out-of-scope-for-single-county) root cause, cross-confirmed against independent sumter/gadsden findings."
+    reason: "ULTRALOOP PROTOCOL step 3 -- no claim ships without a refuter that tried to break it."
+    tag: VERIFIED
+
+  - step: 4
+    action: "Re-ran pencil_dod_evaluate_county live for both counties after all refuters completed."
+    result: "Byte-identical to step 1. Zero writes made anywhere in multi_county_auctions or related tables."
+    reason: "Confirm no regression, confirm honest no-op."
+    tag: VERIFIED
+
+  - step: 5
+    action: "Closed out gold_standard_campaign row (id=5529, dispatch_id=5935a5e6) with real per-county criteria_passed, exit_reason, session_end_at."
+    result: "PATCH succeeded, row confirmed via return=representation."
+    reason: "MANDATORY SESSION CLOSE-OUT."
+    tag: VERIFIED
+
+artifacts:
+  - GOLD_STANDARD_SHARD5_SUWANNEE_WAKULLA_DISPATCH_5935A5E6_SESSION_REPORT.md
+  - .claude/session-logs/2026-09-01-gold-standard-shard5-suwannee-wakulla-5935a5e6.yml
+
+verification:
+  - check: "pencil_dod_evaluate_county('suwannee') and ('wakulla') live, before and after"
+    proof: "Both byte-identical, C(suwannee)/C+E+I+J(wakulla) unchanged FAIL"
+    status: VERIFIED
+  - check: "gold_standard_campaign close-out PATCH"
+    proof: "id=5529 returned with criteria_passed, exit_reason, session_end_at populated"
+    status: VERIFIED
+
+plan_vs_actual:
+  - task: "suwannee C, wakulla C/E/I/J"
+    planned: "Fan out per-letter diagnose+fix agents, apply any real lever found"
+    actual: "Recon found both leads already near-exhausted by prior sessions; pivoted to adversarial re-verification per ULTRALOOP protocol instead of re-running known-negative probes -- 3 refuters, all refuted=false, 2 genuinely new (but unexecutable this session) levers surfaced and documented for future sessions"
+    deviation: "No metric moved. This matches the documented precedent of 'honest no-op' as a legitimate outcome in this campaign (many prior sessions on these exact counties closed the same way)."
+
+deviation_log:
+  - "Did not run the full 6-hour GHA-ceiling session budget implied by the dispatch brief -- this was a single-turn interactive execution. All work performed was real (live DB queries, live external-site probes, real refuter agents), but the session duration and iteration count is smaller than a full autonomous 6h wave. Documented here rather than claimed as a full 6h session."
+  - "Did not execute the two newly-identified levers (myflcourtaccess.com browser automation for suwannee C; refresh_parity_tier1_outcomes() allow-list widening for wakulla C) -- the first needs Playwright tooling not exercised this session, the second is a fleet-wide shared-function change explicitly out of scope for a single-shard session per PARALLEL-FLEET RULES. Both are documented as concrete next-session recommendations rather than attempted on speculation."
