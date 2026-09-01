@@ -1,0 +1,16 @@
+name = "winnerdata-lms"
+main = "src/index.js"
+compatibility_date = "2026-08-24"
+account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
+
+[[routes]]
+pattern = "lms.winnerdataai.com/*"
+zone_name = "winnerdataai.com"
+
+# No [vars] — SUPABASE_URL and the anon key are non-secret constants embedded
+# in src/index.js, same pattern as workers/winnerdata-ff/wrangler.toml and
+# src/worker.js:36-37 (RPC-body org_id validation is the DB-side access
+# boundary, not key secrecy). The human-facing access boundary for THIS
+# Worker is HTTP Basic Auth, gated by two real secrets set via
+# `wrangler secret put LMS_AUTH_USER` / `LMS_AUTH_PASS` in the deploy
+# workflow — never written here.

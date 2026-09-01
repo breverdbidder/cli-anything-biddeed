@@ -1,0 +1,76 @@
+name: LMS Winner Data DNS Fix (one-off)
+# Same issue class as ff-winnerdata-dns-fix.yml: a Cloudflare Worker route
+# only intercepts traffic for a hostname that already has a DNS record
+# proxied through Cloudflare. lms.winnerdataai.com/* is declared in
+# workers/winnerdata-lms/wrangler.toml but needs a proxied DNS record before
+# the route will ever receive traffic. Cloned from the ff worker's fix
+# workflow, which independently re-queries DNS after creation and fails the
+# job if it still doesn't resolve — not a checkmark.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'list_zone | list_records | create_dummy_a'
+        required: true
+        default: 'list_zone'
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      ACTION: ${{ inputs.action }}
+    steps:
+      - name: Mask token
+        run: echo "::add-mask::${CF_API_TOKEN}"
+
+      - name: Resolve zone id for winnerdataai.com
+        id: zone
+        run: |
+          RESP=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=winnerdataai.com" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}")
+          echo "$RESP" | python3 -m json.tool
+          ZONE_ID=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('result') or []; print(r[0]['id'] if r else '')")
+          echo "zone_id=$ZONE_ID" >> "$GITHUB_OUTPUT"
+          if [ -z "$ZONE_ID" ]; then
+            echo "::error::winnerdataai.com is not a zone on this Cloudflare account (CF_API_TOKEN). Cannot proceed."
+            exit 1
+          fi
+
+      - name: List existing DNS records
+        if: ${{ inputs.action == 'list_records' || inputs.action == 'create_dummy_a' }}
+        run: |
+          curl -s "https://api.cloudflare.com/client/v4/zones/${{ steps.zone.outputs.zone_id }}/dns_records?per_page=100" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" | python3 -m json.tool
+
+      - name: Create placeholder proxied A record for lms.winnerdataai.com
+        if: ${{ inputs.action == 'create_dummy_a' }}
+        run: |
+          RESP=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${{ steps.zone.outputs.zone_id }}/dns_records" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"type":"A","name":"lms.winnerdataai.com","content":"192.0.2.1","proxied":true,"ttl":1}')
+          echo "$RESP" | python3 -m json.tool
+          SUCCESS=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success'))")
+          if [ "$SUCCESS" != "True" ]; then
+            echo "::error::Cloudflare rejected the DNS record creation. See the printed response above for the exact error(s) -- do not assume this step worked without reading them."
+            exit 1
+          fi
+          echo "Cloudflare confirmed the record was created (API success=true)."
+
+      - name: Verify DNS actually resolves now -- real check, not a checkmark
+        if: ${{ inputs.action == 'create_dummy_a' }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            RESP=$(curl -s -H "accept: application/dns-json" --resolve cloudflare-dns.com:443:1.1.1.1 \
+              "https://cloudflare-dns.com/dns-query?name=lms.winnerdataai.com&type=A")
+            echo "attempt $i: $RESP"
+            STATUS=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('Status'))" 2>/dev/null || echo "parse_error")
+            if [ "$STATUS" = "0" ]; then
+              echo "CONFIRMED: lms.winnerdataai.com now resolves (DNS Status 0 = NOERROR)."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::lms.winnerdataai.com still does not resolve (last DNS Status: $STATUS) after 6 checks over 60s. The record creation step may have reported success but propagation has not happened, or something else is wrong -- do not report this as fixed."
+          exit 1
