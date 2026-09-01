@@ -105,7 +105,7 @@ jobs:
             echo "::error::Expected 200 for authenticated /healthz, got $CODE"
             exit 1
           fi
-          grep -q '"ok": true' /tmp/healthz_body.json || { echo "::error::healthz body missing ok:true"; exit 1; }
+          grep -q '"ok":true' /tmp/healthz_body.json || { echo "::error::healthz body missing ok:true"; exit 1; }
           echo "PASS: authenticated healthz returns ok:true"
 
       - name: Check custom domain (informational only - known DNS gap)
