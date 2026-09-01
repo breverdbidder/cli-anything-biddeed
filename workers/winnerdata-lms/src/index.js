@@ -8,37 +8,46 @@
  * Cloudflare Worker, server-rendered HTML, no build step, no framework, no
  * third-party CRM/LMS code vendored in.
  *
- * DB ACCESS: same pattern as workers/winnerdata-ff — the winnerdata and
- * finance schemas are not exposed via PostgREST directly (documented
- * platform limitation).
- * All reads/writes go through public-schema SECURITY DEFINER RPC functions
- * (see supabase/migrations/20260901_winnerdata_lms_v1.sql), called via
- * /rest/v1/rpc/<fn> with the embedded anon key. org_id is validated inside
- * every function.
+ * DB ACCESS: the winnerdata and finance schemas are not exposed via
+ * PostgREST directly (documented platform limitation, same as
+ * workers/winnerdata-ff). All reads/writes go through public-schema
+ * SECURITY DEFINER RPC functions (see
+ * supabase/migrations/20260901_winnerdata_lms_v1.sql +
+ * 20260901c_winnerdata_lms_revoke_anon_execute.sql), called via
+ * /rest/v1/rpc/<fn>. org_id is validated inside every function.
+ *
+ * SECURITY FIX (2026-09-01, same-day follow-up): the first version of this
+ * file embedded the anon key as a source constant, mirroring
+ * workers/winnerdata-ff. Because this repo is PUBLIC, that meant the RPC
+ * EXECUTE grant to `anon` + the org_id (also public, committed in this same
+ * migration) let anyone on the internet call lms_leads_list /
+ * lms_flag_lead / lms_update_producer_note directly against Supabase,
+ * bypassing this Worker's Basic Auth entirely — PII read + unaudited writes
+ * with zero gate. Fixed by revoking `anon` EXECUTE on all seven lms_*
+ * functions (service_role/postgres keep it) and switching this Worker to
+ * env.SUPABASE_SERVICE_KEY, a real secret injected via `wrangler secret put`
+ * and never committed to source. The human-access boundary (Basic Auth,
+ * below) and the data-access boundary (service_role-only RPCs) are now both
+ * real gates instead of one real gate plus one that only looked real.
  *
  * AUTH: HTTP Basic Auth (Workers-level shared secret), gated on
  * env.LMS_AUTH_USER / env.LMS_AUTH_PASS — real secrets set via
  * `wrangler secret put`, never embedded in source. This is the human-access
  * boundary; CF Access/Zero Trust was not chosen because it requires a Zero
  * Trust org already provisioned on this Cloudflare account, unverified as of
- * this build. Every route (including /healthz) requires auth.
+ * this build (see #19687 for the follow-up to unify auth with
+ * everest-cfo-agent). Every route (including /healthz) requires auth.
  *
  * BILLING: /billing is a READ view onto finance.revenue_ledger via
  * lms_billing_view() — no invoice/Stripe logic is duplicated here.
  */
 
-const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
-// Anon key — safe to embed, same as workers/winnerdata-ff. RPC-body org_id
-// validation is the actual data boundary; Basic Auth above is the human
-// access boundary.
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw';
-
-async function rpc(fn, body) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+async function rpc(env, fn, body) {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
     headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -162,8 +171,8 @@ function temperatureBadge(t) {
 
 // --- Views -----------------------------------------------------------------
 
-async function viewOrgs() {
-  const data = await rpc('lms_orgs_list', {});
+async function viewOrgs(env) {
+  const data = await rpc(env, 'lms_orgs_list', {});
   const orgs = data.orgs || [];
   const rows = orgs.map((o) => `
     <tr>
@@ -185,8 +194,8 @@ async function viewOrgs() {
   return layout('Clients', 'orgs', null, body);
 }
 
-async function viewOrgDetail(orgId) {
-  const data = await rpc('lms_org_detail', { p_org_id: orgId });
+async function viewOrgDetail(env, orgId) {
+  const data = await rpc(env, 'lms_org_detail', { p_org_id: orgId });
   if (!data.ok) {
     return layout('Client not found', 'orgs', null, `<p class="empty">${esc(data.reason)}</p>`);
   }
@@ -226,7 +235,7 @@ async function viewOrgDetail(orgId) {
   return layout(org.name, 'orgs', org.org_id, body);
 }
 
-async function viewLeads(orgId, params) {
+async function viewLeads(env, orgId, params) {
   if (!orgId) {
     return layout('Leads', 'leads', null, '<p class="empty">Select a client from <a class="link" href="/orgs">Clients</a> first.</p>');
   }
@@ -239,7 +248,7 @@ async function viewLeads(orgId, params) {
     p_limit: 200,
     p_offset: 0,
   };
-  const data = await rpc('lms_leads_list', rpcParams);
+  const data = await rpc(env, 'lms_leads_list', rpcParams);
   const leads = data.leads || [];
 
   const rows = leads.map((l) => `
@@ -282,11 +291,11 @@ async function viewLeads(orgId, params) {
   return layout('Leads', 'leads', orgId, body);
 }
 
-async function viewProducers(orgId) {
+async function viewProducers(env, orgId) {
   if (!orgId) {
     return layout('Producers', 'producers', null, '<p class="empty">Select a client from <a class="link" href="/orgs">Clients</a> first.</p>');
   }
-  const data = await rpc('lms_producer_performance', { p_org_id: orgId });
+  const data = await rpc(env, 'lms_producer_performance', { p_org_id: orgId });
   const producers = data.producers || [];
 
   const rows = producers.map((p) => `
@@ -317,12 +326,12 @@ async function viewProducers(orgId) {
   return layout('Producers', 'producers', orgId, body);
 }
 
-async function viewBilling(orgId, params) {
+async function viewBilling(env, orgId, params) {
   if (!orgId) {
     return layout('Billing', 'billing', null, '<p class="empty">Select a client from <a class="link" href="/orgs">Clients</a> first.</p>');
   }
   const status = params.get('status') || null;
-  const data = await rpc('lms_billing_view', { p_org_id: orgId, p_status: status });
+  const data = await rpc(env, 'lms_billing_view', { p_org_id: orgId, p_status: status });
   const events = data.events || [];
   const summary = data.summary || {};
 
@@ -354,24 +363,27 @@ async function viewBilling(orgId, params) {
 
 // --- Handlers ----------------------------------------------------------
 
-async function handleFlag(request, leadId) {
+async function handleFlag(env, request, leadId) {
   const form = await request.formData();
   const orgId = form.get('org_id');
   const reason = form.get('reason');
-  await rpc('lms_flag_lead', { p_org_id: orgId, p_lead_id: leadId, p_actor: request.lmsActor, p_reason: reason });
-  return Response.redirect(new URL(`/leads?org_id=${encodeURIComponent(orgId)}`, 'https://lms.winnerdataai.com').toString(), 303);
+  await rpc(env, 'lms_flag_lead', { p_org_id: orgId, p_lead_id: leadId, p_actor: request.lmsActor, p_reason: reason });
+  // Redirect relative to the request's own origin, not a hardcoded domain —
+  // lms.winnerdataai.com doesn't resolve yet (see wrangler.toml), so a
+  // hardcoded origin would break this on the only currently-live workers.dev URL.
+  return Response.redirect(new URL(`/leads?org_id=${encodeURIComponent(orgId)}`, request.url).toString(), 303);
 }
 
-async function handleNote(request, producerId) {
+async function handleNote(env, request, producerId) {
   const form = await request.formData();
   const orgId = form.get('org_id');
   const note = form.get('note');
-  await rpc('lms_update_producer_note', { p_org_id: orgId, p_producer_id: producerId, p_actor: request.lmsActor, p_note: note });
-  return Response.redirect(new URL(`/producers?org_id=${encodeURIComponent(orgId)}`, 'https://lms.winnerdataai.com').toString(), 303);
+  await rpc(env, 'lms_update_producer_note', { p_org_id: orgId, p_producer_id: producerId, p_actor: request.lmsActor, p_note: note });
+  return Response.redirect(new URL(`/producers?org_id=${encodeURIComponent(orgId)}`, request.url).toString(), 303);
 }
 
-async function handleHealthz() {
-  const data = await rpc('lms_orgs_list', {});
+async function handleHealthz(env) {
+  const data = await rpc(env, 'lms_orgs_list', {});
   return new Response(JSON.stringify({ ok: true, orgs: (data.orgs || []).length }), {
     headers: { 'content-type': 'application/json' },
   });
@@ -389,21 +401,21 @@ export default {
     const orgId = searchParams.get('org_id');
 
     try {
-      if (pathname === '/healthz') return handleHealthz();
-      if (pathname === '/' || pathname === '/orgs') return new Response(await viewOrgs(), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/healthz') return handleHealthz(env);
+      if (pathname === '/' || pathname === '/orgs') return new Response(await viewOrgs(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 
       const orgDetailMatch = pathname.match(/^\/orgs\/([0-9a-fA-F-]{36})$/);
-      if (orgDetailMatch) return new Response(await viewOrgDetail(orgDetailMatch[1]), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (orgDetailMatch) return new Response(await viewOrgDetail(env, orgDetailMatch[1]), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 
-      if (pathname === '/leads' && request.method === 'GET') return new Response(await viewLeads(orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
-      if (pathname === '/producers' && request.method === 'GET') return new Response(await viewProducers(orgId), { headers: { 'content-type': 'text/html; charset=utf-8' } });
-      if (pathname === '/billing' && request.method === 'GET') return new Response(await viewBilling(orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/leads' && request.method === 'GET') return new Response(await viewLeads(env, orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/producers' && request.method === 'GET') return new Response(await viewProducers(env, orgId), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/billing' && request.method === 'GET') return new Response(await viewBilling(env, orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 
       const flagMatch = pathname.match(/^\/leads\/([0-9a-fA-F-]{36})\/flag$/);
-      if (flagMatch && request.method === 'POST') return handleFlag(request, flagMatch[1]);
+      if (flagMatch && request.method === 'POST') return handleFlag(env, request, flagMatch[1]);
 
       const noteMatch = pathname.match(/^\/producers\/([0-9a-fA-F-]{36})\/note$/);
-      if (noteMatch && request.method === 'POST') return handleNote(request, noteMatch[1]);
+      if (noteMatch && request.method === 'POST') return handleNote(env, request, noteMatch[1]);
 
       return new Response('Not found', { status: 404 });
     } catch (err) {

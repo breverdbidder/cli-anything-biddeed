@@ -19,10 +19,17 @@ workers_dev = true
 pattern = "lms.winnerdataai.com/*"
 zone_name = "winnerdataai.com"
 
-# No [vars] — SUPABASE_URL and the anon key are non-secret constants embedded
-# in src/index.js, same pattern as workers/winnerdata-ff/wrangler.toml and
-# src/worker.js:36-37 (RPC-body org_id validation is the DB-side access
-# boundary, not key secrecy). The human-facing access boundary for THIS
-# Worker is HTTP Basic Auth, gated by two real secrets set via
-# `wrangler secret put LMS_AUTH_USER` / `LMS_AUTH_PASS` in the deploy
-# workflow — never written here.
+# No [vars] — all four values this Worker needs (SUPABASE_URL,
+# SUPABASE_SERVICE_KEY, LMS_AUTH_USER, LMS_AUTH_PASS) are real secrets set via
+# `wrangler secret put` in the deploy workflow, never written here.
+#
+# SECURITY FIX (2026-09-01, same-day follow-up): v1 embedded the Supabase
+# anon key as a source constant (winnerdata-ff's pattern) and granted the
+# lms_* RPCs EXECUTE to `anon`. Because this repo is public, that let anyone
+# call those RPCs directly against Supabase with no auth at all. Fixed by
+# revoking `anon` EXECUTE on all seven lms_* functions (service_role/postgres
+# keep it — see supabase/migrations/20260901c_winnerdata_lms_revoke_anon_execute.sql)
+# and switching this Worker to SUPABASE_SERVICE_KEY as a real secret. The
+# data-access boundary is now the RPCs' service_role-only grant, not just
+# org_id-in-the-request-body; the human-access boundary is still HTTP Basic
+# Auth via LMS_AUTH_USER/LMS_AUTH_PASS.

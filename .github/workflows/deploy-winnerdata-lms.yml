@@ -36,12 +36,16 @@ jobs:
           CF_ACCOUNT: ${{ secrets.CF_ACCOUNT_ID }}
           AUTH_USER: ${{ secrets.LMS_AUTH_USER }}
           AUTH_PASS: ${{ secrets.LMS_AUTH_PASS }}
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           MISSING=""
           [ -z "$CF_TOKEN" ] && MISSING="$MISSING CF_API_TOKEN"
           [ -z "$CF_ACCOUNT" ] && MISSING="$MISSING CF_ACCOUNT_ID"
           [ -z "$AUTH_USER" ] && MISSING="$MISSING LMS_AUTH_USER"
           [ -z "$AUTH_PASS" ] && MISSING="$MISSING LMS_AUTH_PASS"
+          [ -z "$SB_URL" ] && MISSING="$MISSING SUPABASE_URL"
+          [ -z "$SB_SERVICE_KEY" ] && MISSING="$MISSING SUPABASE_SERVICE_ROLE_KEY"
           if [ -n "$MISSING" ]; then
             echo "::error::Missing secrets:$MISSING. Add them at Settings > Secrets > Actions."
             exit 1
@@ -71,10 +75,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
-      - name: Set Worker Basic Auth secrets
+      - name: Set Worker secrets
         run: |
           echo "${{ secrets.LMS_AUTH_USER }}" | npx wrangler secret put LMS_AUTH_USER
           echo "${{ secrets.LMS_AUTH_PASS }}" | npx wrangler secret put LMS_AUTH_PASS
+          echo "${{ secrets.SUPABASE_URL }}" | npx wrangler secret put SUPABASE_URL
+          echo "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" | npx wrangler secret put SUPABASE_SERVICE_KEY
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
