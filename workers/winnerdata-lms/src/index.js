@@ -30,13 +30,18 @@
  * below) and the data-access boundary (service_role-only RPCs) are now both
  * real gates instead of one real gate plus one that only looked real.
  *
- * AUTH: HTTP Basic Auth (Workers-level shared secret), gated on
+ * AUTH: real login page (username/password form) at /login, gated on
  * env.LMS_AUTH_USER / env.LMS_AUTH_PASS — real secrets set via
  * `wrangler secret put`, never embedded in source. This is the human-access
  * boundary; CF Access/Zero Trust was not chosen because it requires a Zero
  * Trust org already provisioned on this Cloudflare account, unverified as of
  * this build (see #19687 for the follow-up to unify auth with
- * everest-cfo-agent). Every route (including /healthz) requires auth.
+ * everest-cfo-agent). Every route (including /healthz) requires a valid
+ * session. HTTP Basic Auth was retired 2026-09-01: a browser's native Basic
+ * Auth dialog is rendered outside the page DOM, so no HTML/link/button can
+ * ever appear inside it — the "Forgot Password" affordance could only ever
+ * live on the 401 page shown after clicking Cancel, which is confusing and
+ * backwards. See the Session cookie section below for the replacement.
  *
  * BILLING: /billing is a READ view onto finance.revenue_ledger via
  * lms_billing_view() — no invoice/Stripe logic is duplicated here.
@@ -83,35 +88,78 @@ function timingSafeEqual(a, b) {
   return out === 0;
 }
 
-function checkAuth(request, env) {
-  const header = request.headers.get('Authorization') || '';
-  if (!header.startsWith('Basic ')) return null;
-  let decoded;
+function verifyCredentials(user, pass, env) {
+  if (!env.LMS_AUTH_USER || !env.LMS_AUTH_PASS) return false;
+  return timingSafeEqual(user, env.LMS_AUTH_USER) && timingSafeEqual(pass, env.LMS_AUTH_PASS);
+}
+
+// --- Session cookie ------------------------------------------------------
+// A signed, httpOnly, short-lived cookie issued on successful login (see
+// handleLogin() below) so a visitor isn't re-prompted for credentials on
+// every navigation. The HMAC key is derived from LMS_AUTH_USER/LMS_AUTH_PASS
+// themselves (SHA-256 via Web Crypto) instead of a new secret — needs no
+// extra `wrangler secret put` provisioning, and a credential reset (the
+// existing /admin/reset-request flow) automatically invalidates every
+// outstanding session, which is the correct behavior after a reset.
+const SESSION_COOKIE = 'lms_session';
+const SESSION_TTL_SECONDS = 4 * 60 * 60; // 4 hours
+
+function base64url(bytes) {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlDecode(s) {
+  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function sessionSign(env, payload) {
+  const enc = new TextEncoder();
+  const keyDigest = await crypto.subtle.digest('SHA-256', enc.encode(`${env.LMS_AUTH_USER}:${env.LMS_AUTH_PASS}:lms-session-v1`));
+  const key = await crypto.subtle.importKey('raw', keyDigest, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return base64url(new Uint8Array(sigBuf));
+}
+
+async function createSessionCookie(env, username) {
+  const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
+  const payload = `${username}|${exp}`;
+  const sig = await sessionSign(env, payload);
+  const value = `${base64url(new TextEncoder().encode(payload))}.${sig}`;
+  return `${SESSION_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_SECONDS}`;
+}
+
+async function checkSession(request, env) {
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  if (!match) return null;
+  const [payloadB64, sig] = match[1].split('.');
+  if (!payloadB64 || !sig) return null;
+  let payload;
   try {
-    decoded = atob(header.slice(6));
+    payload = new TextDecoder().decode(base64urlDecode(payloadB64));
   } catch {
     return null;
   }
-  const idx = decoded.indexOf(':');
+  const expectedSig = await sessionSign(env, payload);
+  if (!timingSafeEqual(sig, expectedSig)) return null;
+  const idx = payload.lastIndexOf('|');
   if (idx === -1) return null;
-  const user = decoded.slice(0, idx);
-  const pass = decoded.slice(idx + 1);
-  if (!env.LMS_AUTH_USER || !env.LMS_AUTH_PASS) return null;
-  if (timingSafeEqual(user, env.LMS_AUTH_USER) && timingSafeEqual(pass, env.LMS_AUTH_PASS)) {
-    return user;
-  }
-  return null;
+  const username = payload.slice(0, idx);
+  const exp = Number(payload.slice(idx + 1));
+  if (!username || !Number.isFinite(exp) || Math.floor(Date.now() / 1000) > exp) return null;
+  return username;
 }
 
-// The one place custom HTML can appear on a native-Basic-Auth-gated page:
-// browsers render this 401 body when the user clicks Cancel on the prompt
-// instead of entering credentials. That's the real estate for a Forgot
-// Password button — the actual recovery path is
-// POST /admin/reset-request, handled before checkAuth() below (see
-// export default fetch()), which dispatches the same
-// .github/workflows/lms-credential-reset.yml workflow Ariel would otherwise
-// have to find and run manually from GitHub Actions (issue #19701).
-function authShellPage(message) {
+// Shared brand shell for the pre-login pages (login form + reset result) —
+// same card layout Basic Auth's 401 page used, now reused for a real login
+// form instead of a browser popup.
+function standalonePage(message) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
@@ -122,7 +170,12 @@ function authShellPage(message) {
   .card{background:#0f172a;border:1px solid #1e3a5f;border-radius:8px;padding:2rem 2.25rem;max-width:380px;text-align:center}
   h1{color:#F59E0B;font-size:1.1rem;margin:0 0 .75rem}
   p{color:#94a3b8;font-size:.9rem;line-height:1.5;margin:0 0 1.25rem}
-  button{font-family:inherit;font-size:.85rem;font-weight:600;background:#1E3A5F;color:#F59E0B;border:none;border-radius:4px;padding:.6rem 1.1rem;cursor:pointer;width:100%}
+  label{display:block;text-align:left;font-size:.72rem;color:#64748b;margin:.6rem 0 .25rem}
+  input{width:100%;font-family:inherit;font-size:.88rem;background:#020617;color:#e2e8f0;border:1px solid #1e3a5f;border-radius:4px;padding:.5rem .6rem}
+  button{font-family:inherit;font-size:.85rem;font-weight:600;background:#1E3A5F;color:#F59E0B;border:none;border-radius:4px;padding:.6rem 1.1rem;cursor:pointer;width:100%;margin-top:1rem}
+  .card form + form{margin-top:1rem}
+  .link-btn{background:none;color:#F59E0B;text-decoration:underline;font-weight:400;width:auto;padding:0;font-size:.82rem;margin-top:0}
+  .error{color:#f87171;font-size:.82rem;margin:.75rem 0 0;text-align:left}
   a.link{color:#F59E0B;text-decoration:none}
   .note{margin-top:1rem;font-size:.72rem;color:#475569}
 </style>
@@ -134,19 +187,36 @@ function authShellPage(message) {
 </body></html>`;
 }
 
-function unauthorized() {
-  const body = authShellPage(`
-    <p>Authentication required. Clicked Cancel? You'll land here whenever you don't have the current login.</p>
+function loginPage(error) {
+  return standalonePage(`
+    <form method="POST" action="/login">
+      <label for="username">Username</label>
+      <input id="username" type="text" name="username" required autofocus autocomplete="username">
+      <label for="password">Password</label>
+      <input id="password" type="password" name="password" required autocomplete="current-password">
+      ${error ? `<p class="error">${esc(error)}</p>` : ''}
+      <button type="submit">Log in</button>
+    </form>
     <form method="POST" action="/admin/reset-request">
-      <button type="submit">Forgot password?</button>
+      <button type="submit" class="link-btn">Forgot password?</button>
     </form>
     <p class="note">Triggers a real credential reset — a new login gets emailed to Ariel. Limited to once per hour.</p>`);
-  return new Response(body, {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Winner Data LMS"',
-      'content-type': 'text/html; charset=utf-8',
-    },
+}
+
+async function handleLogin(request, env) {
+  const form = await request.formData();
+  const username = String(form.get('username') || '');
+  const password = String(form.get('password') || '');
+  if (!verifyCredentials(username, password, env)) {
+    return new Response(loginPage('Incorrect username or password.'), {
+      status: 401,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  }
+  const cookie = await createSessionCookie(env, username);
+  return new Response(null, {
+    status: 303,
+    headers: { Location: '/', 'Set-Cookie': cookie },
   });
 }
 
@@ -154,7 +224,7 @@ function resetResultPage(ok, detail) {
   const message = ok
     ? `<p>Reset triggered — check everestcapital8@gmail.com for the new login. It can take a minute to arrive.</p>`
     : `<p style="color:#F59E0B">${esc(detail)}</p>`;
-  return authShellPage(`${message}<p class="note"><a class="link" href="/">Back to login</a></p>`);
+  return standalonePage(`${message}<p class="note"><a class="link" href="/login">Back to login</a></p>`);
 }
 
 // GH repo/workflow this endpoint dispatches — same one built for issue
@@ -617,15 +687,24 @@ export default {
     const { pathname, searchParams } = url;
 
     // Public, unauthenticated recovery endpoint — this IS the forgot-
-    // password path (see unauthorized() above), so it must be reachable
-    // without Basic Auth. Guarded by a rolling-hour rate limit
+    // password path (see loginPage() above), so it must be reachable without
+    // a session. Guarded by a rolling-hour rate limit
     // (lms_reset_request_trigger()) instead of an auth check.
     if (pathname === '/admin/reset-request' && request.method === 'POST') {
       return handleResetRequest(env);
     }
 
-    const actor = checkAuth(request, env);
-    if (!actor) return unauthorized();
+    if (pathname === '/login' && request.method === 'GET') {
+      const existing = await checkSession(request, env);
+      if (existing) return Response.redirect(new URL('/', request.url).toString(), 302);
+      return new Response(loginPage(), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }
+    if (pathname === '/login' && request.method === 'POST') {
+      return handleLogin(request, env);
+    }
+
+    const actor = await checkSession(request, env);
+    if (!actor) return Response.redirect(new URL('/login', request.url).toString(), 302);
     request.lmsActor = actor;
 
     const orgId = searchParams.get('org_id');

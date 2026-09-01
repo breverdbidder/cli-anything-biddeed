@@ -89,39 +89,85 @@ jobs:
       # activate automatically once DNS is fixed (see wrangler.toml comment —
       # CF_API_TOKEN currently lacks Zone:DNS permission). Primary verification
       # target is the workers.dev URL, which does not depend on that route.
-      - name: Verify live - unauthenticated request must be rejected (workers.dev)
+      - name: Verify live - unauthenticated request redirects to the real login page, no Basic Auth popup (workers.dev)
         run: |
           URL="${{ steps.deploy.outputs.worker_url }}"
           sleep 8
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/healthz" || echo "000")
-          echo "/healthz (no auth) returned $CODE"
-          if [ "$CODE" != "401" ]; then
-            echo "::error::Expected 401 for unauthenticated request, got $CODE. Basic Auth gate is not enforcing."
+          CODE=$(curl -s -D /tmp/healthz_noauth_headers.txt -o /dev/null -w "%{http_code}" "$URL/healthz" || echo "000")
+          echo "/healthz (no session) returned $CODE"
+          if [ "$CODE" != "302" ]; then
+            echo "::error::Expected 302 redirect to /login for unauthenticated request, got $CODE. Session gate is not enforcing."
             exit 1
           fi
-          echo "PASS: unauthenticated request correctly rejected (401)"
+          if ! grep -qi "^location: $URL/login" /tmp/healthz_noauth_headers.txt; then
+            echo "::error::Expected redirect Location to end in /login" && cat /tmp/healthz_noauth_headers.txt && exit 1
+          fi
+          echo "PASS: unauthenticated request redirected to /login (302)"
 
-      - name: Verify live - authenticated request returns real data (workers.dev)
+          CODE=$(curl -s -D /tmp/login_headers.txt -o /tmp/login_body.html -w "%{http_code}" "$URL/login" || echo "000")
+          echo "/login returned $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Expected 200 for GET /login, got $CODE" && exit 1
+          fi
+          if grep -qi '^www-authenticate:' /tmp/login_headers.txt; then
+            echo "::error::/login must never send a WWW-Authenticate challenge — that IS the native popup this ticket removes" && exit 1
+          fi
+          if ! grep -q 'name="username"' /tmp/login_body.html || ! grep -q 'name="password"' /tmp/login_body.html; then
+            echo "::error::/login is missing username/password fields" && cat /tmp/login_body.html && exit 1
+          fi
+          if ! grep -q 'Forgot password?' /tmp/login_body.html; then
+            echo "::error::/login is missing the visible Forgot Password link" && exit 1
+          fi
+          echo "PASS: /login is a real form (username + password + visible Forgot Password link), no popup"
+
+      - name: Verify live - wrong credentials show an inline error, not a popup (workers.dev)
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          CODE=$(curl -s -o /tmp/wrong_login_body.html -w "%{http_code}" -X POST --data-urlencode "username=definitely-wrong" --data-urlencode "password=definitely-wrong" "$URL/login")
+          echo "POST /login (wrong creds) returned $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::Expected 401 for wrong credentials, got $CODE" && exit 1
+          fi
+          if ! grep -q "Incorrect username or password" /tmp/wrong_login_body.html; then
+            echo "::error::Missing inline 'Incorrect username or password' error" && cat /tmp/wrong_login_body.html && exit 1
+          fi
+          echo "PASS: wrong credentials produce an inline error on the same page"
+
+      - name: Verify live - correct credentials log in and the session persists across navigations (workers.dev)
         run: |
           URL="${{ steps.deploy.outputs.worker_url }}"
           # Retry with backoff: freshly-set `wrangler secret put` values can take
           # a few seconds to propagate to the edge, so an immediate curl can hit
           # a Worker instance still running on stale/partial secrets.
           for attempt in 1 2 3 4 5 6; do
-            CODE=$(curl -s --max-time 15 -o /tmp/healthz_body.json -w "%{http_code}" -u "${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}" "$URL/healthz" || echo "000")
-            echo "attempt $attempt: /healthz (authenticated) returned $CODE"
-            cat /tmp/healthz_body.json || true
-            echo ""
-            if [ "$CODE" = "200" ] && grep -q '"ok":true' /tmp/healthz_body.json; then
-              echo "PASS: authenticated healthz returns ok:true"
+            CODE=$(curl -s --max-time 15 -c /tmp/lms_cookies.txt -o /tmp/login_result.html -w "%{http_code}" \
+              -X POST --data-urlencode "username=${{ secrets.LMS_AUTH_USER }}" --data-urlencode "password=${{ secrets.LMS_AUTH_PASS }}" \
+              "$URL/login" || echo "000")
+            echo "attempt $attempt: POST /login (correct creds) returned $CODE"
+            if [ "$CODE" = "303" ] && grep -q lms_session /tmp/lms_cookies.txt; then
+              echo "PASS: correct credentials issue a session cookie"
               break
             fi
             if [ "$attempt" = "6" ]; then
-              echo "::error::Expected 200 + ok:true for authenticated /healthz after 6 attempts, last code=$CODE"
+              echo "::error::Expected 303 + session cookie after 6 attempts, last code=$CODE"
               exit 1
             fi
             sleep 10
           done
+
+          # DoD requires the session to persist across at least 2 page
+          # navigations without re-sending credentials.
+          CODE1=$(curl -s -b /tmp/lms_cookies.txt -o /tmp/healthz_body.json -w "%{http_code}" "$URL/healthz")
+          echo "/healthz with session cookie (navigation 1) returned $CODE1"
+          if [ "$CODE1" != "200" ] || ! grep -q '"ok":true' /tmp/healthz_body.json; then
+            echo "::error::Session cookie did not grant access to /healthz, code=$CODE1" && cat /tmp/healthz_body.json && exit 1
+          fi
+          CODE2=$(curl -s -b /tmp/lms_cookies.txt -o /tmp/orgs_body.html -w "%{http_code}" "$URL/orgs")
+          echo "/orgs with session cookie (navigation 2) returned $CODE2"
+          if [ "$CODE2" != "200" ]; then
+            echo "::error::Session cookie did not grant access to /orgs, code=$CODE2" && exit 1
+          fi
+          echo "PASS: session persists across 2 separate page navigations (/healthz then /orgs)"
 
       - name: Check custom domain (informational only - known DNS gap)
         run: |
@@ -137,13 +183,12 @@ jobs:
         run: |
           set +e
           URL="${{ steps.deploy.outputs.worker_url }}"
-          AUTH="${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}"
           ORG_ID="032f4717-545f-4a18-b48b-28ea4257699d"
 
           fetch_view() {
             # $1=label $2=path
             echo "#### $1"
-            CODE=$(curl -s -o /tmp/view_body.html -w "%{http_code}" -u "$AUTH" "$URL$2")
+            CODE=$(curl -s -o /tmp/view_body.html -w "%{http_code}" -b /tmp/lms_cookies.txt "$URL$2")
             echo "HTTP $CODE"
             echo '```'
             grep -oE '<td>[^<]{0,60}(<[^t][^<]*)?</td>|<h2>[^<]*</h2>|<span class="stat-num[^"]*">[^<]*</span>' /tmp/view_body.html | head -30
@@ -174,4 +219,4 @@ jobs:
           echo "### Winner Data LMS Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
           echo "Live URL (workers.dev): ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Intended custom domain: https://lms.winnerdataai.com (blocked on DNS — CF_API_TOKEN lacks Zone:DNS permission, see wrangler.toml)" >> "$GITHUB_STEP_SUMMARY"
-          echo "Auth: HTTP Basic (credentials in LMS_AUTH_USER/LMS_AUTH_PASS repo secrets)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Auth: real /login form (username+password, credentials in LMS_AUTH_USER/LMS_AUTH_PASS repo secrets) + signed session cookie — no browser Basic Auth popup" >> "$GITHUB_STEP_SUMMARY"
