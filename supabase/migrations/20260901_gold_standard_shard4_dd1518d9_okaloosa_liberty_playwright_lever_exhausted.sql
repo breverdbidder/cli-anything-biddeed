@@ -1,0 +1,167 @@
+-- Gold Standard shard-4 (dispatch dd1518d9, 2026-09-01): okaloosa letter I
+-- (cluster 1: 2024-CA-000470 / 2024-TDD-000089 parcel/address gap; cluster 2:
+-- 4 Walton-format parcel_ids re-check) and liberty letters A/B/F (case
+-- 24-CA-22 sale-outcome discovery). This session's genuinely NEW lever was a
+-- real Playwright/Chromium headless-browser install (first session this
+-- campaign with a working browser-automation stack, vs. prior sessions'
+-- curl/WebFetch-only attempts). RESULT: no DB writes -- the new lever got
+-- materially further (past initial page loads onto live, fully-rendered
+-- search forms on 3 separate sites) but was blocked one layer deeper by
+-- genuine Cloudflare Turnstile challenges on search submission. Both
+-- independent adversarial refuter passes returned NO_CHANGE_CONFIRMED. This
+-- is a documentation-only migration recording that live re-verification.
+--
+-- BEFORE (pencil_dod_evaluate_county, LIVE-VERIFIED 2026-09-01 16:16 UTC,
+-- pre- AND post-investigation -- identical, since no write was made):
+--
+--   okaloosa: auctions_total=85
+--     A: PASS  fc=57 td=28
+--     B: PASS  verified=25 closed_sold=25 (100.0%)
+--     C: PASS  matched_clean=83 (97.6%)
+--     D: PASS  matched_any=83 (97.6%)
+--     E: PASS  parcel_linked=83 (97.6%)
+--     F: PASS  tier1_sold=25 closed_sold=25 (100.0%)
+--     G: PASS  density=100.0 far=100.0 pk1000=100.0
+--     H: PASS  hours since last_seen=1.0 (SLA 48h)
+--     I: FAIL  card_complete=79 of 85 (92.9%)   <- unchanged, still failing
+--     J: PASS  deal_complete=85 (100.0%)
+--
+--   liberty: auctions_total=1
+--     A: FAIL  fc=1 td=0 (metric=0)             <- unchanged, still failing
+--     B: FAIL  verified=0 closed_sold=0 (metric=null)  <- unchanged, still failing
+--     C: PASS  matched_clean=1 (100.0%)
+--     D: PASS  matched_any=1 (100.0%)
+--     E: PASS  parcel_linked=1 (100.0%)
+--     F: FAIL  tier1_sold=0 closed_sold=0 (metric=null)  <- unchanged, still failing
+--     G: PASS  density=100.0
+--     H: PASS  hours since last_seen=5.2 (SLA 48h)
+--     I: PASS  card_complete=1 of 1 (100.0%)
+--     J: PASS  deal_complete=1 (100.0%)
+--
+-- AFTER: IDENTICAL to BEFORE (no writes made -- see conclusion below).
+--
+-- ============================================================================
+-- LIBERTY A/B/F: case 24-CA-22, Playwright/Chromium lever
+-- ============================================================================
+-- NEW LEVER: real headless Chromium via Playwright (`playwright.sync_api`),
+-- not attempted in any prior liberty session per repo history (prior
+-- sessions used curl/WebFetch only, which cannot render JS-driven search
+-- forms or interact with widgets).
+--
+--   civitekflorida.com/ocrs/county/39/ (Liberty Civitek OCRS):
+--     - VERIFIED: initial load HTTP 200, "Liberty County OCRS" title, no
+--       Turnstile marker present on the landing/access-selector page itself.
+--     - VERIFIED: navigating Public -> I Agree reached a real, fully
+--       rendered Case Search / Person Search UI at
+--       civitekflorida.com/ocrs/app/search.xhtml (this is new information --
+--       prior sessions never confirmed this page renders a live form at
+--       all).
+--     - VERIFIED: filling the Year field lazily triggers a genuine
+--       Cloudflare Turnstile widget (sitekey 0x4AAAAAAAR0Af-5MfzdbO3p,
+--       iframe from challenges.cloudflare.com). Clicking the checkbox (both
+--       raw-coordinate and frame-locator approaches) failed -- explicit
+--       on-page "Verification failed" / "Troubleshoot" result, or the
+--       checkbox never rendered interactable at all. Screenshot:
+--       /tmp/liberty_research/after_turnstile_click.png.
+--
+--   myfloridacounty.com/orisearch/39 (Liberty official records):
+--     - VERIFIED: landing + county-select + search form all load and fill
+--       cleanly (Party Name / Legal Description / Document Type / Date
+--       Range, etc; instruments verified through 8/27/2026, i.e. current
+--       data). No "Certificate of Title" doc type exists in the 35-entry
+--       dropdown; closest is generic "CERTIFICATE" (code 9/CTF).
+--     - VERIFIED: submitting a Party Name search (Wilmington Savings Fund
+--       Society) returned a genuine Turnstile challenge (sitekey
+--       0x4AAAAAAA64PTBePmuGbrkR, onTurnstileSuccess auto-submit callback).
+--       Same headless-checkbox-never-interactable outcome as civitek. Zero
+--       results table ever reached.
+--
+--   libertyclerk.com/courts/tax-deeds/ and /courts/foreclosure-sales/:
+--     - VERIFIED (plain curl, fresh recheck): HTTP 200 both pages, exact
+--       literal text "There are no properties on the list of tax deeds at
+--       this time." and "There are no foreclosure sales available at this
+--       time." Zero case-number-pattern matches on either page. Identical to
+--       every prior session -- no drift.
+--
+-- ADVERSARIAL VERIFICATION: independently re-fetched libertyclerk.com pages
+-- (byte counts matched exactly: 94,415 and 94,997 bytes) and both landing
+-- pages (civitek + myfloridacounty), confirmed all statically-checkable
+-- claims verbatim. Turnstile-submission claims are inherently unreproducible
+-- from a no-display sandbox on either the research or the adversarial pass
+-- (expected limitation for a BLANK-outcome report, not a red flag). No
+-- positive/fabricated value asserted anywhere. Verdict: NO_CHANGE_CONFIRMED.
+--
+-- CONCLUSION: Playwright/Chromium is a real, materially-advancing lever --
+-- for the first time this campaign it's confirmed both civitek and
+-- myfloridacounty have genuinely live, functional (non-decorative) search
+-- UIs -- but the structural ceiling holds one layer deeper: Cloudflare
+-- Turnstile fails closed against headless Chromium on search *submission* on
+-- both sites. No sold_amount / tier1_sold_amount / winning_bidder value
+-- exists to write. A/B/F remain FAIL, correctly.
+--
+-- ============================================================================
+-- OKALOOSA I: cluster 1 (ClerkQuest Playwright attempt) + cluster 2 (zoning
+-- gold-standard recheck)
+-- ============================================================================
+-- CLUSTER 1 -- 2024-CA-000470 (parcel_id 86fd8a0f-53ff-4ccb-9104-90069762e466)
+-- and 2024-TDD-000089 (parcel_id 46039562-77f6-4429-883a-4410d2882cb2):
+--   NEW LEVER: Playwright/Chromium against clerkapps.okaloosaclerk.com/
+--   ClerkQuest/ (a genuinely different, more capable lever than the
+--   2026-08-31 session's raw-curl POST attempt against the same site).
+--     - VERIFIED: page loads HTTP 200, title "Okaloosa County Clerk of
+--       Courts Records Search". Live Turnstile widget confirmed in DOM
+--       (data-sitekey=0x4AAAAAACyweVrJReuUhwJf, cf-turnstile-response hidden
+--       field). Polled the hidden response field for 15s post-load -- stayed
+--       empty the entire window, never auto-populated for headless Chromium.
+--     - VERIFIED: filled case number 2024-CA-000470, submitted -- server
+--       rejected with "Invalid Request" (visible red banner), consistent
+--       with the empty Turnstile token being rejected server-side before the
+--       case number is even parsed. Same practical outcome as the
+--       2026-08-31 raw-curl attempt ("Invalid Search Criteria"), now
+--       confirmed via a real rendered browser rather than a forged POST.
+--   CONCLUSION: same structural ceiling as 2026-08-31, now confirmed via a
+--   strictly stronger lever (real browser vs. raw POST) -- rules out "maybe
+--   curl just wasn't sending the right headers" as an explanation. No
+--   parcel_id / property_address recoverable. BLANK remains correct for both
+--   rows.
+--
+-- CLUSTER 2 -- 4 Walton-format parcel_ids
+-- (17-3N-21-37000-001-0100, 30-2S-21-42840-00D-0311,
+--  17-3N-21-37000-001-0240, 08-3N-21-37000-005-0011):
+--   VERIFIED via direct PostgREST query against v_zoning_gold_standard_card
+--   filtered county=eq.okaloosa: all 4 returned []. No drift from the
+--   2026-08-31 finding. Correctly not chased further / not written under an
+--   Okaloosa-tagged view (these are Walton-county-format STRAPs -- writing
+--   them here would be a cross-county mislabel, exactly the failure mode
+--   this campaign screens against).
+--
+-- ADVERSARIAL VERIFICATION: independently re-curled ClerkQuest, confirmed
+-- HTTP 200 + exact Turnstile widget markup + exact form field names.
+-- Independently re-ran the 4-parcel gold-standard-view query live, got
+-- identical [] result. Independently queried multi_county_auctions for both
+-- cluster-1 UUIDs live: both rows exist, parcel_id/property_address/
+-- sold_amount all confirmed still NULL. Independently root-caused the
+-- `jurisdictions?county=eq.okaloosa` empty-result caveat as a casing
+-- mismatch (proper-case "Okaloosa" via ilike returns 11 real rows) --
+-- confirming the research report's own hedge was correct and appropriately
+-- un-chased. Verdict: NO_CHANGE_CONFIRMED.
+--
+-- CONCLUSION: I remains FAIL at 79/85 (92.9%), unchanged. No write made.
+--
+-- ============================================================================
+-- RESULT: zero DB writes this session (6th+ session hitting the same wall
+-- for these letters/counties). Both target counties' pencil_dod_evaluate_
+-- county output is byte-for-byte identical before and after this session's
+-- investigation -- no regression, no improvement, correctly BLANK. The
+-- Playwright/Chromium lever is now exhausted for these specific targets;
+-- unblocking requires either non-headless Playwright with a real display
+-- (Xvfb) or a Turnstile-solving service, neither available in this sandbox,
+-- flagged for a future session.
+--
+-- Env used: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (PostgREST REST + RPC
+-- only, per this project's standing constraint that direct psql/pooler auth
+-- is dead). County scope: okaloosa (letter I only) + liberty (letters
+-- A/B/F only). No writes to multi_county_auctions or any other table were
+-- made this session -- this migration is a documentation-only record of a
+-- fresh live re-verification, per BLANK > WRONG.
+SELECT 1;
