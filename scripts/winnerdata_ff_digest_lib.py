@@ -21,7 +21,16 @@ MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
 PROTECTION_PARTNERS_ORG_ID = "032f4717-545f-4a18-b48b-28ea4257699d"
 
 FROM_EMAIL = "The Daily Winner FFs <ariel@biddeed.ai>"
-FF_BASE_URL = "https://ff.winnerdataai.com/ff"
+# P0 fix (2026-09-01): ff.winnerdataai.com is NXDOMAIN -- the CF_API_TOKEN
+# available to this repo's GHA runners can read the zone but returns
+# "Authentication error" (code 10000) on every DNS record read/write call,
+# live-reconfirmed the same day (see workers/winnerdata-ff/wrangler.toml).
+# Every "View FF" link in every prior real send was dead as a result. Until
+# the token gets Zone:DNS:Edit (Ariel, Cloudflare dashboard) and the custom
+# domain resolves, point links at the workers.dev fallback deployed the same
+# day (workers_dev=true in wrangler.toml) -- confirmed live via curl below.
+# Flip this back to "https://ff.winnerdataai.com/ff" once DNS is fixed.
+FF_BASE_URL = "https://winnerdata-ff.brevardbidderai.workers.dev/ff"
 
 MGMT_API_RETRIES = 3
 MGMT_API_BACKOFF_SECONDS = 3
@@ -108,6 +117,21 @@ def get_producer_email():
 
 
 def get_batch_leads(batch_date):
+    # issue P0 (2026-09-01) bug 2: l.consent_certificate #>> '{contact_resolution_v2,...}'
+    # is NULL on every lead row, live-verified -- that path was never populated.
+    # The real, populated contact-confidence value lives on
+    # winnerdata.ff_batch_leads.contact_confidence, keyed by (batch_date, auction_id)
+    # -- NOT by lead_id, so it can't be joined directly. ff_batch_leads has no
+    # lead_id/auction_id link back to winnerdata.leads either. Live-verified the
+    # only reliable join key is case_number: it's globally unique across all 37
+    # rows in ff_batch_leads today, and joining on it (not batch_date -- see the
+    # separate batch_date mislabeling bug where ff_batch_leads.batch_date=2026-08-27
+    # for the same 28 leads whose routing_decisions.routed_at::date=2026-08-29)
+    # is what actually recovers non-null tiers for the real, already-sent batch.
+    # email_tier/phone_tier are kept as-is (still NULL today, pre-existing and
+    # out of scope here) -- scripts/winnerdata_daily_winner_ff_digest.py and
+    # scripts/seller_digest_backfill.py persist those two keys into the
+    # separate winnerdata.seller_digest_leads table and must not regress.
     return run_sql(f"""
         select distinct on (l.lead_id)
           l.lead_id, l.entity_name,
@@ -118,10 +142,13 @@ def get_batch_leads(batch_date):
           se.event_payload->>'property_address' as property_address,
           l.consent_certificate #>> '{{contact_resolution_v2,email_tier}}' as email_tier,
           l.consent_certificate #>> '{{contact_resolution_v2,phone_tier}}' as phone_tier,
+          fbl.contact_confidence as confidence_tier,
           rd.routed_at
         from winnerdata.leads l
         join winnerdata.signal_events se on se.signal_id = l.signal_id
         join winnerdata.routing_decisions rd on rd.lead_id = l.lead_id
+        left join winnerdata.ff_batch_leads fbl
+          on fbl.case_number = se.event_payload->>'case_number'
         where l.org_id = '{PROTECTION_PARTNERS_ORG_ID}'
           and rd.routed_at::date = {sql_str(batch_date)}
           and (l.is_lender_or_plaintiff = false or l.manual_buyer_override = true)
@@ -129,14 +156,14 @@ def get_batch_leads(batch_date):
     """)
 
 
-def confidence_label(email_tier, phone_tier):
-    # Honest passthrough of whatever scripts/skiptrace_20260825_contact_resolver_v2.py
-    # already recorded (tier number : source, e.g. "2:tracerfy_enhanced_trace") --
-    # not remapped to the FF template's badge names (verified-primary / etc.)
-    # because no code anywhere in this repo defines that mapping; inventing
-    # one here would be an unverified claim about a compliance-sensitive field.
-    tier = email_tier or phone_tier
-    return tier if tier else "not available"
+def confidence_label(confidence_tier):
+    # Honest passthrough of whatever winnerdata.ff_batch_leads.contact_confidence
+    # already recorded (e.g. "VERIFIED-CROSS-CHECKED", "LIKELY-SINGLE-SOURCE",
+    # "NOT AVAILABLE") -- not remapped to the FF template's badge names
+    # (verified-primary / etc.) because no code anywhere in this repo defines
+    # that mapping; inventing one here would be an unverified claim about a
+    # compliance-sensitive field.
+    return confidence_tier if confidence_tier else "not available"
 
 
 def render_email(batch_date, leads):
@@ -163,7 +190,7 @@ def render_email(batch_date, leads):
     rows_text = []
     rows_html = []
     for lead in leads:
-        tier = confidence_label(lead.get("email_tier"), lead.get("phone_tier"))
+        tier = confidence_label(lead.get("confidence_tier"))
         link = f"{FF_BASE_URL}/{lead['lead_id']}"
         rows_text.append(
             f"- {lead['entity_name']} | {lead['county'] or 'unknown county'} | "

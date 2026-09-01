@@ -65,14 +65,25 @@ jobs:
         run: |
           sleep 8
           CODE=$(curl -s -o /dev/null -w "%{http_code}" https://ff.winnerdataai.com/healthz || echo "000")
-          echo "/healthz returned $CODE"
-          if [ "$CODE" = "000" ]; then
-            echo "::warning::Endpoint unreachable - check route/DNS binding for ff.winnerdataai.com"
+          echo "/healthz (custom domain) returned $CODE"
+          if [ "$CODE" = "000" ] || [ "$CODE" = "530" ]; then
+            echo "::warning::ff.winnerdataai.com unreachable - known DNS blocker (CF_API_TOKEN lacks Zone:DNS:Edit, see wrangler.toml). workers.dev is the live fallback below."
+          fi
+          # workers_dev=true fallback (P0 fix 2026-09-01) -- this is the URL
+          # FF_BASE_URL actually points to until the DNS blocker above clears.
+          WD_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://winnerdata-ff.brevardbidderai.workers.dev/healthz || echo "000")
+          echo "/healthz (workers.dev) returned $WD_CODE"
+          if [ "$WD_CODE" != "200" ]; then
+            echo "::error::workers.dev fallback endpoint did not return 200 (got $WD_CODE). This is the only reachable FF endpoint right now -- treat this as a real deploy failure."
+            exit 1
           fi
 
       - name: Security gate - unauthenticated access must NOT return lead data
         run: |
+          # Check the workers.dev fallback too -- the only endpoint that
+          # actually resolves right now (see Verify step above).
           BODY=$(curl -s https://ff.winnerdataai.com/portal || echo "")
+          BODY="$BODY $(curl -s https://winnerdata-ff.brevardbidderai.workers.dev/portal || echo "")"
           if echo "$BODY" | grep -qE '[0-9]{3}-[0-9]{3}-[0-9]{4}'; then
             echo "::error::Unauthenticated /portal exposed a phone number. Cloudflare Access and/or RLS is NOT enforced. Failing the deploy."
             exit 1

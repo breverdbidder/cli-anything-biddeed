@@ -537,7 +537,7 @@ async function handleFFSubmit(leadId, request) {
       p_updated_by: 'portal',
     });
   }
-  return Response.redirect(new URL(`/ff/${leadId}`, 'https://ff.winnerdataai.com').toString(), 303);
+  return Response.redirect(new URL(`/ff/${leadId}`, request.url).toString(), 303);
 }
 
 async function handleHealthz() {
@@ -742,7 +742,7 @@ async function handleProducerReportUpdateState(request) {
   });
 
   return Response.redirect(
-    new URL(`/producer-report?user_id=${encodeURIComponent(userId)}&date=${encodeURIComponent(redirectDate)}`, 'https://ff.winnerdataai.com').toString(),
+    new URL(`/producer-report?user_id=${encodeURIComponent(userId)}&date=${encodeURIComponent(redirectDate)}`, request.url).toString(),
     303
   );
 }

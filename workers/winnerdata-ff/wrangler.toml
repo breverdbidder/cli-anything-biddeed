@@ -3,6 +3,19 @@ main = "src/index.js"
 compatibility_date = "2026-08-24"
 account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 
+# workers_dev=true (P0 fix, 2026-09-01): ff.winnerdataai.com was NXDOMAIN in
+# every live send -- confirmed the CF_API_TOKEN available to this repo's GHA
+# runners can read the zone (Zone:Read) but returns "Authentication error"
+# (code 10000) on every DNS record read/write call, same root cause already
+# documented in workers/winnerdata-lms/wrangler.toml for lms.winnerdataai.com.
+# Without workers_dev this Worker had NO reachable hostname at all (probing
+# winnerdata-ff.brevardbidderai.workers.dev/healthz returned Cloudflare error
+# 1042 -- workers.dev disabled). Enabling it here mirrors winnerdata-lms's
+# fix and gives every "View FF" link a working destination today. The
+# [[routes]] binding below stays declared so it activates automatically once
+# the token gets Zone:DNS:Edit and ff.winnerdataai.com actually resolves.
+workers_dev = true
+
 # templates/FF_TEMPLATE_*.html are imported as text at deploy time (esbuild,
 # bundled by `wrangler deploy` itself — no separate build step to maintain).
 [[rules]]
