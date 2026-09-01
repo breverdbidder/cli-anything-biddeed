@@ -26,6 +26,36 @@ FF_BASE_URL = "https://ff.winnerdataai.com/ff"
 MGMT_API_RETRIES = 3
 MGMT_API_BACKOFF_SECONDS = 3
 
+# issue #19659 item 2: Resend's test sandbox always reports "sent" without
+# delivering anything real -- never a valid recipient_kind, regardless of
+# who the batch's intended recipient is. Internal Everest/BidDeed addresses
+# ARE valid real sends (Ariel doing QA/review) but must never be counted
+# billable, so they get their own recipient_kind rather than being lumped
+# in with producer sends.
+SANDBOX_RECIPIENT_DOMAINS = ("resend.dev",)
+INTERNAL_QA_RECIPIENT_DOMAINS = ("biddeed.ai", "everestcapitalusa.com")
+
+
+def classify_recipient(email):
+    """Returns 'sandbox', 'internal_qa', or 'producer' for a send recipient.
+
+    'sandbox' must never be allowed to reach status='sent' -- see
+    winnerdata_ff_send_approved.py's use of this. 'internal_qa' may reach
+    status='sent' (Ariel's own review sends) but is never billable.
+    'producer' is the only recipient_kind that can back a
+    winnerdata.billable_ff_events row.
+    """
+    domain = (email or "").strip().lower().rsplit("@", 1)[-1]
+
+    def _matches(domains):
+        return any(domain == d or domain.endswith("." + d) for d in domains)
+
+    if _matches(SANDBOX_RECIPIENT_DOMAINS):
+        return "sandbox"
+    if _matches(INTERNAL_QA_RECIPIENT_DOMAINS):
+        return "internal_qa"
+    return "producer"
+
 
 def run_sql(query):
     token = os.environ["SUPABASE_ACCESS_TOKEN"]
@@ -61,16 +91,20 @@ def sql_str(v):
 
 
 def get_producer_email():
+    # issue #19659 item 1: explicit "email is not null" guard in the query
+    # itself (not just a truthiness check on the returned rows) -- so a
+    # producer with an empty-string email on file can't slip through either.
     rows = run_sql(f"""
         select p.producer_id, p.full_name, p.email
         from winnerdata.producers p
-        where p.org_id = '{PROTECTION_PARTNERS_ORG_ID}' and p.full_name = 'Mariam Shapira' and p.active = true
+        where p.org_id = '{PROTECTION_PARTNERS_ORG_ID}'
+          and p.full_name = 'Mariam Shapira'
+          and p.active = true
+          and p.email is not null
+          and length(trim(p.email)) > 0
         order by p.created_at asc;
     """)
-    for r in rows:
-        if r["email"]:
-            return r["email"]
-    return None
+    return rows[0]["email"] if rows else None
 
 
 def get_batch_leads(batch_date):
@@ -189,11 +223,12 @@ def send_resend(to_email, subject, text, html, dry_run):
         return None, f"Resend HTTP {e.code}: {e.read().decode()}"
 
 
-def log_digest(batch_date, recipient, lead_count, message_id, status, error=None):
+def log_digest(batch_date, recipient, lead_count, message_id, status, error=None, recipient_kind=None):
     row = {
         "batch_date": batch_date,
         "org_id": PROTECTION_PARTNERS_ORG_ID,
         "recipient": recipient,
+        "recipient_kind": recipient_kind or (classify_recipient(recipient) if recipient else None),
         "lead_count": lead_count,
         "resend_message_id": message_id,
         "status": status,

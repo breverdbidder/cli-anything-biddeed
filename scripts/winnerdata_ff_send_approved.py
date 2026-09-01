@@ -23,6 +23,16 @@ winnerdata.producers, this logs 'blocked_no_email' to
 winnerdata.ff_digest_log and does NOT flip the batch to 'sent' (so a fixed
 email can re-trigger a send later) -- never fabricates a recipient.
 
+BLOCKING (issue #19659 item 2): if the resolved recipient is a Resend
+sandbox/test address (*.resend.dev), this logs 'blocked_sandbox_recipient'
+and does NOT send or flip the batch to 'sent' -- a sandbox address always
+reports delivered without actually delivering anything, so it can never be
+allowed to masquerade as a real send. Internal Everest/BidDeed QA sends
+(@biddeed.ai / @everestcapitalusa.com) are still allowed and logged
+recipient_kind='internal_qa', but never flip the batch to 'sent' and are
+never eligible to back a winnerdata.billable_ff_events row -- only a
+recipient_kind='producer' send does that.
+
 Run:
   python scripts/winnerdata_ff_send_approved.py [--dry-run]
     [--batch-date YYYY-MM-DD] [--test-send-to EMAIL]
@@ -35,6 +45,7 @@ import argparse
 import sys
 
 from winnerdata_ff_digest_lib import (
+    classify_recipient,
     get_batch_leads,
     get_producer_email,
     log_digest,
@@ -81,6 +92,20 @@ def process_batch(batch, test_send_to, dry_run):
             log_digest(batch_date, None, 0, None, "blocked_no_email")
         return
 
+    # issue #19659 item 2: Resend's test sandbox (delivered@resend.dev and
+    # any other *.resend.dev address) always reports "sent" without
+    # delivering anything real -- hard-block it from ever reaching
+    # status='sent' so it can never be mistaken for (or feed) a billable
+    # event. Real internal-QA sends (Ariel, @biddeed.ai/@everestcapitalusa.com)
+    # stay allowed but never flip the batch's terminal state or count billable.
+    recipient_kind = classify_recipient(recipient)
+    if recipient_kind == "sandbox":
+        print(f"BLOCKED: {recipient} is a Resend sandbox/test address -- refusing to mark 'sent'. "
+              "Batch stays 'approved' for retry with a real recipient.")
+        if not dry_run:
+            log_digest(batch_date, recipient, 0, None, "blocked_sandbox_recipient", recipient_kind=recipient_kind)
+        return
+
     leads = get_batch_leads(batch_date)
     print(f"{len(leads)} qualifying lead(s) for {batch_date} at send time.")
 
@@ -92,14 +117,19 @@ def process_batch(batch, test_send_to, dry_run):
     if err:
         print(f"ERROR: {err}", file=sys.stderr)
         if not dry_run:
-            log_digest(batch_date, recipient, len(leads), None, "error", error=err)
+            log_digest(batch_date, recipient, len(leads), None, "error", error=err, recipient_kind=recipient_kind)
         return
 
-    print(f"{'[DRY-RUN] ' if dry_run else ''}Sent to {recipient} (msg_id={msg_id}).")
+    print(f"{'[DRY-RUN] ' if dry_run else ''}Sent to {recipient} (msg_id={msg_id}, recipient_kind={recipient_kind}).")
     if not dry_run:
         status = "no_leads_sent" if not leads else "sent"
-        log_digest(batch_date, recipient, len(leads), msg_id, status)
-        mark_sent(batch_date)
+        log_digest(batch_date, recipient, len(leads), msg_id, status, recipient_kind=recipient_kind)
+        # Only a genuine producer delivery (not an internal-QA --test-send-to
+        # override) consumes the batch's terminal 'sent' state -- a QA send
+        # must leave the batch 'approved' so the real producer send can still
+        # happen.
+        if recipient_kind == "producer":
+            mark_sent(batch_date)
 
 
 def main():
