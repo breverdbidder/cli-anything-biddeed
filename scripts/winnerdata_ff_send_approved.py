@@ -33,6 +33,15 @@ recipient_kind='internal_qa', but never flip the batch to 'sent' and are
 never eligible to back a winnerdata.billable_ff_events row -- only a
 recipient_kind='producer' send does that.
 
+BLOCKING (LMS FF Batch Review + Approval screen, 2026-09-01): even once a
+batch is 'approved', a lead only ships if it has a decision='approved' row
+in winnerdata.ff_batch_lead_review, set from the LMS's per-lead
+approve/reject/request-improvement UI (see workers/winnerdata-lms). A lead
+with no review row is treated as excluded, not as an implicit approval --
+Ariel's explicit conservative default. If qualifying leads exist but none
+are approved, this logs 'blocked_unreviewed_leads' and does NOT send or
+flip the batch to 'sent'.
+
 Run:
   python scripts/winnerdata_ff_send_approved.py [--dry-run]
     [--batch-date YYYY-MM-DD] [--test-send-to EMAIL]
@@ -46,6 +55,7 @@ import sys
 
 from winnerdata_ff_digest_lib import (
     classify_recipient,
+    get_batch_lead_reviews,
     get_batch_leads,
     get_producer_email,
     log_digest,
@@ -108,6 +118,28 @@ def process_batch(batch, test_send_to, dry_run):
 
     leads = get_batch_leads(batch_date)
     print(f"{len(leads)} qualifying lead(s) for {batch_date} at send time.")
+
+    # LMS FF Batch Review + Approval screen (2026-09-01): Ariel now reviews
+    # each lead individually (approve/reject/request-improvement) instead of
+    # approving the whole batch sight-unseen in chat. Conservative default
+    # per his explicit instruction: a lead with NO decision recorded is
+    # treated the same as rejected -- it is excluded here, not sent by
+    # default. Only winnerdata.ff_batch_lead_review rows with
+    # decision='approved' make it into the send.
+    if leads:
+        reviews = get_batch_lead_reviews(batch_date)
+        approved_leads = [l for l in leads if reviews.get(l.get("case_number")) == "approved"]
+        excluded = len(leads) - len(approved_leads)
+        print(f"Per-lead review: {len(approved_leads)} of {len(leads)} approved for send "
+              f"({excluded} excluded as rejected/unreviewed).")
+        if not approved_leads:
+            print("BLOCKED: qualifying leads exist but none are marked decision='approved' in "
+                  "winnerdata.ff_batch_lead_review -- refusing to send. Review each lead in the "
+                  "LMS (/ff-batches) then re-approve. Batch stays 'approved' for retry.")
+            if not dry_run:
+                log_digest(batch_date, recipient, 0, None, "blocked_unreviewed_leads", recipient_kind=recipient_kind)
+            return
+        leads = approved_leads
 
     subject, text, html = render_email(batch_date, leads)
     print(f"Subject: {subject}")

@@ -118,6 +118,7 @@ function layout(title, activeNav, orgId, body) {
     ['leads', '/leads', 'Leads'],
     ['producers', '/producers', 'Producers'],
     ['billing', '/billing', 'Billing'],
+    ['ff-batches', '/ff-batches', 'FF Batches'],
   ].map(([key, path, label]) => {
     const href = orgId ? `${path}?org_id=${encodeURIComponent(orgId)}` : path;
     const active = key === activeNav ? ' style="color:#F59E0B;border-bottom:2px solid #F59E0B"' : '';
@@ -361,6 +362,105 @@ async function viewBilling(env, orgId, params) {
   return layout('Billing', 'billing', orgId, body);
 }
 
+// FF Worker's own view route is /ff/<lead_id> (workers/winnerdata-ff/src/index.js).
+// Same fallback URL as scripts/winnerdata_ff_digest_lib.py's FF_BASE_URL — keep
+// both in sync. ff.winnerdataai.com is still NXDOMAIN (CF_API_TOKEN lacks
+// Zone:DNS:Edit, see wrangler.toml in both winnerdata-ff and winnerdata-lms);
+// workers.dev is the only live-verified reachable base as of 2026-09-01.
+// Flip this back to https://ff.winnerdataai.com/ff once DNS is fixed.
+const FF_BASE_URL = 'https://winnerdata-ff.brevardbidderai.workers.dev/ff';
+
+function reviewBadge(decision) {
+  if (decision === 'approved') return '<span style="color:#22c55e;font-weight:600">APPROVED</span>';
+  if (decision === 'rejected') return '<span style="color:#f87171;font-weight:600">REJECTED</span>';
+  if (decision === 'improvement_requested') return '<span style="color:#F59E0B;font-weight:600">IMPROVEMENT REQUESTED</span>';
+  return '<span style="color:#64748b">unreviewed</span>';
+}
+
+async function viewFFBatches(env) {
+  const data = await rpc(env, 'lms_ff_batches_list', {});
+  const batches = data.batches || [];
+
+  const rows = batches.map((b) => `
+    <tr>
+      <td><a class="link" href="/ff-batches/${esc(b.batch_date)}">${esc(b.batch_date)}</a></td>
+      <td>${esc(b.batch_kind)}</td>
+      <td>${b.status === 'pending_approval' ? `<span style="color:#F59E0B;font-weight:600">PENDING APPROVAL</span>` : esc(b.status).toUpperCase()}</td>
+      <td>${b.lead_count}</td>
+      <td>${esc(b.enrichment_status)}</td>
+      <td>${b.approved_count} approved / ${b.rejected_count} rejected / ${b.improvement_count} improvement / ${b.reviewed_count} of ${b.lead_count} reviewed</td>
+      <td>${fmtDate(b.created_at)}</td>
+    </tr>`).join('');
+
+  const body = `
+    <h2>FF Batches — Review + Approval</h2>
+    <p class="footer-note">Approving here calls the same public.ff_approve_batch() the chat-based flow used. Only leads marked <b>approved</b> below are eligible to send — an unreviewed lead is never sent.</p>
+    <table>
+      <thead><tr><th>Batch Date</th><th>Kind</th><th>Status</th><th>Leads</th><th>Enrichment</th><th>Per-Lead Review</th><th>Built</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" class="empty">No FF batches on file.</td></tr>'}</tbody>
+    </table>`;
+  return layout('FF Batches', 'ff-batches', null, body);
+}
+
+async function viewFFBatchDetail(env, batchDate) {
+  const data = await rpc(env, 'lms_ff_batch_detail', { p_batch_date: batchDate });
+  if (!data.ok) {
+    return layout('Batch not found', 'ff-batches', null, `<p class="empty">${esc(data.reason)}</p>`);
+  }
+  const batch = data.batch;
+  const leads = data.leads || [];
+  const canApprove = batch.status === 'pending_approval';
+  const approvedCount = leads.filter((l) => l.review_decision === 'approved').length;
+
+  const rows = leads.map((l) => {
+    const ffLink = l.lead_id
+      ? `<a class="link" href="${esc(FF_BASE_URL)}/${esc(l.lead_id)}" target="_blank" rel="noopener">View FF &rarr;</a>`
+      : (l.pa_link ? `<a class="link" href="${esc(l.pa_link)}" target="_blank" rel="noopener">PA Link &rarr;</a>` : '<span style="color:#64748b">no link</span>');
+    const caseNum = l.case_number;
+    const reviewForm = caseNum ? `
+      <form class="inline" method="POST" action="/ff-batches/${esc(batchDate)}/leads/${encodeURIComponent(caseNum)}/review">
+        <select name="decision">
+          <option value="approved"${l.review_decision === 'approved' ? ' selected' : ''}>Approve</option>
+          <option value="rejected"${l.review_decision === 'rejected' ? ' selected' : ''}>Reject</option>
+          <option value="improvement_requested"${l.review_decision === 'improvement_requested' ? ' selected' : ''}>Request improvement</option>
+        </select>
+        <input type="text" name="note" placeholder="note (optional)" value="${esc(l.review_note)}" style="width:130px">
+        <button type="submit">Save</button>
+      </form>` : '<span style="color:#64748b">no case_number — cannot review</span>';
+
+    return `
+    <tr>
+      <td>${esc(l.entity_name)}<br><span style="color:#64748b;font-size:.78rem">${esc(l.county)} &middot; ${esc(l.sale_type)}</span></td>
+      <td style="font-size:.78rem">${esc(caseNum) || '—'}</td>
+      <td>${esc(l.confidence_tier) || 'not available'}</td>
+      <td>${ffLink}</td>
+      <td>${reviewBadge(l.review_decision)}${l.reviewed_by ? `<br><span style="color:#64748b;font-size:.72rem">${esc(l.reviewed_by)}, ${fmtDate(l.reviewed_at)}${l.review_note ? ` — ${esc(l.review_note)}` : ''}</span>` : ''}</td>
+      <td>${reviewForm}</td>
+    </tr>`;
+  }).join('');
+
+  const body = `
+    <p><a class="link" href="/ff-batches">&larr; All batches</a></p>
+    <h2>FF Batch — ${esc(batch.batch_date)} (${esc(batch.batch_kind)})</h2>
+    <div>
+      <div class="stat"><span class="stat-num">${batch.lead_count}</span><span class="stat-label">Total Leads</span></div>
+      <div class="stat"><span class="stat-num" style="color:#22c55e">${approvedCount}</span><span class="stat-label">Approved for Send</span></div>
+      <div class="stat"><span class="stat-num" style="color:${batch.status === 'pending_approval' ? '#F59E0B' : '#94a3b8'}">${esc(batch.status).toUpperCase()}</span><span class="stat-label">Batch Status</span></div>
+    </div>
+    <p style="margin-top:1rem">
+      ${canApprove
+        ? `<form method="POST" action="/ff-batches/${esc(batchDate)}/approve" onsubmit="return confirm('Approve batch ${esc(batchDate)}? Only leads marked Approved above will be eligible to send — unreviewed/rejected leads are excluded.');">
+             <button type="submit">Approve Batch (${approvedCount} of ${batch.lead_count} leads eligible to send)</button>
+           </form>`
+        : `<span class="footer-note">Batch is ${esc(batch.status)} — approval is only available while pending_approval.</span>`}
+    </p>
+    <table>
+      <thead><tr><th>Buyer / Entity</th><th>Case #</th><th>Confidence</th><th>FF Link</th><th>Review</th><th>Set Review</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="empty">No leads in this batch.</td></tr>'}</tbody>
+    </table>`;
+  return layout(`Batch ${batch.batch_date}`, 'ff-batches', null, body);
+}
+
 // --- Handlers ----------------------------------------------------------
 
 async function handleFlag(env, request, leadId) {
@@ -380,6 +480,22 @@ async function handleNote(env, request, producerId) {
   const note = form.get('note');
   await rpc(env, 'lms_update_producer_note', { p_org_id: orgId, p_producer_id: producerId, p_actor: request.lmsActor, p_note: note });
   return Response.redirect(new URL(`/producers?org_id=${encodeURIComponent(orgId)}`, request.url).toString(), 303);
+}
+
+async function handleFFBatchLeadReview(env, request, batchDate, caseNumber) {
+  const form = await request.formData();
+  const decision = form.get('decision');
+  const note = form.get('note') || null;
+  await rpc(env, 'lms_ff_batch_lead_review', {
+    p_batch_date: batchDate, p_case_number: caseNumber, p_decision: decision,
+    p_actor: request.lmsActor, p_note: note,
+  });
+  return Response.redirect(new URL(`/ff-batches/${encodeURIComponent(batchDate)}`, request.url).toString(), 303);
+}
+
+async function handleFFBatchApprove(env, request, batchDate) {
+  await rpc(env, 'lms_ff_approve_batch', { p_batch_date: batchDate, p_actor: request.lmsActor });
+  return Response.redirect(new URL(`/ff-batches/${encodeURIComponent(batchDate)}`, request.url).toString(), 303);
 }
 
 async function handleHealthz(env) {
@@ -410,12 +526,22 @@ export default {
       if (pathname === '/leads' && request.method === 'GET') return new Response(await viewLeads(env, orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       if (pathname === '/producers' && request.method === 'GET') return new Response(await viewProducers(env, orgId), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       if (pathname === '/billing' && request.method === 'GET') return new Response(await viewBilling(env, orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/ff-batches' && request.method === 'GET') return new Response(await viewFFBatches(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 
       const flagMatch = pathname.match(/^\/leads\/([0-9a-fA-F-]{36})\/flag$/);
       if (flagMatch && request.method === 'POST') return handleFlag(env, request, flagMatch[1]);
 
       const noteMatch = pathname.match(/^\/producers\/([0-9a-fA-F-]{36})\/note$/);
       if (noteMatch && request.method === 'POST') return handleNote(env, request, noteMatch[1]);
+
+      const ffBatchDetailMatch = pathname.match(/^\/ff-batches\/(\d{4}-\d{2}-\d{2})$/);
+      if (ffBatchDetailMatch && request.method === 'GET') return new Response(await viewFFBatchDetail(env, ffBatchDetailMatch[1]), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+
+      const ffBatchApproveMatch = pathname.match(/^\/ff-batches\/(\d{4}-\d{2}-\d{2})\/approve$/);
+      if (ffBatchApproveMatch && request.method === 'POST') return handleFFBatchApprove(env, request, ffBatchApproveMatch[1]);
+
+      const ffBatchReviewMatch = pathname.match(/^\/ff-batches\/(\d{4}-\d{2}-\d{2})\/leads\/([^/]+)\/review$/);
+      if (ffBatchReviewMatch && request.method === 'POST') return handleFFBatchLeadReview(env, request, ffBatchReviewMatch[1], decodeURIComponent(ffBatchReviewMatch[2]));
 
       return new Response('Not found', { status: 404 });
     } catch (err) {

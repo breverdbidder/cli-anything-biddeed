@@ -131,9 +131,9 @@ jobs:
       # Evidence-gathering only. Runs inside the GHA runner because the
       # LMS_AUTH_USER/LMS_AUTH_PASS values are write-only repo secrets — no
       # human or agent outside this runner can read them back out to curl the
-      # 4 views independently. Response bodies (real DB rows, no secret
+      # 6 views independently. Response bodies (real DB rows, no secret
       # material) are appended to the job summary as the DoD evidence.
-      - name: Evidence - real rows for all 4 views (org_id=032f4717-545f-4a18-b48b-28ea4257699d, Protection Partners)
+      - name: Evidence - real rows for all 6 views (org_id=032f4717-545f-4a18-b48b-28ea4257699d, Protection Partners)
         run: |
           set +e
           URL="${{ steps.deploy.outputs.worker_url }}"
@@ -157,6 +157,8 @@ jobs:
             fetch_view "2. Leads view (GET /leads?org_id=...)" "/leads?org_id=$ORG_ID"
             fetch_view "3. Producer performance view (GET /producers?org_id=...)" "/producers?org_id=$ORG_ID"
             fetch_view "4. Billing view (GET /billing?org_id=...)" "/billing?org_id=$ORG_ID"
+            fetch_view "5. FF Batches list (GET /ff-batches)" "/ff-batches"
+            fetch_view "6. FF Batch detail/review (GET /ff-batches/2026-08-29 — real 28-lead batch)" "/ff-batches/2026-08-29"
           } | tee /tmp/lms_evidence.md >> "$GITHUB_STEP_SUMMARY"
           exit 0
 

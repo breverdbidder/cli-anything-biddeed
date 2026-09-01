@@ -156,6 +156,23 @@ def get_batch_leads(batch_date):
     """)
 
 
+def get_batch_lead_reviews(batch_date):
+    """Per-lead approve/reject/request-improvement decisions from the LMS FF
+    Batch Review screen (winnerdata.ff_batch_lead_review, 2026-09-01), keyed
+    by case_number -- the same join key get_batch_leads() already uses for
+    winnerdata.ff_batch_leads.contact_confidence. Returns {case_number: decision}.
+    A case_number with no entry here is unreviewed -- callers must treat that
+    as excluded-from-send (Ariel's explicit conservative default), not as an
+    implicit approval.
+    """
+    rows = run_sql(f"""
+        select case_number, decision
+        from winnerdata.ff_batch_lead_review
+        where batch_date = {sql_str(batch_date)};
+    """)
+    return {r["case_number"]: r["decision"] for r in rows}
+
+
 def confidence_label(confidence_tier):
     # Honest passthrough of whatever winnerdata.ff_batch_leads.contact_confidence
     # already recorded (e.g. "VERIFIED-CROSS-CHECKED", "LIKELY-SINGLE-SOURCE",
