@@ -115,10 +115,10 @@ jobs:
           if ! grep -q 'name="username"' /tmp/login_body.html || ! grep -q 'name="password"' /tmp/login_body.html; then
             echo "::error::/login is missing username/password fields" && cat /tmp/login_body.html && exit 1
           fi
-          if ! grep -q 'Forgot password?' /tmp/login_body.html; then
-            echo "::error::/login is missing the visible Forgot Password link" && exit 1
+          if ! grep -q 'Forgot login?' /tmp/login_body.html; then
+            echo "::error::/login is missing the visible Forgot login link" && exit 1
           fi
-          echo "PASS: /login is a real form (username + password + visible Forgot Password link), no popup"
+          echo "PASS: /login is a real form (username + password + visible Forgot login link), no popup"
 
       - name: Verify live - wrong credentials show an inline error, not a popup (workers.dev)
         run: |
