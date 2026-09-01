@@ -1,0 +1,111 @@
+-- Gold Standard shard-3 (dispatch 50bcd06f-954d-4634-9ca7-4b2da84b1ca9), county
+-- miami_dade, letters C/D. Session 2026-09-01.
+--
+-- BEFORE (live via pencil_dod_evaluate_county('miami_dade')):
+--   C: FAIL, matched_clean=594, metric=92.2 (594/644)
+--   D: FAIL, matched_any=594,   metric=92.2 (594/644)
+--
+-- SCOPE: the evaluator's a-CTE restricts auctions_total to
+--   county='miami_dade' AND (data_source IS NULL OR data_source <> 'propertyonion'
+--   OR tier1_authoritative = true) -- confirmed live this session = exactly 644 rows.
+--
+-- ROOT CAUSE #1 (new gap, 50 rows with parity_status IS NULL): the county's own
+-- tier1 RealForeclose/RealTaxDeed harvester (source_platform realforeclose/
+-- realtaxdeed, tier1_source_run_id 164269/177011/179976) wrote tier1_sale_status
+-- values (SOLD, CANCELED_PER_COUNTY, CANCELED_PER_BANKRUPTCY, CANCELED_PER_ORDER,
+-- REDEEMED-equivalent, LISTED, PROOF_OF_PUBLICATION_NOT_RECEIVED_OR_INCORRECT,
+-- JUDGMENT_VACATED/DISMISSED) without a downstream reconciliation step ever
+-- stamping parity_status -- the same orphan-stamp pattern documented in
+-- 20260825_gold_standard_shard1_miami_dade_cdi_c62ab4fb.sql and the charlotte
+-- precedent scripts/charlotte_c_run106703_null_parity_fix_gsd2_84b6c4bb.py.
+--
+-- ROOT CAUSE #2 (pre-existing regression, discovered this session): the 29-row
+-- fix applied by 20260825_gold_standard_shard1_miami_dade_cdi_c62ab4fb.sql
+-- stamped ALL 29 orphan rows parity_status='matched_clean' purely because
+-- tier1_authoritative=true, without checking (a) whether tier1_sale_status was
+-- actually a resolved SOLD outcome vs a cancellation, or (b) whether a real
+-- foreclosure_outcomes/tax_deed_outcomes row backed the claim. Live re-check
+-- this session found:
+--   - 16 of 29 rows: tier1_sale_status='SOLD' but sold_amount IS NULL and no
+--     matching foreclosure_outcomes/tax_deed_outcomes row exists for that exact
+--     (case_number, sale_type) pair -- these are duplicate tax_deed-track rows
+--     for cases whose REAL sale outcome already lives on a separate foreclosure-
+--     track row (tier1_promoted_outcome_v1, already correctly matched_clean with
+--     sold_amount populated). This is the exact "ghost-success" shape that was
+--     independently found and reverted three times previously for this same
+--     county (20260704_shard4_miami_dade_cd_systemic_ghost_success_revert.sql,
+--     20260705_shard2_run3025_miami_dade_datescoped_ghost_success_revert.sql,
+--     and a third self-caught-and-reverted attempt referenced in the second file).
+--   - 13 of 29 rows: tier1_sale_status was CANCELED_PER_ORDER / CANCELED_PER_
+--     COUNTY / CANCELED_PER_BANKRUPTCY / REDEEMED -- genuine cancellations that
+--     the fleet canon (see GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_
+--     20260827.md and pencil_dod_evaluate_county's own WHERE clause) deliberately
+--     excludes from matched_clean/C and includes only in matched_any/D via
+--     parity_status='CLERK_SSOT_CANCELLED'. Stamping them matched_clean was a
+--     canon violation that artificially inflated C above its honest ceiling.
+--
+-- FIX (live PATCH via PostgREST, this session):
+--
+-- Fix A (34 of the 50 new-gap rows; 16 left untouched, see below):
+--   10 rows -> parity_status='matched_clean', tier1_sold_amount backfilled to
+--     match the pre-existing sold_amount -- each independently confirmed against
+--     a real foreclosure_outcomes row with data_source=
+--     'realauction_bidhistory_modal:miami_dade:2026-08-31' (a fresh, named,
+--     live RealAuction bid-history harvest run the day before this session;
+--     winning_bid on the outcomes row matches sold_amount on the auction row
+--     exactly for all 10, e.g. case 2016-020220-CA-01: $760,200 both places).
+--   24 rows -> parity_status='CLERK_SSOT_CANCELLED' (genuine cancellations per
+--     the county's own tier1 harvester, tier1_authoritative=true).
+--   16 rows LEFT UNTOUCHED (parity_status remains NULL, not guessed):
+--     7 unbacked-SOLD duplicate tax_deed-track rows (same shape as the 16
+--       reverted below -- their case number's real sale lives on a separate
+--       foreclosure-track row already correctly matched_clean elsewhere; the
+--       tax_deed track itself has no outcome-table backing),
+--     2 LISTED (auction not yet resolved -- correctly not a "clean match" yet),
+--     1 PROOF_OF_PUBLICATION_NOT_RECEIVED_OR_INCORRECT (not a final disposition),
+--     1 JUDGMENT_VACATED/DISMISSED (ambiguous -- not treated as either a clean
+--       match or a clerk-confirmed cancellation without further research),
+--     5 rows with tier1_authoritative=false and no tier1_sale_status at all
+--       (zero evidence to classify from; genuinely unknown).
+--
+-- Fix B (correction of the 29-row 20260825 c62ab4fb migration):
+--   13 rows -> reclassify parity_status from 'matched_clean' to
+--     'CLERK_SSOT_CANCELLED' (genuine cancellations mis-stamped as clean matches).
+--   16 rows -> revert parity_status/parity_source to NULL (unbacked SOLD claims,
+--     ghost-success on the specific (case_number, sale_type) pair; each case's
+--     real, backed outcome already exists on its separate foreclosure-track row).
+--
+-- No row's sold_amount was ever set to a fabricated value. No PropertyOnion
+-- field was used as an authoritative source. No cron jobs 109/111/115 touched.
+-- pencil_dod_evaluate_county / gold_standard_loop / gold_standard_certify were
+-- not modified or invoked (verification-only RPC calls).
+--
+-- AFTER (live via pencil_dod_evaluate_county('miami_dade'), same session):
+--   C: FAIL, matched_clean=575, metric=89.3 (575/644) -- WENT DOWN from the
+--      pre-session 92.2%, because most of that 92.2% was the Fix-B ghost-
+--      success/canon-violation inflation being corrected. This is the honest
+--      number.
+--   D: PASS, matched_any=612,   metric=95.0 (612/644) -- FLIPPED TO PASS.
+--   F (side effect, not separately targeted): tier1_sold 28->36 of closed_sold=36,
+--      metric 77.8->100.0 PASS -- the 10 Fix-A matched_clean rows already had a
+--      real sold_amount from the 2026-08-31 harvest; this fix only backfilled
+--      the missing tier1_sold_amount half of an already-correct pair.
+--   A/B/E/G/H/I/J unchanged (confirmed via before/after RPC diff).
+--
+-- REMAINING C GAP (69 rows = 644-575): 37 CLERK_SSOT_CANCELLED (genuine,
+-- correctly excluded from C by canon design -- 37/644=5.7% cancellation rate,
+-- consistent with the fleet-wide pattern documented in
+-- GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md, just over
+-- the ~5%% slack the 95%% threshold allows) + 32 genuinely unresolved/unknown
+-- rows (LISTED/upcoming auctions, unbacked duplicate tax_deed tracks, no-data
+-- rows) correctly left NULL rather than guessed. C is judged a canon-level
+-- structural block at this point, not a further fixable data gap, given this
+-- session's own live re-verification. D is the letter that can pass, and now
+-- does.
+--
+-- This migration is a documentation/audit-trail artifact. The real effect
+-- already happened via live PATCH calls against PostgREST during this session
+-- (see scripts/gold_standard_shard3_miami_dade_20260901_cd_fix.py for the
+-- exact idempotent script executed, and the before/after RPC evidence above).
+-- Not intended to be re-executed via psql (direct Postgres access is a known-
+-- broken credential path in this environment).
