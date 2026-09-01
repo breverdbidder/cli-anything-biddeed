@@ -103,11 +103,117 @@ function checkAuth(request, env) {
   return null;
 }
 
+// The one place custom HTML can appear on a native-Basic-Auth-gated page:
+// browsers render this 401 body when the user clicks Cancel on the prompt
+// instead of entering credentials. That's the real estate for a Forgot
+// Password button — the actual recovery path is
+// POST /admin/reset-request, handled before checkAuth() below (see
+// export default fetch()), which dispatches the same
+// .github/workflows/lms-credential-reset.yml workflow Ariel would otherwise
+// have to find and run manually from GitHub Actions (issue #19701).
+function authShellPage(message) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Winner Data LMS</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{background:#0f172a;border:1px solid #1e3a5f;border-radius:8px;padding:2rem 2.25rem;max-width:380px;text-align:center}
+  h1{color:#F59E0B;font-size:1.1rem;margin:0 0 .75rem}
+  p{color:#94a3b8;font-size:.9rem;line-height:1.5;margin:0 0 1.25rem}
+  button{font-family:inherit;font-size:.85rem;font-weight:600;background:#1E3A5F;color:#F59E0B;border:none;border-radius:4px;padding:.6rem 1.1rem;cursor:pointer;width:100%}
+  a.link{color:#F59E0B;text-decoration:none}
+  .note{margin-top:1rem;font-size:.72rem;color:#475569}
+</style>
+</head><body>
+  <div class="card">
+    <h1>Winner Data LMS</h1>
+    ${message}
+  </div>
+</body></html>`;
+}
+
 function unauthorized() {
-  return new Response('Authentication required', {
+  const body = authShellPage(`
+    <p>Authentication required. Clicked Cancel? You'll land here whenever you don't have the current login.</p>
+    <form method="POST" action="/admin/reset-request">
+      <button type="submit">Forgot password?</button>
+    </form>
+    <p class="note">Triggers a real credential reset — a new login gets emailed to Ariel. Limited to once per hour.</p>`);
+  return new Response(body, {
     status: 401,
-    headers: { 'WWW-Authenticate': 'Basic realm="Winner Data LMS"' },
+    headers: {
+      'WWW-Authenticate': 'Basic realm="Winner Data LMS"',
+      'content-type': 'text/html; charset=utf-8',
+    },
   });
+}
+
+function resetResultPage(ok, detail) {
+  const message = ok
+    ? `<p>Reset triggered — check everestcapital8@gmail.com for the new login. It can take a minute to arrive.</p>`
+    : `<p style="color:#F59E0B">${esc(detail)}</p>`;
+  return authShellPage(`${message}<p class="note"><a class="link" href="/">Back to login</a></p>`);
+}
+
+// GH repo/workflow this endpoint dispatches — same one built for issue
+// #19701 (.github/workflows/lms-credential-reset.yml), so there is a single
+// reset path whether Ariel runs it from Actions directly or a visitor (or
+// Ariel himself) hits this button.
+const RESET_GH_REPO = 'breverdbidder/cli-anything-biddeed';
+const RESET_WORKFLOW_FILE = 'lms-credential-reset.yml';
+
+async function handleResetRequest(env) {
+  let rl;
+  try {
+    rl = await rpc(env, 'lms_reset_request_trigger', {});
+  } catch {
+    return new Response(
+      resetResultPage(false, 'Could not check the reset rate limit right now. Try again shortly.'),
+      { status: 500, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    );
+  }
+
+  if (!rl.ok) {
+    const mins = Math.max(1, Math.ceil((rl.retry_after_seconds || 0) / 60));
+    return new Response(
+      resetResultPage(false, `A reset was already triggered in the last hour. Try again in about ${mins} minute${mins === 1 ? '' : 's'}.`),
+      { status: 429, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    );
+  }
+
+  try {
+    const ghPat = await rpc(env, 'cli_anything_get_secret', { p_name: 'everest_gh_pat' });
+    if (!ghPat) throw new Error('secret_unavailable');
+    const dispatchRes = await fetch(
+      `https://api.github.com/repos/${RESET_GH_REPO}/actions/workflows/${RESET_WORKFLOW_FILE}/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `token ${ghPat}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'winnerdata-lms-worker',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ref: 'main' }),
+      },
+    );
+    if (dispatchRes.status !== 204) {
+      return new Response(
+        resetResultPage(false, 'Could not start the reset workflow. Try again shortly, or ask Ariel to run it from GitHub Actions directly.'),
+        { status: 502, headers: { 'content-type': 'text/html; charset=utf-8' } },
+      );
+    }
+  } catch {
+    return new Response(
+      resetResultPage(false, 'Could not start the reset workflow. Try again shortly.'),
+      { status: 502, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    );
+  }
+
+  return new Response(resetResultPage(true), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
 
 // --- Layout --------------------------------------------------------------
@@ -509,6 +615,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname, searchParams } = url;
+
+    // Public, unauthenticated recovery endpoint — this IS the forgot-
+    // password path (see unauthorized() above), so it must be reachable
+    // without Basic Auth. Guarded by a rolling-hour rate limit
+    // (lms_reset_request_trigger()) instead of an auth check.
+    if (pathname === '/admin/reset-request' && request.method === 'POST') {
+      return handleResetRequest(env);
+    }
 
     const actor = checkAuth(request, env);
     if (!actor) return unauthorized();
