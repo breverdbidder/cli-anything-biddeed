@@ -157,8 +157,15 @@ jobs:
             fetch_view "2. Leads view (GET /leads?org_id=...)" "/leads?org_id=$ORG_ID"
             fetch_view "3. Producer performance view (GET /producers?org_id=...)" "/producers?org_id=$ORG_ID"
             fetch_view "4. Billing view (GET /billing?org_id=...)" "/billing?org_id=$ORG_ID"
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee /tmp/lms_evidence.md >> "$GITHUB_STEP_SUMMARY"
           exit 0
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lms-live-data-evidence
+          path: /tmp/lms_evidence.md
+          retention-days: 14
 
       - name: Summary
         run: |
