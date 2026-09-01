@@ -1,0 +1,248 @@
+session:
+  task: "P0 replace native HTTP Basic Auth popup with a real custom login page
+    (username/password fields + visible Forgot Password link, no browser popup
+    at all) on both lms.winnerdataai.com (workers/winnerdata-lms) and
+    winnerdataai.com/admin (winnerdataai-mvp) -- Ariel flagged the #19702 fix
+    as backwards UX (Cancel-the-popup-to-see-the-button)."
+  date: 2026-09-01
+  mode: headless claude -p, no direct psql (SUPABASE_DB_PASSWORD known-broken
+    per prior sessions -- not needed this session, no schema change), gh CLI
+    for cross-repo clone/commit/push/dispatch/watch, curl for independent
+    live verification outside the GHA runner (no secrets needed for these
+    checks -- unauthenticated GET/POST behavior only)
+
+decisions:
+  - step: 1
+    action: "Read workers/winnerdata-lms/src/index.js's existing
+      checkAuth()/unauthorized() (Basic Auth + WWW-Authenticate 401 shell) and
+      cloned breverdbidder/winnerdataai-mvp (private) to read the mirrored
+      functions/admin.ts + server/adminAuthHandler.ts, plus both prior same-day
+      session logs (lms-credential-reset, lms-forgot-password-button) to
+      confirm the root cause: a native Basic Auth dialog is rendered by the
+      browser itself, outside the page DOM -- no HTML/CSS/link/button can be
+      injected into it. The only real fix is not using Basic Auth at all,
+      confirming the brief's stated root cause rather than assuming it."
+    result: "Confirmed both surfaces share byte-for-byte mirrored auth logic
+      (documented in adminAuthHandler.ts's own header comment) and the same
+      LMS_AUTH_USER/LMS_AUTH_PASS credential pair, so the fix needed to land
+      symmetrically in both repos to keep that parity."
+    reason: "K1 think-before-coding + SEARCH-FIRST MANDATE -- verify the actual
+      mechanism before designing a replacement."
+    tag: VERIFIED
+
+  - step: 2
+    action: "Designed a session-cookie replacement instead of adding a new
+      Cloudflare secret: the HMAC signing key for the session cookie is
+      derived (SHA-256 via Web Crypto) from LMS_AUTH_USER + LMS_AUTH_PASS
+      themselves rather than a freshly provisioned secret. Rewrote
+      workers/winnerdata-lms/src/index.js: checkAuth() -> verifyCredentials()
+      (username/password compare, timing-safe, unchanged comparison logic) +
+      checkSession()/createSessionCookie() (signed, httpOnly, SameSite=Lax,
+      4-hour Max-Age cookie). Added GET/POST /login routes; every other route
+      now redirects (302) to /login instead of returning a Basic Auth 401.
+      Replaced authShellPage()/unauthorized() with standalonePage()/
+      loginPage() (real form: username, password, inline error paragraph,
+      Forgot Password button styled as a link) -- POST /admin/reset-request
+      stays public/unauthenticated (unchanged, it IS the recovery path)."
+    result: "node --check passed. Wrote a local Node harness
+      (stubbing global.fetch so RPC calls don't hit the network) exercising:
+      unauth redirect to /login, no WWW-Authenticate header anywhere, wrong
+      creds -> 401 + inline error, correct creds -> 303 + Set-Cookie, cookie
+      grants access on 2 separate simulated navigations (/healthz then
+      /orgs), a byte-tampered cookie is rejected (redirect to /login), and
+      an already-authenticated visitor hitting /login is redirected to /.
+      All 9 assertions passed before touching the live Worker."
+    reason: "Deriving the key from existing secrets avoids a new
+      `wrangler secret put` provisioning step (K2 simplicity) and gets a free
+      security property: the existing credential-reset flow (#19701)
+      automatically invalidates every outstanding session, which is the
+      correct behavior after a reset rather than an accidental side effect
+      to work around."
+    tag: VERIFIED
+
+  - step: 3
+    action: "Updated .github/workflows/deploy-winnerdata-lms.yml's live
+      verification steps to match: unauth /healthz must 302 to /login (was:
+      401 Basic challenge); GET /login must be 200 with no WWW-Authenticate
+      header and must contain username/password fields + 'Forgot password?';
+      POST /login with wrong creds must be 401 with the inline error text;
+      POST /login with the real LMS_AUTH_USER/LMS_AUTH_PASS repo secrets must
+      303 + set a lms_session cookie, and that cookie must then work for
+      BOTH /healthz and /orgs (2 separate curl calls) to prove session
+      persistence across navigations, not just a single request. Updated the
+      'Evidence - real rows for all 6 views' step from `-u user:pass` to
+      `-b <cookie jar>`."
+    result: "Committed (7364bfc4) and pushed to cli-anything-biddeed main.
+      deploy-winnerdata-lms.yml ran on push (33568690693) -- all steps green,
+      including the 3 new/rewritten live-verification steps."
+    reason: "K3 surgical -- only the auth-adjacent verification steps changed;
+      the 6-view evidence-gathering step's structure (fetch_view helper,
+      grep pattern) was left untouched, just its auth mechanism."
+    tag: VERIFIED
+
+  - step: 4
+    action: "Mirrored the identical pattern into winnerdataai-mvp (separate
+      private repo, cloned to /tmp): rewrote server/adminAuthHandler.ts
+      (checkAdminAuth -> verifyAdminCredentials taking username+password
+      instead of an Authorization header; unauthorizedResponse ->
+      adminLoginPage()/adminLoginResponse(), same brand shell + real form as
+      the LMS Worker) and functions/admin.ts (GET shows the login form, POST
+      verifies the form body and either redirects 302 to LMS_ORG_URL on
+      success or re-renders the form with a 401 + inline error on failure).
+      Rewrote adminAuthHandler.test.ts's 13 assertions against the new
+      function names/signatures (dropped the Basic-Auth-header-specific
+      cases: malformed base64, missing Authorization header, no-colon-
+      separator -- replaced with a POST-body equivalent: empty credentials).
+      Deliberately did NOT add cross-domain session sharing between
+      winnerdataai.com and lms.winnerdataai.com (would need a shared cookie
+      domain + shared signing secret across two separately-deployed
+      Cloudflare projects) -- out of scope; /admin's only job is a gated
+      redirect into the LMS, which still requires its own login exactly as
+      it did before under double Basic Auth (browsers don't share Basic Auth
+      credentials across different origins either, so this preserves parity,
+      not a regression)."
+    result: "npx vitest run: 13/13 new tests pass; full suite 72/74 pass (the
+      2 failures are pre-existing, confirmed via `git stash` + rerun on the
+      unmodified files -- missing RESEND_API_KEY/contact-email env config in
+      this sandbox, unrelated to admin auth). npx tsc --noEmit: clean, both
+      repo-root tsconfig.json and functions/tsconfig.json. Prettier flagged
+      all 3 touched files, but `git stash` + rerun confirmed the *original*
+      files fail the same prettier check -- pre-existing formatting-config
+      mismatch in this repo, not a regression I introduced."
+    reason: "TDD -- extended/rewrote the existing test file to cover the new
+      API surface rather than deleting coverage. Verified pre-existing
+      failures are pre-existing rather than assuming, per Evidence-Before-
+      Claims (comparing after-state to before-state via git stash, not
+      memory)."
+    tag: VERIFIED
+
+  - step: 5
+    action: "Updated .github/workflows/mirror-deploy.yml's 'Set /admin Basic
+      Auth secrets' step (renamed, same underlying wrangler secret put calls
+      -- /admin's login form still needs LMS_AUTH_USER/LMS_AUTH_PASS as env
+      vars, so the secret-provisioning mechanism itself didn't need to
+      change) and rewrote the 'Verify live' section: unauth GET /admin must
+      be 200 (not 401) with no WWW-Authenticate header and must contain the
+      username/password fields + Forgot Password text; POST with wrong
+      creds must be 401 + inline error; POST with the real
+      LMS_AUTH_USER/LMS_AUTH_PASS repo secrets must 302 to LMS_ORG_URL,
+      same redirect-target assertion as before."
+    result: "Committed (011bc0f) and pushed to winnerdataai-mvp main. Since
+      mirror-deploy.yml is workflow_dispatch-only (no push trigger, by
+      original design -- it also rebuilds the mirror from the live manus.space
+      site), manually dispatched it (run 33568732900) and watched to
+      completion -- all steps green including the rewritten /admin checks."
+    reason: "Same workflow_dispatch-only pattern the prior same-day session
+      used for this same file; didn't add a push trigger since that's a
+      pre-existing design decision (rebuilding from an external site on every
+      push to these 2 files would be surprising) outside this ticket's scope."
+    tag: VERIFIED
+
+  - step: 6
+    action: "Independent live DoD verification with zero credentials
+      involved (plain curl from this session, not just trusting the GHA
+      logs): GET https://winnerdata-lms.brevardbidderai.workers.dev/login and
+      GET https://winnerdataai.com/admin, both unauthenticated."
+    result: "Both returned HTTP 200 (not 401), no WWW-Authenticate header in
+      either response, and both bodies contain
+      '<form method=\"POST\" action=\"...\">', 'name=\"username\"',
+      'name=\"password\"', and the literal text 'Forgot password?' directly
+      in the initial page load -- no Cancel/dismiss action, no popup at any
+      point. Confirmed separately via the GHA run logs (grep for the PASS/
+      returned-code lines) that: wrong credentials -> 401 + 'Incorrect
+      username or password' inline text; correct credentials (LMS Worker) ->
+      303 + Set-Cookie: lms_session=...; that cookie then returned 200 on
+      BOTH /healthz and /orgs (2 separate navigations, same cookie, no
+      re-login); correct credentials (winnerdataai.com/admin) -> 302 to
+      https://lms.winnerdataai.com/orgs/032f4717-545f-4a18-b48b-28ea4257699d."
+    result_evidence: |
+      cli-anything-biddeed run: https://github.com/breverdbidder/cli-anything-biddeed/actions/runs/33568690693 (success)
+      winnerdataai-mvp run: https://github.com/breverdbidder/winnerdataai-mvp/actions/runs/33568732900 (success)
+    reason: "SHIP GATE -- VERIFIED-tier: execute, don't just commit; independent
+      curl proof pasted here in addition to (not instead of) the GHA logs, so
+      the claim doesn't rest solely on the same automation that could itself
+      be wrong."
+    tag: VERIFIED
+
+artifacts:
+  - workers/winnerdata-lms/src/index.js (cli-anything-biddeed, commit 7364bfc4)
+  - .github/workflows/deploy-winnerdata-lms.yml (cli-anything-biddeed, commit 7364bfc4)
+  - server/adminAuthHandler.ts (winnerdataai-mvp, commit 011bc0f)
+  - functions/admin.ts (winnerdataai-mvp, commit 011bc0f)
+  - server/adminAuthHandler.test.ts (winnerdataai-mvp, commit 011bc0f)
+  - .github/workflows/mirror-deploy.yml (winnerdataai-mvp, commit 011bc0f)
+  - .claude/session-logs/2026-09-01-lms-real-login-page.yml
+
+verification:
+  - check: "Visiting lms.winnerdataai.com's Worker origin now shows a real
+      login form immediately, no browser Basic Auth popup"
+    proof: "curl (no auth) https://winnerdata-lms.brevardbidderai.workers.dev/login
+      returns HTTP 200, no WWW-Authenticate header, body contains
+      <form method=\"POST\" action=\"/login\"> with name=\"username\" and
+      name=\"password\" fields. Root path/other routes 302-redirect here
+      instead of sending a 401 challenge (confirmed live in GHA run
+      33568690693: '/healthz (no session) returned 302')."
+    status: CONFIRMED
+  - check: "Forgot password link visible on that same page without any
+      Cancel/dismiss action"
+    proof: "Same curl response body contains the literal text
+      'Forgot password?' inside a second <form method=\"POST\"
+      action=\"/admin/reset-request\">, present on first load."
+    status: CONFIRMED
+  - check: "Correct credentials log in and grant access; session persists
+      across at least 2 page navigations"
+    proof: "GHA run 33568690693 step 'Verify live - correct credentials...':
+      POST /login with real LMS_AUTH_USER/LMS_AUTH_PASS -> 303 + Set-Cookie:
+      lms_session=...; same cookie then used for GET /healthz -> 200
+      {\"ok\":true,...} and GET /orgs -> 200, two separate curl invocations
+      with no credentials re-sent."
+    status: CONFIRMED
+  - check: "Incorrect credentials show an inline error, not a popup"
+    proof: "GHA run 33568690693: POST /login with wrong username/password ->
+      HTTP 401, response body contains 'Incorrect username or password.' on
+      the same page (no redirect, no WWW-Authenticate)."
+    status: CONFIRMED
+  - check: "Clicking Forgot password still correctly triggers the
+      rate-limited #19702 reset"
+    proof: "POST /admin/reset-request handler (handleResetRequest) was not
+      modified this session -- still routed before the session-gate check
+      in fetch(), still calls lms_reset_request_trigger() then dispatches
+      lms-credential-reset.yml exactly as verified live in the prior
+      2026-09-01 session log (run 33566209165, completed success). This
+      session's login form POSTs to the same unchanged endpoint."
+    status: CONFIRMED
+  - check: "winnerdataai.com/admin uses the same new pattern, not the old
+      Basic Auth popup"
+    proof: "curl (no auth) https://winnerdataai.com/admin -> HTTP 200, no
+      WWW-Authenticate header, body contains the same username/password
+      form + 'Forgot password?' text. GHA run 33568732900: wrong creds ->
+      401 + inline error; correct creds -> 302 to
+      https://lms.winnerdataai.com/orgs/032f4717-545f-4a18-b48b-28ea4257699d."
+    status: CONFIRMED
+  - check: "Old Basic Auth mechanism fully retired, not left running
+      alongside the new one"
+    proof: "grep -n 'checkAuth(\\|unauthorized(\\|authShellPage\\|
+      checkAdminAuth\\|unauthorizedResponse' across both repos' touched
+      files returns zero hits (grep run post-edit, confirmed above);
+      WWW-Authenticate header absent from every live response checked in
+      this session (login page, healthz redirect, admin page)."
+    status: CONFIRMED
+
+residual_gaps:
+  - "winnerdataai-mvp's /admin gate does not share a session with the LMS
+    Worker's own /login -- a visitor who authenticates at /admin still lands
+    on a second, separate LMS login (this was already true under the old
+    double-Basic-Auth-popup flow, since browsers don't share Basic Auth
+    credentials across origins either, so this is parity, not a new
+    regression). A true SSO fix would need a shared cookie Domain
+    (.winnerdataai.com) and a shared signing secret across two independently
+    deployed Cloudflare projects -- out of scope for this ticket, not
+    requested by the DoD, and untestable live today regardless since
+    lms.winnerdataai.com itself still doesn't resolve (CF_API_TOKEN lacks
+    Zone:DNS:Edit, documented pre-existing gap, unchanged this session)."
+  - "Same static-secret-sync gap flagged in the prior same-day session log
+    (2026-09-01-lms-forgot-password-button.yml) still applies unchanged:
+    winnerdataai-mvp's LMS_AUTH_USER/PASS are separate repo secrets from
+    cli-anything-biddeed's, kept in sync manually. Not touched or worsened
+    this session -- the new form-based check reads the same two env vars
+    the old Basic Auth check did, just via POST body instead of a header."
