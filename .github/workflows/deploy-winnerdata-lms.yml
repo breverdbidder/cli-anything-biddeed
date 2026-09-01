@@ -104,15 +104,24 @@ jobs:
       - name: Verify live - authenticated request returns real data (workers.dev)
         run: |
           URL="${{ steps.deploy.outputs.worker_url }}"
-          CODE=$(curl -s -o /tmp/healthz_body.json -w "%{http_code}" -u "${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}" "$URL/healthz" || echo "000")
-          echo "/healthz (authenticated) returned $CODE"
-          cat /tmp/healthz_body.json || true
-          if [ "$CODE" != "200" ]; then
-            echo "::error::Expected 200 for authenticated /healthz, got $CODE"
-            exit 1
-          fi
-          grep -q '"ok":true' /tmp/healthz_body.json || { echo "::error::healthz body missing ok:true"; exit 1; }
-          echo "PASS: authenticated healthz returns ok:true"
+          # Retry with backoff: freshly-set `wrangler secret put` values can take
+          # a few seconds to propagate to the edge, so an immediate curl can hit
+          # a Worker instance still running on stale/partial secrets.
+          for attempt in 1 2 3 4 5 6; do
+            CODE=$(curl -s --max-time 15 -o /tmp/healthz_body.json -w "%{http_code}" -u "${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}" "$URL/healthz" || echo "000")
+            echo "attempt $attempt: /healthz (authenticated) returned $CODE"
+            cat /tmp/healthz_body.json || true
+            echo ""
+            if [ "$CODE" = "200" ] && grep -q '"ok":true' /tmp/healthz_body.json; then
+              echo "PASS: authenticated healthz returns ok:true"
+              break
+            fi
+            if [ "$attempt" = "6" ]; then
+              echo "::error::Expected 200 + ok:true for authenticated /healthz after 6 attempts, last code=$CODE"
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Check custom domain (informational only - known DNS gap)
         run: |
