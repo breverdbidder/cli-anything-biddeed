@@ -54,3 +54,12 @@ wins; update canon explicitly if it's actually wrong.
 
 Never deliver or commit work as a ZIP archive. Commit real files to the
 repo so they're diffable, greppable, and reviewable.
+
+## LMS credential recovery (forgot-password)
+
+Forgot the Winner Data LMS admin login (HTTP Basic Auth)? No CC session
+needed: GitHub → this repo → Actions → **LMS Credential Reset (self-service
+forgot-password)** → Run workflow. It generates a fresh username/password,
+rotates it live on the Worker, the GitHub secrets, and the Supabase vault,
+then emails the new credentials to everestcapital8@gmail.com. See
+`.github/workflows/lms-credential-reset.yml` for the mechanics.
