@@ -1,0 +1,109 @@
+-- Gold Standard shard-1 (dispatch f7cf6ec7-66ec-4268-b11e-ddf31f1930a4, county=levy, letter=I).
+--
+-- BASELINE (live, pencil_dod_evaluate_county('levy'), session start 2026-09-01):
+--   I FAIL, card_complete=40 of 45 (88.9%). All other letters (A-H,J) PASS.
+--   Identical to the 20260831 shard-3 session's closing state for levy -- no
+--   drift since then.
+--
+-- SCOPE (per dispatch): the 5 remaining gap parcels, all failing solely on the
+-- I formula's zone_code-linkage requirement via v_zoning_gold_standard_card
+-- (parcel_zones -> jurisdictions -> zoning_districts/zone_standards join):
+--   05775-000-00  case 2025000075CAAXMX  Williston
+--   17660-000-00  case 2026-4164TD       Cedar Key
+--   03467-002-0A  case 2026-4169TD       Bronson
+--   03427-002-00  case 2026-4170TD       Bronson
+--   00881-000-00  case 2026-4176TD       Chiefland MSD (also missing property_address)
+--
+-- ============================================================================
+-- RE-VERIFICATION (live, this session, before acting on the prior session's
+-- documented blocker rather than trusting it blind):
+--
+-- 1. FL GIO Statewide Cadastral (services9.arcgis.com/Gh9awoU677aKree0/...
+--    /Florida_Statewide_Cadastral/FeatureServer/0, CO_NO=48, PARCEL_ID with
+--    dashes stripped) confirms all 5 parcels' owner/address/JV/DOR_UC and
+--    supplies a live centroid for each:
+--      0577500000  330 SE 6 ST, WILLISTON        JV=132923  DOR_UC=001
+--      1766000000  550 1 ST 106, CEDAR KEY        JV=106251  DOR_UC=004
+--      034670020A  910 E HATHAWAY AVE, BRONSON    JV=567837  DOR_UC=008
+--      0342700200  770 PENNSYLVANIA AVE, BRONSON  JV=235544  DOR_UC=001
+--      0088100000  PHY_ADDR1/PHY_CITY BLANK, Chiefland MSD, JV=1438 (matches
+--        multi_county_auctions.assessed_value already on file) -- confirms
+--        the assessor's own record carries no street address for this vacant
+--        DOR_UC=000 parcel, same as the 20260831 session's finding.
+--
+-- 2. Point-in-polygon query against Levy County's own live official Zoning
+--    layer (services.arcgis.com/UqEiJNEITE8ox8CF/arcgis/rest/services/
+--    2025_08_07_ZON_FLU/FeatureServer/0, field LEZN2d) at each of the 5
+--    FL-GIO centroids returns, for every one of them:
+--      LEZN2d = 'Muni, ROW'   Levy_FLU_1 = '<Municipality> MSD'
+--    i.e. the county's own zoning authority layer explicitly marks these
+--    points as inside an incorporated municipality's boundary and returns
+--    only a countywide disclaimer/placeholder polygon (one per municipality,
+--    area == the full MSD boundary), not a real per-parcel zone -- re-
+--    confirming the 20260831 shard-3 session's Finding 3 with fresh live
+--    queries rather than reusing the stored conclusion.
+--
+-- 3. qpublic.net/fl/levy (the only per-parcel zoning lookup mechanism for
+--    municipal parcels -- confirmed via levycounty.org/344/Zoning-Information
+--    -Page's own "Zoning Information Page", which itself links to
+--    qpublic.schneidercorp.com/Application.aspx?AppID=930... as its parcel
+--    search/zoning tool) returned HTTP 403 "Just a moment..." (Cloudflare
+--    challenge page) via direct curl, and returned zero content via
+--    mcp__brightdata__scrape_as_markdown (residential-mode block, matching
+--    the 20260831 session's explicit "not available for immediate
+--    residential (no KYC) access mode" refusal). Firecrawl scrape API is
+--    still HTTP 402 insufficient credits fleet-wide (re-confirmed live this
+--    session). No dedicated ArcGIS REST zoning endpoint was found for
+--    Williston, Cedar Key, or Bronson individually after a fresh search pass
+--    (willistonfl.org and townofbronson.org pages returned no scrapeable
+--    content via brightdata; no city-specific ArcGIS MapServer/FeatureServer
+--    surfaced in search).
+--
+-- STATUS: genuine, reproducible structural blocker, re-verified live and
+-- unchanged from the 20260831 shard-3 session. No zone_code, zoning_districts,
+-- zone_standards, or parcel_zones row fabricated for any of the 5 parcels.
+--
+-- ============================================================================
+-- WRITE (real data only, 1 of 5 rows):
+-- multi_county_auctions.property_address for parcel_id='00881-000-00'
+-- (case 2026-4176TD, county='levy') set to '00881-000-00, Levy County, FL',
+-- matching the existing Levy convention already used on 10+ other rows for
+-- this exact situation (vacant DOR_UC='000' parcel with no PHY_ADDR1/PHY_CITY
+-- in the assessor's own FL GIO record, e.g. 01097-028-00, 03283-000-00,
+-- 06697-000-00, 09297-004-00, 09299-000-00). Source: FL GIO Statewide
+-- Cadastral live query, CO_NO=48, PARCEL_ID=0088100000, this session.
+-- lat/lon/assessed_value/market_value were already correct on this row from a
+-- prior session (verified matching FL GIO's own centroid and JV this
+-- session) -- not rewritten.
+--
+-- This does NOT satisfy the I formula's zone_code requirement (parcel_zones
+-- still has zero row for 00881-000-00, and cannot honestly be given one this
+-- session) -- it closes the address dimension of card completeness only,
+-- consistent with NEVER-LIE (real value from a named live source, not a
+-- metric-moving fabrication).
+--
+-- ============================================================================
+-- VERIFICATION (pencil_dod_evaluate_county('levy'), live, this session):
+--   BEFORE: I FAIL card_complete=40 of 45 (88.9%); all other letters PASS
+--   AFTER (property_address write only): I FAIL card_complete=40 of 45
+--     (88.9%) -- UNCHANGED, as expected, since zone_code linkage (the only
+--     unmet condition for these 5 rows) was correctly not touched.
+-- FINAL: levy 9/10 (I still FAIL). No regression on any of the 9 passing
+-- letters (not re-run in full this session since no write touched B/C/D/F/G/
+-- J-adjacent fields, but the single PATCH was scoped to property_address
+-- only on a single non-aggregating column).
+--
+-- Residual for a future session (unchanged root cause from 20260831):
+--   - The only viable path to closing I is either (a) KYC-passable tooling
+--     for qpublic.schneidercorp.com (interactive browser session, brightdata
+--     KYC enrollment, or restored Firecrawl credit balance), or (b) locating
+--     a genuine city-specific ArcGIS REST zoning service for Williston,
+--     Cedar Key, or Bronson (none found across two independent sessions'
+--     search passes).
+--   - 00881-000-00 (Chiefland MSD) also has no recoverable street address at
+--     the source -- FL GIO's own PHY_ADDR1/PHY_CITY fields are blank for this
+--     parcel; the placeholder convention above is the correct terminal state
+--     for that field, not a gap.
+-- No fabricated zone_code, address, coordinate, or value was written for any
+-- of the 5 target rows.
+SELECT 1;
