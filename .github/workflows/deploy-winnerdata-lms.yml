@@ -119,6 +119,43 @@ jobs:
           CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://lms.winnerdataai.com/healthz || echo "000")
           echo "/healthz via lms.winnerdataai.com returned $CODE (expected unreachable until CF_API_TOKEN gets Zone:DNS:Edit — see wrangler.toml)"
 
+      # Evidence-gathering only. Runs inside the GHA runner because the
+      # LMS_AUTH_USER/LMS_AUTH_PASS values are write-only repo secrets — no
+      # human or agent outside this runner can read them back out to curl the
+      # 4 views independently. Response bodies (real DB rows, no secret
+      # material) are appended to the job summary as the DoD evidence.
+      - name: Evidence - real rows for all 4 views (org_id=032f4717-545f-4a18-b48b-28ea4257699d, Protection Partners)
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          AUTH="${{ secrets.LMS_AUTH_USER }}:${{ secrets.LMS_AUTH_PASS }}"
+          ORG_ID="032f4717-545f-4a18-b48b-28ea4257699d"
+
+          {
+            echo "### Live-data evidence — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+            echo '#### 1. Clients/orgs view (GET /orgs)'
+            echo '```json'
+            curl -s -u "$AUTH" "$URL/orgs" | grep -oE '<td><a class="link"[^<]*</a></td>|<td>[0-9]+</td>' | head -20
+            echo '```'
+
+            echo '#### 2. Leads view (GET /leads?org_id=...)'
+            echo '```'
+            LEADS_HTML=$(curl -s -u "$AUTH" "$URL/leads?org_id=$ORG_ID")
+            echo "$LEADS_HTML" | grep -oE '<h2>Leads \([0-9]+ total, showing [0-9]+\)</h2>'
+            echo "$LEADS_HTML" | grep -oE '<td>[a-z_]+</td>' | sort | uniq -c | head -10
+            echo '```'
+
+            echo '#### 3. Producer performance view (GET /producers?org_id=...)'
+            echo '```'
+            curl -s -u "$AUTH" "$URL/producers?org_id=$ORG_ID" | grep -oE '<td>[A-Za-z0-9 .@%_-]{1,40}</td>' | head -30
+            echo '```'
+
+            echo '#### 4. Billing view (GET /billing?org_id=...)'
+            echo '```'
+            curl -s -u "$AUTH" "$URL/billing?org_id=$ORG_ID" | grep -oE '<span class="stat-num[^>]*>[^<]*</span>|Billable Events|Pending|Invoiced|Paid'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Summary
         run: |
           echo "### Winner Data LMS Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
