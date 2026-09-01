@@ -269,7 +269,7 @@ order by l.lead_id, mca.assessed_value desc nulls last;
 PLACEHOLDER_COUNTY_DATES_QUERY = """
 select distinct county, auction_date::text as auction_date
 from public.multi_county_auctions
-where auction_status = 'sold'
+where auction_status in ('sold', 'completed')
   and (winning_bidder is null or winning_bidder ilike '3rd party%')
   and auction_date >= (current_date - interval '3 day')
   and auction_date <= current_date;
