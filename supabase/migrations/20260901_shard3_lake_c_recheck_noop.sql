@@ -1,0 +1,85 @@
+-- Gold Standard shard-3 (dispatch 50bcd06f-954d-4634-9ca7-4b2da84b1ca9)
+-- County: lake, Letter: C (parity: matched_clean/auctions_total >= 95%)
+-- Session: 2026-09-01, RESEARCH/RECHECK ONLY -- NO WRITES.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('lake') at session
+-- start and again just before closing, both calls identical):
+--   C: pass=false, detail="matched_clean=121", metric=85.8 (auctions_total=141)
+-- Matches the task brief's baseline exactly. auctions_total grew 139->141
+-- since the 2026-08-28/08-29/08-30 sessions (2 new rows ingested).
+--
+-- ============================================================================
+-- WHAT WAS CHECKED THIS SESSION
+-- ============================================================================
+-- 1. This is the 8th consecutive independent reconfirmation of lake's C
+--    structural block, following sessions on 2026-08-14, 08-26 (cross-county
+--    finding doc), 08-27, 08-28 (95d2d8fc, audit id 18993), 08-29 (550b2691,
+--    audit id 19517), 08-30 (19992afc, audit id 19583). Every prior session
+--    concluded the same: the gap is 100% CLERK_SSOT_CANCELLED rows, genuinely
+--    cancelled per the clerk's own live records, correctly excluded from C's
+--    passing set by the evaluator's intentional design (see
+--    GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md).
+--
+-- 2. Live query of multi_county_auctions for county='lake', scoped like prior
+--    sessions ((data_source<>'propertyonion' OR tier1_authoritative=true)):
+--    139 rows returned (auctions_total=141, same small pagination/edge
+--    delta noted in every prior session). Breakdown:
+--      PARITY_OK=79, matched_clean=39 (tier1-sourced), CLERK_SSOT_CANCELLED=19,
+--      CLERK_VERIFIED=1, PHANTOM_NOT_ON_CLERK=1 (case 2025CA001392, a distinct
+--      known parser-window issue documented in scripts/clerk_ssot/parsers/
+--      lake.py's own docstring -- out of scope for letter C, does not count
+--      toward matched_clean either way since it is not CLERK_SSOT_CANCELLED).
+--
+--    CLERK_SSOT_CANCELLED grew from 17 (08-29/08-30) to 19 this session --
+--    TWO genuinely new rows, not a stale re-count:
+--      2024CA000105 (U.S. BANK TRUST NATIONAL ASSOCIATION vs TERENCE BLACKIE)
+--      2025CC004659 (WESTGATE HOMEOWNERS ASSOCIATION OF LAKE COUNTY INC vs
+--        NASIR KHAN)
+--
+-- 3. Live-fetched https://foreclosurecalendar.lakecountyclerkfl.gov/?view=list
+--    this session (HTTP 200, 158155 bytes, 81 live event_item blocks) -- the
+--    exact source scripts/clerk_ssot/parsers/lake.py uses. Both new cases are
+--    PRESENT and CURRENT on today's live calendar:
+--      2024CA000105: "Today ... Foreclosure 2024CA000105: U.S. BANK TRUST
+--        NATIONAL ASSOCIATION vs TERENCE BLACKIE, ET AL Canceled Notice of
+--        Bankruptcy" -- span classes ['pscalendar-cancelled'],
+--        ['pscalendar-red']
+--      2025CC004659: "Tue, 9/29 ... Foreclosure 2025CC004659: WESTGAGE
+--        HOMEOWNERS ASSOCIATION OF LAKE COUNTY INC vs NASIR KHAN Canceled
+--        Order" -- span classes ['pscalendar-cancelled'], ['pscalendar-red']
+--    Both explicitly rendered with the clerk site's own "Canceled" CSS class
+--    and a stated cancellation reason. Genuinely cancelled, not a matcher bug.
+--
+-- 4. Spot-checked case 2016CA002108 (the row previously flagged as a false-
+--    positive "reschedule_evidence_found" by the keyword-scan script on
+--    2026-08-28 due to a NULL parity_checked_at) again this session: still
+--    present on the live calendar as "Canceled Notice of Bankruptcy",
+--    consistent with the 08-28 session's full-docket read (rescheduled then
+--    re-cancelled via bankruptcy suggestion). No drift.
+--
+-- ============================================================================
+-- CONCLUSION
+-- ============================================================================
+-- No genuine, non-fabricated lever found this session. All 19 current
+-- CLERK_SSOT_CANCELLED lake rows -- including the 2 that newly joined the
+-- set since 2026-08-30 -- are, per fresh live re-verification against
+-- foreclosurecalendar.lakecountyclerkfl.gov (the parser's own source),
+-- genuinely cancelled as of 2026-09-01. This is the 8th consecutive
+-- independent reconfirmation of the canon-level structural block documented
+-- in GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md:
+-- C cannot reach the 95% pass threshold (need matched_clean>=134 of 141;
+-- currently 121) purely through this docket-recheck lever, because the
+-- underlying foreclosure sales genuinely were cancelled per the court's own
+-- records -- promoting them to matched_clean without a genuine reschedule/
+-- sale would be ghost-success (ratifying a wrong "upcoming" status against
+-- reality). No reversion pattern (cf. gadsden) was observed for lake -- the
+-- classification is stable across all 8 sessions with only organic growth
+-- (17->19 rows) as new genuine cancellations occur, not any flip-flopping
+-- of previously-checked rows.
+--
+-- BLANK > WRONG: no UPDATE statements in this file. This is a documentation
+-- record of a research/recheck session with zero data mutation.
+-- Logged to gold_standard_ultraloop_audit id 20328 (dispatch
+-- 50bcd06f-954d-4634-9ca7-4b2da84b1ca9, survived=true).
+
+SELECT 1;
