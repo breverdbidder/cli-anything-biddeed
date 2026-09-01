@@ -198,9 +198,9 @@ function loginPage(error) {
       <button type="submit">Log in</button>
     </form>
     <form method="POST" action="/admin/reset-request">
-      <button type="submit" class="link-btn">Forgot password?</button>
+      <button type="submit" class="link-btn">Forgot login?</button>
     </form>
-    <p class="note">Triggers a real credential reset — a new login gets emailed to Ariel. Limited to once per hour.</p>`);
+    <p class="note">Triggers a real credential reset — a new username and password get emailed to Ariel. Limited to once per hour.</p>`);
 }
 
 async function handleLogin(request, env) {
