@@ -25,6 +25,7 @@ import json
 import os
 import secrets
 import string
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -154,24 +155,34 @@ def cmd_send_email():
         "to": ["everestcapital8@gmail.com"],
         "subject": "Winner Data LMS credentials reset",
         "html": html,
-    }).encode()
+    })
 
-    req = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
-            "Content-Type": "application/json",
-        },
+    # curl, not urllib -- Resend sits behind Cloudflare bot protection that
+    # 403s (error 1010) on urllib's TLS/HTTP fingerprint. Confirmed live
+    # 2026-09-01: identical payload+key, curl succeeds where urllib and even
+    # a curl request with urllib's User-Agent spoofed both get blocked, so
+    # this is a TLS-fingerprint block, not a header check. Same workaround
+    # already documented in send-s5-report-email.yml.
+    result = subprocess.run(
+        [
+            "curl", "-sS", "-o", "/tmp/resend_resp.json", "-w", "%{http_code}",
+            "-X", "POST", "https://api.resend.com/emails",
+            "-H", f"Authorization: Bearer {os.environ['RESEND_API_KEY']}",
+            "-H", "Content-Type: application/json",
+            "--data-binary", "@-",
+        ],
+        input=payload,
+        text=True,
+        capture_output=True,
     )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            resp_body = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        print(f"::error::Resend send failed HTTP {e.code}")
+    http_code = result.stdout.strip()
+    if not http_code.startswith("2"):
+        print(f"::error::Resend send failed HTTP {http_code}")
         sys.exit(1)
 
+    with open("/tmp/resend_resp.json") as f:
+        resp_body = json.load(f)
+    os.remove("/tmp/resend_resp.json")
     resend_id = resp_body.get("id", "")
     with open(os.environ["GITHUB_OUTPUT"], "a") as f:
         f.write(f"resend_id={resend_id}\n")
