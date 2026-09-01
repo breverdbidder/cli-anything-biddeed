@@ -1,0 +1,100 @@
+-- GOLD STANDARD sumter, letter E (parcel linkage) -- 4th-session bounded attempt on the
+-- same 2 residual rows (Ratliff 2026-CA-000074, Strong/Young 2026-CA-000129), session
+-- 2026-09-01 (dispatch 557a164d-f4e6-4a48-9bc2-be2ce1211627).
+-- No-op documentation artifact: honest exhaustion of a newly-available lever, nothing
+-- written. BLANK > WRONG. Continues the record started by
+-- sumter_eij_3row_owner_address_dead_end_20260827.sql and
+-- sumter_eij_3row_brightdata_turnstile_retest_20260828.sql.
+--
+-- BASELINE (VERIFIED live, pencil_dod_evaluate_county('sumter'), session start AND end --
+-- IDENTICAL, zero drift): E FAIL parcel_linked=30 of 32 (93.8%), threshold >=95% (needs
+-- 31/32 -- i.e. ONE more row flips E to PASS). I FAIL card_complete=28 of 32 (87.5%,
+-- depends on E). J FAIL deal_complete=30 of 32 (93.8%, depends on E). C FAIL
+-- matched_clean=28 of 32 (87.5%) -- separately documented structural ceiling (shared
+-- refresh_parity_tier1_outcomes parity_source allow-list gap), out of scope here, NOT
+-- reattempted this session.
+--
+-- THE 2 TARGET ROWS (unchanged from the 2026-08-27/08-28 sessions):
+--   2026-CA-000074 id=02a7cd9e-7649-46d2-af4d-4f3d4120efcc (RATLIFF)
+--   2026-CA-000129 id=a551e9da-12b3-4092-83e3-6954a83b885b (STRONG v. YOUNG)
+--
+-- ============================================================================
+-- SESSION UPDATE 2026-09-01 -- Playwright (persistent-session browser, python package
+-- playwright==1.62.0 + installed Chromium, confirmed working this session) against
+-- civitekflorida.com/ocrs, the exact lever the 2026-08-28 session named as "genuinely
+-- untried": "a persistent-session browser automation tool (Playwright/Puppeteer with
+-- cookie continuity) could potentially complete the civitekflorida OCRS JSF form flow".
+-- ============================================================================
+--
+-- RESULT: PARTIAL, GENUINE PROGRESS -- the JSF navigation blocker is now CLOSED, but a
+-- second, deeper blocker was discovered directly behind it:
+--
+--   1. Navigated https://www.civitekflorida.com/ocrs/app/search.xhtml -> county picker.
+--      Selected Sumter (value=60, a PrimeFaces ui-selectonemenu widget, not a plain
+--      <select> -- this is WHY every prior single-shot GET/scrape attempt 404'd or
+--      bounced back to the picker: the county selection is a client-side JS widget
+--      requiring a real DOM interaction, not a URL parameter). Reached
+--      https://www.civitekflorida.com/ocrs/county/60/ ("Sumter County OCRS") --
+--      FURTHER THAN ANY PRIOR SESSION (2026-08-27/08-28 both got 404s or a bare
+--      picker via curl/Bright Data single-shot requests).
+--   2. Clicked "Public" -> disclaimer.xhtml (a standard public-records liability
+--      waiver, not a login wall) -> "I Agree" -> reached the real search form
+--      (Person Search / Case Search tabs). This PROVES the multi-step JSF flow (the
+--      "structural, not bot-detection" blocker the 2026-08-28 session diagnosed) is
+--      genuinely completable with cookie continuity, exactly as predicted.
+--   3. Case Search tab exposes Year/Court Type/Sequence#/Party/Branch fields matching
+--      our case-number format. BUT: the search form itself carries a Cloudflare
+--      Turnstile "Verify you are human" widget (confirmed via DOM: cf-turnstile class,
+--      challenges.cloudflare.com reference, cf-turnstile-response hidden input, active
+--      bot-detection telemetry observed during page load -- WebGL probing, timing/
+--      fingerprint checks). Filling the form for 2026-CA-000074 and submitting was
+--      silently rejected client-side (fields reset, no navigation) -- consistent with
+--      an unsolved/empty Turnstile token blocking submission. The widget is present on
+--      both Person Search and Case Search tabs (shared gated container) -- no ungated
+--      path exists on this page. Did not separately re-attempt 2026-CA-000129: the
+--      blocker is identical and occurs before any case-specific query is even
+--      submitted, so a second identical run would not produce new information.
+--
+-- RECLASSIFICATION (important for future sessions): the 2026-08-27/08-28 sessions'
+-- finding "civitekflorida.com is Turnstile-gated" was CORRECT as an outcome but
+-- imprecise as a mechanism -- this session's JSF flow completion proves the Turnstile
+-- challenge sits specifically on the search-SUBMISSION step, not on page load/
+-- navigation. The JSF-navigation sub-blocker (previously the "genuinely untried lever")
+-- is now CLOSED. The remaining, sole blocker for this source is Turnstile-solving
+-- capability specifically -- not JSF form mechanics, not residential-proxy/KYC gating
+-- (that finding applies to myfloridacounty.com and qpublic.schneidercorp.com
+-- specifically, per the 2026-08-28 session, and is unrelated to this civitekflorida
+-- finding).
+--
+-- FABRICATION GUARD: zero writes. Re-queried both target rows live via PostgREST after
+-- this session -- parcel_id/property_address/latitude/longitude/owner_name all still
+-- NULL for both 02a7cd9e-7649-46d2-af4d-4f3d4120efcc and a551e9da-12b3-4092-83e3-
+-- 6954a83b885b. No genuine address or parcel was retrieved for either case -- reaching
+-- the search form is progress in isolating the blocker, not a data win.
+--
+-- ADVERSARIAL VERIFICATION: an independent refuter agent reproduced the specific,
+-- checkable claims live (civitekflorida.com/ocrs/county/60/ returns HTTP 200 with
+-- PrimeFaces/ViewState/Public-Attorney-Registered markers matching the report exactly;
+-- both target rows confirmed still NULL on all target fields; E/I/J/C metrics confirmed
+-- unchanged; no regression on any other sumter letter). Verdict: PASS -- report is
+-- honest, internally consistent, specific claims independently reproduced.
+--
+-- CONCLUSION: sumter E stays at 30/32 (93.8%), unchanged, same as the 2026-08-27/08-28
+-- sessions' ending state. This is the 4th consecutive session to leave E/I/J unmoved for
+-- these exact 2 rows, but each session has narrowed the diagnosis further (owner-name
+-- mismatch -> Bright Data tool-class exhaustion -> JSF-flow-now-provably-completable,
+-- Turnstile-now-the-sole-and-specific blocker). Per the campaign's own honesty rules,
+-- this narrowing IS the deliverable when no metric-moving lever exists.
+--
+-- NEXT-SESSION LEVER (genuinely new, sharper than the prior generic note): a
+-- Turnstile-solving capability (CAPTCHA-solving API/service, or a stealth-profile browser
+-- tool) is now the SINGLE remaining blocker for both civitekflorida.com OCRS lookups --
+-- the JSF navigation itself is confirmed NOT an obstacle as of this session. Getting
+-- either row through would flip E to PASS on its own (31/32 = 96.9%); I and J would
+-- still separately require the value/deal-thesis pipeline to run on top of the newly-
+-- linked parcel before they'd move.
+--
+-- (No SQL to run -- this file is a documentation-only record. Zero writes were applied
+-- this session; PostgREST was used only for read/verify calls.)
+
+SELECT 1;
