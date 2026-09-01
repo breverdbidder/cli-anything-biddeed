@@ -21,16 +21,13 @@ MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
 PROTECTION_PARTNERS_ORG_ID = "032f4717-545f-4a18-b48b-28ea4257699d"
 
 FROM_EMAIL = "The Daily Winner FFs <ariel@biddeed.ai>"
-# P0 fix (2026-09-01): ff.winnerdataai.com is NXDOMAIN -- the CF_API_TOKEN
-# available to this repo's GHA runners can read the zone but returns
-# "Authentication error" (code 10000) on every DNS record read/write call,
-# live-reconfirmed the same day (see workers/winnerdata-ff/wrangler.toml).
-# Every "View FF" link in every prior real send was dead as a result. Until
-# the token gets Zone:DNS:Edit (Ariel, Cloudflare dashboard) and the custom
-# domain resolves, point links at the workers.dev fallback deployed the same
-# day (workers_dev=true in wrangler.toml) -- confirmed live via curl below.
-# Flip this back to "https://ff.winnerdataai.com/ff" once DNS is fixed.
-FF_BASE_URL = "https://winnerdata-ff.brevardbidderai.workers.dev/ff"
+# P0 fix (2026-09-01): ff.winnerdataai.com now resolves -- Ariel manually
+# added the proxied A record in the Cloudflare dashboard, working around the
+# CF_API_TOKEN's missing Zone:DNS:Edit permission that blocked automated DNS
+# writes (see workers/winnerdata-ff/wrangler.toml). Confirmed live via curl:
+# /healthz returns 200 JSON and /ff/<real lead_id> renders the same template
+# content as the workers.dev fallback used since the earlier outage.
+FF_BASE_URL = "https://ff.winnerdataai.com/ff"
 
 MGMT_API_RETRIES = 3
 MGMT_API_BACKOFF_SECONDS = 3
