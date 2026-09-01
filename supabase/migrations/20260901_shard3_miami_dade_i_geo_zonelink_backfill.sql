@@ -1,0 +1,151 @@
+-- Gold Standard shard-3 (dispatch 50bcd06f-954d-4634-9ca7-4b2da84b1ca9), county
+-- miami_dade, letter I (card_complete). Session 2026-09-01.
+--
+-- BEFORE (live via pencil_dod_evaluate_county('miami_dade')):
+--   I: FAIL, card_complete=596 of 644, metric=92.5 (needs >=95% i.e. >=612/644)
+--
+-- Prior session history (read first, per SEARCH-FIRST mandate): miami_dade I
+-- has been worked repeatedly (20260701-20260901). Notably 20260826i (architect
+-- triage 19501) got I to a genuine 570/600 PASS and fleet-certified miami_dade
+-- 10/10 on 2026-08-26. Two days later (20260828f) the denominator had grown
+-- to 617 (new rows scraped upstream) and I was back to FAIL at 569/617 --
+-- this is the documented "later upstream scrape silently reverted the fix"
+-- pattern (same shape as the canonical gadsden case in
+-- GOLD_STANDARD_C_STRUCTURAL_BLOCK_CROSS_COUNTY_FINDING_20260827.md): the fix
+-- itself was never undone, but new unfixed rows outpaced it. That session
+-- fixed 1 net row (569->570/617). By this session (2026-09-01) the
+-- denominator had grown again to 644, sitting at 596/644 = 92.5%. A sibling
+-- session in this same shard/dispatch already ran miami_dade C/D at 16:14Z
+-- today (20260901_shard3_miami_dade_cd_ghost_success_correction.sql) --
+-- confirmed via `git log` the denominator matches (644) so no double-count.
+--
+-- DIAGNOSIS (VERIFIED, live queries this session against
+-- multi_county_auctions filtered to the evaluator's scope: county=miami_dade
+-- AND (data_source IS NULL OR data_source<>'propertyonion' OR
+-- tier1_authoritative=true) -- 644 rows):
+--   48 rows failing card_complete, same shape as 20260828f's bucket
+--   breakdown: missing_address=20, missing_geo=12 (11 of which had a real
+--   parcel_id+address, only genuinely missing lat/lon), missing_value=24,
+--   missing_parcelid=17, missing_zonelink=13 rows / 7 distinct parcels.
+--
+-- FIX 1 (11 rows, geo backfill via live fetch, this session): all 11 rows
+-- have a real Miami-Dade dashed-format condo folio + address already on
+-- file, matching verbatim (allowing unit-suffix/city-suffix normalization)
+-- against gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/
+-- MapServer/24 ("Property @ PaGis", CONDO_FLAG='Y' layer -- layer 26 returned
+-- zero features for all 7, confirming these are condo units not covered by
+-- the non-condo parcel layer). All 7 features returned CANCEL_FLAG='N'
+-- (active parcel). One parcel (01-4121-194-0980, case 2026-002031-CA-01) was
+-- cross-corroborated against an independent sibling row for a DIFFERENT case
+-- number at the same address+folio (2025-016017-CA-01) which already had
+-- geo on file matching to within 0.001 degrees. Coordinates applied verbatim
+-- from the ArcGIS outSR=4326 response (server-side WGS84 reprojection, no
+-- client math). Rows/parcels:
+--   2026-002031-CA-01 (x2 dup rows) | 01-4121-194-0980 | 2951 S BAYSHORE DR 311
+--   2025-008162-CA-01              | 30-5914-043-0100 | 12237 SW 129 CT #10
+--   2025-018996-CA-01 (x2 dup rows)| 02-3211-023-0880 | 5660 COLLINS AVE 21C
+--   2025-020389-CA-01 (x2 dup rows)| 28-2210-013-3130 | 2780 NE 183 ST PH08
+--   2025-017811-CA-01 (x2 dup rows)| 30-4015-042-0760 | 3855 SW 79 AVE 48
+--   2024-219256-CC-23              | 28-2210-080-0850 | 2000 ISLAND BLVD 804
+--   2026-003491-CA-01              | 01-3230-089-2330 | 2020 N BAYSHORE DR 2507
+--
+-- FIX 2 (3 parcels, zone-link backfill via live spatial query, this
+-- session): of the 7 parcels above, only 1 (02-3211-023-0880) already had a
+-- zone_code in parcel_zones pre-fix. Point-in-polygon queried against
+-- Miami-Dade's live municipal zoning FeatureServer
+-- (services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/
+-- MunicipalZone_gdb/FeatureServer/0) at each parcel's now-populated lat/lon,
+-- PLUS the county's own unincorporated-area zoning layer
+-- (gisweb.miamidade.gov/arcgis/rest/services/MD_MDCZoning/MapServer/6,
+-- "Unincorporated Zoning") for the two points that fell in
+-- MUNICNAME='UNINCORPORATED'/ZONE='NONE' on the municipal layer:
+--   28-2210-013-3130 -> Aventura, ZONE=RMF4 (jurisdiction_id=902)
+--   28-2210-080-0850 -> Aventura, ZONE=RMF4 (jurisdiction_id=902)
+--   30-5914-043-0100 -> Unincorporated (jurisdiction_id=626), county layer
+--     6 ZONE=IU-C ("Industrial District, conditional")
+-- Each applied ONLY after confirming the G-regression guard rail from
+-- scripts/gold_standard_miami_dade_i_zoning_spatial_research_20260801.py:
+-- a matching zoning_districts row with a real zone_standards row already
+-- exists for that exact (jurisdiction_id, code) pair.
+--   RMF4 @ Aventura (jurisdiction_id=902, zoning_districts.id=2888):
+--     zone_standards.id=307, max_far=0.8, max_density_du_acre=25.0,
+--     parking_per_unit=1.5, confidence_score=1.00 (Aventura municode).
+--   IU-C @ Unincorporated (jurisdiction_id=626, zoning_districts.id=10922):
+--     zone_standards.id=3628, max_far=0.5, far_regulated=true,
+--     confidence_score=0.75 (Miami-Dade Ch.33 municode).
+--   No G regression risk: both codes and their full standards rows already
+--   existed before this session's parcel_zones inserts.
+--
+-- NOT APPLIED (unsafe "new_code" case, same guard rail, left as a
+-- documented lever for a future ordinance-research session):
+--   01-4121-194-0980 (Miami, ArcGIS ZONE=T6-12-O) and 01-3230-089-2330
+--     (Miami, ArcGIS ZONE=T6-36A-L) -- Miami's zoning_districts has several
+--     T6 subdistrict codes (T6-24A-O/R, T6-36A-O, T6-36B-O, T6-48A-O,
+--     T6-60A-O, etc.) but NOT T6-12-O or T6-36A-L specifically (confirmed
+--     live: zero rows for
+--     jurisdiction_id=855 AND code IN ('T6-12-O','T6-36A-L')). Inserting
+--     these codes into parcel_zones with no matching zone_standards row
+--     would inflate G's denominator with NULL far/density -- the exact
+--     regression this campaign's guard rail exists to prevent.
+--   30-4015-042-0760 (Unincorporated, county layer 6 ZONE=BRCUAD "Bird Road
+--     Corridor Urban Center Area District") -- zero existing zoning_districts
+--     row for jurisdiction_id=626 code='BRCUAD'. Same unsafe case, not
+--     applied.
+--
+-- RECONFIRMED STILL GENUINELY UNRESOLVABLE (live re-check this session,
+-- independently re-verifying the 20260828f finding 4 days later against the
+-- same official source -- no drift found):
+--   - "14255 SW 125TH AVE" (2025-023031-CA-01), "3317 WEST 98TH PLACE"
+--     (2025-099724-CC-05), "29490 SW 193RD AVE" (2024-000006-CA-01): LIKE
+--     '<housenum>%' queries against MD_LandInformation layers 24 and 26
+--     TRUE_SITE_ADDR return dozens of same-house-number results on
+--     completely different streets -- none is "125TH AVE"/"98TH PLACE"/
+--     "193RD AVE". No real Miami-Dade parcel resolves to these addresses.
+--   - Sentinel placeholder parcel_id values ("Property Appraiser",
+--     "MULTIPLE PARCELS", "ALCOHOLIC BEVERAGE LICENSE") and fully-empty
+--     stub rows (no address, no parcel_id): no lever without a working
+--     RealForeclose/RealTaxDeed scrape session or original court docket
+--     (documented 403 bot-block, unchanged).
+--   - NEW this session: 2025-016575-CA-01 (11111 Biscayne Blvd, folio
+--     3022320530001) is missing assessed_value only. Live-queried against
+--     MD_LandInformation layer 26: folio resolves to TWO ambiguous features
+--     (OBJECTID 256092/256093, different X/Y), both flagged
+--     DOR_DESC='REFERENCE FOLIO', TRUE_OWNER1='REFERENCE ONLY',
+--     TOTAL_VAL_CUR=0 for both -- not a real assessable value and not
+--     resolvable to a single feature. Per NEVER-LIE, NOT backfilled (0
+--     would be fabricated, and picking either ambiguous feature would be a
+--     guess).
+--
+-- VERIFICATION (public.pencil_dod_evaluate_county('miami_dade'), live,
+-- re-run after each write this session):
+--   After FIX 1 (11-row geo backfill):        card_complete 596 -> 598/644 (92.9%)
+--     (only 2 of the 11 rows flipped to complete -- the other 9 remained
+--     blocked by missing_zonelink at that point, exactly as predicted from
+--     the pre-fix parcel_zones lookup)
+--   After FIX 2a (Aventura RMF4 x2):           card_complete 598 -> 601/644 (93.3%)
+--   After FIX 2b (Unincorporated IU-C x1):     card_complete 601 -> 602/644 (93.5%)
+--   G (regression check) unchanged across all three writes:
+--     density=98.1 far=100.0 pk1000=100.0, PASS -- confirms no G regression.
+--   Net this session: I metric 92.5 -> 93.5 (+6 rows: 596 -> 602 of 644).
+--   Still FAIL -- needs >=612/644 (95%). Gap narrowed from 48 to 42 rows,
+--   10 more needed to cross threshold. Remaining 42 failing rows are, per
+--   the exhaustive re-check above, dominated by: unresolvable
+--   addresses/sentinel parcel_ids (no lever without a working county-source
+--   scrape or court docket), 2 unsafe new-zone-code Miami parcels and 1
+--   unsafe new-zone-code unincorporated parcel (all three need real
+--   ordinance-sourced zone_standards rows first, out of scope this
+--   session), and 1 ambiguous-reference-folio value gap. This is a genuine,
+--   partially-fixed data gap -- NOT a structural/canon-level block like
+--   letter C's CLERK_SSOT_CANCELLED exclusion. Honest partial progress
+--   only, not oversold; letter I remains FAIL after this migration.
+--
+-- Writes already applied live via PostgREST during this session (UPDATE to
+-- multi_county_auctions for 11 rows' lat/lon+geo_source; INSERT to
+-- parcel_zones for 3 rows: ids 876971, 876972, 876973). This file is a
+-- non-re-runnable audit-trail record per repo convention (idempotent
+-- re-application would no-op since the target rows now already have
+-- non-null latitude / already exist in parcel_zones).
+
+BEGIN;
+-- (No SQL to run -- writes already applied live via PostgREST during the session.)
+COMMIT;
