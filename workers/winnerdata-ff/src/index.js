@@ -351,8 +351,18 @@ function renderFF(data) {
   // (or a lead_id predating that migration) lacks the key.
   const verification = data.verification || {};
   const verified = verification.badge === 'VERIFIED';
+  // P0 fix (2026-09-01): appraiser_url used to be a static per-county string
+  // (often just the county's search homepage) rendered as if it were always
+  // a parcel record link -- confirmed live on case CACE-25-003569/parcel
+  // 484307030140 (Broward) landing on web.bcpa.net's generic search page
+  // instead of that parcel's record. ff_get_lead now substitutes a real
+  // per-parcel URL when a deep-link template is configured for the county
+  // (appraiser_url_is_deep_link=true) and returns the county's plain search
+  // page otherwise -- link text must not claim "record" for the latter case.
   const appraiserLink = verification.appraiser_url
-    ? `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">View county property appraiser record &rarr;</a>`
+    ? (verification.appraiser_url_is_deep_link
+        ? `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">View county property appraiser record &rarr;</a>`
+        : `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">Search county property appraiser records (folio ${esc(lead.parcel_id) || 'N/A'}) &rarr;</a>`)
     : '<span>No property appraiser URL on file for this county.</span>';
 
   // issue #19434 requirement 1: producer_name/agency_name are hard-required
