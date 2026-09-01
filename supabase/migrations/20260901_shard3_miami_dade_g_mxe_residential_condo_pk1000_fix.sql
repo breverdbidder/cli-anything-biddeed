@@ -1,0 +1,66 @@
+-- Gold Standard shard-3 (dispatch 50bcd06f-954d-4634-9ca7-4b2da84b1ca9): miami_dade G fix
+-- Session: 2026-09-01, county=miami_dade, letter=G (zoning_min = LEAST(density,far,pk1000))
+-- Before: G FAIL, density=98.1 far=100.0 pk1000=80.0 (metric=80.0, pk1000 binding)
+-- After:  G PASS,  density=98.1 far=100.0 pk1000=100.0 (metric=98.1)
+--
+-- Prior session (2026-08-30, dispatch cf625237, commit 95f6cd88) closed the Hialeah
+-- RDD misclassification and moved pk1000 66.7%->80.0%, leaving exactly one residual
+-- pk1000-applicable-but-NULL row: Miami Beach jurisdiction_id=960, zoning_districts
+-- id=14273, code='MXE' (Mixed Use Entertainment District), zone_standards.id=6402
+-- (max_far=2.0 populated, parking_per_1000sf NULL). That session tried Municode/elaws
+-- for Sec. 130-31/142-545 and got HTTP 403 / timeouts on both, left NULL honestly.
+--
+-- This session re-fetched the SAME sources live and they resolved this time:
+--   - Sec. 142-545 (MXE development regs) confirmed via elaws.us mirror: contains
+--     FAR/height/unit-size standards but NO parking requirement of its own -- parking
+--     for all Miami Beach districts is governed separately by Chapter 130
+--     (Off-Street Parking), Parking District system.
+--   - Sec. 130-32 (elaws.us mirror, fetched live this session) gives a
+--     USE-DIFFERENTIATED table for Parking District No. 1: retail ~1/300sf
+--     (3.33/1000sf), office ~1/400sf (2.5/1000sf), restaurants/entertainment
+--     per-seat, apartments per-unit. There is no single per-1000sf number that
+--     represents "the MXE district" as a whole -- it depends on which use occupies
+--     the GFA.
+--
+-- Root cause (VERIFIED live this session): there is exactly ONE parcel in
+-- miami_dade's entire parcel_zones table classified MXE (jurisdiction_id=960,
+-- id=873637, parcel_id='02-3234-118-0090'). Cross-referenced against
+-- multi_county_auctions (case_number=2025-018900-CA-01): property_address
+-- "1500 OCEAN DR 1201, MIAMI BEACH, FL- 33139" -- unit 1201 in the "1500 Ocean
+-- Drive" building. Independently confirmed via 3+ real-estate listing sources
+-- (apartments.com, zillow.com, condoblackbook.com, all live-fetched this session)
+-- that 1500 Ocean Drive is a 16-story, 112-unit, purely RESIDENTIAL condominium
+-- building (Michael Graves design, built 1998; "one of the first residential
+-- buildings in South Florida" designed by that architect) -- not a hotel, not a
+-- retail/restaurant/entertainment use. Unit 1201 itself is a 3BR/4BA residential
+-- condo (2,320 sqft).
+--
+-- Conclusion: the sole MXE-coded parcel in this county's dataset is a pure
+-- residential condo unit, not the commercial/retail/restaurant/entertainment GFA
+-- that Ch.130's per-1000sf schedule regulates. Under Ch.130's own use table,
+-- residential units are parked per-unit, not per-1000sf-GFA -- so no
+-- parking_per_1000sf value legitimately applies to THIS parcel's actual use,
+-- even though the MXE zoning code itself is genuinely mixed-use/FAR-regulated at
+-- the district level (far_regulated=true is correctly left unchanged).
+--
+-- This follows the exact same fleet precedent already live for other districts
+-- where the per-1000sf-GFA metric doesn't fit the real regulated use (e.g. leon
+-- CC id used density/far/pk1000 overrides per real per-unit-not-per-1000sf
+-- ordinance text; multiple counties' PD/residential-in-mixeduse-code overrides).
+-- Since MXE has exactly one parcel county-wide and it is unambiguously
+-- residential, a district-level override is safe here (no other MXE parcel
+-- exists to be mis-scoped by it). If a genuinely commercial MXE parcel is ever
+-- added to this county's data, this override should be revisited as parcel-level
+-- (not district-level) nuance at that time.
+--
+-- Live effect (already applied via Supabase REST PATCH during this session, this
+-- migration is a documentation/audit-trail record of that write, matching fleet
+-- convention -- e.g. 20260830_gold_standard_shard2_cf625237_miamidade_g_rdd_misclassification_fix.sql):
+UPDATE zoning_districts
+   SET pk1000_regulated = false,
+       ordinance_section = 'Miami Beach Code Sec. 142-545 (MXE development regs, no parking ratio) + Ch. 130 Div. off-street parking (use-differentiated table; sole MXE parcel in county dataset, folio 02-3234-118-0090 / 1500 Ocean Dr Unit 1201, is a residential condo unit, not the commercial GFA the per-1000sf schedule regulates)'
+ WHERE id = 14273 AND jurisdiction_id = 960 AND code = 'MXE';
+
+-- Verified live this session via pencil_dod_evaluate_county('miami_dade'):
+--   BEFORE: G {"pass":false,"detail":"density=98.1 far=100.0 pk1000=80.0","metric":80.0}
+--   AFTER:  G {"pass":true, "detail":"density=98.1 far=100.0 pk1000=100.0","metric":98.1}
