@@ -1,0 +1,123 @@
+-- Gold Standard broward, letter I (card_complete). Session 2026-09-02.
+--
+-- BEFORE (live via public.pencil_dod_evaluate_county('broward')):
+--   I: {"pass": false, "detail": "card_complete=819 of 873", "metric": 93.8}
+--   auctions_total: 873
+-- Needs >=95% (>=830 of 873) to pass. Gap = 54 rows.
+--
+-- SEARCH-FIRST: read prior broward-I scripts before starting (per task
+-- instructions), newest-first by `git log`:
+--   scripts/gold_standard_broward_i_batch_20260828.py (2026-08-28, newest)
+--   scripts/gold_standard_shard2_broward_i_dispatch72cb38f7.py (2026-08-13)
+--   scripts/gold_standard_shard6_broward_i_geocode_run7519.py (2026-07-30)
+--   scripts/shard9_broward_i_zone_backfill.py (2026-07-25)
+--   scripts/broward_i_value_enrichment.py / gold_standard_shard3_broward_i_geocode.py (2026-07-24)
+-- Used 20260828's method as the template: BCPA (Broward County Property
+-- Appraiser) getParcelInformation JSON endpoint for market_value/
+-- assessed_value/situs address by folio, BCPA ArcGIS Parcels layer
+-- (gisweb-adapters.bcpa.net layer 16) polygon centroid for lat/lon on
+-- numeric-only folios, US Census geocoder fallback for alt-key
+-- (condo/timeshare) folios lacking ArcGIS coverage. Same folio dash-strip
+-- fix noted in that script (BCPA requires the dash-free folio form).
+--
+-- PAGINATION BUG FOUND AND FIXED THIS SESSION: the first fresh-gap query,
+-- issued without an explicit `order=` clause, returned an unstable/
+-- duplicated row count across runs (924, then 847) for the same
+-- county=eq.broward filter that should be a fixed 11,465-row table. Adding
+-- `order=id.asc` produced a stable 11,465 rows (== 11,465 distinct ids) and
+-- the resulting evaluator-scope count (rows where data_source<>'propertyonion'
+-- OR tier1_authoritative=true) came out to exactly 873 -- matching
+-- auctions_total AND criterion A's fc=837/td=36 breakdown exactly. All
+-- subsequent gap analysis in this session used the order=id.asc query.
+--
+-- DIAGNOSIS (VERIFIED, live query this session, 873-row evaluator scope):
+--   54 rows fail card_complete (property_address IS NULL, OR
+--   COALESCE(latitude,po_latitude) IS NULL, OR
+--   COALESCE(longitude,po_longitude) IS NULL, OR
+--   COALESCE(assessed_value,market_value) IS NULL, OR parcel_id IS NULL).
+--   No separate zone_code/parcel_zones gap this session (819 = 873 - 54
+--   exactly, i.e. every row that passes address/geo/value/parcel_id also
+--   already resolves a zone_code -- unlike shard9's 2026-07-25 finding where
+--   zone-linkage was the dominant gap).
+--   Breakdown of the 54: 27 rows had a lookupable BCPA folio (12-13 digit
+--   or alt-key condo/timeshare format), 11 had placeholder parcel_id values
+--   ("Property Appraiser", "TIMESHARE", "MULTIPLE PARCELS"), 6 had NULL
+--   parcel_id, 10 were 6-digit truncated folio stubs (previously confirmed
+--   live in the 20260828 session to return no BCPA record for this exact
+--   truncation pattern -- not re-attempted, consistent finding).
+--
+-- FIX (25 rows, live BCPA + Census lookups, this session):
+--   24 rows patched via multi_county_auctions PATCH in the first pass
+--   (assessed_value/market_value from BCPA justValue/taxableAmountCounty;
+--   latitude/longitude from BCPA ArcGIS Parcels centroid for numeric folios
+--   or US Census geocoder, bbox+zip verified, for 4 alt-key folios).
+--   1 row (CACE-26-001036, folio 504213AA1430) hit a client-side read
+--   timeout on the PATCH request despite BCPA/Census already returning real
+--   values (av=322060, mv=322060, lat=26.096084, lon=-80.109133) --
+--   FAIL-LOUD CHECK per task guardrails: re-queried the row via GET
+--   immediately after and confirmed all 4 target columns were still NULL
+--   (i.e. the "success" log line was not backed by an actual write). Re-
+--   issued the identical PATCH with the same already-fetched values and
+--   confirmed via return=representation that the write applied. This
+--   resolved the silent 0-write risk called out in the task's guardrails.
+--   2 alt-key folios (494128HC0260, 514120AD0220) had a real BCPA situs
+--   address but failed Census geocoding (census_no_match) -- left as
+--   genuine residual gap, not fabricated.
+--   Case numbers / folios fixed (case_number | folio | fields):
+--     53673 | 504205-10-0010 | value
+--     CACE-25-013711 | 484108130280 | value
+--     CACE-25-000588 | 514129031000 | value
+--     53710 | 484107-06-0170 | value
+--     CACE-23-017560 | 494114100220 | value
+--     CACE-26-002894 | 474231250130 | value
+--     CACE-25-012333 | 474133053870 | value
+--     53676 | 494206-CK-0280 | value+geo (census)
+--     53694 | 494136-BK-0170 | value
+--     CACE-26-004176 | 494106KJ0430 | value+geo (census)
+--     53707 | 494135-AE-0040 | value
+--     53637 | 484115-CB-0840 | value
+--     CACE-26-003829 | 494224050680 | value
+--     CACE-25-015834 | 494220AC0200 | value
+--     CACE-25-017722 | 504218210790 | value
+--     CACE-25-012338 | 484115210940 | value
+--     TD-53726 | 494126AB2090 | geo (census)
+--     CACE-26-000364 | 514208AB0250 | value+geo (census)
+--     53650 | 484115-AK-3660 | value
+--     CACE-25-013054 | 494229041630 | value
+--     CACE-25-018800 | 514121220180 | value
+--     53698 | 504113-04-0670 | value
+--     TD-53676 | 494206CK0280 | geo (census)
+--     53649 | 484114-01-2120 | value
+--     CACE-26-001036 | 504213AA1430 | value+geo (manual retry after client timeout)
+--
+-- NOT APPLIED (genuine residual gap, no fabrication):
+--   10 six-digit truncated folio stubs (494128, 514223, 494306, 494212,
+--     514213, 494111, 484203, 494108, 484123, 494202) -- previously
+--     confirmed live (20260828 session) to return no BCPA record.
+--   11 placeholder parcel_id rows ("Property Appraiser" x6, "TIMESHARE" x4,
+--     "MULTIPLE PARCELS" x2 -- one case has both address+value gaps) -- no
+--     folio to look up.
+--   6 NULL parcel_id rows -- no folio to look up.
+--   2 alt-key folios (494128HC0260, 514120AD0220) with real BCPA situs
+--     addresses that failed US Census geocoding (census_no_match).
+--
+-- VERIFICATION (public.pencil_dod_evaluate_county('broward'), live):
+--   BEFORE: I: {"pass": false, "detail": "card_complete=819 of 873", "metric": 93.8}
+--   AFTER:  I: {"pass": true,  "detail": "card_complete=844 of 873", "metric": 96.7}
+--   Net this session: +25 rows (819 -> 844), metric 93.8% -> 96.7%, now PASS
+--   (>=95% threshold, >=830 of 873 required).
+--   All other letters unchanged and still PASS: A(fc=837,td=36) B(100.0)
+--   C(98.7) D(98.9) E(99.3) F(100.0) G(98.8) H(0.1) J(98.1) -- no regression.
+--
+-- Method script: scripts/gold_standard_broward_i_batch_20260902.py
+--
+-- Writes already applied live via PostgREST during this session (UPDATE to
+-- multi_county_auctions for 25 rows' assessed_value/market_value/
+-- latitude/longitude, matched by case_number+county=broward). This file is
+-- a non-re-runnable audit-trail record per repo convention (idempotent
+-- re-application would no-op since the target rows now already have
+-- non-null values).
+
+BEGIN;
+-- (No SQL to run -- writes already applied live via PostgREST during the session.)
+COMMIT;
