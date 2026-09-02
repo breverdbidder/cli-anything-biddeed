@@ -15,14 +15,18 @@ Guardrails enforced in code, not just prose (see build_script_and_caption):
     count against that cap
   - a reel is never re-rendered once it has a video_url unless force=True
 
-2026-09-02 directive (issue #19736 comment, after the first backfill came
-back 15/15 error): T3 condition scoring is routed through Gemini
-(gemini-2.5-flash, called directly with inlineData image parts -- see
-score_condition()) instead of the Anthropic API, which hit a hard usage cap
-mid-backfill. T2 also gained a Geocoding API fallback (geocode_address()) for
-addresses that don't match any public.zw_parcels row, so imagery still runs
-(parcel_id/assessed_value/delta_pct land null for those rows instead of the
-row erroring outright).
+2026-09-02 directives (issue #19736 comments, after the first backfill came
+back 15/15 error): T3 condition scoring must not call any AI provider
+directly (the first fix -- direct Gemini calls -- hit its own quota wall
+mid-backfill on both available keys). score_condition() now calls the
+existing claude-router edge function (auth: vault router_proxy_key) with the
+image(s) as vision input and lets it cascade across its own T1 (Gemini) / T1.5
+(DeepSeek vision, T10) / T2 (Claude Haiku via Max OAuth, $0 marginal) tiers --
+this pipeline no longer holds or resolves any Gemini API key itself. T2 also
+gained a Geocoding API fallback (geocode_address()) for addresses that don't
+match any public.zw_parcels row, so imagery still runs (parcel_id/
+assessed_value/delta_pct land null for those rows instead of the row erroring
+outright).
 
 public schema (auction_buyer_sightings, zw_parcels) reads go through
 PostgREST (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY), matching
@@ -54,14 +58,12 @@ SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 MGMT_API_RETRIES = 3
 MGMT_API_BACKOFF_SECONDS = 3
 
-# 2026-09-02 directive (issue #19736 comment): the Anthropic API path hit a
-# hard usage cap on the first backfill attempt (11/15 rows). T3 vision scoring
-# is routed through Gemini instead -- same model (gemini-2.5-flash) the
-# in-Postgres Smart Router (public.ecu_route_chat_llm / claude-router) already
-# uses as its T1 free tier, called directly here since neither of those
-# surfaces accepts image input today.
-GEMINI_VISION_MODEL = "gemini-2.5-flash"
-GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+# 2026-09-02 directive #2 (issue #19736 comment): T3 vision scoring must go
+# through the claude-router edge function, not a direct provider call --
+# the first fix (direct Gemini calls) hit a quota wall on both available
+# Gemini keys mid-backfill. claude-router's own T1 (Gemini) / T1.5 (DeepSeek
+# vision, T10) / T2 (Claude Haiku via Max OAuth) cascade handles the fallback.
+CLAUDE_ROUTER_URL_PATH = "/functions/v1/claude-router"
 
 # Standard ElevenLabs premade voice ("Rachel") -- always present on any
 # ElevenLabs account, no account-specific voice provisioning required.
@@ -343,90 +345,55 @@ aerial image is available, roof/vegetation can be VERIFIED or LIKELY but exterio
 should usually be UNCONFIRMED or LIKELY at best."""
 
 
-def _gemini_generate(image_paths: list[str], api_key: str) -> str:
-    parts = []
+def _claude_router_vision(image_paths: list[str], router_key: str) -> str:
+    """Calls the claude-router edge function with the image(s) as vision
+    input (T10, issue #19736 directive #2). The router owns the provider
+    cascade (T1 Gemini -> T1.5 DeepSeek vision -> T2 Claude Haiku OAuth) --
+    this pipeline holds no provider key of its own for T3 anymore, only the
+    router's own proxy key."""
+    images = []
     for p in image_paths:
         media_type = "image/png" if p.lower().endswith(".png") else "image/jpeg"
         b64 = base64.b64encode(open(p, "rb").read()).decode()
-        parts.append({"inlineData": {"mimeType": media_type, "data": b64}})
-    parts.append({"text": CONDITION_PROMPT})
+        images.append({"media_type": media_type, "data": b64})
 
-    body = {
-        "contents": [{"parts": parts}],
-        # thinkingBudget=0 disables gemini-2.5-flash's extended-thinking mode --
-        # live-verified during this pipeline's own backfill that thinking
-        # tokens (>600 on a trivial 1x1 test image) ate into maxOutputTokens
-        # and truncated the JSON response mid-string ("Unterminated string").
-        # maxOutputTokens raised to 2048 as a second margin on top of that.
-        "generationConfig": {"maxOutputTokens": 2048, "thinkingConfig": {"thinkingBudget": 0}},
+    payload = {
+        "messages": [{"role": "user", "content": CONDITION_PROMPT}],
+        "images": images,
+        "max_tokens": 2048,
+        "source": "biddeed-reels-pipeline",
+        "tool_name": "score_condition",
+        "metadata": {"request_type": "analysis"},
     }
-    url = f"{GEMINI_API_BASE}/{GEMINI_VISION_MODEL}:generateContent?key={api_key}"
+    url = f"{SUPABASE_URL}{CLAUDE_ROUTER_URL_PATH}"
     req = urllib.request.Request(
-        url, data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
+        url, data=json.dumps(payload).encode(),
+        headers={
+            "X-Router-Key": router_key,
+            "apikey": SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        data = json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ""
+        raise RuntimeError(f"claude-router HTTP {e.code}: {body[:300]}")
     if "error" in data:
-        raise RuntimeError(f"Gemini error {data['error'].get('code')}: {data['error'].get('message')}")
-    candidates = data.get("candidates") or []
-    if not candidates:
-        reason = data.get("promptFeedback", {}).get("blockReason", "UNKNOWN")
-        raise RuntimeError(f"Gemini returned no candidates (blockReason={reason})")
-    cand = candidates[0]
-    parts_out = cand.get("content", {}).get("parts") or []
-    if not parts_out:
-        raise RuntimeError(f"Gemini returned no text (finishReason={cand.get('finishReason')})")
-    return parts_out[0]["text"].strip()
+        raise RuntimeError(f"claude-router error: {data['error']}")
+    text = data.get("text")
+    if not text:
+        raise RuntimeError(f"claude-router returned no text (tier={data.get('tier')})")
+    return text.strip()
 
 
-_GEMINI_RETRY_DELAY_RE = re.compile(r"retry in ([0-9.]+)s", re.IGNORECASE)
-GEMINI_MAX_RETRIES_PER_KEY = 2
-GEMINI_MAX_RETRY_DELAY_SECONDS = 65
-
-
-def score_condition(image_paths: list[str], gemini_api_keys) -> dict:
-    """T3 condition scoring via Gemini vision (see GEMINI_VISION_MODEL note
-    above -- routed off Anthropic entirely after the 2026-09-02 usage-cap
-    directive, not just as a fallback).
-
-    gemini_api_keys may be a single key (str) or an ordered list of candidate
-    keys -- live-verified during this pipeline's own 2026-09-02 re-run that
-    vault key 'gemini_api_key' returns HTTP 429 RESOURCE_EXHAUSTED with
-    "prepayment credits are depleted" (a genuine, permanent billing
-    exhaustion for that key -- skip straight to the next key), while
-    'gemini_api_key_biddeed' works but is on the free tier's per-minute
-    request quota (429 RESOURCE_EXHAUSTED with a "Please retry in Ns"
-    hint -- also live-verified) -- that one is transient, so it's retried
-    on the SAME key with the server-suggested backoff before falling
-    through to the next key.
-    """
-    keys = gemini_api_keys if isinstance(gemini_api_keys, (list, tuple)) else [gemini_api_keys]
-    last_err = None
-    text = None
-    for key in keys:
-        if not key:
-            continue
-        for attempt in range(GEMINI_MAX_RETRIES_PER_KEY + 1):
-            try:
-                text = _gemini_generate(image_paths, key)
-                break
-            except urllib.error.HTTPError as e:
-                body = e.read().decode() if e.fp else ""
-                last_err = RuntimeError(f"Gemini HTTP {e.code}: {body[:300]}")
-                if e.code != 429:
-                    raise last_err
-                if "prepayment credits are depleted" in body:
-                    break  # permanent for this key -- try the next key, not a retry
-                if attempt >= GEMINI_MAX_RETRIES_PER_KEY:
-                    break  # exhausted retries on this key -- try the next key
-                m = _GEMINI_RETRY_DELAY_RE.search(body)
-                delay = min(float(m.group(1)), GEMINI_MAX_RETRY_DELAY_SECONDS) if m else 20.0
-                time.sleep(delay)
-        if text is not None:
-            break
-    if text is None:
-        raise last_err or RuntimeError("no usable Gemini API key")
+def score_condition(image_paths: list[str], router_key: str) -> dict:
+    """T3 condition scoring via claude-router's vision cascade (see
+    _claude_router_vision above -- routed off any direct provider call
+    entirely after the 2026-09-02 directive #2)."""
+    text = _claude_router_vision(image_paths, router_key)
 
     # Models sometimes wrap JSON in a fenced code block despite instructions.
     text = re.sub(r"^```(json)?|```$", "", text, flags=re.MULTILINE).strip()

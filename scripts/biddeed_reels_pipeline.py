@@ -11,9 +11,11 @@ Run:
     [--force] [--dry-run] [--limit N]
 
 Required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN env
-  vars, plus GOOGLE_MAPS_API_KEY, ELEVENLABS_API_KEY, GEMINI_API_KEY -- either
+  vars, plus GOOGLE_MAPS_API_KEY, ELEVENLABS_API_KEY, ROUTER_PROXY_KEY -- either
   as env vars (GHA runner) or resolved from the Supabase vault at runtime
-  (see resolve_key() in main()).
+  (see resolve_key() in main()). T3 condition scoring calls the claude-router
+  edge function (auth: ROUTER_PROXY_KEY / vault router_proxy_key) instead of
+  holding any provider vision key directly.
 """
 import argparse
 import os
@@ -151,7 +153,7 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
                 street_url = lib.storage_upload(street_path, f"{prefix}/street.jpg", "image/jpeg")
 
             image_paths = [aerial_path] + ([street_path] if street_path else [])
-            condition = lib.score_condition(image_paths, keys["gemini"])
+            condition = lib.score_condition(image_paths, keys["router"])
             condition_score = int(round(condition["condition_score"]))
 
             sale_and_caption = lib.build_script_and_caption(
@@ -262,14 +264,6 @@ def main():
     auction_date = args.auction_date or get_yesterday()
     print(f"Auction date: {auction_date}")
 
-    def _try_vault(vault_name: str, dry_run: bool) -> str:
-        if dry_run:
-            return ""
-        try:
-            return lib.get_vault_secret(vault_name)
-        except Exception:
-            return ""
-
     def resolve_key(env_name: str, vault_names: list[str]) -> str:
         """env var wins (GHA runner sets these from repo secrets); falls back
         to a vault fetch for sessions that don't have the env var set (never
@@ -284,22 +278,13 @@ def main():
                 continue
         return ""
 
-    # 2026-09-02 directive: Gemini replaces Anthropic for T3 vision scoring.
-    # gemini_api_key_biddeed goes first -- live-verified during this
-    # pipeline's re-run that vault key 'gemini_api_key' (== env GEMINI_API_KEY
-    # mirrored from it) is billing-exhausted (HTTP 429 RESOURCE_EXHAUSTED,
-    # "prepayment credits are depleted"), while gemini_api_key_biddeed works.
-    # score_condition() tries each in order and only falls through on a 429.
-    gemini_keys = [k for k in (
-        _try_vault("gemini_api_key_biddeed", args.dry_run),
-        os.environ.get("GEMINI_API_KEY", ""),
-        _try_vault("gemini_api_key", args.dry_run),
-    ) if k]
-
+    # 2026-09-02 directive #2: T3 vision scoring goes through claude-router,
+    # not a direct provider call -- this pipeline holds no Gemini key at all
+    # anymore, only the router's own proxy key (router_proxy_key).
     keys = {
         "google_maps": resolve_key("GOOGLE_MAPS_API_KEY", ["google_maps_api_key"]),
         "elevenlabs": resolve_key("ELEVENLABS_API_KEY", ["elevenlabs_api_key", "elevenlabs_production"]),
-        "gemini": gemini_keys,
+        "router": resolve_key("ROUTER_PROXY_KEY", ["router_proxy_key"]),
     }
     missing = [k for k, v in keys.items() if not v and not args.dry_run]
     if missing:
