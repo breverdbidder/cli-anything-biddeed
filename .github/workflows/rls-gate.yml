@@ -1,0 +1,48 @@
+name: RLS Gate (scheduled + on migration push)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - '**/*.sql'
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: rls-gate
+  cancel-in-progress: false
+jobs:
+  rls-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
+    steps:
+      - name: Run rls_gate_check()
+        id: gate
+        run: |
+          RESP=$(curl -s --max-time 60 -X POST "${SUPABASE_URL}/rest/v1/rpc/rls_gate_check" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" -d "{\"p_source\":\"cli-anything-biddeed rls-gate.yml run ${{ github.run_id }}\"}")
+          echo "$RESP" > /tmp/gate.json; cat /tmp/gate.json
+          PASSED=$(python3 -c 'import json; d=json.load(open("/tmp/gate.json")); print(str(d.get("passed")).lower())' 2>/dev/null || echo error)
+          echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+      - name: File / update issue on failure
+        if: steps.gate.outputs.passed != 'true'
+        run: |
+          gh label create rls-gate --color B60205 --description "New RLS/anon violation vs baseline" --repo ${{ github.repository }} 2>/dev/null || true
+          BODY="RLS gate failed on run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\n\`\`\`json\n$(cat /tmp/gate.json)\n\`\`\`\n\nFix: enable RLS with no anon policy on the new object (views: WITH (security_invoker=true)). If the exposure is intentional, add it to public.rls_gate_allowlist with a reason."
+          EXISTING=$(gh issue list --repo ${{ github.repository }} --label rls-gate --state open --json number -q '.[0].number')
+          if [ -n "$EXISTING" ]; then gh issue comment "$EXISTING" --repo ${{ github.repository }} --body "$(printf "$BODY")";
+          else gh issue create --repo ${{ github.repository }} --title "RLS gate: new violation(s) vs baseline" --label rls-gate --body "$(printf "$BODY")"; fi
+          exit 1
+      - name: Auto-close open rls-gate issue when clean
+        if: steps.gate.outputs.passed == 'true'
+        run: |
+          EXISTING=$(gh issue list --repo ${{ github.repository }} --label rls-gate --state open --json number -q '.[0].number' 2>/dev/null || true)
+          [ -n "$EXISTING" ] && gh issue close "$EXISTING" --repo ${{ github.repository }} --comment "RLS gate clean — closing." || true
