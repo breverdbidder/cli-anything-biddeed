@@ -1,0 +1,112 @@
+-- Gold Standard st_johns, letter C (parity_clean) -- genuine data-ceiling
+-- reconfirmation, 2026-09-02.
+--
+-- Scope: single-row gap investigation per prior-stage diagnosis (confidence
+-- CONFIRMED). Zero writes made to multi_county_auctions or any other data
+-- table. One row written to public.agent_ops_log recording the finding per
+-- HONESTY PROTOCOL / genuine-data-ceiling rules.
+--
+-- ── Baseline (VERIFIED, public.pencil_dod_evaluate_county('st_johns')) ──
+--   C: {"pass": false, "detail": "matched_clean=113", "metric": 94.2}
+--   auctions_total: 120. Needs >=95% (114/120) to pass. Gap = 1 row.
+--
+-- ── Root cause (matches prior-stage diagnosis exactly) ──
+-- The 1 non-matched-clean/non-cancelled row is CA25-0645 (id
+-- 9011aec2-6c2a-4510-940e-2967727a0068), auction_date=2026-10-08,
+-- data_source='calendar_sweep_mca_v3', created_at 2026-09-02T05:31:29Z --
+-- ingested only ~2h before this session's baseline check, parity_status/
+-- parity_source both NULL, parcel_id/property_address both NULL.
+--
+-- ── This session's attempted fix (genuinely new lever vs. diagnosis stage:
+--    live browser-rendered fetch, not just a diagnosis) ──
+-- 1. Confirmed clerk_ssot cannot resolve this row: scripts/clerk_ssot/
+--    parsers/st_johns.py docstring: "foreclosure_verified=false for
+--    st_johns ... this module intentionally implements ONLY
+--    parse_tax_deed(), never foreclosure." CA25-0645 is sale_type=
+--    foreclosure, so the daily clerk-parity sweep structurally never
+--    covers it. Running scripts/clerk_ssot/run_parity.py would be a no-op
+--    for this row (confirmed by reading the pipeline logic, not run live,
+--    to respect guardrail 4 against running county-scoped evaluation
+--    outside Closeout).
+-- 2. Direct HTTP GET (curl) of the RealForeclose case-details/AJAX-JSON
+--    endpoints for AID=1518581 returned an auth-wall JS redirect
+--    (document.location = ".../zaction=HOME&zmethod=error") even after
+--    establishing a cookie-bearing session via the PREVIEW seed page --
+--    consistent with the WAF pattern documented in prior st_johns C
+--    sessions (raw HTTP clients blocked).
+-- 3. mcp__brightdata__scrape_as_markdown on the same AID URL: blocked by
+--    the site's own robots.txt for residential (no-KYC) access mode --
+--    a genuinely different, non-retryable block from the WAF above.
+-- 4. NEW LEVER (matches the technique documented as working in
+--    20260828e_gold_standard_stjohns_c_3row_matched_divergent_reconcile.sql
+--    and 20260724p_..._stjohns_cdei_stub_enrichment_ffe1aa89.sql): a real
+--    headless-Chromium Playwright browser context loading
+--    https://saintjohns.realforeclose.com/index.cfm?zaction=AUCTION&
+--    Zmethod=PREVIEW&AUCTIONDATE=10/08/2026 DID render successfully (the
+--    WAF does not block a real browser context, only raw HTTP clients).
+--    Extracted the live AITEM_1518581 block directly from rendered HTML:
+--      Auction Type: FORECLOSURE
+--      Auction Starts: 10/08/2026 12:00 PM ET  (matches stored auction_date)
+--      Case #: CA25-0645  (matches stored case_number, links to
+--        apps.stjohnsclerk.com book/page with booknumber/pagenumber blank --
+--        i.e. the clerk has not yet attached a recorded instrument link)
+--      Final Judgment Amount: $0.00  (not yet entered by the clerk)
+--      Parcel ID: literal link text "Property Appraiser" with an EMPTY
+--        KeyValue= query param (qpublic.schneidercorp.com AppID=960) --
+--        this is the site's own placeholder for "no parcel linked yet",
+--        not a real parcel ID (matches the _BAD_PARCEL_WORDS handling in
+--        .github/scripts/calendar_sweep_mca.py)
+--      Plaintiff Max Bid: $0.00
+--    No property_address field is rendered on this card at all.
+--    Case number and auction date agree exactly with our stored row (zero
+--    divergence on every field the source currently publishes) -- but the
+--    source itself has not yet published parcel/address/judgment data for
+--    this brand-new case.
+--
+-- ── Why this is NOT stamped matched_clean (guardrail-respecting decision) ──
+-- St Johns has an established, already-used convention for exactly this
+-- situation: stamp upcoming realforeclose rows parity_status='matched_clean'
+-- / parity_source='tier1_realforeclose_aids_st_johns' once their AITEM data
+-- is directly, live-verified against the tier1 source (12 existing rows use
+-- this convention: CA25-1742, CA25-1600, CA23-1974, CA25-1470, CA22-1233,
+-- CA25-1757, CA25-1779, CC25-0048, CC25-2919, CA25-0128, CA25-0351,
+-- CA25-0475 -- see migration 20260724p_gold_standard_shard2_stjohns_cdei_
+-- stub_enrichment_ffe1aa89.sql). This session queried all 12 of those rows
+-- live via PostgREST: 12/12 (100%) carry a non-null parcel_id, a non-null
+-- property_address, AND a non-zero judgment_amount at time of stamping.
+-- CA25-0645 matches ZERO of those three signals. Extending the convention
+-- to a case+date-only match (which is all this row currently has) would be
+-- applying it beyond its actual evidentiary basis purely to clear the
+-- threshold -- exactly the ghost-success pattern the SHIP GATE / GTM-22D
+-- protocol exists to prevent. Not applied.
+--
+-- A PropertyOnion search hit (propertyonion.com/property_search/properties/
+-- 605-boating-club-rd-saint%20augustine-fl-32084/...) surfaced the same case
+-- number CA25-0645 with address "605 Boating Club Rd, Saint Augustine, FL
+-- 32084" and an EARLIER auction date (05/14/2026, status "Canceled",
+-- judgment $616,012 -- inconsistent with our row's later 10/08/2026 date and
+-- the live tier1 card's $0.00 judgment, consistent with a rescheduled case).
+-- Per HARD GUARDRAIL #1 (PropertyOnion is litmus-only, never written as a
+-- verified/independent data_source for B/C/F), this address/value was NOT
+-- written to any field on this row.
+--
+-- CONCLUSION: genuine, time-bound structural data ceiling -- the source of
+-- record has not yet published parcel/address/judgment for this case
+-- (ingested ~2h before baseline). Not a matching-key bug, not fixable by
+-- re-running any existing pipeline (clerk_ssot is out of scope for st_johns
+-- foreclosure by design; the tier1 realforeclose source itself has no more
+-- data to give yet). BLOCKED status logged to public.agent_ops_log
+-- (dispatch_id 'st_johns-C-20260902') per HONESTY PROTOCOL -- BLANK > WRONG,
+-- no fabrication. Re-check in a future session once saintjohns.realforeclose.com
+-- publishes real parcel/judgment data for AID=1518581.
+--
+-- ZERO rows written to multi_county_auctions this session.
+--
+-- ============================================================================
+-- VERIFICATION (live, this session)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('st_johns');
+-- BEFORE: C: {"pass":false,"detail":"matched_clean=113","metric":94.2}
+-- AFTER:  C: {"pass":false,"detail":"matched_clean=113","metric":94.2} -- UNCHANGED (no writes made; genuine data ceiling, not a bug)
+
+SELECT 1;
