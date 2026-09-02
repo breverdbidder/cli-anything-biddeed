@@ -1,0 +1,92 @@
+-- Gold Standard (county miami_dade, letter D). Session 2026-09-02.
+--
+-- BEFORE (live via pencil_dod_evaluate_county('miami_dade')):
+--   D: FAIL, matched_any=605, metric=88.1 (605/687)
+--   (C: FAIL, matched_clean=568, metric=82.7; E: FAIL, parcel_linked=640,
+--    metric=93.2; I: FAIL, card_complete=602, metric=87.6 -- all pre-existing,
+--    out of scope for this D-only fix)
+--
+-- SCOPE: evaluator's a-CTE restricts auctions_total to county='miami_dade'
+--   AND (data_source IS NULL OR data_source <> 'propertyonion' OR
+--   tier1_authoritative = true) -- confirmed live this session = exactly 687
+--   rows (grew from 644 at the 2026-09-01 session's post-fix baseline).
+--
+-- ROOT CAUSE (5th recurrence of the same orphan-stamp gap, previously
+-- partially fixed 2026-07-04, 2026-07-05, 2026-08-25, and 2026-09-01 for this
+-- same county): 73 scoped rows have parity_status IS NULL. Of those, 38 have
+-- tier1_authoritative=true (already ran through the county's own tier1
+-- RealForeclose/RealTaxDeed harvester, oldest orphan dated 2026-08-10, newest
+-- 2026-09-02) but never got a downstream parity_status stamp. New
+-- tier1-authoritative rows keep landing faster than the parity-reconciliation
+-- step processes them. The remaining 35 NULL rows are tier1_authoritative=
+-- false and mostly arrived in a fresh scrape batch at 2026-09-02T07:55:38Z
+-- (41 rows, tax_deed/foreclosure) -- benign pipeline lag, not a bug, and
+-- deliberately NOT touched this session.
+--
+-- FIX (live PATCH via PostgREST, this session; classify-don't-guess, same
+-- pattern as 20260901_shard3_miami_dade_cd_ghost_success_correction.sql):
+--
+--   Live-read tier1_sale_status for all 38 tier1_authoritative=true orphans:
+--     SOLD: 23, LISTED: 10, CANCELED_PER_BANKRUPTCY: 2, CANCELED_PER_ORDER: 1,
+--     JUDGMENT_VACATED/DISMISSED: 1, PROOF_OF_PUBLICATION_NOT_RECEIVED_OR_
+--     INCORRECT: 1.
+--
+--   3 rows -> parity_status='CLERK_SSOT_CANCELLED' (genuine tier1-confirmed
+--     cancellations: CANCELED_PER_BANKRUPTCY x2, CANCELED_PER_ORDER x1).
+--
+--   23 SOLD rows -> LEFT NULL (not guessed). Each has tier1_sold_amount
+--     populated but sold_amount NULL. Checked every one live against sibling
+--     rows sharing the same case_number: 22 of 23 are tax_deed-track
+--     duplicate rows whose case's real, backed sale already lives on a
+--     separate foreclosure-track row already parity_status='matched_clean'
+--     with a real sold_amount (e.g. case 2025-018996-CA-01: foreclosure-track
+--     row 0d2328b9 is matched_clean/sold_amount=701100.0; the tax_deed-track
+--     row ac859d1d being evaluated has no outcome-table backing of its own
+--     and would double-count the same sale if stamped). This is the exact
+--     "ghost-success" shape independently found and reverted three times
+--     previously for this county (20260704, 20260705, 20260825, 20260901).
+--     The 1 remaining SOLD row (case 2025-009306-CA-01, id 91e82064) has no
+--     sibling row and no matching foreclosure_outcomes/tax_deed_outcomes row
+--     at all -- both checked live, both returned zero rows -- so it is also
+--     left NULL as a genuinely unbacked claim.
+--
+--   10 LISTED rows -> LEFT NULL (auction not yet resolved).
+--   1 JUDGMENT_VACATED/DISMISSED row -> LEFT NULL (ambiguous disposition,
+--     not researched further this session).
+--   1 PROOF_OF_PUBLICATION_NOT_RECEIVED_OR_INCORRECT row -> LEFT NULL (not a
+--     final disposition).
+--
+-- No row's sold_amount was ever set to a fabricated value. No PropertyOnion
+-- field was used as an authoritative source. No cron jobs 109/111/115
+-- touched. pencil_dod_evaluate_county / gold_standard_loop /
+-- gold_standard_certify were not modified or invoked mid-session
+-- (verification-only RPC calls before/after).
+--
+-- AFTER (live via pencil_dod_evaluate_county('miami_dade'), same session):
+--   D: FAIL, matched_any=608, metric=88.5 (608/687) -- moved but did NOT
+--     cross the 95% threshold. This is the honest number: only 3 of the 38
+--     orphans were genuinely stampable without fabrication; the other 35
+--     (including all 23 SOLD claims) have no real backing and stamping them
+--     would have been a canon violation (duplicate-track double counting or
+--     outright guessing on unresolved/ambiguous dispositions).
+--
+-- DATA CEILING / DEFERRED FINDING (not fabricated, not attempted this
+-- session -- out of scope for a county/letter-scoped fix): D cannot reach
+-- 95% via any further manual row-level classification this session; the
+-- remaining 70 NULL rows (35 tier1_authoritative=false pipeline-lag rows +
+-- 35 of the 38 orphans left NULL above) are either not-yet-processed or
+-- genuinely unresolved/unbacked. The actual systemic fix belongs in the
+-- tier1 harvester/reconciliation cron itself (auto-stamp parity_status on
+-- write when tier1_sale_status is unambiguous, and de-duplicate tax_deed/
+-- foreclosure tracks for the same case_number so a second track is never
+-- eligible to be independently stamped), not in another one-off manual
+-- sweep. Logged as a deferred finding per this session's task scope, not
+-- attempted here (5th recurrence since 2026-07-04 confirms a one-off sweep
+-- is not the durable fix).
+--
+-- This migration is a documentation/audit-trail artifact. The real effect
+-- already happened via live PATCH calls against PostgREST during this
+-- session (see scripts/gsd_miami_dade_20260902_d_orphan_stamp_fix.py for the
+-- exact idempotent script executed, and the before/after RPC evidence
+-- above). Not intended to be re-executed via psql (direct Postgres access is
+-- a known-broken credential path in this environment).
