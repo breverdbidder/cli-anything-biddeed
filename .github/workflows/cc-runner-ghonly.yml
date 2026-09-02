@@ -244,6 +244,27 @@ jobs:
             echo "::error::claude -p failed (exit=$CC_EXIT, non-transient)"; exit 1
           done
           echo "::error::claude -p failed after 3 attempts (transient)"; exit 1
+      - name: RLS gate (deterministic — fails on NEW RLS/anon violations vs baseline)
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # 2026-09-02: public.rls_gate_check() compares live pg_class/pg_policies state against
+          # public.rls_gate_baseline (307 grandfathered violations snapshotted 2026-09-02) and
+          # public.rls_gate_allowlist. Any table/view this session created without RLS, or with a
+          # new anon-readable policy, fails the job. Baseline burn-down is a separate issue.
+          RESP=$(curl -s --max-time 60 -X POST "${SUPABASE_URL}/rest/v1/rpc/rls_gate_check" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" -d "{\"p_source\":\"cc-runner issue ${{ matrix.issue }} run ${{ github.run_id }}\"}")
+          echo "$RESP"
+          PASSED=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("passed")).lower())' 2>/dev/null || echo "error")
+          if [ "$PASSED" != "true" ]; then
+            echo "::error::RLS GATE FAILED — new RLS/anon violations introduced this session (or gate unreachable). See response above."
+            echo "rls_gate=failed" > /tmp/cc_rls_gate.txt
+            exit 1
+          fi
+          echo "rls_gate=passed" > /tmp/cc_rls_gate.txt
       - name: Commit changes
         if: always()
         run: |
@@ -273,6 +294,7 @@ jobs:
           ATTEMPT="$(cat /tmp/cc_attempt.txt 2>/dev/null)"
           ATTEMPT="${ATTEMPT:-unknown}"
           INTENT_STATUS="$(cat /tmp/cc_intent_status.txt 2>/dev/null || echo intent=unknown)"
+          RLS_STATUS="$(cat /tmp/cc_rls_gate.txt 2>/dev/null || echo rls_gate=unknown)"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           gh issue comment ${{ matrix.issue }} --repo ${{ github.repository }} \
-            --body "CC GHA-only run finished — attempt ${ATTEMPT}, conclusion **${{ job.status }}**, ${INTENT_STATUS}, run: ${RUN_URL}"
+            --body "CC GHA-only run finished — attempt ${ATTEMPT}, conclusion **${{ job.status }}**, ${INTENT_STATUS}, ${RLS_STATUS}, run: ${RUN_URL}"
