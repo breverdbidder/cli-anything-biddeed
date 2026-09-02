@@ -1,0 +1,21 @@
+{
+  "name": "everest-bank-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plaid Link + /transactions/sync into finance.bank_* (CFO v1 Issue C, #19737). Sandbox first.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.14",
+    "plaid": "^33.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,132 @@
+name: Deploy Everest Bank Engine Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/everest-bank-engine/**'
+      - '.github/workflows/deploy-bank-engine.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bank-engine-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/everest-bank-engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Repo secret naming note (docs/spec/19737.md "Deviations"): the issue body named
+      # CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID (the everest-cfo-agent repo's convention).
+      # Those names do not exist as secrets on cli-anything-biddeed (confirmed via
+      # `gh secret list`) -- every Workers deploy workflow that already lives in this repo uses
+      # CF_API_TOKEN/CF_ACCOUNT_ID instead, so this workflow follows suit.
+      - name: Guard - required secrets present
+        env:
+          CF_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CF_ACCOUNT_ID }}
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+          PLAID_ENV: ${{ secrets.PLAID_ENV }}
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          MISSING=""
+          [ -z "$CF_TOKEN" ] && MISSING="$MISSING CF_API_TOKEN"
+          [ -z "$CF_ACCOUNT" ] && MISSING="$MISSING CF_ACCOUNT_ID"
+          [ -z "$PLAID_CLIENT_ID" ] && MISSING="$MISSING PLAID_CLIENT_ID"
+          [ -z "$PLAID_SECRET" ] && MISSING="$MISSING PLAID_SECRET"
+          [ -z "$PLAID_ENV" ] && MISSING="$MISSING PLAID_ENV"
+          [ -z "$SB_URL" ] && MISSING="$MISSING SUPABASE_URL"
+          [ -z "$SB_SERVICE_KEY" ] && MISSING="$MISSING SUPABASE_SERVICE_ROLE_KEY"
+          [ -z "$CFO_SECRET" ] && MISSING="$MISSING CFO_AGENT_SHARED_SECRET"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing secrets:$MISSING. Add them at Settings > Secrets > Actions."
+            exit 1
+          fi
+          echo "Secrets present."
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Deploy via wrangler
+        id: deploy
+        run: |
+          npx wrangler deploy 2>&1 | tee /tmp/deploy_output.txt
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy_output.txt | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not extract workers.dev URL from wrangler output"
+            exit 1
+          fi
+          echo "worker_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $URL"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+      - name: Set Worker secrets
+        run: |
+          echo "${{ secrets.PLAID_CLIENT_ID }}" | npx wrangler secret put PLAID_CLIENT_ID
+          echo "${{ secrets.PLAID_SECRET }}" | npx wrangler secret put PLAID_SECRET
+          echo "${{ secrets.PLAID_ENV }}" | npx wrangler secret put PLAID_ENV
+          echo "${{ secrets.SUPABASE_URL }}" | npx wrangler secret put SUPABASE_URL
+          echo "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+          echo "${{ secrets.CFO_AGENT_SHARED_SECRET }}" | npx wrangler secret put CFO_AGENT_SHARED_SECRET
+          echo "${{ steps.deploy.outputs.worker_url }}/webhook" | npx wrangler secret put PLAID_WEBHOOK_URL
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+      - name: Verify live - /healthz
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          sleep 8
+          CODE=$(curl -s -o /tmp/healthz.json -w "%{http_code}" "$URL/healthz" || echo "000")
+          echo "/healthz returned $CODE"
+          cat /tmp/healthz.json
+          if [ "$CODE" != "200" ]; then
+            echo "::error::/healthz did not return 200"
+            exit 1
+          fi
+
+      - name: Security gate - protected routes reject requests with no/wrong X-CFO-Secret
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL/link/token" -H "Content-Type: application/json" -d '{"entity_code":"everest_capital"}')
+          echo "POST /link/token with no secret returned $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::/link/token must reject unauthenticated requests (got $CODE)"
+            exit 1
+          fi
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL/sync" -H "Content-Type: application/json" -H "X-CFO-Secret: definitely-wrong" -d '{}')
+          echo "POST /sync with wrong secret returned $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::/sync must reject a wrong secret (got $CODE)"
+            exit 1
+          fi
+          echo "PASS: protected routes reject unauthenticated/wrong-secret requests."
+
+      - name: Summary
+        run: |
+          echo "### Everest Bank Engine Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "Live URL (workers.dev): ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Cron: every 6h, syncs all finance.bank_connections rows with status='active' (see wrangler.toml)." >> "$GITHUB_STEP_SUMMARY"
+          echo "PLAID_ENV: ${{ secrets.PLAID_ENV }}" >> "$GITHUB_STEP_SUMMARY"

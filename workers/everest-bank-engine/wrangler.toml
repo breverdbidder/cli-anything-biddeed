@@ -1,0 +1,38 @@
+name = "everest-bank-engine"
+main = "src/index.ts"
+compatibility_date = "2026-08-24"
+compatibility_flags = ["nodejs_compat"]
+account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
+
+# workers_dev=true: this repo's CF_API_TOKEN (Zone:Read only, no Zone:DNS:Edit -- confirmed
+# live blocker on workers/winnerdata-ff and workers/winnerdata-lms) cannot create custom-domain
+# DNS records, so *.brevardbidderai.workers.dev is the only endpoint guaranteed reachable at
+# deploy time. No custom hostname requested in issue #19737, so no [[routes]] block is declared
+# here at all (nothing to fall back FROM).
+workers_dev = true
+
+# Cron: every 6h, /sync all active finance.bank_connections rows (scope item 1).
+[triggers]
+crons = ["0 */6 * * *"]
+
+# Secrets (set via `wrangler secret put` / .github/workflows/deploy-bank-engine.yml, never
+# committed):
+#   PLAID_CLIENT_ID        - Plaid team client id (repo secret, same name)
+#   PLAID_SECRET           - Plaid secret for PLAID_ENV (repo secret, same name)
+#   PLAID_ENV              - "sandbox" | "production" -- swapping this + PLAID_SECRET is the
+#                            entire env cutover, zero code change (issue #19737 requirement)
+#   SUPABASE_URL           - project REST URL
+#   SUPABASE_SERVICE_ROLE_KEY - used for PostgREST + RPC calls (bank_engine_* functions,
+#                            vault_secret, ecu_set_vault_secret) -- this Worker never opens a
+#                            direct Postgres connection (SUPABASE_DB_PASSWORD confirmed dead,
+#                            decision_log 169/205/287; PostgREST is the working pattern)
+#   CFO_AGENT_SHARED_SECRET - single access-key gate shared with everest-cfo-agent
+#                            (X-CFO-Secret header), same convention as that Worker's auth.ts.
+#                            NOTE: this repo had no such secret before this issue -- see
+#                            docs/spec/19737.md "Deviations" for why the value could not be
+#                            copied byte-for-byte from the everest-cfo-agent repo (GitHub
+#                            Actions secrets are write-only; no sanctioned vault path exists
+#                            for a name outside the cli_anything_*/everest_*_pat allow-list).
+#   PLAID_WEBHOOK_URL       - full https URL of this Worker's own /webhook route, passed to
+#                            Plaid at link-token-create time so it doesn't have to be
+#                            hand-typed twice.
