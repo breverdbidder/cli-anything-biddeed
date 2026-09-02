@@ -117,14 +117,30 @@ def sql_jsonb(obj):
 
 
 def pg_rest(table: str, params: str, timeout: int = 60) -> list[dict]:
-    """public schema reads via PostgREST (see module docstring)."""
+    """public schema reads via PostgREST (see module docstring).
+
+    Retries on transient Cloudflare/edge errors in front of
+    *.supabase.co (521/520/503 -- live-verified during this pipeline's own
+    build/backfill session, 2026-09-02: the same zw_parcels query that
+    failed with 521 on one attempt succeeded on retry seconds later, so
+    this is genuine edge-layer flakiness, not a real data or auth problem).
+    Matches run_sql()'s existing retry/backoff shape for winnerdata access.
+    """
     url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
     req = urllib.request.Request(
         url,
         headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    last_err = None
+    for attempt in range(1, MGMT_API_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+            if attempt < MGMT_API_RETRIES:
+                time.sleep(MGMT_API_BACKOFF_SECONDS * attempt)
+    raise last_err
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import biddeed_reels_lib as lib
@@ -152,7 +153,6 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
 
             if audio_path is None:
                 # Ariel-recorded override: download it locally so ffmpeg can mux it.
-                import urllib.request
                 audio_path = os.path.join(tmp, "voice_override.mp3")
                 urllib.request.urlretrieve(audio_url, audio_path)
 
