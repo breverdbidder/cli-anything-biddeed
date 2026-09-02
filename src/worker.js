@@ -2126,9 +2126,8 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // (SECURITY DEFINER, see 20260902l_biddeed_reels_v2_rpc.sql) -- that
       // function's own field allow-list is the guardrail against ever
       // leaking a name/vendor field, not this route.
-      if (path.match(/^\/deal\/[^/]+\/[^/]+$/) && method === 'GET') {
+      if (path.match(/^\/deal\/[^/]+\/[^/]+$/) && (method === 'GET' || method === 'HEAD')) {
         const [, , countyParam, slugParam] = path.split('/');
-        if (slugParam === 'debugcheck') return new Response('DEBUG_ROUTE_REACHED', { status: 200 });
         const previewId = url.searchParams.get('preview') || null;
         let reel = null;
         try {
@@ -2137,22 +2136,18 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
             body: JSON.stringify({ p_county: decodeURIComponent(countyParam), p_slug: decodeURIComponent(slugParam), p_preview_id: previewId }),
           });
-          const bodyText = await res.text();
-          if (url.searchParams.get('__debug') === '1') {
-            return new Response(JSON.stringify({ ok: res.ok, status: res.status, bodyText, sentCounty: decodeURIComponent(countyParam), sentSlug: decodeURIComponent(slugParam), previewId }), { headers: { 'Content-Type': 'application/json' } });
-          }
           if (res.ok) {
-            reel = bodyText ? JSON.parse(bodyText) : null;
+            reel = await res.json();
           } else {
-            await logErr(env, '/deal', 'get_reel_landing non-2xx', bodyText, res.status);
+            await logErr(env, '/deal', 'get_reel_landing non-2xx', await res.text(), res.status);
           }
         } catch (e) {
           await logErr(env, '/deal', 'get_reel_landing failed', String(e), 500);
         }
-        if (!reel) return new Response('Not found', { status: 404 });
+        if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
         const submitted = url.searchParams.get('submitted') === '1';
         const html = buildDealLandingHtml(reel, path, submitted);
-        return new Response(withPublicShell(html, path), {
+        return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
           headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': reel.status === 'pending_approval' ? 'no-store' : 'public,max-age=300' },
         });
       }
@@ -2196,7 +2191,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // ── GET /r/:code — BidDeed Reels v2 short link (T3). 302s to the
       // landing page with utm_* appended, increments clicks atomically in
       // public.resolve_reel_link() (SECURITY DEFINER).
-      if (path.match(/^\/r\/[A-Za-z0-9]+$/) && method === 'GET') {
+      if (path.match(/^\/r\/[A-Za-z0-9]+$/) && (method === 'GET' || method === 'HEAD')) {
         const code = path.slice('/r/'.length);
         let link = null;
         try {
@@ -2213,12 +2208,12 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         } catch (e) {
           await logErr(env, '/r', 'resolve_reel_link failed', String(e), 500);
         }
-        if (!link || !link.target) return new Response('Not found', { status: 404 });
+        if (!link || !link.target) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
         const target = new URL(link.target);
         if (link.utm_source) target.searchParams.set('utm_source', link.utm_source);
         if (link.utm_medium) target.searchParams.set('utm_medium', link.utm_medium);
         if (link.utm_campaign) target.searchParams.set('utm_campaign', link.utm_campaign);
-        return Response.redirect(target.toString(), 302);
+        return new Response(null, { status: 302, headers: { Location: target.toString(), 'Cache-Control': 'no-store' } });
       }
 
       // ── /proof/:slug — shareable "we called it" result cards. Added Aug
