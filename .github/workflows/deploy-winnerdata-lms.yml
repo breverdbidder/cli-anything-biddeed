@@ -285,21 +285,43 @@ jobs:
           const PASS = process.env.LMS_PASS;
           const BATCH_DATE = '2099-06-15';
 
+          // Isolate a value problem (wrong secret content) from a browser
+          // DOM-interaction problem before touching Playwright at all -- a
+          // plain fetch() POST exercises the exact same credentials the
+          // page.fill() calls below will use.
+          const directRes = await fetch(`${BASE}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ username: USER, password: PASS }).toString(),
+            redirect: 'manual',
+          });
+          console.log(`Direct fetch() POST /login -> ${directRes.status} (sanity check, independent of Playwright)`);
+          if (directRes.status !== 303) {
+            console.error('FAIL: even a direct fetch() with these exact secret values does not log in -- '
+              + 'this points at the LMS_AUTH_USER/LMS_AUTH_PASS secret values themselves, not Playwright.');
+            process.exit(1);
+          }
+
           const browser = await chromium.launch();
           const page = await browser.newPage();
           page.on('dialog', (d) => d.accept());
 
-          await page.goto(`${BASE}/login`);
-          await page.fill('#username', USER);
-          await page.fill('#password', PASS);
-          const [loginResponse] = await Promise.all([
-            page.waitForResponse((r) => r.url().endsWith('/login') && r.request().method() === 'POST'),
-            page.click('form[action="/login"] button[type="submit"]'),
-          ]);
-          console.log(`POST /login -> ${loginResponse.status()}`);
+          let loginResponse;
+          for (let attempt = 1; attempt <= 4; attempt++) {
+            await page.goto(`${BASE}/login`);
+            await page.fill('#username', USER);
+            await page.fill('#password', PASS);
+            [loginResponse] = await Promise.all([
+              page.waitForResponse((r) => r.url().endsWith('/login') && r.request().method() === 'POST'),
+              page.click('form[action="/login"] button[type="submit"]'),
+            ]);
+            console.log(`attempt ${attempt}: POST /login -> ${loginResponse.status()}`);
+            if (loginResponse.status() === 303) break;
+            await new Promise((r) => setTimeout(r, 5000));
+          }
           await page.waitForLoadState('networkidle').catch(() => {});
           if (page.url().includes('/login') || loginResponse.status() !== 303) {
-            console.error(`FAIL: login did not redirect as expected (status=${loginResponse.status()}, url=${page.url()})`);
+            console.error(`FAIL: login did not redirect as expected after retries (status=${loginResponse.status()}, url=${page.url()})`);
             console.error((await page.content()).slice(0, 1500));
             process.exit(1);
           }
