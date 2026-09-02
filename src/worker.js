@@ -2128,6 +2128,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // leaking a name/vendor field, not this route.
       if (path.match(/^\/deal\/[^/]+\/[^/]+$/) && method === 'GET') {
         const [, , countyParam, slugParam] = path.split('/');
+        if (slugParam === 'debugcheck') return new Response('DEBUG_ROUTE_REACHED', { status: 200 });
         const previewId = url.searchParams.get('preview') || null;
         let reel = null;
         try {
