@@ -1,0 +1,90 @@
+name: TMP - first real SimpleFIN sync (issue 19753, add/use/remove)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      WORKER_URL: https://everest-bank-engine.brevardbidderai.workers.dev
+    steps:
+      - name: Guard - required secret present
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          if [ -z "$CFO_SECRET" ]; then
+            echo "::error::CFO_AGENT_SHARED_SECRET missing"
+            exit 1
+          fi
+          echo "Secret present."
+
+      - name: Confirm /simplefin/sync accepts the unified secret (negative + positive probe)
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          CODE=$(curl -s -o /tmp/wrong.json -w "%{http_code}" -X POST "$WORKER_URL/simplefin/sync" \
+            -H "Content-Type: application/json" -H "X-CFO-Secret: definitely-wrong" \
+            -d '{"entity_code":"everest_capital_brevard"}')
+          echo "Wrong-secret probe: $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::/simplefin/sync must reject a wrong secret (got $CODE)"
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/right.json -w "%{http_code}" -X POST "$WORKER_URL/simplefin/sync" \
+            -H "Content-Type: application/json" -H "X-CFO-Secret: $CFO_SECRET" \
+            -d '{"entity_code":"everest_capital_brevard","start_date":1,"end_date":1}')
+          echo "Unified-secret probe (degenerate 1s window, no real data expected): $CODE"
+          cat /tmp/right.json
+          if [ "$CODE" = "401" ]; then
+            echo "::error::/simplefin/sync rejected the unified secret -- unification did not take effect"
+            exit 1
+          fi
+          echo "PASS: unified secret authenticates."
+
+      - name: Page backwards in <=90-day windows, real sync
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          NOW=$(date +%s)
+          END=$NOW
+          WINDOW=$((90*24*3600))
+          CONSEC_EMPTY=0
+          MAX_WINDOWS=12
+          echo "### SimpleFIN real sync -- paged windows" >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 $MAX_WINDOWS); do
+            START=$((END - WINDOW))
+            echo "--- window $i: start=$START end=$END ($(date -u -d @$START +%F) to $(date -u -d @$END +%F)) ---"
+            BODY=$(printf '{"entity_code":"everest_capital_brevard","start_date":%s,"end_date":%s}' "$START" "$END")
+            CODE=$(curl -s -o /tmp/sync_$i.json -w "%{http_code}" -X POST "$WORKER_URL/simplefin/sync" \
+              -H "Content-Type: application/json" -H "X-CFO-Secret: $CFO_SECRET" -d "$BODY")
+            echo "HTTP $CODE"
+            cat /tmp/sync_$i.json
+            echo ""
+            echo "- window $i ($(date -u -d @$START +%F) to $(date -u -d @$END +%F)): HTTP $CODE, $(cat /tmp/sync_$i.json)" >> "$GITHUB_STEP_SUMMARY"
+            UPSERTED=$(jq -r '.upserted // 0' /tmp/sync_$i.json 2>/dev/null || echo 0)
+            ACCTS=$(jq -r '.accounts // 0' /tmp/sync_$i.json 2>/dev/null || echo 0)
+            if [ "$CODE" != "200" ]; then
+              echo "Non-200 response, stopping pagination (Bridge likely won't serve further back)."
+              break
+            fi
+            if [ "$UPSERTED" = "0" ] && [ "$ACCTS" != "0" ]; then
+              CONSEC_EMPTY=$((CONSEC_EMPTY + 1))
+            else
+              CONSEC_EMPTY=0
+            fi
+            if [ "$CONSEC_EMPTY" -ge 2 ]; then
+              echo "2 consecutive empty windows, stopping -- reached the Bridge's real history limit."
+              break
+            fi
+            END=$START
+          done
+
+      - name: Summary
+        run: |
+          echo "Done. Correct the 2-of-4 accounts' entity_code (brevard -> ariel_personal for" >> "$GITHUB_STEP_SUMMARY"
+          echo "1130 checking + 2308 credit card) is done separately via direct SQL, not this workflow." >> "$GITHUB_STEP_SUMMARY"
