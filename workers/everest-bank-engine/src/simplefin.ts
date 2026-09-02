@@ -42,7 +42,10 @@ export async function claimSetupToken(env: Env, setupToken: string): Promise<Cla
   }
   const accessUrl = (await res.text()).trim();
   if (!/^https?:\/\/[^:@/]+:[^@]+@/.test(accessUrl)) {
-    return { status: "BLOCKED", error: "claim response was not a Basic-Auth access URL" };
+    // Redacted preview only (never the full body -- it may itself be a valid credential in an
+    // unexpected shape) to make a live diagnosis possible without printing a secret.
+    const preview = accessUrl.length > 24 ? `${accessUrl.slice(0, 12)}...(${accessUrl.length} chars)...${accessUrl.slice(-4)}` : `(${accessUrl.length} chars, too short to preview safely)`;
+    return { status: "BLOCKED", error: `claim response was not a Basic-Auth access URL -- got: ${preview}` };
   }
 
   await setVaultSecret(env, VAULT_KEY, accessUrl, "SimpleFIN Bridge access URL (Basic Auth embedded, issue #19749)");
