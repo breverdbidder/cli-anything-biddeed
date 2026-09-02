@@ -68,7 +68,7 @@ def parse_cards(html):
     # each card: content-box ... data-caseID="N" ... CASE #X ... status ... labeled rows
     for blk in re.split(r'class="content-box contain', html)[1:]:
         cid = re.search(r'data-caseID="(\d+)"', blk)
-        case = re.search(r'CASE #(\w+)', blk)
+        case = re.search(r'CASE #([^<]+)<', blk)
         status = re.search(r'opacity-75">([^<]+)<', blk)
         labels = dict(re.findall(
             r'data-label">([^<]+)</div>\s*<div class="data-value[^"]*">([^<]*)<', blk))
@@ -76,7 +76,7 @@ def parse_cards(html):
             continue
         sb = (labels.get("Surplus Balance") or "").replace("$", "").replace(",", "").strip()
         out.append({
-            "case_number": case.group(1),
+            "case_number": case.group(1).strip(),
             "tdm_case_id": cid.group(1) if cid else None,
             "account_number": (labels.get("Parcel Number") or "").strip() or None,
             "app_number": (labels.get("App Number") or "").strip() or None,
