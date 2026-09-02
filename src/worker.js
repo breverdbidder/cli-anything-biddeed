@@ -2216,6 +2216,60 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(null, { status: 302, headers: { Location: target.toString(), 'Cache-Control': 'no-store' } });
       }
 
+      // ── GET /reels — BidDeed Reels v2 gallery (issue #19752 directive #4,
+      // new T8). No MP4 or TikTok/IG/Shorts post can carry a clickable
+      // region -- a page we host can. approved/posted reels are always
+      // listed; pending_approval ones only with ?preview=1 so Ariel can QA
+      // the whole batch before approving. public.list_public_reels() is the
+      // same field allow-list as get_reel_landing() -- no name/vendor field
+      // is selectable there either.
+      if (path === '/reels' && (method === 'GET' || method === 'HEAD')) {
+        const includePending = url.searchParams.get('preview') === '1';
+        let reels = [];
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/list_public_reels`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({ p_include_pending: includePending }),
+          });
+          if (res.ok) reels = (await res.json()) || [];
+          else await logErr(env, '/reels', 'list_public_reels non-2xx', await res.text(), res.status);
+        } catch (e) {
+          await logErr(env, '/reels', 'list_public_reels failed', String(e), 500);
+        }
+        const html = buildReelsGalleryHtml(reels, includePending);
+        return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
+          headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': includePending ? 'no-store' : 'public,max-age=120' },
+        });
+      }
+
+      // ── GET /reels/:code — single-reel clickable player page (issue
+      // #19752 directive #4C). The QR/short-link end card may point here
+      // instead of /deal/ -- default stays /deal/, this is the alternate
+      // Ariel can choose. OG tags per reel so a shared /reels/:code link
+      // unfurls with the tight aerial, same as /deal/ already does.
+      if (path.match(/^\/reels\/[A-Za-z0-9]+$/) && (method === 'GET' || method === 'HEAD')) {
+        const code = path.slice('/reels/'.length);
+        const previewId = url.searchParams.get('preview') || null;
+        let reel = null;
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_reel_by_code`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({ p_code: code, p_preview_id: previewId }),
+          });
+          if (res.ok) reel = await res.json();
+          else await logErr(env, '/reels/code', 'get_reel_by_code non-2xx', await res.text(), res.status);
+        } catch (e) {
+          await logErr(env, '/reels/code', 'get_reel_by_code failed', String(e), 500);
+        }
+        if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const html = buildSingleReelHtml(reel);
+        return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
+          headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': reel.status === 'pending_approval' ? 'no-store' : 'public,max-age=300' },
+        });
+      }
+
       // ── /proof/:slug — shareable "we called it" result cards. Added Aug
       // 10 2026. Checked s5_pdf_cache before building this: zero rows
       // currently have a real captured auction_outcome.sale_price -- the
@@ -3214,6 +3268,148 @@ ${ctaBlock}
 }
 function previewQueryFor(reel) {
   return reel.status === 'pending_approval' ? `?preview=${encodeURIComponent(reel.id)}` : '';
+}
+
+// ── BidDeed Reels v2 (issue #19752 directive #4C, new T8) — reels gallery +
+// single-reel clickable player. Field data comes from list_public_reels()/
+// get_reel_by_code() only (same allow-list as get_reel_landing()) -- no
+// name/vendor field is ever selectable there, so there is nothing here that
+// could leak one. Share buttons for TikTok/IG/YouTube stay hidden until
+// status='posted' (nothing is posted yet per this issue's own DoD).
+const REELS_PLAYER_CSS = `
+.reel-card{background:#0f172a;border:1px solid #1e293b;border-radius:12px;overflow:hidden}
+.reel-player-wrap{position:relative;aspect-ratio:9/16;background:#000}
+.reel-player-wrap video{width:100%;height:100%;object-fit:cover;display:block}
+.reel-cta-overlay{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6%;opacity:0;pointer-events:none;transition:opacity .2s}
+.reel-cta-overlay.show{opacity:1;pointer-events:auto}
+.reel-cta-overlay a{background:#F59E0B;color:#020617;font-weight:800;font-family:'Inter',sans-serif;padding:.6rem 1.1rem;border-radius:8px;text-decoration:none;font-size:.95rem}
+.reel-meta{padding:.9rem}
+.reel-meta .county{color:#94a3b8;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+.reel-meta .price{color:#fff;font-size:1.3rem;font-weight:800;margin:.15rem 0}
+.reel-meta .delta{color:#4ade80;font-size:.85rem;font-weight:600}
+.reel-badge{display:inline-block;background:#F59E0B;color:#020617;font-weight:700;padding:.2rem .6rem;border-radius:6px;font-size:.7rem;margin-top:.4rem}
+.reel-view-link{display:block;text-align:center;background:#1e293b;color:#F59E0B;font-weight:700;padding:.6rem;border-radius:8px;text-decoration:none;margin-top:.7rem;font-size:.85rem}
+.reel-share-row{display:flex;gap:.5rem;margin-top:.6rem}
+.reel-share-row button,.reel-share-row a{flex:1;background:#020617;border:1px solid #334155;color:#cbd5e1;font-size:.75rem;padding:.4rem;border-radius:8px;cursor:pointer;text-align:center;text-decoration:none}
+.reels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1.25rem;max-width:1200px;margin:0 auto}
+.reels-preview-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.6rem;border-radius:8px;margin:0 auto 1.5rem;max-width:1200px}
+`;
+
+function reelPlayerScript() {
+  return `
+document.querySelectorAll('.reel-player-wrap').forEach(function(wrap){
+  var video = wrap.querySelector('video');
+  var overlay = wrap.querySelector('.reel-cta-overlay');
+  wrap.addEventListener('mouseenter', function(){ video.muted = true; video.play().catch(function(){}); });
+  wrap.addEventListener('mouseleave', function(){ video.pause(); });
+  wrap.addEventListener('click', function(){ video.muted = !video.muted; if (video.paused) video.play().catch(function(){}); });
+  video.addEventListener('timeupdate', function(){
+    if (video.duration && video.currentTime >= video.duration - 3) overlay.classList.add('show');
+    else overlay.classList.remove('show');
+  });
+});
+function copyShortLink(btn, url){
+  navigator.clipboard.writeText(url).then(function(){
+    var orig = btn.textContent; btn.textContent = 'Copied!';
+    setTimeout(function(){ btn.textContent = orig; }, 1500);
+  });
+}
+`;
+}
+
+function reelCardHtml(reel) {
+  const fmtMoney = (n) => (n == null ? '&mdash;' : '$' + Math.round(Number(n)).toLocaleString());
+  const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed' : 'Foreclosure';
+  const cond = reel.condition_json || {};
+  const tier = cond.general_condition_tier || 'unknown';
+  const deltaPct = reel.delta_pct == null ? null : Number(reel.delta_pct);
+  const deltaLine = deltaPct == null ? '' : `${deltaPct < 0 ? '-' : '+'}${Math.abs(deltaPct).toFixed(0)}% vs assessed`;
+  const viewHref = `${escHtml(reel.landing_url || '#')}${escHtml(previewQueryFor(reel))}`;
+  const posted = reel.status === 'posted';
+  return `<div class="reel-card">
+  <div class="reel-player-wrap">
+    <video src="${escHtml(reel.video_v2_url)}" poster="${escHtml(reel.aerial_tight_url || '')}" muted playsinline preload="metadata" loop></video>
+    <div class="reel-cta-overlay"><a href="${viewHref}">biddeed.ai &rarr;</a></div>
+  </div>
+  <div class="reel-meta">
+    <div class="county">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)}</div>
+    <div class="price">${fmtMoney(reel.sold_amount)}</div>
+    ${deltaLine ? `<div class="delta">${escHtml(deltaLine)}</div>` : ''}
+    ${tier !== 'unknown' ? `<div class="reel-badge">${escHtml(tier.charAt(0).toUpperCase() + tier.slice(1))} condition</div>` : ''}
+    <a class="reel-view-link" href="${viewHref}">View property &rarr;</a>
+    <div class="reel-share-row">
+      <button onclick="copyShortLink(this,'${escHtml(reel.short_url || '')}')">Copy link</button>
+      ${posted ? `<a href="${escHtml(reel.short_url || '#')}" target="_blank" rel="noopener">Share</a>` : ''}
+    </div>
+  </div>
+</div>`;
+}
+
+function buildReelsGalleryHtml(reels, includePending) {
+  const previewBanner = includePending
+    ? `<div class="reels-preview-banner">PREVIEW MODE — includes pending_approval reels, not yet public</div>` : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Reels — BidDeed.AI</title>
+<meta name="description" content="Short-form breakdowns of Florida foreclosure and tax deed sales, AI-analyzed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2rem 1rem}
+h1{max-width:1200px;margin:0 auto 1.5rem;font-size:1.8rem;color:#fff;font-weight:800}
+${REELS_PLAYER_CSS}
+</style>
+</head>
+<body>
+<h1>BidDeed Reels</h1>
+${previewBanner}
+<div class="reels-grid">
+${reels.map(reelCardHtml).join('\n')}
+</div>
+${reels.length === 0 ? '<p style="text-align:center;color:#64748b;margin-top:3rem">No reels published yet.</p>' : ''}
+<script>${reelPlayerScript()}</script>
+</body>
+</html>`;
+}
+
+function buildSingleReelHtml(reel) {
+  const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed Sale' : 'Foreclosure Sale';
+  const soldFmt = reel.sold_amount == null ? 'Sold at auction' : '$' + Math.round(Number(reel.sold_amount)).toLocaleString();
+  const title = `${soldFmt} — ${countyName} County ${saleLabel} — BidDeed.AI`;
+  const ogImage = reel.aerial_tight_url || '';
+  const previewBanner = reel.status === 'pending_approval'
+    ? `<div class="reels-preview-banner">PREVIEW — pending approval, not yet public</div>` : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${escHtml(title)}</title>
+<meta property="og:title" content="${escHtml(title)}">
+<meta property="og:type" content="video.other">
+${ogImage ? `<meta property="og:image" content="${escHtml(ogImage)}">` : ''}
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2rem 1rem;display:flex;justify-content:center}
+.single-wrap{max-width:420px;width:100%}
+${REELS_PLAYER_CSS}
+</style>
+</head>
+<body>
+<div class="single-wrap">
+${previewBanner}
+${reelCardHtml(reel)}
+</div>
+<script>${reelPlayerScript()}</script>
+</body>
+</html>`;
 }
 
 function buildPioneersPage() {
