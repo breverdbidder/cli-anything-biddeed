@@ -317,9 +317,14 @@ function renderFF(data) {
   const propertyAppraiserHeading = verification.appraiser_url
     ? 'Property Appraiser — verify at source'
     : 'Property Appraiser';
+  // issue #19754 item 3: show which tax-roll year the figures below belong
+  // to -- fl_parcels.dor_roll_year is set explicitly per-parcel when a
+  // county PA verification pins the roll year (NULL for rows never
+  // re-verified against a dated roll, so this stays silent for those).
+  const rollYearLabel = parcel.dor_roll_year ? ` (${parcel.dor_roll_year} roll)` : '';
   const valuesSourceNote = parcel.dor_source
-    ? `Values: FL DOR tax roll via public.fl_parcels, extracted ${esc(parcel.dor_source)}${parcel.dor_synced_at ? ` (synced ${esc(parcel.dor_synced_at)})` : ''}.`
-    : 'Values: FL DOR tax roll via public.fl_parcels — extraction source not tagged for this parcel.';
+    ? `Values: FL DOR tax roll${rollYearLabel} via public.fl_parcels, extracted ${esc(parcel.dor_source)}${parcel.dor_synced_at ? ` (synced ${esc(parcel.dor_synced_at)})` : ''}.`
+    : `Values: FL DOR tax roll${rollYearLabel} via public.fl_parcels — extraction source not tagged for this parcel.`;
 
   // issue #19434 requirement 1: producer_name/agency_name are hard-required
   // on every seller FF -- fail closed rather than render with a blank
