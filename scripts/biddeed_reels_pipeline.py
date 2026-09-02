@@ -44,7 +44,8 @@ def get_third_party_wins(auction_date: str) -> list[dict]:
 
 def get_existing_reel(case_number: str, county: str) -> dict | None:
     rows = lib.run_sql(
-        f"""select video_url, voiceover_source, audio_url, status
+        f"""select video_url, voiceover_source, audio_url, status,
+                   aerial_url, street_url, parcel_id, assessed_value
             from winnerdata.biddeed_reels
             where case_number = {lib.sql_str(case_number)} and county = {lib.sql_str(county)};"""
     )
@@ -102,55 +103,73 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
             result["status"] = "skipped_has_video"
             return result
 
+        # Directive #2 (issue #19736 comment): "T2 must never re-call Maps for
+        # a row that has aerial_url" -- a --force re-render (e.g. to pick up a
+        # T3 fix) must reuse already-fetched-and-stored imagery rather than
+        # spending another 1-2 Maps calls on a property whose photos we
+        # already have in Storage.
+        has_existing_imagery = bool(existing and existing.get("aerial_url"))
         raw_addr = sighting.get("property_address", "")
-        parcel = lib.match_parcel(raw_addr, county)
-        assessed_value = None
-        parcel_id = None
-        if parcel and parcel.get("centroid_lat") is not None and parcel.get("centroid_lon") is not None:
-            lat, lon = parcel["centroid_lat"], parcel["centroid_lon"]
-            assessed_value = parcel.get("val_assessed")
-            parcel_id = parcel.get("pin_clean")
-        else:
-            # 2026-09-02 directive: no zw_parcels match -- log raw + normalized
-            # address (T9 report) and fall back to Geocoding so imagery still
-            # runs. Only a genuine error (both parcel match AND geocode miss)
-            # aborts the row now.
-            result["geocode_fallback"] = {
-                "raw_address": raw_addr,
-                "normalized": lib.normalize_addr(lib.street_part(raw_addr)),
-            }
-            geocoded = lib.geocode_address(raw_addr, keys["google_maps"])
-            if not geocoded:
-                row = dict(base_row, status="error",
-                           error_text="no zw_parcels match AND geocode miss for property_address "
-                                      f"(normalized: {result['geocode_fallback']['normalized']!r})")
-                upsert_reel(row, dry_run)
-                result["status"] = "error"
-                result["error"] = row["error_text"]
-                return result
-            lat, lon = geocoded
-            result["geocode_fallback"]["lat"] = lat
-            result["geocode_fallback"]["lon"] = lon
+        assessed_value = (existing or {}).get("assessed_value")
+        parcel_id = (existing or {}).get("parcel_id")
+        lat = lon = None
+
+        if not has_existing_imagery:
+            parcel = lib.match_parcel(raw_addr, county)
+            if parcel and parcel.get("centroid_lat") is not None and parcel.get("centroid_lon") is not None:
+                lat, lon = parcel["centroid_lat"], parcel["centroid_lon"]
+                assessed_value = parcel.get("val_assessed")
+                parcel_id = parcel.get("pin_clean")
+            else:
+                # 2026-09-02 directive: no zw_parcels match -- log raw + normalized
+                # address (T9 report) and fall back to Geocoding so imagery still
+                # runs. Only a genuine error (both parcel match AND geocode miss)
+                # aborts the row now.
+                result["geocode_fallback"] = {
+                    "raw_address": raw_addr,
+                    "normalized": lib.normalize_addr(lib.street_part(raw_addr)),
+                }
+                geocoded = lib.geocode_address(raw_addr, keys["google_maps"])
+                if not geocoded:
+                    row = dict(base_row, status="error",
+                               error_text="no zw_parcels match AND geocode miss for property_address "
+                                          f"(normalized: {result['geocode_fallback']['normalized']!r})")
+                    upsert_reel(row, dry_run)
+                    result["status"] = "error"
+                    result["error"] = row["error_text"]
+                    return result
+                lat, lon = geocoded
+                result["geocode_fallback"]["lat"] = lat
+                result["geocode_fallback"]["lon"] = lon
+
+        date_key = sighting["auction_date"]
+        case_key = urllib.parse.quote(case_number.replace(" ", "_").replace("/", "-"), safe="")
+        prefix = f"{date_key}/{case_key}"
 
         with tempfile.TemporaryDirectory() as tmp:
             aerial_path = os.path.join(tmp, "aerial.png")
-            lib.fetch_static_map(lat, lon, aerial_path, keys["google_maps"])
-            result["image_calls"] += 1
-
             street_path = None
             street_url = None
-            if lib.streetview_metadata_ok(lat, lon, keys["google_maps"]):
-                street_path = os.path.join(tmp, "street.jpg")
-                lib.fetch_streetview(lat, lon, street_path, keys["google_maps"])
+
+            if has_existing_imagery:
+                urllib.request.urlretrieve(existing["aerial_url"], aerial_path)
+                aerial_url = existing["aerial_url"]
+                street_url = existing.get("street_url")
+                if street_url:
+                    street_path = os.path.join(tmp, "street.jpg")
+                    urllib.request.urlretrieve(street_url, street_path)
+            else:
+                lib.fetch_static_map(lat, lon, aerial_path, keys["google_maps"])
                 result["image_calls"] += 1
 
-            date_key = sighting["auction_date"]
-            case_key = urllib.parse.quote(case_number.replace(" ", "_").replace("/", "-"), safe="")
-            prefix = f"{date_key}/{case_key}"
+                if lib.streetview_metadata_ok(lat, lon, keys["google_maps"]):
+                    street_path = os.path.join(tmp, "street.jpg")
+                    lib.fetch_streetview(lat, lon, street_path, keys["google_maps"])
+                    result["image_calls"] += 1
 
-            aerial_url = lib.storage_upload(aerial_path, f"{prefix}/aerial.png", "image/png")
-            if street_path:
-                street_url = lib.storage_upload(street_path, f"{prefix}/street.jpg", "image/jpeg")
+                aerial_url = lib.storage_upload(aerial_path, f"{prefix}/aerial.png", "image/png")
+                if street_path:
+                    street_url = lib.storage_upload(street_path, f"{prefix}/street.jpg", "image/jpeg")
 
             image_paths = [aerial_path] + ([street_path] if street_path else [])
             condition = lib.score_condition(image_paths, keys["router"])
