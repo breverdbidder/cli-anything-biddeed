@@ -292,12 +292,15 @@ jobs:
           await page.goto(`${BASE}/login`);
           await page.fill('#username', USER);
           await page.fill('#password', PASS);
-          await Promise.all([
-            page.waitForNavigation(),
+          const [loginResponse] = await Promise.all([
+            page.waitForResponse((r) => r.url().endsWith('/login') && r.request().method() === 'POST'),
             page.click('form[action="/login"] button[type="submit"]'),
           ]);
-          if (page.url().includes('/login')) {
-            console.error('FAIL: still on /login after submitting real credentials');
+          console.log(`POST /login -> ${loginResponse.status()}`);
+          await page.waitForLoadState('networkidle').catch(() => {});
+          if (page.url().includes('/login') || loginResponse.status() !== 303) {
+            console.error(`FAIL: login did not redirect as expected (status=${loginResponse.status()}, url=${page.url()})`);
+            console.error((await page.content()).slice(0, 1500));
             process.exit(1);
           }
           console.log('PASS: real browser login via /login form succeeded');
