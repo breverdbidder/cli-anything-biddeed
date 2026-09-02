@@ -44,6 +44,7 @@
 
 import TEMPLATE_A from '../../../templates/FF_TEMPLATE_A_AUCTION_SALES.html';
 import TEMPLATE_B from '../../../templates/FF_TEMPLATE_B_HOMEOWNER.html';
+import { money, esc, normalizeBuyerName, callScript } from './ff_format.js';
 
 const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
 // Anon key — safe to embed in source, same as src/worker.js:37. RLS/RPC
@@ -98,22 +99,16 @@ async function rpc(fn, body) {
   return res.json();
 }
 
-function money(n) {
-  if (n === null || n === undefined) return 'Not established';
-  return `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-}
-
-function esc(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
-}
-
 function computeFlags(lead, parcel) {
   const flags = [];
+  // issue #19747 defect 5: the pre-1990 4-point flag asserted a fact
+  // (year built) that never appeared anywhere on the page -- show the
+  // year(s) inline so the flag carries its own evidence.
   if (parcel.eff_yr_blt && parcel.eff_yr_blt < 1990) {
-    flags.push('Pre-1990 construction — 4-point inspection required');
+    const yearLabel = parcel.act_yr_blt && parcel.act_yr_blt !== parcel.eff_yr_blt
+      ? `built ${parcel.act_yr_blt}, effective year built ${parcel.eff_yr_blt}`
+      : `built ${parcel.eff_yr_blt}`;
+    flags.push(`Pre-1990 construction (${yearLabel}) — 4-point inspection required`);
   }
   if (parcel.dor_uc === '004' || parcel.dor_uc === '008') {
     flags.push('DOR use code indicates commercial — not eligible for DP3');
@@ -170,18 +165,6 @@ function mlsProfileRows(mls, parcelId) {
     profileRow('Days on Market', mls.days_on_market ?? 'Not established'),
     profileRow('Parcel', parcelId || 'Not established'),
   ].join('\n      ');
-}
-
-function callScript(lead, auction) {
-  const days = auction.auction_date
-    ? Math.floor((Date.now() - Date.parse(auction.auction_date)) / 86400000)
-    : null;
-  return [
-    auction.case_number ? `Certificate of title recorded, case ${auction.case_number}.` : 'Certificate of title recorded.',
-    days !== null ? `${days} days ago.` : null,
-    auction.sold_amount ? `Winning bid was ${money(auction.sold_amount)}.` : null,
-    `Calling ${esc(lead.contact_name || lead.entity_name)} re: property insurance on the new acquisition.`,
-  ].filter(Boolean).join(' ');
 }
 
 // issue P0 (2026-08-26) Gap 2: "one lead = one buyer NAME regardless of
@@ -337,10 +320,23 @@ function renderFF(data) {
   const banner = leadSourceType === 'auction'
     ? (BANNER[auction.sale_type] || { cls: 'not_established', label: 'SALE TYPE NOT ESTABLISHED' })
     : MLS_BANNER[leadSourceType];
+  // fl_parcels carries no standalone building-value column -- bldg_val is
+  // always (jv - lnd_val), computed server-side in ff_get_lead. It is never
+  // a native PA figure, so "derived" labeling below (defect 4) applies
+  // unconditionally, not just when some other source is missing.
   const bldgVal = parcel.bldg_val;
   const coverageA = bldgVal !== null && bldgVal !== undefined ? bldgVal * 1.25 : null;
 
-  const nameParts = (lead.contact_name || lead.entity_name || '').split(' ');
+  // issue #19747 defect 2: normalize trust-vehicle buyer names once, then
+  // use the normalized values everywhere the buyer name is displayed
+  // (entity_name, contact_name, first/last split, call script, buyer-of-
+  // record table). `lead` itself is left untouched so contact_phone/email/
+  // consent_status/parcel_id reads elsewhere are unaffected.
+  const normalizedEntityName = normalizeBuyerName(lead.entity_name);
+  const normalizedContactName = normalizeBuyerName(lead.contact_name);
+  const leadForDisplay = { ...lead, entity_name: normalizedEntityName, contact_name: normalizedContactName };
+
+  const nameParts = (normalizedContactName || normalizedEntityName || '').split(' ');
   const firstName = nameParts[0] || '';
   const lastName = nameParts.slice(1).join(' ') || '';
 
@@ -364,6 +360,18 @@ function renderFF(data) {
         ? `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">View county property appraiser record &rarr;</a>`
         : `<a href="${esc(verification.appraiser_url)}" target="_blank" rel="noopener">Search county property appraiser records (folio ${esc(lead.parcel_id) || 'N/A'}) &rarr;</a>`)
     : '<span>No property appraiser URL on file for this county.</span>';
+  // issue #19747 defect 1 / step 3: only the "no URL on file" wording implies
+  // nothing is configured -- once either table resolves a URL, label the
+  // block as click-to-verify rather than implying the number below it is
+  // already county-cross-checked, and name where the figures actually came
+  // from (fl_parcels, populated from the FL DOR tax roll / FL GIO cadastral
+  // pipeline -- dor_source/dor_synced_at when the sync tagged them).
+  const propertyAppraiserHeading = verification.appraiser_url
+    ? 'Property Appraiser — verify at source'
+    : 'Property Appraiser';
+  const valuesSourceNote = parcel.dor_source
+    ? `Values: FL DOR tax roll via public.fl_parcels, extracted ${esc(parcel.dor_source)}${parcel.dor_synced_at ? ` (synced ${esc(parcel.dor_synced_at)})` : ''}.`
+    : 'Values: FL DOR tax roll via public.fl_parcels — extraction source not tagged for this parcel.';
 
   // issue #19434 requirement 1: producer_name/agency_name are hard-required
   // on every seller FF -- fail closed rather than render with a blank
@@ -392,7 +400,7 @@ function renderFF(data) {
 
   const values = {
     lead_id: lead.lead_id,
-    entity_name: esc(lead.entity_name),
+    entity_name: esc(normalizedEntityName),
     first_name: esc(firstName),
     last_name: esc(lastName),
     mailing_address: esc(parcel.own_addr1),
@@ -410,9 +418,23 @@ function renderFF(data) {
     county_just_value: money(parcel.jv),
     assessed_value: money(parcel.av_sd),
     land_value: money(parcel.lnd_val),
-    building_value: money(bldgVal),
-    coverage_a: money(coverageA),
-    construction_type: esc(parcel.const_clas) || 'Not established',
+    // issue #19747 defect 4: fl_parcels has no native building-value column
+    // -- this figure is always (market − land), never a PA-reported field.
+    // Label it as derived every time rather than presenting it as if it came
+    // straight off the tax roll. Coverage A formula (1.25x) is unchanged --
+    // labeling only, per issue non-goals.
+    building_value: bldgVal !== null && bldgVal !== undefined
+      ? `${money(bldgVal)} (derived: market value − land value)`
+      : 'Not established',
+    coverage_a: coverageA !== null && coverageA !== undefined
+      ? `${money(coverageA)} — computed from derived building value; confirm with PA before quoting`
+      : 'Not established',
+    // issue #19747 defect 4: DOR construction-class code "0" means
+    // unclassified/no data, not a real class -- rendering the raw code (or
+    // esc(null) || fallback, which only catches actual null/undefined, not
+    // the truthy string "0") showed a bare "0" on the page. Both null and
+    // "0" now render the same honest "n/a".
+    construction_type: (!parcel.const_clas || parcel.const_clas === '0') ? 'n/a' : esc(parcel.const_clas),
     policy_type: ownerOccupied ? 'HO3' : 'DP3',
     banner_class: banner.cls,
     banner_label: banner.label,
@@ -428,11 +450,13 @@ function renderFF(data) {
     date_of_birth: esc(responses.date_of_birth) || '',
     roof_shape: esc(responses.roof_shape) || 'Collect on call',
     underwriting_flags: computeFlags(lead, parcel),
-    call_script: esc(callScript(lead, auction)),
+    call_script: esc(callScript(normalizedContactName || normalizedEntityName, auction, responses.ct_recording_date || null)),
     verify_badge_class: verified ? 'verified' : 'not-verified',
     verify_badge_label: verified ? 'VERIFIED' : 'NOT VERIFIED',
     verify_reason: esc(verification.reason) || 'No property appraiser cross-verification available for this county.',
     appraiser_link: appraiserLink,
+    property_appraiser_heading: propertyAppraiserHeading,
+    values_source_note: valuesSourceNote,
     property_profile_rows: propertyProfileRows,
   };
 
@@ -447,7 +471,7 @@ function renderFF(data) {
   values.property_section_heading = propertySectionHeading(properties, values.auction_date);
   values.property_rows = propertyTableRows(properties);
   values.property_totals_line = propertyTotalsLine(properties);
-  values.buyer_of_record_rows = buyerOfRecordRows(lead, properties);
+  values.buyer_of_record_rows = buyerOfRecordRows(leadForDisplay, properties);
   values.contact_rows = contactRows(lead);
   values.contact_status_label = contactStatusLabel(lead.consent_status);
   values.contact_compliance_note = contactComplianceNote(lead.consent_status);
