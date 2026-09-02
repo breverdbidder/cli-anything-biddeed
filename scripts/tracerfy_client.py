@@ -83,39 +83,70 @@ def log(msg: str, tag: str = "INFO") -> None:
 _FAIL = object()  # sentinel: request failed, caller checks via `is _FAIL`
 
 
+_RETRYABLE_MAX_ATTEMPTS = 3  # issue #19729 T4: 544 is a proxy-layer code, not a vendor rejection
+
+
+def _is_retryable(http_status: int | None) -> bool:
+    """544 (proxy-layer, seen live 2026-09-02 issue #19729) and any 5xx are
+    transient -- retry. 4xx (bad request, auth, insufficient credits) are not
+    -- retrying a malformed request just repeats the same failure."""
+    return http_status is not None and (http_status >= 500 or http_status == 544)
+
+
 def _request(path: str, payload: dict | None, limiter: RateLimiter, base: str = TRACERFY_BASE, method: str = "POST") -> "dict | tuple":
     """Returns a parsed JSON dict on success.  On failure returns a 2-tuple
     (sentinel, error_detail_dict) so callers can distinguish a legitimate
-    API response from a transport/auth failure and surface the detail."""
+    API response from a transport/auth failure and surface the detail.
+
+    Retries up to _RETRYABLE_MAX_ATTEMPTS times with exponential backoff
+    (1s, 2s, 4s) on a 5xx/544 proxy-layer error only -- a 4xx (bad request,
+    auth, insufficient credits) fails fast on attempt 1, since retrying an
+    unchanged bad request just wastes rate-limit budget for the same result."""
     if not TRACERFY_KEY:
         msg = "TRACERFY_API_KEY absent -- cannot call Tracerfy."
         log(msg, "ERROR")
         return (_FAIL, {"error_type": "NO_API_KEY", "error": msg})
-    limiter.wait()
-    req = urllib.request.Request(
-        base + path,
-        data=json.dumps(payload).encode() if payload is not None else None,
-        headers={
-            "Authorization": f"Bearer {TRACERFY_KEY}",
-            "Content-Type": "application/json",
-            # Cloudflare (error 1010) blocks the default urllib UA on tracerfy.com —
-            # confirmed live 2026-08-24: identical requests succeed once a
-            # non-default User-Agent is set. Same root cause class as the
-            # Supabase Management API UA requirement in winnerdata_pipeline.py.
-            "User-Agent": "winnerdata-pipeline/1.0",
-        },
-        method=method,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "replace")[:500]
-        log(f"Tracerfy {path} HTTP {e.code}: {body}", "ERROR")
-        return (_FAIL, {"error_type": "HTTP_ERROR", "http_status": e.code, "response_body": body})
-    except Exception as e:
-        log(f"Tracerfy {path} failed: {type(e).__name__}: {e}", "ERROR")
-        return (_FAIL, {"error_type": type(e).__name__, "error": str(e)})
+
+    last_detail = None
+    for attempt in range(1, _RETRYABLE_MAX_ATTEMPTS + 1):
+        limiter.wait()
+        req = urllib.request.Request(
+            base + path,
+            data=json.dumps(payload).encode() if payload is not None else None,
+            headers={
+                "Authorization": f"Bearer {TRACERFY_KEY}",
+                "Content-Type": "application/json",
+                # Cloudflare (error 1010) blocks the default urllib UA on tracerfy.com —
+                # confirmed live 2026-08-24: identical requests succeed once a
+                # non-default User-Agent is set. Same root cause class as the
+                # Supabase Management API UA requirement in winnerdata_pipeline.py.
+                "User-Agent": "winnerdata-pipeline/1.0",
+            },
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:500]
+            last_detail = {"error_type": "HTTP_ERROR", "http_status": e.code, "response_body": body}
+            if _is_retryable(e.code) and attempt < _RETRYABLE_MAX_ATTEMPTS:
+                backoff = 2 ** (attempt - 1)
+                log(f"Tracerfy {path} HTTP {e.code} (attempt {attempt}/{_RETRYABLE_MAX_ATTEMPTS}), retrying in {backoff}s: {body}", "WARN")
+                time.sleep(backoff)
+                continue
+            log(f"Tracerfy {path} HTTP {e.code}: {body}", "ERROR")
+            return (_FAIL, last_detail)
+        except Exception as e:
+            last_detail = {"error_type": type(e).__name__, "error": str(e)}
+            if attempt < _RETRYABLE_MAX_ATTEMPTS:
+                backoff = 2 ** (attempt - 1)
+                log(f"Tracerfy {path} {type(e).__name__} (attempt {attempt}/{_RETRYABLE_MAX_ATTEMPTS}), retrying in {backoff}s: {e}", "WARN")
+                time.sleep(backoff)
+                continue
+            log(f"Tracerfy {path} failed: {type(e).__name__}: {e}", "ERROR")
+            return (_FAIL, last_detail)
+    return (_FAIL, last_detail)
 
 
 _NAME_SUFFIXES = {"SR", "JR", "II", "III", "IV", "V", "ESQ"}

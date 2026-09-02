@@ -1,36 +1,60 @@
 #!/usr/bin/env python3
-"""Seller-digest FF enrichment runner (issue #19619, bug-fixes in #19626).
+"""Seller-digest FF enrichment runner (issue #19619, bug-fixes in #19626,
+root-cause rewrite in #19729).
 
 Runs after the build step persists seller_digest_leads rows for the batch and
 BEFORE Ariel approves -- this is the pre-approval enrichment gate.
 
-  1. Skip-trace via Tracerfy enhanced lookup anchored on the buyer's
-     entity_name + the property address they just won (name+address reverse
-     skip-trace -- the correct strategy for brand-new acquisitions where no
-     prior owned address exists by definition).  Replaces the prior-owned-
-     address anchor from ff_nine_portfolio_enrichment which was wrong here
-     and produced 0% hit rate across both batches (issue #19626 Bug 1).
-  2. DNC scrub via Tracerfy before writing any phone/email to the row.
-  3. Updates winnerdata.seller_digest_leads.row_enrichment_status per row.
-  4. Updates winnerdata.ff_batches.enrichment_status (not_started → running →
-     complete/failed) with real timestamps and a real enrichment_run_id.
+Issue #19729 (P0, 2026-09-02): the previous version of this script anchored
+every Tracerfy lookup on `property_address` -- the auction property the buyer
+just won. The buyer does not live there yet (deed records lag), so Tracerfy
+correctly returned NO_MATCH on every one of 81 rows across 4 batches
+(lifetime hit rate 0%). This rewrite ports the proven owner-match ->
+mailing-address -> vendor sequence that `scripts/ff_billable_loop.py` (issue
+#19712, same day) already runs for the sibling `ff_batch_leads` pipeline:
 
-Hard guardrails (from issue #19619):
+  1. Classify the buyer: person / person_joint / business / land_trust
+     (same heuristic as scripts/skiptrace_20260827_28lead_ff_batch.py).
+  2. stage1_identity: self-match the buyer's name against public.fl_parcels
+     for a PRIOR-owned mailing address (excludes the just-purchased parcel).
+     Reused via import, not reimplemented (SEARCH-FIRST mandate).
+  3. business/land_trust only: stage2_sunbiz_chain resolves the LLC's
+     principal / registered agent via the Sunbiz identity cascade. Reused
+     via import.
+  4. stage3_skiptrace: Tracerfy enhanced trace (name + the mailing address
+     found in step 2/3 -- never the purchased-property address). Reused via
+     import; retry-with-backoff on 5xx/544 now lives in tracerfy_client.py
+     itself (issue #19729 T4), so every caller gets it for free.
+  5. DNC scrub via Tracerfy, polled to a real determination before any
+     phone/email is written (hard guardrail from issue #19619 -- NOT
+     reused from ff_billable_loop.run_stage5_dnc, which only checks that the
+     scrub request was accepted, not that DNC screening actually completed;
+     see this script's dnc_scrub() docstring).
+  6. Updates winnerdata.seller_digest_leads.row_enrichment_status per row,
+     isolating one row's vendor/SQL failure from the rest of the batch
+     (issue #19729 T3) -- 'error' is a new, distinct terminal state from
+     'complete' (NO_MATCH is still 'complete': the vendor answered).
+  7. Updates winnerdata.ff_batches.enrichment_status (not_started -> running
+     -> complete/failed) with real timestamps and a real enrichment_run_id.
+
+rerun_paid_lookups (env RERUN_PAID_LOOKUPS, default false): a row that
+already has a resolved phone or email is never re-queried (real vendor spend
+already paid for a real result). A row that is 'complete' but has NO
+contact -- the entire lifetime population before this fix -- IS reprocessed,
+because 'complete' under the old code meant "the wrong address was tried",
+never "the right address came back empty". This is why 'complete-but-empty'
+is not skipped by default the way FORCE_REFRESH=0 used to skip it.
+
+Hard guardrails (from issue #19619, restated in #19729 M1):
   - Every external API call checks its own result before reporting success.
   - No PII (phone/email) may be written for a lead where DNC screening has
     not completed -- the row stays row_enrichment_status='skipped_dnc_incomplete'
     and the PDF render must omit contact fields for it.
   - enrichment_status transitions are written to the DB, not just printed.
-  - FORCE_REFRESH=1 env var re-runs paid vendor lookups for already-complete rows.
-
-Pacing (issue #19626 Bug 2 fix):
-  The Tracerfy RateLimiter in tracerfy_client.py (10 enhanced calls / 5 min)
-  handles all inter-request pacing.  No additional sleep is applied here.
-  Skipped rows (no-anchor, already-complete, daily-cap) proceed immediately
-  without any wait.  A 28-lead batch stays well within the 30-min job timeout.
+  - Nothing in this script sends, digests, or approves anything.
 
 Run:
-  BATCH_DATE=2026-08-28 SUPABASE_ACCESS_TOKEN=... TRACERFY_API_KEY=... \\
+  BATCH_DATE=2026-08-31 SUPABASE_ACCESS_TOKEN=... TRACERFY_API_KEY=... \\
     SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \\
     python scripts/seller_digest_enrichment.py
 """
@@ -40,24 +64,36 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
-import ff_credit_ledger  # noqa: E402
 import tracerfy_client  # noqa: E402
+from ff_billable_loop import (  # noqa: E402  -- reused, not reimplemented
+    STAGE_PLAN,
+    evaluate_2of3,
+    tier_for_evidence,
+    run_stage1_identity,
+    run_stage2_sunbiz_chain,
+    run_stage3_skiptrace,
+)
 
 PROJECT_REF = "mocerqjnksmhcjzxrewo"
 MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
 BATCH_DATE = os.environ.get("BATCH_DATE", "")
 SB_TOKEN = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
 TRACERFY_KEY = os.environ.get("TRACERFY_API_KEY", "")
-FORCE_REFRESH = os.environ.get("FORCE_REFRESH", "0") == "1"
+RERUN_PAID_LOOKUPS = os.environ.get("RERUN_PAID_LOOKUPS", os.environ.get("FORCE_REFRESH", "0")) == "1"
+RUN_ID = str(uuid.uuid4())
+
+SQL_MAX_ATTEMPTS = 3  # issue #19729 T4: same proxy-layer 5xx/544 retry as tracerfy_client.py
 
 
 def sql(q: str):
     if not SB_TOKEN:
         raise RuntimeError("SUPABASE_ACCESS_TOKEN is required")
+    import urllib.error as _err
     import urllib.request as _req
     req = _req.Request(
         MGMT_URL,
@@ -69,17 +105,101 @@ def sql(q: str):
         },
         method="POST",
     )
-    import urllib.request as _u
-    with _u.urlopen(req, timeout=90) as r:
-        body = json.loads(r.read())
-    if isinstance(body, dict) and body.get("message"):
-        raise RuntimeError(body["message"])
-    return body
+    last_exc = None
+    for attempt in range(1, SQL_MAX_ATTEMPTS + 1):
+        try:
+            with _req.urlopen(req, timeout=90) as r:
+                body = json.loads(r.read())
+            if isinstance(body, dict) and body.get("message"):
+                raise RuntimeError(body["message"])
+            return body
+        except (_err.HTTPError, _err.URLError, TimeoutError) as e:
+            last_exc = e
+            status = getattr(e, "code", None)
+            retryable = status is None or status >= 500 or status == 544
+            if retryable and attempt < SQL_MAX_ATTEMPTS:
+                backoff = 2 ** (attempt - 1)
+                print(f"  Management API {type(e).__name__} (attempt {attempt}/{SQL_MAX_ATTEMPTS}), retrying in {backoff}s: {e}", file=sys.stderr)
+                time.sleep(backoff)
+                continue
+            raise
+    raise last_exc
 
 
 def esc(v):
     return str(v or "").replace("'", "''")
 
+
+# ---------------------------------------------------------------------------
+# Identity classification -- same heuristic as
+# scripts/skiptrace_20260827_28lead_ff_batch.py::classify() (no per-buyer
+# TYPE_OVERRIDE table here -- that script's overrides were a one-off
+# hand-correction for its specific 28-row batch, not a generalizable rule).
+# ---------------------------------------------------------------------------
+
+def classify(entity_name: str) -> str:
+    name = (entity_name or "").strip()
+    upper = name.upper()
+    if "trust" in name.lower() and "llc" not in name.lower():
+        return "land_trust_unpierceable"
+    if re.search(r"\b(LLC|INC|CORP|LP|LLP|GROUP)\b", upper):
+        return "business"
+    if re.search(r"\b(AND|&)\b", upper):
+        return "person_joint"
+    return "person"
+
+
+def get_auction_parcel_id(case_number: str, entity_name: str) -> str | None:
+    """The parcel this buyer just purchased -- excluded from the stage1
+    fl_parcels self-match so we never anchor a lookup on the just-won
+    property (the exact bug this issue exists to fix)."""
+    if not case_number:
+        return None
+    rows = sql(f"""
+        select parcel_id from public.multi_county_auctions
+        where case_number = '{esc(case_number)}'
+          and winning_bidder = '{esc(entity_name)}'
+        limit 1
+    """)
+    return rows[0]["parcel_id"] if rows else None
+
+
+# ---------------------------------------------------------------------------
+# DNC scrub -- polled to a real determination. NOT reused from
+# ff_billable_loop.run_stage5_dnc(): that function treats "Tracerfy accepted
+# the scrub request" as outcome="hit" without ever polling the queue for the
+# actual flagged/clean result (confirmed by reading its source, 2026-09-02).
+# That is fine for ff_batch_leads' BILLABLE gate (which doesn't gate on DNC
+# completion) but violates THIS pipeline's hard guardrail from issue #19619:
+# phone/email may not be written until DNC screening has actually completed.
+# Reuses the proven poll pattern from
+# scripts/skiptrace_20260827_28lead_ff_batch.py::dnc_check().
+# ---------------------------------------------------------------------------
+
+def dnc_scrub(phone: str) -> dict:
+    if not TRACERFY_KEY or not phone:
+        return {"status": "SKIPPED_NO_KEY_OR_PHONE", "dnc": None}
+    resp = tracerfy_client.dnc_scrub([phone])
+    if isinstance(resp, tuple):
+        _, err_detail = resp
+        return {"status": "DNC_SCRUB_REQUEST_FAILED", "dnc": None, "error": err_detail}
+    queue_id = resp.get("dnc_queue_id")
+    if queue_id is None:
+        return {"status": "DNC_SCRUB_UNEXPECTED_RESPONSE_SHAPE", "dnc": None, "raw": resp}
+    for _ in range(6):
+        q = tracerfy_client.get_queue_status(queue_id)
+        if isinstance(q, dict) and q.get("pending") is False:
+            checked, clean = q.get("phones_checked"), q.get("phones_clean")
+            flagged = (clean == 0) if checked == 1 and clean is not None else None
+            return {"status": "OK", "dnc": flagged, "provider": "tracerfy", "raw": q,
+                     "checked_at": datetime.now(timezone.utc).isoformat()}
+        time.sleep(20)
+    return {"status": "DNC_SCRUB_TIMEOUT", "dnc": None}
+
+
+# ---------------------------------------------------------------------------
+# Batch/row status
+# ---------------------------------------------------------------------------
 
 def set_batch_enrichment_status(batch_date: str, status: str, run_id: str | None = None, error: str | None = None):
     fields = [f"enrichment_status = '{esc(status)}'", "updated_at = now()"]
@@ -103,175 +223,32 @@ def set_row_enrichment_status(batch_date: str, lead_id: str, status: str):
     """)
 
 
-def parse_property_address(property_address: str) -> dict | None:
-    """Parse a free-text property_address string into components for Tracerfy.
-
-    Expected formats (from multi_county_auctions.property_address):
-      "123 Main St, Miami, FL 33101"
-      "123 MAIN ST MIAMI FL 33101"
-      "123 Main St, Miami, FL"   (no zip)
-
-    Returns dict with keys street, city, state, zip, or None if the address
-    is empty or cannot be parsed to at least street+city+state.
-
-    Never fabricates a component -- returns None rather than guessing.
-    """
-    if not property_address or not property_address.strip():
-        return None
-
-    addr = property_address.strip()
-
-    zip_match = re.search(r'\b(\d{5})(?:-\d{4})?\s*$', addr)
-    zipcode = zip_match.group(1) if zip_match else None
-    if zip_match:
-        addr = addr[:zip_match.start()].strip().rstrip(",").strip()
-
-    state_match = re.search(r',?\s*\b(FL|Florida)\b\s*$', addr, re.IGNORECASE)
-    if not state_match:
-        state_match = re.search(r'\b(FL|Florida)\b', addr, re.IGNORECASE)
-    state = "FL"
-    if state_match:
-        addr = addr[:state_match.start()].strip().rstrip(",").strip()
-
-    parts = [p.strip() for p in addr.split(",") if p.strip()]
-    if len(parts) >= 2:
-        street = parts[0]
-        city = parts[-1]
-    elif len(parts) == 1:
-        tokens = parts[0].rsplit(" ", 1)
-        if len(tokens) == 2:
-            street = tokens[0]
-            city = tokens[1]
-        else:
-            return None
-    else:
-        return None
-
-    if not street or not city:
-        return None
-
-    return {"street": street, "city": city, "state": state, "zip": zipcode or ""}
-
-
-def tracerfy_lookup(entity_name: str, property_address: str) -> dict:
-    """Skip-trace via name + property address (the just-won acquisition).
-
-    This is the correct anchor for seller_digest leads: these are brand-new
-    auction winners where no prior-deed mailing address exists by definition.
-    A name+address enhanced lookup against the purchased property address is
-    a standard reverse skip-trace (different from the prior-address method
-    used in ff_nine_portfolio_enrichment, which has an 88% hit rate because
-    it anchors on a long-held prior address -- seller_digest buyers are new
-    to the address so hit rates will be lower, but 0% from wrong anchor is
-    worse than 30-50% from correct anchor).
-    """
-    if not TRACERFY_KEY:
-        return {"status": "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS"}
-
-    anchor = parse_property_address(property_address)
-    if not anchor:
-        return {"status": "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS", "reason": "property_address unparseable"}
-
-    ledger = ff_credit_ledger.spend("tracerfy", 1)
-    if not ledger.get("granted"):
-        return {"status": "SKIPPED_DAILY_CAP", "ledger": ledger}
-
-    result = tracerfy_client.trace_lead(
-        entity_name,
-        anchor["street"],
-        anchor["city"],
-        anchor["state"],
-        anchor["zip"],
-    )
-
-    status_map = {
-        "OK": "OK",
-        "NO_MATCH": "NO_MATCH",
-        "NO_MAILING_ADDRESS_AVAILABLE": "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS",
-        "REQUEST_FAILED": "REQUEST_FAILED",
-        "UNEXPECTED_RESPONSE_SHAPE": "REQUEST_FAILED",
-        "HIT_BUT_NO_PERSONS_SHAPE_MISMATCH": "REQUEST_FAILED",
-        "HIT_NO_CONTACT_FIELDS": "NO_MATCH",
-    }
-    parse_status = result.get("parse_status")
-    status = status_map.get(parse_status, "REQUEST_FAILED")
-
-    if status == "REQUEST_FAILED":
-        raw_resp = result.get("_raw_response")
-        return {
-            "status": status,
-            "parse_status": parse_status,
-            "raw_response": raw_resp,
-            "anchor_used": {"street": anchor["street"], "city": anchor["city"], "state": anchor["state"]},
-        }
-
-    if status != "OK":
-        return {"status": status, "parse_status": parse_status}
-
-    return {
-        "status": "OK",
-        "full_name": result.get("full_name"),
-        "phone": result.get("phone"),
-        "email": result.get("email"),
-        "source": "Tracerfy enhanced lookup (name+property_address)",
-        "anchor": {"street": anchor["street"], "city": anchor["city"], "state": anchor["state"]},
-    }
-
-
-def dnc_scrub(phone: str) -> dict:
-    """Check DNC status for a phone number via Tracerfy.
-    Returns {"dnc": True/False, "provider": "tracerfy", "checked_at": ...}
-    or {"dnc": None, "error": "..."} if the scrub call fails.
-
-    CRITICAL: if this returns dnc=None (failed), the caller must NOT write
-    phone/email to the row -- per the issue's hard guardrail.
-    """
-    if not TRACERFY_KEY or not phone:
-        return {"dnc": None, "error": "no_key_or_no_phone"}
-    try:
-        result = tracerfy_client.dnc_scrub(phone)
-        return {
-            "dnc": result.get("is_dnc"),
-            "provider": "tracerfy",
-            "checked_at": datetime.now(timezone.utc).isoformat(),
-            "raw": result,
-        }
-    except Exception as e:
-        return {"dnc": None, "error": str(e)[:300]}
-
-
-def persist_enriched_row(batch_date: str, lead_id: str, tf: dict, dnc: dict, qa_status: str):
-    phone = tf.get("phone") if tf.get("status") == "OK" else None
-    email = tf.get("email") if tf.get("status") == "OK" else None
-    provider = "tracerfy" if tf.get("status") == "OK" else None
+def persist_row(batch_date: str, lead_id: str, status: str, phone: str | None, email: str | None,
+                 provider: str | None, tier: str, dnc: dict | None, evidence: dict):
     phone_lit = f"'{esc(phone)}'" if phone else "null"
     email_lit = f"'{esc(email)}'" if email else "null"
     provider_lit = f"'{esc(provider)}'" if provider else "null"
     verified_lit = "now()" if provider else "null"
-    is_dnc = dnc.get("dnc")
+    phone_tier_lit = f"'{esc(tier if phone else 'NOT AVAILABLE')}'"
+    email_tier_lit = f"'{esc(tier if email else 'NOT AVAILABLE')}'"
+    is_dnc = (dnc or {}).get("dnc")
     is_dnc_lit = ("true" if is_dnc else "false") if is_dnc is not None else "null"
-    dnc_checked_at_lit = f"'{esc(dnc.get('checked_at', ''))}'" if dnc.get("checked_at") else "null"
-    dnc_provider_lit = f"'{esc(dnc.get('provider', ''))}'" if dnc.get("provider") else "null"
-    ev = json.dumps({
-        "tracerfy_enrichment": tf,
-        "dnc_scrub": dnc,
-        "ran_at": datetime.now(timezone.utc).isoformat(),
-    })
-    unresolved = sum([
-        1 if not phone else 0,
-        1 if not email else 0,
-        1 if is_dnc is None else 0,
-    ])
+    dnc_checked_at_lit = f"'{esc(dnc.get('checked_at', ''))}'" if dnc and dnc.get("checked_at") else "null"
+    dnc_provider_lit = f"'{esc(dnc.get('provider', ''))}'" if dnc and dnc.get("provider") else "null"
+    ev = json.dumps(evidence, default=str)
+    unresolved = sum([1 if not phone else 0, 1 if not email else 0, 1 if is_dnc is None and phone else 0])
     sql(f"""
         update winnerdata.seller_digest_leads
         set phone = {phone_lit},
             email = {email_lit},
             contact_provider = {provider_lit},
             contact_verified_at = {verified_lit},
+            phone_tier = {phone_tier_lit},
+            email_tier = {email_tier_lit},
             is_dnc = {is_dnc_lit},
             dnc_checked_at = {dnc_checked_at_lit},
             dnc_provider = {dnc_provider_lit},
-            row_enrichment_status = '{esc(qa_status)}',
+            row_enrichment_status = '{esc(status)}',
             unresolved_field_count = {unresolved},
             evidence_ledger = evidence_ledger || '{esc(ev)}'::jsonb,
             updated_at = now()
@@ -279,94 +256,204 @@ def persist_enriched_row(batch_date: str, lead_id: str, tf: dict, dnc: dict, qa_
     """)
 
 
+# ---------------------------------------------------------------------------
+# Per-lead resolution -- mirrors ff_billable_loop.process_lead()'s stage
+# sequencing, adapted to seller_digest_leads' simpler (batch_date, lead_id)
+# key and status enum instead of ff_batch_leads' BILLABLE/EXHAUSTED machine.
+# ---------------------------------------------------------------------------
+
+def resolve_row(row: dict) -> dict:
+    batch_date, case_number, entity_name = row["batch_date"], row.get("case_number"), row["entity_name"] or ""
+    identity_type = classify(entity_name)
+    parcel_id = get_auction_parcel_id(case_number, entity_name)
+
+    lead = {
+        "batch_date": batch_date, "case_number": case_number or f"NO_CASE:{row['lead_id']}",
+        "winning_bidder": entity_name, "identity_type": identity_type,
+        "auction_parcel_id": parcel_id,
+        "resolved_principal_name": None, "registered_agent_name": None, "registered_agent_address": None,
+    }
+    plan = STAGE_PLAN.get(identity_type, STAGE_PLAN["person"])
+    evidence = {"identity_type": identity_type, "auction_parcel_id_excluded": parcel_id, "stages": {}}
+
+    stage1_addr = None
+    principal_name = entity_name
+    phone = email = None
+    cross_checked = single_source = False
+    gated = False
+
+    for stage in plan:
+        if stage == "stage1_identity":
+            r = run_stage1_identity(lead)
+            evidence["stages"]["stage1_identity"] = r
+            if r.get("outcome") == "hit":
+                stage1_addr = r
+                single_source = True
+
+        elif stage == "stage2_sunbiz_chain":
+            r = run_stage2_sunbiz_chain(lead)
+            evidence["stages"]["stage2_sunbiz_chain"] = r
+            if r.get("outcome") == "hit" and r.get("principal_name"):
+                principal_name = r["principal_name"]
+                lead["resolved_principal_name"] = principal_name
+                if stage1_addr is None:
+                    # issue #19729 T2: "LLC/trust -> find_owner on the principal
+                    # / registered agent, then enhanced on that person at
+                    # their mailing address" -- the entity itself may have no
+                    # prior fl_parcels holding under its own name, but the
+                    # now-known human principal might. Reuses
+                    # run_stage1_identity() again, just keyed on the
+                    # principal's name instead of the entity's.
+                    principal_lead = dict(lead, winning_bidder=principal_name)
+                    pr = run_stage1_identity(principal_lead)
+                    evidence["stages"]["stage1_identity_principal"] = pr
+                    if pr.get("outcome") == "hit":
+                        stage1_addr = pr
+                        single_source = True
+
+        elif stage == "stage3_skiptrace":
+            target_addr = stage1_addr
+            r = run_stage3_skiptrace(lead, principal_name, target_addr)
+            evidence["stages"]["stage3_skiptrace"] = r
+            if r.get("outcome") == "skipped_gate":
+                gated = True
+                break
+            if r.get("outcome") == "error":
+                evidence["stage3_error"] = True
+                return {"status": "error", "phone": None, "email": None, "provider": None,
+                        "tier": "NOT AVAILABLE", "dnc": None, "evidence": evidence}
+            if r.get("outcome") == "hit":
+                phone, email = r.get("phone"), r.get("email")
+                cross_checked = bool(stage1_addr) and bool(phone or email)
+                single_source = True
+
+        elif stage == "stage4_web":
+            continue  # business_website discovery -- not a seller_digest column target, skip
+
+        elif stage == "stage5_dnc":
+            continue  # handled below with the polling dnc_scrub(), not ff_billable_loop's non-polling version
+
+    if gated:
+        return {"status": "gated", "phone": None, "email": None, "provider": None,
+                "tier": "NOT AVAILABLE", "dnc": None, "evidence": evidence}
+
+    tier = tier_for_evidence(cross_checked, single_source) if (stage1_addr or phone or email) else "NOT AVAILABLE"
+
+    if phone:
+        dnc = dnc_scrub(phone)
+        evidence["dnc_scrub"] = dnc
+        if dnc.get("dnc") is None:
+            return {"status": "skipped_dnc_incomplete", "phone": None, "email": None, "provider": None,
+                    "tier": "NOT AVAILABLE", "dnc": dnc, "evidence": evidence}
+        if dnc.get("dnc") is True:
+            evidence["dnc_flagged"] = True
+        return {"status": "complete", "phone": phone, "email": email, "provider": "tracerfy",
+                "tier": tier, "dnc": dnc, "evidence": evidence}
+
+    return {"status": "complete", "phone": None, "email": email, "provider": ("tracerfy" if email else None),
+            "tier": tier, "dnc": None, "evidence": evidence}
+
+
 def main():
     if not BATCH_DATE:
         print("ERROR: BATCH_DATE env var required (YYYY-MM-DD)", file=sys.stderr)
         sys.exit(1)
 
-    run_id = str(uuid.uuid4())
     tracerfy_key_status = "present" if TRACERFY_KEY else "ABSENT"
-    tracerfy_client_key_status = "present" if tracerfy_client.TRACERFY_KEY else "ABSENT"
     sb_key_status = "present" if os.environ.get("SUPABASE_SERVICE_ROLE_KEY") else "ABSENT"
-    print(f"seller_digest enrichment: batch_date={BATCH_DATE} run_id={run_id}")
-    print(f"  env check: TRACERFY_API_KEY={tracerfy_key_status} tracerfy_client.TRACERFY_KEY={tracerfy_client_key_status} SUPABASE_SERVICE_ROLE_KEY={sb_key_status}")
+    print(f"seller_digest enrichment: batch_date={BATCH_DATE} run_id={RUN_ID} rerun_paid_lookups={RERUN_PAID_LOOKUPS}")
+    print(f"  env check: TRACERFY_API_KEY={tracerfy_key_status} tracerfy_client.TRACERFY_KEY={'present' if tracerfy_client.TRACERFY_KEY else 'ABSENT'} SUPABASE_SERVICE_ROLE_KEY={sb_key_status}")
 
-    set_batch_enrichment_status(BATCH_DATE, "running", run_id=run_id)
+    # issue #19729 T3: a row stuck at 'running' from a prior crashed run must
+    # not block this run from claiming it.
+    reset = sql(f"""
+        update winnerdata.seller_digest_leads
+        set row_enrichment_status = 'not_started', updated_at = now()
+        where batch_date = date '{esc(BATCH_DATE)}' and row_enrichment_status = 'running'
+        returning lead_id
+    """)
+    if reset:
+        print(f"  reset {len(reset)} stuck 'running' row(s) to 'not_started'.")
+
+    set_batch_enrichment_status(BATCH_DATE, "running", run_id=RUN_ID)
     try:
         rows = sql(f"""
             select lead_id, entity_name, county, case_number, sale_type,
-                   property_address, email_tier, phone_tier, row_enrichment_status
+                   property_address, phone, email, row_enrichment_status
             from winnerdata.seller_digest_leads
             where batch_date = date '{esc(BATCH_DATE)}'
             order by lead_id
         """)
-
         if not rows:
             raise RuntimeError(f"No seller_digest_leads rows found for {BATCH_DATE}. "
                                "Run the build step first (winnerdata_daily_winner_ff_digest.py).")
 
-        print(f"  {len(rows)} lead(s) to process.")
+        print(f"  {len(rows)} lead(s) on file for {BATCH_DATE}.")
         results = []
-        for r in rows:
-            lead_id = r["lead_id"]
-            entity_name = r["entity_name"] or ""
-            property_address = r.get("property_address") or ""
+        stopped_on_daily_cap = False
 
-            if r.get("row_enrichment_status") == "complete" and not FORCE_REFRESH:
-                print(f"  [{lead_id}] already complete -- skipping (set FORCE_REFRESH=1 to override)")
-                results.append({"lead_id": lead_id, "skipped": True})
+        for r in rows:
+            r["batch_date"] = BATCH_DATE
+            lead_id = r["lead_id"]
+            already_resolved = bool(r.get("phone") or r.get("email"))
+            if already_resolved and not RERUN_PAID_LOOKUPS:
+                print(f"  [{lead_id}] already has a resolved contact -- skipping (RERUN_PAID_LOOKUPS=1 to override)")
+                results.append({"lead_id": lead_id, "skipped": True, "reason": "already_resolved"})
+                continue
+            if stopped_on_daily_cap:
+                results.append({"lead_id": lead_id, "skipped": True, "reason": "daily_cap_reached_before_this_row"})
                 continue
 
             set_row_enrichment_status(BATCH_DATE, lead_id, "running")
-
-            tf = tracerfy_lookup(entity_name, property_address)
-            print(f"  [{lead_id}] {entity_name!r}: tracerfy={tf.get('status')}")
-
-            phone = tf.get("phone") if tf.get("status") == "OK" else None
-            if phone:
-                dnc = dnc_scrub(phone)
-                print(f"  [{lead_id}] DNC scrub: dnc={dnc.get('dnc')} provider={dnc.get('provider')}")
-            else:
-                dnc = {"dnc": None, "error": "no_phone_from_tracerfy"}
-
-            is_dnc = dnc.get("dnc")
-            if phone and is_dnc is None:
-                qa_status = "skipped_dnc_incomplete"
-                set_row_enrichment_status(BATCH_DATE, lead_id, "skipped_dnc_incomplete")
-                ev = json.dumps({"tracerfy_enrichment": tf, "dnc_scrub": dnc, "blocked_reason": "DNC scrub did not return a result", "ran_at": datetime.now(timezone.utc).isoformat()})
-                sql(f"""
-                    update winnerdata.seller_digest_leads
-                    set evidence_ledger = evidence_ledger || '{esc(ev)}'::jsonb,
-                        updated_at = now()
-                    where batch_date = date '{esc(BATCH_DATE)}' and lead_id = '{esc(lead_id)}'::uuid
-                """)
-                results.append({"lead_id": lead_id, "qa_status": qa_status, "reason": "DNC scrub incomplete"})
+            try:
+                out = resolve_row(r)
+            except Exception as e:
+                # issue #19729 T3: one row's unhandled exception must not
+                # abort the batch -- isolate it and keep going.
+                print(f"  [{lead_id}] UNHANDLED EXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
+                try:
+                    persist_row(BATCH_DATE, lead_id, "error", None, None, None, "NOT AVAILABLE", None,
+                                {"unhandled_exception": f"{type(e).__name__}: {str(e)[:400]}",
+                                 "ran_at": datetime.now(timezone.utc).isoformat()})
+                except Exception as e2:
+                    print(f"  [{lead_id}] ALSO failed to persist the error state: {e2}", file=sys.stderr)
+                results.append({"lead_id": lead_id, "status": "error", "reason": str(e)[:200]})
                 continue
 
-            if tf.get("status") == "OK" and phone:
-                qa_status = "complete"
-            elif tf.get("status") in ("NO_MATCH", "SKIPPED_NO_TRACERFY_OR_PRIOR_ADDRESS", "SKIPPED_DAILY_CAP"):
-                qa_status = "complete"
-            else:
-                qa_status = "failed"
+            if out["status"] == "gated":
+                # Daily Tracerfy/Bright Data credit ceiling (public.ff_ledger_spend,
+                # 100 combined units/UTC day) -- a genuine, already-documented
+                # resource ceiling, not a bug. Leave the row exactly where it
+                # was (not_started) so tomorrow's run picks it up fresh, and
+                # stop spending for the rest of this run.
+                set_row_enrichment_status(BATCH_DATE, lead_id, "not_started")
+                print(f"  [{lead_id}] Tracerfy daily credit ceiling reached -- leaving not_started, stopping further vendor calls this run.")
+                results.append({"lead_id": lead_id, "status": "not_started", "reason": "daily_credit_ceiling"})
+                stopped_on_daily_cap = True
+                continue
 
-            persist_enriched_row(BATCH_DATE, lead_id, tf, dnc, qa_status)
-            results.append({"lead_id": lead_id, "qa_status": qa_status, "tracerfy_status": tf.get("status")})
+            out["evidence"]["ran_at"] = datetime.now(timezone.utc).isoformat()
+            persist_row(BATCH_DATE, lead_id, out["status"], out["phone"], out["email"], out["provider"],
+                        out["tier"], out["dnc"], out["evidence"])
+            print(f"  [{lead_id}] {r['entity_name']!r}: "
+                  f"identity={out['evidence'].get('identity_type')} status={out['status']} "
+                  f"phone={'YES' if out['phone'] else 'no'} email={'YES' if out['email'] else 'no'} tier={out['tier']}")
+            results.append({"lead_id": lead_id, "status": out["status"],
+                             "contact_found": bool(out["phone"] or out["email"])})
 
-        complete_count = sum(1 for r in results if r.get("qa_status") == "complete")
-        skipped_count = sum(1 for r in results if r.get("skipped"))
-        contact_found = sum(1 for r in results if r.get("tracerfy_status") == "OK")
+        complete = sum(1 for r in results if r.get("status") == "complete")
+        contact_found = sum(1 for r in results if r.get("contact_found"))
+        errored = sum(1 for r in results if r.get("status") == "error")
+        skipped = sum(1 for r in results if r.get("skipped"))
         print(json.dumps({
-            "batch_date": BATCH_DATE,
-            "run_id": run_id,
-            "total": len(rows),
-            "complete": complete_count,
-            "skipped_already_done": skipped_count,
-            "contact_found": contact_found,
+            "batch_date": BATCH_DATE, "run_id": RUN_ID, "total": len(rows),
+            "processed": len(rows) - skipped, "complete": complete, "contact_found": contact_found,
+            "errored": errored, "skipped": skipped, "stopped_on_daily_cap": stopped_on_daily_cap,
         }, indent=2))
 
         verify = sql(f"""
-            select row_enrichment_status, count(*) as n
+            select row_enrichment_status, count(*) as n,
+                   count(*) filter (where phone is not null or email is not null) as with_contact
             from winnerdata.seller_digest_leads
             where batch_date = date '{esc(BATCH_DATE)}'
             group by row_enrichment_status
@@ -374,10 +461,44 @@ def main():
         """)
         print("DB verification:", json.dumps(verify, indent=2))
 
-        set_batch_enrichment_status(BATCH_DATE, "complete", run_id=run_id)
+        any_running_left = any(v["row_enrichment_status"] == "running" for v in verify)
+        if any_running_left:
+            # Should be unreachable (every row is set to a terminal status
+            # above, in either the success or the except path) -- if it
+            # happens anyway, the batch is honestly 'failed', not 'complete'.
+            raise RuntimeError("rows remain in 'running' after the pass completed -- persist path has a gap")
+
+        still_not_started = next((v["n"] for v in verify if v["row_enrichment_status"] == "not_started"), 0)
+        # 'not_started' alone undercounts real remaining work: a row can be
+        # stuck at a STALE 'complete' from before this fix (old wrong-anchor
+        # NO_MATCH) that this run's daily-cap stop never reached in lead_id
+        # order -- it will still be correctly reprocessed on the next run
+        # (rerun_paid_lookups only skips rows with a real resolved contact),
+        # but it is not honestly "done" today either. with_contact is 0 for
+        # every status bucket in that case, so summing across all buckets
+        # gives the true outstanding count.
+        total_rows = sum(v["n"] for v in verify)
+        with_contact_total = sum(v["with_contact"] for v in verify)
+        still_unresolved = total_rows - with_contact_total
+        if still_not_started or (stopped_on_daily_cap and still_unresolved):
+            # Honesty Protocol: do not claim 'complete' while real work
+            # remains outstanding. stopped_on_daily_cap is the expected
+            # cause (ff_ledger_spend's 100 combined units/UTC day cap,
+            # shared with ff_billable_loop.py) -- resumable tomorrow by
+            # re-running this same script with the same BATCH_DATE, since
+            # rows without a resolved phone/email are always reprocessed.
+            reason = ("stopped at the shared Tracerfy/BrightData daily credit ceiling "
+                      "(public.ff_ledger_spend, 100 combined units/UTC day) -- "
+                      f"{still_unresolved} of {total_rows} row(s) still lack a resolved contact "
+                      f"({still_not_started} explicitly not_started), resumable after UTC midnight"
+                      if stopped_on_daily_cap else
+                      f"{still_not_started} row(s) left not_started for an unknown reason -- investigate before re-running")
+            set_batch_enrichment_status(BATCH_DATE, "failed", run_id=RUN_ID, error=reason)
+        else:
+            set_batch_enrichment_status(BATCH_DATE, "complete", run_id=RUN_ID)
 
     except Exception as e:
-        set_batch_enrichment_status(BATCH_DATE, "failed", run_id=run_id, error=str(e))
+        set_batch_enrichment_status(BATCH_DATE, "failed", run_id=RUN_ID, error=str(e))
         raise
 
 
