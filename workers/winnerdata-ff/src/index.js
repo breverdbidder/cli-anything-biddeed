@@ -511,6 +511,12 @@ async function handlePortalBind(request) {
 async function handleFF(leadId) {
   const data = await rpc('ff_get_lead', { p_org_id: ORG_ID, p_lead_id: leadId });
   if (!data) return new Response('Not found', { status: 404 });
+  // Speed-to-contact KPI instrumentation: this GET is the actual delivery
+  // event (producer opening the FF), not lead generation. First-touch only
+  // (ff_mark_delivered coalesces), so repeat views don't reset the clock.
+  // Fire-and-forget: a delivery-timestamp write failure must never block the
+  // producer from seeing the FF they're here for.
+  rpc('ff_mark_delivered', { p_org_id: ORG_ID, p_lead_id: leadId }).catch(() => {});
   return new Response(renderFF(data), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
 

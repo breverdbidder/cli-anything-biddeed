@@ -66,6 +66,12 @@
   .verify-badge.not-verified{background:#c0392b}
   .verify-row{margin-bottom:.6rem}
   .verify-row a{color:var(--terracotta);font-weight:600}
+  .tier{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:.15rem .5rem;border-radius:4px;color:#fff;margin-left:.5rem;vertical-align:middle}
+  .tier.verified-primary{background:#1e7d3c}
+  .tier.verified-cross-checked{background:#1e7d3c}
+  .tier.likely-single-source{background:#b7852e}
+  .tier.unconfirmed-claim{background:#8b5cf6}
+  .tier.not-available{background:#6b6b66}
   form.intake label{display:block;font-size:.85rem;font-weight:600;margin:.5rem 0 .2rem}
   form.intake input,form.intake select{width:100%;padding:.5rem;border:1px solid var(--gray);border-radius:6px;font-size:.92rem}
   form.intake button{margin-top:.8rem;background:var(--ink);color:#fff;border:none;padding:.6rem 1.1rem;border-radius:6px;font-weight:700;cursor:pointer}
@@ -129,6 +135,26 @@
       <dt>Coverage A (computed)</dt><dd>{{coverage_a}}</dd>
     </dl>
     <p class="note">Coverage A = building value x 1.25. Land value is not insured and is excluded. Coverage A is not the purchase price.</p>
+  </div>
+
+  <div class="block">
+    <h2>Contact</h2>
+    <dl class="kv">
+      <dt>Phone</dt><dd>{{phone}} <span class="tier {{phone_tier_class}}">{{phone_confidence_tier}}</span></dd>
+      <dt>Email</dt><dd>{{email}} <span class="tier {{email_tier_class}}">{{email_confidence_tier}}</span></dd>
+    </dl>
+  </div>
+
+  <div class="block">
+    <h2>Underwriting Data — Winner Data</h2>
+    <dl class="kv">
+      <dt>Roof Age (Years)</dt><dd>{{roof_age_years}} <span class="tier {{roof_tier_class}}">{{roof_confidence_tier}}</span></dd>
+      <dt>Roof Permit</dt><dd>{{roof_permit_display}}</dd>
+      <dt>Construction Class</dt><dd>{{construction_class}} <span class="tier {{construction_class_tier_class}}">{{construction_class_confidence_tier}}</span></dd>
+      <dt>Estimated Affordability Tier</dt><dd>{{estimated_affordability_tier}} <span class="tier {{affordability_tier_class}}">{{estimated_affordability_tier_confidence_tier}}</span></dd>
+    </dl>
+    <p class="note">{{affordability_disclaimer}}</p>
+    <p class="note">Roof age is computed from the most recent full-replacement permit on file for this parcel, not from year built. Construction class is a coarse masonry/frame/fire-resistive/other bucket derived from the county parcel record, not a full ISO Type I-V classification.</p>
   </div>
 
   <div class="block">
