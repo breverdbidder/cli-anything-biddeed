@@ -140,7 +140,10 @@ COUNTY_ACCLAIM = {
     # session; re-checked live this session (curl -> HTTP 200 in 0.4s,
     # Playwright not needed) -- reachable now, a real network-path change,
     # not a stale assumption being trusted.
-    "highlands": {"base": "https://acclaim.highlandsclerkfl.gov", "prefix": "/AcclaimWeb"},
+    # results_endpoint override (live-verified this session, Sep 2): Highlands
+    # renamed the results-grid endpoint from GridResults to GetSearchResults.
+    "highlands": {"base": "https://acclaim.highlandsclerkfl.gov", "prefix": "/AcclaimWeb",
+                  "results_endpoint": "GetSearchResults"},
 }
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -174,9 +177,20 @@ def sb_insert(table, row):
 
 
 class AcclaimSession:
-    def __init__(self, base, prefix):
+    def __init__(self, base, prefix, results_endpoint="GridResults"):
         self.base = base
         self.prefix = prefix  # "" for duval, "/AcclaimWeb" for brevard-style
+        # AcclaimWeb's results-grid endpoint name is per-deployment, not a
+        # fixed contract: Highlands renamed it from GridResults to
+        # GetSearchResults sometime between a76980b8 (Aug 31, HTTP 200 on
+        # GridResults confirmed) and this session (Sep 2) -- live-verified
+        # via a real Playwright browser session, which reached
+        # Search/GetSearchResults with real JSON while our old GridResults
+        # POST silently 404'd (case_lookup) or fell back to re-rendering the
+        # plain search form (name_lookup, which swallowed the 404 upstream
+        # of GridResults into a false "0 results"). Duval/santa_rosa are
+        # untouched -- this defaults to the prior GridResults name.
+        self.results_endpoint = results_endpoint
         cj = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
         self._disclaimer_accepted = False
@@ -229,7 +243,7 @@ class AcclaimSession:
         h = {"Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest",
              "Referer": self.base + f"{self.prefix}/search/SearchTypeCaseNumber"}
         self._req(self.base + f"{self.prefix}/search/SearchTypeCaseNumber?Length=6", data=payload, hdrs=h)
-        body = self._req(self.base + f"{self.prefix}/search/GridResults", data="page=1&size=200", hdrs=h)
+        body = self._req(self.base + f"{self.prefix}/search/{self.results_endpoint}", data="page=1&size=200", hdrs=h)
         return self._extract_grid_data(body)
 
     @staticmethod
@@ -275,7 +289,7 @@ class AcclaimSession:
             "SearchOnLastOrBusinessName": "", "SearchOnFirstName": "", "ShowAllNames": "", "ShowAllLegals": "",
         })
         self._req(self.base + f"{self.prefix}/Search/SearchTypePreName", data=step2, hdrs=h)
-        body = self._req(self.base + f"{self.prefix}/Search/GridResults", data="sort=&group=&filter=", hdrs=h)
+        body = self._req(self.base + f"{self.prefix}/Search/{self.results_endpoint}", data="sort=&group=&filter=", hdrs=h)
         return self._extract_grid_data(body)
 
     @staticmethod
@@ -340,13 +354,21 @@ def classify_docs(case_number, parcel_id, county, docs, source="duval_acclaimweb
     been filtered to exclude the case's own Lis Pendens, to avoid
     reprocessing it) still classify senior/junior priority against the
     case's real Lis Pendens date, computed by the caller's earlier
-    case_lookup() pass."""
-    lp_dates = [d["RecordDate"] for d in docs if "LIS PENDENS" in (d.get("DocTypeDescription") or "").upper() and d.get("RecordDate")]
+    case_lookup() pass.
+
+    doc_type falls back to the raw DocType code (e.g. "PP", "MTG") when
+    DocTypeDescription is absent -- Highlands' GetSearchResults schema
+    (live-verified this session) carries only the abbreviated DocType field,
+    unlike Duval/Santa Rosa which spell out DocTypeDescription. The fallback
+    only engages when DocTypeDescription is missing, so Duval/Santa Rosa are
+    unaffected."""
+    lp_dates = [d["RecordDate"] for d in docs
+                if "LIS PENDENS" in (d.get("DocTypeDescription") or d.get("DocType") or "").upper() and d.get("RecordDate")]
     lp_date = lp_date_override or (min(lp_dates) if lp_dates else None)  # 'YYYY/MM/DD' strings sort correctly lexically
 
     title_defect_rows, lien_rows = [], []
     for d in docs:
-        doc_type = d.get("DocTypeDescription") or ""
+        doc_type = d.get("DocTypeDescription") or d.get("DocType") or ""
         rec_date = d.get("RecordDate")
         book_page = d.get("BookPage")
         direct = d.get("DirectName") or ""
@@ -433,7 +455,7 @@ def main():
         print(f"[pre_auction_lien_harvest] {county}: {len(auctions)} genuinely-future upcoming auctions in [{today}, {cutoff}] (limit={args.limit})")
 
     cfg = COUNTY_ACCLAIM[county]
-    session = AcclaimSession(cfg["base"], cfg["prefix"])
+    session = AcclaimSession(cfg["base"], cfg["prefix"], cfg.get("results_endpoint", "GridResults"))
 
     n_title_defects = n_lien_results = n_skipped_dupe = n_cases_no_docs = 0
     for a in auctions:
