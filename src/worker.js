@@ -2136,7 +2136,11 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
             body: JSON.stringify({ p_county: decodeURIComponent(countyParam), p_slug: decodeURIComponent(slugParam), p_preview_id: previewId }),
           });
-          if (res.ok) reel = await res.json();
+          if (res.ok) {
+            reel = await res.json();
+          } else {
+            await logErr(env, '/deal', 'get_reel_landing non-2xx', await res.text(), res.status);
+          }
         } catch (e) {
           await logErr(env, '/deal', 'get_reel_landing failed', String(e), 500);
         }
@@ -2196,7 +2200,11 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
             body: JSON.stringify({ p_code: code }),
           });
-          if (res.ok) link = await res.json();
+          if (res.ok) {
+            link = await res.json();
+          } else {
+            await logErr(env, '/r', 'resolve_reel_link non-2xx', await res.text(), res.status);
+          }
         } catch (e) {
           await logErr(env, '/r', 'resolve_reel_link failed', String(e), 500);
         }
