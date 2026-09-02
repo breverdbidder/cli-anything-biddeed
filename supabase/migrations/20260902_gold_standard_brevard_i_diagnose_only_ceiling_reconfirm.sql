@@ -1,0 +1,65 @@
+-- Gold Standard brevard, letter I (property card completeness) -- DIAGNOSE ONLY
+-- 2026-09-02
+--
+-- Scope: this session was explicitly diagnosis-only (task instructions: "Do
+-- not propose a fix yet"). Zero writes made to multi_county_auctions or any
+-- other data table. One row written to public.agent_ops_log recording the
+-- finding per HONESTY PROTOCOL / data-ceiling rules.
+--
+-- ── Baseline (VERIFIED, public.pencil_dod_evaluate_county('brevard')) ──
+--   I: {"pass": false, "detail": "card_complete=6322 of 7488", "metric": 84.4}
+--   auctions_total: 7488
+-- Needs >=95% (~7114 of 7488) to pass. Gap = 1166 rows.
+--
+-- ── Root-cause reconciliation (live PostgREST queries, county=brevard,
+--    same COALESCE(data_source,'')<>'propertyonion' OR tier1_authoritative
+--    filter as the evaluator's `a`/`c` CTEs) ──
+--   property_address IS NULL, parcel_id NOT NULL:  978 rows
+--   property_address IS NULL, parcel_id IS NULL:   170 rows (100% of these
+--     sampled are data_source='brevard_clerk' -- a court-filing scrape
+--     source that structurally never carries parcel_id; no zone-link is
+--     possible without one)
+--   property_address NOT NULL but geo/value still missing (net
+--     incremental beyond the address bucket): 18 rows
+--   Sum: 978 + 170 + 18 = 1166 -- reconciles EXACTLY against the observed
+--   gap (7488 - 6322 = 1166). No unexplained residual.
+--
+-- This matches and reconfirms the immediately-prior session's finding
+-- (supabase/migrations/20260901_gold_standard_shard1_f7cf6ec7_brevard_i_firecrawl_lever_exhausted.sql),
+-- which live-queried Brevard County's own ArcGIS FeatureServer for all 847
+-- distinct TaxAcct values in the (then) 978+56+6-row gap set and found:
+--   792/847 matched a GIS feature, of which 790 have STREET_NAME=UNKNOWN/
+--     blank -- genuine no-situs-address parcels per the county's own
+--     system of record (confirmed against FL DOR Statewide Cadastral in
+--     3+ earlier sessions too).
+--   55/847 returned NO feature at all from Brevard GIS -- the only
+--     remaining lever (Firecrawl against bcpao.us) was attempted that
+--     session and found dead: HTTP 402 "Insufficient credits", confirmed
+--     fleet-wide via a control test against an unrelated URL, not
+--     bcpao.us-specific.
+-- The 170-row parcel_id-NULL bucket (brevard_clerk court filings) is an
+-- additional, previously-quantified-but-not-headlined structural gap: this
+-- source does not capture parcel_id at scrape time, so no zone-link is
+-- mechanically possible without a separate case-number -> parcel_id
+-- resolution pass (not attempted this session; out of scope for a
+-- diagnose-only run).
+--
+-- CONCLUSION: structural ceiling, reconfirmed. No new, previously-untried
+-- data lever was identified this session (Firecrawl already exhausted
+-- fleet-wide as of the immediately-prior session; the dominant 790-row
+-- STREET_NAME=UNKNOWN population requires Brevard County/BCPAO itself to
+-- assign situs addresses in their own system of record, not obtainable via
+-- any enrichment source available to this environment). BLOCKED status
+-- logged to public.agent_ops_log (dispatch_id
+-- 'gold-standard-brevard-I-diagnose-20260902') per HONESTY PROTOCOL --
+-- BLANK > WRONG, no fabrication.
+--
+-- ZERO rows written to multi_county_auctions this session (diagnose-only).
+--
+-- ============================================================================
+-- VERIFICATION (live, this session)
+-- ============================================================================
+-- SELECT public.pencil_dod_evaluate_county('brevard');
+-- I: {"pass":false,"detail":"card_complete=6322 of 7488","metric":84.4} -- UNCHANGED (no writes made, diagnose-only scope)
+
+SELECT 1;
