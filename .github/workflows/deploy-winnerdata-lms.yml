@@ -277,7 +277,7 @@ jobs:
           LMS_USER: ${{ secrets.LMS_AUTH_USER }}
           LMS_PASS: ${{ secrets.LMS_AUTH_PASS }}
         run: |
-          cat > /tmp/lms_approve_click.mjs <<'EOF'
+          cat > ./lms_approve_click.mjs <<'EOF'
           import { chromium } from 'playwright';
 
           const BASE = process.env.LMS_URL;
@@ -334,7 +334,8 @@ jobs:
           console.log('PASS: real browser click on Approve Batch moved the batch to APPROVED');
           await browser.close();
           EOF
-          node /tmp/lms_approve_click.mjs
+          node ./lms_approve_click.mjs
+          rm -f ./lms_approve_click.mjs
 
       - name: Verify the click created a real, hash-matching ff_batch_approvals row
         working-directory: .
