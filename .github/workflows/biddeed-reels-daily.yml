@@ -51,6 +51,16 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          # T3 directive #3: OpenRouter (primary vision provider) + the
+          # claude-router proxy key (final vision fallback). Neither secret
+          # exists as a GH Actions secret yet -- both evaluate to an empty
+          # string here, which resolve_key() in main() already treats the
+          # same as "unset" and falls through to a live vault fetch (same
+          # mechanism this pipeline already relies on for ROUTER_PROXY_KEY
+          # today). Wiring the secret name here now means a future GH secret
+          # add "just works" with no further workflow change.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ROUTER_PROXY_KEY: ${{ secrets.ROUTER_PROXY_KEY }}
         run: |
           ARGS=""
           if [ -n "${{ github.event.inputs.auction_date }}" ]; then

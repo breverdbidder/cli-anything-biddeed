@@ -11,11 +11,12 @@ Run:
     [--force] [--dry-run] [--limit N]
 
 Required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN env
-  vars, plus GOOGLE_MAPS_API_KEY, ELEVENLABS_API_KEY, ROUTER_PROXY_KEY -- either
-  as env vars (GHA runner) or resolved from the Supabase vault at runtime
-  (see resolve_key() in main()). T3 condition scoring calls the claude-router
-  edge function (auth: ROUTER_PROXY_KEY / vault router_proxy_key) instead of
-  holding any provider vision key directly.
+  vars, plus GOOGLE_MAPS_API_KEY, ELEVENLABS_API_KEY, OPENROUTER_API_KEY,
+  ROUTER_PROXY_KEY -- either as env vars (GHA runner) or resolved from the
+  Supabase vault at runtime (see resolve_key() in main()). T3 condition
+  scoring calls OpenRouter directly (z-ai/glm-5.3-flash primary, DeepSeek
+  vision fallback) with the claude-router edge function (ROUTER_PROXY_KEY /
+  vault router_proxy_key) as the final fallback tier.
 """
 import argparse
 import os
@@ -172,7 +173,7 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
                     street_url = lib.storage_upload(street_path, f"{prefix}/street.jpg", "image/jpeg")
 
             image_paths = [aerial_path] + ([street_path] if street_path else [])
-            condition = lib.score_condition(image_paths, keys["router"])
+            condition = lib.score_condition(image_paths, keys)
             condition_score = int(round(condition["condition_score"]))
 
             sale_and_caption = lib.build_script_and_caption(
@@ -297,12 +298,15 @@ def main():
                 continue
         return ""
 
-    # 2026-09-02 directive #2: T3 vision scoring goes through claude-router,
-    # not a direct provider call -- this pipeline holds no Gemini key at all
-    # anymore, only the router's own proxy key (router_proxy_key).
+    # 2026-09-02 directive #3 (final, supersedes #2): T3 vision scoring calls
+    # OpenRouter directly (primary GLM-5.3-flash, fallback DeepSeek vision),
+    # with claude-router as the last-resort fallback. "router" stays required
+    # since it's the final fallback tier, not because it's the only tier
+    # anymore.
     keys = {
         "google_maps": resolve_key("GOOGLE_MAPS_API_KEY", ["google_maps_api_key"]),
         "elevenlabs": resolve_key("ELEVENLABS_API_KEY", ["elevenlabs_api_key", "elevenlabs_production"]),
+        "openrouter": resolve_key("OPENROUTER_API_KEY", ["openrouter_api_key"]),
         "router": resolve_key("ROUTER_PROXY_KEY", ["router_proxy_key"]),
     }
     missing = [k for k, v in keys.items() if not v and not args.dry_run]

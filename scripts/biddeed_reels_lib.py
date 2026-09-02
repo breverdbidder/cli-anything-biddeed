@@ -17,16 +17,18 @@ Guardrails enforced in code, not just prose (see build_script_and_caption):
 
 2026-09-02 directives (issue #19736 comments, after the first backfill came
 back 15/15 error): T3 condition scoring must not call any AI provider
-directly (the first fix -- direct Gemini calls -- hit its own quota wall
-mid-backfill on both available keys). score_condition() now calls the
-existing claude-router edge function (auth: vault router_proxy_key) with the
-image(s) as vision input and lets it cascade across its own T1 (Gemini) / T1.5
-(DeepSeek vision, T10) / T2 (Claude Haiku via Max OAuth, $0 marginal) tiers --
-this pipeline no longer holds or resolves any Gemini API key itself. T2 also
-gained a Geocoding API fallback (geocode_address()) for addresses that don't
-match any public.zw_parcels row, so imagery still runs (parcel_id/
-assessed_value/delta_pct land null for those rows instead of the row erroring
-outright).
+directly with a key this pipeline resolves and holds itself for a *quota-
+capped* provider. Directive #1 (direct Gemini) and directive #2
+(claude-router-only) both hit real capacity ceilings (Gemini prepay/free-tier
+quota; the Max-OAuth-backed router tier is fine but was the only live tier).
+Directive #3 (final, 2026-09-02 12:55 EDT) routes score_condition() through
+OpenRouter directly: primary z-ai/glm-5.3-flash, fallback deepseek-v4-flash-
+vision-exp (only if confirmed live on OpenRouter's /api/v1/models), final
+fallback the claude-router edge function (whose own T10 cascade lands on
+Claude Haiku OAuth). T2 also gained a Geocoding API fallback
+(geocode_address()) for addresses that don't match any public.zw_parcels row,
+so imagery still runs (parcel_id/assessed_value/delta_pct land null for those
+rows instead of the row erroring outright).
 
 public schema (auction_buyer_sightings, zw_parcels) reads go through
 PostgREST (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY), matching
@@ -345,12 +347,90 @@ aerial image is available, roof/vegetation can be VERIFIED or LIKELY but exterio
 should usually be UNCONFIRMED or LIKELY at best."""
 
 
+OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+# 2026-09-02 directive #3 (supersedes #2's Gemini/DeepSeek-direct routing):
+# live-verified 2026-09-02 12:52 EDT by Ariel against a real Street View
+# image -- HTTP 200 in 4.4s, coherent roof/exterior/vegetation rating,
+# $0.000119/call. The ":free" slug is gone (404 "unavailable for free").
+OPENROUTER_PRIMARY_MODEL = "z-ai/glm-5.3-flash"
+OPENROUTER_FALLBACK_MODEL = "deepseek/deepseek-v4-flash-vision-exp"
+
+_openrouter_model_cache: dict[str, bool] = {}
+
+
+def _openrouter_model_available(model: str, api_key: str) -> bool:
+    """Live-checks OpenRouter's /api/v1/models rather than assuming a slug
+    exists -- directive #3 explicitly calls this out after the ':free' GLM
+    slug vanished without notice. Cached per-process since this pipeline
+    processes many rows per run and the model catalog doesn't change
+    mid-run."""
+    if model in _openrouter_model_cache:
+        return _openrouter_model_cache[model]
+    try:
+        req = urllib.request.Request(OPENROUTER_MODELS_URL, headers={"Authorization": f"Bearer {api_key}"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode())
+        available = model in {m.get("id") for m in data.get("data", [])}
+    except Exception:
+        available = False
+    _openrouter_model_cache[model] = available
+    return available
+
+
+def _openrouter_vision(image_paths: list[str], api_key: str, model: str,
+                        extra_instruction: str | None = None) -> tuple[str, float | None]:
+    """One OpenRouter chat-completions call with both images in a single
+    message. Reasoning is mandatory on this endpoint (reasoning:{enabled:false}
+    and effort:"none" both 400) -- max_tokens must be generous enough to
+    survive the reasoning-token spend or content comes back null, per
+    Ariel's 2026-09-02 12:52 EDT live test."""
+    prompt = CONDITION_PROMPT + (f"\n\n{extra_instruction}" if extra_instruction else "")
+    content = [{"type": "text", "text": prompt}]
+    for p in image_paths:
+        media_type = "image/png" if p.lower().endswith(".png") else "image/jpeg"
+        b64 = base64.b64encode(open(p, "rb").read()).decode()
+        content.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}})
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 1500,
+        "temperature": 0,
+    }
+    req = urllib.request.Request(
+        OPENROUTER_CHAT_URL, data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ""
+        raise RuntimeError(f"OpenRouter {model} HTTP {e.code}: {body[:300]}")
+    choice = (data.get("choices") or [{}])[0]
+    text = (choice.get("message") or {}).get("content")
+    if not text:
+        raise RuntimeError(f"OpenRouter {model} returned no content (finish_reason={choice.get('finish_reason')!r})")
+    cost = (data.get("usage") or {}).get("cost")
+    return text.strip(), cost
+
+
+def _parse_condition_json(text: str) -> dict:
+    # Models sometimes wrap JSON in a fenced code block despite instructions.
+    cleaned = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    return json.loads(cleaned)
+
+
 def _claude_router_vision(image_paths: list[str], router_key: str) -> str:
     """Calls the claude-router edge function with the image(s) as vision
-    input (T10, issue #19736 directive #2). The router owns the provider
-    cascade (T1 Gemini -> T1.5 DeepSeek vision -> T2 Claude Haiku OAuth) --
-    this pipeline holds no provider key of its own for T3 anymore, only the
-    router's own proxy key."""
+    input -- T3 fallback 2 (issue #19736 directive #3). The router's own
+    cascade (T1 OpenRouter GLM -> T1.5 OpenRouter DeepSeek -> T2 Claude Haiku
+    OAuth, per T10) is only reached here if this pipeline's own direct
+    OpenRouter attempts above both failed -- since it hits the same
+    OpenRouter API, that will typically fail identically and land straight
+    on the router's T2 Claude Haiku OAuth tier."""
     images = []
     for p in image_paths:
         media_type = "image/png" if p.lower().endswith(".png") else "image/jpeg"
@@ -389,18 +469,71 @@ def _claude_router_vision(image_paths: list[str], router_key: str) -> str:
     return text.strip()
 
 
-def score_condition(image_paths: list[str], router_key: str) -> dict:
-    """T3 condition scoring via claude-router's vision cascade (see
-    _claude_router_vision above -- routed off any direct provider call
-    entirely after the 2026-09-02 directive #2)."""
-    text = _claude_router_vision(image_paths, router_key)
+def score_condition(image_paths: list[str], keys: dict) -> dict:
+    """T3 condition scoring (issue #19736 directive #3, supersedes directive
+    #2's router-only routing):
+      1. Primary: OpenRouter z-ai/glm-5.3-flash, both images in one call.
+         On a JSON parse failure, retry once with an explicit "JSON only"
+         nudge (per directive) before giving up on this tier.
+      2. Fallback 1: OpenRouter deepseek-v4-flash-vision-exp -- only
+         attempted if the slug is confirmed live on /api/v1/models (it has
+         disappeared before, e.g. the ':free' GLM slug).
+      3. Fallback 2: claude-router edge function (its T10 cascade lands on
+         Claude Haiku OAuth once its own OpenRouter tiers fail the same way).
+    `keys` = {"openrouter": ..., "router": ...}. Every attempt's provider +
+    cost lands in the returned dict's "meta" key regardless of which tier
+    actually answered, per directive #3 ("Log provider + cost per row")."""
+    openrouter_key = keys.get("openrouter")
+    attempts: list[str] = []
+    parsed = None
+    provider = None
+    cost = None
 
-    # Models sometimes wrap JSON in a fenced code block despite instructions.
-    text = re.sub(r"^```(json)?|```$", "", text, flags=re.MULTILINE).strip()
-    parsed = json.loads(text)
+    if openrouter_key:
+        try:
+            text, cost = _openrouter_vision(image_paths, openrouter_key, OPENROUTER_PRIMARY_MODEL)
+            try:
+                parsed = _parse_condition_json(text)
+            except json.JSONDecodeError:
+                text, cost = _openrouter_vision(
+                    image_paths, openrouter_key, OPENROUTER_PRIMARY_MODEL,
+                    extra_instruction="Your last reply was not valid JSON. Reply with JSON only "
+                                      "-- no prose, no markdown code fences.",
+                )
+                parsed = _parse_condition_json(text)
+            provider = "openrouter_glm"
+        except Exception as e:
+            attempts.append(f"openrouter_glm: {e}")
+
+        if parsed is None:
+            if _openrouter_model_available(OPENROUTER_FALLBACK_MODEL, openrouter_key):
+                try:
+                    text, cost = _openrouter_vision(image_paths, openrouter_key, OPENROUTER_FALLBACK_MODEL)
+                    parsed = _parse_condition_json(text)
+                    provider = "openrouter_deepseek"
+                except Exception as e:
+                    attempts.append(f"openrouter_deepseek: {e}")
+            else:
+                attempts.append("openrouter_deepseek: skipped (slug not present on /api/v1/models)")
+
+    if parsed is None:
+        router_key = keys.get("router")
+        if not router_key:
+            raise RuntimeError(f"all OpenRouter T3 tiers failed and no router key available: {'; '.join(attempts)}")
+        try:
+            text = _claude_router_vision(image_paths, router_key)
+            parsed = _parse_condition_json(text)
+            provider = "claude_router_fallback"
+            cost = 0.0
+        except Exception as e:
+            attempts.append(f"claude_router_fallback: {e}")
+            raise RuntimeError(f"all T3 vision tiers failed: {'; '.join(attempts)}")
+
     score = parsed.get("condition_score")
     if not isinstance(score, (int, float)) or not (0 <= score <= 100):
         raise ValueError(f"condition_score out of range or missing: {parsed!r}")
+
+    parsed["meta"] = {"provider": provider, "cost_usd": cost, "failed_tiers": attempts or None}
     return parsed
 
 

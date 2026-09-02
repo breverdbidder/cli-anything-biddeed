@@ -1,19 +1,28 @@
-// supabase/functions/claude-router/index.ts — v9 (T10: vision cascade)
+// supabase/functions/claude-router/index.ts — v10 (T10: OpenRouter vision cascade)
 //
-// NEW vs v8:
-//   - T10 (issue #19736, 2026-09-02 directive): requests may now include a top-
-//     level `images: [{media_type, data}]` array (base64, no data: prefix). When
-//     present, the cascade switches to vision-capable tiers only:
-//       T1_gemini_vision       -> gemini-2.5-flash, inlineData image parts
-//       T1.5_deepseek_vision   -> deepseek-v4-flash-vision-exp (OpenAI-compatible,
-//                                  images capped at 384 input tokens each, priced
-//                                  as V4 Flash text) — vault key deepseek_api_key.
-//                                  If that key is absent this tier is reported as
-//                                  "disabled" (not a hard failure) and simply does
-//                                  not enter the cascade.
-//       T2_claude_oauth_vision -> claude-haiku-4-5, Anthropic image content blocks
+// NEW vs v9:
+//   - T10 (issue #19736, 2026-09-02 directive #3, supersedes directive #2's
+//     Gemini/direct-DeepSeek vision tiers): the vision cascade (`images` array
+//     present in body) now routes through OpenRouter instead of Gemini/direct
+//     DeepSeek, both of which hit real capacity ceilings (Gemini prepay
+//     depleted + free-tier quota; direct DeepSeek never had a vault key):
+//       T1_openrouter_vision   -> z-ai/glm-5.3-flash via openrouter_api_key.
+//                                  Live-verified 2026-09-02 12:52 EDT (Ariel):
+//                                  200 in 4.4s, $0.000119/call. Reasoning is
+//                                  mandatory on this endpoint (reasoning:
+//                                  {enabled:false}/effort:"none" both 400) —
+//                                  max_tokens must stay generous (>=1500) or
+//                                  content comes back null.
+//       T1.5_openrouter_vision -> deepseek/deepseek-v4-flash-vision-exp, also
+//                                  via openrouter_api_key. Only entered if the
+//                                  slug is confirmed live on OpenRouter's
+//                                  /api/v1/models (the ':free' GLM slug
+//                                  vanished without notice, so a slug's past
+//                                  existence is not assumed going forward).
+//       T2_claude_oauth_vision -> claude-haiku-4-5, Anthropic image content
+//                                  blocks — unchanged, still the final resort.
 //     Text-only requests (no `images`) are completely unaffected — same T1/T1.5/T2
-//     text tiers as v8.
+//     text tiers as v9.
 //   - GET /health?probe=vision exercises the vision tiers live with a tiny 1x1
 //     test image and reports per-tier reachability (ok / down / disabled). Plain
 //     GET /health stays static/cheap (unchanged) so existing monitors aren't
@@ -26,9 +35,9 @@
 //   T2:   Claude Haiku via OAuth Max ($0 marginal) — last resort for all traffic
 //
 // Tier cascade, vision (`images` present in body):
-//   T1:   Gemini 2.5 Flash vision ($0 free tier)
-//   T1.5: DeepSeek vision ($0.28/1M, per T10) — disabled until deepseek_api_key
-//         is added to vault.secrets
+//   T1:   OpenRouter z-ai/glm-5.3-flash (openrouter_api_key)
+//   T1.5: OpenRouter deepseek-v4-flash-vision-exp (openrouter_api_key) — only
+//         if the slug is live per /api/v1/models
 //   T2:   Claude Haiku vision via OAuth Max ($0 marginal) — last resort
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -194,77 +203,41 @@ function lastUserText(messages) {
   if (!last) return "";
   return typeof last.content === "string" ? last.content : last.content?.[0]?.text ?? "";
 }
-async function callGeminiVision(apiKey, messages, system, maxTokens, images) {
-  const isBearer = apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.");
-  const url = isBearer ? `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent` : `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const imageParts = images.map((img)=>({
-      inlineData: {
-        mimeType: img.media_type,
-        data: img.data
+// T10 (issue #19736 directive #3): OpenRouter vision tiers — z-ai/glm-5.3-flash
+// (T1) and deepseek-v4-flash-vision-exp (T1.5), both via openrouter_api_key.
+// Replaces the old direct-Gemini-vision / direct-DeepSeek-vision tiers, which
+// hit real capacity ceilings (Gemini prepay depleted + free-tier quota;
+// deepseek_api_key never existed in the vault).
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_GLM_MODEL = "z-ai/glm-5.3-flash";
+const OPENROUTER_DEEPSEEK_VISION_MODEL = "deepseek/deepseek-v4-flash-vision-exp";
+async function openRouterModelAvailable(apiKey, model) {
+  try {
+    const res = await fetch(OPENROUTER_MODELS_URL, {
+      headers: {
+        "Authorization": `Bearer ${apiKey}`
       }
-    }));
-  const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [
-          ...imageParts,
-          {
-            text: lastUserText(messages)
-          }
-        ]
-      }
-    ],
-    generationConfig: {
-      maxOutputTokens: maxTokens,
-      thinkingConfig: {
-        thinkingBudget: 0
-      }
-    }
-  };
-  if (system) body.systemInstruction = {
-    parts: [
-      {
-        text: system
-      }
-    ]
-  };
-  const reqHeaders = {
-    "content-type": "application/json"
-  };
-  if (isBearer) reqHeaders["Authorization"] = `Bearer ${apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: reqHeaders,
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) throw new Error(`Gemini vision ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  const usage = data.usageMetadata ?? {};
-  if (!text) throw new Error("Gemini vision returned empty content");
-  return {
-    text,
-    inputTokens: usage.promptTokenCount ?? 0,
-    outputTokens: usage.candidatesTokenCount ?? 0
-  };
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return (data.data ?? []).some((m)=>m.id === model);
+  } catch  {
+    return false;
+  }
 }
-// T10: DeepSeek vision — deepseek-v4-flash-vision-exp, OpenAI-compatible chat
-// completions, images passed as data-URI image_url parts (capped at 384 input
-// tokens each per DeepSeek's own vision pricing note; priced as V4 Flash text).
-const DEEPSEEK_VISION_MODEL = "deepseek-v4-flash-vision-exp";
-async function callDeepSeekVision(apiKey, messages, system, maxTokens, images) {
+async function callOpenRouterVision(apiKey, messages, system, maxTokens, images, model) {
   const content = [
+    {
+      type: "text",
+      text: lastUserText(messages)
+    },
     ...images.map((img)=>({
         type: "image_url",
         image_url: {
           url: `data:${img.media_type};base64,${img.data}`
         }
-      })),
-    {
-      type: "text",
-      text: lastUserText(messages)
-    }
+      }))
   ];
   const chatMessages = [
     ...system ? [
@@ -279,12 +252,15 @@ async function callDeepSeekVision(apiKey, messages, system, maxTokens, images) {
     }
   ];
   const body = {
-    model: DEEPSEEK_VISION_MODEL,
+    model,
     messages: chatMessages,
-    max_tokens: maxTokens,
-    temperature: 0.7
+    // Reasoning is mandatory on this endpoint (reasoning:{enabled:false} and
+    // effort:"none" both 400) -- max_tokens must stay generous enough to
+    // survive the reasoning-token spend or content comes back null.
+    max_tokens: Math.max(maxTokens, 1500),
+    temperature: 0
   };
-  const res = await fetch("https://api.deepseek.com/chat/completions", {
+  const res = await fetch(OPENROUTER_CHAT_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -292,15 +268,16 @@ async function callDeepSeekVision(apiKey, messages, system, maxTokens, images) {
     },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(`DeepSeek vision ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(`OpenRouter ${model} ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
   const usage = data.usage ?? {};
   const text = data.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("DeepSeek vision returned empty content");
+  if (!text) throw new Error(`OpenRouter ${model} returned empty content (finish_reason=${data.choices?.[0]?.finish_reason})`);
   return {
     text,
     inputTokens: usage.prompt_tokens ?? 0,
-    outputTokens: usage.completion_tokens ?? 0
+    outputTokens: usage.completion_tokens ?? 0,
+    costUsd: usage.cost ?? null
   };
 }
 // T2 vision — Claude Haiku via OAuth, Anthropic image content blocks.
@@ -465,7 +442,7 @@ Deno.serve(async (req)=>{
     const base = {
       status: "ok",
       service: "claude-router",
-      version: "9-t10-vision-cascade",
+      version: "10-t10-openrouter-vision-cascade",
       features: [
         "cache",
         "tool-pruning",
@@ -478,8 +455,8 @@ Deno.serve(async (req)=>{
         "T2_claude_oauth(last_resort_all_traffic)"
       ],
       vision_tiers: [
-        "T1_gemini_vision",
-        "T1.5_deepseek_vision",
+        "T1_openrouter_vision(glm-5.3-flash)",
+        "T1.5_openrouter_vision(deepseek-v4-flash-vision-exp, if live)",
         "T2_claude_oauth_vision(last_resort_all_traffic)"
       ]
     };
@@ -499,27 +476,28 @@ Deno.serve(async (req)=>{
         }
       ];
       const probeResults = {};
-      const geminiKey = await getVaultSecret("gemini_api_key_biddeed");
-      if (geminiKey) {
+      const orKey = await getVaultSecret("openrouter_api_key");
+      if (orKey) {
         try {
-          await callGeminiVision(geminiKey, probeMessages, null, 50, testImages);
-          probeResults.T1_gemini_vision = "ok";
+          await callOpenRouterVision(orKey, probeMessages, null, 50, testImages, OPENROUTER_GLM_MODEL);
+          probeResults.T1_openrouter_vision = "ok";
         } catch (e) {
-          probeResults.T1_gemini_vision = `down: ${e instanceof Error ? e.message : String(e)}`;
+          probeResults.T1_openrouter_vision = `down: ${e instanceof Error ? e.message : String(e)}`;
+        }
+        const dsAvailable = await openRouterModelAvailable(orKey, OPENROUTER_DEEPSEEK_VISION_MODEL);
+        if (dsAvailable) {
+          try {
+            await callOpenRouterVision(orKey, probeMessages, null, 50, testImages, OPENROUTER_DEEPSEEK_VISION_MODEL);
+            probeResults["T1.5_openrouter_vision"] = "ok";
+          } catch (e) {
+            probeResults["T1.5_openrouter_vision"] = `down: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        } else {
+          probeResults["T1.5_openrouter_vision"] = "disabled: deepseek-v4-flash-vision-exp not live on OpenRouter /api/v1/models";
         }
       } else {
-        probeResults.T1_gemini_vision = "disabled: gemini_api_key_biddeed missing in vault";
-      }
-      const dsKey = await getVaultSecret("deepseek_api_key");
-      if (dsKey) {
-        try {
-          await callDeepSeekVision(dsKey, probeMessages, null, 50, testImages);
-          probeResults["T1.5_deepseek_vision"] = "ok";
-        } catch (e) {
-          probeResults["T1.5_deepseek_vision"] = `down: ${e instanceof Error ? e.message : String(e)}`;
-        }
-      } else {
-        probeResults["T1.5_deepseek_vision"] = "disabled: deepseek_api_key missing in vault";
+        probeResults.T1_openrouter_vision = "disabled: openrouter_api_key missing in vault";
+        probeResults["T1.5_openrouter_vision"] = "disabled: openrouter_api_key missing in vault";
       }
       const bearer = await getVaultSecret("anthropic_oauth_bearer");
       if (bearer) {
@@ -623,26 +601,28 @@ Deno.serve(async (req)=>{
   // ── STAGE 4: Tier cascade ───────────────────────────────────────────────────
   const tiers = [];
   if (hasImages) {
-    // T10 (issue #19736): vision cascade -- separate from the text cascade
-    // below since none of these three calls share the text-only call shape.
-    if (!forceTier || forceTier === "gemini") {
-      const key1 = await getVaultSecret("gemini_api_key_biddeed");
-      if (key1) tiers.push({
-        id: "T1_gemini_vision",
-        provider: "gemini",
-        model: GEMINI_MODEL,
-        call: ()=>callGeminiVision(key1, trimmedMessages, system, maxTokens, images),
+    // T10 (issue #19736 directive #3): vision cascade -- separate from the
+    // text cascade below since none of these three calls share the
+    // text-only call shape.
+    const orKey = await getVaultSecret("openrouter_api_key");
+    if (orKey && (!forceTier || forceTier === "openrouter")) {
+      tiers.push({
+        id: "T1_openrouter_vision",
+        provider: "openrouter",
+        model: OPENROUTER_GLM_MODEL,
+        call: ()=>callOpenRouterVision(orKey, trimmedMessages, system, maxTokens, images, OPENROUTER_GLM_MODEL),
         cost: ()=>0
       });
+      if (await openRouterModelAvailable(orKey, OPENROUTER_DEEPSEEK_VISION_MODEL)) {
+        tiers.push({
+          id: "T1.5_openrouter_vision",
+          provider: "openrouter",
+          model: OPENROUTER_DEEPSEEK_VISION_MODEL,
+          call: ()=>callOpenRouterVision(orKey, trimmedMessages, system, maxTokens, images, OPENROUTER_DEEPSEEK_VISION_MODEL),
+          cost: ()=>0
+        });
+      }
     }
-    const dsKey = await getVaultSecret("deepseek_api_key");
-    if (dsKey) tiers.push({
-      id: "T1.5_deepseek_vision",
-      provider: "deepseek",
-      model: DEEPSEEK_VISION_MODEL,
-      call: ()=>callDeepSeekVision(dsKey, trimmedMessages, system, maxTokens, images),
-      cost: (i, o)=>i / 1_000_000 * 0.14 + o / 1_000_000 * 0.28
-    });
     const bearerVision = await getVaultSecret("anthropic_oauth_bearer");
     if (bearerVision) tiers.push({
       id: "T2_claude_oauth_vision",
@@ -697,9 +677,11 @@ Deno.serve(async (req)=>{
   let blockedT2 = false;
   for (const tier of tiers){
     try {
-      const { text, inputTokens, outputTokens } = await tier.call();
+      const { text, inputTokens, outputTokens, costUsd: actualCostUsd } = await tier.call();
       const latencyMs = Date.now() - t0;
-      const costUsd = tier.cost(inputTokens, outputTokens);
+      // OpenRouter returns real per-call cost; prefer it over the flat-rate
+      // estimate other tiers use when it's present.
+      const costUsd = actualCostUsd ?? tier.cost(inputTokens, outputTokens);
       const estimatedTokensSaved = Math.floor(trimmedMessages.reduce((s, m)=>s + (m.content?.length ?? 0), 0) / 4);
       if (requestType !== "realtime" && !hasImages && text) {
         const cacheKey = await generateCacheKey(messages, system, requestType);
