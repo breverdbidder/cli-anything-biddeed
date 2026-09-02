@@ -13,6 +13,22 @@ had existed.
 
 ---
 
+## CANONICAL CC DISPATCH
+
+### Artifact chain (2026-09-02)
+
+Brief precedence for every cc-runner dispatch: `docs/intent/MANDATES.md` >
+`docs/intent/<issue>.md` > `docs/spec/<issue>.md` > issue body > issue
+comments. The intent file must be committed before `fire_workflow_dispatch`
+fires the run — a dispatch without one still runs (backward compatible) but
+the run breadcrumb reports `intent=missing`; a dispatch with a committed
+intent file reports `intent=present`. CC writes `docs/spec/<issue>.md`
+before exit (mandate M6) so a fresh agent with no chat history can pick up
+the work cold. See [`docs/intent/README.md`](docs/intent/README.md) and
+[`docs/spec/README.md`](docs/spec/README.md) for the full convention.
+
+---
+
 ## CANON — read first
 
 Positioning, avatars, and compliance posture for Winner Data / BidDeed /

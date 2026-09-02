@@ -60,6 +60,9 @@ fails loudly, because it poisons every downstream decision made on top of it.
 4. **Confirm the scope lock.** Re-read the non-goals. If completing the goal
    appears to require touching something in the non-goals list, stop and report
    `BLOCKED` — do not decide the non-goal was probably fine.
+5. **Artifact chain:** the brief you receive is layered — standing mandates
+   (`docs/intent/MANDATES.md`) outrank the intent file, which outranks the
+   issue body, which outranks comments. Write `docs/spec/<issue>.md` before exit.
 
 ---
 
