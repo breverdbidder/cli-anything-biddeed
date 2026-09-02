@@ -1,0 +1,34 @@
+-- Gold Standard madison letters B and F (dispatch: parallel-shard diagnose run 2026-09-02).
+-- 9th+ independent session reconfirming the exact same structural ceiling documented in
+-- migrations 20260817g/20260817/20260818/20260825/20260826 and decision_log ids
+-- 169, 254, 673, 855, 960, 1131, 1233, 1304/1474, 1575, 1949.
+--
+-- LIVE STATE (pencil_dod_evaluate_county('madison'), reproduced exactly):
+--   A PASS fc=6/td=2 | B FAIL verified=0/closed_sold=0 | C/D/E PASS 100.0 | F FAIL
+--   tier1_sold=0/closed_sold=0 | G PASS 100.0 | H PASS | I PASS card_complete=8 of 8 | J PASS 100.0.
+--   (I improved to PASS since the 08/17 reconfirm via the unrelated 08/26 bradford+madison
+--   dispatch b9413c05 zoning fix -- not touched or re-litigated this session.)
+--
+-- ROOT CAUSE (confirmed via direct row-level query of multi_county_auctions WHERE county='madison'):
+-- all 8 rows (6 foreclosure, 2 tax_deed) have sold_amount IS NULL and sale_date IS NULL.
+-- data_source values are all legitimate madisonclerk.com scrapes (madisonclerk_foreclosure_sales_page,
+-- madisonclerk_taxdeeds_page, gold_standard_shard3_madison_25_31_ca_backfill) -- zero PropertyOnion
+-- contamination, so this is NOT a guardrail-1 false-positive-filtering situation.
+--
+-- The only outcome-adjacent evidence anywhere is a single foreclosure_outcomes row for case
+-- 24-62-CA: outcome='sold' but winning_bid=NULL, and its own data_source string says
+-- "listing_status=NO_SALE/Reverted" (auction.com, trustee_sale_number 2024000062CAAXMX) --
+-- i.e. plaintiff-reverted, not a bona fide third-party dollar sale. Correctly NOT promoted into
+-- multi_county_auctions.sold_amount by pencil_dod_evaluate_county's o-CTE join logic. Writing
+-- this in as a "closed_sold" would be fabrication, not a fix. tax_deed_outcomes has zero rows
+-- for madison.
+--
+-- B's numerator (o.verified_outcomes) and F's denominator (a.closed_sold) both key off
+-- multi_county_auctions.sold_amount IS NOT NULL -- both structurally 0/0 -> NULL metric, FAIL.
+-- No code bug in pencil_dod_evaluate_county. Blocked: madisonclerk.com never publishes
+-- post-sale disposition; secondary sources (myfloridacounty.com OCRS, civitekflorida.com) are
+-- CAPTCHA/JS-gated, no browser/CAPTCHA-solving tool available this session. Logged to
+-- public.agent_ops_log (dispatch_id='madison-F-diagnose', status='BLOCKED').
+--
+-- Idempotent / audit-trail only -- no schema or data changes.
+SELECT 1;
