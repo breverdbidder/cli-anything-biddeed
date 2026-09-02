@@ -65,6 +65,31 @@ def log(msg: str) -> None:
     print(f"[identity_cascade] {msg}", flush=True)
 
 
+_BIZ_SUFFIX_RE = re.compile(r"\b(LLC|INC|CORP|LP|LLP|GROUP|CO|LTD)\b", re.I)
+
+
+def normalize_person_name(name: str) -> str:
+    """Issue #19746 item 3: the bizprofile.net officer-prose leg of
+    parse_sunbiz_text() (name_tok pattern above) can emit 'Last, First[, Sr/Jr]'
+    order literally, comma included (e.g. '770 PRO INC' -> officer 'Panah,
+    David'). A literal comma in principal_name breaks the fl_parcels
+    self-match LIKE substring query downstream (fl_parcels.own_name never has
+    a comma in that exact position for this name) and reads oddly to a human.
+    Reverses ONLY the unambiguous two-part 'Word[s], Word[s]' shape into
+    'First Last'; a business name that happens to contain a comma (e.g.
+    'Casscap, LLC') is left untouched by checking for a legal-entity suffix
+    first. Anything else (no comma, 3+ comma parts) passes through unchanged."""
+    if not name or "," not in name:
+        return (name or "").strip()
+    if _BIZ_SUFFIX_RE.search(name):
+        return name.strip()
+    parts = [p.strip() for p in name.split(",")]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return name.strip()
+    last, first = parts
+    return f"{first} {last}"
+
+
 # ---------------------------------------------------------------------------
 # Step 2: Exa search + contents
 # ---------------------------------------------------------------------------
@@ -345,6 +370,8 @@ def resolve_identity(entity_name: str) -> dict:
             raw = hit["raw"]
             person_officers = [o for o in raw.get("officers", []) if not re.search(r"\bLLC\b|\bINC\b|\bCORP\b|\bLTD\b", o["name"], re.I)]
             principal_name = person_officers[0]["name"] if person_officers else (raw["officers"][0]["name"] if raw.get("officers") else None)
+            if principal_name:
+                principal_name = normalize_person_name(principal_name)
             return {
                 "resolved": True,
                 "entity_name": entity_name,

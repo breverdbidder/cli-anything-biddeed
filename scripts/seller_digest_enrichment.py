@@ -78,6 +78,7 @@ from ff_billable_loop import (  # noqa: E402  -- reused, not reimplemented
     run_stage2_sunbiz_chain,
     run_stage3_skiptrace,
 )
+from identity_cascade import normalize_person_name  # noqa: E402  -- reused parser-boundary fix (#19746 item 3)
 
 PROJECT_REF = "mocerqjnksmhcjzxrewo"
 MGMT_URL = f"https://api.supabase.com/v1/projects/{PROJECT_REF}/database/query"
@@ -162,6 +163,51 @@ def get_auction_parcel_id(case_number: str, entity_name: str) -> str | None:
         limit 1
     """)
     return rows[0]["parcel_id"] if rows else None
+
+
+# ---------------------------------------------------------------------------
+# issue #19746 item 4: a PO Box is a genuine mailing address for fl_parcels'
+# own purposes but is useless as a Tracerfy anchor (no residence to trace).
+# Treat it as no-address so the caller falls through to the next source
+# instead of burning a Tracerfy credit on a guaranteed miss (Florida
+# Investors Capital LLC -> Casscap, LLC hit "PO BOX 2086 LUTZ" and Tracerfy
+# never had a chance).
+# ---------------------------------------------------------------------------
+
+_PO_BOX_RE = re.compile(r"\bP\.?\s*O\.?\s*BOX\b", re.I)
+
+
+def is_po_box(stage1_result: dict | None) -> bool:
+    if not stage1_result:
+        return False
+    text = stage1_result.get("principal_home_address") or ""
+    return bool(_PO_BOX_RE.search(text))
+
+
+# ---------------------------------------------------------------------------
+# issue #19746 items 1+3: fl_parcels.own_name is SURNAME-FIRST (confirmed
+# live 2026-09-02: "PATEL RAJENDRAKUMAR", "STERN BEN" -- see
+# tracerfy_client._split_owner_name's own docstring for the same convention
+# on auction-winner names). A Sunbiz-resolved principal name comes back in
+# natural First-Last human order ("Rajendrakumar Patel", "Ben Stern"), so a
+# single-order LIKE substring query against fl_parcels never lines up even
+# when a real match exists -- confirmed live: "Ben Stern" -> 0 rows, but
+# "Stern Ben" -> real hit "STERN BEN, 9725 CAMBERLEY CIR, ORLANDO". Try both
+# token orders (free -- run_stage1_identity is an internal fl_parcels query,
+# no vendor credit spent) rather than guess which order is correct.
+# ---------------------------------------------------------------------------
+
+def stage1_self_match_both_orders(lead: dict, name: str) -> tuple[dict, str]:
+    r = run_stage1_identity(dict(lead, winning_bidder=name))
+    if r.get("outcome") == "hit":
+        return r, name
+    tokens = name.split()
+    if len(tokens) == 2:
+        swapped = f"{tokens[1]} {tokens[0]}"
+        r2 = run_stage1_identity(dict(lead, winning_bidder=swapped))
+        if r2.get("outcome") == "hit":
+            return r2, swapped
+    return r, name
 
 
 # ---------------------------------------------------------------------------
@@ -302,32 +348,69 @@ def resolve_row(row: dict) -> dict:
 
     for stage in plan:
         if stage == "stage1_identity":
-            r = run_stage1_identity(lead)
+            # issue #19746 "Also report" spot-check: direct person/person_joint
+            # buyers ("STEVE A MARSH", "Jean rosalva", "Dorin Birta") also hit
+            # the same word-order problem as principal names -- confirmed live
+            # 2026-09-02: "Dorin Birta" misses, but swapped "Birta Dorin" hits
+            # a real fl_parcels record (BIRTA DORIN, 11412 JOHNSTONE DR,
+            # PENSACOLA). Trivial reuse of the same dual-order helper (item 1/3
+            # fix) for identity_type in (person, person_joint) only -- a
+            # business/LLC name has no person-order ambiguity to swap.
+            if identity_type in ("person", "person_joint"):
+                r, matched_as = stage1_self_match_both_orders(lead, entity_name)
+                r = dict(r, matched_as=matched_as)
+            else:
+                r = run_stage1_identity(lead)
             evidence["stages"]["stage1_identity"] = r
             if r.get("outcome") == "hit":
-                stage1_addr = r
-                single_source = True
+                if is_po_box(r):
+                    r["po_box_excluded"] = True
+                else:
+                    stage1_addr = r
+                    single_source = True
 
         elif stage == "stage2_sunbiz_chain":
             r = run_stage2_sunbiz_chain(lead)
             evidence["stages"]["stage2_sunbiz_chain"] = r
-            if r.get("outcome") == "hit" and r.get("principal_name"):
-                principal_name = r["principal_name"]
+
+            # issue #19746 item 2: the resolved principal can itself be
+            # another business (FLORIDA INVESTORS CAPITAL LLC -> "Casscap,
+            # LLC"; Mr America Export LLC -> "Tokinvest LLC") -- Tracerfy got
+            # a business name + the wrong (LLC-parcel) address for both and
+            # missed. Hop stage2 once more on that LLC name (max depth 2
+            # total stage2 calls) before giving up.
+            chain, depth, current = [], 0, r
+            while current.get("outcome") == "hit" and current.get("principal_name") and depth < 2:
+                candidate = normalize_person_name(current["principal_name"])
+                depth += 1
+                chain.append(candidate)
+                principal_name = candidate
                 lead["resolved_principal_name"] = principal_name
-                if stage1_addr is None:
-                    # issue #19729 T2: "LLC/trust -> find_owner on the principal
-                    # / registered agent, then enhanced on that person at
-                    # their mailing address" -- the entity itself may have no
-                    # prior fl_parcels holding under its own name, but the
-                    # now-known human principal might. Reuses
-                    # run_stage1_identity() again, just keyed on the
-                    # principal's name instead of the entity's.
-                    principal_lead = dict(lead, winning_bidder=principal_name)
-                    pr = run_stage1_identity(principal_lead)
-                    evidence["stages"]["stage1_identity_principal"] = pr
-                    if pr.get("outcome") == "hit":
-                        stage1_addr = pr
-                        single_source = True
+                if classify(candidate) == "business" and depth < 2:
+                    hop_lead = dict(lead, winning_bidder=candidate, resolved_entity_name=candidate,
+                                     resolved_principal_name=None)
+                    current = run_stage2_sunbiz_chain(hop_lead)
+                    evidence["stages"][f"stage2_sunbiz_chain_hop{depth}"] = current
+                else:
+                    break
+            if chain:
+                evidence["principal_chain"] = chain
+
+            # issue #19746 item 1 (the P0 root cause): once the chain lands
+            # on a PERSON, ALWAYS attempt the fl_parcels self-match on that
+            # person's own name -- not conditioned on "only if the LLC-level
+            # stage1 already missed" (the old guard). Gayatri Parivar LLC ->
+            # Shilpa Shah: the LLC-level stage1 HIT (its own registered
+            # address), so the old code never tried the person, and Tracerfy
+            # got the LLC's address instead of Shilpa Shah's own home. The
+            # LLC-parcel address (stage1_addr, already PO-Box-filtered above)
+            # is kept only as a fallback anchor if the person self-match misses.
+            if principal_name != entity_name and classify(principal_name) != "business":
+                pr, matched_as = stage1_self_match_both_orders(lead, principal_name)
+                evidence["stages"]["stage1_identity_principal"] = dict(pr, matched_as=matched_as)
+                if pr.get("outcome") == "hit" and not is_po_box(pr):
+                    stage1_addr = pr
+                    single_source = True
 
         elif stage == "stage3_skiptrace":
             target_addr = stage1_addr

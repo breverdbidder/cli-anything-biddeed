@@ -113,6 +113,43 @@ def get_producer_email():
     return rows[0]["email"] if rows else None
 
 
+def dedupe_leads_by_entity_name(leads):
+    """Issue #19746 item 5: `select distinct on (l.lead_id)` below dedupes
+    repeat ROUTING DECISIONS for the same lead_id, but not the case where one
+    buyer NAME wins two separate auctions (two distinct winnerdata.leads /
+    signal_events rows, hence two distinct lead_id) on the same batch_date --
+    confirmed live 2026-09-02: "Realty Wholesalers, Inc." has two rows for
+    2026-08-31, case_numbers 502022CA006893XXXXMB and 502025CA007512XXXAMB.
+    Ariel's canon (winnerdata.md): one lead = one buyer NAME regardless of
+    property count. Collapses to the single highest-sold_amount property per
+    buyer name (case/whitespace-insensitive), tie-broken by earliest
+    routed_at, so only one FF is ever built/sent per name per day. Applied
+    inside get_batch_leads() itself (not at each caller) so the build,
+    backfill, AND send paths all see the same deduped set."""
+    best: dict[str, dict] = {}
+    for lead in leads:
+        key = (lead.get("entity_name") or "").strip().upper()
+        if not key:
+            continue
+        prior = best.get(key)
+        if prior is None:
+            best[key] = lead
+            continue
+        prior_amt = prior.get("sold_amount") if prior.get("sold_amount") is not None else -1
+        this_amt = lead.get("sold_amount") if lead.get("sold_amount") is not None else -1
+        if this_amt > prior_amt:
+            best[key] = lead
+        elif this_amt == prior_amt:
+            prior_routed, this_routed = prior.get("routed_at") or "", lead.get("routed_at") or ""
+            if this_routed and (not prior_routed or this_routed < prior_routed):
+                best[key] = lead
+    dropped = len(leads) - len(best)
+    if dropped:
+        print(f"  dedupe_leads_by_entity_name: {dropped} duplicate-name row(s) collapsed "
+              f"({len(leads)} -> {len(best)}).")
+    return list(best.values())
+
+
 def get_batch_leads(batch_date):
     # issue P0 (2026-09-01) bug 2: l.consent_certificate #>> '{contact_resolution_v2,...}'
     # is NULL on every lead row, live-verified -- that path was never populated.
@@ -129,7 +166,7 @@ def get_batch_leads(batch_date):
     # out of scope here) -- scripts/winnerdata_daily_winner_ff_digest.py and
     # scripts/seller_digest_backfill.py persist those two keys into the
     # separate winnerdata.seller_digest_leads table and must not regress.
-    return run_sql(f"""
+    leads = run_sql(f"""
         select distinct on (l.lead_id)
           l.lead_id, l.entity_name,
           se.county,
@@ -151,6 +188,7 @@ def get_batch_leads(batch_date):
           and (l.is_lender_or_plaintiff = false or l.manual_buyer_override = true)
         order by l.lead_id, rd.routed_at desc;
     """)
+    return dedupe_leads_by_entity_name(leads)
 
 
 def get_batch_lead_reviews(batch_date):
