@@ -608,8 +608,14 @@ function reviewBadge(decision) {
   if (decision === 'approved') return '<span style="color:#22c55e;font-weight:600">APPROVED</span>';
   if (decision === 'rejected') return '<span style="color:#f87171;font-weight:600">REJECTED</span>';
   if (decision === 'improvement_requested') return '<span style="color:#F59E0B;font-weight:600">IMPROVEMENT REQUESTED</span>';
+  if (decision === 'fix_ready') return '<span style="color:#22c55e;font-weight:600">READY FOR RE-REVIEW</span>';
   return '<span style="color:#64748b">unreviewed</span>';
 }
+
+// GitHub commit link for a fix_ready row's fix_commit sha -- same repo every
+// auto-dispatched fix issue lands in (winnerdata.ff_review_dispatch_sweep()
+// only ever opens issues against breverdbidder/cli-anything-biddeed).
+const FIX_COMMIT_REPO = 'https://github.com/breverdbidder/cli-anything-biddeed/commit/';
 
 async function viewFFBatches(env) {
   const data = await rpc(env, 'lms_ff_batches_list', {});
@@ -623,6 +629,7 @@ async function viewFFBatches(env) {
       <td>${b.lead_count}</td>
       <td>${esc(b.enrichment_status)}</td>
       <td>${b.approved_count} approved / ${b.rejected_count} rejected / ${b.improvement_count} improvement / ${b.reviewed_count} of ${b.lead_count} reviewed</td>
+      <td>${b.fix_ready_count > 0 ? `<span style="color:#22c55e;font-weight:600">${b.fix_ready_count} READY FOR RE-REVIEW</span>` : '—'}</td>
       <td>${fmtDate(b.created_at)}</td>
     </tr>`).join('');
 
@@ -630,8 +637,8 @@ async function viewFFBatches(env) {
     <h2>FF Batches — Review + Approval</h2>
     <p class="footer-note">Approving here signs in as a dedicated admin identity and calls public.ff_batch_approve_authenticated() with that real session's JWT (issue #19745) — the resulting approval record cannot be forged by any service-role/automated call. Only leads marked <b>approved</b> below are eligible to send — an unreviewed lead is never sent, and the send step independently re-verifies this approval record before it will send anything.</p>
     <table>
-      <thead><tr><th>Batch Date</th><th>Kind</th><th>Status</th><th>Leads</th><th>Enrichment</th><th>Per-Lead Review</th><th>Built</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" class="empty">No FF batches on file.</td></tr>'}</tbody>
+      <thead><tr><th>Batch Date</th><th>Kind</th><th>Status</th><th>Leads</th><th>Enrichment</th><th>Per-Lead Review</th><th>Ready for re-review</th><th>Built</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" class="empty">No FF batches on file.</td></tr>'}</tbody>
     </table>`;
   return layout('FF Batches', 'ff-batches', null, body);
 }
@@ -668,7 +675,7 @@ async function viewFFBatchDetail(env, batchDate) {
       <td style="font-size:.78rem">${esc(caseNum) || '—'}</td>
       <td>${esc(l.confidence_tier) || 'not available'}</td>
       <td>${ffLink}</td>
-      <td>${reviewBadge(l.review_decision)}${l.reviewed_by ? `<br><span style="color:#64748b;font-size:.72rem">${esc(l.reviewed_by)}, ${fmtDate(l.reviewed_at)}${l.review_note ? ` — ${esc(l.review_note)}` : ''}</span>` : ''}</td>
+      <td>${reviewBadge(l.review_decision)}${l.reviewed_by ? `<br><span style="color:#64748b;font-size:.72rem">${esc(l.reviewed_by)}, ${fmtDate(l.reviewed_at)}${l.review_note ? ` — ${esc(l.review_note)}` : ''}</span>` : ''}${l.review_decision === 'fix_ready' ? `<br><span style="color:#64748b;font-size:.72rem">${esc(l.fix_summary) || '(no summary)'}${l.fix_commit ? ` — <a class="link" href="${esc(FIX_COMMIT_REPO)}${esc(l.fix_commit)}" target="_blank" rel="noopener">${esc(String(l.fix_commit).slice(0, 7))}</a>` : ''}${l.issue_number ? ` (#${l.issue_number})` : ''}</span>` : ''}${l.review_decision === 'improvement_requested' && l.issue_number ? `<br><span style="color:#64748b;font-size:.72rem">dispatched as #${l.issue_number}</span>` : ''}</td>
       <td>${reviewForm}</td>
     </tr>`;
   }).join('');
@@ -680,6 +687,7 @@ async function viewFFBatchDetail(env, batchDate) {
       <div class="stat"><span class="stat-num">${batch.lead_count}</span><span class="stat-label">Total Leads</span></div>
       <div class="stat"><span class="stat-num" style="color:#22c55e">${approvedCount}</span><span class="stat-label">Approved for Send</span></div>
       <div class="stat"><span class="stat-num" style="color:${batch.status === 'pending_approval' ? '#F59E0B' : '#94a3b8'}">${esc(batch.status).toUpperCase()}</span><span class="stat-label">Batch Status</span></div>
+      <div class="stat"><span class="stat-num" style="color:#22c55e">${batch.fix_ready_count || 0}</span><span class="stat-label">Ready for re-review</span></div>
     </div>
     <p style="margin-top:1rem">
       ${canApprove
