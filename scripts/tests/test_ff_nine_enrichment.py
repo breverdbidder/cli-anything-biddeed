@@ -41,6 +41,37 @@ def test_split_owner_name_suffix_after_comma_not_treated_as_first_name():
     assert first == "James"
 
 
+def test_split_natural_order_name_not_flipped():
+    """Regression guard for issue #19750: Sunbiz-resolved principal names
+    (identity_cascade.normalize_person_name() output, always 'First Last')
+    must NOT go through the surname-first flip -- confirmed live 2026-09-02
+    that flipping 'Rajendrakumar Patel' -> first='Patel' last='Rajendrakumar'
+    caused Tracerfy to return hit=false on a real, correct-address match."""
+    assert tracerfy_client._split_natural_order_name("Rajendrakumar Patel") == ("Rajendrakumar", "Patel")
+    assert tracerfy_client._split_natural_order_name("Ben Stern") == ("Ben", "Stern")
+
+
+def test_enhanced_trace_natural_order_flag_selects_split_function():
+    with patch.object(tracerfy_client, "_request") as mock_request:
+        mock_request.return_value = {"hit": False, "persons": []}
+        tracerfy_client.enhanced_trace("Rajendrakumar Patel", "2374 Symphony Cir", "Saint Cloud", "FL", "34771",
+                                        name_is_natural_order=True)
+    payload = mock_request.call_args[0][1]
+    assert payload["first_name"] == "Rajendrakumar"
+    assert payload["last_name"] == "Patel"
+
+
+def test_enhanced_trace_default_still_uses_surname_first_split():
+    """Default (name_is_natural_order=False) must be unchanged for existing
+    fl_parcels/auction-winner-name callers."""
+    with patch.object(tracerfy_client, "_request") as mock_request:
+        mock_request.return_value = {"hit": False, "persons": []}
+        tracerfy_client.enhanced_trace("Sanchez Juan", "1 Main St", "Orlando", "FL", "32801")
+    payload = mock_request.call_args[0][1]
+    assert payload["first_name"] == "Juan"
+    assert payload["last_name"] == "Sanchez"
+
+
 def test_enrichment_tracerfy_wrapper_delegates_to_client_not_reimplemented():
     """ff_nine_portfolio_enrichment.tracerfy() must call tracerfy_client.trace_lead
     (proven name-split + Cloudflare-safe UA) rather than parsing the name itself."""

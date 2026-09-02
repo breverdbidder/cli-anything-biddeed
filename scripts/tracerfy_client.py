@@ -185,13 +185,37 @@ def _split_owner_name(name: str) -> tuple[str, str]:
     return "", cleaned
 
 
-def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str) -> "dict | tuple":
+def _split_natural_order_name(name: str) -> tuple[str, str]:
+    """Sunbiz-resolved principal names (post identity_cascade.normalize_person_name())
+    are already 'First Last' order -- do NOT apply the surname-first flip
+    _split_owner_name() applies to fl_parcels/auction-winner names. Confirmed
+    live 2026-09-02 (issue #19750): calling enhanced_trace() on
+    'Rajendrakumar Patel' / 'Ben Stern' with the surname-first flip sent
+    first_name='Patel'/'Stern', last_name='Rajendrakumar'/'Ben' -- reversed --
+    and Tracerfy returned hit=false. Re-run with the names split in their
+    actual natural order (no flip) returned hit=true with full contact data
+    for both. This is the P0 root cause: 0/N lifetime Tracerfy hit rate on
+    every business-type lead, whose principal_name always comes from Sunbiz
+    resolution, not fl_parcels/auction data."""
+    cleaned = name.strip()
+    parts = cleaned.split(" ", 1)
+    if len(parts) > 1:
+        return parts[0], parts[1]
+    return cleaned, ""
+
+
+def enhanced_trace(name: str, address: str, city: str, state: str, zipcode: str, name_is_natural_order: bool = False) -> "dict | tuple":
     """Name + known mailing address -> phone/email. The PROVEN method
     (per issue comment: trace the buyer at THEIR OWN prior address, not the
     address they just bought). Endpoint + payload verified live 2026-08-24
     against /v1/api/trace/enhanced/lookup/.
+
+    name_is_natural_order: set True when `name` is already 'First Last'
+    (e.g. a Sunbiz-resolved principal_name) -- see _split_natural_order_name().
+    Defaults to False (existing surname-first behavior) so fl_parcels/
+    auction-winner-name callers are unaffected.
     """
-    first, last = _split_owner_name(name)
+    first, last = _split_natural_order_name(name) if name_is_natural_order else _split_owner_name(name)
     payload = {
         "first_name": first, "last_name": last,
         "address": address, "city": city, "state": state, "zip": zipcode,

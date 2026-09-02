@@ -323,9 +323,15 @@ def run_stage3_skiptrace(lead: dict, target_name: str, target_addr: dict | None)
         log_attempt(batch_date, case_number, "stage3_skiptrace", "tracerfy_enhanced_trace",
                     {"target_name": target_name}, {"reason": "no_mailing_address_to_trace"}, "miss")
         return {"outcome": "miss"}
+    # issue #19750: target_name is natural "First Last" order when it came from
+    # Sunbiz resolution (lead["resolved_principal_name"], normalized by
+    # identity_cascade.normalize_person_name()); it's surname-first when it's
+    # the raw fl_parcels/auction winning_bidder. tracerfy_client needs to know
+    # which, or it flips a natural-order name backwards -> false NO_MATCH.
     resp = tracerfy_client.enhanced_trace(
         target_name, target_addr.get("addr1", target_addr["principal_home_address"]),
         target_addr.get("city", ""), target_addr.get("state", "FL"), target_addr.get("zip", ""),
+        name_is_natural_order=bool(lead.get("resolved_principal_name")),
     )
     if isinstance(resp, tuple):
         _, err_detail = resp
