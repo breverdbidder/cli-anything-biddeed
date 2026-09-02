@@ -7,6 +7,9 @@ import { syncAllActiveConnections, syncOneByItemId } from "./sync";
 import { verifyPlaidWebhook } from "./webhookVerify";
 import { renderLinkPage } from "./linkPage";
 import { renderPrivacyPage } from "./privacyPage";
+import { renderImportPage } from "./importPage";
+import { importFile } from "./fileImport";
+import { claimSetupToken, syncSimplefin, syncSimplefinCron } from "./simplefin";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -24,6 +27,14 @@ app.use("/link/*", async (c, next) => {
   await next();
 });
 app.use("/sync", async (c, next) => {
+  if (!isAuthorized(c.req.raw, c.env.CFO_AGENT_SHARED_SECRET)) {
+    return c.json({ error: "unauthorized", hint: "Pass the shared secret as header 'X-CFO-Secret' or ?key=" }, 401);
+  }
+  await next();
+});
+// /simplefin/* is fully action-gated (no public GET page, unlike /import) -- matches /link/*'s
+// pattern.
+app.use("/simplefin/*", async (c, next) => {
   if (!isAuthorized(c.req.raw, c.env.CFO_AGENT_SHARED_SECRET)) {
     return c.json({ error: "unauthorized", hint: "Pass the shared secret as header 'X-CFO-Secret' or ?key=" }, 401);
   }
@@ -161,6 +172,95 @@ app.post("/webhook", async (c) => {
   return c.json({ ok: true, ignored: true });
 });
 
+// ---------------------------------------------------------------------------------------------
+// Bank file importer (issue #19749 Part 1) -- CSV/QFX/OFX, bypasses the Plaid production wait.
+// GET /import is public (same as GET /link) so Ariel can load the form without a header; POST
+// /import (the actual write) is gated inline since Hono's app.use("/import", ...) would gate
+// both methods on the exact path, unlike the "/link/*" wildcard which only matches sub-paths.
+// ---------------------------------------------------------------------------------------------
+
+app.get("/import", async (c) => {
+  let entities: Array<{ code: string; name: string }> = [];
+  try {
+    entities = await rpc(c.env, "bank_engine_list_entities", {});
+  } catch {
+    entities = [];
+  }
+  return c.html(renderImportPage(entities));
+});
+
+app.post("/import", async (c) => {
+  if (!isAuthorized(c.req.raw, c.env.CFO_AGENT_SHARED_SECRET)) {
+    return c.json({ error: "unauthorized", hint: "Pass the shared secret as header 'X-CFO-Secret' or ?key=" }, 401);
+  }
+
+  const entityCode = c.req.query("entity_code");
+  const mask = c.req.query("mask");
+  if (!entityCode || !mask) {
+    return c.json({ error: "entity_code and mask query params are required" }, 400);
+  }
+  const accountLabel = c.req.query("account_label") || `WF Checking ${mask}`;
+
+  const contentType = c.req.header("content-type") ?? "";
+  let text: string;
+  let filename: string | undefined;
+  if (contentType.includes("multipart/form-data")) {
+    const form = await c.req.raw.formData();
+    // The installed @cloudflare/workers-types snapshot types FormData.get() as returning only
+    // `string | null` (its File-aware overload lives in the package's newer "latest" subpath,
+    // not the default resolve this repo's tsconfig uses) even though the Workers runtime
+    // itself returns a File for a file field -- cast to the accurate runtime shape rather than
+    // widen tsconfig's ambient types repo-wide for one call site.
+    const file = form.get("file") as File | string | null;
+    // FormDataEntryValue = File | string -- narrow via typeof rather than `instanceof File`
+    // (TS2358: instanceof's LHS can't be a union that includes a primitive like `string`).
+    if (!file || typeof file === "string") {
+      return c.json({ error: "multipart body must include a 'file' field" }, 400);
+    }
+    text = await file.text();
+    filename = file.name;
+  } else {
+    text = await c.req.text();
+  }
+
+  if (!text || text.trim().length === 0) {
+    return c.json({ error: "empty file body" }, 400);
+  }
+
+  try {
+    const result = await importFile(c.env, { entityCode, accountLabel, mask, text, filename });
+    return c.json(result, result.status === "VERIFIED" ? 200 : 422);
+  } catch (err: any) {
+    return c.json({ error: String(err?.message ?? err) }, 502);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// SimpleFIN Bridge connector (issue #19749 Part 2) -- built now, activates once Ariel supplies
+// a real setup token. Both routes gated by app.use("/simplefin/*", ...) above.
+// ---------------------------------------------------------------------------------------------
+
+app.post("/simplefin/claim", async (c) => {
+  const body = await c.req.json<{ setup_token?: string }>().catch(() => ({}) as { setup_token?: string });
+  if (!body.setup_token) return c.json({ error: "setup_token required" }, 400);
+  const result = await claimSetupToken(c.env, body.setup_token);
+  return c.json(result, result.status === "VERIFIED" ? 200 : 422);
+});
+
+app.post("/simplefin/sync", async (c) => {
+  const body = await c.req
+    .json<{ entity_code?: string; start_date?: number; end_date?: number }>()
+    .catch(() => ({}) as { entity_code?: string; start_date?: number; end_date?: number });
+  if (!body.entity_code) return c.json({ error: "entity_code required" }, 400);
+  const result = await syncSimplefin(c.env, {
+    entityCode: body.entity_code,
+    startDate: body.start_date,
+    endDate: body.end_date,
+  });
+  const httpStatus = result.status === "VERIFIED" ? 200 : result.status === "SKIPPED" ? 409 : 502;
+  return c.json(result, httpStatus);
+});
+
 export default {
   fetch: app.fetch,
   scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
@@ -172,6 +272,19 @@ export default {
           status: results.every((r) => r.status === "VERIFIED") ? "VERIFIED" : "PARTIAL",
           evidence: { results },
           severity: results.every((r) => r.status === "VERIFIED") ? "info" : "warn",
+        })
+      )
+    );
+    // SimpleFIN sync alongside Plaid, same 6h tick (issue #19749 Part 2) -- no second
+    // [triggers] cron entry needed. No-ops (status=SKIPPED) until /simplefin/claim has run.
+    ctx.waitUntil(
+      syncSimplefinCron(env).then((result) =>
+        insertRow(env, "agent_ops_log", {
+          dispatch_id: "19749",
+          task: "bank_engine_simplefin_cron_sync",
+          status: result.status,
+          evidence: result,
+          severity: result.status === "BLOCKED" ? "error" : "info",
         })
       )
     );

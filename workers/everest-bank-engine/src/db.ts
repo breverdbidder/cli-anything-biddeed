@@ -61,10 +61,11 @@ export async function logFinanceOps(
   status: "VERIFIED" | "PARTIAL" | "BLOCKED" | "UNTESTED",
   sourceEventId: string | null,
   evidence: object,
-  severity: "info" | "warn" | "error" = "info"
+  severity: "info" | "warn" | "error" = "info",
+  dispatchId: string = "19737"
 ): Promise<void> {
   await insertRow(env, "finance_ops_log", {
-    dispatch_id: "19737",
+    dispatch_id: dispatchId,
     entity,
     task,
     status,

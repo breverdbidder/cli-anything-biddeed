@@ -15,11 +15,61 @@ first** — `PLAID_ENV=sandbox` today; going to production is a one-secret swap
 | `POST /link/exchange` | `X-CFO-Secret` | Exchanges a `public_token` for an `access_token`, stores it in vault, inserts `finance.bank_connections` + `finance.bank_accounts`. |
 | `POST /sync` | `X-CFO-Secret` | Runs `/transactions/sync` for one connection (`{plaid_item_id}`) or all active connections. |
 | `POST /webhook` | Plaid JWT (`Plaid-Verification` header) — **not** `X-CFO-Secret` | Plaid webhook receiver. `SYNC_UPDATES_AVAILABLE`/`DEFAULT_UPDATE`/etc. trigger a sync for that item. |
+| `GET /import?key=<secret>` | none (page itself, same pattern as `GET /link`) | Minimal upload form — entity dropdown (from `finance.entities`), account label, mask, file picker. |
+| `POST /import?entity_code=&mask=&account_label=` | `X-CFO-Secret` / `?key=` | Imports a Wells Fargo CSV or QFX/OFX file (multipart `file` field or raw body). See "Bank file importer" below. |
+| `POST /simplefin/claim` | `X-CFO-Secret` | One-time: exchanges a SimpleFIN setup token for an access URL, stored in vault. |
+| `POST /simplefin/sync` | `X-CFO-Secret` | Pulls accounts + transactions from the stored SimpleFIN access URL for one `entity_code`. |
 | `GET /healthz` | none | Liveness probe. |
 | `GET /privacy` | none | Renders §9 of `docs/security/EVEREST_INFOSEC_POLICY.md` as plain HTML (Plaid production questionnaire, 2026-09-02 addendum). Linked from the `/link` page footer. |
 
 Cron trigger (`wrangler.toml` `[triggers]`) runs every 6h and syncs every `status='active'`
-connection.
+connection (Plaid only), plus one SimpleFIN sync using whichever `entity_code` the most recent
+`status='simplefin'` connection used (no-op/`SKIPPED` until `/simplefin/claim` has run once).
+
+## Bank file importer (issue #19749 Part 1)
+
+`POST /import` accepts a Wells Fargo CSV export (no header row: `Date,Amount,*,*,Description`)
+or a QFX/OFX file (1.x SGML or 2.x XML, `<STMTTRN>` blocks), auto-detected from the filename
+extension or file content (`src/ofxImport.ts::looksLikeOfx`). Query params: `entity_code`
+(required), `mask` (required, last 4 of the account), `account_label` (optional, defaults to
+`WF Checking <mask>`). Body is either `multipart/form-data` with a `file` field, or the raw file
+bytes with any content-type.
+
+Writes go to the same `finance.bank_connections`/`bank_accounts`/`bank_transactions` tables as
+Plaid, via **new, file/SimpleFIN-specific RPCs** (`bank_engine_upsert_connection_status`,
+`bank_engine_import_transactions` — see
+`supabase/migrations/20260902m_bank_file_simplefin_rpc.sql`), not `bank_engine_apply_sync`
+(#19737's Plaid RPC forces `status='active'`, which would put a file-imported connection into
+the Plaid cron's sweep and produce a spurious `BLOCKED` result every 6h since it has no Plaid
+access token in vault). `bank_connections.plaid_item_id = 'file:'||mask`,
+`bank_accounts.plaid_account_id = 'file:'||mask`, `institution_name='Wells Fargo'`,
+`status='manual'`. Idempotency key: OFX `FITID` when present, else
+`sha256(date|amount|description|mask)` — re-importing the same file is a no-op re-upsert, not a
+duplicate.
+
+## SimpleFIN Bridge connector (issue #19749 Part 2)
+
+Protocol: [simplefin.org/protocol.html](https://www.simplefin.org/protocol.html). `POST
+/simplefin/claim` takes `{"setup_token": "<base64>"}`, decodes it to a claim URL, `POST`s that
+URL (empty body) to get a Basic-Auth Access URL, and stores it **only** in vault as
+`simplefin_access_url` (`public.ecu_set_vault_secret`) — never in a table column, never returned
+in a response body. `POST /simplefin/sync` takes `{"entity_code": "..."}` (+ optional
+`start_date`/`end_date` Unix timestamps), reads the access URL back out of vault, and calls `GET
+{access_url}/accounts`. Each returned account becomes its own `bank_connections` row
+(`plaid_item_id='simplefin:'||account.id`, `status='simplefin'`) — unlike Plaid, where one item
+covers many accounts, SimpleFIN's protocol doc models one access URL as covering an arbitrary
+set of accounts with no single parent "item" concept, so each account is its own connection row.
+
+**Real activation is pending Ariel's own setup token** (issue non-goal: "real activation waits
+for Ariel's token"). This session tested `/simplefin/claim` + `/simplefin/sync` code paths
+against SimpleFIN's own published demo setup token from the protocol page
+(`aHR0cHM6Ly9icmlkZ2Uuc2ltcGxlZmluLm9yZy9zaW1wbGVmaW4vY2xhaW0vZGVtbw==`, decodes to
+`https://bridge.simplefin.org/simplefin/claim/demo`) — see `docs/spec/19749.md` for the exact
+live result (Cloudflare bot-challenge blocked the claim request; the code path itself is
+implemented per spec but the live demo round-trip is `UNTESTED`, flagged explicitly rather than
+claimed).
+
+## Amount sign convention
 
 ## Auth
 
@@ -49,7 +99,13 @@ connection is possible — `SUPABASE_DB_PASSWORD`/psql is confirmed dead, decisi
 function in `public` (`bank_engine_upsert_connection`, `bank_engine_upsert_accounts`,
 `bank_engine_apply_sync`, `bank_engine_list_active_connections` — see
 `supabase/migrations/20260902i_bank_engine_rpc.sql`), the same pattern already used by
-`ecu_set_vault_secret`/`vault_secret`.
+`ecu_set_vault_secret`/`vault_secret`. Issue #19749 added four more in the same style
+(`bank_engine_upsert_connection_status`, `bank_engine_import_transactions`,
+`bank_engine_list_entities`, `bank_engine_simplefin_default_entity` — see
+`supabase/migrations/20260902m_bank_file_simplefin_rpc.sql`) for the file importer and SimpleFIN
+connector, which deliberately do NOT reuse `bank_engine_upsert_connection`/`bank_engine_apply_sync`
+(those hardcode `status='active'`, which would put a file/SimpleFIN connection into the
+Plaid-only cron sweep).
 
 ## Amount sign convention
 
@@ -62,6 +118,15 @@ function in `public` (`bank_engine_upsert_connection`, `bank_engine_upsert_accou
 The full original Plaid transaction object is preserved untouched in the `raw` jsonb column.
 Track D (recon) reads `amount_cents` directly with this convention — do not flip the sign
 anywhere in this pipeline.
+
+**File import (CSV/QFX/OFX) and SimpleFIN both use the opposite raw convention** —
+negative=debit/positive=credit (WF CSV's own stated convention; OFX `TRNAMT` per the OFX spec;
+SimpleFIN `amount` per its protocol doc: "positive numbers indicate money being deposited"). Both
+`fileImport.ts::toAmountCents` and `simplefin.ts::toAmountCents` negate the raw value exactly
+once, at the single point where each source's parsed transaction is shaped into the
+`bank_engine_import_transactions` upsert shape, so `finance.bank_transactions.amount_cents`
+means the same thing (Plaid's positive-outflow convention) regardless of which of the three
+ingestion paths wrote a given row.
 
 ## Deviation: no `plaid` npm SDK
 

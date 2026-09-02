@@ -136,6 +136,18 @@ jobs:
             echo "::error::/sync must reject a wrong secret (got $CODE)"
             exit 1
           fi
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL/import?entity_code=everest_capital&mask=0000" -H "Content-Type: text/csv" -d '01/01/2026,-1.00,*,*,test')
+          echo "POST /import with no secret returned $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::/import must reject unauthenticated requests (got $CODE)"
+            exit 1
+          fi
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL/simplefin/sync" -H "Content-Type: application/json" -H "X-CFO-Secret: definitely-wrong" -d '{"entity_code":"everest_capital"}')
+          echo "POST /simplefin/sync with wrong secret returned $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::/simplefin/sync must reject a wrong secret (got $CODE)"
+            exit 1
+          fi
           echo "PASS: protected routes reject unauthenticated/wrong-secret requests."
 
       - name: Summary
