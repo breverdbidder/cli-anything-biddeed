@@ -53,6 +53,14 @@ jobs:
           node --check workers/winnerdata-ff/src/index.js
           echo "Worker JS parses OK"
 
+      - name: Unit tests - fail build on internal-reference leak or format regressions
+        # issue #19751: gates the shipped template against internal
+        # issue/comment ids and vendor names leaking into client-facing HTML
+        # (workers/winnerdata-ff/test/no_internal_refs.test.mjs), plus the
+        # existing ff_format.js coverage. A failure here blocks the deploy
+        # step below -- this was previously never wired into CI.
+        run: node --test workers/winnerdata-ff/test/
+
       - name: Deploy via wrangler
         uses: cloudflare/wrangler-action@v3
         with:

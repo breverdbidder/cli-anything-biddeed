@@ -42,7 +42,14 @@
  * (added 2026-08-23), which ff_get_lead / ff_portal_leads read from.
  */
 
-import TEMPLATE_A from '../../../templates/FF_TEMPLATE_A_AUCTION_SALES.html';
+// issue #19751: this Worker is single-tenant (ORG_ID below is the only
+// org ff_get_lead will ever return data for -- ORG_ID is Protection
+// Partners, and every RPC in this file validates against it server-side).
+// FF_TEMPLATE_A_AUCTION_SALES.html ("Investor Property Fact Finder") is a
+// different product for a different audience (see
+// scripts/portfolio_fact_finder_render.py / scripts/render_ff_9buyer_20260827.py,
+// which render it directly as static files) -- it is never the correct
+// template for a Protection Partners lead and must never be imported here.
 import TEMPLATE_B from '../../../templates/FF_TEMPLATE_B_HOMEOWNER.html';
 import { money, esc, normalizeBuyerName, callScript } from './ff_format.js';
 
@@ -69,17 +76,9 @@ const MLS_BANNER = {
   mls_pending: { cls: 'mls_pending', label: 'PENDING LISTING' },
 };
 
-// DOR_UC labels + commercial-prefix rule, ported from
-// scripts/portfolio_fact_finder_render.py's DOR_UC_MAP / COMMERCIAL_DOR_PREFIXES
-// so the chat-built portfolio FFs and this Worker apply identical labels.
-const DOR_UC_LABELS = {
-  '000': 'Vacant Residential', '001': 'Single Family', '002': 'Mobile Home',
-  '003': 'Multi-Family <10', '004': 'Condo', '005': 'Co-op', '006': 'Retirement',
-  '007': 'Misc Residential', '008': 'Multi-Family 10+', '009': 'Residential Common',
-  '010': 'Vacant Commercial', '011': 'Retail', '012': 'Mixed Use', '017': 'Office',
-  '018': 'Professional Service', '019': 'Hotel/Motel', '021': 'Light Industrial',
-  '022': 'Heavy Industrial', '027': 'Auto Service', '028': 'Parking',
-};
+// Commercial-prefix rule, ported from
+// scripts/portfolio_fact_finder_render.py's COMMERCIAL_DOR_PREFIXES so the
+// chat-built portfolio FFs and this Worker apply identical cross-sell logic.
 const COMMERCIAL_DOR_PREFIXES = ['01', '02'];
 
 async function rpc(fn, body) {
@@ -138,8 +137,7 @@ function computeFlags(lead, parcel) {
 // stays 'auction' when data.lead_source_type is absent so the 22 existing
 // auction-track leads (none of which set this field) render byte-identical
 // rows to before this change -- only an explicit 'mls_active'/'mls_pending'
-// switches to the MLS block. Template A is untouched (still hardcodes its
-// own auction-only block) since it never receives MLS-sourced leads.
+// switches to the MLS block.
 function profileRow(label, value) {
   return `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`;
 }
@@ -168,14 +166,12 @@ function mlsProfileRows(mls, parcelId) {
 }
 
 // issue P0 (2026-08-26) Gap 2: "one lead = one buyer NAME regardless of
-// property count" (Ariel, Aug 23 2026, #19392 comment 5390376020).
-// ff_get_lead's `portfolio` array (winnerdata.owner_portfolio, keyed by
-// normalized entity_name) carries every property this buyer holds, not just
-// the one they won at auction. When that array has 2+ rows it IS the
-// property list; otherwise fall back to the single parcel/auction object
-// ff_get_lead already returned -- either way callers get one unified
-// `properties` array so table-building and cross-sell logic never branch
-// on portfolio-vs-single.
+// property count". ff_get_lead's `portfolio` array (winnerdata.owner_portfolio,
+// keyed by normalized entity_name) carries every property this buyer holds,
+// not just the one they won at auction. When that array has 2+ rows it IS
+// the property list; otherwise fall back to the single parcel/auction object
+// ff_get_lead already returned -- either way crossSellNotes() gets one
+// unified `properties` array and never branches on portfolio-vs-single.
 function buildProperties(data) {
   const portfolio = Array.isArray(data.portfolio) ? data.portfolio : [];
   if (portfolio.length >= 2) {
@@ -233,76 +229,19 @@ function crossSellNotes(properties) {
   return notes;
 }
 
-function crossSellSectionHtml(properties, isTemplateA) {
+// issue #19751: this Worker only ever renders TEMPLATE_B now (see the
+// import comment above), which uses a <div class="block cross"> wrapper --
+// the FF_TEMPLATE_A_AUCTION_SALES.html <section class="cross"> variant and
+// the property-table/buyer-of-record/contact-row helpers that only fed that
+// template's placeholders ({{property_rows}}, {{property_section_heading}},
+// {{property_totals_line}}, {{buyer_of_record_rows}}, {{contact_rows}},
+// {{contact_status_label}}, {{contact_compliance_note}} -- none of which
+// TEMPLATE_B declares) were removed as dead code along with the import.
+function crossSellSectionHtml(properties) {
   const notes = crossSellNotes(properties);
   if (!notes.length) return '';
   const items = notes.map((n) => `<li>${esc(n)}</li>`).join('');
-  const tag = isTemplateA ? 'section' : 'div';
-  const cls = isTemplateA ? 'cross' : 'block cross';
-  return `<${tag} class="${cls}">\n    <h2>Additional Coverage Signals</h2>\n    <ul>${items}</ul>\n  </${tag}>`;
-}
-
-function propertyTableRows(properties) {
-  return properties.map((p) => {
-    const useLabel = DOR_UC_LABELS[p.dor_uc] || (p.dor_uc ? `DOR-${esc(p.dor_uc)}` : 'Not established');
-    const tag = p.acquisition_source === 'auction_win' ? 'Auction Win' : 'Prior Holding';
-    const countyLabel = p.county ? esc(String(p.county).replace(/_/g, ' ')) : 'Unknown county';
-    return `<tr>
-        <td>${esc(p.address) || 'Address unknown'}<div class="ptable-sub">${countyLabel} County &middot; ${esc(tag)}</div></td>
-        <td>${esc(useLabel)}</td>
-        <td>${money(p.jv)}</td>
-        <td>${money(p.av_sd)}</td>
-        <td>${esc(p.case_number) || '&mdash;'}</td>
-      </tr>`;
-  }).join('\n      ');
-}
-
-function propertySectionHeading(properties, auctionDateLabel) {
-  if (properties.length > 1) {
-    return `Property Portfolio &mdash; ${properties.length} Properties on File`;
-  }
-  return `Subject Property &mdash; Auction Win ${auctionDateLabel}`;
-}
-
-function propertyTotalsLine(properties) {
-  const totalJv = properties.reduce((sum, p) => sum + (typeof p.jv === 'number' ? p.jv : 0), 0);
-  const counties = Array.from(new Set(properties.map((p) => p.county).filter(Boolean)));
-  const propertyWord = properties.length === 1 ? 'property' : 'properties';
-  const countyWord = (counties.length || 1) === 1 ? 'county' : 'counties';
-  return `${properties.length} ${propertyWord} across ${counties.length || 1} ${countyWord} &middot; total Just Value ${money(totalJv)}`;
-}
-
-function buyerOfRecordRows(lead, properties) {
-  const totalJv = properties.reduce((sum, p) => sum + (typeof p.jv === 'number' ? p.jv : 0), 0);
-  const rows = [
-    ['Buyer of Record', lead.entity_name],
-    ['Contact Name', lead.contact_name],
-    ['Product Line', lead.product_line],
-    ['Properties on File', String(properties.length)],
-    ['Total Just Value', money(totalJv)],
-  ];
-  return rows.map(([label, val]) => `<tr><td class="label">${esc(label)}</td><td class="val">${esc(val) || 'Not established'}</td></tr>`).join('\n      ');
-}
-
-function contactRows(lead) {
-  const phone = lead.contact_phone ? `<a href="tel:${esc(lead.contact_phone)}">${esc(lead.contact_phone)}</a>` : 'Not on file';
-  const email = lead.contact_email ? `<a href="mailto:${esc(lead.contact_email)}">${esc(lead.contact_email)}</a>` : 'Not on file';
-  const rows = [
-    ['Phone', phone],
-    ['Email', email],
-    ['Consent Status', esc(lead.consent_status) || 'none'],
-  ];
-  return rows.map(([label, val]) => `<div class="contact-row"><span class="contact-label">${esc(label)}</span><span class="contact-value">${val}</span></div>`).join('\n      ');
-}
-
-function contactStatusLabel(consentStatus) {
-  return consentStatus && consentStatus !== 'none' ? esc(consentStatus).toUpperCase() : 'PROSPECT — NO CONSENT ON FILE';
-}
-
-function contactComplianceNote(consentStatus) {
-  return consentStatus && consentStatus !== 'none'
-    ? 'Consent on file for this contact -- see responses log for detail.'
-    : 'No outbound-contact consent on file. Producer contact only; do not use this data for direct-to-consumer solicitation.';
+  return `<div class="block cross">\n    <h2>Additional Coverage Signals</h2>\n    <ul>${items}</ul>\n  </div>`;
 }
 
 function renderFF(data) {
@@ -311,8 +250,18 @@ function renderFF(data) {
   const parcel = data.parcel || {};
   const responses = data.responses || {};
 
+  // issue #19751: own_addr1===phy_addr1 (owner-occupied) drives policy_type
+  // (HO3 vs DP3) below -- it is a real underwriting distinction within the
+  // insurance product, NOT a signal for which template/product to render.
+  // The old code used this same flag to also pick TEMPLATE_A ("Investor
+  // Property Fact Finder") for every non-owner-occupied lead, which routed
+  // 11 of 16 leads in the 2026-09-01 batch to the wrong renderer -- all 16
+  // are Protection Partners leads (this Worker is single-tenant, see the
+  // TEMPLATE_B import comment above), including DP3 (non-owner-occupied)
+  // ones, which are still an insurance product, not an investor-lead-sale
+  // product. This Worker now always renders TEMPLATE_B.
   const ownerOccupied = parcel.own_addr1 && parcel.phy_addr1 && parcel.own_addr1 === parcel.phy_addr1;
-  const template = ownerOccupied ? TEMPLATE_B : TEMPLATE_A;
+  const template = TEMPLATE_B;
 
   const leadSourceType = data.lead_source_type === 'mls_active' || data.lead_source_type === 'mls_pending'
     ? data.lead_source_type
@@ -329,12 +278,11 @@ function renderFF(data) {
 
   // issue #19747 defect 2: normalize trust-vehicle buyer names once, then
   // use the normalized values everywhere the buyer name is displayed
-  // (entity_name, contact_name, first/last split, call script, buyer-of-
-  // record table). `lead` itself is left untouched so contact_phone/email/
-  // consent_status/parcel_id reads elsewhere are unaffected.
+  // (entity_name, contact_name, first/last split, call script). `lead`
+  // itself is left untouched so contact_phone/email/consent_status/
+  // parcel_id reads elsewhere are unaffected.
   const normalizedEntityName = normalizeBuyerName(lead.entity_name);
   const normalizedContactName = normalizeBuyerName(lead.contact_name);
-  const leadForDisplay = { ...lead, entity_name: normalizedEntityName, contact_name: normalizedContactName };
 
   const nameParts = (normalizedContactName || normalizedEntityName || '').split(' ');
   const firstName = nameParts[0] || '';
@@ -460,22 +408,14 @@ function renderFF(data) {
     property_profile_rows: propertyProfileRows,
   };
 
-  // issue P0 Gap 2/3 (2026-08-26): unified properties array drives both the
-  // portfolio table (Template A) and cross-sell doctrine (both templates).
-  // properties.length === 1 for the ~all-leads-today case where
-  // ff_get_lead's `portfolio` has fewer than 2 rows -- crossSellNotes()
-  // naturally emits nothing for a single non-commercial property, so this
-  // doesn't change existing single-property output except adding the (empty)
-  // {{cross_sell_section}} placeholder.
+  // issue P0 Gap 2/3 (2026-08-26): unified properties array drives the
+  // cross-sell doctrine. properties.length === 1 for the ~all-leads-today
+  // case where ff_get_lead's `portfolio` has fewer than 2 rows --
+  // crossSellNotes() naturally emits nothing for a single non-commercial
+  // property, so this doesn't change existing single-property output except
+  // adding the (empty) {{cross_sell_section}} placeholder.
   const properties = buildProperties(data);
-  values.property_section_heading = propertySectionHeading(properties, values.auction_date);
-  values.property_rows = propertyTableRows(properties);
-  values.property_totals_line = propertyTotalsLine(properties);
-  values.buyer_of_record_rows = buyerOfRecordRows(leadForDisplay, properties);
-  values.contact_rows = contactRows(lead);
-  values.contact_status_label = contactStatusLabel(lead.consent_status);
-  values.contact_compliance_note = contactComplianceNote(lead.consent_status);
-  values.cross_sell_section = crossSellSectionHtml(properties, template === TEMPLATE_A);
+  values.cross_sell_section = crossSellSectionHtml(properties);
 
   return template.replace(/{{(\w+)}}/g, (_, key) => (values[key] !== undefined ? values[key] : ''));
 }
@@ -532,10 +472,87 @@ async function handlePortalBind(request) {
   return jsonResponse(result, result.ok ? 200 : 400);
 }
 
+// issue #19751: Cloudflare Error 1101 ("Worker threw exception") hit
+// /ff/<lead_id> live on 2026-09-01 during a Postgres restart window --
+// Postgres logs showed restarts at 19:20/19:30 UTC and a timed-out call at
+// ~19:34, right before the 19:35:24 1101. Root cause confirmed by reading
+// the pre-existing fetch() handler below: `try { ... return handleFF(...);
+// } catch (err) { ... }` does NOT actually catch a rejection from handleFF
+// -- `return somePromise` inside a try block returns synchronously (no
+// implicit await), so a later rejection propagates as an unhandled
+// rejection straight to the Workers runtime (-> 1101), bypassing that
+// catch entirely. Fixing this here, at the source of the only rejection
+// this route can produce, is more robust than relying on `await` discipline
+// at every call site in fetch() -- handleFF now never returns a rejected
+// promise: a failed fetch (retried once) or a renderFF() throw both resolve
+// to a normal 503 Response instead.
+async function fetchLeadWithRetry(leadId) {
+  try {
+    return await rpc('ff_get_lead', { p_org_id: ORG_ID, p_lead_id: leadId });
+  } catch (firstErr) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      return await rpc('ff_get_lead', { p_org_id: ORG_ID, p_lead_id: leadId });
+    } catch (secondErr) {
+      throw secondErr;
+    }
+  }
+}
+
+// Best-effort ops log -- never let a logging failure block the 503 response
+// itself, and never surface `error` (may include upstream response bodies)
+// to the visitor. winnerdata.ff_render_failures has RLS enabled with no
+// anon policy; this SECURITY DEFINER RPC is the only write path (see
+// supabase/migrations/20260902o_ff_render_failures.sql).
+async function logRenderFailure(leadId, error) {
+  try {
+    await rpc('ff_log_render_failure', {
+      p_lead_id: leadId,
+      p_error: String(error && error.message ? error.message : error).slice(0, 2000),
+      p_status: 503,
+    });
+  } catch {
+    // logging is best-effort -- swallow so it can never mask the real 503
+  }
+}
+
+function unavailablePage(leadId) {
+  const timestamp = new Date().toISOString();
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Winner Data AI &mdash; Temporarily Unavailable</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#faf9f5;color:#141413;margin:0;padding:2.5rem 1.5rem;text-align:center}
+  h1{color:#d97757;font-size:1.3rem}
+  p{max-width:32rem;margin:.75rem auto;color:#6b665c}
+  .meta{font-size:.8rem;color:#b0aea5;margin-top:1.5rem}
+</style></head><body>
+<h1>Winner Data AI</h1>
+<p>This Fact Finder is temporarily unavailable. Retry in a minute.</p>
+<p class="meta">Lead ${esc(leadId)} &middot; ${esc(timestamp)} UTC</p>
+</body></html>`;
+  return new Response(html, {
+    status: 503,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'Retry-After': '60' },
+  });
+}
+
 async function handleFF(leadId) {
-  const data = await rpc('ff_get_lead', { p_org_id: ORG_ID, p_lead_id: leadId });
+  let data;
+  try {
+    data = await fetchLeadWithRetry(leadId);
+  } catch (err) {
+    await logRenderFailure(leadId, err);
+    return unavailablePage(leadId);
+  }
   if (!data) return new Response('Not found', { status: 404 });
-  return new Response(renderFF(data), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  try {
+    return new Response(renderFF(data), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  } catch (err) {
+    await logRenderFailure(leadId, err);
+    return unavailablePage(leadId);
+  }
 }
 
 async function handleFFSubmit(leadId, request) {
