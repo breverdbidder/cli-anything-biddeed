@@ -61,6 +61,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TRACERFY_API_KEY: ${{ secrets.TRACERFY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          BRIGHTDATA_BROWSER_WSS: ${{ secrets.BRIGHTDATA_BROWSER_WSS }}
         run: |
           python scripts/seller_digest_enrichment.py
 
