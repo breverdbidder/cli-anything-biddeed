@@ -62,6 +62,18 @@ The full original Plaid transaction object is preserved untouched in the `raw` j
 Track D (recon) reads `amount_cents` directly with this convention — do not flip the sign
 anywhere in this pipeline.
 
+## Deviation: no `plaid` npm SDK
+
+The issue named the official `plaid` npm package. Its `PlaidApi` class is built on axios, whose
+default transport sets a `cache` fetch option the Cloudflare Workers runtime rejects outright —
+confirmed live 2026-09-02: `POST /link/token` on the deployed Worker returned HTTP 502
+`{"error":"Unsupported cache mode: default"}` even with `compatibility_flags = ["nodejs_compat"]`
+set. This is a documented axios-on-Workers incompatibility, not a misconfiguration. `src/plaid.ts`
+instead hits Plaid's plain JSON-over-HTTPS REST endpoints directly with the platform's native
+`fetch`, exposing the same method names/shapes (`linkTokenCreate`, `itemPublicTokenExchange`,
+`accountsGet`, `transactionsSync`, `webhookVerificationKeyGet`) the SDK would, so the rest of the
+codebase is unaffected. `plaid` is not a dependency in `package.json`.
+
 ## Deploy
 
 `.github/workflows/deploy-bank-engine.yml`, triggered on push to `workers/everest-bank-engine/**`.
