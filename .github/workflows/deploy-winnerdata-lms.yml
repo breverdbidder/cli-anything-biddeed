@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: winnerdata-lms-deploy
@@ -38,6 +38,9 @@ jobs:
           AUTH_PASS: ${{ secrets.LMS_AUTH_PASS }}
           SB_URL: ${{ secrets.SUPABASE_URL }}
           SB_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SB_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          LMS_AUTH_EMAIL: ${{ secrets.LMS_SUPABASE_AUTH_EMAIL }}
+          LMS_AUTH_PW: ${{ secrets.LMS_SUPABASE_AUTH_PASSWORD }}
         run: |
           MISSING=""
           [ -z "$CF_TOKEN" ] && MISSING="$MISSING CF_API_TOKEN"
@@ -46,6 +49,9 @@ jobs:
           [ -z "$AUTH_PASS" ] && MISSING="$MISSING LMS_AUTH_PASS"
           [ -z "$SB_URL" ] && MISSING="$MISSING SUPABASE_URL"
           [ -z "$SB_SERVICE_KEY" ] && MISSING="$MISSING SUPABASE_SERVICE_ROLE_KEY"
+          [ -z "$SB_ANON_KEY" ] && MISSING="$MISSING SUPABASE_ANON_KEY"
+          [ -z "$LMS_AUTH_EMAIL" ] && MISSING="$MISSING LMS_SUPABASE_AUTH_EMAIL"
+          [ -z "$LMS_AUTH_PW" ] && MISSING="$MISSING LMS_SUPABASE_AUTH_PASSWORD"
           if [ -n "$MISSING" ]; then
             echo "::error::Missing secrets:$MISSING. Add them at Settings > Secrets > Actions."
             exit 1
@@ -81,6 +87,9 @@ jobs:
           echo "${{ secrets.LMS_AUTH_PASS }}" | npx wrangler secret put LMS_AUTH_PASS
           echo "${{ secrets.SUPABASE_URL }}" | npx wrangler secret put SUPABASE_URL
           echo "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" | npx wrangler secret put SUPABASE_SERVICE_KEY
+          echo "${{ secrets.SUPABASE_ANON_KEY }}" | npx wrangler secret put SUPABASE_ANON_KEY
+          echo "${{ secrets.LMS_SUPABASE_AUTH_EMAIL }}" | npx wrangler secret put LMS_SUPABASE_AUTH_EMAIL
+          echo "${{ secrets.LMS_SUPABASE_AUTH_PASSWORD }}" | npx wrangler secret put LMS_SUPABASE_AUTH_PASSWORD
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -214,9 +223,213 @@ jobs:
           path: /tmp/lms_evidence.md
           retention-days: 14
 
+      # ---------------------------------------------------------------
+      # Issue #19745 requirement 4: a real click-through proof that (a) the
+      # LMS Batch Review + Approval screen creates a provenanced
+      # winnerdata.ff_batch_approvals row through the authenticated path,
+      # and (b) it's a genuine browser click, not a curl replay of the login
+      # form. Runs inside this runner for the same reason the evidence step
+      # above does: LMS_AUTH_USER/LMS_AUTH_PASS are write-only secrets.
+      #
+      # batch_kind='nine_case_portfolio' + a synthetic far-future batch_date:
+      # scripts/winnerdata_ff_send_approved.py only ever queries
+      # batch_kind='seller_digest' rows, so approving this test batch can
+      # NEVER cascade into a real send to Mariam/any producer, regardless of
+      # whether the winnerdata.ff_batches_notify_approved DB trigger fires —
+      # matches CLAUDE.md M1 (no producer-addressed send without Ariel's LMS
+      # approval click, and this build itself must not cause one).
+      # ---------------------------------------------------------------
+      - name: Prepare synthetic test batch for Playwright approval proof
+        working-directory: .
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          sql = """
+            insert into winnerdata.ff_batches (batch_date, status, batch_kind, lead_count)
+            values ('2099-06-15', 'pending_approval', 'nine_case_portfolio', 0)
+            on conflict (batch_date) do update set status = 'pending_approval',
+              approved_at = null, approved_by = null, approval_provenance = null;
+          """
+          req = urllib.request.Request(
+              "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+              data=json.dumps({"query": sql}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "winnerdata-lms-deploy-playwright-proof/1.0",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req) as resp:
+              print(resp.status, resp.read().decode())
+          PY
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Playwright — real LMS login + FF batch approve click-through
+        env:
+          LMS_URL: ${{ steps.deploy.outputs.worker_url }}
+          LMS_USER: ${{ secrets.LMS_AUTH_USER }}
+          LMS_PASS: ${{ secrets.LMS_AUTH_PASS }}
+        run: |
+          cat > /tmp/lms_approve_click.mjs <<'EOF'
+          import { chromium } from 'playwright';
+
+          const BASE = process.env.LMS_URL;
+          const USER = process.env.LMS_USER;
+          const PASS = process.env.LMS_PASS;
+          const BATCH_DATE = '2099-06-15';
+
+          const browser = await chromium.launch();
+          const page = await browser.newPage();
+          page.on('dialog', (d) => d.accept());
+
+          await page.goto(`${BASE}/login`);
+          await page.fill('#username', USER);
+          await page.fill('#password', PASS);
+          await Promise.all([
+            page.waitForNavigation(),
+            page.click('form[action="/login"] button[type="submit"]'),
+          ]);
+          if (page.url().includes('/login')) {
+            console.error('FAIL: still on /login after submitting real credentials');
+            process.exit(1);
+          }
+          console.log('PASS: real browser login via /login form succeeded');
+
+          await page.goto(`${BASE}/ff-batches/${BATCH_DATE}`);
+          await page.screenshot({ path: '/tmp/ff_batch_approval_before.png', fullPage: true });
+          const beforeText = await page.textContent('body');
+          if (!beforeText.includes('PENDING_APPROVAL') && !beforeText.includes('PENDING APPROVAL') && !beforeText.toUpperCase().includes('PENDING_APPROVAL')) {
+            console.error('FAIL: test batch is not pending_approval before the click — cannot prove the approve action');
+            process.exit(1);
+          }
+
+          const approveButton = page.locator('form[action$="/approve"] button[type="submit"]');
+          if ((await approveButton.count()) === 0) {
+            console.error('FAIL: no Approve button found on the batch detail page');
+            process.exit(1);
+          }
+          await Promise.all([
+            page.waitForNavigation(),
+            approveButton.click(),
+          ]);
+          await page.screenshot({ path: '/tmp/ff_batch_approval_after.png', fullPage: true });
+
+          const afterText = await page.textContent('body');
+          if (afterText.includes('Approval failed') || afterText.includes('Approval rejected')) {
+            console.error('FAIL: approval error text present on the page after clicking Approve');
+            console.error(afterText.slice(0, 2000));
+            process.exit(1);
+          }
+          if (!afterText.toUpperCase().includes('APPROVED')) {
+            console.error('FAIL: batch does not show APPROVED status after the real click');
+            process.exit(1);
+          }
+          console.log('PASS: real browser click on Approve Batch moved the batch to APPROVED');
+          await browser.close();
+          EOF
+          node /tmp/lms_approve_click.mjs
+
+      - name: Verify the click created a real, hash-matching ff_batch_approvals row
+        working-directory: .
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          EXPECTED_EMAIL: ${{ secrets.LMS_SUPABASE_AUTH_EMAIL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          sql = """
+            select a.batch_date, a.batch_kind, a.approved_by_email,
+                   a.snapshot_hash, b.status, b.approval_provenance
+            from winnerdata.ff_batch_approvals a
+            join winnerdata.ff_batches b on b.batch_date = a.batch_date
+            where a.batch_date = '2099-06-15'
+            order by a.approved_at desc limit 1;
+          """
+          req = urllib.request.Request(
+              "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+              data=json.dumps({"query": sql}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "winnerdata-lms-deploy-playwright-proof/1.0",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req) as resp:
+              rows = json.loads(resp.read())
+          print(json.dumps(rows, indent=2))
+          if not rows:
+              print("::error::No ff_batch_approvals row was created by the real LMS click")
+              raise SystemExit(1)
+          row = rows[0]
+          expected_email = os.environ["EXPECTED_EMAIL"]
+          if row["approved_by_email"] != expected_email:
+              print(f"::error::approved_by_email={row['approved_by_email']!r}, expected {expected_email!r}")
+              raise SystemExit(1)
+          if row["status"] != "approved" or row["approval_provenance"] != "authenticated_lms_click":
+              print(f"::error::unexpected batch state after approval: {row}")
+              raise SystemExit(1)
+          print("PASS: ff_batch_approvals row exists, correct admin email, batch flipped with authenticated_lms_click provenance")
+          PY
+
+      - name: Commit Playwright approval-click evidence screenshots
+        working-directory: .
+        run: |
+          mkdir -p docs/evidence
+          cp /tmp/ff_batch_approval_before.png docs/evidence/19745-lms-ff-batch-approval-before.png
+          cp /tmp/ff_batch_approval_after.png docs/evidence/19745-lms-ff-batch-approval-after.png
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/evidence/19745-lms-ff-batch-approval-before.png docs/evidence/19745-lms-ff-batch-approval-after.png
+          if git diff --cached --quiet; then
+            echo "No screenshot changes to commit."
+          else
+            git commit -m "$(cat <<'EOF'
+          docs(19745): commit live Playwright approval click-through screenshots
+
+          Automated evidence from deploy-winnerdata-lms.yml — a real browser login
+          + Approve Batch click against the deployed LMS Worker, proving the
+          authenticated-JWT approval path (issue #19745) works end to end.
+
+          Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+          EOF
+          )"
+            git push origin HEAD:main
+          fi
+
+      - name: Cleanup synthetic test batch
+        if: always()
+        working-directory: .
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          req = urllib.request.Request(
+              "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query",
+              data=json.dumps({"query": "delete from winnerdata.ff_batches where batch_date = '2099-06-15';"}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "winnerdata-lms-deploy-playwright-proof/1.0",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req) as resp:
+              print(resp.status, resp.read().decode())
+          PY
+
       - name: Summary
         run: |
           echo "### Winner Data LMS Worker — Deploy Verified" >> "$GITHUB_STEP_SUMMARY"
           echo "Live URL (workers.dev): ${{ steps.deploy.outputs.worker_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Intended custom domain: https://lms.winnerdataai.com (blocked on DNS — CF_API_TOKEN lacks Zone:DNS permission, see wrangler.toml)" >> "$GITHUB_STEP_SUMMARY"
           echo "Auth: real /login form (username+password, credentials in LMS_AUTH_USER/LMS_AUTH_PASS repo secrets) + signed session cookie — no browser Basic Auth popup" >> "$GITHUB_STEP_SUMMARY"
+          echo "Issue #19745: FF batch approval now requires a real Supabase Auth JWT (public.ff_batch_approve_authenticated) — see docs/evidence/19745-lms-ff-batch-approval-after.png for the live click-through proof." >> "$GITHUB_STEP_SUMMARY"

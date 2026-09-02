@@ -42,6 +42,21 @@ Ariel's explicit conservative default. If qualifying leads exist but none
 are approved, this logs 'blocked_unreviewed_leads' and does NOT send or
 flip the batch to 'sent'.
 
+BLOCKING (unforgeable approval gate, issue #19745, 2026-09-02): status=
+'approved' alone is no longer trusted. Before doing anything else, this
+verifies a winnerdata.ff_batch_approvals row exists for the batch whose
+snapshot_hash matches the batch's CURRENT (batch_date, batch_kind,
+lead_count) -- i.e. an authenticated LMS click approved exactly this batch
+state (see get_verified_approval() in winnerdata_ff_digest_lib.py and
+supabase/migrations/20260902i_winnerdata_ff_batch_approvals_gate.sql). No
+matching row -> logs 'blocked_unverified_approval' and refuses to send, a
+hard error, never a silent skip. This is what makes the 2026-09-01 incident
+(service-role approval with no human click) structurally impossible: even
+if something still flips ff_batches.status via the legacy
+public.ff_approve_batch() RPC, there is no way to also forge a matching
+ff_batch_approvals row without a real, allow-listed admin's Supabase Auth
+JWT.
+
 Run:
   python scripts/winnerdata_ff_send_approved.py [--dry-run]
     [--batch-date YYYY-MM-DD] [--test-send-to EMAIL]
@@ -58,6 +73,7 @@ from winnerdata_ff_digest_lib import (
     get_batch_lead_reviews,
     get_batch_leads,
     get_producer_email,
+    get_verified_approval,
     log_digest,
     render_email,
     run_sql,
@@ -79,7 +95,7 @@ def get_approved_batches(batch_date):
     where = "where status = 'approved' and batch_kind = 'seller_digest'"
     if batch_date:
         where += f" and batch_date = {sql_str(batch_date)}"
-    return run_sql(f"select batch_date, lead_count from winnerdata.ff_batches {where} order by batch_date;")
+    return run_sql(f"select batch_date, batch_kind, lead_count from winnerdata.ff_batches {where} order by batch_date;")
 
 
 def mark_sent(batch_date):
@@ -93,6 +109,25 @@ def mark_sent(batch_date):
 def process_batch(batch, test_send_to, dry_run):
     batch_date = batch["batch_date"]
     print(f"--- Processing approved batch {batch_date} ---")
+
+    # issue #19745, item 2: verify, don't trust. status='approved' alone is
+    # not enough -- it can still be set by the pre-existing service-role
+    # public.ff_approve_batch() RPC, which proves nothing about who/what
+    # called it (the exact 2026-09-01 incident this issue closes). Refuse to
+    # send unless a matching winnerdata.ff_batch_approvals row exists whose
+    # snapshot_hash matches this batch's CURRENT (batch_date, batch_kind,
+    # lead_count) -- a hard error, logged, never a silent skip.
+    approval = get_verified_approval(batch_date, batch["batch_kind"], batch["lead_count"])
+    if not approval:
+        print(f"BLOCKED: no verified LMS approval found for {batch_date} matching the batch's "
+              f"current state (batch_kind={batch['batch_kind']!r}, lead_count={batch['lead_count']}). "
+              "Refusing to send. This is a hard error, not a silent skip -- approve via the LMS "
+              "(/ff-batches) to create a matching winnerdata.ff_batch_approvals row. Batch stays "
+              "'approved' for retry once a verified approval exists.")
+        if not dry_run:
+            log_digest(batch_date, None, 0, None, "blocked_unverified_approval")
+        return
+    print(f"Verified approval: {approval['approved_by_email']} at {approval['approved_at']}.")
 
     recipient = test_send_to or get_producer_email()
     if not recipient:

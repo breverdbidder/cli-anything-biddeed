@@ -19,9 +19,13 @@ workers_dev = true
 pattern = "lms.winnerdataai.com/*"
 zone_name = "winnerdataai.com"
 
-# No [vars] — all four values this Worker needs (SUPABASE_URL,
-# SUPABASE_SERVICE_KEY, LMS_AUTH_USER, LMS_AUTH_PASS) are real secrets set via
-# `wrangler secret put` in the deploy workflow, never written here.
+# No [vars] — all seven values this Worker needs (SUPABASE_URL,
+# SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY, LMS_AUTH_USER, LMS_AUTH_PASS,
+# LMS_SUPABASE_AUTH_EMAIL, LMS_SUPABASE_AUTH_PASSWORD) are real secrets set via
+# `wrangler secret put` in the deploy workflow, never written here. The last
+# two (added 2026-09-02, issue #19745) are a dedicated Supabase Auth identity
+# used ONLY to mint a real user JWT for the FF batch approve action — see
+# rpcAsAuthenticatedAdmin() in src/index.js.
 #
 # SECURITY FIX (2026-09-01, same-day follow-up): v1 embedded the Supabase
 # anon key as a source constant (winnerdata-ff's pattern) and granted the

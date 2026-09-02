@@ -170,6 +170,39 @@ def get_batch_lead_reviews(batch_date):
     return {r["case_number"]: r["decision"] for r in rows}
 
 
+def get_verified_approval(batch_date, batch_kind, lead_count):
+    """Issue #19745 send-path gate: the send step must VERIFY, not trust
+    winnerdata.ff_batches.status='approved' -- that column can still be
+    flipped by the old service-role public.ff_approve_batch() RPC (kept live
+    for the pre-existing Cowork-task flow), which proves nothing about who
+    actually issued the call (the 2026-09-01 incident this issue closes).
+
+    Returns the most recent winnerdata.ff_batch_approvals row for batch_date
+    IF its snapshot_hash matches the batch's CURRENT (batch_date, batch_kind,
+    lead_count) -- i.e. an authenticated LMS click approved exactly this
+    batch state, not a since-changed one. Returns None otherwise (no approval
+    row at all, or the batch changed since the last approval).
+    """
+    expected = run_sql(f"""
+        select encode(
+          extensions.digest({sql_str(batch_date)} || '|' || {sql_str(batch_kind)} || '|' || {lead_count}::text, 'sha256'),
+          'hex'
+        ) as expected_hash;
+    """)
+    expected_hash = expected[0]["expected_hash"]
+
+    rows = run_sql(f"""
+        select snapshot_hash, approved_by_email, approved_at
+        from winnerdata.ff_batch_approvals
+        where batch_date = {sql_str(batch_date)}
+        order by approved_at desc
+        limit 1;
+    """)
+    if not rows or rows[0]["snapshot_hash"] != expected_hash:
+        return None
+    return rows[0]
+
+
 def confidence_label(confidence_tier):
     # Honest passthrough of whatever winnerdata.ff_batch_leads.contact_confidence
     # already recorded (e.g. "VERIFIED-CROSS-CHECKED", "LIKELY-SINGLE-SOURCE",

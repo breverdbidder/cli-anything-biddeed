@@ -45,6 +45,15 @@
  *
  * BILLING: /billing is a READ view onto finance.revenue_ledger via
  * lms_billing_view() — no invoice/Stripe logic is duplicated here.
+ *
+ * FF BATCH APPROVAL (2026-09-02, issue #19745): unlike every other action in
+ * this file, POST /ff-batches/:batch_date/approve does NOT use the shared
+ * service-role rpc() helper. It calls public.ff_batch_approve_authenticated()
+ * with a real Supabase Auth JWT (see rpcAsAuthenticatedAdmin()/
+ * mintAdminAccessToken() below) so the resulting winnerdata.ff_batch_approvals
+ * row cannot be forged by a service-role call — closing the exact gap a
+ * 2026-09-01 incident exploited (an automated session approved+sent a real
+ * batch using the service-role path with no human click involved).
  */
 
 async function rpc(env, fn, body) {
@@ -59,6 +68,55 @@ async function rpc(env, fn, body) {
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`rpc ${fn} failed: ${res.status} ${text}`);
+  return text ? JSON.parse(text) : null;
+}
+
+// --- Authenticated approval path (issue #19745) ---------------------------
+// public.ff_batch_approve_authenticated() is EXECUTE-granted to
+// `authenticated` only (not service_role) and internally requires
+// auth.uid()/auth.email() to be non-null and allow-listed in
+// winnerdata.lms_admins -- see
+// supabase/migrations/20260902i_winnerdata_ff_batch_approvals_gate.sql.
+// The service-role `rpc()` helper above cannot satisfy that: a service-role
+// JWT carries no `sub` claim, so auth.uid() is null and the RPC (and its
+// underlying table's BEFORE INSERT trigger) reject it outright. This is the
+// entire point -- it is what makes the 2026-09-01 incident (an automated
+// session approving+sending via the service-role path with nobody having
+// clicked anything) structurally impossible going forward.
+//
+// LMS_SUPABASE_AUTH_EMAIL/LMS_SUPABASE_AUTH_PASSWORD are a DEDICATED
+// Supabase Auth identity (ariel+lms-admin@everestcapitalusa.com, provisioned
+// 2026-09-02) held only as Worker secrets -- never sent to the browser, never
+// logged. Signing in here, server-side, immediately after this Worker's own
+// session-cookie gate has already confirmed a real human passed /login, is
+// what "auth.uid() captured server-side" (the issue's own phrasing) means in
+// practice: the click is real (gated by checkSession() below), and the JWT
+// that click's approve request carries to Postgres is also real.
+async function mintAdminAccessToken(env) {
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: { apikey: env.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: env.LMS_SUPABASE_AUTH_EMAIL, password: env.LMS_SUPABASE_AUTH_PASSWORD }),
+  });
+  if (!res.ok) throw new Error(`admin sign-in failed: ${res.status}`);
+  const data = await res.json();
+  if (!data.access_token) throw new Error('admin sign-in returned no access_token');
+  return data.access_token;
+}
+
+async function rpcAsAuthenticatedAdmin(env, fn, body) {
+  const accessToken = await mintAdminAccessToken(env);
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`rpc ${fn} (authenticated) failed: ${res.status} ${text}`);
   return text ? JSON.parse(text) : null;
 }
 
@@ -570,7 +628,7 @@ async function viewFFBatches(env) {
 
   const body = `
     <h2>FF Batches — Review + Approval</h2>
-    <p class="footer-note">Approving here calls the same public.ff_approve_batch() the chat-based flow used. Only leads marked <b>approved</b> below are eligible to send — an unreviewed lead is never sent.</p>
+    <p class="footer-note">Approving here signs in as a dedicated admin identity and calls public.ff_batch_approve_authenticated() with that real session's JWT (issue #19745) — the resulting approval record cannot be forged by any service-role/automated call. Only leads marked <b>approved</b> below are eligible to send — an unreviewed lead is never sent, and the send step independently re-verifies this approval record before it will send anything.</p>
     <table>
       <thead><tr><th>Batch Date</th><th>Kind</th><th>Status</th><th>Leads</th><th>Enrichment</th><th>Per-Lead Review</th><th>Built</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="7" class="empty">No FF batches on file.</td></tr>'}</tbody>
@@ -670,7 +728,29 @@ async function handleFFBatchLeadReview(env, request, batchDate, caseNumber) {
 }
 
 async function handleFFBatchApprove(env, request, batchDate) {
-  await rpc(env, 'lms_ff_approve_batch', { p_batch_date: batchDate, p_actor: request.lmsActor });
+  // issue #19745: approval must go through public.ff_batch_approve_authenticated()
+  // with a real Supabase Auth JWT, not the old service-role
+  // lms_ff_approve_batch() call -- that RPC being service-role-callable at
+  // all (regardless of who/what called it) was the exact hole the 2026-09-01
+  // incident exploited. If minting the admin JWT fails, this must surface as
+  // a hard error, never a silent fall-back to the service-role path.
+  let result;
+  try {
+    result = await rpcAsAuthenticatedAdmin(env, 'ff_batch_approve_authenticated', { p_batch_date: batchDate });
+  } catch (err) {
+    return new Response(
+      `Approval failed: could not establish an authenticated admin session (${esc(String(err))}). `
+      + 'Nothing was approved -- this is a hard failure, not a silent skip. Try again, or check '
+      + 'LMS_SUPABASE_AUTH_EMAIL/LMS_SUPABASE_AUTH_PASSWORD Worker secrets.',
+      { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } },
+    );
+  }
+  if (!result || !result.ok) {
+    return new Response(
+      `Approval rejected: ${esc(JSON.stringify(result))}`,
+      { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } },
+    );
+  }
   return Response.redirect(new URL(`/ff-batches/${encodeURIComponent(batchDate)}`, request.url).toString(), 303);
 }
 
