@@ -15,6 +15,15 @@ Guardrails enforced in code, not just prose (see build_script_and_caption):
     count against that cap
   - a reel is never re-rendered once it has a video_url unless force=True
 
+2026-09-02 directive (issue #19736 comment, after the first backfill came
+back 15/15 error): T3 condition scoring is routed through Gemini
+(gemini-2.5-flash, called directly with inlineData image parts -- see
+score_condition()) instead of the Anthropic API, which hit a hard usage cap
+mid-backfill. T2 also gained a Geocoding API fallback (geocode_address()) for
+addresses that don't match any public.zw_parcels row, so imagery still runs
+(parcel_id/assessed_value/delta_pct land null for those rows instead of the
+row erroring outright).
+
 public schema (auction_buyer_sightings, zw_parcels) reads go through
 PostgREST (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY), matching
 entity_portfolio_resolver.py's pg_rest() pattern. winnerdata.* is NOT
@@ -45,7 +54,14 @@ SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 MGMT_API_RETRIES = 3
 MGMT_API_BACKOFF_SECONDS = 3
 
-CLAUDE_VISION_MODEL = "claude-sonnet-4-6"
+# 2026-09-02 directive (issue #19736 comment): the Anthropic API path hit a
+# hard usage cap on the first backfill attempt (11/15 rows). T3 vision scoring
+# is routed through Gemini instead -- same model (gemini-2.5-flash) the
+# in-Postgres Smart Router (public.ecu_route_chat_llm / claude-router) already
+# uses as its T1 free tier, called directly here since neither of those
+# surfaces accepts image input today.
+GEMINI_VISION_MODEL = "gemini-2.5-flash"
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # Standard ElevenLabs premade voice ("Rachel") -- always present on any
 # ElevenLabs account, no account-specific voice provisioning required.
@@ -114,6 +130,27 @@ def sql_jsonb(obj):
     if obj is None:
         return "null"
     return sql_str(json.dumps(obj)) + "::jsonb"
+
+
+def get_vault_secret(name: str) -> str:
+    """Vault fallback for keys not present in the environment (e.g. this
+    pipeline running outside the GHA runner, which has no GOOGLE_MAPS_API_KEY/
+    ELEVENLABS_API_KEY env vars). Matches gemini_task_runner.py's
+    get_vault_secret() -- RPC only, never echoed, never written to a shell
+    command (CREDENTIAL HANDLING mandate)."""
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp",
+        data=json.dumps({"p_name": name}).encode(),
+        headers={
+            "apikey": SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "biddeed-reels-pipeline/1.0",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode()).strip('"')
 
 
 def pg_rest(table: str, params: str, timeout: int = 60) -> list[dict]:
@@ -230,6 +267,26 @@ def match_parcel(property_address: str, county_slug: str) -> dict | None:
     return None
 
 
+def geocode_address(property_address: str, api_key: str) -> tuple[float, float] | None:
+    """2026-09-02 directive (issue #19736 comment): when an address can't be
+    matched to a zw_parcels row, fall back to the Geocoding API so imagery
+    still runs. Returns None on any miss/error -- caller treats that as the
+    real error case (both parcel match AND geocode failed)."""
+    url = (
+        "https://maps.googleapis.com/maps/api/geocode/json"
+        f"?address={urllib.parse.quote(property_address or '')}&region=us&key={api_key}"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            body = json.loads(r.read())
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        return None
+    if body.get("status") != "OK" or not body.get("results"):
+        return None
+    loc = body["results"][0]["geometry"]["location"]
+    return loc["lat"], loc["lng"]
+
+
 # ---------------------------------------------------------------------------
 # T2 support -- Google Maps Static + Street View
 # ---------------------------------------------------------------------------
@@ -286,28 +343,93 @@ aerial image is available, roof/vegetation can be VERIFIED or LIKELY but exterio
 should usually be UNCONFIRMED or LIKELY at best."""
 
 
-def score_condition(image_paths: list[str], anthropic_api_key: str) -> dict:
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=anthropic_api_key)
-    content = []
+def _gemini_generate(image_paths: list[str], api_key: str) -> str:
+    parts = []
     for p in image_paths:
         media_type = "image/png" if p.lower().endswith(".png") else "image/jpeg"
         b64 = base64.b64encode(open(p, "rb").read()).decode()
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": media_type, "data": b64},
-        })
-    content.append({"type": "text", "text": CONDITION_PROMPT})
+        parts.append({"inlineData": {"mimeType": media_type, "data": b64}})
+    parts.append({"text": CONDITION_PROMPT})
 
-    resp = client.messages.create(
-        model=CLAUDE_VISION_MODEL,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": content}],
+    body = {
+        "contents": [{"parts": parts}],
+        # thinkingBudget=0 disables gemini-2.5-flash's extended-thinking mode --
+        # live-verified during this pipeline's own backfill that thinking
+        # tokens (>600 on a trivial 1x1 test image) ate into maxOutputTokens
+        # and truncated the JSON response mid-string ("Unterminated string").
+        # maxOutputTokens raised to 2048 as a second margin on top of that.
+        "generationConfig": {"maxOutputTokens": 2048, "thinkingConfig": {"thinkingBudget": 0}},
+    }
+    url = f"{GEMINI_API_BASE}/{GEMINI_VISION_MODEL}:generateContent?key={api_key}"
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"}, method="POST",
     )
-    text = resp.content[0].text.strip()
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read().decode())
+    if "error" in data:
+        raise RuntimeError(f"Gemini error {data['error'].get('code')}: {data['error'].get('message')}")
+    candidates = data.get("candidates") or []
+    if not candidates:
+        reason = data.get("promptFeedback", {}).get("blockReason", "UNKNOWN")
+        raise RuntimeError(f"Gemini returned no candidates (blockReason={reason})")
+    cand = candidates[0]
+    parts_out = cand.get("content", {}).get("parts") or []
+    if not parts_out:
+        raise RuntimeError(f"Gemini returned no text (finishReason={cand.get('finishReason')})")
+    return parts_out[0]["text"].strip()
+
+
+_GEMINI_RETRY_DELAY_RE = re.compile(r"retry in ([0-9.]+)s", re.IGNORECASE)
+GEMINI_MAX_RETRIES_PER_KEY = 2
+GEMINI_MAX_RETRY_DELAY_SECONDS = 65
+
+
+def score_condition(image_paths: list[str], gemini_api_keys) -> dict:
+    """T3 condition scoring via Gemini vision (see GEMINI_VISION_MODEL note
+    above -- routed off Anthropic entirely after the 2026-09-02 usage-cap
+    directive, not just as a fallback).
+
+    gemini_api_keys may be a single key (str) or an ordered list of candidate
+    keys -- live-verified during this pipeline's own 2026-09-02 re-run that
+    vault key 'gemini_api_key' returns HTTP 429 RESOURCE_EXHAUSTED with
+    "prepayment credits are depleted" (a genuine, permanent billing
+    exhaustion for that key -- skip straight to the next key), while
+    'gemini_api_key_biddeed' works but is on the free tier's per-minute
+    request quota (429 RESOURCE_EXHAUSTED with a "Please retry in Ns"
+    hint -- also live-verified) -- that one is transient, so it's retried
+    on the SAME key with the server-suggested backoff before falling
+    through to the next key.
+    """
+    keys = gemini_api_keys if isinstance(gemini_api_keys, (list, tuple)) else [gemini_api_keys]
+    last_err = None
+    text = None
+    for key in keys:
+        if not key:
+            continue
+        for attempt in range(GEMINI_MAX_RETRIES_PER_KEY + 1):
+            try:
+                text = _gemini_generate(image_paths, key)
+                break
+            except urllib.error.HTTPError as e:
+                body = e.read().decode() if e.fp else ""
+                last_err = RuntimeError(f"Gemini HTTP {e.code}: {body[:300]}")
+                if e.code != 429:
+                    raise last_err
+                if "prepayment credits are depleted" in body:
+                    break  # permanent for this key -- try the next key, not a retry
+                if attempt >= GEMINI_MAX_RETRIES_PER_KEY:
+                    break  # exhausted retries on this key -- try the next key
+                m = _GEMINI_RETRY_DELAY_RE.search(body)
+                delay = min(float(m.group(1)), GEMINI_MAX_RETRY_DELAY_SECONDS) if m else 20.0
+                time.sleep(delay)
+        if text is not None:
+            break
+    if text is None:
+        raise last_err or RuntimeError("no usable Gemini API key")
+
     # Models sometimes wrap JSON in a fenced code block despite instructions.
-    text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    text = re.sub(r"^```(json)?|```$", "", text, flags=re.MULTILINE).strip()
     parsed = json.loads(text)
     score = parsed.get("condition_score")
     if not isinstance(score, (int, float)) or not (0 <= score <= 100):

@@ -10,8 +10,10 @@ Run:
   python scripts/biddeed_reels_pipeline.py [--auction-date YYYY-MM-DD]
     [--force] [--dry-run] [--limit N]
 
-Required env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN,
-  GOOGLE_MAPS_API_KEY, ELEVENLABS_API_KEY, ANTHROPIC_API_KEY.
+Required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN env
+  vars, plus GOOGLE_MAPS_API_KEY, ELEVENLABS_API_KEY, GEMINI_API_KEY -- either
+  as env vars (GHA runner) or resolved from the Supabase vault at runtime
+  (see resolve_key() in main()).
 """
 import argparse
 import os
@@ -82,7 +84,7 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
     case_number = sighting["case_number"]
     county = sighting["county"]
     result = {"case_number": case_number, "county": county, "status": None,
-              "error": None, "image_calls": 0, "tts_chars": 0}
+              "error": None, "image_calls": 0, "tts_chars": 0, "geocode_fallback": None}
 
     base_row = {
         "case_number": case_number, "county": county,
@@ -98,17 +100,35 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
             result["status"] = "skipped_has_video"
             return result
 
-        parcel = lib.match_parcel(sighting.get("property_address", ""), county)
-        if not parcel or parcel.get("centroid_lat") is None or parcel.get("centroid_lon") is None:
-            row = dict(base_row, status="error",
-                       error_text="no zw_parcels match (or missing lat/lon) for property_address")
-            upsert_reel(row, dry_run)
-            result["status"] = "error"
-            result["error"] = row["error_text"]
-            return result
-
-        lat, lon = parcel["centroid_lat"], parcel["centroid_lon"]
-        assessed_value = parcel.get("val_assessed")
+        raw_addr = sighting.get("property_address", "")
+        parcel = lib.match_parcel(raw_addr, county)
+        assessed_value = None
+        parcel_id = None
+        if parcel and parcel.get("centroid_lat") is not None and parcel.get("centroid_lon") is not None:
+            lat, lon = parcel["centroid_lat"], parcel["centroid_lon"]
+            assessed_value = parcel.get("val_assessed")
+            parcel_id = parcel.get("pin_clean")
+        else:
+            # 2026-09-02 directive: no zw_parcels match -- log raw + normalized
+            # address (T9 report) and fall back to Geocoding so imagery still
+            # runs. Only a genuine error (both parcel match AND geocode miss)
+            # aborts the row now.
+            result["geocode_fallback"] = {
+                "raw_address": raw_addr,
+                "normalized": lib.normalize_addr(lib.street_part(raw_addr)),
+            }
+            geocoded = lib.geocode_address(raw_addr, keys["google_maps"])
+            if not geocoded:
+                row = dict(base_row, status="error",
+                           error_text="no zw_parcels match AND geocode miss for property_address "
+                                      f"(normalized: {result['geocode_fallback']['normalized']!r})")
+                upsert_reel(row, dry_run)
+                result["status"] = "error"
+                result["error"] = row["error_text"]
+                return result
+            lat, lon = geocoded
+            result["geocode_fallback"]["lat"] = lat
+            result["geocode_fallback"]["lon"] = lon
 
         with tempfile.TemporaryDirectory() as tmp:
             aerial_path = os.path.join(tmp, "aerial.png")
@@ -131,7 +151,7 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
                 street_url = lib.storage_upload(street_path, f"{prefix}/street.jpg", "image/jpeg")
 
             image_paths = [aerial_path] + ([street_path] if street_path else [])
-            condition = lib.score_condition(image_paths, keys["anthropic"])
+            condition = lib.score_condition(image_paths, keys["gemini"])
             condition_score = int(round(condition["condition_score"]))
 
             sale_and_caption = lib.build_script_and_caption(
@@ -173,7 +193,7 @@ def process_row(sighting: dict, force: bool, dry_run: bool, keys: dict) -> dict:
 
             row = dict(
                 base_row,
-                parcel_id=parcel.get("pin_clean"),
+                parcel_id=parcel_id,
                 assessed_value=assessed_value,
                 delta_pct=delta_pct,
                 aerial_url=aerial_url,
@@ -242,14 +262,48 @@ def main():
     auction_date = args.auction_date or get_yesterday()
     print(f"Auction date: {auction_date}")
 
+    def _try_vault(vault_name: str, dry_run: bool) -> str:
+        if dry_run:
+            return ""
+        try:
+            return lib.get_vault_secret(vault_name)
+        except Exception:
+            return ""
+
+    def resolve_key(env_name: str, vault_names: list[str]) -> str:
+        """env var wins (GHA runner sets these from repo secrets); falls back
+        to a vault fetch for sessions that don't have the env var set (never
+        echoed -- see lib.get_vault_secret)."""
+        v = os.environ.get(env_name, "")
+        if v or args.dry_run:
+            return v
+        for name in vault_names:
+            try:
+                return lib.get_vault_secret(name)
+            except Exception:
+                continue
+        return ""
+
+    # 2026-09-02 directive: Gemini replaces Anthropic for T3 vision scoring.
+    # gemini_api_key_biddeed goes first -- live-verified during this
+    # pipeline's re-run that vault key 'gemini_api_key' (== env GEMINI_API_KEY
+    # mirrored from it) is billing-exhausted (HTTP 429 RESOURCE_EXHAUSTED,
+    # "prepayment credits are depleted"), while gemini_api_key_biddeed works.
+    # score_condition() tries each in order and only falls through on a 429.
+    gemini_keys = [k for k in (
+        _try_vault("gemini_api_key_biddeed", args.dry_run),
+        os.environ.get("GEMINI_API_KEY", ""),
+        _try_vault("gemini_api_key", args.dry_run),
+    ) if k]
+
     keys = {
-        "google_maps": os.environ.get("GOOGLE_MAPS_API_KEY", ""),
-        "elevenlabs": os.environ.get("ELEVENLABS_API_KEY", ""),
-        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
+        "google_maps": resolve_key("GOOGLE_MAPS_API_KEY", ["google_maps_api_key"]),
+        "elevenlabs": resolve_key("ELEVENLABS_API_KEY", ["elevenlabs_api_key", "elevenlabs_production"]),
+        "gemini": gemini_keys,
     }
     missing = [k for k, v in keys.items() if not v and not args.dry_run]
     if missing:
-        print(f"ERROR: missing required env vars for: {missing}", file=sys.stderr)
+        print(f"ERROR: missing required keys (env + vault both empty) for: {missing}", file=sys.stderr)
         sys.exit(1)
 
     sightings = get_third_party_wins(auction_date)
@@ -281,6 +335,15 @@ def main():
     print(f"shortlisted={len(shortlisted)}")
     for r in sorted(shortlisted, key=lambda x: x.get("rank_score") or 0, reverse=True):
         print(f"  #{r['case_number']} / {r['county']} rank_score={r['rank_score']} video_url={r['video_url']}")
+
+    geocoded = [r for r in results if r.get("geocode_fallback")]
+    if geocoded:
+        print("\n=== NO ZW_PARCELS MATCH (geocode fallback attempted) ===")
+        for r in geocoded:
+            gf = r["geocode_fallback"]
+            outcome = "geocoded OK" if "lat" in gf else "geocode ALSO missed -> error"
+            print(f"  {r['case_number']} / {r['county']}: raw={gf['raw_address']!r} "
+                  f"normalized={gf['normalized']!r} -> {outcome}")
 
     errored = [r for r in results if r["status"] == "error"]
     if errored:
