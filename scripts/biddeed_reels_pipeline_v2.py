@@ -39,7 +39,8 @@ def get_v1_rows(auction_date: str) -> list[dict]:
     rows = lib.run_sql(f"""
         select id, case_number, county, sale_type, auction_date, property_address,
                sold_amount, parcel_id, assessed_value, condition_json, condition_score,
-               video_v2_url, short_code
+               video_v2_url, short_code, aerial_wide_url, aerial_tight_url, street_url,
+               zw_parcel_id, parcel_geojson, parcel_outline
         from winnerdata.biddeed_reels
         where auction_date = {lib.sql_str(auction_date)}
           and status = 'pending_approval'
@@ -102,6 +103,12 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
         result["status"] = "skipped_has_v2"
         return result
 
+    # Directive #4A (Ariel, 2026-09-02 21:16 EDT): re-rendering an already-
+    # imaged row (script/pill/PCT/voice fixes) must not re-spend Maps quota.
+    # If this row already has v2 stills from an earlier run, pull them back
+    # down instead of re-calling Static Maps/Street View/Geocoding.
+    reuse_imagery = bool(force and row.get("aerial_wide_url") and row.get("aerial_tight_url") and row.get("street_url"))
+
     try:
         parcel_id = row.get("parcel_id")
         # numeric columns come back as JSON strings from the Management API
@@ -121,46 +128,57 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
         prefix = f"{date_key}/{case_key}"
 
         with tempfile.TemporaryDirectory() as tmp:
-            lat = lon = None
-            parcel_geojson = None
-            parcel_outline = False
-
-            if geom_row and geom_row.get("centroid_lat") is not None:
-                lat, lon = float(geom_row["centroid_lat"]), float(geom_row["centroid_lon"])
-                parcel_geojson = json.loads(geom_row["geojson"])
-                ring = lib.geojson_ring_latlng(parcel_geojson)
-                wide_url, tight_url = lib.build_parcel_aerial_urls(lat, lon, ring, keys["google_maps"])
-                parcel_outline = True
-                zw_parcel_id = geom_row["zw_parcel_id"]
-            else:
-                # No geometry match -- fall back to geocoding the raw address
-                # (same fallback path v1 established) then a pin marker.
-                geocoded = lib.geocode_address(row.get("property_address", ""), keys["google_maps"])
-                if not geocoded:
-                    raise RuntimeError("no zw_parcels geometry AND geocode miss -- cannot build v2 imagery")
-                lat, lon = geocoded
-                wide_url, tight_url = lib.build_pin_aerial_urls(lat, lon, keys["google_maps"])
-                zw_parcel_id = None
-
             wide_path = os.path.join(tmp, "aerial_wide.png")
             tight_path = os.path.join(tmp, "aerial_tight.png")
-            lib.fetch_url_to_file(wide_url, wide_path)
-            lib.fetch_url_to_file(tight_url, tight_path)
-
             street_path = os.path.join(tmp, "street.jpg")
-            street_url = None
-            if lib.streetview_metadata_ok(lat, lon, keys["google_maps"]):
-                lib.fetch_streetview(lat, lon, street_path, keys["google_maps"])
-                street_url = lib.storage_upload(street_path, f"{prefix}/street_v2.jpg", "image/jpeg")
-            else:
-                # T1: "substitute a second tight aerial at zoom 19" so the
-                # edit never has a hole where Street View would have been.
-                sub_url = lib.build_tight_aerial_url(lat, lon, 19, keys["google_maps"])
-                lib.fetch_url_to_file(sub_url, street_path)
-                street_url = lib.storage_upload(street_path, f"{prefix}/aerial_z19_sub.jpg", "image/jpeg")
 
-            aerial_wide_url = lib.storage_upload(wide_path, f"{prefix}/aerial_wide.png", "image/png")
-            aerial_tight_url = lib.storage_upload(tight_path, f"{prefix}/aerial_tight.png", "image/png")
+            if reuse_imagery:
+                lib.fetch_url_to_file(row["aerial_wide_url"], wide_path)
+                lib.fetch_url_to_file(row["aerial_tight_url"], tight_path)
+                lib.fetch_url_to_file(row["street_url"], street_path)
+                aerial_wide_url = row["aerial_wide_url"]
+                aerial_tight_url = row["aerial_tight_url"]
+                street_url = row["street_url"]
+                zw_parcel_id = row.get("zw_parcel_id")
+                parcel_geojson = row.get("parcel_geojson")
+                parcel_outline = bool(row.get("parcel_outline"))
+            else:
+                lat = lon = None
+                parcel_geojson = None
+                parcel_outline = False
+
+                if geom_row and geom_row.get("centroid_lat") is not None:
+                    lat, lon = float(geom_row["centroid_lat"]), float(geom_row["centroid_lon"])
+                    parcel_geojson = json.loads(geom_row["geojson"])
+                    ring = lib.geojson_ring_latlng(parcel_geojson)
+                    wide_url, tight_url = lib.build_parcel_aerial_urls(lat, lon, ring, keys["google_maps"])
+                    parcel_outline = True
+                    zw_parcel_id = geom_row["zw_parcel_id"]
+                else:
+                    # No geometry match -- fall back to geocoding the raw address
+                    # (same fallback path v1 established) then a pin marker.
+                    geocoded = lib.geocode_address(row.get("property_address", ""), keys["google_maps"])
+                    if not geocoded:
+                        raise RuntimeError("no zw_parcels geometry AND geocode miss -- cannot build v2 imagery")
+                    lat, lon = geocoded
+                    wide_url, tight_url = lib.build_pin_aerial_urls(lat, lon, keys["google_maps"])
+                    zw_parcel_id = None
+
+                lib.fetch_url_to_file(wide_url, wide_path)
+                lib.fetch_url_to_file(tight_url, tight_path)
+
+                if lib.streetview_metadata_ok(lat, lon, keys["google_maps"]):
+                    lib.fetch_streetview(lat, lon, street_path, keys["google_maps"])
+                    street_url = lib.storage_upload(street_path, f"{prefix}/street_v2.jpg", "image/jpeg")
+                else:
+                    # T1: "substitute a second tight aerial at zoom 19" so the
+                    # edit never has a hole where Street View would have been.
+                    sub_url = lib.build_tight_aerial_url(lat, lon, 19, keys["google_maps"])
+                    lib.fetch_url_to_file(sub_url, street_path)
+                    street_url = lib.storage_upload(street_path, f"{prefix}/aerial_z19_sub.jpg", "image/jpeg")
+
+                aerial_wide_url = lib.storage_upload(wide_path, f"{prefix}/aerial_wide.png", "image/png")
+                aerial_tight_url = lib.storage_upload(tight_path, f"{prefix}/aerial_tight.png", "image/png")
 
             # T3: short link + QR. landing_url built first (short link
             # target), short code minted/reused, QR encodes the SHORT link
@@ -180,8 +198,10 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
                                                   assessed_value, condition, short_url)
             delta_pct = sc["delta_pct"]
 
+            # Directive #4 (Ariel, 2026-09-02 21:16 EDT): v2 voiceover must be
+            # eleven_v3 with inline audio tags, not v1's Flash path.
             audio_path = os.path.join(tmp, "voice_v2.mp3")
-            lib.elevenlabs_tts(sc["script_text"], keys["elevenlabs"], audio_path)
+            lib.elevenlabs_tts_v3(sc["script_text_v3"], keys["elevenlabs"], audio_path)
             audio_url = lib.storage_upload(audio_path, f"{prefix}/voice_v2.mp3", "audio/mpeg")
 
             tier = condition.get("general_condition_tier", "unknown")
@@ -189,7 +209,7 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
             for key_name in ("roof", "exterior", "vegetation_overgrowth"):
                 obs = (condition.get(key_name) or {}).get("observation")
                 if obs:
-                    bullets.append(obs)
+                    bullets.append(lib.condition_pill_label(key_name, obs))
             overlays = {
                 "county": lib.county_display(county).replace(" County", ""),
                 "sale_type_label": (row.get("sale_type") or "").replace("_", " ").upper(),
@@ -226,6 +246,8 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
                 "hashtags": sc["hashtags"],
                 "delta_pct": delta_pct,
                 "audio_url": audio_url,
+                "tts_model": lib.V2_TTS_MODEL,
+                "voice_id": os.environ.get("ELEVENLABS_V2_VOICE_ID", lib.V2_BRAND_VOICE_ID),
             })
 
             result.update({

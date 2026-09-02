@@ -73,6 +73,17 @@ CLAUDE_ROUTER_URL_PATH = "/functions/v1/claude-router"
 # Override with ELEVENLABS_VOICE_ID if Ariel wants a different one.
 DEFAULT_ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 
+# v2 brand voice (issue #19752 addendum, 2026-09-02 20:30 EDT): "one
+# consistent brand voice ... energetic, American English, mid-register".
+# Checked GET /v2/voices on the account's own library (21 premade voices) --
+# "Liam - Energetic, Social Media Creator" (american, male, mid-register,
+# use_case=social_media) is the only voice explicitly labeled "Energetic"
+# with an American accent and a social-media use case, i.e. the closest
+# real match to the brief rather than a guess. Override with
+# ELEVENLABS_V2_VOICE_ID if Ariel wants a different one from the library.
+V2_BRAND_VOICE_ID = "TX3LPaxmHKxFdv7VOQHJ"
+V2_TTS_MODEL = "eleven_v3"
+
 BRAND_NAVY = "0x1E3A5F"
 BRAND_AMBER = "0xF59E0B"
 BRAND_VOID = "0x020617"
@@ -475,6 +486,37 @@ def _claude_router_vision(image_paths: list[str], router_key: str) -> str:
     return text.strip()
 
 
+# v2 condition-beat pills (issue #19752 QA blocker 2, 2026-09-02 21:11 EDT):
+# the video was overlaying condition_json's raw free-text `observation`
+# strings ("Dark shingle roof appears intact with some weathering/staining
+# visible...") which overflow a 38px-fontsize drawtext box. Spec wants
+# short "Roof: weathered" style pills, <=22 chars, derived from the same
+# observation text via keyword match -- no re-scoring, no new vision call.
+_PILL_PREFIX = {
+    "roof": "Roof",
+    "exterior": "Siding",
+    "vegetation_overgrowth": "Lot",
+    "vacancy_signals": "Activity",
+}
+_PILL_KEYWORDS = [
+    ("overgrown", "overgrown"), ("weathering", "weathered"), ("weathered", "weathered"),
+    ("staining", "stained"), ("stained", "stained"), ("damage", "damaged"),
+    ("missing", "missing"), ("intact", "intact"), ("well-kept", "well-kept"),
+    ("well kept", "well-kept"), ("mowed", "mowed"), ("bare", "bare patches"),
+    ("dry", "dry patches"), ("vacant", "vacant"), ("boarded", "boarded up"),
+    ("broken", "broken"), ("worn", "worn"), ("solid", "solid"),
+    ("active use", "active"), ("no vacancy", "active"), ("trash", "active"),
+    ("good condition", "good"), ("poor condition", "poor"),
+]
+
+
+def condition_pill_label(field_key: str, observation: str) -> str:
+    prefix = _PILL_PREFIX.get(field_key, field_key.replace('_', ' ').title())
+    text = (observation or "").lower()
+    label = next((tag for kw, tag in _PILL_KEYWORDS if kw in text), "noted")
+    return f"{prefix}: {label}"[:22]
+
+
 def score_condition(image_paths: list[str], keys: dict) -> dict:
     """T3 condition scoring (issue #19736 directive #3, supersedes directive
     #2's router-only routing):
@@ -627,6 +669,37 @@ def elevenlabs_tts(text: str, api_key: str, out_path: str, voice_id: str | None 
     payload = {
         "text": text,
         "model_id": "eleven_flash_v2_5",
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as r:
+        data = r.read()
+    with open(out_path, "wb") as f:
+        f.write(data)
+
+
+# ---------------------------------------------------------------------------
+# v2 T4/T5 -- ElevenLabs eleven_v3 TTS with inline audio tags (issue #19752
+# addendum, 2026-09-02 20:30 EDT). Separate function from v1's Flash path
+# above rather than an in-place swap, per directive: v1 rows/behavior stay
+# untouched, only v2 renders use this.
+# ---------------------------------------------------------------------------
+
+def elevenlabs_tts_v3(text: str, api_key: str, out_path: str, voice_id: str | None = None) -> None:
+    voice_id = voice_id or os.environ.get("ELEVENLABS_V2_VOICE_ID", V2_BRAND_VOICE_ID)
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    payload = {
+        "text": text,
+        "model_id": V2_TTS_MODEL,
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
     }
     req = urllib.request.Request(
@@ -1015,10 +1088,25 @@ def build_script_and_caption_v2(county_slug: str, sale_type: str, sold_amount: f
     parts.append(cta)
     script_text = " ".join(parts)
 
-    caption_text = (
-        f"{sale_label.capitalize()} in {county_name} -- ${sold_amount:,.0f}. "
-        f"{condition_sentence} {cta}\n{short_url}"
-    )
+    # v3 tagged variant for TTS only (issue #19752 addendum, 2026-09-02 20:30
+    # EDT): eleven_v3 inline audio tags, one per sentence max -- hook
+    # [excited], the assessed-value contrast [surprised], condition beat
+    # untagged/neutral, CTA [warm]. caption_text below is built from
+    # condition_sentence/cta directly (never hook/delta_sentence), so these
+    # tags never leak into the public caption.
+    v3_parts = [f"[excited] {hook}", reveal]
+    if delta_sentence:
+        v3_parts.append(f"[surprised] {delta_sentence}")
+    v3_parts.append(condition_sentence)
+    v3_parts.append(payoff)
+    v3_parts.append(f"[warm] {cta}")
+    script_text_v3 = " ".join(v3_parts)[:650]
+
+    # Directive #4 (Ariel, 2026-09-02 21:16 EDT, new T8): line 1 hook, line 2
+    # the watch/property CTA with the short link, hashtags appended after
+    # (hashtags stay a separate returned list -- callers append them, same
+    # as before this change).
+    caption_text = f"{hook}\n▶ Watch + property: {short_url}"
 
     hashtags = list(_HASHTAG_POOL[:4])
     county_tag = "#" + county_slug.replace("_", "").title() + "County"
@@ -1028,6 +1116,7 @@ def build_script_and_caption_v2(county_slug: str, sale_type: str, sold_amount: f
 
     return {
         "script_text": script_text,
+        "script_text_v3": script_text_v3,
         "caption_text": caption_text,
         "hashtags": hashtags,
         "delta_pct": delta_pct,
@@ -1144,17 +1233,32 @@ def assemble_video_v2(images: dict, audio_path: str, overlays: dict,
             if delta is not None:
                 sign = "-" if delta < 0 else "+"
                 mag = abs(delta)
-                # A literal '%' breaks drawtext text rendering entirely on
-                # this ffmpeg build (6.1.1-3ubuntu5 -- live-reproduced this
-                # session: "Stray %" and the WHOLE text disappears, even
-                # backslash-escaped). "PCT" sidesteps it with zero risk.
-                counter = f"{sign}%{{eif\\:{mag}*min(t/3\\,1)\\:d}} PCT vs assessed"
+                # v1 sidestepped a literal '%' with "PCT" because a bare '%'
+                # breaks drawtext's %{...} expansion parser ("Stray %").
+                # QA (2026-09-02 21:11 EDT) wants the real '-64%' glyph.
+                # Live-verified this session against this exact ffmpeg build
+                # (6.1.1-3ubuntu5, via `tesseract`-checked render tests):
+                # neither '%%' nor '\%' survive inside a text string that
+                # also contains an active %{eif:...} expansion -- both still
+                # throw "Stray %" and drop the whole drawtext. The escape
+                # that DOES work is putting the literal '%' in a SEPARATE
+                # drawtext layer with expansion=none (which ffmpeg's parser
+                # never treats '%' specially in), chained right after the
+                # animated-number layer instead of concatenated into one
+                # string.
+                counter = f"{sign}%{{eif\\:{mag}*min(t/3\\,1)\\:d}}"
                 nxt = f"v{i}a"
                 filter_parts.append(
                     f"[{cur}]drawtext=fontfile={font}:text='{counter}':fontcolor=white:fontsize=72:"
-                    f"box=1:boxcolor={BRAND_NAVY}@0.75:boxborderw=20:x=(w-text_w)/2:y=1550[{nxt}]"
+                    f"box=1:boxcolor={BRAND_NAVY}@0.75:boxborderw=20:x='w/2-200':y=1550[{nxt}]"
                 )
                 cur = nxt
+                nxt2 = f"v{i}a2"
+                filter_parts.append(
+                    f"[{cur}]drawtext=fontfile={font}:text='% vs assessed':expansion=none:fontcolor=white:fontsize=72:"
+                    f"box=1:boxcolor={BRAND_NAVY}@0.75:boxborderw=20:x='w/2-30':y=1550[{nxt2}]"
+                )
+                cur = nxt2
 
         elif key == "condition":
             tier = (overlays.get("condition_tier") or "unknown").title()
