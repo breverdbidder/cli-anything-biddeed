@@ -1,0 +1,236 @@
+name: Skill Eval — GHA-only (no SSH, no external host)
+
+# Rebuilds the retired Hetzner-SSH autoloop (see .github/workflows/autoloop.yml,
+# deleted by issue #19715) as a GHA-only measurement loop. This workflow MEASURES
+# whether skills in .claude/skills/ actually fire during a CC dispatch — it does
+# not edit skill content. Gated on public.quota_gate_check('engineering').
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 6 * * 1' # weekly Monday 06:00 UTC
+
+jobs:
+  skill-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Pre-accept workspace trust (headless, no dialog to click)
+        run: |
+          python3 - << 'PYTRUST'
+          import json, os
+          p = os.path.expanduser('~/.claude.json')
+          data = {}
+          if os.path.exists(p):
+              try:
+                  data = json.load(open(p))
+              except Exception:
+                  data = {}
+          proj = data.setdefault('projects', {})
+          proj.setdefault(os.getcwd(), {})['hasTrustDialogAccepted'] = True
+          json.dump(data, open(p, 'w'))
+          PYTRUST
+
+      - name: Quota gate + create run row
+        id: gate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          GIT_SHA="${{ github.sha }}"
+          SKILLS_TOTAL=$(find .claude/skills -maxdepth 2 -name "SKILL.md" | wc -l | tr -d ' ')
+          echo "skills_total=$SKILLS_TOTAL"
+
+          RESP=$(curl -s --max-time 30 -X POST "${SUPABASE_URL}/rest/v1/rpc/quota_gate_check" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" -d '{"p_category":"engineering"}')
+          echo "quota_gate_check response: $RESP"
+          ALLOW=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("allow")).lower())' 2>/dev/null || echo "error")
+          REASON=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("reason",""))' 2>/dev/null || echo "unreachable")
+
+          if [ "$ALLOW" = "true" ]; then
+            NOTES="quota gate allow=true — running uncapped"
+            CAP=999999
+          elif [ "$REASON" = "NO_READING" ]; then
+            NOTES="ran ungated, quota telemetry unavailable"
+            CAP=15
+          else
+            NOTES="denied by quota gate, reason=${REASON}"
+            CAP=0
+          fi
+          echo "allow=$ALLOW reason=$REASON cap=$CAP"
+
+          RUN_OUT=$(python3 scripts/skill_eval_report.py create-run \
+            --git-sha "$GIT_SHA" --skills-total "$SKILLS_TOTAL" \
+            --quota-gate "$RESP" --model "claude (see run for actual model)" --notes "$NOTES")
+          RUN_ID=$(echo "$RUN_OUT" | python3 -c "import json,sys;print(json.load(sys.stdin)['run_id'])")
+          echo "run_id=$RUN_ID"
+
+          {
+            echo "run_id=$RUN_ID"
+            echo "cap=$CAP"
+            echo "skills_total=$SKILLS_TOTAL"
+            echo "allow=$ALLOW"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$CAP" -eq 0 ]; then
+            python3 scripts/skill_eval_report.py finish-run --run-id "$RUN_ID" \
+              --skills-evaluated 0 --passed 0 --failed 0 --errored 0 \
+              --notes "$NOTES"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Evaluate skills
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_ID: ${{ steps.gate.outputs.run_id }}
+          CAP: ${{ steps.gate.outputs.cap }}
+          MAX_CASES_PER_SKILL: 3
+          CASE_TIMEOUT_S: 120
+        run: |
+          set +e  # one bad case must not kill the whole job — every write is best-effort + retried
+          unset ANTHROPIC_API_KEY
+          PASSED=0; FAILED=0; ERRORED=0; EVALUATED=0
+          DROPPED_SKILLS=""
+
+          for dir in .claude/skills/*/; do
+            skill_name=$(basename "$dir")
+            skill_md="${dir}SKILL.md"
+            eval_json="${dir}eval.json"
+            [ -f "$skill_md" ] || continue
+
+            if [ ! -f "$eval_json" ]; then
+              python3 scripts/skill_eval_report.py add-result \
+                --run-id "$RUN_ID" --skill-name "$skill_name" --case-id "no_eval_json" \
+                --outcome skipped --invoked null \
+                --evidence "$(python3 -c 'import json;print(json.dumps({"reason":"no eval.json present in skill directory"}))')"
+              continue
+            fi
+
+            if [ "$EVALUATED" -ge "$CAP" ]; then
+              DROPPED_SKILLS="$DROPPED_SKILLS $skill_name"
+              python3 scripts/skill_eval_report.py add-result \
+                --run-id "$RUN_ID" --skill-name "$skill_name" --case-id "quota_cap_dropped" \
+                --outcome skipped --invoked null \
+                --evidence "$(python3 -c 'import json;print(json.dumps({"reason":"dropped by quota_gate_check NO_READING cap"}))')"
+              continue
+            fi
+            EVALUATED=$((EVALUATED + 1))
+
+            # Build up to MAX_CASES_PER_SKILL representative cases from eval.json's
+            # own assertions[].input — these are the eval author's own trigger
+            # scenarios, not invented by this workflow.
+            CASES_JSON=$(python3 -c "
+          import json
+          d = json.load(open('$eval_json'))
+          assertions = d.get('assertions', [])
+          cases = []
+          for a in assertions[:${MAX_CASES_PER_SKILL}]:
+              inp = a.get('input') or a.get('description') or ''
+              cases.append({'case_id': f\"a{a.get('id','?')}\", 'input': inp, 'expected': a.get('expected','')})
+          print(json.dumps(cases))
+          ")
+            NUM_CASES=$(echo "$CASES_JSON" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))")
+            if [ "$NUM_CASES" -eq 0 ]; then
+              python3 scripts/skill_eval_report.py add-result \
+                --run-id "$RUN_ID" --skill-name "$skill_name" --case-id "empty_assertions" \
+                --outcome skipped --invoked null \
+                --evidence '{"reason":"eval.json has zero assertions"}'
+              continue
+            fi
+
+            for i in $(seq 0 $((NUM_CASES - 1))); do
+              CASE_ID=$(echo "$CASES_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin)[$i]['case_id'])")
+              CASE_INPUT=$(echo "$CASES_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin)[$i]['input'])")
+              CASE_EXPECTED=$(echo "$CASES_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin)[$i]['expected'])")
+              TRANSCRIPT="/tmp/transcript_${skill_name}_${CASE_ID}.ndjson"
+
+              START_MS=$(date +%s%3N)
+              timeout "${CASE_TIMEOUT_S}" claude -p "$CASE_INPUT" \
+                --output-format stream-json --verbose --include-hook-events \
+                --dangerously-skip-permissions > "$TRANSCRIPT" 2>&1
+              CASE_EXIT=$?
+              END_MS=$(date +%s%3N)
+              DURATION=$((END_MS - START_MS))
+
+              DETECT_FILE="/tmp/detect_${skill_name}_${CASE_ID}.json"
+              python3 scripts/skill_eval_report.py detect-invocation \
+                --transcript "$TRANSCRIPT" --skill "$skill_name" > "$DETECT_FILE"
+              INVOKED=$(python3 -c "import json; v=json.load(open('$DETECT_FILE'))['skill_invoked']; print('null' if v is None else str(v).lower())")
+              IS_ERROR=$(python3 -c "import json; print(str(json.load(open('$DETECT_FILE')).get('is_error')).lower())")
+              ACTUAL_TEXT=$(python3 -c "import json; print((json.load(open('$DETECT_FILE')).get('result_text') or '')[:500])")
+
+              if [ "$CASE_EXIT" -ne 0 ] || [ "$INVOKED" = "null" ] || [ "$IS_ERROR" = "true" ]; then
+                OUTCOME="error"; ERRORED=$((ERRORED + 1))
+              elif [ "$INVOKED" = "true" ]; then
+                OUTCOME="pass"; PASSED=$((PASSED + 1))
+              else
+                OUTCOME="fail"; FAILED=$((FAILED + 1))
+              fi
+
+              EVIDENCE=$(python3 -c "
+          import json
+          d = json.load(open('$DETECT_FILE'))
+          print(json.dumps({
+              'case_exit_code': $CASE_EXIT,
+              'detect': d,
+              'note': 'L1 activation measurement only -- this run does not judge output quality (eval.json for this skill has no machine-checkable check fields; see docs/spec/19715.md)'
+          }))
+          " 2>/dev/null || echo '{"note":"evidence serialization failed"}')
+
+              python3 scripts/skill_eval_report.py add-result \
+                --run-id "$RUN_ID" --skill-name "$skill_name" --case-id "$CASE_ID" \
+                --outcome "$OUTCOME" --invoked "$INVOKED" \
+                --expected "$CASE_EXPECTED" --actual "$ACTUAL_TEXT" \
+                --duration-ms "$DURATION" --evidence "$EVIDENCE"
+            done
+          done
+
+          echo "PASSED=$PASSED FAILED=$FAILED ERRORED=$ERRORED EVALUATED=$EVALUATED"
+          if [ -n "$DROPPED_SKILLS" ]; then
+            echo "::warning::quota cap dropped skills (not evaluated this run):$DROPPED_SKILLS"
+          fi
+          {
+            echo "passed=$PASSED"
+            echo "failed=$FAILED"
+            echo "errored=$ERRORED"
+            echo "evaluated=$EVALUATED"
+          } >> "$GITHUB_OUTPUT"
+        id: evalstep
+
+      - name: Finalize run (always — never leave finished_at null)
+        if: always() && steps.gate.outputs.proceed == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          RUN_ID="${{ steps.gate.outputs.run_id }}"
+          PASSED="${{ steps.evalstep.outputs.passed }}"
+          FAILED="${{ steps.evalstep.outputs.failed }}"
+          ERRORED="${{ steps.evalstep.outputs.errored }}"
+          EVALUATED="${{ steps.evalstep.outputs.evaluated }}"
+          NOTES="finalized (job status: ${{ job.status }})"
+          python3 scripts/skill_eval_report.py finish-run --run-id "$RUN_ID" \
+            --skills-evaluated "${EVALUATED:-0}" --passed "${PASSED:-0}" \
+            --failed "${FAILED:-0}" --errored "${ERRORED:-0}" --notes "$NOTES"
