@@ -1,0 +1,138 @@
+-- Gold Standard (county=miami_dade, letter I / card_complete). Session 2026-09-02.
+--
+-- BEFORE (live via pencil_dod_evaluate_county('miami_dade')):
+--   I: FAIL, card_complete=602 of 687, metric=87.6 (needs >=95% i.e. >=653/687)
+--
+-- Prior session history (read first, per SEARCH-FIRST mandate):
+-- 20260901_shard3_miami_dade_i_geo_zonelink_backfill.sql (same dispatch lineage)
+-- already worked this exact letter down to 602/644 the day before. Denominator
+-- grew 644 -> 687 overnight (43 new auction rows scraped) exactly per the
+-- documented "later upstream scrape silently reverted the fix" pattern
+-- (fix itself was never undone -- new unfixed rows outpaced it).
+--
+-- DIAGNOSIS (VERIFIED, live re-derivation this session, replicating the exact
+-- evaluator SQL predicate in Python against all 9906 miami_dade rows from
+-- multi_county_auctions + 539 v_zoning_gold_standard_card rows for
+-- county='miami dade' [note: view stores county with a SPACE, not underscore
+-- -- norm_county_key() translates 'miami_dade' -> 'miami dade' server-side;
+-- confirmed by reading norm_county_key's translate('_',' ') body in
+-- 20260619_shard5_evaluator_county_norm_fix.sql]):
+--   card scope (I-scope) rows = 687 (matches RPC exactly)
+--   card_complete (recomputed) = 602 of 687 (matches RPC exactly)
+--   missing_reason tallies (rows can hit >1): address=55, geo=51, value=42,
+--     zone_link=78
+--   rows failing ONLY zone_link (address+geo+value all present) = 23,
+--     spanning 14 distinct parcel_ids not present in v_zoning_gold_standard_card:
+--     01-3230-032-0220, 01-3230-089-2330, 01-4121-194-0980, 04-3001-014-2210,
+--     16-7824-008-1050, 17-2232-023-0690, 28-1235-015-5010, 30-1231-133-0100,
+--     30-3115-017-0520, 30-3205-004-0150, 30-4015-042-0760, 30-7904-005-3610,
+--     34-2108-010-5820, 35-3022-038-1710
+--   None of these 14 parcels had any pre-existing row in parcel_zones
+--   (verified: PostgREST parcel_id=in.(...) returned 0 rows).
+--
+-- RESEARCH (live ArcGIS queries this session, same source pattern as
+-- 20260901_shard3_miami_dade_i_geo_zonelink_backfill.sql):
+--   1. gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/24
+--      queried by FOLIO (13-digit no-dash format) for all 14 parcels -> all
+--      resolved to exactly 1 active feature (CANCEL_FLAG='N') each, giving
+--      verified lat/lon (outSR=4326, server-side reprojection) and a
+--      confirmed address match against our DB row for every parcel. (This
+--      layer's own PRIMARY_ZONE field is a DOR-style numeric land-use code,
+--      not a real municipal zoning code -- confirmed none of its values
+--      exist in our zoning_districts table -- so it was used only for
+--      geocoding, not as the zone-code source, matching yesterday's finding.)
+--   2. Point-in-polygon queried each coordinate against
+--      services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/
+--      MunicipalZone_gdb/FeatureServer/0 (municipal zoning) for the 9 points
+--      inside an incorporated municipality, PLUS
+--      gisweb.miamidade.gov/arcgis/rest/services/MD_MDCZoning/MapServer/6
+--      (Unincorporated Zoning) for the 5 points that returned
+--      MUNICNAME='UNINCORPORATED'/ZONE='NONE' on the municipal layer.
+--      Real zone codes resolved for all 14:
+--        01-3230-032-0220 -> Miami        T6-36A-L
+--        01-3230-089-2330 -> Miami        T6-36A-L
+--        01-4121-194-0980 -> Miami        T6-12-O
+--        04-3001-014-2210 -> Hialeah      R-1
+--        16-7824-008-1050 -> Florida City RD-1
+--        17-2232-023-0690 -> Biscayne Park R-2
+--        28-1235-015-5010 -> Aventura     RMF4
+--        30-1231-133-0100 -> Unincorp.    PAD
+--        30-3115-017-0520 -> Unincorp.    RU-2
+--        30-3205-004-0150 -> Unincorp.    RU-1
+--        30-4015-042-0760 -> Unincorp.    BRCUAD
+--        30-7904-005-3610 -> Unincorp.    RU-1
+--        34-2108-010-5820 -> Miami Gardens R-1
+--        35-3022-038-1710 -> Doral        DMU
+--
+-- GUARD RAIL (same as 20260901's session, prevents G/density-far-pk1000
+-- regression): for each (jurisdiction_id, code) pair, only insert into
+-- parcel_zones if a zoning_districts row for that code AND a zone_standards
+-- row for that district ALREADY exist. Checked live for all 14:
+--
+--   SAFE (zoning_districts + zone_standards both present) -- APPLIED this
+--   session:
+--     04-3001-014-2210 -> Hialeah R-1        (zd=2249, zs=2605, far=0.21, density=5.0)
+--     28-1235-015-5010 -> Aventura RMF4      (zd=2888, zs=307,  far=0.8,  density=25.0)
+--     30-3115-017-0520 -> Unincorp. RU-2     (zd=10910, zs=3616, far=0.5, density=17.4)
+--     30-3205-004-0150 -> Unincorp. RU-1     (zd=10908, zs=3614, far=0.35, density=8.7)
+--     30-7904-005-3610 -> Unincorp. RU-1     (zd=10908, zs=3614, far=0.35, density=8.7)
+--     34-2108-010-5820 -> Miami Gardens R-1  (zd=3844, zs=5591, density=6.0, far=NULL
+--       pre-existing on the standards row itself -- not introduced by this
+--       insert, so no new G-null exposure caused by this migration)
+--
+--   NOT APPLIED this session (unsafe per guard rail, left as documented
+--   levers for a future ordinance-research session):
+--     01-3230-032-0220, 01-3230-089-2330 (Miami T6-36A-L) -- zero
+--       zoning_districts row for jurisdiction_id=855 code='T6-36A-L'.
+--     01-4121-194-0980 (Miami T6-12-O) -- same as yesterday's finding,
+--       zero zoning_districts row for jurisdiction_id=855 code='T6-12-O'.
+--     16-7824-008-1050 (Florida City RD-1) -- zero zoning_districts row
+--       for jurisdiction_id=1658 code='RD-1'.
+--     30-1231-133-0100 (Unincorp. PAD) -- zoning_districts row EXISTS
+--       (id=13794) but zero zone_standards row for it -- inserting would
+--       add a card_complete pass at the cost of a G-null risk on density/
+--       far/pk1000, exactly the tradeoff this guard rail exists to block.
+--     30-4015-042-0760 (Unincorp. BRCUAD) -- same as yesterday's finding,
+--       zero zoning_districts row for jurisdiction_id=626 code='BRCUAD'.
+--     35-3022-038-1710 (Doral DMU) -- zoning_districts row EXISTS (id=2963)
+--       but zero zone_standards row for it -- same unsafe case as PAD above.
+--     17-2232-023-0690 (Biscayne Park R-2) -- Biscayne Park has NO row at
+--       all in the jurisdictions table (confirmed live: name ilike
+--       '%biscayne%' matches only Key Biscayne, id=1053, a different
+--       municipality). No jurisdiction_id exists to attach this parcel_zones
+--       row to; creating a new jurisdiction row is out of scope for a
+--       minimal I-only fix and was not done.
+--
+-- WRITES (already applied live via PostgREST during this session, BEFORE
+-- this file was committed -- this file is a non-re-runnable audit-trail
+-- record per repo convention; idempotent re-application would no-op since
+-- the target parcel_ids now already exist in parcel_zones):
+--   INSERT INTO parcel_zones: 6 rows, ids 877007-877012 (listed in the SAFE
+--   block above), each with source tagging this session
+--   ('miamidade_arcgis_municipalzone_gdb:gold_standard_miami_dade_i_20260902'
+--   or 'miamidade_arcgis_mdczoning_unincorporatedzoning_layer6:
+--   gold_standard_miami_dade_i_20260902').
+--
+-- VERIFICATION (public.pencil_dod_evaluate_county('miami_dade'), live,
+-- re-run after the write):
+--   BEFORE: I card_complete=602 of 687, metric=87.6, FAIL
+--   AFTER:  I card_complete=612 of 687, metric=89.1, FAIL
+--   Net this session: +10 rows (602 -> 612), matching exactly the 10
+--   auction rows (across the 6 safe parcels, some with duplicate rows per
+--   case_number) that were failing ONLY on zone_link and are now resolved.
+--   G (regression check) unchanged across the write: density=98.1 far=100.0
+--   pk1000=100.0, PASS -- confirms no G regression from this migration.
+--   Still FAIL -- needs >=653/687 (95%). Gap narrowed from 85 rows to 75.
+--   Remaining shortfall: 7 documented-unsafe parcel/zone-code pairs above
+--   (would need real ordinance-sourced zone_standards rows or a new
+--   jurisdiction row first -- out of scope for this minimal I-only pass),
+--   plus the independent address(55)/geo(51)/value(42) gaps this session
+--   did not touch (separate root cause per the diagnosis, not zone-link-
+--   shaped). Honest partial progress only, not oversold; letter I remains
+--   FAIL after this migration.
+
+BEGIN;
+-- (No SQL to run -- writes already applied live via PostgREST during the
+-- session, per CLAUDE.md Supabase CLI autonomous-ops convention. This file
+-- is committed as the audit-trail record.)
+COMMIT;
